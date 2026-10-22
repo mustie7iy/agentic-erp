@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/agents"
 	"github.com/mustie7iy/agentic-erp/internal/cash"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
@@ -14,11 +15,12 @@ import (
 )
 
 // Cash is the cash context as the API wires it (ADR-0051 §2): a leaf that
-// reads the tenancy, payments and ledger contexts through the adapters
-// below, so none of them imports it and it imports none of them.
+// reads the tenancy, payments, ledger and agents contexts through the
+// adapters below, so none of them imports it and it imports none of them.
 func Cash(cfg Config) *cash.Endpoints {
 	return &cash.Endpoints{LegalEntities: cashCompanies{}, Settings: configuration.Settings{},
-		Payments: cashPayments{position: payments.CashPosition{Accounts: ledger.Accounts{}}}, Ledger: cashLedger{}, Now: cfg.Now}
+		Payments: cashPayments{position: payments.CashPosition{Accounts: ledger.Accounts{}}}, Ledger: cashLedger{}, Sessions: agents.Sessions{},
+		Pages: cfg.Pages, Now: cfg.Now}
 }
 
 // cashCompanies gives the cash context the legal entity's code and currency.
@@ -55,6 +57,21 @@ func (c cashPayments) Released(ctx context.Context, ids []uuid.UUID) ([]cash.Pay
 func (c cashPayments) Pending(ctx context.Context, legalEntity uuid.UUID) ([]cash.Payment, error) {
 	ps, err := c.position.Pending(ctx, legalEntity)
 	return cashPaymentsOf(ps), err
+}
+
+func (c cashPayments) HouseBanks(ctx context.Context, legalEntity uuid.UUID) ([]cash.HouseBank, error) {
+	banks, err := c.position.HouseBanks(ctx, legalEntity)
+	out := make([]cash.HouseBank, len(banks))
+	for i, b := range banks {
+		out[i] = cash.HouseBank{ID: b.ID, Code: b.Code, Currency: b.Currency}
+	}
+	return out, err
+}
+
+func (c cashPayments) StatementLine(ctx context.Context, statement uuid.UUID, lineNo int32) (cash.StatementLine, bool, error) {
+	l, found, err := c.position.StatementLine(ctx, statement, lineNo)
+	return cash.StatementLine{LegalEntityID: l.LegalEntityID, HouseBankID: l.HouseBankID, Currency: l.Currency, Amount: l.Amount, ValueDate: l.ValueDate},
+		found, err
 }
 
 func cashPaymentsOf(ps []payments.CashPayment) []cash.Payment {

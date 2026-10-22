@@ -3319,6 +3319,7 @@ func (s *BadRequestHeaders) SetResponse(val Problem) {
 }
 
 func (*BadRequestHeaders) acceptBankStatementLineProposalRes()  {}
+func (*BadRequestHeaders) acceptMemoRecordProposalRes()         {}
 func (*BadRequestHeaders) activateChangeRequestRes()            {}
 func (*BadRequestHeaders) activateLegalEntityRes()              {}
 func (*BadRequestHeaders) activateOrgUnitRes()                  {}
@@ -3333,6 +3334,7 @@ func (*BadRequestHeaders) blockPrincipalRes()                   {}
 func (*BadRequestHeaders) cancelApprovalRequestRes()            {}
 func (*BadRequestHeaders) cancelContractRes()                   {}
 func (*BadRequestHeaders) cancelDownPaymentRequestRes()         {}
+func (*BadRequestHeaders) cancelMemoRecordRes()                 {}
 func (*BadRequestHeaders) cancelOperationRes()                  {}
 func (*BadRequestHeaders) cancelParkedJournalEntryRes()         {}
 func (*BadRequestHeaders) cancelPurchaseOrderChangeRes()        {}
@@ -3355,6 +3357,7 @@ func (*BadRequestHeaders) createDownPaymentRequestRes()         {}
 func (*BadRequestHeaders) createExchangeRateRes()               {}
 func (*BadRequestHeaders) createHierarchyRes()                  {}
 func (*BadRequestHeaders) createLegalEntityRes()                {}
+func (*BadRequestHeaders) createMemoRecordRes()                 {}
 func (*BadRequestHeaders) createMigrationRunRes()               {}
 func (*BadRequestHeaders) createOrgUnitRes()                    {}
 func (*BadRequestHeaders) createPartnerChangeRes()              {}
@@ -3416,6 +3419,7 @@ func (*BadRequestHeaders) getHierarchyRes()                     {}
 func (*BadRequestHeaders) getJournalEntryRes()                  {}
 func (*BadRequestHeaders) getLegalEntityRes()                   {}
 func (*BadRequestHeaders) getMatchResultRes()                   {}
+func (*BadRequestHeaders) getMemoRecordRes()                    {}
 func (*BadRequestHeaders) getMigrationRunRes()                  {}
 func (*BadRequestHeaders) getNumberRangeRes()                   {}
 func (*BadRequestHeaders) getOperationRes()                     {}
@@ -3480,6 +3484,7 @@ func (*BadRequestHeaders) listLedgerReconciliationRes()         {}
 func (*BadRequestHeaders) listLedgersRes()                      {}
 func (*BadRequestHeaders) listLegalEntitiesRes()                {}
 func (*BadRequestHeaders) listMatchResultsRes()                 {}
+func (*BadRequestHeaders) listMemoRecordsRes()                  {}
 func (*BadRequestHeaders) listMigrationRunsRes()                {}
 func (*BadRequestHeaders) listNumberRangesRes()                 {}
 func (*BadRequestHeaders) listOpenItemsRes()                    {}
@@ -3530,7 +3535,9 @@ func (*BadRequestHeaders) postRevaluationRunRes()               {}
 func (*BadRequestHeaders) postSupplierInvoiceRes()              {}
 func (*BadRequestHeaders) previewRevaluationRes()               {}
 func (*BadRequestHeaders) proposeBankStatementLineRes()         {}
+func (*BadRequestHeaders) proposeMemoRecordRes()                {}
 func (*BadRequestHeaders) proposePaymentRunRes()                {}
+func (*BadRequestHeaders) realiseMemoRecordRes()                {}
 func (*BadRequestHeaders) reconcileMigrationRunRes()            {}
 func (*BadRequestHeaders) recordAgentToolCallRes()              {}
 func (*BadRequestHeaders) redateCostCenterRes()                 {}
@@ -3538,6 +3545,7 @@ func (*BadRequestHeaders) redateProfitCenterRes()               {}
 func (*BadRequestHeaders) redeliverWebhookDeliveryRes()         {}
 func (*BadRequestHeaders) rejectApprovalRequestRes()            {}
 func (*BadRequestHeaders) rejectBankStatementLineProposalRes()  {}
+func (*BadRequestHeaders) rejectMemoRecordProposalRes()         {}
 func (*BadRequestHeaders) rejectPaymentRunRes()                 {}
 func (*BadRequestHeaders) releaseContractRes()                  {}
 func (*BadRequestHeaders) releasePaymentRunRes()                {}
@@ -3574,6 +3582,7 @@ func (*BadRequestHeaders) updateConnectorRes()                  {}
 func (*BadRequestHeaders) updateContractRes()                   {}
 func (*BadRequestHeaders) updateCostCenterRes()                 {}
 func (*BadRequestHeaders) updateLegalEntityRes()                {}
+func (*BadRequestHeaders) updateMemoRecordRes()                 {}
 func (*BadRequestHeaders) updateOrgUnitRes()                    {}
 func (*BadRequestHeaders) updateParkedJournalEntryRes()         {}
 func (*BadRequestHeaders) updatePrincipalRes()                  {}
@@ -3585,6 +3594,7 @@ func (*BadRequestHeaders) updateRoleRes()                       {}
 func (*BadRequestHeaders) updateSegmentRes()                    {}
 func (*BadRequestHeaders) updateSupplierInvoiceRes()            {}
 func (*BadRequestHeaders) updateWebhookSubscriptionRes()        {}
+func (*BadRequestHeaders) uploadMemoRecordsRes()                {}
 func (*BadRequestHeaders) verifyAuditChainRes()                 {}
 func (*BadRequestHeaders) withdrawChangeRequestRes()            {}
 
@@ -7473,8 +7483,8 @@ type CashFlowTotal struct {
 	// How certain the flows are. Open enumeration: clients must accept and preserve values not listed
 	// here; values may be added within /v1.
 	Certainty string `json:"certainty"`
-	// True for payments dated before the read date and still not at the bank, expected the working day
-	// after it.
+	// True for payments and memo records dated before the read date and still not at the bank, expected
+	// the working day after it.
 	Late   bool  `json:"late"`
 	Amount Money `json:"amount"`
 	// How many flows.
@@ -10570,6 +10580,7 @@ func (s *ConflictHeaders) SetResponse(val Problem) {
 }
 
 func (*ConflictHeaders) acceptBankStatementLineProposalRes()  {}
+func (*ConflictHeaders) acceptMemoRecordProposalRes()         {}
 func (*ConflictHeaders) activateChangeRequestRes()            {}
 func (*ConflictHeaders) activateLegalEntityRes()              {}
 func (*ConflictHeaders) activateOrgUnitRes()                  {}
@@ -10584,6 +10595,7 @@ func (*ConflictHeaders) blockPrincipalRes()                   {}
 func (*ConflictHeaders) cancelApprovalRequestRes()            {}
 func (*ConflictHeaders) cancelContractRes()                   {}
 func (*ConflictHeaders) cancelDownPaymentRequestRes()         {}
+func (*ConflictHeaders) cancelMemoRecordRes()                 {}
 func (*ConflictHeaders) cancelOperationRes()                  {}
 func (*ConflictHeaders) cancelParkedJournalEntryRes()         {}
 func (*ConflictHeaders) cancelPurchaseOrderChangeRes()        {}
@@ -10606,6 +10618,7 @@ func (*ConflictHeaders) createDownPaymentRequestRes()         {}
 func (*ConflictHeaders) createExchangeRateRes()               {}
 func (*ConflictHeaders) createHierarchyRes()                  {}
 func (*ConflictHeaders) createLegalEntityRes()                {}
+func (*ConflictHeaders) createMemoRecordRes()                 {}
 func (*ConflictHeaders) createMigrationRunRes()               {}
 func (*ConflictHeaders) createOrgUnitRes()                    {}
 func (*ConflictHeaders) createPartnerChangeRes()              {}
@@ -10659,7 +10672,9 @@ func (*ConflictHeaders) postRevaluationRunRes()               {}
 func (*ConflictHeaders) postSupplierInvoiceRes()              {}
 func (*ConflictHeaders) previewRevaluationRes()               {}
 func (*ConflictHeaders) proposeBankStatementLineRes()         {}
+func (*ConflictHeaders) proposeMemoRecordRes()                {}
 func (*ConflictHeaders) proposePaymentRunRes()                {}
+func (*ConflictHeaders) realiseMemoRecordRes()                {}
 func (*ConflictHeaders) reconcileMigrationRunRes()            {}
 func (*ConflictHeaders) recordAgentToolCallRes()              {}
 func (*ConflictHeaders) redateCostCenterRes()                 {}
@@ -10667,6 +10682,7 @@ func (*ConflictHeaders) redateProfitCenterRes()               {}
 func (*ConflictHeaders) redeliverWebhookDeliveryRes()         {}
 func (*ConflictHeaders) rejectApprovalRequestRes()            {}
 func (*ConflictHeaders) rejectBankStatementLineProposalRes()  {}
+func (*ConflictHeaders) rejectMemoRecordProposalRes()         {}
 func (*ConflictHeaders) rejectPaymentRunRes()                 {}
 func (*ConflictHeaders) releaseContractRes()                  {}
 func (*ConflictHeaders) releasePaymentRunRes()                {}
@@ -10703,6 +10719,7 @@ func (*ConflictHeaders) updateConnectorRes()                  {}
 func (*ConflictHeaders) updateContractRes()                   {}
 func (*ConflictHeaders) updateCostCenterRes()                 {}
 func (*ConflictHeaders) updateLegalEntityRes()                {}
+func (*ConflictHeaders) updateMemoRecordRes()                 {}
 func (*ConflictHeaders) updateOrgUnitRes()                    {}
 func (*ConflictHeaders) updateParkedJournalEntryRes()         {}
 func (*ConflictHeaders) updatePrincipalRes()                  {}
@@ -10714,6 +10731,7 @@ func (*ConflictHeaders) updateRoleRes()                       {}
 func (*ConflictHeaders) updateSegmentRes()                    {}
 func (*ConflictHeaders) updateSupplierInvoiceRes()            {}
 func (*ConflictHeaders) updateWebhookSubscriptionRes()        {}
+func (*ConflictHeaders) uploadMemoRecordsRes()                {}
 func (*ConflictHeaders) verifyAuditChainRes()                 {}
 func (*ConflictHeaders) withdrawChangeRequestRes()            {}
 
@@ -15454,6 +15472,7 @@ func (s *ForbiddenHeaders) SetResponse(val Problem) {
 }
 
 func (*ForbiddenHeaders) acceptBankStatementLineProposalRes()  {}
+func (*ForbiddenHeaders) acceptMemoRecordProposalRes()         {}
 func (*ForbiddenHeaders) activateChangeRequestRes()            {}
 func (*ForbiddenHeaders) activateLegalEntityRes()              {}
 func (*ForbiddenHeaders) activateOrgUnitRes()                  {}
@@ -15468,6 +15487,7 @@ func (*ForbiddenHeaders) blockPrincipalRes()                   {}
 func (*ForbiddenHeaders) cancelApprovalRequestRes()            {}
 func (*ForbiddenHeaders) cancelContractRes()                   {}
 func (*ForbiddenHeaders) cancelDownPaymentRequestRes()         {}
+func (*ForbiddenHeaders) cancelMemoRecordRes()                 {}
 func (*ForbiddenHeaders) cancelOperationRes()                  {}
 func (*ForbiddenHeaders) cancelParkedJournalEntryRes()         {}
 func (*ForbiddenHeaders) cancelPurchaseOrderChangeRes()        {}
@@ -15490,6 +15510,7 @@ func (*ForbiddenHeaders) createDownPaymentRequestRes()         {}
 func (*ForbiddenHeaders) createExchangeRateRes()               {}
 func (*ForbiddenHeaders) createHierarchyRes()                  {}
 func (*ForbiddenHeaders) createLegalEntityRes()                {}
+func (*ForbiddenHeaders) createMemoRecordRes()                 {}
 func (*ForbiddenHeaders) createMigrationRunRes()               {}
 func (*ForbiddenHeaders) createOrgUnitRes()                    {}
 func (*ForbiddenHeaders) createPartnerChangeRes()              {}
@@ -15551,6 +15572,7 @@ func (*ForbiddenHeaders) getHierarchyRes()                     {}
 func (*ForbiddenHeaders) getJournalEntryRes()                  {}
 func (*ForbiddenHeaders) getLegalEntityRes()                   {}
 func (*ForbiddenHeaders) getMatchResultRes()                   {}
+func (*ForbiddenHeaders) getMemoRecordRes()                    {}
 func (*ForbiddenHeaders) getMigrationRunRes()                  {}
 func (*ForbiddenHeaders) getNumberRangeRes()                   {}
 func (*ForbiddenHeaders) getOperationRes()                     {}
@@ -15615,6 +15637,7 @@ func (*ForbiddenHeaders) listLedgerReconciliationRes()         {}
 func (*ForbiddenHeaders) listLedgersRes()                      {}
 func (*ForbiddenHeaders) listLegalEntitiesRes()                {}
 func (*ForbiddenHeaders) listMatchResultsRes()                 {}
+func (*ForbiddenHeaders) listMemoRecordsRes()                  {}
 func (*ForbiddenHeaders) listMigrationRunsRes()                {}
 func (*ForbiddenHeaders) listNumberRangesRes()                 {}
 func (*ForbiddenHeaders) listOpenItemsRes()                    {}
@@ -15665,7 +15688,9 @@ func (*ForbiddenHeaders) postRevaluationRunRes()               {}
 func (*ForbiddenHeaders) postSupplierInvoiceRes()              {}
 func (*ForbiddenHeaders) previewRevaluationRes()               {}
 func (*ForbiddenHeaders) proposeBankStatementLineRes()         {}
+func (*ForbiddenHeaders) proposeMemoRecordRes()                {}
 func (*ForbiddenHeaders) proposePaymentRunRes()                {}
+func (*ForbiddenHeaders) realiseMemoRecordRes()                {}
 func (*ForbiddenHeaders) reconcileMigrationRunRes()            {}
 func (*ForbiddenHeaders) recordAgentToolCallRes()              {}
 func (*ForbiddenHeaders) redateCostCenterRes()                 {}
@@ -15673,6 +15698,7 @@ func (*ForbiddenHeaders) redateProfitCenterRes()               {}
 func (*ForbiddenHeaders) redeliverWebhookDeliveryRes()         {}
 func (*ForbiddenHeaders) rejectApprovalRequestRes()            {}
 func (*ForbiddenHeaders) rejectBankStatementLineProposalRes()  {}
+func (*ForbiddenHeaders) rejectMemoRecordProposalRes()         {}
 func (*ForbiddenHeaders) rejectPaymentRunRes()                 {}
 func (*ForbiddenHeaders) releaseContractRes()                  {}
 func (*ForbiddenHeaders) releasePaymentRunRes()                {}
@@ -15709,6 +15735,7 @@ func (*ForbiddenHeaders) updateConnectorRes()                  {}
 func (*ForbiddenHeaders) updateContractRes()                   {}
 func (*ForbiddenHeaders) updateCostCenterRes()                 {}
 func (*ForbiddenHeaders) updateLegalEntityRes()                {}
+func (*ForbiddenHeaders) updateMemoRecordRes()                 {}
 func (*ForbiddenHeaders) updateOrgUnitRes()                    {}
 func (*ForbiddenHeaders) updateParkedJournalEntryRes()         {}
 func (*ForbiddenHeaders) updatePrincipalRes()                  {}
@@ -15720,6 +15747,7 @@ func (*ForbiddenHeaders) updateRoleRes()                       {}
 func (*ForbiddenHeaders) updateSegmentRes()                    {}
 func (*ForbiddenHeaders) updateSupplierInvoiceRes()            {}
 func (*ForbiddenHeaders) updateWebhookSubscriptionRes()        {}
+func (*ForbiddenHeaders) uploadMemoRecordsRes()                {}
 func (*ForbiddenHeaders) verifyAuditChainRes()                 {}
 func (*ForbiddenHeaders) withdrawChangeRequestRes()            {}
 
@@ -16645,6 +16673,67 @@ func (s *GetLegalEntityOKHeaders) SetResponse(val LegalEntity) {
 }
 
 func (*GetLegalEntityOKHeaders) getLegalEntityRes() {}
+
+// GetMemoRecordOKHeaders wraps MemoRecord with response headers.
+type GetMemoRecordOKHeaders struct {
+	ETag               OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           MemoRecord
+}
+
+// GetETag returns the value of ETag.
+func (s *GetMemoRecordOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *GetMemoRecordOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *GetMemoRecordOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *GetMemoRecordOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *GetMemoRecordOKHeaders) GetResponse() MemoRecord {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetMemoRecordOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *GetMemoRecordOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *GetMemoRecordOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *GetMemoRecordOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetMemoRecordOKHeaders) SetResponse(val MemoRecord) {
+	s.Response = val
+}
+
+func (*GetMemoRecordOKHeaders) getMemoRecordRes() {}
 
 // GetMigrationRunOKHeaders wraps MigrationRun with response headers.
 type GetMigrationRunOKHeaders struct {
@@ -22846,6 +22935,1308 @@ func (s *MatchSupplierInvoiceOKHeaders) SetResponse(val MatchResult) {
 func (*MatchSupplierInvoiceOKHeaders) matchSupplierInvoiceRes() {}
 
 // Merged schema.
+// Ref: #/components/schemas/MemoRecord
+type MemoRecord struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The house bank it is expected on; absent: forecast only.
+	HouseBankID OptUUID `json:"house_bank_id"`
+	Amount      Money   `json:"amount"`
+	// `inflow` for a positive amount, `outflow` for a negative one. Open enumeration: clients must accept
+	// and preserve values not listed here; values may be added within /v1.
+	Direction string `json:"direction"`
+	// The day it is expected at the bank; a series' first occurrence.
+	ValueDate time.Time `json:"value_date"`
+	// The last day it counts; for a series, the first occurrence's, each occurrence expiring as many days
+	// after its own date.
+	ExpiresOn time.Time `json:"expires_on"`
+	// How certain it is. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Certainty string `json:"certainty"`
+	// The liquidity item (`cash.liquidity_items`).
+	LiquidityItem string `json:"liquidity_item"`
+	// Description.
+	Description OptString `json:"description"`
+	// The reference of the document it expects (an invoice number); unique per upload batch.
+	Reference  OptString         `json:"reference"`
+	Recurrence OptMemoRecurrence `json:"recurrence"`
+	// The series whose occurrence it overrides.
+	RecurrenceOf OptUUID `json:"recurrence_of"`
+	// The occurrence of the series it overrides.
+	OccurrenceDate OptDate `json:"occurrence_date"`
+	// `proposed` (an agent's, counting nowhere until a person accepts it), `active`, `expired` (active,
+	// its last occurrence's expiry date past at the read), `realised`, `cancelled`, `rejected`. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Status string `json:"status"`
+	// How it was made. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Origin string `json:"origin"`
+	// The agent session that proposed it.
+	SessionID OptUUID `json:"session_id"`
+	// The agent's reason for proposing it.
+	Reason OptString `json:"reason"`
+	// The statement lines the agent cites.
+	Evidence []StatementLineRef `json:"evidence"`
+	// The upload batch that wrote it.
+	BatchKey   OptString           `json:"batch_key"`
+	RealisedBy OptStatementLineRef `json:"realised_by"`
+	// The person who accepted, rejected, realised or cancelled it.
+	DecidedBy OptUUID `json:"decided_by"`
+	// When.
+	DecidedAt OptDateTime `json:"decided_at"`
+	// The person's comment or reason on that decision.
+	Comment OptString `json:"comment"`
+}
+
+// GetID returns the value of ID.
+func (s *MemoRecord) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *MemoRecord) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *MemoRecord) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *MemoRecord) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *MemoRecord) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *MemoRecord) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *MemoRecord) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetHouseBankID returns the value of HouseBankID.
+func (s *MemoRecord) GetHouseBankID() OptUUID {
+	return s.HouseBankID
+}
+
+// GetAmount returns the value of Amount.
+func (s *MemoRecord) GetAmount() Money {
+	return s.Amount
+}
+
+// GetDirection returns the value of Direction.
+func (s *MemoRecord) GetDirection() string {
+	return s.Direction
+}
+
+// GetValueDate returns the value of ValueDate.
+func (s *MemoRecord) GetValueDate() time.Time {
+	return s.ValueDate
+}
+
+// GetExpiresOn returns the value of ExpiresOn.
+func (s *MemoRecord) GetExpiresOn() time.Time {
+	return s.ExpiresOn
+}
+
+// GetCertainty returns the value of Certainty.
+func (s *MemoRecord) GetCertainty() string {
+	return s.Certainty
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *MemoRecord) GetLiquidityItem() string {
+	return s.LiquidityItem
+}
+
+// GetDescription returns the value of Description.
+func (s *MemoRecord) GetDescription() OptString {
+	return s.Description
+}
+
+// GetReference returns the value of Reference.
+func (s *MemoRecord) GetReference() OptString {
+	return s.Reference
+}
+
+// GetRecurrence returns the value of Recurrence.
+func (s *MemoRecord) GetRecurrence() OptMemoRecurrence {
+	return s.Recurrence
+}
+
+// GetRecurrenceOf returns the value of RecurrenceOf.
+func (s *MemoRecord) GetRecurrenceOf() OptUUID {
+	return s.RecurrenceOf
+}
+
+// GetOccurrenceDate returns the value of OccurrenceDate.
+func (s *MemoRecord) GetOccurrenceDate() OptDate {
+	return s.OccurrenceDate
+}
+
+// GetStatus returns the value of Status.
+func (s *MemoRecord) GetStatus() string {
+	return s.Status
+}
+
+// GetOrigin returns the value of Origin.
+func (s *MemoRecord) GetOrigin() string {
+	return s.Origin
+}
+
+// GetSessionID returns the value of SessionID.
+func (s *MemoRecord) GetSessionID() OptUUID {
+	return s.SessionID
+}
+
+// GetReason returns the value of Reason.
+func (s *MemoRecord) GetReason() OptString {
+	return s.Reason
+}
+
+// GetEvidence returns the value of Evidence.
+func (s *MemoRecord) GetEvidence() []StatementLineRef {
+	return s.Evidence
+}
+
+// GetBatchKey returns the value of BatchKey.
+func (s *MemoRecord) GetBatchKey() OptString {
+	return s.BatchKey
+}
+
+// GetRealisedBy returns the value of RealisedBy.
+func (s *MemoRecord) GetRealisedBy() OptStatementLineRef {
+	return s.RealisedBy
+}
+
+// GetDecidedBy returns the value of DecidedBy.
+func (s *MemoRecord) GetDecidedBy() OptUUID {
+	return s.DecidedBy
+}
+
+// GetDecidedAt returns the value of DecidedAt.
+func (s *MemoRecord) GetDecidedAt() OptDateTime {
+	return s.DecidedAt
+}
+
+// GetComment returns the value of Comment.
+func (s *MemoRecord) GetComment() OptString {
+	return s.Comment
+}
+
+// SetID sets the value of ID.
+func (s *MemoRecord) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *MemoRecord) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *MemoRecord) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *MemoRecord) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *MemoRecord) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *MemoRecord) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *MemoRecord) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetHouseBankID sets the value of HouseBankID.
+func (s *MemoRecord) SetHouseBankID(val OptUUID) {
+	s.HouseBankID = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *MemoRecord) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetDirection sets the value of Direction.
+func (s *MemoRecord) SetDirection(val string) {
+	s.Direction = val
+}
+
+// SetValueDate sets the value of ValueDate.
+func (s *MemoRecord) SetValueDate(val time.Time) {
+	s.ValueDate = val
+}
+
+// SetExpiresOn sets the value of ExpiresOn.
+func (s *MemoRecord) SetExpiresOn(val time.Time) {
+	s.ExpiresOn = val
+}
+
+// SetCertainty sets the value of Certainty.
+func (s *MemoRecord) SetCertainty(val string) {
+	s.Certainty = val
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *MemoRecord) SetLiquidityItem(val string) {
+	s.LiquidityItem = val
+}
+
+// SetDescription sets the value of Description.
+func (s *MemoRecord) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetReference sets the value of Reference.
+func (s *MemoRecord) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetRecurrence sets the value of Recurrence.
+func (s *MemoRecord) SetRecurrence(val OptMemoRecurrence) {
+	s.Recurrence = val
+}
+
+// SetRecurrenceOf sets the value of RecurrenceOf.
+func (s *MemoRecord) SetRecurrenceOf(val OptUUID) {
+	s.RecurrenceOf = val
+}
+
+// SetOccurrenceDate sets the value of OccurrenceDate.
+func (s *MemoRecord) SetOccurrenceDate(val OptDate) {
+	s.OccurrenceDate = val
+}
+
+// SetStatus sets the value of Status.
+func (s *MemoRecord) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetOrigin sets the value of Origin.
+func (s *MemoRecord) SetOrigin(val string) {
+	s.Origin = val
+}
+
+// SetSessionID sets the value of SessionID.
+func (s *MemoRecord) SetSessionID(val OptUUID) {
+	s.SessionID = val
+}
+
+// SetReason sets the value of Reason.
+func (s *MemoRecord) SetReason(val OptString) {
+	s.Reason = val
+}
+
+// SetEvidence sets the value of Evidence.
+func (s *MemoRecord) SetEvidence(val []StatementLineRef) {
+	s.Evidence = val
+}
+
+// SetBatchKey sets the value of BatchKey.
+func (s *MemoRecord) SetBatchKey(val OptString) {
+	s.BatchKey = val
+}
+
+// SetRealisedBy sets the value of RealisedBy.
+func (s *MemoRecord) SetRealisedBy(val OptStatementLineRef) {
+	s.RealisedBy = val
+}
+
+// SetDecidedBy sets the value of DecidedBy.
+func (s *MemoRecord) SetDecidedBy(val OptUUID) {
+	s.DecidedBy = val
+}
+
+// SetDecidedAt sets the value of DecidedAt.
+func (s *MemoRecord) SetDecidedAt(val OptDateTime) {
+	s.DecidedAt = val
+}
+
+// SetComment sets the value of Comment.
+func (s *MemoRecord) SetComment(val OptString) {
+	s.Comment = val
+}
+
+// A person's acceptance of an agent's proposed memo record.
+// Ref: #/components/schemas/MemoRecordAccept
+type MemoRecordAccept struct {
+	// Recorded on the record and in the audit trail.
+	Comment OptString `json:"comment"`
+}
+
+// GetComment returns the value of Comment.
+func (s *MemoRecordAccept) GetComment() OptString {
+	return s.Comment
+}
+
+// SetComment sets the value of Comment.
+func (s *MemoRecordAccept) SetComment(val OptString) {
+	s.Comment = val
+}
+
+// A memo record's cancellation, or a series' occurrence's.
+// Ref: #/components/schemas/MemoRecordCancel
+type MemoRecordCancel struct {
+	// The occurrence of a series to cancel alone.
+	OccurrenceDate OptDate `json:"occurrence_date"`
+	// Why; recorded on the record and in the audit trail.
+	Comment OptString `json:"comment"`
+}
+
+// GetOccurrenceDate returns the value of OccurrenceDate.
+func (s *MemoRecordCancel) GetOccurrenceDate() OptDate {
+	return s.OccurrenceDate
+}
+
+// GetComment returns the value of Comment.
+func (s *MemoRecordCancel) GetComment() OptString {
+	return s.Comment
+}
+
+// SetOccurrenceDate sets the value of OccurrenceDate.
+func (s *MemoRecordCancel) SetOccurrenceDate(val OptDate) {
+	s.OccurrenceDate = val
+}
+
+// SetComment sets the value of Comment.
+func (s *MemoRecordCancel) SetComment(val OptString) {
+	s.Comment = val
+}
+
+// A new memo record.
+// Ref: #/components/schemas/MemoRecordCreate
+type MemoRecordCreate struct {
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// An active house bank of the legal entity in the amount's currency; absent: forecast only.
+	HouseBankID OptUUID `json:"house_bank_id"`
+	Amount      Money   `json:"amount"`
+	// The day it is expected at the bank; a series' first occurrence.
+	ValueDate time.Time `json:"value_date"`
+	// The last day it counts, on or after the value date; default the value date plus 7 days.
+	ExpiresOn OptDate `json:"expires_on"`
+	// Default `expected`. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Certainty OptString `json:"certainty"`
+	// An active liquidity item whose direction fits the amount's sign.
+	LiquidityItem string `json:"liquidity_item"`
+	// Description.
+	Description OptString `json:"description"`
+	// The reference of the document it expects.
+	Reference  OptString         `json:"reference"`
+	Recurrence OptMemoRecurrence `json:"recurrence"`
+	// An active series whose occurrence this record overrides; with `occurrence_date`.
+	RecurrenceOf OptUUID `json:"recurrence_of"`
+	// The occurrence it overrides; with `recurrence_of`.
+	OccurrenceDate OptDate `json:"occurrence_date"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *MemoRecordCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetHouseBankID returns the value of HouseBankID.
+func (s *MemoRecordCreate) GetHouseBankID() OptUUID {
+	return s.HouseBankID
+}
+
+// GetAmount returns the value of Amount.
+func (s *MemoRecordCreate) GetAmount() Money {
+	return s.Amount
+}
+
+// GetValueDate returns the value of ValueDate.
+func (s *MemoRecordCreate) GetValueDate() time.Time {
+	return s.ValueDate
+}
+
+// GetExpiresOn returns the value of ExpiresOn.
+func (s *MemoRecordCreate) GetExpiresOn() OptDate {
+	return s.ExpiresOn
+}
+
+// GetCertainty returns the value of Certainty.
+func (s *MemoRecordCreate) GetCertainty() OptString {
+	return s.Certainty
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *MemoRecordCreate) GetLiquidityItem() string {
+	return s.LiquidityItem
+}
+
+// GetDescription returns the value of Description.
+func (s *MemoRecordCreate) GetDescription() OptString {
+	return s.Description
+}
+
+// GetReference returns the value of Reference.
+func (s *MemoRecordCreate) GetReference() OptString {
+	return s.Reference
+}
+
+// GetRecurrence returns the value of Recurrence.
+func (s *MemoRecordCreate) GetRecurrence() OptMemoRecurrence {
+	return s.Recurrence
+}
+
+// GetRecurrenceOf returns the value of RecurrenceOf.
+func (s *MemoRecordCreate) GetRecurrenceOf() OptUUID {
+	return s.RecurrenceOf
+}
+
+// GetOccurrenceDate returns the value of OccurrenceDate.
+func (s *MemoRecordCreate) GetOccurrenceDate() OptDate {
+	return s.OccurrenceDate
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *MemoRecordCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetHouseBankID sets the value of HouseBankID.
+func (s *MemoRecordCreate) SetHouseBankID(val OptUUID) {
+	s.HouseBankID = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *MemoRecordCreate) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetValueDate sets the value of ValueDate.
+func (s *MemoRecordCreate) SetValueDate(val time.Time) {
+	s.ValueDate = val
+}
+
+// SetExpiresOn sets the value of ExpiresOn.
+func (s *MemoRecordCreate) SetExpiresOn(val OptDate) {
+	s.ExpiresOn = val
+}
+
+// SetCertainty sets the value of Certainty.
+func (s *MemoRecordCreate) SetCertainty(val OptString) {
+	s.Certainty = val
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *MemoRecordCreate) SetLiquidityItem(val string) {
+	s.LiquidityItem = val
+}
+
+// SetDescription sets the value of Description.
+func (s *MemoRecordCreate) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetReference sets the value of Reference.
+func (s *MemoRecordCreate) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetRecurrence sets the value of Recurrence.
+func (s *MemoRecordCreate) SetRecurrence(val OptMemoRecurrence) {
+	s.Recurrence = val
+}
+
+// SetRecurrenceOf sets the value of RecurrenceOf.
+func (s *MemoRecordCreate) SetRecurrenceOf(val OptUUID) {
+	s.RecurrenceOf = val
+}
+
+// SetOccurrenceDate sets the value of OccurrenceDate.
+func (s *MemoRecordCreate) SetOccurrenceDate(val OptDate) {
+	s.OccurrenceDate = val
+}
+
+// MemoRecordHeaders wraps MemoRecord with response headers.
+type MemoRecordHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           MemoRecord
+}
+
+// GetETag returns the value of ETag.
+func (s *MemoRecordHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *MemoRecordHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *MemoRecordHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *MemoRecordHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *MemoRecordHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *MemoRecordHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *MemoRecordHeaders) GetResponse() MemoRecord {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *MemoRecordHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *MemoRecordHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *MemoRecordHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *MemoRecordHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *MemoRecordHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *MemoRecordHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *MemoRecordHeaders) SetResponse(val MemoRecord) {
+	s.Response = val
+}
+
+func (*MemoRecordHeaders) cancelMemoRecordRes()  {}
+func (*MemoRecordHeaders) createMemoRecordRes()  {}
+func (*MemoRecordHeaders) proposeMemoRecordRes() {}
+func (*MemoRecordHeaders) realiseMemoRecordRes() {}
+
+// One page of memo records.
+// Ref: #/components/schemas/MemoRecordPage
+type MemoRecordPage struct {
+	// The memo records on this page.
+	Items []MemoRecord `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *MemoRecordPage) GetItems() []MemoRecord {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *MemoRecordPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *MemoRecordPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *MemoRecordPage) SetItems(val []MemoRecord) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *MemoRecordPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *MemoRecordPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+// MemoRecordPageHeaders wraps MemoRecordPage with response headers.
+type MemoRecordPageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           MemoRecordPage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *MemoRecordPageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *MemoRecordPageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *MemoRecordPageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *MemoRecordPageHeaders) GetResponse() MemoRecordPage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *MemoRecordPageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *MemoRecordPageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *MemoRecordPageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *MemoRecordPageHeaders) SetResponse(val MemoRecordPage) {
+	s.Response = val
+}
+
+func (*MemoRecordPageHeaders) listMemoRecordsRes() {}
+
+// An agent's proposed memo record, in its running session, with its reason and evidence.
+// Ref: #/components/schemas/MemoRecordProposal
+type MemoRecordProposal struct {
+	// The caller's running agent session.
+	SessionID uuid.UUID `json:"session_id"`
+	// Why, with the history that supports it; recorded on the record and in the audit trail, for the
+	// person who decides; the event carries no free text.
+	Reason string `json:"reason"`
+	// The statement lines of the legal entity the proposal rests on.
+	Evidence []StatementLineRef `json:"evidence"`
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// An active house bank of the legal entity in the amount's currency; absent: forecast only.
+	HouseBankID OptUUID `json:"house_bank_id"`
+	Amount      Money   `json:"amount"`
+	// The day it is expected at the bank; a series' first occurrence.
+	ValueDate time.Time `json:"value_date"`
+	// The last day it counts; default the value date plus 7 days.
+	ExpiresOn OptDate `json:"expires_on"`
+	// Default `expected`. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Certainty OptString `json:"certainty"`
+	// An active liquidity item whose direction fits the amount's sign.
+	LiquidityItem string `json:"liquidity_item"`
+	// Description.
+	Description OptString `json:"description"`
+	// The reference of the document it expects.
+	Reference  OptString         `json:"reference"`
+	Recurrence OptMemoRecurrence `json:"recurrence"`
+}
+
+// GetSessionID returns the value of SessionID.
+func (s *MemoRecordProposal) GetSessionID() uuid.UUID {
+	return s.SessionID
+}
+
+// GetReason returns the value of Reason.
+func (s *MemoRecordProposal) GetReason() string {
+	return s.Reason
+}
+
+// GetEvidence returns the value of Evidence.
+func (s *MemoRecordProposal) GetEvidence() []StatementLineRef {
+	return s.Evidence
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *MemoRecordProposal) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetHouseBankID returns the value of HouseBankID.
+func (s *MemoRecordProposal) GetHouseBankID() OptUUID {
+	return s.HouseBankID
+}
+
+// GetAmount returns the value of Amount.
+func (s *MemoRecordProposal) GetAmount() Money {
+	return s.Amount
+}
+
+// GetValueDate returns the value of ValueDate.
+func (s *MemoRecordProposal) GetValueDate() time.Time {
+	return s.ValueDate
+}
+
+// GetExpiresOn returns the value of ExpiresOn.
+func (s *MemoRecordProposal) GetExpiresOn() OptDate {
+	return s.ExpiresOn
+}
+
+// GetCertainty returns the value of Certainty.
+func (s *MemoRecordProposal) GetCertainty() OptString {
+	return s.Certainty
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *MemoRecordProposal) GetLiquidityItem() string {
+	return s.LiquidityItem
+}
+
+// GetDescription returns the value of Description.
+func (s *MemoRecordProposal) GetDescription() OptString {
+	return s.Description
+}
+
+// GetReference returns the value of Reference.
+func (s *MemoRecordProposal) GetReference() OptString {
+	return s.Reference
+}
+
+// GetRecurrence returns the value of Recurrence.
+func (s *MemoRecordProposal) GetRecurrence() OptMemoRecurrence {
+	return s.Recurrence
+}
+
+// SetSessionID sets the value of SessionID.
+func (s *MemoRecordProposal) SetSessionID(val uuid.UUID) {
+	s.SessionID = val
+}
+
+// SetReason sets the value of Reason.
+func (s *MemoRecordProposal) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetEvidence sets the value of Evidence.
+func (s *MemoRecordProposal) SetEvidence(val []StatementLineRef) {
+	s.Evidence = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *MemoRecordProposal) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetHouseBankID sets the value of HouseBankID.
+func (s *MemoRecordProposal) SetHouseBankID(val OptUUID) {
+	s.HouseBankID = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *MemoRecordProposal) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetValueDate sets the value of ValueDate.
+func (s *MemoRecordProposal) SetValueDate(val time.Time) {
+	s.ValueDate = val
+}
+
+// SetExpiresOn sets the value of ExpiresOn.
+func (s *MemoRecordProposal) SetExpiresOn(val OptDate) {
+	s.ExpiresOn = val
+}
+
+// SetCertainty sets the value of Certainty.
+func (s *MemoRecordProposal) SetCertainty(val OptString) {
+	s.Certainty = val
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *MemoRecordProposal) SetLiquidityItem(val string) {
+	s.LiquidityItem = val
+}
+
+// SetDescription sets the value of Description.
+func (s *MemoRecordProposal) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetReference sets the value of Reference.
+func (s *MemoRecordProposal) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetRecurrence sets the value of Recurrence.
+func (s *MemoRecordProposal) SetRecurrence(val OptMemoRecurrence) {
+	s.Recurrence = val
+}
+
+// A memo record realised, by a statement line or by a person.
+// Ref: #/components/schemas/MemoRecordRealise
+type MemoRecordRealise struct {
+	// The statement of the line that realises it; with `line_no`.
+	StatementID OptUUID `json:"statement_id"`
+	// The line's number; with `statement_id`.
+	LineNo OptInt32 `json:"line_no"`
+	// The occurrence of a series realised; required for a series.
+	OccurrenceDate OptDate `json:"occurrence_date"`
+	// Recorded on the record and in the audit trail.
+	Comment OptString `json:"comment"`
+}
+
+// GetStatementID returns the value of StatementID.
+func (s *MemoRecordRealise) GetStatementID() OptUUID {
+	return s.StatementID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *MemoRecordRealise) GetLineNo() OptInt32 {
+	return s.LineNo
+}
+
+// GetOccurrenceDate returns the value of OccurrenceDate.
+func (s *MemoRecordRealise) GetOccurrenceDate() OptDate {
+	return s.OccurrenceDate
+}
+
+// GetComment returns the value of Comment.
+func (s *MemoRecordRealise) GetComment() OptString {
+	return s.Comment
+}
+
+// SetStatementID sets the value of StatementID.
+func (s *MemoRecordRealise) SetStatementID(val OptUUID) {
+	s.StatementID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *MemoRecordRealise) SetLineNo(val OptInt32) {
+	s.LineNo = val
+}
+
+// SetOccurrenceDate sets the value of OccurrenceDate.
+func (s *MemoRecordRealise) SetOccurrenceDate(val OptDate) {
+	s.OccurrenceDate = val
+}
+
+// SetComment sets the value of Comment.
+func (s *MemoRecordRealise) SetComment(val OptString) {
+	s.Comment = val
+}
+
+// Merge patch of a memo record.
+// Ref: #/components/schemas/MemoRecordUpdate
+type MemoRecordUpdate struct {
+	// An active house bank of the legal entity in the amount's currency. Send null for forecast only.
+	HouseBankID OptNilUUID `json:"house_bank_id"`
+	Amount      OptMoney   `json:"amount"`
+	// The new value date; without `expires_on` the days between them are kept.
+	ValueDate OptDate `json:"value_date"`
+	// The last day it counts, on or after the value date.
+	ExpiresOn OptDate `json:"expires_on"`
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Certainty OptString `json:"certainty"`
+	// An active liquidity item whose direction fits the amount's sign.
+	LiquidityItem OptString `json:"liquidity_item"`
+	// Description. Send null to clear.
+	Description OptNilString `json:"description"`
+	// Reference. Send null to clear.
+	Reference  OptNilString      `json:"reference"`
+	Recurrence OptMemoRecurrence `json:"recurrence"`
+}
+
+// GetHouseBankID returns the value of HouseBankID.
+func (s *MemoRecordUpdate) GetHouseBankID() OptNilUUID {
+	return s.HouseBankID
+}
+
+// GetAmount returns the value of Amount.
+func (s *MemoRecordUpdate) GetAmount() OptMoney {
+	return s.Amount
+}
+
+// GetValueDate returns the value of ValueDate.
+func (s *MemoRecordUpdate) GetValueDate() OptDate {
+	return s.ValueDate
+}
+
+// GetExpiresOn returns the value of ExpiresOn.
+func (s *MemoRecordUpdate) GetExpiresOn() OptDate {
+	return s.ExpiresOn
+}
+
+// GetCertainty returns the value of Certainty.
+func (s *MemoRecordUpdate) GetCertainty() OptString {
+	return s.Certainty
+}
+
+// GetLiquidityItem returns the value of LiquidityItem.
+func (s *MemoRecordUpdate) GetLiquidityItem() OptString {
+	return s.LiquidityItem
+}
+
+// GetDescription returns the value of Description.
+func (s *MemoRecordUpdate) GetDescription() OptNilString {
+	return s.Description
+}
+
+// GetReference returns the value of Reference.
+func (s *MemoRecordUpdate) GetReference() OptNilString {
+	return s.Reference
+}
+
+// GetRecurrence returns the value of Recurrence.
+func (s *MemoRecordUpdate) GetRecurrence() OptMemoRecurrence {
+	return s.Recurrence
+}
+
+// SetHouseBankID sets the value of HouseBankID.
+func (s *MemoRecordUpdate) SetHouseBankID(val OptNilUUID) {
+	s.HouseBankID = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *MemoRecordUpdate) SetAmount(val OptMoney) {
+	s.Amount = val
+}
+
+// SetValueDate sets the value of ValueDate.
+func (s *MemoRecordUpdate) SetValueDate(val OptDate) {
+	s.ValueDate = val
+}
+
+// SetExpiresOn sets the value of ExpiresOn.
+func (s *MemoRecordUpdate) SetExpiresOn(val OptDate) {
+	s.ExpiresOn = val
+}
+
+// SetCertainty sets the value of Certainty.
+func (s *MemoRecordUpdate) SetCertainty(val OptString) {
+	s.Certainty = val
+}
+
+// SetLiquidityItem sets the value of LiquidityItem.
+func (s *MemoRecordUpdate) SetLiquidityItem(val OptString) {
+	s.LiquidityItem = val
+}
+
+// SetDescription sets the value of Description.
+func (s *MemoRecordUpdate) SetDescription(val OptNilString) {
+	s.Description = val
+}
+
+// SetReference sets the value of Reference.
+func (s *MemoRecordUpdate) SetReference(val OptNilString) {
+	s.Reference = val
+}
+
+// SetRecurrence sets the value of Recurrence.
+func (s *MemoRecordUpdate) SetRecurrence(val OptMemoRecurrence) {
+	s.Recurrence = val
+}
+
+// A CSV file of memo records for a legal entity, under a batch key.
+// Ref: #/components/schemas/MemoRecordUpload
+type MemoRecordUploadMultipart struct {
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The batch: an upload replaces the records of its key that are not realised.
+	BatchKey string `json:"batch_key"`
+	// The CSV file, UTF-8, at most 1 MB and 5,000 rows, with a header row.
+	File string `json:"file"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *MemoRecordUploadMultipart) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetBatchKey returns the value of BatchKey.
+func (s *MemoRecordUploadMultipart) GetBatchKey() string {
+	return s.BatchKey
+}
+
+// GetFile returns the value of File.
+func (s *MemoRecordUploadMultipart) GetFile() string {
+	return s.File
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *MemoRecordUploadMultipart) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetBatchKey sets the value of BatchKey.
+func (s *MemoRecordUploadMultipart) SetBatchKey(val string) {
+	s.BatchKey = val
+}
+
+// SetFile sets the value of File.
+func (s *MemoRecordUploadMultipart) SetFile(val string) {
+	s.File = val
+}
+
+// What an upload did to the records of its batch key.
+// Ref: #/components/schemas/MemoRecordUploadResult
+type MemoRecordUploadResult struct {
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The batch key.
+	BatchKey string `json:"batch_key"`
+	// The file's rows.
+	Rows int32 `json:"rows"`
+	// Records created for references new to the key.
+	Created int32 `json:"created"`
+	// Records changed to their row, or made active again.
+	Changed int32 `json:"changed"`
+	// Records already as their row.
+	Unchanged int32 `json:"unchanged"`
+	// Active records of the key whose reference the file no longer has.
+	Cancelled int32 `json:"cancelled"`
+	// Rows whose record is realised, kept as it is.
+	KeptRealised int32 `json:"kept_realised"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *MemoRecordUploadResult) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetBatchKey returns the value of BatchKey.
+func (s *MemoRecordUploadResult) GetBatchKey() string {
+	return s.BatchKey
+}
+
+// GetRows returns the value of Rows.
+func (s *MemoRecordUploadResult) GetRows() int32 {
+	return s.Rows
+}
+
+// GetCreated returns the value of Created.
+func (s *MemoRecordUploadResult) GetCreated() int32 {
+	return s.Created
+}
+
+// GetChanged returns the value of Changed.
+func (s *MemoRecordUploadResult) GetChanged() int32 {
+	return s.Changed
+}
+
+// GetUnchanged returns the value of Unchanged.
+func (s *MemoRecordUploadResult) GetUnchanged() int32 {
+	return s.Unchanged
+}
+
+// GetCancelled returns the value of Cancelled.
+func (s *MemoRecordUploadResult) GetCancelled() int32 {
+	return s.Cancelled
+}
+
+// GetKeptRealised returns the value of KeptRealised.
+func (s *MemoRecordUploadResult) GetKeptRealised() int32 {
+	return s.KeptRealised
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *MemoRecordUploadResult) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetBatchKey sets the value of BatchKey.
+func (s *MemoRecordUploadResult) SetBatchKey(val string) {
+	s.BatchKey = val
+}
+
+// SetRows sets the value of Rows.
+func (s *MemoRecordUploadResult) SetRows(val int32) {
+	s.Rows = val
+}
+
+// SetCreated sets the value of Created.
+func (s *MemoRecordUploadResult) SetCreated(val int32) {
+	s.Created = val
+}
+
+// SetChanged sets the value of Changed.
+func (s *MemoRecordUploadResult) SetChanged(val int32) {
+	s.Changed = val
+}
+
+// SetUnchanged sets the value of Unchanged.
+func (s *MemoRecordUploadResult) SetUnchanged(val int32) {
+	s.Unchanged = val
+}
+
+// SetCancelled sets the value of Cancelled.
+func (s *MemoRecordUploadResult) SetCancelled(val int32) {
+	s.Cancelled = val
+}
+
+// SetKeptRealised sets the value of KeptRealised.
+func (s *MemoRecordUploadResult) SetKeptRealised(val int32) {
+	s.KeptRealised = val
+}
+
+// MemoRecordUploadResultHeaders wraps MemoRecordUploadResult with response headers.
+type MemoRecordUploadResultHeaders struct {
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           MemoRecordUploadResult
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *MemoRecordUploadResultHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *MemoRecordUploadResultHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *MemoRecordUploadResultHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *MemoRecordUploadResultHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *MemoRecordUploadResultHeaders) GetResponse() MemoRecordUploadResult {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *MemoRecordUploadResultHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *MemoRecordUploadResultHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *MemoRecordUploadResultHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *MemoRecordUploadResultHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *MemoRecordUploadResultHeaders) SetResponse(val MemoRecordUploadResult) {
+	s.Response = val
+}
+
+func (*MemoRecordUploadResultHeaders) uploadMemoRecordsRes() {}
+
+// How a series repeats from its value date: `weekly`, `monthly` on the value date's day (the month's
+// last day when shorter) or `quarterly`, until a day or for a count of occurrences, at most one of
+// them; neither: until cancelled.
+// Ref: #/components/schemas/MemoRecurrence
+type MemoRecurrence struct {
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Frequency string `json:"frequency"`
+	// The last day an occurrence may fall on.
+	Until OptDate `json:"until"`
+	// How many occurrences.
+	Count OptInt32 `json:"count"`
+}
+
+// GetFrequency returns the value of Frequency.
+func (s *MemoRecurrence) GetFrequency() string {
+	return s.Frequency
+}
+
+// GetUntil returns the value of Until.
+func (s *MemoRecurrence) GetUntil() OptDate {
+	return s.Until
+}
+
+// GetCount returns the value of Count.
+func (s *MemoRecurrence) GetCount() OptInt32 {
+	return s.Count
+}
+
+// SetFrequency sets the value of Frequency.
+func (s *MemoRecurrence) SetFrequency(val string) {
+	s.Frequency = val
+}
+
+// SetUntil sets the value of Until.
+func (s *MemoRecurrence) SetUntil(val OptDate) {
+	s.Until = val
+}
+
+// SetCount sets the value of Count.
+func (s *MemoRecurrence) SetCount(val OptInt32) {
+	s.Count = val
+}
+
+// Merged schema.
 // Ref: #/components/schemas/MigrationRun
 type MigrationRun struct {
 	// Identifier (UUIDv7).
@@ -23517,6 +24908,7 @@ func (s *NotFoundHeaders) SetResponse(val Problem) {
 }
 
 func (*NotFoundHeaders) acceptBankStatementLineProposalRes()  {}
+func (*NotFoundHeaders) acceptMemoRecordProposalRes()         {}
 func (*NotFoundHeaders) activateChangeRequestRes()            {}
 func (*NotFoundHeaders) activateLegalEntityRes()              {}
 func (*NotFoundHeaders) activateOrgUnitRes()                  {}
@@ -23531,6 +24923,7 @@ func (*NotFoundHeaders) blockPrincipalRes()                   {}
 func (*NotFoundHeaders) cancelApprovalRequestRes()            {}
 func (*NotFoundHeaders) cancelContractRes()                   {}
 func (*NotFoundHeaders) cancelDownPaymentRequestRes()         {}
+func (*NotFoundHeaders) cancelMemoRecordRes()                 {}
 func (*NotFoundHeaders) cancelOperationRes()                  {}
 func (*NotFoundHeaders) cancelParkedJournalEntryRes()         {}
 func (*NotFoundHeaders) cancelPurchaseOrderChangeRes()        {}
@@ -23541,6 +24934,7 @@ func (*NotFoundHeaders) cancelSupplierInvoiceRes()            {}
 func (*NotFoundHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*NotFoundHeaders) closeFiscalPeriodRes()                {}
 func (*NotFoundHeaders) closePurchaseOrderRes()               {}
+func (*NotFoundHeaders) createMemoRecordRes()                 {}
 func (*NotFoundHeaders) createPurchaseOrderChangeRes()        {}
 func (*NotFoundHeaders) decideRecommendationRes()             {}
 func (*NotFoundHeaders) deleteWebhookSubscriptionRes()        {}
@@ -23581,6 +24975,7 @@ func (*NotFoundHeaders) getHierarchyRes()                     {}
 func (*NotFoundHeaders) getJournalEntryRes()                  {}
 func (*NotFoundHeaders) getLegalEntityRes()                   {}
 func (*NotFoundHeaders) getMatchResultRes()                   {}
+func (*NotFoundHeaders) getMemoRecordRes()                    {}
 func (*NotFoundHeaders) getMigrationRunRes()                  {}
 func (*NotFoundHeaders) getNumberRangeRes()                   {}
 func (*NotFoundHeaders) getOperationRes()                     {}
@@ -23637,6 +25032,8 @@ func (*NotFoundHeaders) postBankStatementLineRes()            {}
 func (*NotFoundHeaders) postParkedJournalEntryRes()           {}
 func (*NotFoundHeaders) postSupplierInvoiceRes()              {}
 func (*NotFoundHeaders) proposeBankStatementLineRes()         {}
+func (*NotFoundHeaders) proposeMemoRecordRes()                {}
+func (*NotFoundHeaders) realiseMemoRecordRes()                {}
 func (*NotFoundHeaders) reconcileMigrationRunRes()            {}
 func (*NotFoundHeaders) recordAgentToolCallRes()              {}
 func (*NotFoundHeaders) redateCostCenterRes()                 {}
@@ -23644,6 +25041,7 @@ func (*NotFoundHeaders) redateProfitCenterRes()               {}
 func (*NotFoundHeaders) redeliverWebhookDeliveryRes()         {}
 func (*NotFoundHeaders) rejectApprovalRequestRes()            {}
 func (*NotFoundHeaders) rejectBankStatementLineProposalRes()  {}
+func (*NotFoundHeaders) rejectMemoRecordProposalRes()         {}
 func (*NotFoundHeaders) rejectPaymentRunRes()                 {}
 func (*NotFoundHeaders) releaseContractRes()                  {}
 func (*NotFoundHeaders) releasePaymentRunRes()                {}
@@ -23677,6 +25075,7 @@ func (*NotFoundHeaders) updateConnectorRes()                  {}
 func (*NotFoundHeaders) updateContractRes()                   {}
 func (*NotFoundHeaders) updateCostCenterRes()                 {}
 func (*NotFoundHeaders) updateLegalEntityRes()                {}
+func (*NotFoundHeaders) updateMemoRecordRes()                 {}
 func (*NotFoundHeaders) updateOrgUnitRes()                    {}
 func (*NotFoundHeaders) updateParkedJournalEntryRes()         {}
 func (*NotFoundHeaders) updatePrincipalRes()                  {}
@@ -23688,6 +25087,7 @@ func (*NotFoundHeaders) updateRoleRes()                       {}
 func (*NotFoundHeaders) updateSegmentRes()                    {}
 func (*NotFoundHeaders) updateSupplierInvoiceRes()            {}
 func (*NotFoundHeaders) updateWebhookSubscriptionRes()        {}
+func (*NotFoundHeaders) uploadMemoRecordsRes()                {}
 func (*NotFoundHeaders) withdrawChangeRequestRes()            {}
 
 // Merged schema.
@@ -25719,6 +27119,190 @@ func (o OptMatchDecision) Or(d MatchDecision) MatchDecision {
 	return d
 }
 
+// NewOptMemoRecordAccept returns new OptMemoRecordAccept with value set to v.
+func NewOptMemoRecordAccept(v MemoRecordAccept) OptMemoRecordAccept {
+	return OptMemoRecordAccept{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptMemoRecordAccept is optional MemoRecordAccept.
+type OptMemoRecordAccept struct {
+	Value MemoRecordAccept
+	Set   bool
+}
+
+// IsSet returns true if OptMemoRecordAccept was set.
+func (o OptMemoRecordAccept) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptMemoRecordAccept) Reset() {
+	var v MemoRecordAccept
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptMemoRecordAccept) SetTo(v MemoRecordAccept) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptMemoRecordAccept) Get() (v MemoRecordAccept, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptMemoRecordAccept) Or(d MemoRecordAccept) MemoRecordAccept {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptMemoRecordCancel returns new OptMemoRecordCancel with value set to v.
+func NewOptMemoRecordCancel(v MemoRecordCancel) OptMemoRecordCancel {
+	return OptMemoRecordCancel{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptMemoRecordCancel is optional MemoRecordCancel.
+type OptMemoRecordCancel struct {
+	Value MemoRecordCancel
+	Set   bool
+}
+
+// IsSet returns true if OptMemoRecordCancel was set.
+func (o OptMemoRecordCancel) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptMemoRecordCancel) Reset() {
+	var v MemoRecordCancel
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptMemoRecordCancel) SetTo(v MemoRecordCancel) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptMemoRecordCancel) Get() (v MemoRecordCancel, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptMemoRecordCancel) Or(d MemoRecordCancel) MemoRecordCancel {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptMemoRecordRealise returns new OptMemoRecordRealise with value set to v.
+func NewOptMemoRecordRealise(v MemoRecordRealise) OptMemoRecordRealise {
+	return OptMemoRecordRealise{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptMemoRecordRealise is optional MemoRecordRealise.
+type OptMemoRecordRealise struct {
+	Value MemoRecordRealise
+	Set   bool
+}
+
+// IsSet returns true if OptMemoRecordRealise was set.
+func (o OptMemoRecordRealise) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptMemoRecordRealise) Reset() {
+	var v MemoRecordRealise
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptMemoRecordRealise) SetTo(v MemoRecordRealise) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptMemoRecordRealise) Get() (v MemoRecordRealise, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptMemoRecordRealise) Or(d MemoRecordRealise) MemoRecordRealise {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptMemoRecurrence returns new OptMemoRecurrence with value set to v.
+func NewOptMemoRecurrence(v MemoRecurrence) OptMemoRecurrence {
+	return OptMemoRecurrence{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptMemoRecurrence is optional MemoRecurrence.
+type OptMemoRecurrence struct {
+	Value MemoRecurrence
+	Set   bool
+}
+
+// IsSet returns true if OptMemoRecurrence was set.
+func (o OptMemoRecurrence) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptMemoRecurrence) Reset() {
+	var v MemoRecurrence
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptMemoRecurrence) SetTo(v MemoRecurrence) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptMemoRecurrence) Get() (v MemoRecurrence, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptMemoRecurrence) Or(d MemoRecurrence) MemoRecurrence {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptMigrationRunReport returns new OptMigrationRunReport with value set to v.
 func NewOptMigrationRunReport(v MigrationRunReport) OptMigrationRunReport {
 	return OptMigrationRunReport{
@@ -26489,6 +28073,52 @@ func (o OptStatementLineProposalAccept) Get() (v StatementLineProposalAccept, ok
 
 // Or returns value if set, or given parameter if does not.
 func (o OptStatementLineProposalAccept) Or(d StatementLineProposalAccept) StatementLineProposalAccept {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptStatementLineRef returns new OptStatementLineRef with value set to v.
+func NewOptStatementLineRef(v StatementLineRef) OptStatementLineRef {
+	return OptStatementLineRef{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptStatementLineRef is optional StatementLineRef.
+type OptStatementLineRef struct {
+	Value StatementLineRef
+	Set   bool
+}
+
+// IsSet returns true if OptStatementLineRef was set.
+func (o OptStatementLineRef) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptStatementLineRef) Reset() {
+	var v StatementLineRef
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptStatementLineRef) SetTo(v StatementLineRef) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptStatementLineRef) Get() (v StatementLineRef, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptStatementLineRef) Or(d StatementLineRef) StatementLineRef {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -29333,6 +30963,7 @@ func (s *PreconditionFailedHeaders) SetResponse(val Problem) {
 }
 
 func (*PreconditionFailedHeaders) acceptBankStatementLineProposalRes()  {}
+func (*PreconditionFailedHeaders) acceptMemoRecordProposalRes()         {}
 func (*PreconditionFailedHeaders) activateChangeRequestRes()            {}
 func (*PreconditionFailedHeaders) activateLegalEntityRes()              {}
 func (*PreconditionFailedHeaders) activateOrgUnitRes()                  {}
@@ -29346,6 +30977,7 @@ func (*PreconditionFailedHeaders) blockPrincipalRes()                   {}
 func (*PreconditionFailedHeaders) cancelApprovalRequestRes()            {}
 func (*PreconditionFailedHeaders) cancelContractRes()                   {}
 func (*PreconditionFailedHeaders) cancelDownPaymentRequestRes()         {}
+func (*PreconditionFailedHeaders) cancelMemoRecordRes()                 {}
 func (*PreconditionFailedHeaders) cancelOperationRes()                  {}
 func (*PreconditionFailedHeaders) cancelParkedJournalEntryRes()         {}
 func (*PreconditionFailedHeaders) cancelPurchaseOrderChangeRes()        {}
@@ -29356,6 +30988,7 @@ func (*PreconditionFailedHeaders) cancelSupplierInvoiceRes()            {}
 func (*PreconditionFailedHeaders) clearSupplierInvoiceDownPaymentsRes() {}
 func (*PreconditionFailedHeaders) closeFiscalPeriodRes()                {}
 func (*PreconditionFailedHeaders) closePurchaseOrderRes()               {}
+func (*PreconditionFailedHeaders) createMemoRecordRes()                 {}
 func (*PreconditionFailedHeaders) decideRecommendationRes()             {}
 func (*PreconditionFailedHeaders) deleteWebhookSubscriptionRes()        {}
 func (*PreconditionFailedHeaders) disableConnectorRes()                 {}
@@ -29384,12 +31017,15 @@ func (*PreconditionFailedHeaders) postBankStatementLineRes()            {}
 func (*PreconditionFailedHeaders) postParkedJournalEntryRes()           {}
 func (*PreconditionFailedHeaders) postSupplierInvoiceRes()              {}
 func (*PreconditionFailedHeaders) proposeBankStatementLineRes()         {}
+func (*PreconditionFailedHeaders) proposeMemoRecordRes()                {}
+func (*PreconditionFailedHeaders) realiseMemoRecordRes()                {}
 func (*PreconditionFailedHeaders) reconcileMigrationRunRes()            {}
 func (*PreconditionFailedHeaders) redateCostCenterRes()                 {}
 func (*PreconditionFailedHeaders) redateProfitCenterRes()               {}
 func (*PreconditionFailedHeaders) redeliverWebhookDeliveryRes()         {}
 func (*PreconditionFailedHeaders) rejectApprovalRequestRes()            {}
 func (*PreconditionFailedHeaders) rejectBankStatementLineProposalRes()  {}
+func (*PreconditionFailedHeaders) rejectMemoRecordProposalRes()         {}
 func (*PreconditionFailedHeaders) rejectPaymentRunRes()                 {}
 func (*PreconditionFailedHeaders) releaseContractRes()                  {}
 func (*PreconditionFailedHeaders) releasePaymentRunRes()                {}
@@ -29423,6 +31059,7 @@ func (*PreconditionFailedHeaders) updateConnectorRes()                  {}
 func (*PreconditionFailedHeaders) updateContractRes()                   {}
 func (*PreconditionFailedHeaders) updateCostCenterRes()                 {}
 func (*PreconditionFailedHeaders) updateLegalEntityRes()                {}
+func (*PreconditionFailedHeaders) updateMemoRecordRes()                 {}
 func (*PreconditionFailedHeaders) updateOrgUnitRes()                    {}
 func (*PreconditionFailedHeaders) updateParkedJournalEntryRes()         {}
 func (*PreconditionFailedHeaders) updatePrincipalRes()                  {}
@@ -29434,6 +31071,7 @@ func (*PreconditionFailedHeaders) updateRoleRes()                       {}
 func (*PreconditionFailedHeaders) updateSegmentRes()                    {}
 func (*PreconditionFailedHeaders) updateSupplierInvoiceRes()            {}
 func (*PreconditionFailedHeaders) updateWebhookSubscriptionRes()        {}
+func (*PreconditionFailedHeaders) uploadMemoRecordsRes()                {}
 func (*PreconditionFailedHeaders) withdrawChangeRequestRes()            {}
 
 // PreconditionRequiredHeaders wraps Problem with response headers.
@@ -29485,6 +31123,7 @@ func (s *PreconditionRequiredHeaders) SetResponse(val Problem) {
 }
 
 func (*PreconditionRequiredHeaders) acceptBankStatementLineProposalRes()  {}
+func (*PreconditionRequiredHeaders) acceptMemoRecordProposalRes()         {}
 func (*PreconditionRequiredHeaders) activateChangeRequestRes()            {}
 func (*PreconditionRequiredHeaders) activateLegalEntityRes()              {}
 func (*PreconditionRequiredHeaders) activateOrgUnitRes()                  {}
@@ -29499,6 +31138,7 @@ func (*PreconditionRequiredHeaders) blockPrincipalRes()                   {}
 func (*PreconditionRequiredHeaders) cancelApprovalRequestRes()            {}
 func (*PreconditionRequiredHeaders) cancelContractRes()                   {}
 func (*PreconditionRequiredHeaders) cancelDownPaymentRequestRes()         {}
+func (*PreconditionRequiredHeaders) cancelMemoRecordRes()                 {}
 func (*PreconditionRequiredHeaders) cancelOperationRes()                  {}
 func (*PreconditionRequiredHeaders) cancelParkedJournalEntryRes()         {}
 func (*PreconditionRequiredHeaders) cancelPurchaseOrderChangeRes()        {}
@@ -29520,6 +31160,7 @@ func (*PreconditionRequiredHeaders) createCostCenterRes()                 {}
 func (*PreconditionRequiredHeaders) createExchangeRateRes()               {}
 func (*PreconditionRequiredHeaders) createHierarchyRes()                  {}
 func (*PreconditionRequiredHeaders) createLegalEntityRes()                {}
+func (*PreconditionRequiredHeaders) createMemoRecordRes()                 {}
 func (*PreconditionRequiredHeaders) createMigrationRunRes()               {}
 func (*PreconditionRequiredHeaders) createOrgUnitRes()                    {}
 func (*PreconditionRequiredHeaders) createPartnerChangeRes()              {}
@@ -29572,7 +31213,9 @@ func (*PreconditionRequiredHeaders) postRevaluationRunRes()               {}
 func (*PreconditionRequiredHeaders) postSupplierInvoiceRes()              {}
 func (*PreconditionRequiredHeaders) previewRevaluationRes()               {}
 func (*PreconditionRequiredHeaders) proposeBankStatementLineRes()         {}
+func (*PreconditionRequiredHeaders) proposeMemoRecordRes()                {}
 func (*PreconditionRequiredHeaders) proposePaymentRunRes()                {}
+func (*PreconditionRequiredHeaders) realiseMemoRecordRes()                {}
 func (*PreconditionRequiredHeaders) reconcileMigrationRunRes()            {}
 func (*PreconditionRequiredHeaders) recordAgentToolCallRes()              {}
 func (*PreconditionRequiredHeaders) redateCostCenterRes()                 {}
@@ -29580,6 +31223,7 @@ func (*PreconditionRequiredHeaders) redateProfitCenterRes()               {}
 func (*PreconditionRequiredHeaders) redeliverWebhookDeliveryRes()         {}
 func (*PreconditionRequiredHeaders) rejectApprovalRequestRes()            {}
 func (*PreconditionRequiredHeaders) rejectBankStatementLineProposalRes()  {}
+func (*PreconditionRequiredHeaders) rejectMemoRecordProposalRes()         {}
 func (*PreconditionRequiredHeaders) rejectPaymentRunRes()                 {}
 func (*PreconditionRequiredHeaders) releaseContractRes()                  {}
 func (*PreconditionRequiredHeaders) releasePaymentRunRes()                {}
@@ -29616,6 +31260,7 @@ func (*PreconditionRequiredHeaders) updateConnectorRes()                  {}
 func (*PreconditionRequiredHeaders) updateContractRes()                   {}
 func (*PreconditionRequiredHeaders) updateCostCenterRes()                 {}
 func (*PreconditionRequiredHeaders) updateLegalEntityRes()                {}
+func (*PreconditionRequiredHeaders) updateMemoRecordRes()                 {}
 func (*PreconditionRequiredHeaders) updateOrgUnitRes()                    {}
 func (*PreconditionRequiredHeaders) updateParkedJournalEntryRes()         {}
 func (*PreconditionRequiredHeaders) updatePrincipalRes()                  {}
@@ -29627,6 +31272,7 @@ func (*PreconditionRequiredHeaders) updateRoleRes()                       {}
 func (*PreconditionRequiredHeaders) updateSegmentRes()                    {}
 func (*PreconditionRequiredHeaders) updateSupplierInvoiceRes()            {}
 func (*PreconditionRequiredHeaders) updateWebhookSubscriptionRes()        {}
+func (*PreconditionRequiredHeaders) uploadMemoRecordsRes()                {}
 func (*PreconditionRequiredHeaders) verifyAuditChainRes()                 {}
 func (*PreconditionRequiredHeaders) withdrawChangeRequestRes()            {}
 
@@ -36758,6 +38404,7 @@ func (s *ServiceUnavailableHeaders) SetResponse(val Problem) {
 }
 
 func (*ServiceUnavailableHeaders) acceptBankStatementLineProposalRes()  {}
+func (*ServiceUnavailableHeaders) acceptMemoRecordProposalRes()         {}
 func (*ServiceUnavailableHeaders) activateChangeRequestRes()            {}
 func (*ServiceUnavailableHeaders) activateLegalEntityRes()              {}
 func (*ServiceUnavailableHeaders) activateOrgUnitRes()                  {}
@@ -36772,6 +38419,7 @@ func (*ServiceUnavailableHeaders) blockPrincipalRes()                   {}
 func (*ServiceUnavailableHeaders) cancelApprovalRequestRes()            {}
 func (*ServiceUnavailableHeaders) cancelContractRes()                   {}
 func (*ServiceUnavailableHeaders) cancelDownPaymentRequestRes()         {}
+func (*ServiceUnavailableHeaders) cancelMemoRecordRes()                 {}
 func (*ServiceUnavailableHeaders) cancelOperationRes()                  {}
 func (*ServiceUnavailableHeaders) cancelParkedJournalEntryRes()         {}
 func (*ServiceUnavailableHeaders) cancelPurchaseOrderChangeRes()        {}
@@ -36794,6 +38442,7 @@ func (*ServiceUnavailableHeaders) createDownPaymentRequestRes()         {}
 func (*ServiceUnavailableHeaders) createExchangeRateRes()               {}
 func (*ServiceUnavailableHeaders) createHierarchyRes()                  {}
 func (*ServiceUnavailableHeaders) createLegalEntityRes()                {}
+func (*ServiceUnavailableHeaders) createMemoRecordRes()                 {}
 func (*ServiceUnavailableHeaders) createMigrationRunRes()               {}
 func (*ServiceUnavailableHeaders) createOrgUnitRes()                    {}
 func (*ServiceUnavailableHeaders) createPartnerChangeRes()              {}
@@ -36847,7 +38496,9 @@ func (*ServiceUnavailableHeaders) postParkedJournalEntryRes()           {}
 func (*ServiceUnavailableHeaders) postRevaluationRunRes()               {}
 func (*ServiceUnavailableHeaders) postSupplierInvoiceRes()              {}
 func (*ServiceUnavailableHeaders) proposeBankStatementLineRes()         {}
+func (*ServiceUnavailableHeaders) proposeMemoRecordRes()                {}
 func (*ServiceUnavailableHeaders) proposePaymentRunRes()                {}
+func (*ServiceUnavailableHeaders) realiseMemoRecordRes()                {}
 func (*ServiceUnavailableHeaders) reconcileMigrationRunRes()            {}
 func (*ServiceUnavailableHeaders) recordAgentToolCallRes()              {}
 func (*ServiceUnavailableHeaders) redateCostCenterRes()                 {}
@@ -36855,6 +38506,7 @@ func (*ServiceUnavailableHeaders) redateProfitCenterRes()               {}
 func (*ServiceUnavailableHeaders) redeliverWebhookDeliveryRes()         {}
 func (*ServiceUnavailableHeaders) rejectApprovalRequestRes()            {}
 func (*ServiceUnavailableHeaders) rejectBankStatementLineProposalRes()  {}
+func (*ServiceUnavailableHeaders) rejectMemoRecordProposalRes()         {}
 func (*ServiceUnavailableHeaders) rejectPaymentRunRes()                 {}
 func (*ServiceUnavailableHeaders) releaseContractRes()                  {}
 func (*ServiceUnavailableHeaders) releasePaymentRunRes()                {}
@@ -36891,6 +38543,7 @@ func (*ServiceUnavailableHeaders) updateConnectorRes()                  {}
 func (*ServiceUnavailableHeaders) updateContractRes()                   {}
 func (*ServiceUnavailableHeaders) updateCostCenterRes()                 {}
 func (*ServiceUnavailableHeaders) updateLegalEntityRes()                {}
+func (*ServiceUnavailableHeaders) updateMemoRecordRes()                 {}
 func (*ServiceUnavailableHeaders) updateOrgUnitRes()                    {}
 func (*ServiceUnavailableHeaders) updateParkedJournalEntryRes()         {}
 func (*ServiceUnavailableHeaders) updatePrincipalRes()                  {}
@@ -36902,6 +38555,7 @@ func (*ServiceUnavailableHeaders) updateRoleRes()                       {}
 func (*ServiceUnavailableHeaders) updateSegmentRes()                    {}
 func (*ServiceUnavailableHeaders) updateSupplierInvoiceRes()            {}
 func (*ServiceUnavailableHeaders) updateWebhookSubscriptionRes()        {}
+func (*ServiceUnavailableHeaders) uploadMemoRecordsRes()                {}
 func (*ServiceUnavailableHeaders) verifyAuditChainRes()                 {}
 func (*ServiceUnavailableHeaders) withdrawChangeRequestRes()            {}
 
@@ -37529,6 +39183,35 @@ func (s *StatementLineProposalInput) SetExclude(val OptBool) {
 // SetReason sets the value of Reason.
 func (s *StatementLineProposalInput) SetReason(val string) {
 	s.Reason = val
+}
+
+// A bank statement line.
+// Ref: #/components/schemas/StatementLineRef
+type StatementLineRef struct {
+	// The bank statement.
+	StatementID uuid.UUID `json:"statement_id"`
+	// The line's number in the statement.
+	LineNo int32 `json:"line_no"`
+}
+
+// GetStatementID returns the value of StatementID.
+func (s *StatementLineRef) GetStatementID() uuid.UUID {
+	return s.StatementID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *StatementLineRef) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// SetStatementID sets the value of StatementID.
+func (s *StatementLineRef) SetStatementID(val uuid.UUID) {
+	s.StatementID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *StatementLineRef) SetLineNo(val int32) {
+	s.LineNo = val
 }
 
 // Merged schema.
@@ -39345,6 +41028,7 @@ func (s *TooManyRequestsHeaders) SetResponse(val Problem) {
 }
 
 func (*TooManyRequestsHeaders) acceptBankStatementLineProposalRes()  {}
+func (*TooManyRequestsHeaders) acceptMemoRecordProposalRes()         {}
 func (*TooManyRequestsHeaders) activateChangeRequestRes()            {}
 func (*TooManyRequestsHeaders) activateLegalEntityRes()              {}
 func (*TooManyRequestsHeaders) activateOrgUnitRes()                  {}
@@ -39359,6 +41043,7 @@ func (*TooManyRequestsHeaders) blockPrincipalRes()                   {}
 func (*TooManyRequestsHeaders) cancelApprovalRequestRes()            {}
 func (*TooManyRequestsHeaders) cancelContractRes()                   {}
 func (*TooManyRequestsHeaders) cancelDownPaymentRequestRes()         {}
+func (*TooManyRequestsHeaders) cancelMemoRecordRes()                 {}
 func (*TooManyRequestsHeaders) cancelOperationRes()                  {}
 func (*TooManyRequestsHeaders) cancelParkedJournalEntryRes()         {}
 func (*TooManyRequestsHeaders) cancelPurchaseOrderChangeRes()        {}
@@ -39381,6 +41066,7 @@ func (*TooManyRequestsHeaders) createDownPaymentRequestRes()         {}
 func (*TooManyRequestsHeaders) createExchangeRateRes()               {}
 func (*TooManyRequestsHeaders) createHierarchyRes()                  {}
 func (*TooManyRequestsHeaders) createLegalEntityRes()                {}
+func (*TooManyRequestsHeaders) createMemoRecordRes()                 {}
 func (*TooManyRequestsHeaders) createMigrationRunRes()               {}
 func (*TooManyRequestsHeaders) createOrgUnitRes()                    {}
 func (*TooManyRequestsHeaders) createPartnerChangeRes()              {}
@@ -39442,6 +41128,7 @@ func (*TooManyRequestsHeaders) getHierarchyRes()                     {}
 func (*TooManyRequestsHeaders) getJournalEntryRes()                  {}
 func (*TooManyRequestsHeaders) getLegalEntityRes()                   {}
 func (*TooManyRequestsHeaders) getMatchResultRes()                   {}
+func (*TooManyRequestsHeaders) getMemoRecordRes()                    {}
 func (*TooManyRequestsHeaders) getMigrationRunRes()                  {}
 func (*TooManyRequestsHeaders) getNumberRangeRes()                   {}
 func (*TooManyRequestsHeaders) getOperationRes()                     {}
@@ -39506,6 +41193,7 @@ func (*TooManyRequestsHeaders) listLedgerReconciliationRes()         {}
 func (*TooManyRequestsHeaders) listLedgersRes()                      {}
 func (*TooManyRequestsHeaders) listLegalEntitiesRes()                {}
 func (*TooManyRequestsHeaders) listMatchResultsRes()                 {}
+func (*TooManyRequestsHeaders) listMemoRecordsRes()                  {}
 func (*TooManyRequestsHeaders) listMigrationRunsRes()                {}
 func (*TooManyRequestsHeaders) listNumberRangesRes()                 {}
 func (*TooManyRequestsHeaders) listOpenItemsRes()                    {}
@@ -39556,7 +41244,9 @@ func (*TooManyRequestsHeaders) postRevaluationRunRes()               {}
 func (*TooManyRequestsHeaders) postSupplierInvoiceRes()              {}
 func (*TooManyRequestsHeaders) previewRevaluationRes()               {}
 func (*TooManyRequestsHeaders) proposeBankStatementLineRes()         {}
+func (*TooManyRequestsHeaders) proposeMemoRecordRes()                {}
 func (*TooManyRequestsHeaders) proposePaymentRunRes()                {}
+func (*TooManyRequestsHeaders) realiseMemoRecordRes()                {}
 func (*TooManyRequestsHeaders) reconcileMigrationRunRes()            {}
 func (*TooManyRequestsHeaders) recordAgentToolCallRes()              {}
 func (*TooManyRequestsHeaders) redateCostCenterRes()                 {}
@@ -39564,6 +41254,7 @@ func (*TooManyRequestsHeaders) redateProfitCenterRes()               {}
 func (*TooManyRequestsHeaders) redeliverWebhookDeliveryRes()         {}
 func (*TooManyRequestsHeaders) rejectApprovalRequestRes()            {}
 func (*TooManyRequestsHeaders) rejectBankStatementLineProposalRes()  {}
+func (*TooManyRequestsHeaders) rejectMemoRecordProposalRes()         {}
 func (*TooManyRequestsHeaders) rejectPaymentRunRes()                 {}
 func (*TooManyRequestsHeaders) releaseContractRes()                  {}
 func (*TooManyRequestsHeaders) releasePaymentRunRes()                {}
@@ -39600,6 +41291,7 @@ func (*TooManyRequestsHeaders) updateConnectorRes()                  {}
 func (*TooManyRequestsHeaders) updateContractRes()                   {}
 func (*TooManyRequestsHeaders) updateCostCenterRes()                 {}
 func (*TooManyRequestsHeaders) updateLegalEntityRes()                {}
+func (*TooManyRequestsHeaders) updateMemoRecordRes()                 {}
 func (*TooManyRequestsHeaders) updateOrgUnitRes()                    {}
 func (*TooManyRequestsHeaders) updateParkedJournalEntryRes()         {}
 func (*TooManyRequestsHeaders) updatePrincipalRes()                  {}
@@ -39611,6 +41303,7 @@ func (*TooManyRequestsHeaders) updateRoleRes()                       {}
 func (*TooManyRequestsHeaders) updateSegmentRes()                    {}
 func (*TooManyRequestsHeaders) updateSupplierInvoiceRes()            {}
 func (*TooManyRequestsHeaders) updateWebhookSubscriptionRes()        {}
+func (*TooManyRequestsHeaders) uploadMemoRecordsRes()                {}
 func (*TooManyRequestsHeaders) verifyAuditChainRes()                 {}
 func (*TooManyRequestsHeaders) withdrawChangeRequestRes()            {}
 
@@ -39674,6 +41367,7 @@ func (s *UnauthorizedHeaders) SetResponse(val Problem) {
 }
 
 func (*UnauthorizedHeaders) acceptBankStatementLineProposalRes()  {}
+func (*UnauthorizedHeaders) acceptMemoRecordProposalRes()         {}
 func (*UnauthorizedHeaders) activateChangeRequestRes()            {}
 func (*UnauthorizedHeaders) activateLegalEntityRes()              {}
 func (*UnauthorizedHeaders) activateOrgUnitRes()                  {}
@@ -39688,6 +41382,7 @@ func (*UnauthorizedHeaders) blockPrincipalRes()                   {}
 func (*UnauthorizedHeaders) cancelApprovalRequestRes()            {}
 func (*UnauthorizedHeaders) cancelContractRes()                   {}
 func (*UnauthorizedHeaders) cancelDownPaymentRequestRes()         {}
+func (*UnauthorizedHeaders) cancelMemoRecordRes()                 {}
 func (*UnauthorizedHeaders) cancelOperationRes()                  {}
 func (*UnauthorizedHeaders) cancelParkedJournalEntryRes()         {}
 func (*UnauthorizedHeaders) cancelPurchaseOrderChangeRes()        {}
@@ -39710,6 +41405,7 @@ func (*UnauthorizedHeaders) createDownPaymentRequestRes()         {}
 func (*UnauthorizedHeaders) createExchangeRateRes()               {}
 func (*UnauthorizedHeaders) createHierarchyRes()                  {}
 func (*UnauthorizedHeaders) createLegalEntityRes()                {}
+func (*UnauthorizedHeaders) createMemoRecordRes()                 {}
 func (*UnauthorizedHeaders) createMigrationRunRes()               {}
 func (*UnauthorizedHeaders) createOrgUnitRes()                    {}
 func (*UnauthorizedHeaders) createPartnerChangeRes()              {}
@@ -39771,6 +41467,7 @@ func (*UnauthorizedHeaders) getHierarchyRes()                     {}
 func (*UnauthorizedHeaders) getJournalEntryRes()                  {}
 func (*UnauthorizedHeaders) getLegalEntityRes()                   {}
 func (*UnauthorizedHeaders) getMatchResultRes()                   {}
+func (*UnauthorizedHeaders) getMemoRecordRes()                    {}
 func (*UnauthorizedHeaders) getMigrationRunRes()                  {}
 func (*UnauthorizedHeaders) getNumberRangeRes()                   {}
 func (*UnauthorizedHeaders) getOperationRes()                     {}
@@ -39835,6 +41532,7 @@ func (*UnauthorizedHeaders) listLedgerReconciliationRes()         {}
 func (*UnauthorizedHeaders) listLedgersRes()                      {}
 func (*UnauthorizedHeaders) listLegalEntitiesRes()                {}
 func (*UnauthorizedHeaders) listMatchResultsRes()                 {}
+func (*UnauthorizedHeaders) listMemoRecordsRes()                  {}
 func (*UnauthorizedHeaders) listMigrationRunsRes()                {}
 func (*UnauthorizedHeaders) listNumberRangesRes()                 {}
 func (*UnauthorizedHeaders) listOpenItemsRes()                    {}
@@ -39885,7 +41583,9 @@ func (*UnauthorizedHeaders) postRevaluationRunRes()               {}
 func (*UnauthorizedHeaders) postSupplierInvoiceRes()              {}
 func (*UnauthorizedHeaders) previewRevaluationRes()               {}
 func (*UnauthorizedHeaders) proposeBankStatementLineRes()         {}
+func (*UnauthorizedHeaders) proposeMemoRecordRes()                {}
 func (*UnauthorizedHeaders) proposePaymentRunRes()                {}
+func (*UnauthorizedHeaders) realiseMemoRecordRes()                {}
 func (*UnauthorizedHeaders) reconcileMigrationRunRes()            {}
 func (*UnauthorizedHeaders) recordAgentToolCallRes()              {}
 func (*UnauthorizedHeaders) redateCostCenterRes()                 {}
@@ -39893,6 +41593,7 @@ func (*UnauthorizedHeaders) redateProfitCenterRes()               {}
 func (*UnauthorizedHeaders) redeliverWebhookDeliveryRes()         {}
 func (*UnauthorizedHeaders) rejectApprovalRequestRes()            {}
 func (*UnauthorizedHeaders) rejectBankStatementLineProposalRes()  {}
+func (*UnauthorizedHeaders) rejectMemoRecordProposalRes()         {}
 func (*UnauthorizedHeaders) rejectPaymentRunRes()                 {}
 func (*UnauthorizedHeaders) releaseContractRes()                  {}
 func (*UnauthorizedHeaders) releasePaymentRunRes()                {}
@@ -39929,6 +41630,7 @@ func (*UnauthorizedHeaders) updateConnectorRes()                  {}
 func (*UnauthorizedHeaders) updateContractRes()                   {}
 func (*UnauthorizedHeaders) updateCostCenterRes()                 {}
 func (*UnauthorizedHeaders) updateLegalEntityRes()                {}
+func (*UnauthorizedHeaders) updateMemoRecordRes()                 {}
 func (*UnauthorizedHeaders) updateOrgUnitRes()                    {}
 func (*UnauthorizedHeaders) updateParkedJournalEntryRes()         {}
 func (*UnauthorizedHeaders) updatePrincipalRes()                  {}
@@ -39940,6 +41642,7 @@ func (*UnauthorizedHeaders) updateRoleRes()                       {}
 func (*UnauthorizedHeaders) updateSegmentRes()                    {}
 func (*UnauthorizedHeaders) updateSupplierInvoiceRes()            {}
 func (*UnauthorizedHeaders) updateWebhookSubscriptionRes()        {}
+func (*UnauthorizedHeaders) uploadMemoRecordsRes()                {}
 func (*UnauthorizedHeaders) verifyAuditChainRes()                 {}
 func (*UnauthorizedHeaders) withdrawChangeRequestRes()            {}
 
@@ -39992,6 +41695,7 @@ func (s *UnprocessableHeaders) SetResponse(val Problem) {
 }
 
 func (*UnprocessableHeaders) acceptBankStatementLineProposalRes()  {}
+func (*UnprocessableHeaders) acceptMemoRecordProposalRes()         {}
 func (*UnprocessableHeaders) activateChangeRequestRes()            {}
 func (*UnprocessableHeaders) activateLegalEntityRes()              {}
 func (*UnprocessableHeaders) activateOrgUnitRes()                  {}
@@ -40006,6 +41710,7 @@ func (*UnprocessableHeaders) blockPrincipalRes()                   {}
 func (*UnprocessableHeaders) cancelApprovalRequestRes()            {}
 func (*UnprocessableHeaders) cancelContractRes()                   {}
 func (*UnprocessableHeaders) cancelDownPaymentRequestRes()         {}
+func (*UnprocessableHeaders) cancelMemoRecordRes()                 {}
 func (*UnprocessableHeaders) cancelOperationRes()                  {}
 func (*UnprocessableHeaders) cancelParkedJournalEntryRes()         {}
 func (*UnprocessableHeaders) cancelPurchaseOrderChangeRes()        {}
@@ -40028,6 +41733,7 @@ func (*UnprocessableHeaders) createDownPaymentRequestRes()         {}
 func (*UnprocessableHeaders) createExchangeRateRes()               {}
 func (*UnprocessableHeaders) createHierarchyRes()                  {}
 func (*UnprocessableHeaders) createLegalEntityRes()                {}
+func (*UnprocessableHeaders) createMemoRecordRes()                 {}
 func (*UnprocessableHeaders) createMigrationRunRes()               {}
 func (*UnprocessableHeaders) createOrgUnitRes()                    {}
 func (*UnprocessableHeaders) createPartnerChangeRes()              {}
@@ -40084,7 +41790,9 @@ func (*UnprocessableHeaders) postRevaluationRunRes()               {}
 func (*UnprocessableHeaders) postSupplierInvoiceRes()              {}
 func (*UnprocessableHeaders) previewRevaluationRes()               {}
 func (*UnprocessableHeaders) proposeBankStatementLineRes()         {}
+func (*UnprocessableHeaders) proposeMemoRecordRes()                {}
 func (*UnprocessableHeaders) proposePaymentRunRes()                {}
+func (*UnprocessableHeaders) realiseMemoRecordRes()                {}
 func (*UnprocessableHeaders) reconcileMigrationRunRes()            {}
 func (*UnprocessableHeaders) recordAgentToolCallRes()              {}
 func (*UnprocessableHeaders) redateCostCenterRes()                 {}
@@ -40092,6 +41800,7 @@ func (*UnprocessableHeaders) redateProfitCenterRes()               {}
 func (*UnprocessableHeaders) redeliverWebhookDeliveryRes()         {}
 func (*UnprocessableHeaders) rejectApprovalRequestRes()            {}
 func (*UnprocessableHeaders) rejectBankStatementLineProposalRes()  {}
+func (*UnprocessableHeaders) rejectMemoRecordProposalRes()         {}
 func (*UnprocessableHeaders) rejectPaymentRunRes()                 {}
 func (*UnprocessableHeaders) releaseContractRes()                  {}
 func (*UnprocessableHeaders) releasePaymentRunRes()                {}
@@ -40128,6 +41837,7 @@ func (*UnprocessableHeaders) updateConnectorRes()                  {}
 func (*UnprocessableHeaders) updateContractRes()                   {}
 func (*UnprocessableHeaders) updateCostCenterRes()                 {}
 func (*UnprocessableHeaders) updateLegalEntityRes()                {}
+func (*UnprocessableHeaders) updateMemoRecordRes()                 {}
 func (*UnprocessableHeaders) updateOrgUnitRes()                    {}
 func (*UnprocessableHeaders) updateParkedJournalEntryRes()         {}
 func (*UnprocessableHeaders) updatePrincipalRes()                  {}
@@ -40139,6 +41849,7 @@ func (*UnprocessableHeaders) updateRoleRes()                       {}
 func (*UnprocessableHeaders) updateSegmentRes()                    {}
 func (*UnprocessableHeaders) updateSupplierInvoiceRes()            {}
 func (*UnprocessableHeaders) updateWebhookSubscriptionRes()        {}
+func (*UnprocessableHeaders) uploadMemoRecordsRes()                {}
 func (*UnprocessableHeaders) verifyAuditChainRes()                 {}
 func (*UnprocessableHeaders) withdrawChangeRequestRes()            {}
 
@@ -40584,6 +42295,82 @@ func (*UpdateLegalEntityOKHeaders) activateLegalEntityRes() {}
 func (*UpdateLegalEntityOKHeaders) blockLegalEntityRes()    {}
 func (*UpdateLegalEntityOKHeaders) unblockLegalEntityRes()  {}
 func (*UpdateLegalEntityOKHeaders) updateLegalEntityRes()   {}
+
+// UpdateMemoRecordOKHeaders wraps MemoRecord with response headers.
+type UpdateMemoRecordOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           MemoRecord
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateMemoRecordOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateMemoRecordOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *UpdateMemoRecordOKHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *UpdateMemoRecordOKHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *UpdateMemoRecordOKHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateMemoRecordOKHeaders) GetResponse() MemoRecord {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateMemoRecordOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateMemoRecordOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *UpdateMemoRecordOKHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *UpdateMemoRecordOKHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *UpdateMemoRecordOKHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateMemoRecordOKHeaders) SetResponse(val MemoRecord) {
+	s.Response = val
+}
+
+func (*UpdateMemoRecordOKHeaders) acceptMemoRecordProposalRes() {}
+func (*UpdateMemoRecordOKHeaders) cancelMemoRecordRes()         {}
+func (*UpdateMemoRecordOKHeaders) realiseMemoRecordRes()        {}
+func (*UpdateMemoRecordOKHeaders) rejectMemoRecordProposalRes() {}
+func (*UpdateMemoRecordOKHeaders) updateMemoRecordRes()         {}
 
 // UpdateOrgUnitOKHeaders wraps OrgUnit with response headers.
 type UpdateOrgUnitOKHeaders struct {

@@ -592,8 +592,8 @@ func (e *Endpoints) GetBankReconciliation(ctx context.Context, params gen.GetBan
 	}
 	amount := func(m money.Minor) gen.Money { return apitypes.Money(m, r.Currency, r.Exponent) }
 	out := gen.BankReconciliation{HouseBankID: r.HouseBankID, LegalEntityID: r.LegalEntityID, Currency: r.Currency,
-		ClosingDateFrom: optDate(r.From), ClosingDateTo: optDate(r.To), Items: make([]gen.BankReconciliationStatement, len(r.Statements)),
-		Summary: gen.BankReconciliationSummary{Statements: r.Summary.Statements, OpeningDate: optDate(r.Summary.OpeningDate), Lines: lineCounts(r.Summary.Counts)}}
+		ClosingDateFrom: apitypes.OptDate(r.From), ClosingDateTo: apitypes.OptDate(r.To), Items: make([]gen.BankReconciliationStatement, len(r.Statements)),
+		Summary: gen.BankReconciliationSummary{Statements: r.Summary.Statements, OpeningDate: apitypes.OptDate(r.Summary.OpeningDate), Lines: lineCounts(r.Summary.Counts)}}
 	if r.Summary.Opening != nil {
 		out.Summary.OpeningBalance.SetTo(amount(*r.Summary.Opening))
 	}
@@ -615,13 +615,6 @@ func (e *Endpoints) GetBankReconciliation(ctx context.Context, params gen.GetBan
 	return &gen.BankReconciliationHeaders{Response: out}, nil
 }
 
-func optDate(d *time.Time) gen.OptDate {
-	if d == nil {
-		return gen.OptDate{}
-	}
-	return gen.NewOptDate(*d)
-}
-
 func figuresToAPI(f Figures, amount func(money.Minor) gen.Money) gen.BankReconciliationFigures {
 	out := gen.BankReconciliationFigures{AsOf: f.AsOf, ClosingBalance: amount(f.Closing), Excluded: amount(f.Excluded), InTransit: amount(f.InTransit),
 		PostedLater: amount(f.PostedLater)}
@@ -640,7 +633,7 @@ func lineCounts(c LineCounts) gen.BankReconciliationLineCounts {
 func reconciledLineToAPI(l ReconciledLine, amount func(money.Minor) gen.Money) gen.BankReconciliationLine {
 	out := gen.BankReconciliationLine{LineNo: l.LineNo, BookingDate: l.BookingDate, Amount: amount(l.Amount), IsReversal: l.Reversal,
 		TransactionCode: l.TransactionCode, Status: l.Status, MatchID: apitypes.OptUUID(l.MatchID), MatchKind: apitypes.OptString(l.MatchKind),
-		MatchRule: apitypes.OptString(l.MatchRule), MatchStatus: apitypes.OptString(l.MatchStatus), PostingDate: optDate(l.PostingDate),
+		MatchRule: apitypes.OptString(l.MatchRule), MatchStatus: apitypes.OptString(l.MatchStatus), PostingDate: apitypes.OptDate(l.PostingDate),
 		JournalEntryID: apitypes.OptUUID(l.JournalEntryID), ApprovalRequestID: apitypes.OptUUID(l.ApprovalRequestID),
 		ProposalOutcome: apitypes.OptString(l.ProposalOutcome)}
 	if l.Incoming {

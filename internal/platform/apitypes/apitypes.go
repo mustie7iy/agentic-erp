@@ -43,6 +43,22 @@ func OptString(v *string) gen.OptString {
 	return gen.NewOptString(*v)
 }
 
+// OptDate is an optional date field from a pointer: unset when nil.
+func OptDate(v *time.Time) gen.OptDate {
+	if v == nil {
+		return gen.OptDate{}
+	}
+	return gen.NewOptDate(*v)
+}
+
+// OptInt32 is an optional integer field from a pointer: unset when nil.
+func OptInt32(v *int32) gen.OptInt32 {
+	if v == nil {
+		return gen.OptInt32{}
+	}
+	return gen.NewOptInt32(*v)
+}
+
 // OptNilString maps a merge-patch field: absent → nil, null → pointer to
 // nil, a value → pointer to a pointer to it.
 func OptNilString(s gen.OptNilString) **string {
@@ -54,14 +70,6 @@ func OptNilString(s gen.OptNilString) **string {
 		v = &s.Value
 	}
 	return &v
-}
-
-// OptDate is an optional response date from a pointer: unset when nil.
-func OptDate(v *time.Time) gen.OptDate {
-	if v == nil {
-		return gen.OptDate{}
-	}
-	return gen.NewOptDate(*v)
 }
 
 // OptNilDate maps a merge-patch date: absent → nil, null → pointer to nil,

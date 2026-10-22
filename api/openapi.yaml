@@ -58,7 +58,7 @@ tags:
   - name: payments
     description: Payment runs, payments and bank files.
   - name: cash
-    description: "Cash management (ADR-0051): the daily cash position, computed from statements, payments and runs."
+    description: "Cash management (ADR-0051): the daily cash position, computed from statements, payments, runs and memo records, and the memo records of expected receipts and payments."
   - name: workflow
     description: Approval requests and decisions. Decisions are human-only.
   - name: audit
@@ -13133,7 +13133,7 @@ paths:
       tags:
         - cash
       summary: Get a company's daily cash position
-      description: "The daily cash position of a legal entity (ADR-0051 §8, T53c), computed at the read from one database state (a repeatable-read snapshot): per house bank, in its own currency, and day from `from` (default the read date, UTC; an earlier day is 422, past days being actuals) for `days` days (1-31, default 14), the opening balance, the flows of the day by source and certainty, and the closing balance. The first day opens at the closing balance of the bank's latest statement closing before it (`opening.statement_date`; none: zero), plus the flows dated before it; it is `stale` when that statement closes before the working day before the read date (the company's calendar: weekends and its holidays) or there is none, and `gap` when a statement of the bank up to it does not open at its previous one's closing balance (ADR-0047). Flows: `in_transit`, the released payments whose line on the bank's clearing account is still open and that no statement line up to the opening statement matches (a revaluation's valuation and reset lines on the account are not payments and never count), and `payment_run`, the payments of runs `proposed` or `releasing` not posted yet, both `confirmed`, each dated its run date plus the bank's `cash.value_days` (by method), moved to the next working day; one dated before the read date is expected the working day after it and marked `late`. `book_balance` checks the opening statement against the ledger as the reconciliation report does (`GET /v1/house-banks/{id}/reconciliation`: the main bank account's balance on the statement's date, in the bank's currency, and what the statement lines explain of the difference), with the payments in transit, posted and not yet at the bank. A bank's `cash.credit_lines` amount is shown, and added to its closing balance as `available`; no limit is enforced. `currencies` sums the banks of each currency. `converted` totals every currency in `display_currency` (default the company's currency) at the latest rate of the company's `cash.rate_type` (default `planning`; with no planning rate, `average`) valid on the read date, one rate for every day; a rate valid from more than `cash.rate_max_age_days` (default 7) before the read date is used and marked `stale`, and a currency without a rate is left out of the total and listed in `incomplete_currencies`. Bank accounts appear by house bank code and last four characters, so agents read the position as people do. A legal entity the caller cannot act in is 404."
+      description: "The daily cash position of a legal entity (ADR-0051 §8, T53c), computed at the read from one database state (a repeatable-read snapshot): per house bank, in its own currency, and day from `from` (default the read date, UTC; an earlier day is 422, past days being actuals) for `days` days (1-31, default 14), the opening balance, the flows of the day by source and certainty, and the closing balance. The first day opens at the closing balance of the bank's latest statement closing before it (`opening.statement_date`; none: zero), plus the flows dated before it; it is `stale` when that statement closes before the working day before the read date (the company's calendar: weekends and its holidays) or there is none, and `gap` when a statement of the bank up to it does not open at its previous one's closing balance (ADR-0047). Flows: `in_transit`, the released payments whose line on the bank's clearing account is still open and that no statement line up to the opening statement matches (a revaluation's valuation and reset lines on the account are not payments and never count), and `payment_run`, the payments of runs `proposed` or `releasing` not posted yet, both `confirmed`, each dated its run date plus the bank's `cash.value_days` (by method), moved to the next working day; one dated before the read date is expected the working day after it and marked `late`; and `memo`, the `active` memo records on the bank not expired at the read (`GET /v1/memo-records`), at their own certainty, each occurrence of a series once, on its value date moved to the next working day, late as a payment is. `book_balance` checks the opening statement against the ledger as the reconciliation report does (`GET /v1/house-banks/{id}/reconciliation`: the main bank account's balance on the statement's date, in the bank's currency, and what the statement lines explain of the difference), with the payments in transit, posted and not yet at the bank. A bank's `cash.credit_lines` amount is shown, and added to its closing balance as `available`; no limit is enforced. `currencies` sums the banks of each currency. `converted` totals every currency in `display_currency` (default the company's currency) at the latest rate of the company's `cash.rate_type` (default `planning`; with no planning rate, `average`) valid on the read date, one rate for every day; a rate valid from more than `cash.rate_max_age_days` (default 7) before the read date is used and marked `stale`, and a currency without a rate is left out of the total and listed in `incomplete_currencies`. Bank accounts appear by house bank code and last four characters, so agents read the position as people do. A legal entity the caller cannot act in is 404."
       x-permission: cash.position.read
       x-slo-class: report
       x-snapshot: true
@@ -13195,6 +13195,610 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/memo-records:
+    get:
+      operationId: listMemoRecords
+      tags:
+        - cash
+      summary: List memo records
+      description: "The memo records of the legal entities the caller may act in (ADR-0051 §7, T53d): expected receipts and payments entered by people, uploaded, or proposed by an agent. `status` is the record's as of the read date: an `active` record whose last occurrence's expiry date has passed is `expired` (it no longer counts until a person moves, extends or cancels it). Sortable by: `value_date` (default), `created_at`."
+      x-permission: cash.memo.read
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: status
+          in: query
+          required: false
+          description: Only memo records in this status as of the read date.
+          schema:
+            type: string
+            description: "Memo record status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [proposed, active, expired, realised, cancelled, rejected]
+        - name: house_bank_id
+          in: query
+          required: false
+          description: Only memo records of this house bank.
+          schema:
+            type: string
+            format: uuid
+        - name: batch_key
+          in: query
+          required: false
+          description: Only the memo records an upload of this batch key wrote.
+          schema:
+            type: string
+            pattern: "^[A-Za-z0-9._:-]{1,100}$"
+        - name: value_from
+          in: query
+          required: false
+          description: Only memo records whose value date is on or after this day (a series by its first occurrence).
+          schema:
+            type: string
+            format: date
+        - name: value_to
+          in: query
+          required: false
+          description: Only memo records whose value date is on or before this day.
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of memo records.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoRecordPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createMemoRecord
+      tags:
+        - cash
+      summary: Create a memo record
+      description: "Creates an `active` memo record (ADR-0051 §7, T53d): an expected receipt (positive amount) or payment (negative), one-off or recurring (`recurrence`: `weekly`, `monthly` on the value date's day, the month's last day when shorter, or `quarterly`, ending `until` a day or after `count` occurrences, or open-ended), with its liquidity item, certainty (`confirmed`, `expected` default, `planned`) and expiry date (default the value date plus 7 days; for a series each occurrence expires as many days after its own date). A memo record counts in the cash position (`GET /v1/cash-position`, source `memo`, its own certainty) when it is `active` and names a house bank, on its value date moved to the next working day of the company's calendar; one dated before the read date and not expired is `late`, expected the working day after the read date, as a late payment is; without a house bank it is for the liquidity forecast only (T53e). The house bank, if given, must be an active house bank of the legal entity in the record's currency (422 `cash.house_bank_invalid`); the liquidity item an active one whose direction fits the amount's sign (422 `cash.liquidity_item_invalid`). With `recurrence_of` and `occurrence_date` the record overrides one occurrence of an active series of the same legal entity and currency (422 `cash.occurrence_invalid`), once per occurrence (409 `cash.occurrence_overridden`). No approval: a memo record posts nothing (ADR-0051 §7). People and integrations create them; an agent proposes (`:propose`). A legal entity the caller cannot act in is 404. Audited, and published as MemoRecordChanged."
+      x-permission: cash.memo.write
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The memo record.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemoRecordCreate"
+      responses:
+        "201":
+          description: "Created; the memo record."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/memo-record-proposals:
+    post:
+      operationId: proposeMemoRecord
+      tags:
+        - cash
+      summary: Propose a memo record
+      description: "An agent proposes a memo record in its running session (`session_id`; another's or an ended one is refused as `createRecommendation` refuses it), with the reason and the bank statement lines that are its evidence (each a line of the legal entity, 422 `cash.statement_line_invalid`): an expected flow it sees in history and not in the forecast, such as a monthly receipt or a quarterly tax instalment (ADR-0051 §13). The record is `proposed`, checked as `createMemoRecord` checks one, and counts nowhere until a person accepts it (`:acceptProposal`); a person may change it first (`PATCH`) or reject it (`:rejectProposal`). Agents never create, change, accept or close a memo record otherwise. Audited, and published as MemoRecordChanged."
+      x-permission: cash.memo.propose
+      x-autonomy: propose
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of proposeMemoRecord.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemoRecordProposal"
+      responses:
+        "201":
+          description: "Proposed; the memo record, `proposed`."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/memo-record-uploads:
+    post:
+      operationId: uploadMemoRecords
+      tags:
+        - cash
+      summary: Upload a batch of memo records
+      description: "Uploads a batch of memo records for a legal entity from a CSV file (ADR-0051 §7, T53d), such as the expected receipts of the system that issues the company's invoices until receivables exist. The file is UTF-8, at most 1 MB and 5,000 rows, with a header row naming its columns in any order: `reference` (required, unique in the file, at most 100 characters), `value_date` (YYYY-MM-DD), `amount` (signed decimal with the currency's minor-unit digits: a receipt positive, a payment negative), `currency`, `liquidity_item`, and optionally `certainty` (default `expected`), `house_bank` (a house bank code of the legal entity), `expires_on` and `description`; another column is refused. Each row is checked as `createMemoRecord` checks a record; if any row is wrong nothing is written and the 422 `cash.memo_upload_invalid` names every wrong field as `rows[N].column`, N the file's line number (at most 100 of them). Idempotent by `batch_key`: a batch replaces the records of its key and legal entity that are not realised, by reference: a reference new to the key is created, one whose record differs is changed (and becomes `active` again if it was cancelled), one that is the same is left as it is, a realised one is kept as it is, and an `active` record of the key whose reference the file no longer has is cancelled. The same file again changes nothing and publishes nothing. Uploaded records are `active` with origin `upload`. Audited per record, and published as MemoRecordChanged per record written."
+      x-permission: cash.memo.write
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of uploadMemoRecords.
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/MemoRecordUpload"
+      responses:
+        "200":
+          description: What the batch created, changed, left and cancelled.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoRecordUploadResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/memo-records/{id}":
+    get:
+      operationId: getMemoRecord
+      tags:
+        - cash
+      summary: Get a memo record
+      description: "One memo record, with its status as of the read date. A memo record of a legal entity the caller cannot act in is not found."
+      x-permission: cash.memo.read
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The memo record.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateMemoRecord
+      tags:
+        - cash
+      summary: Change a memo record
+      description: "Changes a memo record that is `proposed`, `active` or `expired` (409 `cash.memo_record_closed` otherwise), checked as a new one is: confirm or move an expected flow (a new `value_date` without `expires_on` keeps the days between them), change its amount, item, certainty, bank or texts, or a series' `recurrence`. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears the house bank, description or reference. A series stays a series, a one-off a one-off. While a series has overrides of its occurrences, its value date, rule and currency stay (409 `cash.series_has_overrides`), and an override keeps its series' currency (422 `cash.occurrence_invalid`); an uploaded record keeps its reference (422). Audited, and published as MemoRecordChanged."
+      x-permission: cash.memo.write
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the memo record.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/MemoRecordUpdate"
+      responses:
+        "200":
+          description: "Updated; the memo record after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/memo-records/{id}:cancel":
+    post:
+      operationId: cancelMemoRecord
+      tags:
+        - cash
+      summary: Cancel a memo record or one occurrence
+      description: "Cancels an `active` or `expired` memo record (409 `cash.memo_record_closed`; an agent's proposal is accepted or rejected instead, 409 `cash.memo_record_proposed`): it stops counting. On a series, `occurrence_date` cancels that occurrence only (a skipped occurrence: a `cancelled` override of it, returned with status 201), or the whole series without it (its overrides are records of their own and stay as they are). An occurrence with an override is acted on through the override (409 `cash.occurrence_overridden`). Audited, and published as MemoRecordChanged."
+      x-permission: cash.memo.write
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of cancelMemoRecord.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemoRecordCancel"
+      responses:
+        "200":
+          description: "The memo record after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoRecord"
+        "201":
+          description: "The override of the occurrence, created."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/memo-records/{id}:realise":
+    post:
+      operationId: realiseMemoRecord
+      tags:
+        - cash
+      summary: Mark a memo record realised
+      description: "Marks an `active` or `expired` memo record `realised` (409 `cash.memo_record_closed`; an agent's proposal is accepted or rejected instead, 409 `cash.memo_record_proposed`): the expected flow happened, so it stops counting at once. With `statement_id` and `line_no` it is realised by that bank statement line, which must be of the record's legal entity, currency and house bank if it names one, in the amount's direction (422 `cash.statement_line_invalid`); without them a person closes it as realised. On a series, `occurrence_date` is required (422) and realises that occurrence: a `realised` override of it, returned with status 201. Audited, and published as MemoRecordChanged."
+      x-permission: cash.memo.write
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of realiseMemoRecord.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemoRecordRealise"
+      responses:
+        "200":
+          description: "The memo record after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoRecord"
+        "201":
+          description: "The override of the occurrence, created."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/memo-records/{id}:acceptProposal":
+    post:
+      operationId: acceptMemoRecordProposal
+      tags:
+        - cash
+      summary: Accept an agent's proposed memo record
+      description: "A person accepts an agent's `proposed` memo record (409 `cash.memo_record_not_proposed` otherwise): it becomes `active` and counts. Its liquidity item and house bank are checked again (422). Audited, and published as MemoRecordChanged."
+      x-permission: cash.memo.write
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of acceptMemoRecordProposal.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemoRecordAccept"
+      responses:
+        "200":
+          description: "The memo record after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/memo-records/{id}:rejectProposal":
+    post:
+      operationId: rejectMemoRecordProposal
+      tags:
+        - cash
+      summary: Reject an agent's proposed memo record
+      description: "A person rejects an agent's `proposed` memo record, with a reason (409 `cash.memo_record_not_proposed` otherwise): it becomes `rejected` and never counts. Audited, and published as MemoRecordChanged."
+      x-permission: cash.memo.write
+      x-agent: false
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of rejectMemoRecordProposal.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonInput"
+      responses:
+        "200":
+          description: "The memo record after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   "/v1/bank-files/{id}":
     get:
       operationId: getBankFile
@@ -28049,14 +28653,14 @@ components:
         source:
           type: string
           description: "Where the flows come from (ADR-0051 §4). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-          x-extensible-enum: [in_transit, payment_run]
+          x-extensible-enum: [in_transit, payment_run, memo]
           readOnly: true
         certainty:
           type: string
           description: "How certain the flows are. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum: [actual, confirmed, expected, planned]
           readOnly: true
-        late: {type: boolean, description: "True for payments dated before the read date and still not at the bank, expected the working day after it.", readOnly: true}
+        late: {type: boolean, description: "True for payments and memo records dated before the read date and still not at the bank, expected the working day after it.", readOnly: true}
         amount: {$ref: "#/components/schemas/Money"}
         count: {type: integer, format: int32, minimum: 1, description: How many flows., readOnly: true}
     CashPositionCurrency:
@@ -28115,6 +28719,265 @@ components:
         opening: {$ref: "#/components/schemas/Money"}
         closing: {$ref: "#/components/schemas/Money"}
         available: {$ref: "#/components/schemas/Money"}
+    MemoRecord:
+      description: "A memo record (ADR-0051 §7, SAP's memo records): an expected receipt or payment entered by a person, uploaded or proposed by an agent, one-off or recurring, counting in the cash position on its house bank and in the liquidity forecast until it expires or is realised, cancelled or rejected."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [legal_entity_id, amount, direction, value_date, expires_on, certainty, liquidity_item, status, origin]
+          properties:
+            legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
+            house_bank_id: {type: string, format: uuid, description: "The house bank it is expected on; absent: forecast only.", readOnly: true}
+            amount: {$ref: "#/components/schemas/Money"}
+            direction:
+              type: string
+              description: "`inflow` for a positive amount, `outflow` for a negative one. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [inflow, outflow]
+              readOnly: true
+            value_date: {type: string, format: date, description: "The day it is expected at the bank; a series' first occurrence.", readOnly: true}
+            expires_on: {type: string, format: date, description: "The last day it counts; for a series, the first occurrence's, each occurrence expiring as many days after its own date.", readOnly: true}
+            certainty:
+              type: string
+              description: "How certain it is. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [confirmed, expected, planned]
+              readOnly: true
+            liquidity_item: {type: string, description: "The liquidity item (`cash.liquidity_items`).", readOnly: true}
+            description: {type: string, description: Description., readOnly: true}
+            reference: {type: string, description: "The reference of the document it expects (an invoice number); unique per upload batch.", readOnly: true}
+            recurrence: {$ref: "#/components/schemas/MemoRecurrence"}
+            recurrence_of: {type: string, format: uuid, description: "The series whose occurrence it overrides.", readOnly: true}
+            occurrence_date: {type: string, format: date, description: "The occurrence of the series it overrides.", readOnly: true}
+            status:
+              type: string
+              description: "`proposed` (an agent's, counting nowhere until a person accepts it), `active`, `expired` (active, its last occurrence's expiry date past at the read), `realised`, `cancelled`, `rejected`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [proposed, active, expired, realised, cancelled, rejected]
+              readOnly: true
+            origin:
+              type: string
+              description: "How it was made. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [manual, upload, agent]
+              readOnly: true
+            session_id: {type: string, format: uuid, description: "The agent session that proposed it.", readOnly: true}
+            reason: {type: string, description: "The agent's reason for proposing it.", readOnly: true}
+            evidence:
+              type: array
+              items: {$ref: "#/components/schemas/StatementLineRef"}
+              description: "The statement lines the agent cites."
+              readOnly: true
+            batch_key: {type: string, description: "The upload batch that wrote it.", readOnly: true}
+            realised_by: {$ref: "#/components/schemas/StatementLineRef"}
+            decided_by: {type: string, format: uuid, description: "The person who accepted, rejected, realised or cancelled it.", readOnly: true}
+            decided_at: {type: string, format: date-time, description: "When.", readOnly: true}
+            comment: {type: string, description: "The person's comment or reason on that decision.", readOnly: true}
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000d01
+          version: 1
+          created_at: "2026-10-21T09:00:00Z"
+          created_by: 0192a000-0000-7000-8000-000000000101
+          updated_at: "2026-10-21T09:00:00Z"
+          legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          house_bank_id: 0192a000-0000-7000-8000-000000000b01
+          amount: {amount: "12500.00", currency: CAD}
+          direction: inflow
+          value_date: "2026-10-30"
+          expires_on: "2026-11-06"
+          certainty: expected
+          liquidity_item: REC_CUSTOMERS
+          description: Northwind's October invoices
+          reference: INV-2026-0912
+          status: active
+          origin: manual
+    MemoRecurrence:
+      type: object
+      description: "How a series repeats from its value date: `weekly`, `monthly` on the value date's day (the month's last day when shorter) or `quarterly`, until a day or for a count of occurrences, at most one of them; neither: until cancelled."
+      required: [frequency]
+      properties:
+        frequency:
+          type: string
+          description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [weekly, monthly, quarterly]
+        until: {type: string, format: date, description: "The last day an occurrence may fall on."}
+        count: {type: integer, format: int32, minimum: 2, maximum: 520, description: How many occurrences.}
+      additionalProperties: false
+      examples:
+        - {frequency: monthly, count: 12}
+    StatementLineRef:
+      type: object
+      description: A bank statement line.
+      required: [statement_id, line_no]
+      properties:
+        statement_id: {type: string, format: uuid, description: The bank statement.}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line's number in the statement."}
+      additionalProperties: false
+      examples:
+        - {statement_id: 0192a000-0000-7000-8000-000000000e01, line_no: 3}
+    MemoRecordCreate:
+      type: object
+      description: "A new memo record."
+      required: [legal_entity_id, amount, value_date, liquidity_item]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: The legal entity.}
+        house_bank_id: {type: string, format: uuid, description: "An active house bank of the legal entity in the amount's currency; absent: forecast only."}
+        amount: {$ref: "#/components/schemas/Money"}
+        value_date: {type: string, format: date, description: "The day it is expected at the bank; a series' first occurrence."}
+        expires_on: {type: string, format: date, description: "The last day it counts, on or after the value date; default the value date plus 7 days."}
+        certainty:
+          type: string
+          description: "Default `expected`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [confirmed, expected, planned]
+        liquidity_item: {type: string, pattern: "^[A-Z][A-Z0-9_]{0,29}$", description: "An active liquidity item whose direction fits the amount's sign."}
+        description: {type: string, minLength: 1, maxLength: 500, description: Description.}
+        reference: {type: string, minLength: 1, maxLength: 100, description: "The reference of the document it expects."}
+        recurrence: {$ref: "#/components/schemas/MemoRecurrence"}
+        recurrence_of: {type: string, format: uuid, description: "An active series whose occurrence this record overrides; with `occurrence_date`."}
+        occurrence_date: {type: string, format: date, description: "The occurrence it overrides; with `recurrence_of`."}
+      additionalProperties: false
+      examples:
+        - legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          house_bank_id: 0192a000-0000-7000-8000-000000000b01
+          amount: {amount: "-4200.00", currency: CAD}
+          value_date: "2026-11-01"
+          liquidity_item: OP_RENT
+          description: Office rent
+          recurrence: {frequency: monthly}
+    MemoRecordProposal:
+      type: object
+      description: "An agent's proposed memo record, in its running session, with its reason and evidence."
+      required: [session_id, reason, legal_entity_id, amount, value_date, liquidity_item]
+      properties:
+        session_id: {type: string, format: uuid, description: "The caller's running agent session."}
+        reason: {type: string, minLength: 1, maxLength: 2000, description: "Why, with the history that supports it; recorded on the record and in the audit trail, for the person who decides; the event carries no free text."}
+        evidence:
+          type: array
+          items: {$ref: "#/components/schemas/StatementLineRef"}
+          maxItems: 50
+          description: "The statement lines of the legal entity the proposal rests on."
+        legal_entity_id: {type: string, format: uuid, description: The legal entity.}
+        house_bank_id: {type: string, format: uuid, description: "An active house bank of the legal entity in the amount's currency; absent: forecast only."}
+        amount: {$ref: "#/components/schemas/Money"}
+        value_date: {type: string, format: date, description: "The day it is expected at the bank; a series' first occurrence."}
+        expires_on: {type: string, format: date, description: "The last day it counts; default the value date plus 7 days."}
+        certainty:
+          type: string
+          description: "Default `expected`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [confirmed, expected, planned]
+        liquidity_item: {type: string, pattern: "^[A-Z][A-Z0-9_]{0,29}$", description: "An active liquidity item whose direction fits the amount's sign."}
+        description: {type: string, minLength: 1, maxLength: 500, description: Description.}
+        reference: {type: string, minLength: 1, maxLength: 100, description: "The reference of the document it expects."}
+        recurrence: {$ref: "#/components/schemas/MemoRecurrence"}
+      additionalProperties: false
+      examples:
+        - session_id: 0192a000-0000-7000-8000-000000000a01
+          reason: "Northwind has paid about CAD 12,500 on the last business day of each of the last six months; nothing forecasts it."
+          evidence: [{statement_id: 0192a000-0000-7000-8000-000000000e01, line_no: 3}]
+          legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          house_bank_id: 0192a000-0000-7000-8000-000000000b01
+          amount: {amount: "12500.00", currency: CAD}
+          value_date: "2026-10-30"
+          liquidity_item: REC_CUSTOMERS
+          recurrence: {frequency: monthly, count: 3}
+    MemoRecordUpdate:
+      type: object
+      description: "Merge patch of a memo record."
+      properties:
+        house_bank_id: {type: [string, "null"], format: uuid, description: "An active house bank of the legal entity in the amount's currency. Send null for forecast only."}
+        amount: {$ref: "#/components/schemas/Money"}
+        value_date: {type: string, format: date, description: "The new value date; without `expires_on` the days between them are kept."}
+        expires_on: {type: string, format: date, description: "The last day it counts, on or after the value date."}
+        certainty:
+          type: string
+          description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [confirmed, expected, planned]
+        liquidity_item: {type: string, pattern: "^[A-Z][A-Z0-9_]{0,29}$", description: "An active liquidity item whose direction fits the amount's sign."}
+        description: {type: [string, "null"], minLength: 1, maxLength: 500, description: Description. Send null to clear.}
+        reference: {type: [string, "null"], minLength: 1, maxLength: 100, description: Reference. Send null to clear.}
+        recurrence: {$ref: "#/components/schemas/MemoRecurrence"}
+      additionalProperties: false
+      examples:
+        - {value_date: "2026-11-04"}
+    MemoRecordCancel:
+      type: object
+      description: "A memo record's cancellation, or a series' occurrence's."
+      properties:
+        occurrence_date: {type: string, format: date, description: "The occurrence of a series to cancel alone."}
+        comment: {type: string, minLength: 1, maxLength: 2000, description: "Why; recorded on the record and in the audit trail."}
+      additionalProperties: false
+      examples:
+        - {comment: "The customer paid early, by cheque."}
+    MemoRecordRealise:
+      type: object
+      description: "A memo record realised, by a statement line or by a person."
+      properties:
+        statement_id: {type: string, format: uuid, description: "The statement of the line that realises it; with `line_no`."}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line's number; with `statement_id`."}
+        occurrence_date: {type: string, format: date, description: "The occurrence of a series realised; required for a series."}
+        comment: {type: string, minLength: 1, maxLength: 2000, description: "Recorded on the record and in the audit trail."}
+      additionalProperties: false
+      examples:
+        - {statement_id: 0192a000-0000-7000-8000-000000000e01, line_no: 3}
+    MemoRecordAccept:
+      type: object
+      description: "A person's acceptance of an agent's proposed memo record."
+      properties:
+        comment: {type: string, minLength: 1, maxLength: 2000, description: "Recorded on the record and in the audit trail."}
+      additionalProperties: false
+      examples:
+        - {comment: "Matches the customer's payment plan."}
+    MemoRecordUpload:
+      type: object
+      description: "A CSV file of memo records for a legal entity, under a batch key."
+      required: [legal_entity_id, batch_key, file]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: The legal entity.}
+        batch_key:
+          type: string
+          pattern: "^[A-Za-z0-9._:-]{1,100}$"
+          description: "The batch: an upload replaces the records of its key that are not realised."
+        file:
+          type: string
+          contentMediaType: text/csv
+          description: "The CSV file, UTF-8, at most 1 MB and 5,000 rows, with a header row."
+      examples:
+        - legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          batch_key: billing-2026-10
+          file: "reference,value_date,amount,currency,liquidity_item\nINV-1,2026-10-30,12500.00,CAD,REC_CUSTOMERS\n"
+    MemoRecordUploadResult:
+      type: object
+      description: "What an upload did to the records of its batch key."
+      required: [legal_entity_id, batch_key, rows, created, changed, unchanged, cancelled, kept_realised]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
+        batch_key: {type: string, description: The batch key., readOnly: true}
+        rows: {type: integer, format: int32, minimum: 0, description: "The file's rows.", readOnly: true}
+        created: {type: integer, format: int32, minimum: 0, description: "Records created for references new to the key.", readOnly: true}
+        changed: {type: integer, format: int32, minimum: 0, description: "Records changed to their row, or made active again.", readOnly: true}
+        unchanged: {type: integer, format: int32, minimum: 0, description: "Records already as their row.", readOnly: true}
+        cancelled: {type: integer, format: int32, minimum: 0, description: "Active records of the key whose reference the file no longer has.", readOnly: true}
+        kept_realised: {type: integer, format: int32, minimum: 0, description: "Rows whose record is realised, kept as it is.", readOnly: true}
+      examples:
+        - {legal_entity_id: 0192a000-0000-7000-8000-000000000201, batch_key: billing-2026-10, rows: 120, created: 4, changed: 2, unchanged: 114, cancelled: 1, kept_realised: 0}
+    MemoRecordPage:
+      type: object
+      description: One page of memo records.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MemoRecord"
+          description: The memo records on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+      examples:
+        - items: []
     BankReconciliationSummary:
       type: object
       description: "The period's figures: its statements, the first one's opening balance, the figures on the last closing date, and the lines of its statements by status."

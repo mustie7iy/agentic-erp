@@ -17,13 +17,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-func optInt(v *int32) gen.OptInt32 {
-	if v == nil {
-		return gen.OptInt32{}
-	}
-	return gen.NewOptInt32(*v)
-}
-
 func requisitionInputs(items []gen.RequisitionItem) []ItemInput {
 	out := make([]ItemInput, len(items))
 	for i, it := range items {
@@ -111,13 +104,13 @@ func orderItemToAPI(it Item, currency string, exp int) gen.PurchaseOrderItem {
 	return gen.PurchaseOrderItem{ItemNo: gen.NewOptInt32(it.No), MaterialID: apitypes.OptUUID(it.MaterialID), Description: it.Description,
 		Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, UnitPrice: apitypes.Money(it.UnitPrice, currency, exp),
 		PriceUnit: gen.NewOptInt32(it.PriceUnit), AccountID: it.AccountID, OverDeliveryPct: gen.NewOptDecimal(gen.Decimal(it.OverDelivery)),
-		TaxCode: apitypes.OptString(it.TaxCode), ContractItemNo: optInt(it.ContractItemNo)}
+		TaxCode: apitypes.OptString(it.TaxCode), ContractItemNo: apitypes.OptInt32(it.ContractItemNo)}
 }
 
 func changeToAPI(ch PurchaseOrderChange) gen.PurchaseOrderChange {
 	out := gen.PurchaseOrderChange{ID: ch.ID, Version: ch.Version, CreatedAt: ch.CreatedAt, CreatedBy: ch.CreatedBy, UpdatedAt: ch.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(ch.UpdatedBy), PurchaseOrderID: ch.PurchaseOrderID, Status: ch.Status, Reason: ch.Reason,
-		BaseRevision: ch.BaseRevision, Revision: optInt(ch.Revision), OrderDate: ch.Proposed.OrderDate, PaymentTermCode: ch.Proposed.PaymentTermCode,
+		BaseRevision: ch.BaseRevision, Revision: apitypes.OptInt32(ch.Revision), OrderDate: ch.Proposed.OrderDate, PaymentTermCode: ch.Proposed.PaymentTermCode,
 		Extensions: gen.NewOptExtensions(apitypes.EncodeObject(ch.Proposed.Extensions)), Items: make([]gen.PurchaseOrderItem, len(ch.Proposed.Items)),
 		TotalBefore: apitypes.Money(ch.TotalBefore, ch.Currency, ch.Exponent), TotalAfter: apitypes.Money(ch.TotalAfter, ch.Currency, ch.Exponent),
 		ApprovalRequestID: apitypes.OptUUID(ch.ApprovalRequestID)}

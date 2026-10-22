@@ -34,6 +34,26 @@ func TestOptUUID(t *testing.T) {
 	}
 }
 
+func TestOptDate(t *testing.T) {
+	if got := apitypes.OptDate(nil); got.Set {
+		t.Errorf("nil: got %v, want unset", got)
+	}
+	d := time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC)
+	if got := apitypes.OptDate(&d); got != gen.NewOptDate(d) {
+		t.Errorf("value: got %v, want %v", got, d)
+	}
+}
+
+func TestOptInt32(t *testing.T) {
+	if got := apitypes.OptInt32(nil); got.Set {
+		t.Errorf("nil: got %v, want unset", got)
+	}
+	n := int32(3)
+	if got := apitypes.OptInt32(&n); got != gen.NewOptInt32(3) {
+		t.Errorf("value: got %v, want 3", got)
+	}
+}
+
 func TestOptString(t *testing.T) {
 	if got := apitypes.OptString(nil); got.Set {
 		t.Errorf("nil: got %v, want unset", got)
