@@ -315,7 +315,8 @@ jobs:
         # (internal/web/e2e, ADR-0052): it fails rather than skips without one.
         env:
           ERP_E2E_REQUIRE_BROWSER: "true"
-        # -timeout 30m as in weekly.yml and ci-local: cmd/erp's walkthrough
+        # -timeout 60m as in ci-local and weekly.yml: the ledger and payments
+        # suites are slow under the race detector, and cmd/erp's walkthrough
         # (TestWalkthrough) builds the binaries and tells the whole story.
         # The race build shares nothing with the plain build cache above; drop
         # it first so the runner's disk (72 GB, most of it taken by the image)
@@ -323,7 +324,7 @@ jobs:
         run: |
           go clean -cache
           df -h / | tail -1
-          go test -race -count=1 -timeout 30m ./...
+          go test -race -count=1 -timeout 60m ./...
       - name: Performance budgets (without the race detector)
         # The runner is about twice as slow as a laptop on these; the scaled
         # budgets still catch a regression (ERP_BUDGET_SCALE, docs/testing.md).
