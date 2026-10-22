@@ -129,7 +129,7 @@ func Layout(s Shell, content templ.Component) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		for _, item := range Nav {
+		for _, item := range navOf(s) {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<li><a class=\"navigation__link\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

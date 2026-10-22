@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/a-h/templ"
 	templruntime "github.com/a-h/templ/runtime"
@@ -54,7 +55,189 @@ func components() map[string]templ.Component {
 		"statusContent":   statusContent(Status{Version: "devel"}),
 		"NotFound":        NotFound(shell()),
 		"notFoundContent": notFoundContent(),
+		"Inbox":           Inbox(signedIn(), inboxFull()),
+		"inbox empty":     inboxContent(InboxPage{}),
+		"inbox refused":   inboxContent(InboxPage{Refusal: &Refusal{Title: i18n.InboxRefusedTitle, Message: i18n.ProblemPermission, Code: "identity.permission_missing"}}),
+		"inbox last page": inboxContent(InboxPage{Approvals: []Approval{approval(false)}}),
+		"Card":            Card(approval(true)),
+		"card plain":      Card(Approval{Path: "/approvals/2", Title: "t", Kind: Label{Raw: "new_kind"}}),
+		"Fact":            Fact(i18n.ApprovalKind, Value("v")),
+		"Amount":          Amount(Money{Amount: "1.00", Currency: "EUR"}),
+		"Principal":       Principal(Name{Text: "Avery"}),
+		"principal agent": Principal(Name{Text: "Matcher", Agent: true}),
+		"principal none":  Principal(Name{}),
+		"Date":            Date(day),
+		"StatusTag":       StatusTag(Label{Key: i18n.StatusApproved}),
+		"status raw":      StatusTag(Label{Raw: "on_hold"}),
+		"Barred":          Barred(i18n.InboxBarredBody, []string{"a.b", "c.d"}),
+		"RefusalNotice":   RefusalNotice(refusal()),
+		"refusal other":   RefusalNotice(Refusal{Title: i18n.RefusalTitle, Fallback: "Gone", Code: "x.y"}),
+		"Request":         Request(signedIn(), requestPage(true)),
+		"request closed":  requestContent(requestPage(false)),
+		"StepItem":        StepItem(Step{No: 1, Required: 2, Approvals: 1, Current: true}),
+		"step done":       StepItem(Step{No: 1, Required: 1, Approvals: 1}),
+		"DecisionItem":    DecisionItem(Decision{Label: Label{Key: i18n.StatusRejected}, By: Name{Text: "B"}, At: day, Comment: "No"}),
+		"decision bare":   DecisionItem(Decision{Label: Label{Key: i18n.StatusApproved}, By: Name{Text: "B"}, At: day}),
+		"DecideForm":      DecideForm(forms(), true),
+		"decide reject":   DecideForm(forms(), false),
+		"decideHidden":    decideHidden("c", `"1"`, "k"),
+		"CommentField":    CommentField("f", i18n.DecideComment, i18n.DecideCommentHint, "text", i18n.DecideTooLong),
+		"comment plain":   CommentField("f", i18n.DecideComment, i18n.DecideCommentHint, "", ""),
+		// The supplier invoices (T73e).
+		"Invoices":           Invoices(signedIn(), invoiceList()),
+		"queue invalid":      invoicesContent(InvoiceList{Invalid: true}),
+		"queue refused":      invoicesContent(InvoiceList{Refusal: &Refusal{Title: i18n.InvoicesRefusedTitle, Code: "x.y", Fallback: "No"}}),
+		"queue empty":        invoicesContent(InvoiceList{Filters: InvoiceFilters{From: "x", FromError: i18n.FilterDateInvalid}}),
+		"queue last page":    invoicesContent(InvoiceList{Rows: []InvoiceRow{invoiceRow(false)}}),
+		"StatusTabs":         StatusTabs([]StatusTab{{Label: i18n.InvoicesStatusAll, Path: "/invoices", Current: true}, {Label: i18n.InvoiceStatusParked, Path: "/invoices?status=parked"}}),
+		"FilterForm":         FilterForm(InvoiceFilters{Supplier: Supplier{ID: "s1", Name: "Northwind", Number: "BP1"}, SupplierClear: "/invoices"}, []Option{{Value: "c1", Text: "Acme", Selected: true}}),
+		"filters plain":      FilterForm(InvoiceFilters{}, nil),
+		"InputField":         InputField("i", "n", "date", i18n.FilterFrom, i18n.FilterDateHint, "x", i18n.FilterDateInvalid),
+		"input plain":        InputField("i", "n", "text", i18n.FilterNumber, i18n.FilterNumberHint, "", ""),
+		"InvoiceCard":        InvoiceCard(invoiceRow(true)),
+		"card plain invoice": InvoiceCard(InvoiceRow{Path: "/invoices/2", Number: "SI2", Kind: Label{Raw: "invoice"}, Status: Label{Raw: "new"}}),
+		"supplierFilter":     supplierFilter(invoiceRow(false)),
+		"SupplierName":       SupplierName(Supplier{ID: "s1"}),
+		"Data":               Data("INV-1"),
+		"Day":                Day(day),
+		"Number":             Number(10),
+		"Quantity":           Quantity("12.5", "KG"),
+		"InvoiceStatusTag":   InvoiceStatusTag(Label{Key: i18n.InvoiceStatusOnHold}),
+		"Invoice":            Invoice(signedIn(), invoicePage(true)),
+		"invoice plain":      invoiceContent(invoicePage(false)),
+		"DocumentPanel":      DocumentPanel("/invoices/1/document"),
+		"document none":      DocumentPanel(""),
+		"LinesTable":         LinesTable(invoicePage(true).Lines),
+		"HeaderCell":         HeaderCell(i18n.LineNo),
+		"LineRow":            LineRow(Line{No: 1, OrderItem: 10, Quantity: "1", Unit: "EA", Amount: Money{Amount: "1.00", Currency: "EUR"}, TaxCode: "V1"}),
+		"line bare":          LineRow(Line{No: 2, Quantity: "1", Unit: "EA", Amount: Money{Amount: "1.00", Currency: "EUR"}}),
+		"MatchSection":       MatchSection(invoicePage(true)),
+		"match no order":     MatchSection(InvoicePage{}),
+		"match refused":      MatchSection(InvoicePage{HasOrder: true, MatchError: &Refusal{ID: "m", Title: i18n.MatchTitle, Code: "x.y"}}),
+		"match none":         MatchSection(InvoicePage{HasOrder: true}),
+		"MatchResult":        MatchResult(MatchView{When: day, By: Name{Text: "A"}, Config: 1, Clean: true}),
+		"match issues":       MatchResult(*invoicePage(true).Match),
+		"IssueItem":          IssueItem(Issue{Label: Label{Key: i18n.MatchIssuePrice}, Line: 1, Message: "m"}),
+		"issue bare":         IssueItem(Issue{Label: Label{Raw: "new_issue"}, Message: "m"}),
+		"OrderLink":          OrderLink("/invoices/1/order"),
+		"OrderPage":          OrderPage(signedIn(), orderView(false)),
+		"orderPageContent":   orderPageContent(orderView(true)),
+		"OrderSection":       OrderSection(orderView(false)),
+		"orderBody":          orderBody(OrderView{Header: OrderHeader{Number: "PO1"}}),
+		"OrderItemsTable":    OrderItemsTable(orderView(false).Items),
+		"OrderItemRow":       OrderItemRow(OrderItemView{No: 1, Ordered: "1", Received: "0", Unit: "EA", Price: Money{Amount: "1.00", Currency: "EUR"}, TaxCode: "V1"}),
+		"order item bare":    OrderItemRow(OrderItemView{No: 2, Ordered: "1", Received: "0", Unit: "EA", Price: Money{Amount: "1.00", Currency: "EUR"}}),
+		"ReceiptsTable":      ReceiptsTable(orderView(false).Receipts),
+		"ReceiptRow":         ReceiptRow(ReceiptView{Number: "GR1", Date: day, OrderItem: 1, Quantity: "1", Unit: "EA"}),
+		"RecsSection":        RecsSection(invoicePage(true)),
+		"recs refused":       RecsSection(InvoicePage{RecsError: &Refusal{ID: "r", Title: i18n.RecsRefusedTitle, Code: "x.y"}}),
+		"recs none":          RecsSection(InvoicePage{}),
+		"recs not yours":     RecsSection(InvoicePage{Recs: []RecommendationView{recommendation(false)}, RecsWhy: i18n.RecNotYours}),
+		"RecItem":            RecItem(recommendation(true)),
+		"rec decided":        RecItem(recommendation(false)),
+		"OutcomeTag":         OutcomeTag(Label{Key: i18n.RecAccepted}),
+		"RecForm":            RecForm(RecommendationForm{Action: "/x", ID: "r", Outcome: "", OutcomeError: i18n.RecOutcomeNeeded, CommentError: i18n.DecideTooLong}),
+		"rec form plain":     RecForm(RecommendationForm{Action: "/x", ID: "r", Outcome: "accepted"}),
+		"OutcomeChoice":      OutcomeChoice(RecommendationForm{ID: "r", Outcome: "ignored"}, "ignored"),
+		"ActionsSection":     ActionsSection(invoicePage(true)),
+		"actions none":       ActionsSection(InvoicePage{Why: i18n.ActionsNone}),
+		"ActionFormView":     ActionFormView(ActionForm{Verb: ActReverse, Action: "/x", Text: "t", Date: "d", TextError: i18n.ActionReasonNeeded, DateError: i18n.ActionDateInvalid}),
+		"action match":       ActionFormView(ActionForm{Verb: ActMatch, Action: "/x"}),
+		"RefusalPage":        RefusalPage(shell(), i18n.DocumentTitle, "/invoices/1", i18n.OrderBack, refusal()),
+		"refusalPageContent": refusalPageContent(i18n.DocumentTitle, "/invoices/1", i18n.OrderBack, refusal()),
 	}
+}
+
+// invoiceRow is a queue's invoice, an agent's capture when agent is true.
+func invoiceRow(agent bool) InvoiceRow {
+	r := InvoiceRow{Path: "/invoices/1", Number: "SI100001", Reference: "INV-1", Supplier: Supplier{ID: "s1", Number: "BP1", Name: "Northwind"},
+		FilterPath: "/invoices?supplier_id=s1", Company: "Acme GmbH", Date: day, Gross: Money{Amount: "119.00", Currency: "EUR"},
+		Status: Label{Key: i18n.InvoiceStatusOnHold}, Kind: Label{Key: i18n.InvoiceKindMemo, Raw: "credit_memo"}, HoldReason: "Three-way match"}
+	if agent {
+		r.Agent = &Name{Text: "Capturer", Agent: true}
+	}
+	return r
+}
+
+func invoiceList() InvoiceList {
+	return InvoiceList{Tabs: []StatusTab{{Label: i18n.InvoicesStatusAll, Path: "/invoices", Current: true}},
+		Filters: InvoiceFilters{Status: "on_hold", Number: "SI1"}, Companies: []Option{{Value: "c1", Text: "Acme"}},
+		Rows: []InvoiceRow{invoiceRow(true), invoiceRow(false)}, More: "/invoices?page=t"}
+}
+
+// recommendation is an agent's recommendation, open with its form or
+// decided.
+func recommendation(open bool) RecommendationView {
+	r := RecommendationView{Kind: Label{Key: i18n.RecKindVariance}, Content: "Approve: <b>ok</b>", Agent: Name{Text: "AP agent", Agent: true}, At: day,
+		Outcome: Label{Key: i18n.RecOpen}}
+	if open {
+		r.Decide = &RecommendationForm{Action: "/x", ID: "r1", CSRF: "c", ETag: `"1"`, Key: "k"}
+		return r
+	}
+	r.Outcome, r.DecidedBy = Label{Key: i18n.RecIgnored}, &Name{Text: "Avery"}
+	return r
+}
+
+// invoicePage is an invoice's page: on hold on an order with everything,
+// or on accounts with nothing.
+func invoicePage(full bool) InvoicePage {
+	if !full {
+		return InvoicePage{Number: "SI2", Header: InvoiceHeader{Status: Label{Raw: "new"}, Kind: Label{Raw: "invoice"}, Source: Label{Raw: "edi"},
+			NoOrder: true}, Why: i18n.ActionsNone}
+	}
+	posting := day
+	r := refusal()
+	return InvoicePage{Number: "SI1", Header: InvoiceHeader{Supplier: Supplier{ID: "s1", Name: "N", Number: "BP1"}, Reference: "INV-1", Company: "Acme",
+		Kind: Label{Key: i18n.InvoiceKindInvoice}, Status: Label{Key: i18n.InvoiceStatusOnHold}, HoldReason: "Variance", Date: day, PostingDay: &posting,
+		TaxDay: &posting, Gross: Money{Amount: "1.00", Currency: "EUR"}, Tax: Money{Amount: "0.00", Currency: "EUR"},
+		Source: Label{Key: i18n.InvoiceSourceCapture}, EnteredBy: Name{Text: "Capturer", Agent: true}, Exception: "/approvals/1"},
+		AgentMade: true, Lines: []Line{{No: 1, OrderItem: 1, Quantity: "1", Unit: "EA", Amount: Money{Amount: "1.00", Currency: "EUR"}, TaxCode: "V1"}},
+		HasOrder: true, Match: &MatchView{When: day, By: Name{Text: "A"}, Config: 1, Issues: []Issue{{Label: Label{Key: i18n.MatchIssuePrice}, Line: 1, Message: "m"}}},
+		Order: "/invoices/1/order", Document: "/invoices/1/document", Recs: []RecommendationView{recommendation(true), recommendation(false)}, RecsShown: true,
+		Actions: []ActionForm{{Verb: ActMatch, Action: "/x"}, {Verb: ActRelease, Action: "/y"}}, Pending: true, Done: i18n.InvoiceDoneMatched, Refusal: &r}
+}
+
+// orderView is an order with its items and a receipt, or a refusal.
+func orderView(refused bool) OrderView {
+	if refused {
+		return OrderView{Back: "/invoices/1", Refusal: &Refusal{ID: "o", Title: i18n.OrderRefusedTitle, Code: "x.y"}}
+	}
+	return OrderView{Back: "/invoices/1", Header: OrderHeader{Number: "PO1", Status: Label{Raw: "released"}, Date: day, Total: Money{Amount: "1.00", Currency: "EUR"}},
+		Items:    []OrderItemView{{No: 1, Description: "Paper", Ordered: "10", Received: "10", Unit: "EA", Price: Money{Amount: "1.00", Currency: "EUR"}}},
+		Receipts: []ReceiptView{{Number: "GR1", Date: day, OrderItem: 1, Quantity: "10", Unit: "EA"}}}
+}
+
+var day = time.Date(2026, 10, 22, 9, 30, 0, 0, time.UTC)
+
+// approval is a request, an agent's when agent is true.
+func approval(agent bool) Approval {
+	return Approval{Path: "/approvals/1", Title: "Requisition PR1", Kind: Label{Key: i18n.ObjectRequisition}, Status: Label{Key: i18n.StatusPending},
+		Amount: &Money{Amount: "12000.00", Currency: "EUR"}, Requester: Name{Text: "Avery", Agent: agent}, Requested: day, Step: 1, StepCount: 2,
+		ObjectID: "0192"}
+}
+
+func inboxFull() InboxPage {
+	return InboxPage{Approvals: []Approval{approval(true), approval(false)}, More: "/approvals?page=t", Done: i18n.InboxDoneApproved,
+		Barred: []string{"workflow.request.decide"}}
+}
+
+func refusal() Refusal {
+	return Refusal{Title: i18n.RefusalTitle, Message: i18n.ProblemSoD, Code: "identity.sod_conflict", Trace: "abc", Barred: []string{"a.b"}}
+}
+
+func forms() DecideForms {
+	return DecideForms{Action: "/approvals/1", CSRF: "c", ETag: `"1"`, ApproveKey: "k1", RejectKey: "k2", Comment: "ok", ReasonError: i18n.DecideReasonNeeded}
+}
+
+// requestPage is a request's page: open to decide, with a refusal and
+// decisions, or decided, with none.
+func requestPage(open bool) RequestPage {
+	if !open {
+		return RequestPage{Approval: approval(false), Why: i18n.DecideClosed}
+	}
+	r := refusal()
+	return RequestPage{Approval: approval(true), Steps: []Step{{No: 1, Required: 1, Approvals: 0, Current: true}},
+		Decisions: []Decision{{Label: Label{Key: i18n.StatusApproved}, By: Name{Text: "B"}, At: day}}, Decide: new(forms()), Refusal: &r}
 }
 
 func locale(t *testing.T) context.Context {
@@ -96,8 +279,8 @@ func TestComponentsRender(t *testing.T) {
 				t.Errorf("cancelled: got %v, want context.Canceled", err)
 			}
 			for n := 0; ; n++ {
-				if n > 10000 {
-					t.Fatal("no render succeeded within 10000 writes")
+				if n > 40000 {
+					t.Fatal("no render succeeded within 40000 writes")
 				}
 				var b templruntime.Buffer
 				b.Reset(&failAfter{n: n})
@@ -290,5 +473,69 @@ func TestEscaped(t *testing.T) {
 	}
 	if got := out.String(); strings.Contains(got, "<script>") {
 		t.Errorf("got %q, want it escaped", got)
+	}
+}
+
+// TestStatusKind: a status's tag colour.
+func TestStatusKind(t *testing.T) {
+	for k, want := range map[i18n.Key]string{i18n.StatusApproved: "success", i18n.StatusRejected: "inactive", i18n.StatusCancelled: "inactive",
+		i18n.StatusPending: "", "": ""} {
+		if got := statusKind(Label{Key: k}); got != want {
+			t.Errorf("%s: got %q, want %q", k, got, want)
+		}
+	}
+}
+
+// TestAmountWithoutLocale: outside a request with a locale an amount is
+// the API's.
+func TestAmountWithoutLocale(t *testing.T) {
+	var out bytes.Buffer
+	if err := amount(Money{Amount: "1.00", Currency: "EUR"}).Render(context.Background(), &out); err != nil || out.String() != "1.00 EUR" {
+		t.Errorf("got %q, %v", out.String(), err)
+	}
+}
+
+// TestSignedInNav: the inbox joins the navigation of a person who may
+// read approvals, the invoices that of a person who may read invoices.
+func TestSignedInNav(t *testing.T) {
+	paths := func(nav []NavItem) string {
+		var out []string
+		for _, n := range nav {
+			out = append(out, n.Path)
+		}
+		return strings.Join(out, " ")
+	}
+	for name, tc := range map[string]struct {
+		approvals, invoices bool
+		want                string
+	}{
+		"neither":   {false, false, "/ /health"},
+		"approvals": {true, false, "/ /approvals /health"},
+		"invoices":  {false, true, "/ /invoices /health"},
+		"both":      {true, true, "/ /approvals /invoices /health"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := paths(SignedInNav(tc.approvals, tc.invoices)); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+	if got := navOf(Shell{Nav: SignedInNav(true, true)}); len(got) != 4 {
+		t.Errorf("a shell's own: got %v", got)
+	}
+}
+
+// TestDecideFormFields: a form's comment names its hint and error, and is
+// marked invalid with one.
+func TestDecideFormFields(t *testing.T) {
+	doc := parse(t, locale(t), DecideForm(forms(), false))
+	ta := find(doc, "textarea")
+	for key, want := range map[string]string{"id": "reject-reason", "name": "comment", "aria-describedby": "reject-reason-hint reject-reason-error", "aria-invalid": "true"} {
+		if got, _ := attr(ta, key); got != want {
+			t.Errorf("textarea %s: got %q, want %q", key, got, want)
+		}
+	}
+	if got, _ := attr(find(doc, "form"), "action"); got != "/approvals/1/reject" {
+		t.Errorf("action: got %q", got)
 	}
 }

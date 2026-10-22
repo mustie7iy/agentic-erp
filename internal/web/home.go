@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 
 	"github.com/google/uuid"
@@ -17,36 +18,24 @@ import (
 // see, read as them (ADR-0052 §7). A person without access to any sees
 // that, not an error (§12).
 func (s *Server) home(w http.ResponseWriter, r *http.Request, p *person) {
-	res, err := s.API.ListLegalEntities(r.Context(), gen.ListLegalEntitiesParams{})
-	if err != nil {
-		s.Log.ErrorContext(r.Context(), "web: the API could not be reached", "operation", "listLegalEntities", "error", err)
-		s.unavailable(w, r)
+	m, ok := s.whoami(w, r, p)
+	if !ok {
 		return
 	}
+	res, err := s.API.ListLegalEntities(r.Context(), gen.ListLegalEntitiesParams{})
 	var h ui.HomePage
 	switch res := res.(type) {
 	case *gen.LegalEntityPageHeaders:
 		for _, e := range res.Response.Items {
 			h.Companies = append(h.Companies, e.Name)
 		}
-	case *gen.UnauthorizedHeaders:
-		s.unauthorized(w, r, p, res)
-		return
 	case *gen.ForbiddenHeaders:
 		// No permission to list companies: none to show (§12).
 	default:
-		s.Log.WarnContext(r.Context(), "web: the API refused a page's read", "operation", "listLegalEntities", "answer", res)
-		s.unavailable(w, r)
+		s.apiFailed(w, r, p, "listLegalEntities", res, err)
 		return
 	}
-	s.render(w, r, http.StatusOK, ui.Home(s.page(i18n.HomeTitle, "/", p), h))
-}
-
-// page is the shell of a signed-in person's page.
-func (s *Server) page(title i18n.Key, current string, p *person) ui.Shell {
-	sh := s.shell(title, current)
-	sh.Person = &ui.Person{CSRF: p.CSRF}
-	return sh
+	s.render(w, r, http.StatusOK, ui.Home(s.page(i18n.HomeTitle, "/", p, m), h))
 }
 
 // unauthorized answers the API's 401 to a person's call (ADR-0052 §5):
@@ -64,7 +53,7 @@ func (s *Server) unauthorized(w http.ResponseWriter, r *http.Request, p *person,
 		return
 	}
 	if !p.SteppedUp.IsZero() && s.now().Sub(p.SteppedUp) < stepUpGrace {
-		s.render(w, r, http.StatusUnauthorized, ui.Problem(s.page(i18n.SignInFailedTitle, "", p), i18n.SignInFailedTitle, i18n.SignInStepUpBody, "/", i18n.NotFoundHome))
+		s.render(w, r, http.StatusUnauthorized, ui.Problem(s.page(i18n.SignInFailedTitle, "", p, me{}), i18n.SignInFailedTitle, i18n.SignInStepUpBody, "/", i18n.NotFoundHome))
 		return
 	}
 	extra := url.Values{}
@@ -77,7 +66,9 @@ func (s *Server) unauthorized(w http.ResponseWriter, r *http.Request, p *person,
 	if len(extra) == 0 {
 		extra.Set("max_age", "0") // no value named: a fresh authentication at least
 	}
-	ret := "/"
+	// A read comes back to its page; a write to the page it was sent
+	// from, its path's parent (a decision's, its request's page).
+	ret := path.Dir(r.URL.Path)
 	if r.Method == http.MethodGet {
 		ret = r.URL.RequestURI()
 	}

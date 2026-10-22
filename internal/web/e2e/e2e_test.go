@@ -110,18 +110,37 @@ type stack struct {
 	ten pgtest.Tenant
 }
 
+// signInAs makes a the person the provider signs in next.
+func (s stack) signInAs(a pgtest.Actor) {
+	s.is.SignIn(authntest.User{Tenant: s.ten.ID, Subject: a.Subject})
+}
+
 // loginCode is the stack's tenant's login code.
 const loginCode = "acme"
 
 func newStack(t *testing.T) stack {
 	t.Helper()
-	ctx := context.Background()
-	is := authntest.NewSeparate(t)
 	ten := pgtest.NewTenant(t, "tenancy.org.read")
 	ten.AllCompanies(t, ten.Human)
-	pgtest.Exec(t, `UPDATE identity.principal SET external_issuer = $2, version = version + 1 WHERE tenant_id = $1`, ten.ID, is.URL)
 	pgtest.Exec(t, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
 		VALUES ($1, gen_random_uuid(), '2000', 'Acme GmbH', 'DE', 'EUR', gen_random_uuid(), 'active', $2, $2)`, ten.ID, ten.Human.ID)
+	return stackFor(t, ten, ten.Human)
+}
+
+// stackFor is the stack of a tenant whose principals the test made, with
+// person signing in first.
+func stackFor(t *testing.T, ten pgtest.Tenant, person pgtest.Actor) stack {
+	t.Helper()
+	return stackWith(t, ten, person, nil)
+}
+
+// stackWith is stackFor with the API's configuration changed by configure
+// (nil: as it is).
+func stackWith(t *testing.T, ten pgtest.Tenant, person pgtest.Actor, configure func(*app.Config)) stack {
+	t.Helper()
+	ctx := context.Background()
+	is := authntest.NewSeparate(t)
+	pgtest.Exec(t, `UPDATE identity.principal SET external_issuer = $2, version = version + 1 WHERE tenant_id = $1`, ten.ID, is.URL)
 	reg := registry{authn.Registration{TenantID: ten.ID, Issuer: is.URL, Audience: authntest.Audience, SessionMaxAge: 12 * time.Hour, IdleTimeout: time.Hour}}
 	api := apitest.NewWith(t, func(cfg *app.Config) {
 		v, err := authn.NewRegistered(ctx, authn.Development, reg, &authn.Providers{}, nil)
@@ -129,6 +148,9 @@ func newStack(t *testing.T) stack {
 			t.Fatal(err)
 		}
 		cfg.Verifier = v
+		if configure != nil {
+			configure(cfg)
+		}
 	})
 	apiSrv := httptest.NewServer(api.Handler)
 	t.Cleanup(apiSrv.Close)
@@ -140,7 +162,7 @@ func newStack(t *testing.T) stack {
 	dirURL := directoryWith(t, directory.Issuer{Issuer: is.URL, Audience: authntest.Audience, TenantID: ten.ID, Cell: "eu-1", ProviderID: uuid.New(),
 		Web: &directory.WebClient{LoginCode: loginCode, ClientID: "erp-web", AuthMethod: "private_key_jwt", CredentialRef: "file:" + filepath.Join(creds, "acme.pem"), Scope: "openid erp-api"}})
 	is.RegisterClient(authntest.Client{ID: "erp-web", RedirectURI: public + "/callback", PostLogoutRedirectURI: public + "/signed-out", Key: &key.PublicKey, Refresh: true})
-	is.SignIn(authntest.User{Tenant: ten.ID, Subject: ten.Human.Subject})
+	is.SignIn(authntest.User{Tenant: ten.ID, Subject: person.Subject})
 	// As in the cluster: the API's public name, reached at the router's
 	// Service (here the in-process API's listener).
 	apiURL, _ := url.Parse("http://api.example.invalid")
@@ -386,8 +408,25 @@ func checkPage(t *testing.T, browserCtx context.Context, s stack, src, header, l
 	if err := chromedp.Do(ctx,
 		chromedp.Navigate(s.url+path),
 		chromedp.WaitReady(chromedp.CSS("main")),
-		chromedp.KeyEvent("\t"),
 	); err != nil {
+		t.Fatal(err)
+	}
+	audit(t, ctx, src, lang, dir, width)
+	for _, e := range c.errors() {
+		// A page answered 4xx is the browser's to log.
+		if strings.HasSuffix(e, " "+s.url+path) && (strings.Contains(e, "status of 404") || strings.Contains(e, "status of 403")) {
+			continue
+		}
+		t.Errorf("browser: %s", e)
+	}
+}
+
+// audit checks the page the tab shows as TestPagesInTheBrowser says: its
+// language and direction, htmx, no sideways scrolling at width, the skip
+// link as the first tab stop, and axe-core at zero violations.
+func audit(t *testing.T, ctx context.Context, src, lang, dir string, width int64) {
+	t.Helper()
+	if err := chromedp.Do(ctx, chromedp.KeyEvent("\t")); err != nil {
 		t.Fatal(err)
 	}
 	got, err := chromedp.Run(ctx, chromedp.Evaluate[page](inspect))
@@ -416,13 +455,6 @@ func checkPage(t *testing.T, browserCtx context.Context, s stack, src, header, l
 	for _, v := range violations {
 		t.Errorf("axe %s: %s at %v", v.ID, v.Help, v.Nodes)
 	}
-	for _, e := range c.errors() {
-		// A page answered 4xx is the browser's to log.
-		if strings.HasSuffix(e, " "+s.url+path) && strings.Contains(e, "status of 404") {
-			continue
-		}
-		t.Errorf("browser: %s", e)
-	}
 }
 
 // signIn signs the browser in through the provider, as a person does:
@@ -442,7 +474,8 @@ func signIn(t *testing.T, browserCtx context.Context, s stack) {
 	pgtest.Eventually(t, 20*time.Second, func() bool {
 		text, err := chromedp.Run(ctx, chromedp.Evaluate[string](`location.href + " " + document.body.innerText`))
 		last = text
-		return err == nil && strings.HasPrefix(text, s.url+"/ ") && strings.Contains(text, "Acme GmbH")
+		// Home, with the companies the person may see, or none.
+		return err == nil && strings.HasPrefix(text, s.url+"/ ") && (strings.Contains(text, "Acme GmbH") || strings.Contains(text, "no company to work in"))
 	}, "the browser did not reach the home page signed in: %s", lastSeen{&last})
 }
 

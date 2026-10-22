@@ -64,8 +64,8 @@ func texts(t *testing.T, raw json.RawMessage) []string {
 }
 
 // TestCatalogsComplete: every shipped locale file has exactly the keys of
-// keys.go, each with English's verbs, so no page shows a key or drops an
-// argument in any language.
+// keys.go, each with English's verbs (in any order), so no page shows a
+// key or drops an argument in any language.
 func TestCatalogsComplete(t *testing.T) {
 	want := keys(t)
 	if len(want) == 0 {
@@ -98,7 +98,11 @@ func TestCatalogsComplete(t *testing.T) {
 			}
 			for k, raw := range msgs {
 				for _, text := range texts(t, raw) {
-					if g, w := verbRE.FindAllString(text, -1), verbRE.FindAllString(texts(t, english[k])[0], -1); !slices.Equal(g, w) {
+					// A language may put indexed verbs in its own order.
+					g, w := verbRE.FindAllString(text, -1), verbRE.FindAllString(texts(t, english[k])[0], -1)
+					slices.Sort(g)
+					slices.Sort(w)
+					if !slices.Equal(g, w) {
 						t.Errorf("%s: verbs %v, want English's %v", k, g, w)
 					}
 				}
@@ -246,5 +250,38 @@ func TestContext(t *testing.T) {
 	}
 	if l, ok := From(ctx); !ok || l.Tag != language.CanadianFrench {
 		t.Errorf("From: got %v %v, want fr-CA", l.Tag, ok)
+	}
+}
+
+// TestMoney: amounts in each locale's digits, grouping and decimal sign,
+// with the currency's code in the locale's order, from the API's decimal
+// strings; anything else as it is.
+func TestMoney(t *testing.T) {
+	c, err := Load(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	en, fr, rtl := c.Match("en"), c.Match("fr-CA"), c.Match("ar-XB")
+	for name, tc := range map[string]struct{ got, want string }{
+		"English":                {en.Money("1284330.00", "EUR"), "EUR 1,284,330.00"},
+		"French (Canada)":        {fr.Money("1284330.05", "CAD"), "1 284 330,05 CAD"},
+		"no minor unit":          {en.Money("15000", "JPY"), "JPY 15,000"},
+		"three places":           {en.Money("1.250", "KWD"), "KWD 1.250"},
+		"negative":               {en.Money("-5.07", "EUR"), "EUR -5.07"},
+		"the largest":            {en.Decimal("999999999999999999.9999"), "999,999,999,999,999,999.9999"},
+		"right to left's digits": {rtl.Decimal("1234.05"), "١٬٢٣٤٫٠٥"},
+		"not a decimal":          {en.Decimal("1e5"), "1e5"},
+		"no whole part":          {en.Decimal(".5"), ".5"},
+		"no fraction":            {en.Decimal("5."), "5."},
+		"a sign inside":          {en.Decimal("+5"), "+5"},
+		"too many digits":        {en.Decimal("1234567890123456789"), "1234567890123456789"},
+		"too long a fraction":    {en.Decimal("1.1234567890123456789"), "1.1234567890123456789"},
+		"empty":                  {en.Decimal(""), ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if tc.got != tc.want {
+				t.Errorf("got %q, want %q", tc.got, tc.want)
+			}
+		})
 	}
 }
