@@ -103,7 +103,9 @@ type Invoker interface {
 	// that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
 	// fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
 	// statement line's posting (`bank_clearing`), and whoever matched the line by hand cannot approve its
-	// posting (403 `workflow.segregation_of_duties`).
+	// posting (403 `workflow.segregation_of_duties`). A change request whose latest regression evidence
+	// replayed no case (a suite captured with `allow_empty`) is approved only with a comment acknowledging
+	// that (422 `workflow.acknowledgement_required`).
 	//
 	// POST /v1/approval-requests/{id}:approve
 	ApproveApprovalRequest(ctx context.Context, request OptDecisionInput, params ApproveApprovalRequestParams) (ApproveApprovalRequestRes, error)
@@ -424,7 +426,9 @@ type Invoker interface {
 	// change request then replays the latest suite of its base version and records `regression` evidence:
 	// a case outside the companies the change touches that is decided differently fails it. The capture
 	// samples the invoices of every company; the suite returned shows the cases of the companies the
-	// caller may access alone. 422 `config.no_cases` when the window has no invoices to capture.
+	// caller may access alone. 422 `config.no_cases` when the window has no invoices to capture, unless
+	// `allow_empty` asks for a suite of no cases: its regression evidence passes saying that nothing was
+	// replayed, and each approver acknowledges that in their approval's comment.
 	//
 	// POST /v1/regression-suites
 	CreateRegressionSuite(ctx context.Context, request *RegressionSuiteCreate, params CreateRegressionSuiteParams) (CreateRegressionSuiteRes, error)
@@ -3355,7 +3359,9 @@ func (c *Client) sendApplyCountryPack(ctx context.Context, request *CountryPackA
 // that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
 // fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
 // statement line's posting (`bank_clearing`), and whoever matched the line by hand cannot approve its
-// posting (403 `workflow.segregation_of_duties`).
+// posting (403 `workflow.segregation_of_duties`). A change request whose latest regression evidence
+// replayed no case (a suite captured with `allow_empty`) is approved only with a comment acknowledging
+// that (422 `workflow.acknowledgement_required`).
 //
 // POST /v1/approval-requests/{id}:approve
 func (c *Client) ApproveApprovalRequest(ctx context.Context, request OptDecisionInput, params ApproveApprovalRequestParams) (ApproveApprovalRequestRes, error) {
@@ -9099,7 +9105,9 @@ func (c *Client) sendCreateRecommendation(ctx context.Context, request *Recommen
 // change request then replays the latest suite of its base version and records `regression` evidence:
 // a case outside the companies the change touches that is decided differently fails it. The capture
 // samples the invoices of every company; the suite returned shows the cases of the companies the
-// caller may access alone. 422 `config.no_cases` when the window has no invoices to capture.
+// caller may access alone. 422 `config.no_cases` when the window has no invoices to capture, unless
+// `allow_empty` asks for a suite of no cases: its regression evidence passes saying that nothing was
+// replayed, and each approver acknowledges that in their approval's comment.
 //
 // POST /v1/regression-suites
 func (c *Client) CreateRegressionSuite(ctx context.Context, request *RegressionSuiteCreate, params CreateRegressionSuiteParams) (CreateRegressionSuiteRes, error) {

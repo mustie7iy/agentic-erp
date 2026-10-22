@@ -48004,12 +48004,19 @@ func (s *RegressionSuiteCreate) encodeFields(e *jx.Encoder) {
 			s.WindowDays.Encode(e)
 		}
 	}
+	{
+		if s.AllowEmpty.Set {
+			e.FieldStart("allow_empty")
+			s.AllowEmpty.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfRegressionSuiteCreate = [3]string{
+var jsonFieldsNameOfRegressionSuiteCreate = [4]string{
 	0: "name",
 	1: "max_cases",
 	2: "window_days",
+	3: "allow_empty",
 }
 
 // Decode decodes RegressionSuiteCreate from json.
@@ -48018,6 +48025,7 @@ func (s *RegressionSuiteCreate) Decode(d *jx.Decoder) error {
 		return errors.New("invalid: unable to decode RegressionSuiteCreate to nil")
 	}
 	var requiredBitSet [1]uint8
+	s.setDefaults()
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -48052,6 +48060,16 @@ func (s *RegressionSuiteCreate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"window_days\"")
+			}
+		case "allow_empty":
+			if err := func() error {
+				s.AllowEmpty.Reset()
+				if err := s.AllowEmpty.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"allow_empty\"")
 			}
 		default:
 			return d.Skip()

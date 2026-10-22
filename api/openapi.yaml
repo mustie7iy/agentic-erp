@@ -2605,7 +2605,7 @@ paths:
       tags:
         - configuration
       summary: Capture a regression suite
-      description: "Captures a regression suite from the supplier invoices on purchase orders of the recent window under the active configuration version: a stratified sample (every decision, every match issue kind, invoices near the auto-post limit, then more) with the decision each case got. The simulation of a change request then replays the latest suite of its base version and records `regression` evidence: a case outside the companies the change touches that is decided differently fails it. The capture samples the invoices of every company; the suite returned shows the cases of the companies the caller may access alone. 422 `config.no_cases` when the window has no invoices to capture."
+      description: "Captures a regression suite from the supplier invoices on purchase orders of the recent window under the active configuration version: a stratified sample (every decision, every match issue kind, invoices near the auto-post limit, then more) with the decision each case got. The simulation of a change request then replays the latest suite of its base version and records `regression` evidence: a case outside the companies the change touches that is decided differently fails it. The capture samples the invoices of every company; the suite returned shows the cases of the companies the caller may access alone. 422 `config.no_cases` when the window has no invoices to capture, unless `allow_empty` asks for a suite of no cases: its regression evidence passes saying that nothing was replayed, and each approver acknowledges that in their approval's comment."
       x-permission: config.regression.manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -11587,7 +11587,7 @@ paths:
       tags:
         - workflow
       summary: Approve an approval request
-      description: "Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`); the requester cannot approve; a person approves a request at most once. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The request is `approved` when the last step is complete, and the object moves on (a requisition becomes `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry is posted, a bank statement line is posted). A manual entry is checked again as it is posted: when that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the parked entry's), the approval is refused and the request stays pending; so is a bank statement line's posting (`bank_clearing`), and whoever matched the line by hand cannot approve its posting (403 `workflow.segregation_of_duties`)."
+      description: "Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`); the requester cannot approve; a person approves a request at most once. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The request is `approved` when the last step is complete, and the object moves on (a requisition becomes `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry is posted, a bank statement line is posted). A manual entry is checked again as it is posted: when that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the parked entry's), the approval is refused and the request stays pending; so is a bank statement line's posting (`bank_clearing`), and whoever matched the line by hand cannot approve its posting (403 `workflow.segregation_of_duties`). A change request whose latest regression evidence replayed no case (a suite captured with `allow_empty`) is approved only with a comment acknowledging that (422 `workflow.acknowledgement_required`)."
       x-permission: workflow.request.decide
       x-agent: false
       parameters:
@@ -16611,8 +16611,10 @@ components:
           description: Capture from the invoices of the last this many days (default 90).
           minimum: 1
           maximum: 366
-      examples:
-        - name: Before the tax change
+        allow_empty:
+          type: boolean
+          description: "Record a suite of no cases when the window has no invoices to capture, as a new tenant's has, instead of answering 422 `config.no_cases`. The regression evidence replaying it passes with `detail.no_cases` true and says that nothing was replayed, and each approver of the change request must acknowledge that in the comment of their approval (422 `workflow.acknowledgement_required` without one). Default false."
+          default: false
           max_cases: 50
           window_days: 90
     RegressionSuitePage:

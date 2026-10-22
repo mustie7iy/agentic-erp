@@ -32740,6 +32740,12 @@ type RegressionSuiteCreate struct {
 	MaxCases OptInt32 `json:"max_cases"`
 	// Capture from the invoices of the last this many days (default 90).
 	WindowDays OptInt32 `json:"window_days"`
+	// Record a suite of no cases when the window has no invoices to capture, as a new tenant's has,
+	// instead of answering 422 `config.no_cases`. The regression evidence replaying it passes with
+	// `detail.no_cases` true and says that nothing was replayed, and each approver of the change request
+	// must acknowledge that in the comment of their approval (422 `workflow.acknowledgement_required`
+	// without one). Default false.
+	AllowEmpty OptBool `json:"allow_empty"`
 }
 
 // GetName returns the value of Name.
@@ -32757,6 +32763,11 @@ func (s *RegressionSuiteCreate) GetWindowDays() OptInt32 {
 	return s.WindowDays
 }
 
+// GetAllowEmpty returns the value of AllowEmpty.
+func (s *RegressionSuiteCreate) GetAllowEmpty() OptBool {
+	return s.AllowEmpty
+}
+
 // SetName sets the value of Name.
 func (s *RegressionSuiteCreate) SetName(val string) {
 	s.Name = val
@@ -32770,6 +32781,11 @@ func (s *RegressionSuiteCreate) SetMaxCases(val OptInt32) {
 // SetWindowDays sets the value of WindowDays.
 func (s *RegressionSuiteCreate) SetWindowDays(val OptInt32) {
 	s.WindowDays = val
+}
+
+// SetAllowEmpty sets the value of AllowEmpty.
+func (s *RegressionSuiteCreate) SetAllowEmpty(val OptBool) {
+	s.AllowEmpty = val
 }
 
 // RegressionSuiteHeaders wraps RegressionSuite with response headers.

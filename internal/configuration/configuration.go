@@ -704,6 +704,32 @@ func (Approvals) Rejected(ctx context.Context, id, request uuid.UUID, comment st
 	return decided(ctx, id, Rejected, comment)
 }
 
+// Acknowledgement is what each approver of the change request must
+// acknowledge in their comment (approvals.Acknowledger): that its latest
+// regression evidence replayed no case, when it did not (noCases). The
+// evidence passed, so without this an approver could approve without
+// noticing that no invoice was replayed.
+func (Approvals) Acknowledgement(ctx context.Context, id uuid.UUID) (string, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return "", err
+	}
+	var suite string
+	var none bool
+	err = tx.QueryRow(ctx, `SELECT coalesce(detail->>'number', ''), coalesce((detail->>'`+noCasesKey+`')::boolean, false) FROM config.evidence
+		WHERE change_request_id = $1 AND kind = 'regression' ORDER BY recorded_at DESC LIMIT 1`, id).Scan(&suite, &none)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("configuration: regression evidence of change request %s: %w", id, err)
+	}
+	if !none {
+		return "", nil
+	}
+	return fmt.Sprintf("The regression evidence replayed no case: suite %s holds none. Approve with a comment saying you accept the change without regression cases.", suite), nil
+}
+
 // Cancelled withdraws the change request: its author withdrew the approval request.
 func (Approvals) Cancelled(ctx context.Context, id, request uuid.UUID, comment string) error {
 	return decided(ctx, id, Withdrawn, comment)
