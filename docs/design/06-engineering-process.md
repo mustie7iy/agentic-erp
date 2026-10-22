@@ -128,34 +128,77 @@ Every change passes, before it is merged:
 | Image signing round trip | `make signing-roundtrip` against a registry service: push, sign and attest (SBOM, provenance) with a key pair made for the job, verify, and the refusals (another key, another commit, a tag, no signature, attestations without a signature, uncommitted changes) (ADR-0032). When signing or image inputs change, and weekly |
 | Release scripts | `scripts/test-release-scripts.sh`: the version rules and the changelog's grouping on throwaway repositories, with the pinned git-cliff (ADR-0032). When those scripts or their inputs change, and weekly |
 | Build and container images | `make build`; `make image-scan`: grype on each SBOM and the pinned base, failing on a fixable high or critical vulnerability; `make images-reproducible` (the four ko images and erp-analytics built twice, with private caches, and their digests compared) when image inputs change, and weekly (ADR-0032) |
-| Infrastructure (when `deploy/` changes) | `scripts/deploy-checks.sh`: `terraform fmt`, `validate` and `test` (mock provider, no credentials), tflint, and the encryption-at-rest policy with conftest: unit tests, every root and module, and a fixture it must refuse (ADR-0035) |
+| Infrastructure (when the deploy workflow's paths change: `deploy/` but promotions, its scripts, `temporal/`, `scripts/lib/`, any workflow) | `scripts/deploy-checks.sh`: actionlint on the workflows, `terraform fmt`, `validate` and `test` in every module with tests (mock provider, no credentials), tflint, and the encryption-at-rest policy with conftest: unit tests, every root and module, and a fixture it must refuse (ADR-0035) |
+| Cluster content (the same paths) | `scripts/helm-checks.sh`: the pinned add-ons, the charts and their policies with helm, kubeconform, promtool and conftest, then `scripts/admission-checks.sh` (Kyverno's CLI against images signed in a local zot registry); `scripts/test-mirror-images.sh`; `scripts/nats-checks.sh` (NATS authorization by SPIFFE identity); `scripts/temporal-checks.sh` (the temporal module's vet, lint, `-race` tests and 100% coverage) |
+| Promotion checks' own tests (when they change) | `scripts/test-promotion-checks.sh`, `test-promotion-approvals.sh`, `test-rollback-drill.sh`, `test-restore-drill.sh` |
 
 The checks are split between the author's machine and GitHub (the hybrid
-check, since 2026-10-18), so runner minutes go to the independent second
-opinion rather than to repeating the slow gates:
+check, since 2026-10-18; since 2026-10-21 every check runs once before a
+merge, locally, and GitHub's pull request check is light — PO decision of
+2026-10-21), so runner minutes go to the second line on `main` rather than
+to repeating the slow gates on each pull request:
 
 - **Locally, before a pull request is merged:** `make ci-local`
-  (`scripts/ci-local.sh`) runs every step of the table at CI's pinned tool
-  versions, with the race suite three times in random order (07 §7.7), on
-  a committed tree rebased on the latest `main`. It records a report named
-  after the tree it tested in the repository's git directory.
-- **On GitHub, for a pull request:** the static checks (format, vet, whole
-  tree lint, staticcheck, govulncheck, gosec, the generated server, the
-  contract lint and the breaking-change check against `main`), the schema
-  tests, the whole suite in short mode without the race detector, and the
-  build: about 15 minutes on a clean Linux runner, which has caught what a
-  laptop did not (timing, disk, platform).
+  (`scripts/ci-local.sh`) runs every step of the table — every check
+  GitHub runs on a push to `main`, the deploy workflow's included — at the
+  versions the workflows pin, with the race suite three times in random
+  order (07 §7.7), on a committed tree rebased on the latest `main`. The
+  path-conditional steps (the image reproducibility gate, the signing round
+  trip, the release scripts, the deploy workflow's jobs, the promotion
+  self-test) run on the classes `scripts/ci-changes.sh` gives GitHub, so a
+  change skips locally exactly what `main`'s run skips; the report lists
+  every step as ok, skip or FAIL, with the classes it used, and is named
+  after the tree it tested in the repository's git directory. The Go tools
+  come from `scripts/ci-tools.sh`; the released binaries (terraform,
+  actionlint, helm, kubeconform, kyverno, zot, syft, promtool, git-cliff)
+  and the deploy workflow's Go-built ones (tflint, conftest, cosign,
+  crane) from `scripts/ci-local-tools.sh`, which reads their versions from
+  the workflows and checks each archive against a hash recorded per
+  platform. What a laptop does differently from a runner: the images are
+  built for linux/amd64 alone (cross-compiled, as pull requests always
+  built them; the weekly run builds and signs both platforms), the signing
+  round trip's registry is a local `registry:2` container and PostgreSQL
+  and Temporal are local rather than service containers, and
+  `scripts/free-disk.sh` (a runner's disk) does not apply. Measured on
+  2026-10-21 under load: a change to image inputs adds the double image
+  build (445 s), the scan (29 s) and the signing round trip (255 s),
+  about 12 minutes; other code changes build once and scan (not yet
+  measured); a change to the deploy
+  workflow's paths adds about 5 minutes (infrastructure 72 s, Helm and
+  admission 100 s, temporal 111 s, mirroring and NATS seconds).
+- **On GitHub, for a pull request (light, about 10 minutes):** the
+  `changes` job (secret scan, the skip rules' tests, the classes) and the
+  `short` job: format, vet, the whole-tree lint, the generated code, the
+  contract lint and the breaking-change check against `main`, the build
+  and the suite in short mode without the race detector, on a clean Linux
+  runner. The deploy workflow does not run on pull requests; the promotion
+  workflows do, as before.
 - **Merging:** `scripts/merge-pr.sh <n>` merges with a merge commit only
-  when `ci-ok` succeeded on the head commit and a passing local report
-  exists for the head's tree, and posts that report on the pull request as
-  the record. It stands in for branch protection, which a private
-  repository on the current plan does not enforce.
-- **On GitHub, for a push to `main`:** everything above but the
-  breaking-change check (a pull request's), plus the race detector, the
-  performance budgets, the coverage gate and fuzzing, on the tree `main`
-  really holds. A newer push cancels a running one, so merges
-  in quick succession pay for one run. A red `main` stops merging until it
-  is fixed forward, and a release is cut only from a green `main`.
+  when `ci-ok` succeeded on the head commit, a passing local report exists
+  for the head's tree, and the head contains `origin/main` as it is now.
+  Since the slow gates run only locally, on the head's tree rather than on
+  GitHub's merge of it into `main`, that rule makes the merge's tree the
+  tested one, checked by `main`'s latest gates; a pull request is rebased
+  and `make ci-local` re-run whenever `main` moves before it merges. Run
+  `merge-pr.sh` from an up-to-date `main` checkout, as its own rules are
+  the copy run. It posts the report on the pull request as the record. It stands in for branch
+  protection, which a private repository on the current plan does not
+  enforce.
+- **On GitHub, for a push to `main` (the full suite, the second line):**
+  the static checks (staticcheck, govulncheck and gosec as well), the
+  schema tests, the race detector, the performance budgets, the coverage
+  gate, fuzzing, the images on both platforms and their scan, the signing
+  round trip and the release scripts when their inputs changed, and the
+  deploy workflow when its paths changed, on the tree `main` really holds.
+  A newer push cancels a running `ci` run, so merges in quick succession
+  pay for one run; the deploy workflow's runs are not cancelled.
+- **A red `main`** (PO decision, 2026-10-21): the merge that turned it red
+  is reverted at once, or fixed forward within the hour when the fix is
+  clear and small; nothing else merges meanwhile, and a release is cut only
+  from a green `main`. The local gates are the first line; the full suite
+  on `main` is the second, which catches what a laptop cannot (a clean
+  runner's timing, disk and platform), so a failure there is also a gap to
+  close in `ci-local.sh`.
 - Secret scanning runs on every event. Everything else is skipped when
   `scripts/ci-changes.sh` finds that only documentation changed (`docs/`,
   Markdown) since the base: a pull request's base, or for a push to `main`
@@ -163,19 +206,20 @@ opinion rather than to repeating the slow gates:
   nothing. Whatever it cannot establish runs.
 - `scripts/merge-pr.sh` requires one check, `ci-ok`: it fails unless the
   `changes` job (the secret scan and the skip decision) succeeded and no
-  job failed or was cancelled. Jobs skipped on purpose pass; requiring
+  job failed or was cancelled; on a pull request that is `changes` and
+  `short`, the others skipped. Jobs skipped on purpose pass; requiring
   them directly would let a failed `changes` skip them into a pass.
 - A newer push cancels the running check of the same pull request or of
   `main`; the older commit then shows `ci-ok` failed, which is expected.
-- The image reproducibility gate and the signing round trip run when their
-  inputs change (`go.mod`, `go.sum`, `.ko.yaml`, `Makefile`, `cmd/`,
+- On `main` (and in `ci-local.sh`), the image reproducibility gate and the
+  signing round trip run when their inputs change (`go.mod`, `go.sum`, `.ko.yaml`, `Makefile`, `cmd/`,
   `scripts/image*`, `scripts/sign*`, `scripts/verify-image.sh`,
   `scripts/provenance.sh`, `scripts/free-disk.sh`, `release/`, `ci.yml`,
-  `weekly.yml`); a pull request otherwise builds the images once and scans
-  them. Pull requests build and sign linux/amd64 only, to fit the runner's
-  disk (`scripts/free-disk.sh` clears unused toolchains first); both
-  platforms are built twice and signed weekly, and a push to `main` whose
-  tree was tested skips them like the rest of the suite. A change to
+  `weekly.yml`); otherwise the images are built once and scanned. `ci-local.sh` builds and signs linux/amd64 only, as pull requests
+  did on the runner; `main`'s test job builds both platforms and its
+  signing job linux/amd64, to fit the runner's disk (`scripts/free-disk.sh`
+  clears unused toolchains first); both platforms are built twice and
+  signed weekly. A change to
   other Go code alone does not run the reproducibility gate; the weekly run
   does. The release scripts' tests run when those scripts, `cliff.toml`,
   the `Makefile` or a workflow that uses them change, and weekly.

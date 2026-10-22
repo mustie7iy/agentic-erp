@@ -78,9 +78,10 @@ jobs:
     # job: images pushed, signed and attested (SBOM, provenance) with a key
     # pair made for the run, standing in for the release KMS key; verified;
     # and refused with another key, another commit, a tag or no signature.
-    # Only when its inputs changed; the weekly run does it regardless.
+    # On main, when its inputs changed; the weekly run does it regardless.
+    # A pull request's author ran it locally (scripts/ci-local.sh).
     needs: changes
-    if: needs.changes.outputs.images != 'false'
+    if: github.event_name == 'push' && needs.changes.outputs.images != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 60 # two image builds, erp-analytics's compiling api/gen with cgo
     services:
@@ -109,9 +110,10 @@ jobs:
   release-scripts:
     # The version rules and the changelog of ADR-0032 on throwaway
     # repositories (scripts/test-release-scripts.sh), with the git-cliff the
-    # release workflow installs. Only when those scripts changed.
+    # release workflow installs. On main, when those scripts changed; a
+    # pull request's author ran them locally (scripts/ci-local.sh).
     needs: changes
-    if: needs.changes.outputs.release != 'false'
+    if: github.event_name == 'push' && needs.changes.outputs.release != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -130,16 +132,108 @@ jobs:
       - name: Version rules and changelog
         run: ./scripts/test-release-scripts.sh
 
+  short:
+    # The light pull-request check (06 §6.5, since 2026-10-21): the full
+    # gates ran once, on the author's machine (scripts/ci-local.sh), for
+    # exactly this tree, which scripts/merge-pr.sh requires; this job
+    # checks the cheap guards on a clean runner: format, vet, the whole
+    # tree lint, the generated code, the contract lint and breaking-change
+    # check, the build and the suite in short mode without the race
+    # detector, within ten minutes. main runs the full suite again (test).
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.run != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30 # 10 warm; building the tools on a cache miss adds about 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: dev
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:dev@localhost:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the breaking-change check reads main
+      - id: go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: CI tools (pinned, cached)
+        # The test job's cache on main, restored: a pull request builds them
+        # only when it changes scripts/ci-tools.sh.
+        id: tools
+        uses: actions/cache@v5.1.0
+        with:
+          path: ~/.cache/ci-tools/bin
+          key: ci-tools-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('scripts/ci-tools.sh') }}
+      - name: Free disk before building the tools
+        # Building them (grype alone fetches hundreds of modules) left the
+        # suite's link step without space on #42.
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: ./scripts/free-disk.sh
+      - name: Install CI tools
+        run: ./scripts/ci-tools.sh >> "$GITHUB_PATH"
+      - name: Install the Temporal CLI
+        # The workflow tests start its development server (ADR-0012).
+        run: |
+          curl -sSf https://temporal.download/cli.sh | sh
+          echo "$HOME/.temporalio/bin" >> "$GITHUB_PATH"
+      - name: Raise the database connection limit
+        # As in the test job: the suites' parallel pools exceed the default 100.
+        run: |
+          PGPASSWORD=dev psql -h localhost -U postgres -c "ALTER SYSTEM SET max_connections = 300"
+          docker restart $(docker ps -q --filter ancestor=postgres:17)
+          for i in $(seq 1 60); do
+            PGPASSWORD=dev psql -h localhost -U postgres -tAc "SHOW max_connections" 2>/dev/null | grep -qx 300 && exit 0
+            sleep 1
+          done
+          echo "the database did not come back with max_connections = 300" >&2; exit 1
+      - name: Format
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: Vet
+        run: go vet ./...
+      - name: Structural lint of the whole tree (.golangci.yml, CLAUDE.md)
+        run: make lint-all GOLANGCI=golangci-lint
+      - name: Generated code matches its sources (the contract, the templ components)
+        run: |
+          make generate
+          git diff --exit-code -- api/gen internal/web || (echo "api/gen or internal/web is stale: run make generate" && exit 1)
+          test -z "$(git status --porcelain -- api/gen internal/web)" || (git status --porcelain -- api/gen internal/web && echo "make generate made files that are not committed" && exit 1)
+      - name: API contract lint
+        run: vacuum lint -r api/vacuum-ruleset.yaml -b -q -d api/openapi.yaml api/control.yaml api/directory.yaml api/model.yaml
+      - name: API breaking-change check against main
+        run: |
+          git fetch --depth=1 origin "${{ github.base_ref }}"
+          for spec in openapi control directory; do
+            if git cat-file -e "FETCH_HEAD:api/$spec.yaml" 2>/dev/null; then
+              git show "FETCH_HEAD:api/$spec.yaml" > "/tmp/base-$spec.yaml"
+              oasdiff breaking --fail-on ERR --deprecation-days-stable=365 --err-ignore api/breaking-accepted.txt "/tmp/base-$spec.yaml" "api/$spec.yaml"
+            fi
+          done
+          # Events change only additively within a .vN (ADR-0041).
+          if git cat-file -e "FETCH_HEAD:api/asyncapi.yaml" 2>/dev/null; then
+            git show "FETCH_HEAD:api/asyncapi.yaml" > /tmp/base-asyncapi.yaml
+            go run ./cmd/eventcompat /tmp/base-asyncapi.yaml api/asyncapi.yaml
+          fi
+      - name: Build
+        run: make build
+      - name: Tests in short mode (without the race detector)
+        # Short mode leaves out the performance budgets; main runs them.
+        run: go test -short -count=1 ./...
+
   test:
     needs: changes
-    if: needs.changes.outputs.run != 'false'
-    # The hybrid check (06 §6.5): a pull request gets the static checks and
-    # the suite without the race detector, about 15 minutes, after its
-    # author ran the full gates locally (scripts/ci-local.sh, which
-    # scripts/merge-pr.sh requires). A push to main runs the race detector,
-    # the performance budgets and the coverage gate as well, about 35
-    # minutes warm; the first run after a tool change also builds the
-    # pinned tools (about 10 minutes) before the cache has them.
+    if: github.event_name == 'push' && needs.changes.outputs.run != 'false'
+    # The full suite on main (06 §6.5), the second line after the author's
+    # local gates: the static checks, the race detector, the performance
+    # budgets, the coverage gate and the images, on the tree main really
+    # holds, about 35 minutes warm; the first run after a tool change also
+    # builds the pinned tools (about 10 minutes) before the cache has them.
+    # A pull request runs the short job above instead.
     runs-on: ubuntu-latest
     timeout-minutes: 75
     services:
@@ -214,29 +308,9 @@ jobs:
           test -z "$(git status --porcelain -- api/gen internal/web)" || (git status --porcelain -- api/gen internal/web && echo "make generate made files that are not committed" && exit 1)
       - name: API contract lint
         run: vacuum lint -r api/vacuum-ruleset.yaml -b -q -d api/openapi.yaml api/control.yaml api/directory.yaml api/model.yaml
-      - name: API breaking-change check against main
-        if: github.event_name == 'pull_request'
-        run: |
-          git fetch --depth=1 origin "${{ github.base_ref }}"
-          for spec in openapi control directory; do
-            if git cat-file -e "FETCH_HEAD:api/$spec.yaml" 2>/dev/null; then
-              git show "FETCH_HEAD:api/$spec.yaml" > "/tmp/base-$spec.yaml"
-              oasdiff breaking --fail-on ERR --deprecation-days-stable=365 --err-ignore api/breaking-accepted.txt "/tmp/base-$spec.yaml" "api/$spec.yaml"
-            fi
-          done
-          # Events change only additively within a .vN (ADR-0041).
-          if git cat-file -e "FETCH_HEAD:api/asyncapi.yaml" 2>/dev/null; then
-            git show "FETCH_HEAD:api/asyncapi.yaml" > /tmp/base-asyncapi.yaml
-            go run ./cmd/eventcompat /tmp/base-asyncapi.yaml api/asyncapi.yaml
-          fi
       - name: Schema tests (migrations and database-enforced rules)
         run: go test -count=1 -v ./db
-      - name: Functional and non-functional tests (without the race detector)
-        # Short mode leaves out the performance budgets, which main runs.
-        if: github.event_name == 'pull_request'
-        run: go test -short -count=1 ./...
       - name: Functional and non-functional tests (race detector)
-        if: github.event_name == 'push'
         # The web workspace's end-to-end suite drives the runner's Chrome
         # (internal/web/e2e, ADR-0052): it fails rather than skips without one.
         env:
@@ -249,7 +323,6 @@ jobs:
           df -h / | tail -1
           go test -race -count=1 ./...
       - name: Performance budgets (without the race detector)
-        if: github.event_name == 'push'
         # The runner is about twice as slow as a laptop on these; the scaled
         # budgets still catch a regression (ERP_BUDGET_SCALE, docs/testing.md).
         env:
@@ -258,7 +331,6 @@ jobs:
           go test -count=1 -run Budget -v ./internal/ledger
           go test -count=1 -run Perf -v ./internal/nfr
       - name: Coverage gate
-        if: github.event_name == 'push'
         # The race build above and the instrumented build here share nothing,
         # so the race cache is dropped first; the runner's disk ran out once.
         run: |
@@ -289,12 +361,10 @@ jobs:
         # be checked against it. Nothing is pushed here; T39c's release
         # workflow pushes and signs. Only when the image inputs changed (the
         # weekly run does it regardless); otherwise one build for the scan.
-        # Pull requests build one platform, to fit the runner's disk; the
-        # weekly run builds both (a push to main whose tree was tested skips
-        # this job).
+        # Both platforms, as .ko.yaml lists them; a pull request's author
+        # built linux/amd64 (scripts/ci-local.sh).
         env:
           IMAGES_CHANGED: ${{ needs.changes.outputs.images }}
-          KO_PLATFORMS: ${{ github.event_name == 'pull_request' && 'linux/amd64' || '' }}
         run: |
           if [ "$IMAGES_CHANGED" != false ]; then
             make images-reproducible
@@ -334,7 +404,9 @@ jobs:
     # `changes` (a leaked secret, a broken skip rule) skip the suite and
     # pass: this job fails unless `changes` succeeded and nothing it gates
     # failed or was cancelled.
-    needs: [changes, test, fuzz, signing, release-scripts]
+    # On a pull request it aggregates the light jobs (changes, short), the
+    # others skipped; on main, the full ones.
+    needs: [changes, short, test, fuzz, signing, release-scripts]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

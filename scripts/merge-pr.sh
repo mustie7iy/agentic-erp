@@ -5,8 +5,10 @@
 # private repository on this plan does not enforce:
 #   - GitHub's short check: ci-ok succeeded on the head commit;
 #   - the full local gates: scripts/ci-local.sh left a passing report for
-#     the head's tree. The report is posted on the pull request as the
-#     record, unless an earlier run of this script posted it already;
+#     the head's tree, and the head contains main as it is now, so the
+#     merge holds exactly the tree the report tested. The report is
+#     posted on the pull request as the record, unless an earlier run of
+#     this script posted it already;
 #   - a pull request changing deploy/environments (or carrying the
 #     promotion workflow's jobs): every one of those passed or was skipped
 #     on the head (the checks, the production approval, the images), and
@@ -36,9 +38,18 @@ if [ "$promotion" != SUCCESS ] && [ "$promotion" != NONE ]; then
   exit 1
 fi
 
-git fetch -q origin "$head"
+git fetch -q origin "$head" main
+# The head must contain main as it is now. The slow gates run only in
+# ci-local.sh (since 2026-10-21), on the head's tree, no longer on GitHub's
+# merge of the head into main; on a head that contains main the merge's
+# tree is the head's, so the report vouches for what main will hold, by
+# gates (ci-local.sh, the checks it runs, the tools the workflows pin) at
+# main's latest version.
+if ! git merge-base --is-ancestor origin/main "$head"; then
+  echo "merge-pr: $head does not contain origin/main ($(git rev-parse --short origin/main)): rebase on main and run make ci-local again" >&2
+  exit 1
+fi
 if [ "$promotion" = SUCCESS ]; then
-  git fetch -q origin main
   approval="$(mktemp)"
   APPROVAL_OUT="$approval" "$(dirname "$0")/promotion-checks.sh" origin/main "$head" >/dev/null
   if grep -q '^production$' "$approval"; then

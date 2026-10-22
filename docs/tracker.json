@@ -7204,6 +7204,12 @@
      },
      {
       "s": "D",
+      "t": "Every GitHub check runs once before a merge, locally (PO 2026-10-21): make ci-local adds the image build and scan, the signing round trip, the release scripts, the deploy workflow's jobs (terraform, tflint, conftest, actionlint, helm and admission, mirroring, NATS, the temporal module) and the promotion self-test on scripts/ci-changes.sh's path classes, with the workflows' pinned tools; the pull-request check is light (format, vet, lint, generated code, contract, build, short tests); main runs the full suite as the second line, a red main reverted at once or fixed within the hour; merge-pr.sh requires the head to contain main, so the tested tree is the merged one",
+      "r": "scripts/ci-local.sh · scripts/ci-local-tools.sh · scripts/ci-changes.sh · scripts/test-ci-changes.sh · scripts/merge-pr.sh · .github/workflows/ci.yml · .github/workflows/deploy.yml · 06 §6.5",
+      "c": []
+     },
+     {
+      "s": "D",
       "t": "Nightly: long load, resilience, two-hour soak, five minutes of fuzzing per target",
       "r": ".github/workflows/nightly.yml",
       "c": []
