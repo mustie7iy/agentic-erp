@@ -122,7 +122,16 @@ export ERP_OPERATOR_TOKEN=$(./bin/erp token -subject ops)
 
 `erp call OPERATION` calls any operation of [the contract](api/openapi.yaml)
 by its operationId: `-p name=value` for parameters, `-body` JSON or `@file`,
-`-if-match` the ETag the answer printed.
+`-file field=@path` a file's bytes as a body field (a multipart operation,
+such as a bank statement upload, is sent as a form), `-if-match` the ETag
+the answer printed. A JSON answer is printed indented, any other (a
+pain.001 bank file) as it came; `-out path` writes the answer's body to a
+file:
+
+```sh
+./bin/erp call importBankStatements -body '{"house_bank_id": "<id>", "format": "camt.053"}' -file file=@camt053.xml
+./bin/erp call getBankFileContent -p id=<bank_file_id> -out pain001.xml
+```
 
 Agents call models only through their cell's model gateway
 ([`api/model.yaml`](api/model.yaml), ADR-0036) with their own token

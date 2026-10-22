@@ -30,6 +30,7 @@ type operation struct {
 	id, method, path string
 	params           []param
 	ifMatch, body    bool
+	multipart        bool // the body is a multipart form (Multipart)
 }
 
 // Tool is one API operation as an agent tool. It implements
@@ -137,7 +138,40 @@ func (t *Tool) call(ctx context.Context, input map[string]any) (Response, error)
 	if b, ok := input["body"]; ok && t.op.body {
 		body = b
 	}
+	if t.op.multipart && body != nil {
+		form, err := formOf(body)
+		if err != nil {
+			return Response{}, err
+		}
+		body = form
+	}
 	return t.client.Do(ctx, t.op.method, path, query, body, ifMatch)
+}
+
+// formOf is a multipart operation's body as its form: a field of text is
+// sent as it is, any other value as its JSON.
+func formOf(body any) (Multipart, error) {
+	fields, ok := body.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("the body of a multipart operation is an object of its fields, not %T", body)
+	}
+	form := Multipart{}
+	for k, v := range fields {
+		if s, isText := v.(string); isText {
+			form[k] = s
+			continue
+		}
+		b, _ := json.Marshal(v) // decoded from JSON, so it encodes again
+		form[k] = string(b)
+	}
+	return form, nil
+}
+
+// Call calls the operation with the input as Execute takes it and returns
+// the answer as it came, whatever its media type and size, without
+// recording it in a session: the command line's erp call.
+func (t *Tool) Call(ctx context.Context, input map[string]any) (Response, error) {
+	return t.call(ctx, input)
 }
 
 // Tools builds the tools for the named operations, calling the API with
@@ -450,6 +484,7 @@ func (c contract) requestBody(t *Tool, op map[string]any, at string, props map[s
 		}
 		props["body"] = s
 		t.op.body = true
+		t.op.multipart = mediaType == "multipart/form-data"
 	}
 	return rb["required"] == true, nil
 }

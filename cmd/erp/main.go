@@ -6,7 +6,7 @@
 // draft from SAP customizing) and running agents and analytics, which
 // themselves call the API.
 //
-//	erp call OPERATION [-p name=value]... [-body JSON] [-if-match ETAG]
+//	erp call OPERATION [-p name=value]... [-body JSON] [-file field=@F]... [-if-match ETAG] [-out F]
 //	erp migrate -connector ID -legal-entities ID,... -year 2026 [-rehearsal]
 //	erp invoices [-agent]          match parked invoices, post clean ones
 //	erp capture -legal-entity ID -file F   capture an invoice document (large ones through an upload)
@@ -23,6 +23,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -222,7 +223,11 @@ func callInput(operation string, params multiFlag, ifMatch, body string) (map[st
 		}
 		input[name] = value
 		if strings.Contains(value, ",") {
-			input[name] = strings.Split(value, ",")
+			var list []any // as a list decoded from JSON, which the tool takes
+			for _, v := range strings.Split(value, ",") {
+				list = append(list, v)
+			}
+			input[name] = list
 		}
 	}
 	if ifMatch != "" {
@@ -245,16 +250,22 @@ func callInput(operation string, params multiFlag, ifMatch, body string) (map[st
 }
 
 // call performs one API operation, named by its operationId, and prints the
-// answer. Parameters are name=value; a body is JSON, or @file.
+// answer. Parameters are name=value; a body is JSON, or @file; -file
+// field=@path adds a file's bytes to the body as that field, which a
+// multipart operation (a bank statement upload) sends as a part of its
+// form. A JSON answer is printed indented, any other (a pain.001 file)
+// as it came; -out writes the answer's body to a file instead.
 func call(ctx context.Context, args []string) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return errors.New("name the operation: erp call OPERATION [flags]")
 	}
 	fs := flag.NewFlagSet("call "+args[0], flag.ContinueOnError)
-	var params multiFlag
+	var params, files multiFlag
 	fs.Var(&params, "p", "parameter name=value, repeatable (lists are comma-separated)")
 	body := fs.String("body", "", "request body: JSON, or @file")
+	fs.Var(&files, "file", "body field=@file, repeatable: the file's bytes as that field (a multipart upload's file)")
 	ifMatch := fs.String("if-match", "", "ETag of the resource as last read")
+	outFile := fs.String("out", "", "write the answer's body to this file")
 	if err := parseFlags(fs, args[1:]); err != nil {
 		return err
 	}
@@ -267,32 +278,70 @@ func call(ctx context.Context, args []string) error {
 		return err
 	}
 	input, err := callInput(args[0], params, *ifMatch, *body)
+	if err == nil {
+		err = addFiles(args[0], input, files)
+	}
 	if err != nil {
 		return err
 	}
-	raw, _ := json.Marshal(input) // strings and decoded JSON
-	res, err := op.Execute(ctx, raw)
+	r, err := op.Call(ctx, input)
 	if err != nil {
 		return err
 	}
-	var r struct {
-		Status int
-		ETag   string
-		Body   json.RawMessage
-	}
-	// The tool's own encoding, unless the answer was over its size limit and
-	// came back truncated.
-	if err := json.Unmarshal([]byte(res[0].OfText.Text), &r); err != nil {
-		return fmt.Errorf("call %s: the answer cannot be read (it may be over the size limit; ask for a smaller page): %w", args[0], err)
-	}
-	pretty, _ := json.MarshalIndent(r.Body, "", "  ") // decoded above, so valid JSON
-	if err := printf("call", "%d %s\n%s\n", r.Status, r.ETag, pretty); err != nil {
+	if err := printAnswer(r, *outFile); err != nil {
 		return err
 	}
 	if r.Status >= 400 {
 		return fmt.Errorf("the API answered %d", r.Status)
 	}
 	return nil
+}
+
+// addFiles puts each -file field=@path's bytes into the body as the field.
+func addFiles(operation string, input map[string]any, files multiFlag) error {
+	if len(files) == 0 {
+		return nil
+	}
+	fields, ok := input["body"].(map[string]any)
+	if _, has := input["body"]; has && !ok {
+		return fmt.Errorf("call %s: -file needs a body that is a JSON object", operation)
+	}
+	if fields == nil {
+		fields = map[string]any{}
+	}
+	for _, f := range files {
+		name, path, ok := strings.Cut(f, "=")
+		if !ok || name == "" {
+			return fmt.Errorf("-file %q: want field=@path", f)
+		}
+		b, err := os.ReadFile(strings.TrimPrefix(path, "@")) // #nosec G304 G703 -- a file the user names on the command line
+		if err != nil {
+			return fmt.Errorf("call %s: read file of %s: %w", operation, name, err)
+		}
+		fields[name] = string(b)
+	}
+	input["body"] = fields
+	return nil
+}
+
+// printAnswer prints the status and ETag, then the body: written to outFile
+// when one is named, indented when it is JSON, else as it came.
+func printAnswer(r apitools.Response, outFile string) error {
+	if outFile != "" {
+		if err := os.WriteFile(outFile, r.Body, 0o600); err != nil { // #nosec G703 -- a file the user names on the command line
+			return fmt.Errorf("call: write %s: %w", outFile, err)
+		}
+		return printf("call", "%d %s\nwrote %d bytes to %s\n", r.Status, r.ETag, len(r.Body), outFile)
+	}
+	shown := []byte(r.Body)
+	var indented bytes.Buffer
+	switch {
+	case len(r.Body) == 0:
+		shown = []byte("null")
+	case json.Indent(&indented, r.Body, "", "  ") == nil:
+		shown = indented.Bytes()
+	}
+	return printf("call", "%d %s\n%s\n", r.Status, r.ETag, bytes.TrimRight(shown, "\n"))
 }
 
 // token asks a development server for a bearer token: erp token -tenant ID

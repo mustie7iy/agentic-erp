@@ -105,12 +105,20 @@ func List[T any](ctx context.Context, c *Client, path string, query url.Values) 
 	}
 }
 
+// Multipart is a request body sent as a multipart form, one part per
+// field, in the order of their names: an upload whose file the contract
+// takes as a string of bytes, such as a bank statement.
+type Multipart map[string]string
+
 // Do performs a call. Unsafe calls get a fresh Idempotency-Key; ifMatch,
-// when not empty, is sent as If-Match.
+// when not empty, is sent as If-Match. A Multipart body is sent as a
+// multipart form, any other as JSON.
 func (c *Client) Do(ctx context.Context, method, path string, query url.Values, body any, ifMatch string) (Response, error) {
 	var reader io.Reader
 	contentType := ""
-	if body != nil {
+	if form, ok := body.(Multipart); ok {
+		reader, contentType = form.encode()
+	} else if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
 			return Response{}, fmt.Errorf("apitools: body: %w", err)
@@ -127,19 +135,24 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 	return c.send(ctx, method, u, contentType, reader, ifMatch)
 }
 
-// Form posts a multipart form of the values to path (an upload whose file
-// the contract takes as a string of bytes, such as a bank statement), in
-// the order of their names, with a fresh Idempotency-Key.
+// Form posts a multipart form of the values to path (Multipart), with a
+// fresh Idempotency-Key.
 func (c *Client) Form(ctx context.Context, path string, values map[string]string) (Response, error) {
+	return c.Do(ctx, http.MethodPost, path, nil, Multipart(values), "")
+}
+
+// encode writes the form, its fields in the order of their names, and
+// returns it with its content type.
+func (m Multipart) encode() (io.Reader, string) {
 	var body bytes.Buffer
 	// The multipart writer writes to a bytes.Buffer, whose writes never
 	// fail, so none of these calls can return an error.
 	w := multipart.NewWriter(&body)
-	for _, k := range slices.Sorted(maps.Keys(values)) {
-		_ = w.WriteField(k, values[k])
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		_ = w.WriteField(k, m[k])
 	}
 	_ = w.Close()
-	return c.send(ctx, http.MethodPost, strings.TrimRight(c.BaseURL, "/")+path, w.FormDataContentType(), &body, "")
+	return &body, w.FormDataContentType()
 }
 
 // send makes the request with the client's token.
