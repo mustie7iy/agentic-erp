@@ -7057,6 +7057,12 @@
      },
      {
       "s": "T",
+      "t": "Configuration activation refused while replicas of two versions run, so a key an older replica would ignore (companies[].release_dual_limit: the old :release has no approval check) cannot take effect on part of the cell; until then the release runbook activates such changes only after the upgrade completes",
+      "r": "ADR-0038 amendment (rollout) · 06 §6.4 config.ParseActive · T72m",
+      "c": []
+     },
+     {
+      "s": "T",
       "t": "The mock SAP extract has a Canadian company (CAD, LAND1 CA, Canadian vendors and house banks), so the walkthrough migrates the Canadian pilot company from SAP instead of the mock's US and German companies",
       "r": "walkthrough 2026-10-22 · internal/sap mock.go (companies 1000 US, 2000 DE) · T72d",
       "c": []

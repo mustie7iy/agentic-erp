@@ -103,6 +103,13 @@ not know. So:
   tiers, T47g's contract expiry notice) works in a mixed cell only because
   older replicas read such documents tolerantly and refuse to change them;
   configuration changes wait until the upgrade completes.
+- A key that is a control older replicas would ignore is not activated in
+  a mixed cell: an older replica reading the document tolerantly drops the
+  control with the key. `companies[].release_dual_limit` (ADR-0038, T72m)
+  is one: an older replica's `:release` has no approval check, so a change
+  setting or lowering it is activated only after every replica runs the
+  version that knows it. Refusing such activations automatically is
+  tracked.
 
 Migrations run as an administrative login that bypasses row-level security
 (the superuser in development). `erp_owner` owns the objects but is subject

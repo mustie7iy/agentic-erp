@@ -3,6 +3,7 @@ package payments
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -116,7 +117,7 @@ func resubmittable(r Run) error {
 	case a == nil:
 		return nil
 	case a.Status == ReleasePending:
-		return problem.Conflict("workflow.request_pending", "The run's release already waits for approval request "+a.RequestID.String()+".")
+		return problem.Conflict("payments.release_approval_pending", "The run's release already waits for approval request "+a.RequestID.String()+".")
 	case a.Status == ReleaseApproved && r.Total <= a.Total:
 		return problem.Conflict("payments.release_already_approved", "The run's release is approved already (approval request "+a.RequestID.String()+"); release it.")
 	}
@@ -127,11 +128,18 @@ func resubmittable(r Run) error {
 // person's approval and has none for its total, and its release by the
 // person who approved it. A run that needs none is released by one person;
 // a request still pending for it (the limit was raised, or the total fell
-// to it) is withdrawn, so it is never approved after the release.
+// to it) is withdrawn, so it is never approved after the release. A
+// release resumed after its operation failed (the run releasing) was
+// decided when it started, with the approval it needed then, and has
+// payments posted: it is not measured again, or a limit set or lowered
+// since would leave it half posted with no way to finish or reject it.
 func (e *Endpoints) releaseApproved(ctx context.Context, tx pgx.Tx, r Run, p reqctx.Principal) error {
 	a := r.Release
 	if a != nil && a.ApprovedBy != nil && *a.ApprovedBy == p.ID {
 		return problem.Forbidden("identity.sod_conflict", "Segregation of duties: whoever approved a payment run's release can never release it.")
+	}
+	if r.Status == Releasing {
+		return nil
 	}
 	in, err := e.releaseRequest(ctx, r)
 	if err != nil {
@@ -184,10 +192,11 @@ func endRelease(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run, request
 	return record(ctx, "payments.payment_run.release_"+outcome, run, map[string]any{"approval_request_id": request, "comment": comment})
 }
 
-// requestOf is the release request a run's events name: the latest one,
-// or nil when none was asked for.
-func requestOf(r Run) *uuid.UUID {
-	if r.Release == nil {
+// requestOf is the release request a run's event names: the latest one
+// when its outcome is one of the outcomes, or nil (none was asked for, or
+// it ended otherwise).
+func requestOf(r Run, outcomes ...string) *uuid.UUID {
+	if r.Release == nil || !slices.Contains(outcomes, r.Release.Status) {
 		return nil
 	}
 	return &r.Release.RequestID

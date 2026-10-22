@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 // dualSetup is a tenant whose company 2000 (EUR) releases runs above the
@@ -139,6 +140,8 @@ func TestDualRelease(t *testing.T) {
 			{"the proposer asks", proposer, 403, "identity.sod_conflict", "submit"},
 			{"an agent asks", e.Tenant.Agent, 403, "identity.agent_not_allowed", "submit"},
 		})
+	}) && t.Run("asked at a stale version", func(t *testing.T) {
+		e.Problem(412, "request.version_mismatch", "POST", runPath(run)+":submit", "", `"999"`)
 	}) && t.Run("a releaser asks", func(t *testing.T) {
 		got := e.act(t, e.Approver, 200, run, "submit", "")
 		a := obj(got, "release_approval")
@@ -153,7 +156,7 @@ func TestDualRelease(t *testing.T) {
 		wantField(t, r, "amount", map[string]any{"amount": "600.00", "currency": "EUR"})
 	}) && t.Run("refused while it waits", func(t *testing.T) {
 		e.refusals(t, run, request, []refusal{
-			{"asked twice", e.Approver2, 409, "workflow.request_pending", "submit"},
+			{"asked twice", e.Approver2, 409, "payments.release_approval_pending", "submit"},
 			{"released", e.Approver2, 409, "payments.release_approval_pending", "release"},
 			{"the requester approves", e.Approver, 403, "workflow.own_request", "approve"},
 			{"the proposer approves", proposer, 403, "workflow.segregation_of_duties", "approve"},
@@ -289,9 +292,12 @@ func TestDualReleaseOutdated(t *testing.T) {
 	}
 }
 
-// setReleaseLimit sets company code's release_dual_limit in the tenant's
-// active configuration (index i of its companies), as a change request
-// would, with the version's immutability trigger off; "" removes it.
+// setReleaseLimit sets the release_dual_limit of company i of the
+// tenant's active configuration; "" removes it. It rewrites the activated
+// version with its immutability trigger off, skipping the change request
+// that would validate and approve the change: only the value the release
+// reads matters here, and a change request's evidence and approvals are
+// tested by the configuration context.
 func setReleaseLimit(t *testing.T, tenant uuid.UUID, i int, limit string) {
 	t.Helper()
 	value := fmt.Sprintf(`jsonb_set(document, '{companies,%d,release_dual_limit}', '%q')`, i, limit)
@@ -303,10 +309,10 @@ func setReleaseLimit(t *testing.T, tenant uuid.UUID, i int, limit string) {
 		FROM config.active_version a WHERE a.tenant_id = v.tenant_id AND a.number = v.number AND v.tenant_id = '%s'; END $$`, value, tenant))
 }
 
-// TestDualReleaseLimitRaised: a run whose request still waits when it no
+// TestDualReleaseLimitRemoved: a run whose request still waits when it no
 // longer needs one (the limit was removed) is released by one person, and
 // the request is withdrawn, never to be approved after the release.
-func TestDualReleaseLimitRaised(t *testing.T) {
+func TestDualReleaseLimitRemoved(t *testing.T) {
 	e := dualSetup(t, "500.00")
 	run := e.proposedBy(t, e.Tenant.Human, "INV-RAISED", "600.00")
 	got := e.act(t, e.Approver, 200, run, "submit", "")
@@ -434,4 +440,50 @@ func TestDualReleaseDatabaseFailures(t *testing.T) {
 			},
 		})
 	})
+}
+
+// failedAfterPosting starts the run's release as the person, posts its
+// one payment and fails the release: the run stays releasing, to be
+// resumed (as failures_test's run A).
+func (e env) failedAfterPosting(t *testing.T, a pgtest.Actor, run map[string]any) {
+	t.Helper()
+	e.act(t, a, 202, run, "release", "")
+	h := endpoints(nil)
+	if err := apitest.Committed(t, e.Tenant, a, func(ctx context.Context) error {
+		r, err := payments.GetRun(ctx, uuidOf(id(run)))
+		if err != nil {
+			return err
+		}
+		if _, err := h.PostPayment(ctx, r, uuidOf(id(e.payments(t, run)[0].(map[string]any)))); err != nil {
+			return err
+		}
+		_, err = h.FailRelease(ctx, r, problem.Conflict("payments.bank_file_invalid", "test"))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := e.Must(200, "GET", runPath(run), "", ""); got["status"] != "releasing" {
+		t.Fatalf("run status after the failed release: got %v, want releasing", got["status"])
+	}
+}
+
+// TestDualReleaseResumed: a release resumed after its operation failed is
+// not measured against the limit again (it was decided when it started),
+// so a limit set since never strands a half-posted run; its approver is
+// still refused.
+func TestDualReleaseResumed(t *testing.T) {
+	e := dualSetup(t, "500.00")
+	approved := e.proposedBy(t, e.Tenant.Human, "INV-RES1", "600.00")
+	got := e.act(t, e.Approver, 200, approved, "submit", "")
+	e.decideRequest(t, e.Approver2, 200, obj(got, "release_approval")["request_id"].(string), "approve", `{}`)
+	e.failedAfterPosting(t, e.Approver, approved)
+	setReleaseLimit(t, e.Tenant.ID, 1, "")
+	unapproved := e.proposedBy(t, e.Tenant.Human, "INV-RES2", "700.00")
+	e.failedAfterPosting(t, e.Approver, unapproved)
+	setReleaseLimit(t, e.Tenant.ID, 1, "500.00")
+	t.Run("approved: its approver resumes", func(t *testing.T) {
+		e.refused(t, e.Approver2, 403, "identity.sod_conflict", approved, "release", "")
+	})
+	t.Run("approved: resumed", func(t *testing.T) { e.act(t, e.Approver, 202, approved, "release", "") })
+	t.Run("released before the limit: resumed", func(t *testing.T) { e.act(t, e.Approver2, 202, unapproved, "release", "") })
 }

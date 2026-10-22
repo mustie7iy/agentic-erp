@@ -2554,12 +2554,14 @@ func (UnimplementedHandler) ReleaseContract(ctx context.Context, params ReleaseC
 // the approver can never release it (403 `identity.sod_conflict`; the database enforces it). The
 // approval does not release the run: the release stays this step. A run at or below the limit, or of a
 // company without one, is released by one person as before, and a request still pending for it is
-// withdrawn. 422 `ledger.no_exchange_rate` when the company has a limit and no rate converts the run's
-// currency on the run date. Sets `decided_by` and `decided_at`. Requires status `proposed`, or
-// `releasing` after a failed release operation, which resumes it. 409 `payments.discount_lapsed` when
-// a payment takes a cash discount whose last day has passed (T36d): reject the run and propose again.
-// 409 `ledger.withholding_changed` when an item would withhold another amount than its payment
-// deducted (T46f); the payment is not posted.
+// withdrawn. A release resumed after its operation failed is not measured again: it was decided, with
+// the approval it needed, when it started; only its approver is still refused. 422
+// `ledger.no_exchange_rate` when the company has a limit and no rate converts the run's currency on
+// the run date. Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a
+// failed release operation, which resumes it. 409 `payments.discount_lapsed` when a payment takes a
+// cash discount whose last day has passed (T36d): reject the run and propose again. 409
+// `ledger.withholding_changed` when an item would withhold another amount than its payment deducted
+// (T46f); the payment is not posted.
 //
 // POST /v1/payment-runs/{id}:release
 func (UnimplementedHandler) ReleasePaymentRun(ctx context.Context, req OptDecisionInput, params ReleasePaymentRunParams) (r ReleasePaymentRunRes, _ error) {
@@ -2830,9 +2832,9 @@ func (UnimplementedHandler) SubmitChangeRequest(ctx context.Context, params Subm
 // `payments.run.release`; agents never approve); the approval does not release the run, which a
 // releaser other than the approver then releases with `:release`. Rejected or withdrawn, the run stays
 // `proposed`: it is asked for again or rejected. 409 `payments.release_approval_not_required` when the
-// run is within the limit (release it directly), 409 `workflow.request_pending` while a request waits,
-// 409 `payments.release_already_approved` when its release is approved for its total already. Sets
-// `release_approval`. Requires status `proposed`.
+// run is within the limit (release it directly), 409 `payments.release_approval_pending` while a
+// request waits, 409 `payments.release_already_approved` when its release is approved for its total
+// already. Sets `release_approval`. Requires status `proposed`.
 //
 // POST /v1/payment-runs/{id}:submit
 func (UnimplementedHandler) SubmitPaymentRun(ctx context.Context, params SubmitPaymentRunParams) (r SubmitPaymentRunRes, _ error) {

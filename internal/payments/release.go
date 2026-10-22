@@ -328,7 +328,7 @@ func (e *Endpoints) FinishRelease(ctx context.Context, r Run) (Run, error) {
 	}
 	return released, record(ctx, "payments.payment_run.complete", r.ID, map[string]any{"payments": len(pays), "bank_file_ids": ids},
 		append(events, runEvent(released, "payment_run_released", map[string]any{"house_bank_id": released.HouseBankID, "run_date": released.RunDate.Format(time.DateOnly),
-			"total_amount": money.EventAmount(released.Total, released.Currency, released.Exponent), "payment_count": len(pays), "workflow_request_id": requestOf(released),
+			"total_amount": money.EventAmount(released.Total, released.Currency, released.Exponent), "payment_count": len(pays), "workflow_request_id": requestOf(released, ReleaseApproved),
 			"released_at": released.DecidedAt.UTC().Format(time.RFC3339Nano)}))...)
 }
 
@@ -508,7 +508,7 @@ func (e *Endpoints) RejectRun(ctx context.Context, id uuid.UUID, ifMatch func(in
 		return Run{}, err
 	}
 	return rejected, record(ctx, "payments.payment_run.reject", r.ID, map[string]any{"reason": reason, "released_items": tag.RowsAffected()},
-		runEvent(rejected, "payment_run_rejected", map[string]any{"workflow_request_id": requestOf(rejected), "released_item_count": tag.RowsAffected()}))
+		runEvent(rejected, "payment_run_rejected", map[string]any{"workflow_request_id": requestOf(rejected, ReleaseWithdrawn, ReleaseRejected), "released_item_count": tag.RowsAffected()}))
 }
 
 // BankFile is a row of payments.bank_file with its run's legal entity.

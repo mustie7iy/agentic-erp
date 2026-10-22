@@ -337,9 +337,19 @@ suffices, as before. `:reject` needs the release role too (T72l).
   runs of documents from before are unaffected and no rate is needed for
   them. `payments.release_approvals` stays, exactly 1, so documents
   activated earlier still parse; its removal is the contract step of
-  expand-migrate-contract, tracked. A document naming the limit is
-  activated only once every replica runs this version (06 §6.4): the
-  previous version's strict parse refuses the unknown field.
+  expand-migrate-contract, tracked.
+- **Rollout.** The previous version reads the active document tolerantly
+  (`config.ParseActive`, 06 §6.4): it ignores `release_dual_limit`, logging
+  it, and its `:release` has no approval check, so on an old replica one
+  person would release a run above the limit; the database cannot refuse
+  it, since the limit is configuration. A change request that sets or
+  lowers a limit is therefore activated only after the upgrade completes,
+  as 06 §6.4 has configuration changes wait (an old replica already refuses
+  to assess or store a change based on a document with the key, 503
+  `config.unknown_keys`, but the first activation is the new replica's).
+  06 §6.4 lists the rule; the cell has no switch that refuses
+  activation while replicas of two versions run, which would be a
+  platform item of its own.
 - **The amount measured.** The run's total, in its currency, converted
   exactly (unrounded, F13) into the company's currency at the average rate
   valid on the **run date** (`ledger.Rates.ExactToCompany`, as manual
@@ -374,6 +384,19 @@ suffices, as before. `:reject` needs the release role too (T72l).
   owner question). Rejecting the run, or releasing it once it no longer
   needs the approval (the limit raised), withdraws a pending request, so
   nothing is approved after the run is decided.
+- **A resumed release is not measured again.** A release whose operation
+  failed or was cancelled leaves the run `releasing`, some payments
+  posted; `:release` resumes it. The release was decided when it started,
+  with the approval it needed then, so the resumption checks only that
+  its approver is not the one resuming it: measured again, a limit set or
+  lowered since, or a moved rate, would strand a half-posted run that
+  `:submit` and `:reject` (proposed runs only) cannot reach.
+- **Lock order.** `:reject`, and `:release` of a run that no longer needs
+  its pending request, lock the run and then the request (withdrawing
+  it); a decision locks the request and then the run (its callback).
+  Both at once may deadlock: PostgreSQL ends one and it is answered with
+  the retryable 503, as for other contexts' withdrawals; nothing is left
+  half done.
 - **A proposed run's total never grows**: the release only drops payments
   whose items can no longer be paid. The approval is held to the total it
   was asked for anyway (`release_request_total`), so a run that changed
