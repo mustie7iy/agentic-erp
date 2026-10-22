@@ -281,14 +281,6 @@ func (e *Endpoints) TransmitBankFile(ctx context.Context, params gen.TransmitBan
 	return &gen.OperationHeaders{Location: gen.NewOptString("/v1/operations/" + op.ID.String()), Response: operations.ToAPI(op)}, nil
 }
 
-// forAgent reports whether statements are shown to the caller masked, as
-// partner bank accounts are shown (T49g): to an agent, and to a caller
-// the request does not name (fail closed).
-func forAgent(ctx context.Context) bool {
-	p, ok := reqctx.PrincipalFrom(ctx)
-	return !ok || p.Kind == reqctx.KindAgent
-}
-
 // statementToAPI is the statement as the caller sees it: masked, an agent.
 func statementToAPI(s Statement, masked bool) gen.BankStatement {
 	out := gen.BankStatement{ID: s.ID, Version: s.Version, CreatedAt: s.CreatedAt, CreatedBy: s.CreatedBy, UpdatedAt: s.UpdatedAt,
@@ -363,7 +355,7 @@ func (e *Endpoints) GetBankStatement(ctx context.Context, params gen.GetBankStat
 	if err != nil {
 		return nil, err
 	}
-	return &gen.BankStatementHeaders{ETag: gen.NewOptString(etag.Format(s.Version)), Response: statementToAPI(s, forAgent(ctx))}, nil
+	return &gen.BankStatementHeaders{ETag: gen.NewOptString(etag.Format(s.Version)), Response: statementToAPI(s, reqctx.Masked(ctx))}, nil
 }
 
 // GetBankStatementFile implements GET /v1/bank-statements/{id}/file.
@@ -400,7 +392,7 @@ func (e *Endpoints) ListBankStatements(ctx context.Context, params gen.ListBankS
 	if err != nil {
 		return nil, fmt.Errorf("payments: list bank statements: %w", err)
 	}
-	masked := forAgent(ctx)
+	masked := reqctx.Masked(ctx)
 	items, next := apitypes.PageOf(ks, statements, func(s Statement) (string, uuid.UUID) { return s.ClosingDate.Format(time.DateOnly), s.ID },
 		func(s Statement) gen.BankStatement { return statementToAPI(s, masked) })
 	return &gen.BankStatementPageHeaders{Response: gen.BankStatementPage{Items: items, NextPageToken: next}}, nil
@@ -412,7 +404,7 @@ func (e *Endpoints) MatchBankStatement(ctx context.Context, params gen.MatchBank
 	if err != nil {
 		return nil, err
 	}
-	return &gen.MatchBankStatementOKHeaders{ETag: gen.NewOptString(etag.Format(s.Version)), Response: statementToAPI(s, forAgent(ctx))}, nil
+	return &gen.MatchBankStatementOKHeaders{ETag: gen.NewOptString(etag.Format(s.Version)), Response: statementToAPI(s, reqctx.Masked(ctx))}, nil
 }
 
 func matchToAPI(m Match) gen.StatementMatch {

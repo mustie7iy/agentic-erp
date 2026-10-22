@@ -158,8 +158,9 @@ func TestDatabaseFailures(t *testing.T) {
 	}
 }
 
-// TestAuditEventAddress: an event shows where its request came from, and
-// null where no request made it (ADR-0011 as amended by T73c).
+// TestAuditEventAddress: an event shows a person where its request came
+// from, and null where no request made it (ADR-0011 as amended by T73c);
+// an agent sees neither.
 func TestAuditEventAddress(t *testing.T) {
 	c := setup(t)
 	ctx := reqctx.WithClientAddress(context.Background(), netip.MustParseAddr("2001:db8::24"))
@@ -172,8 +173,21 @@ func TestAuditEventAddress(t *testing.T) {
 	page, _ := c.Must(200, "GET", "/v1/audit-events?page_size=2", "", "")
 	items := apitest.List(t, page, "items")
 	for i, want := range []any{"2001:db8::24", nil} {
-		if got := items[i].(map[string]any)["client_address"]; got != want {
+		got, present := items[i].(map[string]any)["client_address"]
+		if !present {
+			t.Errorf("event %d client_address: absent, want %v", i, want)
+		}
+		if got != want {
 			t.Errorf("event %d client_address: got %v, want %v", i, got, want)
+		}
+	}
+	// An agent holding audit.event.read reads the same events without the
+	// address, absent rather than null (product owner 2026-10-22).
+	c.As = c.Tenant.Agent
+	page, _ = c.Must(200, "GET", "/v1/audit-events?page_size=2", "", "")
+	for i, item := range apitest.List(t, page, "items") {
+		if got, present := item.(map[string]any)["client_address"]; present {
+			t.Errorf("agent's event %d client_address: got %v, want it absent", i, got)
 		}
 	}
 }

@@ -48,6 +48,24 @@ func TestContextValues(t *testing.T) {
 
 // TestClientAddress: an address recorded is read back; none, or an invalid
 // one, is no address.
+func TestMasked(t *testing.T) {
+	for name, tc := range map[string]struct {
+		ctx  context.Context
+		want bool
+	}{
+		"no principal": {context.Background(), true},
+		"agent":        {WithPrincipal(context.Background(), Principal{Kind: KindAgent}), true},
+		"person":       {WithPrincipal(context.Background(), Principal{Kind: KindHuman}), false},
+		"service":      {WithPrincipal(context.Background(), Principal{Kind: KindService}), false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := Masked(tc.ctx); got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestClientAddress(t *testing.T) {
 	if _, ok := ClientAddressFrom(context.Background()); ok {
 		t.Error("empty context: got an address, want none")

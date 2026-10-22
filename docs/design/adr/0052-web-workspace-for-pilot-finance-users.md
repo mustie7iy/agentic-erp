@@ -1221,8 +1221,9 @@ What the API gaps settled, and where they depart from §3:
     without a trust domain (development) it records the connection's
     address. The address rides the request's context into every audit
     entry the request writes (`audit.audit_event.client_address`, inet,
-    migration 000151) and shows on `listAuditEvents`; work no request made
-    records none.
+    migration 000151) and shows on `listAuditEvents` to people, never to
+    agents (omitted for them, product owner 2026-10-22); work no request
+    made records none.
   - It is personal data. It is kept outside the hash chain, so it can be
     erased without breaking the chain or its anchors (ADR-0026's reason
     for never rewriting details), and follows the entry's retention. The

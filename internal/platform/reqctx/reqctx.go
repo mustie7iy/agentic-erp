@@ -135,6 +135,15 @@ func PrincipalFrom(ctx context.Context) (Principal, bool) {
 	return p, ok
 }
 
+// Masked reports whether data an agent does not need is withheld from the
+// caller: bank accounts (T49g) and client addresses in the audit trail
+// (T73c, product owner 2026-10-22). It is true for an agent, and for a
+// caller the request does not name, so a missing principal fails closed.
+func Masked(ctx context.Context) bool {
+	p, ok := PrincipalFrom(ctx)
+	return !ok || p.Kind == KindAgent
+}
+
 // WithTx attaches the request's transaction. Everything a handler reads or
 // writes goes through it, so tenant isolation and atomicity hold.
 func WithTx(ctx context.Context, tx pgx.Tx) context.Context {

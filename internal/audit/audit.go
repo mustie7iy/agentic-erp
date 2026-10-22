@@ -112,8 +112,9 @@ func (e *Endpoints) ListAuditEvents(ctx context.Context, params gen.ListAuditEve
 		tok, _ := e.Pages.Encode(scope, cursor{Seq: events[size-1].Seq}) // a number always encodes
 		page.NextPageToken.SetTo(tok)
 	}
+	masked := reqctx.Masked(ctx)
 	for _, v := range events {
-		page.Items = append(page.Items, auditEventItem(v))
+		page.Items = append(page.Items, auditEventItem(v, masked))
 	}
 	return &gen.AuditEventPageHeaders{Response: page}, nil
 }
@@ -133,8 +134,12 @@ func auditOrder(orderBy string) (cmp, dir string, err error) {
 	return cmp, dir, nil
 }
 
-// auditEventItem is an event as the API answers it.
-func auditEventItem(v Event) gen.AuditEvent {
+// auditEventItem is an event as the API answers it. Masked (an agent's
+// read) omits the client address: a person's address is personal data an
+// agent has no task for, while people holding audit.event.read see it
+// (product owner 2026-10-22). Omitted, not null, so it is not mistaken for
+// work no request made.
+func auditEventItem(v Event, masked bool) gen.AuditEvent {
 	item := gen.AuditEvent{Seq: v.Seq, OccurredAt: v.OccurredAt, ActorID: v.ActorID, ActorKind: v.ActorKind, Action: v.Action,
 		ObjectType: v.ObjectType, Outcome: v.Outcome, Detail: gen.AuditEventDetail{}}
 	if v.ObjectID != nil {
@@ -143,9 +148,12 @@ func auditEventItem(v Event) gen.AuditEvent {
 	if v.TraceID != nil {
 		item.TraceID.SetTo(*v.TraceID)
 	}
-	item.ClientAddress.SetToNull()
-	if v.ClientAddress != nil {
+	switch {
+	case masked:
+	case v.ClientAddress != nil:
 		item.ClientAddress.SetTo(v.ClientAddress.String())
+	default:
+		item.ClientAddress.SetToNull()
 	}
 	for k, raw := range v.Detail {
 		item.Detail[k] = jx.Raw(raw)
