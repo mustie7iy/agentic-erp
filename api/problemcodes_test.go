@@ -25,19 +25,21 @@ package api
 // work); and a call of a function value a function was given as a
 // parameter (database.Pool.InTx's work: the graph would join every
 // caller's), whose values the callers make, so they count where their
-// callers are reached. A problem made by a package initializer and kept in a variable is
-// an operation's when the operation's code reads that variable. A code a
-// constraint's problem (problem.RegisterConstraint) carries is an
-// operation's when the operation writes (is not a GET) and reaches a
-// function of the registering package that runs a writing statement.
-// Codes built at run time cannot be traced; dynamicCodes declares them per
-// function, and the test fails on a site it does not declare.
+// callers are reached. A problem made by a package initializer and kept
+// in a variable is an operation's when the operation's code reads that
+// variable. A code a constraint's problem (problem.RegisterConstraint)
+// carries is an operation's when a function it reaches runs a statement
+// writing the constraint's table (constraint and table read from the
+// migrations). Codes built at run time, or set on a problem after
+// problem.New, cannot be traced; dynamicCodes declares them per function,
+// and the test fails on a site it does not declare.
 
 import (
 	"flag"
 	"fmt"
 	"go/constant"
 	"go/token"
+	"go/types"
 	"maps"
 	"os"
 	"regexp"
@@ -213,6 +215,7 @@ func analyse(t *testing.T) *codeAnalysis {
 	}
 	for f := range fns {
 		a.writes[f] = tablesWritten(f)
+		a.codeAssigned(f, problem)
 	}
 	a.keptInVariables(emitted)
 	a.registered(t, problem.Func("RegisterConstraint"))
@@ -295,6 +298,36 @@ func (a *codeAnalysis) fromClosures(gate *ssa.Function, site ssa.CallInstruction
 		}
 	}
 	return out
+}
+
+// codeAssigned reports, as a site the analysis cannot trace, a function
+// outside package problem that sets a problem's Code: the code would not
+// be problem.New's argument.
+func (a *codeAnalysis) codeAssigned(f *ssa.Function, problem *ssa.Package) {
+	if f.Pkg == problem {
+		return
+	}
+	for _, b := range f.Blocks {
+		for _, in := range b.Instrs {
+			st, ok := in.(*ssa.Store)
+			if !ok {
+				continue
+			}
+			fa, ok := st.Addr.(*ssa.FieldAddr)
+			if !ok {
+				continue
+			}
+			ptr, ok := fa.X.Type().Underlying().(*types.Pointer)
+			if !ok {
+				continue
+			}
+			named, ok := ptr.Elem().(*types.Named)
+			if ok && named.Obj().Pkg() == problem.Pkg && named.Obj().Name() == "Problem" &&
+				named.Underlying().(*types.Struct).Field(fa.Field).Name() == "Code" {
+				a.unresolved[f.String()] = append(a.unresolved[f.String()], a.prog.Fset.Position(st.Pos()))
+			}
+		}
+	}
 }
 
 // tablesWritten is the tables the statements in a function's own body
@@ -615,18 +648,18 @@ func writeCodes(t *testing.T, common []string, byOperation map[string][]string) 
 	}
 	var out []string
 	lines := strings.Split(string(raw), "\n")
-	opID, inCodes := "", ""
+	opID, inCodes, codesIndent := "", false, 0
 	for _, line := range lines {
 		indent := len(line) - len(strings.TrimLeft(line, " "))
 		trimmed := strings.TrimSpace(line)
 		switch {
-		case inCodes != "" && trimmed != "" && (indent > len(inCodes) || (indent == len(inCodes) && strings.HasPrefix(trimmed, "- "))):
+		case inCodes && trimmed != "" && (indent > codesIndent || (indent == codesIndent && strings.HasPrefix(trimmed, "- "))):
 			continue // the old list's items
 		case trimmed == "x-problem-codes:" || strings.HasPrefix(trimmed, "x-problem-codes: "):
-			inCodes = line[:indent]
+			inCodes, codesIndent = true, indent
 			continue
 		}
-		inCodes = ""
+		inCodes = false
 		switch {
 		case line == "paths:":
 			out = append(out, block("", common)...)

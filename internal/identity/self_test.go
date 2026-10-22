@@ -17,11 +17,16 @@ import (
 func TestCurrentPrincipal(t *testing.T) {
 	ten := pgtest.NewTenant(t, "payables.invoice.read", "partner.bank.change", "payments.run.propose")
 	api := apitest.New(t)
-	entity := uuid.Must(uuid.NewV7())
+	// Two companies, granted in the order opposite to their ids': the
+	// answer lists them sorted.
+	entity, second := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	pgtest.Exec(t, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
-		VALUES ($1, $2, 'DE01', 'Muster GmbH', 'DE', 'EUR', gen_random_uuid(), 'active', $3, $3)`, ten.ID, entity, ten.Human.ID)
-	pgtest.Exec(t, `INSERT INTO identity.company_access (tenant_id, id, principal_id, legal_entity_id, valid_from, created_by)
-		VALUES ($1, gen_random_uuid(), $2, $3, current_date - 1, $2)`, ten.ID, ten.Human.ID, entity)
+		VALUES ($1, $2, 'DE01', 'Muster GmbH', 'DE', 'EUR', gen_random_uuid(), 'active', $4, $4),
+		       ($1, $3, 'DE02', 'Muster Zwei GmbH', 'DE', 'EUR', gen_random_uuid(), 'active', $4, $4)`, ten.ID, entity, second, ten.Human.ID)
+	for _, le := range []uuid.UUID{second, entity} {
+		pgtest.Exec(t, `INSERT INTO identity.company_access (tenant_id, id, principal_id, legal_entity_id, valid_from, created_by)
+			VALUES ($1, gen_random_uuid(), $2, $3, current_date - 1, $2)`, ten.ID, ten.Human.ID, le)
+	}
 	pgtest.Exec(t, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by)
 		VALUES ($1, gen_random_uuid(), 'partner.bank.change', 'payments.run.propose', 'd', current_date, $2)`, ten.ID, ten.Human.ID)
 	pgtest.Exec(t, `UPDATE identity.principal SET email = 'person@example.com', version = version + 1 WHERE tenant_id = $1 AND id = $2`, ten.ID, ten.Human.ID)
@@ -35,7 +40,7 @@ func TestCurrentPrincipal(t *testing.T) {
 		barred       string
 		email, level any
 	}{
-		{"person", ten.Human, "[" + entity.String() + "]", false,
+		{"person", ten.Human, "[" + entity.String() + " " + second.String() + "]", false,
 			"[identity.self.read identity.session.end payables.invoice.read]", "[partner.bank.change payments.run.propose]", "person@example.com", nil},
 		// Agents and services hold no approval permission; NewTenant's
 		// machine role gives them the rest, so the rule bars them too.

@@ -1185,7 +1185,11 @@ What the API gaps settled, and where they depart from §3:
   The lists must equal what it derives, and every listed code must be one
   the server makes; `go test ./api -run TestProblemCodes -update` rewrites
   them. Codes built at run time (partner's code kinds) are declared in
-  the test, which fails on an undeclared one. Two registrations that
+  the test, which fails on an undeclared one, as it does on a code set on
+  a problem after `problem.New` (`analytics.busy` was; it is now made by
+  `problem.New`). An accepted gap: `runAnalyticsQuery` relays the
+  4xx codes of the API reads the semantic layer makes (declared as a
+  relay), which its list does not repeat. Two registrations that
   looped over names (identity's, procurement's) became one call per
   constraint so their tables can be told. Not in this step: the UI's
   check that each code has a message (T73l), and the control plane's
@@ -1209,7 +1213,9 @@ What the API gaps settled, and where they depart from §3:
     (`tlsconf.Store.VerifiedClient`). Otherwise, from the internet, an
     agent, or another service, the header is dropped and the address is
     the connection's (the client's, by the balancer's PROXY header, as
-    before). The router always sets the header towards the cell.
+    before). A call from erp-web with no usable address names none, as
+    erp-web's own address is no person's. The router sets the header
+    towards the cell on every other call.
   - The cell believes the header from the router's identity alone
     (`httpapi.ClientAddress`, beside the client certificate's thumbprint);
     without a trust domain (development) it records the connection's

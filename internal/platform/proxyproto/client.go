@@ -21,7 +21,7 @@ func RemoteIP(r *http.Request) (netip.Addr, bool) {
 	if err != nil {
 		return netip.Addr{}, false
 	}
-	return ap.Addr().Unmap(), true
+	return ap.Addr().Unmap().WithZone(""), true // a zone names a host's interface, not where a client is
 }
 
 // ParseClientAddress reads ClientAddressHeader's value: one IP address,

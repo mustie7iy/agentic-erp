@@ -478,7 +478,8 @@ func TestForwardsTheClientCertificate(t *testing.T) {
 // TestForwardsTheClientAddress: the cell is told the address erp-web
 // forwarded only when the connection is erp-web's verified identity, and
 // otherwise the connection's own; an address anyone else sent is never
-// passed on (ADR-0011 as amended by T73c, ADR-0033).
+// passed on, and erp-web's own address is never given as a person's
+// (ADR-0011 as amended by T73c, ADR-0033).
 func TestForwardsTheClientAddress(t *testing.T) {
 	is := authntest.New(t)
 	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
@@ -504,8 +505,8 @@ func TestForwardsTheClientAddress(t *testing.T) {
 	}{
 		{"erp-web's person", isWeb, web, "10.20.0.7:40000", "198.51.100.9", "198.51.100.9"},
 		{"erp-web's person, IPv6", isWeb, web, "10.20.0.7:40000", "2001:db8::9", "2001:db8::9"},
-		{"erp-web forwarding none", isWeb, web, "10.20.0.7:40000", "", "10.20.0.7"},
-		{"erp-web forwarding a malformed one", isWeb, web, "10.20.0.7:40000", "198.51.100.9, 10.0.0.1", "10.20.0.7"},
+		{"erp-web forwarding none", isWeb, web, "10.20.0.7:40000", "", ""},
+		{"erp-web forwarding a malformed one", isWeb, web, "10.20.0.7:40000", "198.51.100.9, 10.0.0.1", ""},
 		{"spoofed by another client", isWeb, &tls.ConnectionState{}, "203.0.113.5:4431", "198.51.100.9", "203.0.113.5"},
 		{"spoofed over plaintext", isWeb, nil, "203.0.113.5:4431", "198.51.100.9", "203.0.113.5"},
 		{"spoofed with nobody believed", nil, web, "203.0.113.5:4431", "198.51.100.9", "203.0.113.5"},

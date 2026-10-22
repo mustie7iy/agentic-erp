@@ -13926,6 +13926,7 @@ paths:
       x-permission: analytics.query.run
       x-autonomy: read
       x-problem-codes:
+        - analytics.busy
         - analytics.invalid_query
         - config.not_bootstrapped
         - config.unknown_version

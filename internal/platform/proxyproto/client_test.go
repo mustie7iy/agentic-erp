@@ -10,6 +10,7 @@ func TestRemoteIP(t *testing.T) {
 		{"203.0.113.7:4431", "203.0.113.7"},
 		{"[2001:db8::7]:4431", "2001:db8::7"},
 		{"[::ffff:203.0.113.7]:4431", "203.0.113.7"}, // a v4 client of a dual-stack listener
+		{"[fe80::1%eth0]:4431", "fe80::1"},           // the host's interface is not the client's
 		{"pipe", ""},
 	} {
 		t.Run(c.remote, func(t *testing.T) {

@@ -262,16 +262,17 @@ func forwardClientCert(pr *httputil.ProxyRequest) {
 // audit trail: the person's address that erp-web, verified by its
 // identity, forwarded, otherwise the connection's own (the client's, by
 // the load balancer's PROXY header). An address anyone else sent is
-// dropped, so no caller names another's (ADR-0033).
+// dropped, so no caller names another's (ADR-0033). erp-web's call
+// without a usable address names none: erp-web's own address is no
+// person's.
 func (rt *Router) forwardClientAddress(pr *httputil.ProxyRequest) {
 	forwarded := pr.In.Header.Get(proxyproto.ClientAddressHeader)
 	pr.Out.Header.Del(proxyproto.ClientAddressHeader)
 	var addr netip.Addr
-	ok := false
-	if forwarded != "" && rt.Forwarder != nil && rt.Forwarder(pr.In.TLS) {
+	var ok bool
+	if rt.Forwarder != nil && rt.Forwarder(pr.In.TLS) {
 		addr, ok = proxyproto.ParseClientAddress(forwarded)
-	}
-	if !ok {
+	} else {
 		addr, ok = proxyproto.RemoteIP(pr.In)
 	}
 	if ok {
