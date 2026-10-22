@@ -262,6 +262,8 @@ tax_codes:
         account: "1180"
         rates:
           - {valid_from: 2026-01-01, rate_percent: "5"}
+      # an output code may levy its lines' subdivision instead:
+      # jurisdiction: AE, jurisdiction_on_line: true (T61f)
       - key: pst_bc
         jurisdiction: CA-BC
         account_key: non_deductible   # added to the base line's account
@@ -545,6 +547,32 @@ carries its jurisdiction (province or emirate) when the code's components need
 one. Zero-rated and exempt bases carry their codes with no tax line, so lines
 101 and boxes 4/5 see them. How granular the pilot's import is (one entry per
 sales invoice or a daily summary per code and jurisdiction) is decision P2.
+- **As built (T61f, migration 000148):** a manual or integration entry
+  (`POST /v1/journal-entries`, idempotent by its `Idempotency-Key`; parked
+  ones alike) posts output codes on its base lines (the sales, credits) and
+  tax lines (on the code's component accounts). The ledger calculates each
+  output code's tax over its base lines, per jurisdiction, at the rates of
+  the tax date (`checkOutputTax`, `internal/tax`, rounded once per code and
+  component), and holds the tax lines on each component's account to it
+  within one minor unit (422 `ledger.output_tax_mismatch` with the
+  figures); a code with tax lines and no base line is an adjustment of tax
+  alone, recorded as posted (base 0). Where a component levies its lines'
+  subdivision (`jurisdiction_on_line`, its jurisdiction the country: one
+  UAE code for every emirate, VAT 201 boxes 1a-1g), every line with the
+  code names it (`tax_jurisdiction`, ISO 3166-2, 422
+  `ledger.jurisdiction_required`), a subdivision of that country, and no
+  other line names one (422 `ledger.jurisdiction_not_levied`; database
+  trigger `journal_line_tax_jurisdiction_code`, which a reversal passes, as
+  it repeats the original's); the items are then per jurisdiction. A code
+  of a province's own (Ontario's HST, `CA-ON`) needs none. Zero-rated and
+  exempt bases carry their codes without tax lines and are items at rate 0
+  (GST34 line 101, VAT 201 boxes 4/5). The posted event's lines do not
+  carry the declared base or the jurisdiction yet (tracker). **For the
+  product owner:** an integration posting sales entries is held to the
+  company's manual entry approval limit like a person (409
+  `ledger.approval_required` above it), which a billing system cannot
+  answer; whether a service principal's entries are exempt, or have a limit
+  of their own, is open.
 
 ### 8. Calculation and rounding
 - Base × rate is exact (`big.Rat`, as `money.Convert`), rounded **once per

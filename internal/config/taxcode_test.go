@@ -36,14 +36,18 @@ func withCode(code TaxCode, mod func(*TaxCode)) func(c *Config) {
 }
 
 // TestTaxCodesValid: codes with components (GST with a future rate and a
-// non-deductible PST), a reverse charge pair, an output code and a zero
-// code are valid beside the single-rate codes.
+// non-deductible PST), a reverse charge pair, output codes (one levying
+// its lines' emirate) and a zero code are valid beside the single-rate
+// codes.
 func TestTaxCodesValid(t *testing.T) {
 	c := fixture(t)
 	co := &c.Companies[0]
 	co.TaxCodes = append(co.TaxCodes, bcCode(), reverseCharge(),
 		TaxCode{Code: "A1", Description: "Output 5%", Direction: TaxOutput, Components: []TaxComponent{
 			{Key: "gst", AccountKey: KeyOutput, Account: "211000", RecoverablePercent: "100", Rates: []TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}}}},
+		TaxCode{Code: "S5", Description: "UAE standard, by emirate", Direction: TaxOutput, Components: []TaxComponent{
+			{Key: "vat", Jurisdiction: "AE", JurisdictionOnLine: true, AccountKey: KeyOutput, Account: "211000",
+				Rates: []TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}}}},
 		TaxCode{Code: "Z0", Description: "Zero-rated", Kind: TaxZero, Category: "Z", RatePercent: "0", Account: "140000"})
 	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
 		t.Fatalf("valid codes: got %v, want no errors", fs)
@@ -94,6 +98,8 @@ func TestTaxCodeFindings(t *testing.T) {
 			func(*TaxCode) {}), "companies[1000].tax_codes[R1].components"},
 		{"self-assessed on a standard code", rc(func(t *TaxCode) { t.Kind = TaxStandard }), "companies[1000].tax_codes[RC].kind"},
 		{"self-assessed without its pair", rc(func(t *TaxCode) { t.Components[1].AccountKey = KeyInput }), "companies[1000].tax_codes[RC].components"},
+		{"jurisdiction on lines of an input code", gst(func(c *TaxComponent) { c.JurisdictionOnLine = true }), p + ".components[gst].jurisdiction_on_line"},
+		{"jurisdiction on lines of a subdivision", pst(func(c *TaxComponent) { c.JurisdictionOnLine = true }), p + ".components[pst_bc].jurisdiction_on_line"},
 		{"reverse charge without a pair", rc(func(t *TaxCode) {
 			t.Components[0].AccountKey, t.Components[1].AccountKey = KeyInput, KeyInput
 		}), "companies[1000].tax_codes[RC].components"},

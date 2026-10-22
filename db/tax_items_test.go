@@ -504,3 +504,118 @@ func TestTaxBaseRules(t *testing.T) {
 		return based(s.tax, "IC5", &base, &baseLC)(tx)
 	})
 }
+
+// TestLineJurisdictionRules: a taxed line names a jurisdiction exactly
+// when its code's component levies its lines' subdivision, one of that
+// component's country (000148, T61f), but for a reversal, which repeats
+// the original's; a component levies its lines' subdivisions only as a
+// country; the items are per jurisdiction.
+func TestLineJurisdictionRules(t *testing.T) {
+	need(t)
+	s := newTaxScene(t)
+	mustApp(t, s.tenant, func(tx pgx.Tx) error {
+		return all(tx, step(`INSERT INTO ledger.tax_code_definition (tenant_id, legal_entity_id, code, description, direction, kind, created_by, updated_by)
+				VALUES ($1, $2, 'S5', 'UAE standard', 'output', 'standard', $3, $3)`, s.tenant, s.entity, s.actor),
+			step(`INSERT INTO ledger.tax_component (tenant_id, legal_entity_id, code, component, jurisdiction, jurisdiction_on_line, account_key,
+				recoverable_pct, account_id, created_by, updated_by) VALUES ($1, $2, 'S5', 'vat', 'AE', true, 'output', 100, $3, $4, $4)`,
+				s.tenant, s.entity, s.tax, s.actor),
+			step(`INSERT INTO ledger.tax_rate (tenant_id, id, legal_entity_id, code, component, valid_from, rate_pct, created_by)
+				VALUES ($1, gen_random_uuid(), $2, 'S5', 'vat', '2026-01-01', 5, $3)`, s.tenant, s.entity, s.actor))
+	})
+	line := func(tx pgx.Tx, je uuid.UUID, n int, account uuid.UUID, amount int64, code, jurisdiction string) error {
+		return exec(tx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id, fiscal_period,
+			posting_date, account_id, amount_tc, amount_lc, amount_gc, tax_code, tax_jurisdiction)
+			VALUES ($1,2026,$2,$3,$4,$5,3,'2026-03-10',$6,$7,$7,$8,nullif($9, ''),nullif($10, ''))`,
+			s.tenant, je, n, s.entity, s.ledger, account, amount, amount*9/10, code, jurisdiction)
+	}
+	sale := func(jurisdiction string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			je, err := s.header(tx, true)
+			for i, l := range []struct {
+				account uuid.UUID
+				amount  int64
+				code    string
+			}{{s.bank, 2100, ""}, {s.expense, -1000, "S5"}, {s.tax, -50, "S5"}, {s.expense, -1000, "S5"}, {s.tax, -50, "S5"}} {
+				j := ""
+				if l.code != "" {
+					j = jurisdiction
+					if i > 2 && jurisdiction == "AE-DU" {
+						j = "AE-AZ"
+					}
+				}
+				if err == nil {
+					err = line(tx, je, i+1, l.account, l.amount, l.code, j)
+				}
+			}
+			if err == nil {
+				err = exec(tx, `SELECT ledger.write_tax_items($1, 2026::smallint, $2, '2026-03-10'::date, false)`, s.tenant, je)
+			}
+			return err
+		}
+	}
+	mustApp(t, s.tenant, sale("AE-DU"))
+	var got string
+	mustApp(t, s.tenant, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `SELECT string_agg(jurisdiction || ' ' || base_tc || ' ' || tax_tc, '; ' ORDER BY item_no)
+			FROM ledger.tax_item WHERE code = 'S5'`).Scan(&got)
+	})
+	if want := "AE-AZ -1000 -50; AE-DU -1000 -50"; got != want {
+		t.Errorf("items: got %s, want %s", got, want)
+	}
+	for name, c := range map[string]struct {
+		write func(tx pgx.Tx) error
+		fails string
+	}{
+		"none where the code levies the line's": {sale(""), "journal_line_tax_jurisdiction_code"},
+		"another country's":                     {sale("CA-ON"), "journal_line_tax_jurisdiction_code"},
+		"one the code does not levy": {func(tx pgx.Tx) error {
+			je, err := s.header(tx, true)
+			if err == nil {
+				err = line(tx, je, 1, s.expense, 10000, "I5", "CA-BC")
+			}
+			return err
+		}, "journal_line_tax_jurisdiction_code"},
+		"one without a code": {func(tx pgx.Tx) error {
+			je, err := s.header(tx, true)
+			if err == nil {
+				err = line(tx, je, 1, s.expense, 10000, "", "AE-DU")
+			}
+			return err
+		}, "journal_line_tax_jurisdiction"},
+		"a subdivision levying its lines'": {func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE ledger.tax_component SET jurisdiction = 'AE-DU', version = version + 1 WHERE code = 'S5'`)
+		}, "tax_component_jurisdiction_on_line"},
+	} {
+		t.Run(name, func(t *testing.T) { failsOn(t, asApp(t, s.tenant, c.write), c.fails) })
+	}
+	// A reversal repeats the original's jurisdiction after the code changed.
+	mustApp(t, s.tenant, func(tx pgx.Tx) error {
+		orig, err := s.header(tx, true)
+		if err == nil {
+			err = exec(tx, `UPDATE ledger.tax_component SET jurisdiction_on_line = false, version = version + 1 WHERE code = 'S5'`)
+		}
+		rev := id()
+		if err == nil {
+			err = exec(tx, `INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period, document_type,
+				document_number, document_date, posting_date, tax_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, posted_by,
+				reversal_of_id, reversal_of_year) VALUES ($1,2026,$2,$3,$4,3,'SA','REV1','2026-03-10','2026-03-10','2026-03-10','USD','USD','EUR',1,0.9,'ledger',$5,$6,2026)`,
+				s.tenant, rev, s.entity, s.ledger, s.actor, orig)
+		}
+		if err == nil {
+			err = line(tx, rev, 1, s.tax, 50, "S5", "AE-DU")
+		}
+		if err == nil {
+			err = line(tx, rev, 2, s.bank, -50, "", "")
+		}
+		if err == nil {
+			err = exec(tx, `SELECT ledger.write_tax_items($1, 2026::smallint, $2, '2026-03-10'::date, false)`, s.tenant, rev)
+		}
+		if err == nil {
+			err = line(tx, orig, 1, s.bank, 10, "", "")
+		}
+		if err == nil {
+			err = line(tx, orig, 2, s.bank, -10, "", "")
+		}
+		return err
+	})
+}

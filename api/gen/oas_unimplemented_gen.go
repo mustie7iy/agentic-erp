@@ -2220,7 +2220,13 @@ func (UnimplementedHandler) PostGoodsReceipt(ctx context.Context, req *GoodsRece
 // every ledger its company keeps as linked entries of one posting group sharing the document number
 // (`posting_group_id`), each period checked open in its ledger, and returns the leading ledger's;
 // `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to those ledgers
-// only (ADR-0045). Human-only: agents propose entries by parking them.
+// only (ADR-0045). Output tax (ADR-0049 §7, T61f): a billing system posts its sales here, one entry
+// per sales invoice or a summary per code and jurisdiction, idempotent by its `Idempotency-Key`; each
+// output code's tax lines (in a jurisdiction, where the code levies its lines' subdivision) are the
+// tax its base lines give at the rates of the tax date, within one minor unit per component, or 422
+// `ledger.output_tax_mismatch`; a code with tax lines and no base line is an adjustment of tax alone.
+// Zero-rated and exempt bases carry their codes without tax lines and are recorded as tax items at
+// rate 0. Human-only: agents propose entries by parking them.
 //
 // POST /v1/journal-entries
 func (UnimplementedHandler) PostJournalEntry(ctx context.Context, req *JournalEntryCreate, params PostJournalEntryParams) (r PostJournalEntryRes, _ error) {

@@ -70,3 +70,12 @@ func TestOnAccountInvalidCode(t *testing.T) {
 		t.Errorf("refusal with the calculator's error: got %v, want it", got)
 	}
 }
+
+// TestOutputCalculationFailed: the calculator's errors other than amounts
+// out of range are wrapped.
+func TestOutputCalculationFailed(t *testing.T) {
+	invalid := errors.New("tax: invalid tax code")
+	if err := calculationFailed("S5", invalid); !errors.Is(err, invalid) {
+		t.Errorf("got %v, want it wrapped", err)
+	}
+}

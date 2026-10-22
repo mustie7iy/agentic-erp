@@ -28613,6 +28613,12 @@ func (s *JournalLine) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.TaxJurisdiction.Set {
+			e.FieldStart("tax_jurisdiction")
+			s.TaxJurisdiction.Encode(e)
+		}
+	}
+	{
 		if s.Quantity.Set {
 			e.FieldStart("quantity")
 			s.Quantity.Encode(e)
@@ -28656,7 +28662,7 @@ func (s *JournalLine) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfJournalLine = [14]string{
+var jsonFieldsNameOfJournalLine = [15]string{
 	0:  "line_no",
 	1:  "account_id",
 	2:  "amount",
@@ -28664,13 +28670,14 @@ var jsonFieldsNameOfJournalLine = [14]string{
 	4:  "amount_gc",
 	5:  "partner_id",
 	6:  "tax_code",
-	7:  "quantity",
-	8:  "purchase_order_id",
-	9:  "po_item_no",
-	10: "special_gl",
-	11: "tax_base",
-	12: "tax_base_lc",
-	13: "line_text",
+	7:  "tax_jurisdiction",
+	8:  "quantity",
+	9:  "purchase_order_id",
+	10: "po_item_no",
+	11: "special_gl",
+	12: "tax_base",
+	13: "tax_base_lc",
+	14: "line_text",
 }
 
 // Decode decodes JournalLine from json.
@@ -28755,6 +28762,16 @@ func (s *JournalLine) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tax_code\"")
+			}
+		case "tax_jurisdiction":
+			if err := func() error {
+				s.TaxJurisdiction.Reset()
+				if err := s.TaxJurisdiction.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_jurisdiction\"")
 			}
 		case "quantity":
 			if err := func() error {
@@ -28913,6 +28930,12 @@ func (s *JournalLineInput) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.TaxJurisdiction.Set {
+			e.FieldStart("tax_jurisdiction")
+			s.TaxJurisdiction.Encode(e)
+		}
+	}
+	{
 		if s.TaxBase.Set {
 			e.FieldStart("tax_base")
 			s.TaxBase.Encode(e)
@@ -28932,14 +28955,15 @@ func (s *JournalLineInput) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfJournalLineInput = [7]string{
+var jsonFieldsNameOfJournalLineInput = [8]string{
 	0: "account_id",
 	1: "amount",
 	2: "partner_id",
 	3: "tax_code",
-	4: "tax_base",
-	5: "quantity",
-	6: "line_text",
+	4: "tax_jurisdiction",
+	5: "tax_base",
+	6: "quantity",
+	7: "line_text",
 }
 
 // Decode decodes JournalLineInput from json.
@@ -28992,6 +29016,16 @@ func (s *JournalLineInput) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tax_code\"")
+			}
+		case "tax_jurisdiction":
+			if err := func() error {
+				s.TaxJurisdiction.Reset()
+				if err := s.TaxJurisdiction.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_jurisdiction\"")
 			}
 		case "tax_base":
 			if err := func() error {
@@ -37471,6 +37505,12 @@ func (s *ParkedJournalLine) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.TaxJurisdiction.Set {
+			e.FieldStart("tax_jurisdiction")
+			s.TaxJurisdiction.Encode(e)
+		}
+	}
+	{
 		if s.TaxBase.Set {
 			e.FieldStart("tax_base")
 			s.TaxBase.Encode(e)
@@ -37490,15 +37530,16 @@ func (s *ParkedJournalLine) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfParkedJournalLine = [8]string{
+var jsonFieldsNameOfParkedJournalLine = [9]string{
 	0: "line_no",
 	1: "account_id",
 	2: "amount",
 	3: "partner_id",
 	4: "tax_code",
-	5: "tax_base",
-	6: "quantity",
-	7: "line_text",
+	5: "tax_jurisdiction",
+	6: "tax_base",
+	7: "quantity",
+	8: "line_text",
 }
 
 // Decode decodes ParkedJournalLine from json.
@@ -37506,7 +37547,7 @@ func (s *ParkedJournalLine) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode ParkedJournalLine to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -37564,6 +37605,16 @@ func (s *ParkedJournalLine) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tax_code\"")
 			}
+		case "tax_jurisdiction":
+			if err := func() error {
+				s.TaxJurisdiction.Reset()
+				if err := s.TaxJurisdiction.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_jurisdiction\"")
+			}
 		case "tax_base":
 			if err := func() error {
 				s.TaxBase.Reset()
@@ -37603,8 +37654,9 @@ func (s *ParkedJournalLine) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
+	for i, mask := range [2]uint8{
 		0b00000111,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

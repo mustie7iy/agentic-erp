@@ -114,6 +114,9 @@ type Line struct {
 	// base no line of the entry carries (T61e, ADR-0049 §9).
 	TaxBase   *money.Minor `json:"tax_base_tc"`
 	TaxBaseLC *money.Minor `json:"tax_base_lc"`
+	// TaxJurisdiction is the subdivision the line's tax is levied in
+	// (CA-ON, AE-DU) where its code's component levies the line's (T61f).
+	TaxJurisdiction *string `json:"tax_jurisdiction"`
 	// keptLC is a local amount the posting keeps rather than converts
 	// (PostingLine.LC).
 	keptLC *money.Minor
@@ -133,7 +136,8 @@ const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id,
 		(SELECT json_agg(json_build_object('line_no', l.line_no, 'account_id', l.account_id, 'tc', l.amount_tc, 'lc', l.amount_lc,
 			'gc', l.amount_gc, 'partner_id', l.partner_id, 'tax_code', l.tax_code, 'quantity', trim_scale(l.quantity)::text,
 			'unit', l.uom_code, 'text', l.line_text, 'purchase_order_id', l.purchase_order_id, 'po_item_no', l.po_item_no,
-			'special_gl', l.special_gl, 'tax_base_tc', l.tax_base_tc, 'tax_base_lc', l.tax_base_lc) ORDER BY l.line_no)
+			'special_gl', l.special_gl, 'tax_base_tc', l.tax_base_tc, 'tax_base_lc', l.tax_base_lc, 'tax_jurisdiction', l.tax_jurisdiction)
+			ORDER BY l.line_no)
 		 FROM ledger.journal_line l WHERE l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year AND l.journal_entry_id = e.id)
 	FROM ledger.journal_entry e
 	JOIN ref.currency ctc ON ctc.code = e.currency_tc
@@ -343,6 +347,7 @@ type lineColumns struct {
 	tcs, lcs, gcs                             []money.Minor
 	taxes, quantities, units, texts, specials []*string
 	bases, basesLC                            []*money.Minor
+	jurisdictions                             []*string
 }
 
 func lineColumnsOf(lines []Line) lineColumns {
@@ -350,13 +355,13 @@ func lineColumnsOf(lines []Line) lineColumns {
 	c := lineColumns{nos: make([]int32, n), items: make([]*int32, n), accounts: make([]uuid.UUID, n), partners: make([]*uuid.UUID, n),
 		orders: make([]*uuid.UUID, n), tcs: make([]money.Minor, n), lcs: make([]money.Minor, n), gcs: make([]money.Minor, n),
 		taxes: make([]*string, n), quantities: make([]*string, n), units: make([]*string, n), texts: make([]*string, n), specials: make([]*string, n),
-		bases: make([]*money.Minor, n), basesLC: make([]*money.Minor, n)}
+		bases: make([]*money.Minor, n), basesLC: make([]*money.Minor, n), jurisdictions: make([]*string, n)}
 	for i, l := range lines {
 		c.nos[i], c.accounts[i], c.partners[i] = int32(i+1), l.AccountID, l.PartnerID
 		c.tcs[i], c.lcs[i], c.gcs[i] = l.TC, l.LC, l.GC
 		c.taxes[i], c.quantities[i], c.units[i], c.texts[i] = l.TaxCode, l.Quantity, l.Unit, l.Text
 		c.orders[i], c.items[i], c.specials[i] = l.PurchaseOrderID, l.POItemNo, l.SpecialGL
-		c.bases[i], c.basesLC[i] = l.TaxBase, l.TaxBaseLC
+		c.bases[i], c.basesLC[i], c.jurisdictions[i] = l.TaxBase, l.TaxBaseLC, l.TaxJurisdiction
 	}
 	return c
 }
@@ -385,12 +390,12 @@ func insertEntry(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d draft, c 
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id,
 			fiscal_period, posting_date, account_id, amount_tc, amount_lc, amount_gc, partner_id, tax_code, quantity, uom_code, line_text,
-			purchase_order_id, po_item_no, special_gl, tax_base_tc, tax_base_lc)
-		SELECT $1, $2, $3, n, $4, $5, $6, $7, a, tc, lc, gc, pa, tx, q::numeric, u, t, o, i, s, b, bl
+			purchase_order_id, po_item_no, special_gl, tax_base_tc, tax_base_lc, tax_jurisdiction)
+		SELECT $1, $2, $3, n, $4, $5, $6, $7, a, tc, lc, gc, pa, tx, q::numeric, u, t, o, i, s, b, bl, j
 		FROM unnest($8::int[], $9::uuid[], $10::bigint[], $11::bigint[], $12::bigint[], $13::uuid[], $14::text[], $15::text[], $16::text[], $17::text[],
-			$18::uuid[], $19::int[], $20::text[], $21::bigint[], $22::bigint[]) AS x(n, a, tc, lc, gc, pa, tx, q, u, t, o, i, s, b, bl)`,
+			$18::uuid[], $19::int[], $20::text[], $21::bigint[], $22::bigint[], $23::text[]) AS x(n, a, tc, lc, gc, pa, tx, q, u, t, o, i, s, b, bl, j)`,
 		p.TenantID, h.year, h.id, d.entity.ID, h.ledger, h.period, d.postingDate, c.nos, c.accounts, c.tcs, c.lcs, c.gcs, c.partners,
-		c.taxes, c.quantities, c.units, c.texts, c.orders, c.items, c.specials, c.bases, c.basesLC); err != nil {
+		c.taxes, c.quantities, c.units, c.texts, c.orders, c.items, c.specials, c.bases, c.basesLC, c.jurisdictions); err != nil {
 		return Entry{}, fmt.Errorf("ledger: post entry %s: lines: %w", h.id, err)
 	}
 	// Tax items are the leading ledger's (ADR-0045, ADR-0049 §5): returns
@@ -459,6 +464,7 @@ type NewLine struct {
 	SpecialGL       *string // set by the posting contexts only (ADR-0037)
 	TaxBase         *string // a tax line's declared base (Line.TaxBase), in TaxBaseCurrency
 	TaxBaseCurrency string
+	TaxJurisdiction *string // the subdivision its tax is levied in (Line.TaxJurisdiction)
 	lc              *money.Minor // a kept local amount (PostingLine.LC): the posting contexts only
 }
 
@@ -926,6 +932,9 @@ func (e *Endpoints) prepareFor(ctx context.Context, tx pgx.Tx, le tenancy.Entity
 	if err := checkTaxBases(ctx, le.ID, in.taxDay(), lines, expTC); err != nil {
 		return prepared{}, err
 	}
+	if err := checkOutputTax(ctx, le.ID, in.taxDay(), lines, expTC); err != nil {
+		return prepared{}, err
+	}
 	return prepared{le: le, choice: choice, group: group, exps: exps, expTC: expTC, lines: lines}, nil
 }
 
@@ -1016,7 +1025,7 @@ func entryLines(in NewEntry, expTC int) ([]Line, error) {
 		}
 		amounts[i] = tc
 		lines[i] = Line{AccountID: l.AccountID, TC: tc, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text,
-			SpecialGL: l.SpecialGL, TaxBase: base, keptLC: l.lc}
+			SpecialGL: l.SpecialGL, TaxBase: base, TaxJurisdiction: l.TaxJurisdiction, keptLC: l.lc}
 	}
 	sum, err := money.Sum(amounts...)
 	if err != nil {
@@ -1261,7 +1270,7 @@ func reversalLines(orig Entry) []Line {
 	for i, l := range orig.Lines {
 		lines[i] = Line{AccountID: l.AccountID, TC: -l.TC, LC: -l.LC, GC: -l.GC, PartnerID: l.PartnerID, TaxCode: l.TaxCode,
 			Quantity: negate(l.Quantity), Unit: l.Unit, Text: l.Text, PurchaseOrderID: l.PurchaseOrderID, POItemNo: l.POItemNo, SpecialGL: l.SpecialGL,
-			TaxBase: negatedAmount(l.TaxBase), TaxBaseLC: negatedAmount(l.TaxBaseLC)}
+			TaxBase: negatedAmount(l.TaxBase), TaxBaseLC: negatedAmount(l.TaxBaseLC), TaxJurisdiction: l.TaxJurisdiction}
 	}
 	return lines
 }

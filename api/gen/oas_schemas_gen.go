@@ -19760,6 +19760,9 @@ type JournalLine struct {
 	PartnerID OptUUID `json:"partner_id"`
 	// Tax code.
 	TaxCode OptString `json:"tax_code"`
+	// The province or emirate the line's tax is levied in, where its code's component levies its lines'
+	// subdivision (JournalLineInput `tax_jurisdiction`).
+	TaxJurisdiction OptString `json:"tax_jurisdiction"`
 	// Quantity, where relevant.
 	Quantity OptQuantity `json:"quantity"`
 	// Purchase order whose item the line belongs to: set on GR/IR lines, which goods receipts and invoices
@@ -19814,6 +19817,11 @@ func (s *JournalLine) GetPartnerID() OptUUID {
 // GetTaxCode returns the value of TaxCode.
 func (s *JournalLine) GetTaxCode() OptString {
 	return s.TaxCode
+}
+
+// GetTaxJurisdiction returns the value of TaxJurisdiction.
+func (s *JournalLine) GetTaxJurisdiction() OptString {
+	return s.TaxJurisdiction
 }
 
 // GetQuantity returns the value of Quantity.
@@ -19886,6 +19894,11 @@ func (s *JournalLine) SetTaxCode(val OptString) {
 	s.TaxCode = val
 }
 
+// SetTaxJurisdiction sets the value of TaxJurisdiction.
+func (s *JournalLine) SetTaxJurisdiction(val OptString) {
+	s.TaxJurisdiction = val
+}
+
 // SetQuantity sets the value of Quantity.
 func (s *JournalLine) SetQuantity(val OptQuantity) {
 	s.Quantity = val
@@ -19932,6 +19945,12 @@ type JournalLineInput struct {
 	PartnerID OptUUID `json:"partner_id"`
 	// Tax code.
 	TaxCode OptString `json:"tax_code"`
+	// The province or emirate the line's tax is levied in (ISO 3166-2, `CA-ON`, `AE-DU`; ADR-0049 §7):
+	// required on every line, base and tax, of a code whose component levies its lines' subdivision
+	// (`jurisdiction_on_line`; 422 `ledger.jurisdiction_required`), a subdivision of that component's
+	// country, and on no other line (422 `ledger.jurisdiction_not_levied`). The code's items are per
+	// jurisdiction.
+	TaxJurisdiction OptString `json:"tax_jurisdiction"`
 	// Declared tax base of a tax line of an `import` code (ADR-0049 §9): the import's tax posted from the
 	// customs declaration, as tax lines alone, on the declared value no line of the entry carries. Only on
 	// a line with an import code on one of its components' accounts (422 `ledger.tax_base_not_import`),
@@ -19963,6 +19982,11 @@ func (s *JournalLineInput) GetPartnerID() OptUUID {
 // GetTaxCode returns the value of TaxCode.
 func (s *JournalLineInput) GetTaxCode() OptString {
 	return s.TaxCode
+}
+
+// GetTaxJurisdiction returns the value of TaxJurisdiction.
+func (s *JournalLineInput) GetTaxJurisdiction() OptString {
+	return s.TaxJurisdiction
 }
 
 // GetTaxBase returns the value of TaxBase.
@@ -19998,6 +20022,11 @@ func (s *JournalLineInput) SetPartnerID(val OptUUID) {
 // SetTaxCode sets the value of TaxCode.
 func (s *JournalLineInput) SetTaxCode(val OptString) {
 	s.TaxCode = val
+}
+
+// SetTaxJurisdiction sets the value of TaxJurisdiction.
+func (s *JournalLineInput) SetTaxJurisdiction(val OptString) {
+	s.TaxJurisdiction = val
 }
 
 // SetTaxBase sets the value of TaxBase.
@@ -26551,6 +26580,8 @@ type ParkedJournalLine struct {
 	PartnerID OptUUID `json:"partner_id"`
 	// Tax code.
 	TaxCode OptString `json:"tax_code"`
+	// The line's jurisdiction (JournalLineInput `tax_jurisdiction`), absent when it names none.
+	TaxJurisdiction OptString `json:"tax_jurisdiction"`
 	// The line's declared tax base (JournalLineInput `tax_base`), absent when it declares none.
 	TaxBase OptMoney `json:"tax_base"`
 	// Quantity, where relevant.
@@ -26582,6 +26613,11 @@ func (s *ParkedJournalLine) GetPartnerID() OptUUID {
 // GetTaxCode returns the value of TaxCode.
 func (s *ParkedJournalLine) GetTaxCode() OptString {
 	return s.TaxCode
+}
+
+// GetTaxJurisdiction returns the value of TaxJurisdiction.
+func (s *ParkedJournalLine) GetTaxJurisdiction() OptString {
+	return s.TaxJurisdiction
 }
 
 // GetTaxBase returns the value of TaxBase.
@@ -26622,6 +26658,11 @@ func (s *ParkedJournalLine) SetPartnerID(val OptUUID) {
 // SetTaxCode sets the value of TaxCode.
 func (s *ParkedJournalLine) SetTaxCode(val OptString) {
 	s.TaxCode = val
+}
+
+// SetTaxJurisdiction sets the value of TaxJurisdiction.
+func (s *ParkedJournalLine) SetTaxJurisdiction(val OptString) {
+	s.TaxJurisdiction = val
 }
 
 // SetTaxBase sets the value of TaxBase.
