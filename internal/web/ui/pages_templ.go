@@ -10,9 +10,10 @@ import templruntime "github.com/a-h/templ/runtime"
 
 import "github.com/mustie7iy/agentic-erp/internal/web/i18n"
 
-// Jobs are the pilot's jobs (ADR-0052 §2, P6), each to become a screen.
+// Jobs are the pilot's jobs (ADR-0052 §2, P6) still to become a screen;
+// the approvals inbox is one (T73d), in the navigation.
 var Jobs = []i18n.Key{
-	i18n.JobApprovals, i18n.JobInvoices, i18n.JobPayments, i18n.JobBank,
+	i18n.JobInvoices, i18n.JobPayments, i18n.JobBank,
 	i18n.JobJournal, i18n.JobClose, i18n.JobReports,
 }
 

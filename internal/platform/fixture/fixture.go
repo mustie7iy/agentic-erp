@@ -31,6 +31,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -282,6 +283,49 @@ func (e Env) Approve(tb testing.TB, objectID string) {
 		}
 	}
 	tb.Fatalf("approval request of %s still pending after two approvals", objectID)
+}
+
+// Requisition submits, as the tenant's human, a requisition for ten
+// laptops at EUR 1,200.00 in company 2000, above the first tier, and
+// returns its pending approval request (two steps). The tenant needs
+// procurement.requisition.create and .read.
+func (e Env) Requisition(tb testing.TB) uuid.UUID {
+	tb.Helper()
+	req, _ := e.Must(201, "POST", "/v1/requisitions", fmt.Sprintf(`{"legal_entity_id": %q, "currency": "EUR",
+		"items": [{"description": "Laptop", "quantity": {"value": "10", "unit": "EA"}, "unit_price": {"amount": "1200.00", "currency": "EUR"}, "account_id": %q}]}`,
+		e.DE, e.Account(tb, "2000", "520000")), "")
+	path := "/v1/requisitions/" + req["id"].(string)
+	_, tag := e.Must(200, "GET", path, "", "")
+	e.Must(200, "POST", path+":submit", "", tag)
+	return uuid.MustParse(e.Pending(tb, req["id"].(string))["id"].(string))
+}
+
+// PartnerChange requests, as the tenant's human, a new customer named
+// name and returns its change's pending approval request. The tenant
+// needs partner.supplier.create and .read.
+func (e Env) PartnerChange(tb testing.TB, name string) uuid.UUID {
+	tb.Helper()
+	p, _ := e.Must(201, "POST", "/v1/business-partners", fmt.Sprintf(`{"kind": "organization", "name": %q, "country_code": "DE", "roles": ["customer"], "reason": "New"}`, name), "")
+	changes, _ := e.Must(200, "GET", "/v1/partner-changes?partner_id="+p["id"].(string), "", "")
+	return uuid.MustParse(e.Pending(tb, apitest.List(tb, changes, "items")[0].(map[string]any)["id"].(string))["id"].(string))
+}
+
+// Open opens, as a, an approval request titled title for a requisition
+// of amount minor units of EUR in company 2000 that no context holds: a
+// request to show, as an agent's proposal would ask for one; approving it
+// fails in procurement, which knows no such requisition.
+func (e Env) Open(tb testing.TB, a pgtest.Actor, title string, amount money.Minor) uuid.UUID {
+	tb.Helper()
+	eur := "EUR"
+	var id uuid.UUID
+	if err := apitest.Committed(tb, e.Tenant, a, func(ctx context.Context) (err error) {
+		id, _, err = Approvals().Open(ctx, approvals.NewRequest{ObjectType: approvals.Requisition, ObjectID: uuid.New(), Title: title,
+			Amount: &amount, Currency: &eur, LegalEntityID: e.DE})
+		return err
+	}); err != nil {
+		tb.Fatal(err)
+	}
+	return id
 }
 
 func jsonNumber(v any) string {

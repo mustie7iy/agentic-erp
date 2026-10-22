@@ -57,6 +57,8 @@ type Server struct {
 	Clients *session.Clients
 	OIDC    *OIDC
 	Now     func() time.Time // nil: the wall clock
+
+	nameCache nameCache // principals' names per session (ADR-0052 G3)
 }
 
 // New is the workspace for cfg: its catalog (the pseudo-locales outside
@@ -147,6 +149,14 @@ func apiClient(dial string, tlsConfig *tls.Config, identity *tlsconf.Store) *htt
 // which the provider's redirect reaches as a GET and which the sign-in's
 // state binds to the browser that started it (RFC 6749 §10.12).
 func (s *Server) Handler() http.Handler {
+	cop := http.NewCrossOriginProtection()
+	cop.SetDenyHandler(http.HandlerFunc(s.refused))
+	return secure(s.localized(cop.Handler(s.mux())))
+}
+
+// mux routes the workspace's pages; Screens lists the API operations each
+// calls.
+func (s *Server) mux() *http.ServeMux {
 	mux := http.NewServeMux()
 	route := func(pattern string, h http.HandlerFunc) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
@@ -160,18 +170,18 @@ func (s *Server) Handler() http.Handler {
 	route("GET /login/{code}", s.login)
 	route("GET /callback", s.callback)
 	route("POST /logout", s.signedIn(s.csrf(s.logout)))
+	route("GET "+ui.ApprovalsPath, s.signedIn(s.inbox))
+	route("GET "+ui.ApprovalsPath+"/{id}", s.signedIn(s.request))
+	route("POST "+ui.ApprovalsPath+"/{id}/approve", s.signedIn(s.csrf(s.decide(true))))
+	route("POST "+ui.ApprovalsPath+"/{id}/reject", s.signedIn(s.csrf(s.decide(false))))
 	route("GET /signed-out", s.signedOut)
 	route("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		st := ui.Status{Version: s.Build.Version, Revision: s.Build.Revision}
 		s.render(w, r, http.StatusOK, ui.StatusPage(s.shell(i18n.StatusTitle, "/health"), st))
 	})
 	route("GET /static/", s.Assets.ServeHTTP)
-	route("/", func(w http.ResponseWriter, r *http.Request) {
-		s.render(w, r, http.StatusNotFound, ui.NotFound(s.shell(i18n.NotFoundTitle, "")))
-	})
-	cop := http.NewCrossOriginProtection()
-	cop.SetDenyHandler(http.HandlerFunc(s.refused))
-	return secure(s.localized(cop.Handler(mux)))
+	route("/", s.notFound)
+	return mux
 }
 
 func (s *Server) shell(title i18n.Key, current string) ui.Shell {

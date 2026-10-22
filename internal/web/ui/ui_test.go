@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/a-h/templ"
 	templruntime "github.com/a-h/templ/runtime"
@@ -54,7 +55,68 @@ func components() map[string]templ.Component {
 		"statusContent":   statusContent(Status{Version: "devel"}),
 		"NotFound":        NotFound(shell()),
 		"notFoundContent": notFoundContent(),
+		"Inbox":           Inbox(signedIn(), inboxFull()),
+		"inbox empty":     inboxContent(InboxPage{}),
+		"inbox refused":   inboxContent(InboxPage{Refusal: &Refusal{Title: i18n.InboxRefusedTitle, Message: i18n.ProblemPermission, Code: "identity.permission_missing"}}),
+		"inbox last page": inboxContent(InboxPage{Approvals: []Approval{approval(false)}}),
+		"Card":            Card(approval(true)),
+		"card plain":      Card(Approval{Path: "/approvals/2", Title: "t", Kind: Label{Raw: "new_kind"}}),
+		"Fact":            Fact(i18n.ApprovalKind, Value("v")),
+		"Amount":          Amount(Money{Amount: "1.00", Currency: "EUR"}),
+		"Principal":       Principal(Name{Text: "Avery"}),
+		"principal agent": Principal(Name{Text: "Matcher", Agent: true}),
+		"principal none":  Principal(Name{}),
+		"Date":            Date(day),
+		"StatusTag":       StatusTag(Label{Key: i18n.StatusApproved}),
+		"status raw":      StatusTag(Label{Raw: "on_hold"}),
+		"Barred":          Barred(i18n.InboxBarredBody, []string{"a.b", "c.d"}),
+		"RefusalNotice":   RefusalNotice(refusal()),
+		"refusal other":   RefusalNotice(Refusal{Title: i18n.RefusalTitle, Fallback: "Gone", Code: "x.y"}),
+		"Request":         Request(signedIn(), requestPage(true)),
+		"request closed":  requestContent(requestPage(false)),
+		"StepItem":        StepItem(Step{No: 1, Required: 2, Approvals: 1, Current: true}),
+		"step done":       StepItem(Step{No: 1, Required: 1, Approvals: 1}),
+		"DecisionItem":    DecisionItem(Decision{Label: Label{Key: i18n.StatusRejected}, By: Name{Text: "B"}, At: day, Comment: "No"}),
+		"decision bare":   DecisionItem(Decision{Label: Label{Key: i18n.StatusApproved}, By: Name{Text: "B"}, At: day}),
+		"DecideForm":      DecideForm(forms(), true),
+		"decide reject":   DecideForm(forms(), false),
+		"decideHidden":    decideHidden("c", `"1"`, "k"),
+		"CommentField":    CommentField("f", i18n.DecideComment, i18n.DecideCommentHint, "text", i18n.DecideTooLong),
+		"comment plain":   CommentField("f", i18n.DecideComment, i18n.DecideCommentHint, "", ""),
 	}
+}
+
+var day = time.Date(2026, 10, 22, 9, 30, 0, 0, time.UTC)
+
+// approval is a request, an agent's when agent is true.
+func approval(agent bool) Approval {
+	return Approval{Path: "/approvals/1", Title: "Requisition PR1", Kind: Label{Key: i18n.ObjectRequisition}, Status: Label{Key: i18n.StatusPending},
+		Amount: &Money{Amount: "12000.00", Currency: "EUR"}, Requester: Name{Text: "Avery", Agent: agent}, Requested: day, Step: 1, StepCount: 2,
+		ObjectID: "0192"}
+}
+
+func inboxFull() InboxPage {
+	return InboxPage{Approvals: []Approval{approval(true), approval(false)}, More: "/approvals?page=t", Done: i18n.InboxDoneApproved,
+		Barred: []string{"workflow.request.decide"}}
+}
+
+func refusal() Refusal {
+	return Refusal{Title: i18n.RefusalTitle, Message: i18n.ProblemSoD, Code: "identity.sod_conflict", Trace: "abc", Barred: []string{"a.b"}}
+}
+
+func forms() DecideForms {
+	return DecideForms{Action: "/approvals/1", CSRF: "c", ETag: `"1"`, ApproveKey: "k1", RejectKey: "k2", Comment: "ok", ReasonError: i18n.DecideReasonNeeded}
+}
+
+// requestPage is a request's page: open to decide, with a refusal and
+// decisions, or decided, with none.
+func requestPage(open bool) RequestPage {
+	if !open {
+		return RequestPage{Approval: approval(false), Why: i18n.DecideClosed}
+	}
+	r := refusal()
+	return RequestPage{Approval: approval(true), Steps: []Step{{No: 1, Required: 1, Approvals: 0, Current: true}},
+		Decisions: []Decision{{Label: Label{Key: i18n.StatusApproved}, By: Name{Text: "B"}, At: day}}, Decide: new(forms()), Refusal: &r}
 }
 
 func locale(t *testing.T) context.Context {
@@ -290,5 +352,53 @@ func TestEscaped(t *testing.T) {
 	}
 	if got := out.String(); strings.Contains(got, "<script>") {
 		t.Errorf("got %q, want it escaped", got)
+	}
+}
+
+// TestStatusKind: a status's tag colour.
+func TestStatusKind(t *testing.T) {
+	for k, want := range map[i18n.Key]string{i18n.StatusApproved: "success", i18n.StatusRejected: "inactive", i18n.StatusCancelled: "inactive",
+		i18n.StatusPending: "", "": ""} {
+		if got := statusKind(Label{Key: k}); got != want {
+			t.Errorf("%s: got %q, want %q", k, got, want)
+		}
+	}
+}
+
+// TestAmountWithoutLocale: outside a request with a locale an amount is
+// the API's.
+func TestAmountWithoutLocale(t *testing.T) {
+	var out bytes.Buffer
+	if err := amount(Money{Amount: "1.00", Currency: "EUR"}).Render(context.Background(), &out); err != nil || out.String() != "1.00 EUR" {
+		t.Errorf("got %q, %v", out.String(), err)
+	}
+}
+
+// TestSignedInNav: the inbox joins the navigation of a person who may
+// read approvals.
+func TestSignedInNav(t *testing.T) {
+	if got := SignedInNav(false); len(got) != 2 {
+		t.Errorf("without: got %v", got)
+	}
+	if got := SignedInNav(true); len(got) != 3 || got[1].Path != ApprovalsPath {
+		t.Errorf("with: got %v", got)
+	}
+	if got := navOf(Shell{Nav: SignedInNav(true)}); len(got) != 3 {
+		t.Errorf("a shell's own: got %v", got)
+	}
+}
+
+// TestDecideFormFields: a form's comment names its hint and error, and is
+// marked invalid with one.
+func TestDecideFormFields(t *testing.T) {
+	doc := parse(t, locale(t), DecideForm(forms(), false))
+	ta := find(doc, "textarea")
+	for key, want := range map[string]string{"id": "reject-reason", "name": "comment", "aria-describedby": "reject-reason-hint reject-reason-error", "aria-invalid": "true"} {
+		if got, _ := attr(ta, key); got != want {
+			t.Errorf("textarea %s: got %q, want %q", key, got, want)
+		}
+	}
+	if got, _ := attr(find(doc, "form"), "action"); got != "/approvals/1/reject" {
+		t.Errorf("action: got %q", got)
 	}
 }

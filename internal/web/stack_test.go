@@ -31,6 +31,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -99,6 +100,8 @@ type stack struct {
 	logs   *pgtest.SyncBuffer
 	client authntest.Client
 	remote string
+	f      fixture.Env  // the configured tenant, with stackOptions.seed
+	person pgtest.Actor // who signs in: the tenant's human, or the fixture's approver
 }
 
 // stackOptions change the stack before it starts.
@@ -107,6 +110,11 @@ type stackOptions struct {
 	credential string // its credential reference; "" the stack's key under the prefix
 	discovery  []byte // the provider's discovery document in place of its own
 	remote     string // the people's address, as erp-web's load balancer names it; "" the connection's
+	// seed, when set, makes the tenant a configured one (fixture), whose
+	// approver signs in, and adds what the test needs to it before the
+	// tenant's principals move to the stack's provider (the fixture's own
+	// client then no longer signs in; apitest.Committed still acts).
+	seed func(f fixture.Env)
 }
 
 const loginCodeOf = "acme"
@@ -118,10 +126,18 @@ func newStack(t *testing.T, opts stackOptions) *stack {
 	if opts.discovery != nil {
 		s.is.Serve(authntest.DiscoveryPath, bytes.ReplaceAll(opts.discovery, []byte("ISSUER"), []byte(s.is.URL)))
 	}
-	s.ten = pgtest.NewTenant(t, "tenancy.org.read")
-	s.ten.AllCompanies(t, s.ten.Human)
-	pgtest.Exec(t, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
-		VALUES ($1, gen_random_uuid(), '2000', 'Acme GmbH', 'DE', 'EUR', gen_random_uuid(), 'active', $2, $2)`, s.ten.ID, s.ten.Human.ID)
+	if opts.seed != nil {
+		s.f = fixture.New(t, "tenancy.org.read", "procurement.requisition.read", "procurement.requisition.create",
+			"partner.supplier.read", "partner.supplier.create", "partner.supplier.change")
+		s.ten, s.person = s.f.Tenant, s.f.Approver
+		opts.seed(s.f)
+	} else {
+		s.ten = pgtest.NewTenant(t, "tenancy.org.read")
+		s.person = s.ten.Human
+		s.ten.AllCompanies(t, s.ten.Human)
+		pgtest.Exec(t, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
+			VALUES ($1, gen_random_uuid(), '2000', 'Acme GmbH', 'DE', 'EUR', gen_random_uuid(), 'active', $2, $2)`, s.ten.ID, s.ten.Human.ID)
+	}
 	pgtest.Exec(t, `UPDATE identity.principal SET external_issuer = $2, version = version + 1 WHERE tenant_id = $1`, s.ten.ID, s.is.URL)
 	s.reg = &registry{reg: authn.Registration{TenantID: s.ten.ID, Issuer: s.is.URL, Audience: authntest.Audience, SessionMaxAge: 12 * time.Hour, IdleTimeout: time.Hour}}
 	api := apitest.NewWith(t, func(cfg *app.Config) {
@@ -150,7 +166,7 @@ func newStack(t *testing.T, opts stackOptions) *stack {
 		s.client.Key, s.client.Secret = nil, "s3cret"
 	}
 	s.is.RegisterClient(s.client)
-	s.is.SignIn(authntest.User{Tenant: s.ten.ID, Subject: s.ten.Human.Subject})
+	s.is.SignIn(authntest.User{Tenant: s.ten.ID, Subject: s.person.Subject})
 	s.remote = opts.remote
 	s.start(ctx, creds)
 	return s

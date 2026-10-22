@@ -45,6 +45,9 @@ type Shell struct {
 	// Person is the signed-in person's part of the page; nil before
 	// sign-in.
 	Person *Person
+	// Nav is the main navigation: the signed-in person's (SignedInNav),
+	// nil for Nav's, which everyone sees.
+	Nav []NavItem
 	// Continue, when set, is the same-site path the page goes on to at
 	// once (a continue page, ADR-0052 §5).
 	Continue string
@@ -70,9 +73,32 @@ type NavItem struct {
 	Label i18n.Key
 }
 
-// Nav is the main navigation. Each job's entry joins it with its screens
-// (T73d-T73j).
+// Nav is the main navigation everyone sees. Each job's entry joins a
+// signed-in person's navigation with its screens (T73d-T73j), shown to
+// those whose permissions let them use it (SignedInNav).
 var Nav = []NavItem{{Path: "/", Label: i18n.NavHome}, {Path: "/health", Label: i18n.NavStatus}}
+
+// ApprovalsPath is the approvals inbox's path.
+const ApprovalsPath = "/approvals"
+
+// SignedInNav is a signed-in person's navigation: the approvals inbox
+// where approvals is true (the person may read approval requests, by
+// getCurrentPrincipal; advisory, as the API decides each call), between
+// home and the service's status.
+func SignedInNav(approvals bool) []NavItem {
+	if !approvals {
+		return Nav
+	}
+	return []NavItem{Nav[0], {Path: ApprovalsPath, Label: i18n.JobApprovals}, Nav[1]}
+}
+
+// navOf is the page's navigation.
+func navOf(s Shell) []NavItem {
+	if s.Nav == nil {
+		return Nav
+	}
+	return s.Nav
+}
 
 // T writes the message for k in the request's locale, escaped.
 func T(k i18n.Key, args ...any) templ.Component {

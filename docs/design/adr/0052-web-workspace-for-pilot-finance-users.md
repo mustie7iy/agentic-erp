@@ -1242,6 +1242,88 @@ What the API gaps settled, and where they depart from §3:
 - **Migrations.** T73b's web client is 000148 (main renumbered it), this
   step's 000150; integration renumbers as batches land.
 
+## Built in T73d (2026-10-22)
+The approvals inbox, the first screen on the API. What it settled, and
+where it departs from the step as first written:
+- **Scope split.** T73d built the inbox of what the person may decide now
+  (`listApprovalRequests?decidable_by=me`), a request's page with its
+  summary, steps and decisions, and approve and reject. "My requests",
+  "all I can see", the object's own summary per type (`getRequisition`,
+  `getPartnerChange`, …), cancelling one's own request and the pilot
+  approver's walk-through are T73d2. A request's page names its object by
+  type and id; the per-type summaries come with T73d2 and with each
+  object's screen (T73e-T73k).
+- **Pages.** `GET /approvals` (cards, one per request, usable at 390 px,
+  P8), `GET /approvals/{id}`, and `POST /approvals/{id}/approve` and
+  `/reject`, each `signedIn(csrf(…))`. A decision is a real form: the
+  request's ETag (the `getApprovalRequest` answer's) travels as
+  `if_match` and is sent as If-Match, and each rendered form carries a
+  fresh `idempotency_key`, so a resubmit replays the first answer. Done,
+  the person goes back to the inbox (`?done=approved|rejected`, a notice
+  from a closed set); refused, the request's page is rendered again,
+  fresh from the API, with the refusal and what they typed. A reason is
+  required to reject and a comment has at most 2,000 characters, checked
+  before the call so the text stays on the page. No htmx is needed: the
+  pages are plain forms and links.
+- **Paging.** An inbox page shows 25 requests and reads at most three of
+  the API's pages to fill them, since a page of `decidable_by=me` may hold
+  fewer than asked while it has a next one (T73c); the next page's link
+  carries the API's token. With `getCurrentPrincipal` and
+  `listPrincipalNames` a page makes at most five calls (§10: six).
+- **Names (G3).** One `listPrincipalNames` call per page for the ids the
+  session's cache does not hold (per session, five minutes from its first
+  names, at most 10,000 sessions per replica); an id the API does not name
+  is remembered as unknown, and a failed call shows names as unknown
+  rather than refusing the page. An agent requester or decider is badged
+  "Agent".
+- **Navigation and hidden actions (G2).** Every signed-in page reads
+  `getCurrentPrincipal`: the inbox joins the navigation for a person
+  holding `workflow.request.read`; the forms are offered only for a
+  pending request that is not the person's own, that they have not
+  approved yet (a person approves a request once), and for which they hold
+  `workflow.request.decide` and the object type's approval permission;
+  otherwise the page says why. All of it is advisory: a person without
+  the permission who opens `/approvals` sees the API's 403 explained.
+- **Refusals (G7).** A problem is shown by its code from the catalog
+  (`i18n.Problems`: the workflow codes, the version mismatch, missing
+  permission, segregation of duties, not found, an invalid body, a reused
+  idempotency key and a period not open for a manual entry), else by the
+  API's English title (the fallback §8 names), always with the code and
+  the trace id. A segregation-of-duties refusal (`identity.sod_conflict`,
+  `workflow.segregation_of_duties`) lists the person's
+  `barred_permissions`, and an inbox whose decide permission is barred
+  says so. A 401 signs in again; after a decision it comes back to the
+  request's page, so a step-up (RFC 9470) returns to the request, not the
+  home page. The tenant's multi-factor rule is the API's, on every call;
+  the ADR asks no further step-up for amounts, so none is added.
+- **Agents' text.** A request's title and the decisions' comments are
+  data: escaped, line breaks kept, inside `hx-disable`, `translate="no"`,
+  no link made of them. An agent's request carries the badge and says the
+  text is an agent's. Tested with planted markup, a markdown link and a
+  `javascript:` URL, in the handlers and in the browser.
+- **Money and dates.** An amount is the API's decimal string in the
+  locale's digits, grouping and decimal sign (CLDR through `x/text`),
+  with its ISO 4217 code in the locale's order (`EUR 12,000.00`,
+  `12 000,00 EUR`), never through a float: the whole part is an integer
+  and the fraction keeps the API's digits. Dates stay ISO 8601 until T73l
+  formats them per locale.
+- **Contract drift.** `internal/web/operations.go` is the inventory of the
+  operations each route calls, with the permission it hides by and a
+  human-only mark; `TestScreensAgainstTheContract` holds it to the
+  contract (operation, `x-permission`, `x-agent: false` on human-only
+  routes, `x-object-permissions`) and every code the catalog explains to
+  the operations' `x-problem-codes`. It found `endCurrentSession` is
+  `x-agent: false`, so sign-out is marked human-only.
+- **Tests.** Handlers against the real API and PostgreSQL (a configured
+  tenant: a requisition of EUR 12,000 in two steps, partner changes, an
+  agent's request) as approver, requester, a person without the role and
+  under a segregation-of-duties rule; CSRF, a stale If-Match (412, input
+  kept), a replayed idempotency key, a missing reason, an unknown page
+  token; the API's rarer answers (a thinned page, a server error, a rate
+  limit, a 401 challenge) from a stub; the browser suite runs axe on the
+  inbox and two requests in English, French and both pseudo-locales at
+  1280 and 390 px, and walks the decisions at both widths.
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF

@@ -1,0 +1,299 @@
+package ui
+
+import (
+	"time"
+
+	"github.com/mustie7iy/agentic-erp/internal/web/i18n"
+)
+
+// Inbox is the person's approvals inbox (ADR-0052 §2, T73d): each request
+// they may decide now with its object's kind, amount, requester and step,
+// linked to its page, where the decision is made; usable at 390 px (P8).
+templ Inbox(s Shell, in InboxPage) {
+	@Layout(s, inboxContent(in))
+}
+
+templ inboxContent(in InboxPage) {
+	<h1>
+		@T(i18n.InboxTitle)
+	</h1>
+	if in.Done != "" {
+		@Notice("inbox-done", i18n.InboxDoneTitle, Paragraph(in.Done))
+	}
+	if len(in.Barred) > 0 {
+		@Notice("inbox-barred", i18n.InboxBarredTitle, Barred(i18n.InboxBarredBody, in.Barred))
+	}
+	if in.Refusal != nil {
+		@RefusalNotice(*in.Refusal)
+	} else if len(in.Approvals) == 0 {
+		@Paragraph(i18n.InboxEmpty)
+	} else {
+		@Paragraph(i18n.InboxLead)
+		<ul class="cards" { label(ctx, i18n.InboxListLabel)... }>
+			for _, a := range in.Approvals {
+				@Card(a)
+			}
+		</ul>
+		if in.More != "" {
+			@ButtonLink(in.More, i18n.InboxMore)
+		}
+	}
+}
+
+// Card is one request of the inbox. Its title is the API's, which an
+// agent may have written: escaped text, inside hx-disable, its link the
+// workspace's own (ADR-0052 §7).
+templ Card(a Approval) {
+	<li class="card" hx-disable>
+		<h2 class="card__title">
+			<a class="untrusted" translate="no" { link(a.Path, "")... }>
+				@Value(a.Title)
+			</a>
+		</h2>
+		if a.Requester.Agent {
+			<p class="hint">
+				@T(i18n.AgentText)
+			</p>
+		}
+		<dl class="facts">
+			@Fact(i18n.ApprovalKind, labelText(a.Kind))
+			if a.Amount != nil {
+				@Fact(i18n.ApprovalAmount, Amount(*a.Amount))
+			}
+			@Fact(i18n.ApprovalRequester, Principal(a.Requester))
+			@Fact(i18n.ApprovalRequested, Date(a.Requested))
+		</dl>
+		<p class="card__step">
+			@T(i18n.ApprovalStepOf, a.Step, a.StepCount)
+		</p>
+	</li>
+}
+
+// Fact is one fact of a card.
+templ Fact(key i18n.Key, value templ.Component) {
+	<div class="facts__row">
+		<dt class="facts__key">
+			@T(key)
+		</dt>
+		<dd class="facts__value">
+			@value
+		</dd>
+	</div>
+}
+
+// Amount is an amount in the person's locale, isolated so its digits keep
+// their order in a right-to-left page.
+templ Amount(m Money) {
+	<bdi class="amount">
+		@amount(m)
+	</bdi>
+}
+
+// Principal is who someone is, by name, badged when an agent; a name the
+// API did not give says so.
+templ Principal(n Name) {
+	if n.Text == "" {
+		@T(i18n.NameUnknown)
+	} else {
+		<bdi class="untrusted" translate="no">
+			@Value(n.Text)
+		</bdi>
+	}
+	if n.Agent {
+		@Tag(i18n.TagAgent, "agent")
+	}
+}
+
+// Date is a date, machine-readable in its datetime.
+templ Date(t time.Time) {
+	<time translate="no" { date(t)... }>
+		@dateText(t)
+	</time>
+}
+
+// StatusTag is a request's or a decision's status.
+templ StatusTag(l Label) {
+	<strong { tagClass(statusKind(l))... }>
+		@labelText(l)
+	</strong>
+}
+
+// Barred lists permissions a segregation-of-duties rule bars, after the
+// message that says so.
+templ Barred(message i18n.Key, permissions []string) {
+	@Paragraph(message)
+	<ul class="list">
+		for _, p := range permissions {
+			<li class="list__item">
+				@Code(p)
+			</li>
+		}
+	</ul>
+}
+
+// RefusalNotice says why the API refused, by its code in the person's
+// language (the API's title where the catalog has none), with the code
+// and the trace id for support, and the barred permissions where a
+// segregation-of-duties rule refused it.
+templ RefusalNotice(r Refusal) {
+	<div class="refusal" role="alert" { labelledBy("refusal-title")... }>
+		<h2 class="refusal__title" { idAttr("refusal-title")... }>
+			@T(r.Title)
+		</h2>
+		if r.Message != "" {
+			@Paragraph(r.Message)
+		} else {
+			@Paragraph(i18n.RefusalOther, r.Fallback)
+		}
+		if len(r.Barred) > 0 {
+			@Barred(i18n.RefusalBarred, r.Barred)
+		}
+		<dl class="facts">
+			@Fact(i18n.RefusalCode, Code(r.Code))
+			if r.Trace != "" {
+				@Fact(i18n.RefusalTrace, Code(r.Trace))
+			}
+		</dl>
+	</div>
+}
+
+// Request is one approval request (ADR-0052 §7): its summary, steps and
+// decisions, and the person's decision, one request at a time: approve
+// with an optional comment, reject with a reason.
+templ Request(s Shell, rp RequestPage) {
+	@Layout(s, requestContent(rp))
+}
+
+templ requestContent(rp RequestPage) {
+	<p>
+		<a { link(ApprovalsPath, "")... }>
+			@T(i18n.RequestBack)
+		</a>
+	</p>
+	<p class="caption">
+		@T(i18n.RequestTitle)
+	</p>
+	<h1 class="untrusted" translate="no" hx-disable>
+		@Value(rp.Title)
+	</h1>
+	if rp.Requester.Agent {
+		<p class="hint">
+			@T(i18n.AgentText)
+		</p>
+	}
+	if rp.Refusal != nil {
+		@RefusalNotice(*rp.Refusal)
+	}
+	@SummaryList(approvalRows(rp.Approval))
+	<h2>
+		@T(i18n.RequestSteps)
+	</h2>
+	<ol class="list">
+		for _, st := range rp.Steps {
+			@StepItem(st)
+		}
+	</ol>
+	<h2>
+		@T(i18n.RequestDecisions)
+	</h2>
+	if len(rp.Decisions) == 0 {
+		@Paragraph(i18n.RequestNoDecision)
+	} else {
+		<ul class="list" hx-disable>
+			for _, d := range rp.Decisions {
+				@DecisionItem(d)
+			}
+		</ul>
+	}
+	<h2>
+		@T(i18n.DecideTitle)
+	</h2>
+	if rp.Decide != nil {
+		@DecideForm(*rp.Decide, true)
+		@DecideForm(*rp.Decide, false)
+	} else {
+		@Paragraph(rp.Why)
+	}
+}
+
+// StepItem is one step and its approvals.
+templ StepItem(st Step) {
+	<li class="list__item">
+		<span>
+			@T(i18n.RequestStepNo, st.No)
+		</span>
+		<span>
+			@T(i18n.RequestStepCount, st.Approvals, st.Required)
+		</span>
+		if st.Current {
+			@Tag(i18n.RequestCurrent, "")
+		}
+	</li>
+}
+
+// DecisionItem is one decision: what, by whom, when, and its comment as
+// plain text with its line breaks.
+templ DecisionItem(d Decision) {
+	<li class="decision">
+		<p class="decision__head">
+			@StatusTag(d.Label)
+			@Principal(d.By)
+			@Date(d.At)
+		</p>
+		if d.Comment != "" {
+			<p class="untrusted decision__comment" translate="no">
+				@Value(d.Comment)
+			</p>
+		}
+	</li>
+}
+
+// DecideForm is the approve form (approve true) or the reject form: a real
+// form posting the CSRF token (in the layout's htmx header and here), the
+// request's ETag as If-Match and the form's own idempotency key.
+templ DecideForm(f DecideForms, approve bool) {
+	if approve {
+		<form class="decide" { action(f.Action, "approve")... }>
+			@decideHidden(f.CSRF, f.ETag, f.ApproveKey)
+			@CommentField("approve-comment", i18n.DecideComment, i18n.DecideCommentHint, f.Comment, f.CommentError)
+			<button class="button" type="submit">
+				@T(i18n.DecideApprove)
+			</button>
+		</form>
+	} else {
+		<form class="decide" { action(f.Action, "reject")... }>
+			@decideHidden(f.CSRF, f.ETag, f.RejectKey)
+			@CommentField("reject-reason", i18n.DecideReason, i18n.DecideReasonHint, f.Reason, f.ReasonError)
+			<button class="button button--warning" type="submit">
+				@T(i18n.DecideReject)
+			</button>
+		</form>
+	}
+}
+
+// decideHidden are a decision form's hidden fields.
+templ decideHidden(csrf, etag, key string) {
+	<input { csrfInput(csrf)... }/>
+	<input { hidden(FieldIfMatch, etag)... }/>
+	<input { hidden(FieldIdempotency, key)... }/>
+}
+
+// CommentField is a comment's label, hint, error and text area.
+templ CommentField(id string, labelKey, hint i18n.Key, value string, err i18n.Key) {
+	<div { fieldClass(err)... }>
+		<label class="field__label" { forAttr(id)... }>
+			@T(labelKey)
+		</label>
+		<p class="field__hint" { idAttr(id + "-hint")... }>
+			@T(hint)
+		</p>
+		if err != "" {
+			<p class="field__error" { idAttr(id + "-error")... }>
+				@T(err)
+			</p>
+		}
+		<textarea class="textarea" rows="3" { field(id, err)... }>
+			@Value(value)
+		</textarea>
+	</div>
+}
