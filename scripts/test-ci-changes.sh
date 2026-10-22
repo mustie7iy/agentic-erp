@@ -100,6 +100,57 @@ expect_out "the changelog's configuration runs the release scripts" "$c" release
 prev="$c"
 c="$(change docs/x.md)"
 expect_out "documentation runs neither" "$c" images false
+expect_out "documentation outside deploy/ leaves the deploy checks out" "$c" deploy false
+prev="$c"
+c="$(change internal/y.go)"
+expect_out "Go code alone leaves the deploy checks out" "$c" deploy false
+expect_out "Go code alone leaves the promotion self-test out" "$c" promotion false
+prev="$c"
+c="$(change deploy/helm/erp-cell/values.yaml)"
+expect_out "a chart runs the deploy checks" "$c" deploy true
+prev="$c"
+c="$(change deploy/environments/dev/dev1/release.json)"
+expect_out "a promotion is not the deploy workflow's" "$c" deploy false
+prev="$c"
+c="$(change deploy/terraform/README.md)"
+expect_out "documentation in deploy/ runs the deploy checks, as its path filter does" "$c" deploy true
+prev="$c"
+c="$(change temporal/main.go)"
+expect_out "the workflow engine's module runs the deploy checks" "$c" deploy true
+prev="$c"
+c="$(change scripts/nats-checks.sh)"
+expect_out "a deploy check's script runs the deploy checks" "$c" deploy true
+prev="$c"
+c="$(change scripts/lib/registry.sh)"
+expect_out "the checks' shared library runs the deploy checks" "$c" deploy true
+prev="$c"
+c="$(change .github/workflows/weekly.yml)"
+expect_out "any workflow runs the deploy checks (actionlint)" "$c" deploy true
+prev="$c"
+c="$(change scripts/test-rollback-drill.sh)"
+expect_out "a promotion check's test runs the promotion self-test" "$c" promotion true
+expect_out "a promotion check's test is not the deploy workflow's" "$c" deploy false
+prev="$c"
+c="$(change .github/approvers)"
+expect_out "the approvers run the promotion self-test" "$c" promotion true
+
+# The deploy and promotion classes are deploy.yml's and
+# promotion-self-test.yml's path filters: each path a filter lists is in
+# the class, and one it excludes is not.
+filter() { # filter WORKFLOW CLASS
+  local pattern file want
+  while read -r pattern; do
+    file="${pattern#!}"
+    file="${file//\*\*/x/y.tf}"
+    want=true
+    [ "$pattern" = "${pattern#!}" ] || want=false
+    prev="$(git -C "$repo" rev-parse HEAD)"
+    c="$(change "$file")"
+    expect_out "$1's path $pattern ($file)" "$c" "$2" "$want"
+  done < <(sed -n '/^    paths:/,/^[^ ]/s/^      - "\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$root/.github/workflows/$1")
+}
+filter deploy.yml deploy
+filter promotion-self-test.yml promotion
 
 # A comparison git cannot make fails the script, so the step fails and the
 # gate (run != 'false') does not skip anything.

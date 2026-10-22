@@ -7,7 +7,12 @@
 # it also writes images=true|false and release=true|false: whether the
 # image reproducibility gate and the signing round trip, and the release
 # scripts' tests, have to run, which they do when their inputs changed
-# (the weekly run does them regardless).
+# (the weekly run does them regardless). It always writes deploy=true|false
+# and promotion=true|false: whether a change reaches the deploy workflow's
+# paths (deploy.yml's on.push.paths, kept equal to the pattern below) or
+# the promotion self-test's (promotion-self-test.yml), documentation
+# included, as those workflows' path filters count it. scripts/ci-local.sh
+# runs those checks on the same classes, before a merge.
 #
 # EVENT is pull_request or push, BASE the commit to compare with (the pull
 # request's base), HEAD the commit under test (default HEAD). A push to
@@ -24,9 +29,13 @@ GH="${GH:-gh}"
 
 images=true
 release=true
+deploy=true
+promotion=true
 decide() {
   echo "run=$1"
   echo "reason=$2"
+  echo "deploy=$deploy"
+  echo "promotion=$promotion"
   if [ "$1" = true ]; then
     echo "images=$images"
     echo "release=$release"
@@ -37,9 +46,10 @@ decide() {
   exit 0
 }
 
-# changed prints true when a changed file matches the pattern $1.
+# changed prints true when a changed file (of $2, default all) matches the
+# pattern $1.
 changed() {
-  if grep -Eq "$1" <<<"$files"; then echo true; else echo false; fi
+  if grep -Eq "$1" <<<"${2-$files}"; then echo true; else echo false; fi
 }
 
 if [ "$event" = push ]; then
@@ -59,6 +69,10 @@ else
 fi
 images="$(changed '^(go\.(mod|sum)|\.ko\.yaml|\.dockerignore|deploy/images/|Makefile|cmd/|release/|scripts/(image|test-images|lib/sbom-root|sign|verify-image|provenance|free-disk)|\.github/workflows/(ci|weekly)\.yml)')"
 release="$(changed '^(scripts/(next-version|changelog|test-release-scripts)\.sh|cliff\.toml|Makefile|\.github/workflows/(ci|release|weekly)\.yml)')"
+# deploy.yml's paths: deploy/ but its environments (promotion.yml's), the
+# scripts it runs, temporal/, scripts/lib/ and the workflows it lints.
+deploy="$(changed '^(deploy/|temporal/|scripts/lib/|scripts/(deploy-checks|helm-checks|admission-checks|mirror-images|test-mirror-images|nats-checks|temporal-checks)\.sh$|\.github/workflows/)' "$(grep -v '^deploy/environments/' <<<"$files" || true)")"
+promotion="$(changed '^(scripts/(promotion-checks|test-promotion-checks|promotion-approvals|test-promotion-approvals|verify-image|rollback-drill|test-rollback-drill|restore-drill|test-restore-drill)\.sh|\.github/approvers|\.github/workflows/promotion(-self-test|-review)?\.yml)$')"
 code="$(grep -Ev '^docs/|\.md$' <<<"$files" || true)"
 if [ -n "$files" ] && [ -z "$code" ]; then
   decide false "only documentation changed"
