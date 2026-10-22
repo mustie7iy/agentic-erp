@@ -292,7 +292,8 @@ func statementsMasked(ctx context.Context) bool {
 	return !ok || p.Kind == reqctx.KindAgent
 }
 
-// statementToAPI is the statement as the caller sees it: masked, an agent.
+// statementToAPI is the statement as the caller sees it: masked when
+// statementsMasked says so.
 func statementToAPI(s Statement, masked bool) gen.BankStatement {
 	out := gen.BankStatement{ID: s.ID, Version: s.Version, CreatedAt: s.CreatedAt, CreatedBy: s.CreatedBy, UpdatedAt: s.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(s.UpdatedBy), HouseBankID: s.HouseBankID, LegalEntityID: s.LegalEntityID, Format: s.Format,

@@ -97,7 +97,7 @@ func (e *Endpoints) ListAuditEvents(ctx context.Context, params gen.ListAuditEve
 	// product owner 2026-10-22).
 	masked := reqctx.Masked(ctx)
 	rows, _ := tx.Query(ctx, `SELECT seq, occurred_at, actor_id, actor_kind, action, object_type, object_id, outcome, detail, trace_id,
-			CASE WHEN $7 THEN NULL ELSE client_address END
+			CASE WHEN $7::boolean THEN NULL ELSE client_address END
 		FROM audit.audit_event WHERE ($1 = '' OR object_type = $1) AND ($2::uuid IS NULL OR object_id = $2)
 			AND ($3::timestamptz IS NULL OR occurred_at >= $3) AND ($4::timestamptz IS NULL OR occurred_at <= $4)
 			AND ($5::bigint IS NULL OR seq `+cmp+` $5)
