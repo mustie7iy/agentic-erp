@@ -393,3 +393,24 @@ func TestStatementFile(t *testing.T) {
 		}
 	})
 }
+
+// TestImportStatementAsFilePart: the statement file may come as a file
+// part, as curl -F file=@statement.sta and browsers send it, not only as a
+// plain field (walkthrough, 2026-10-22: a file part was 400).
+func TestImportStatementAsFilePart(t *testing.T) {
+	e, _ := statementSetup(t)
+	file := mtStatement("SF1", "00001/001", "1000,00", "261019", "1000,00", "261020")
+	part := func(name, value string) string {
+		return "--b\r\nContent-Disposition: form-data; name=\"" + name + "\"\r\n\r\n" + value + "\r\n"
+	}
+	r := e.API.Do(apitest.Req{Method: "POST", Path: "/v1/bank-statements", Tenant: e.Tenant.ID, As: e.Client.As, Key: apitest.NewKey(),
+		Header: map[string][]string{"Content-Type": {"multipart/form-data; boundary=b"}},
+		Body: part("house_bank_id", e.bank.String()) + part("format", "mt940") +
+			"--b\r\nContent-Disposition: form-data; name=\"file\"; filename=\"statement.sta\"\r\nContent-Type: application/octet-stream\r\n\r\n" + file + "\r\n--b--\r\n"})
+	if r.Code != 201 {
+		t.Fatalf("import of a file part: got %d %s, want 201", r.Code, r.Body)
+	}
+	if got := field(apitest.JSON(t, r), "file_sha256"); got != fmt.Sprintf("%x", sha256.Sum256([]byte(file))) {
+		t.Errorf("file hash: got %v, want the file's", got)
+	}
+}

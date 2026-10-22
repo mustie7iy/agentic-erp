@@ -58,6 +58,9 @@ type accountRow struct {
 	AccountName string    `parquet:"account_name"`
 	AccountType string    `parquet:"account_type"`
 	VendorRecon bool      `parquet:"vendor_recon"`
+	// Determination is the account determination keys that name the
+	// account in its company, comma-separated in key order, or "none".
+	Determination string `parquet:"determination,optional"`
 }
 
 // partnerRow is a business partner in any role: a journal line names a
@@ -101,7 +104,9 @@ const (
 		WHERE NOT EXISTS (SELECT FROM ledger.clearing_item c WHERE c.tenant_id = l.tenant_id AND c.fiscal_year = l.fiscal_year
 			AND c.journal_entry_id = l.journal_entry_id AND c.line_no = l.line_no)
 		ORDER BY l.journal_entry_id, l.line_no`
-	accountsSQL = `SELECT a.tenant_id, le.code, a.number, a.name, a.account_type, a.reconciliation_kind = 'supplier'
+	accountsSQL = `SELECT a.tenant_id, le.code, a.number, a.name, a.account_type, a.reconciliation_kind = 'supplier',
+		coalesce((SELECT string_agg(d.key, ',' ORDER BY d.key) FROM ledger.account_determination d
+			WHERE d.tenant_id = ca.tenant_id AND d.legal_entity_id = ca.legal_entity_id AND d.account_id = ca.account_id), 'none')
 		FROM ledger.company_account ca
 		JOIN ledger.gl_account a ON a.tenant_id = ca.tenant_id AND a.id = ca.account_id
 		JOIN tenancy.legal_entity le ON le.tenant_id = ca.tenant_id AND le.id = ca.legal_entity_id
@@ -162,7 +167,7 @@ func (r *run) openItems(ctx context.Context, tx pgx.Tx) error {
 
 func (r *run) accounts(ctx context.Context, tx pgx.Tx) error {
 	var a accountRow
-	return snapshot(ctx, tx, r, "accounts", accountsSQL, []any{&a.TenantID, &a.Company, &a.Account, &a.AccountName, &a.AccountType, &a.VendorRecon},
+	return snapshot(ctx, tx, r, "accounts", accountsSQL, []any{&a.TenantID, &a.Company, &a.Account, &a.AccountName, &a.AccountType, &a.VendorRecon, &a.Determination},
 		func() (accountRow, string, error) { return a, "", nil })
 }
 

@@ -143,6 +143,13 @@ type Settings interface {
 	Document(ctx context.Context) (*config.Config, int32, error)
 }
 
+// Roles answers who holds a role (identity context): the release step is
+// decided by holders of payments.release_role alone.
+type Roles interface {
+	RoleByCode(ctx context.Context, code string) (uuid.UUID, bool, error)
+	HoldsRole(ctx context.Context, principal, role uuid.UUID) (bool, error)
+}
+
 // Actors reads who a run's deferred work acts as: its proposer or
 // releaser (identity context).
 type Actors interface {
@@ -160,6 +167,7 @@ type Endpoints struct {
 	Calendar      Calendar
 	Settings      Settings
 	Actors        Actors
+	Roles         Roles               // who may decide the release step (payments.release_role)
 	Keys          *fieldcrypt.Keyring // opens house bank IBANs
 	Connector     Connector           // transmits the files of house banks without a channel; nil: those answer 503
 	Channels      BankChannels        // house banks' own channels (T44b)
@@ -445,11 +453,40 @@ func requireProposed(r Run, done string) error {
 	return nil
 }
 
-// decider refuses the proposer: whoever proposed a run can never release
-// or reject it (the database's payment_run_sod constraint says the same).
-func decider(r Run, p reqctx.Principal) error {
+// decider is the control on the release step (:release and :reject):
+// whoever proposed a run can never decide it (the database's
+// payment_run_sod constraint says the same), and the decider holds the
+// active configuration's payments.release_role today. A release
+// (release = true) is refused while the configuration asks for more than
+// one releaser (payments.release_approvals): a release by several people
+// is not built (T72), and one person's release must not stand in for it.
+func (e *Endpoints) decider(ctx context.Context, r Run, p reqctx.Principal, release bool) error {
 	if p.ID == r.ProposedBy {
 		return problem.Forbidden("identity.sod_conflict", "Segregation of duties: whoever proposed a payment run can never release or reject it.")
+	}
+	doc, _, err := e.Settings.Document(ctx)
+	if err != nil {
+		return err
+	}
+	if n := doc.Payments.ReleaseApprovals; release && n > 1 {
+		return problem.Unprocessable("payments.release_approvals_unsupported",
+			fmt.Sprintf("The configuration asks for %d people to release a payment run (payments.release_approvals), and a release by more than one person is not supported yet; set it to 1.", n))
+	}
+	code := doc.Payments.ReleaseRole
+	role, ok, err := e.Roles.RoleByCode(ctx, code)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return problem.Unprocessable("workflow.unknown_role",
+			fmt.Sprintf("The configuration's payments.release_role names role %s, which is not an active role; create it or change the configuration.", code))
+	}
+	holds, err := e.Roles.HoldsRole(ctx, p.ID, role)
+	if err != nil {
+		return err
+	}
+	if !holds {
+		return problem.Forbidden("payments.release_role_missing", fmt.Sprintf("Releasing or rejecting a payment run needs role %s (payments.release_role).", code))
 	}
 	return nil
 }

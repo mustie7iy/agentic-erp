@@ -17843,12 +17843,21 @@ func (s *CompanyAccountSettings) encodeFields(e *jx.Encoder) {
 		e.FieldStart("is_open_item_managed")
 		e.Bool(s.IsOpenItemManaged)
 	}
+	{
+		e.FieldStart("determination_keys")
+		e.ArrStart()
+		for _, elem := range s.DeterminationKeys {
+			e.Str(elem)
+		}
+		e.ArrEnd()
+	}
 }
 
-var jsonFieldsNameOfCompanyAccountSettings = [3]string{
+var jsonFieldsNameOfCompanyAccountSettings = [4]string{
 	0: "legal_entity_id",
 	1: "is_posting_blocked",
 	2: "is_open_item_managed",
+	3: "determination_keys",
 }
 
 // Decode decodes CompanyAccountSettings from json.
@@ -17896,6 +17905,26 @@ func (s *CompanyAccountSettings) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"is_open_item_managed\"")
 			}
+		case "determination_keys":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				s.DeterminationKeys = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.DeterminationKeys = append(s.DeterminationKeys, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"determination_keys\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -17906,7 +17935,7 @@ func (s *CompanyAccountSettings) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00000111,
+		0b00001111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -50928,12 +50957,19 @@ func (s *RegressionSuiteCreate) encodeFields(e *jx.Encoder) {
 			s.WindowDays.Encode(e)
 		}
 	}
+	{
+		if s.AllowEmpty.Set {
+			e.FieldStart("allow_empty")
+			s.AllowEmpty.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfRegressionSuiteCreate = [3]string{
+var jsonFieldsNameOfRegressionSuiteCreate = [4]string{
 	0: "name",
 	1: "max_cases",
 	2: "window_days",
+	3: "allow_empty",
 }
 
 // Decode decodes RegressionSuiteCreate from json.
@@ -50942,6 +50978,7 @@ func (s *RegressionSuiteCreate) Decode(d *jx.Decoder) error {
 		return errors.New("invalid: unable to decode RegressionSuiteCreate to nil")
 	}
 	var requiredBitSet [1]uint8
+	s.setDefaults()
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -50976,6 +51013,16 @@ func (s *RegressionSuiteCreate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"window_days\"")
+			}
+		case "allow_empty":
+			if err := func() error {
+				s.AllowEmpty.Reset()
+				if err := s.AllowEmpty.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"allow_empty\"")
 			}
 		default:
 			return d.Skip()

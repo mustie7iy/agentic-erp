@@ -161,6 +161,14 @@ type Barrer interface {
 	Barred(ctx context.Context, objectID, actor uuid.UUID) (bool, error)
 }
 
+// Acknowledger is a Handler whose objects an approver must sometimes
+// acknowledge in words: a configuration change whose regression evidence
+// replayed no case (T72l). Acknowledgement says what, or "" when nothing;
+// an approval without a comment is then refused.
+type Acknowledger interface {
+	Acknowledgement(ctx context.Context, objectID uuid.UUID) (string, error)
+}
+
 // Step is one approval step of a request.
 type Step struct {
 	No        int16     `json:"step_no"`
@@ -641,6 +649,23 @@ func (d Decider) barred(ctx context.Context, r Request, actor uuid.UUID) error {
 	return nil
 }
 
+// acknowledged refuses an approval without a comment when the owning
+// context asks the approver to acknowledge something (Acknowledger).
+func (d Decider) acknowledged(ctx context.Context, r Request, comment string) error {
+	a, ok := d.Handlers[r.ObjectType].(Acknowledger)
+	if !ok || strings.TrimSpace(comment) != "" {
+		return nil
+	}
+	what, err := a.Acknowledgement(ctx, r.ObjectID)
+	if err != nil {
+		return err
+	}
+	if what != "" {
+		return problem.Unprocessable("workflow.acknowledgement_required", what)
+	}
+	return nil
+}
+
 // Approve records the caller's approval for the current step. When the
 // step has its approvals the request moves to the next step, or is
 // approved after the last one and the owning context moves the object on.
@@ -655,6 +680,9 @@ func (d Decider) Approve(ctx context.Context, id uuid.UUID, ifMatch func(int32) 
 		}
 	}
 	if err := d.barred(ctx, r, p.ID); err != nil {
+		return Request{}, err
+	}
+	if err := d.acknowledged(ctx, r, comment); err != nil {
 		return Request{}, err
 	}
 	if err := d.insertDecision(ctx, tx, p, r, "approve", comment); err != nil {

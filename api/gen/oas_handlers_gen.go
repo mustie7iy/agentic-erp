@@ -1498,7 +1498,9 @@ func (s *Server) handleApplyCountryPackRequest(args [0]string, argsEscaped bool,
 // that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
 // fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
 // statement line's posting (`bank_clearing`), and whoever matched the line by hand cannot approve its
-// posting (403 `workflow.segregation_of_duties`).
+// posting (403 `workflow.segregation_of_duties`). A change request whose latest regression evidence
+// replayed no case (a suite captured with `allow_empty`) is approved only with a comment acknowledging
+// that (422 `workflow.acknowledgement_required`).
 //
 // POST /v1/approval-requests/{id}:approve
 func (s *Server) handleApproveApprovalRequestRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -9952,7 +9954,9 @@ func (s *Server) handleCreateRecommendationRequest(args [0]string, argsEscaped b
 // change request then replays the latest suite of its base version and records `regression` evidence:
 // a case outside the companies the change touches that is decided differently fails it. The capture
 // samples the invoices of every company; the suite returned shows the cases of the companies the
-// caller may access alone. 422 `config.no_cases` when the window has no invoices to capture.
+// caller may access alone. 422 `config.no_cases` when the window has no invoices to capture, unless
+// `allow_empty` asks for a suite of no cases: its regression evidence passes saying that nothing was
+// replayed, and each approver acknowledges that in their approval's comment.
 //
 // POST /v1/regression-suites
 func (s *Server) handleCreateRegressionSuiteRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -46476,8 +46480,10 @@ func (s *Server) handleRejectMemoRecordProposalRequest(args [1]string, argsEscap
 //
 // Rejects a proposed run and frees its open items for later runs. A direct human transition like
 // `:release`. Segregation of duties: the proposer can never reject the run (403
-// `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets
-// `decided_by` and `decided_at`. Requires status `proposed`.
+// `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). The decider
+// holds the active configuration's `payments.release_role` today, as for `:release` (403
+// `payments.release_role_missing`, 422 `workflow.unknown_role`). Sets `decided_by` and `decided_at`.
+// Requires status `proposed`.
 //
 // POST /v1/payment-runs/{id}:reject
 func (s *Server) handleRejectPaymentRunRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -46892,12 +46898,17 @@ func (s *Server) handleReleaseContractRequest(args [1]string, argsEscaped bool, 
 // total no longer counts it, `PaymentExcluded` is published) and goes on with the others; a release
 // that drops every payment fails with `payments.nothing_to_pay` and returns the run to `proposed`, to
 // be rejected. Human-only. Segregation of duties: the proposer can never release or reject the run
-// (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets
-// `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a failed release
-// operation, which resumes it. 409 `payments.discount_lapsed` when a payment takes a cash discount
-// whose last day has passed (T36d): reject the run and propose again. 409 `ledger.withholding_changed`
-// when an item would withhold another amount than its payment deducted (T46f); the payment is not
-// posted.
+// (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). The
+// releaser holds the active configuration's `payments.release_role` today (403
+// `payments.release_role_missing`; 422 `workflow.unknown_role` when it names no active role). A
+// configuration asking for more than one releaser (`payments.release_approvals` above 1, which
+// validation now refuses) refuses the release with 422 `payments.release_approvals_unsupported` rather
+// than letting one person release, the resumption of a failed release included, until a change request
+// sets it to 1. Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a
+// failed release operation, which resumes it. 409 `payments.discount_lapsed` when a payment takes a
+// cash discount whose last day has passed (T36d): reject the run and propose again. 409
+// `ledger.withholding_changed` when an item would withhold another amount than its payment deducted
+// (T46f); the payment is not posted.
 //
 // POST /v1/payment-runs/{id}:release
 func (s *Server) handleReleasePaymentRunRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

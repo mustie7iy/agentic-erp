@@ -433,3 +433,27 @@ func checkEntityPermissions(t *testing.T, o operation, perm string, byEntity nod
 		}
 	}
 }
+
+// TestNoBinaryMultipartFields: a file in a multipart body is a string of
+// bytes (contentMediaType), never format: binary. The API reads every part
+// of a multipart body into the form's values (httpapi.fileParts), so a
+// field the generated server would look for among the form's files would
+// never be found.
+func TestNoBinaryMultipartFields(t *testing.T) {
+	spec := loadSpec(t)
+	for _, o := range operations(t, spec) {
+		body, _ := o.op["requestBody"].(node)
+		content, _ := body["content"].(node)
+		media, ok := content["multipart/form-data"].(node)
+		if !ok {
+			continue
+		}
+		schema, _ := media["schema"].(node)
+		props, _ := resolve(t, spec, schema)["properties"].(node)
+		for name, raw := range props {
+			if p, _ := raw.(node); p["format"] == "binary" {
+				t.Errorf("%s: multipart field %s: got format binary, want contentMediaType", o, name)
+			}
+		}
+	}
+}

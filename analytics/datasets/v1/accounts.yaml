@@ -16,3 +16,11 @@ columns:
   - {name: account_name, type: string, role: dimension}
   - {name: account_type, type: string, role: dimension}
   - {name: vendor_recon, type: bool, role: dimension}
+  # The account determination keys (SAP T030) that name the account for
+  # automatic postings in the company, comma-separated in key order, or
+  # "none": the semantic layer tells sales from the income automatic
+  # postings book (cash discounts received, exchange gains). Added for
+  # T72l: until the next snapshot rewrites a tenant's accounts, a plan
+  # reading files without it fails and the query is answered from the
+  # database (the fallback).
+  - {name: determination, type: string, role: dimension, nullable: true}

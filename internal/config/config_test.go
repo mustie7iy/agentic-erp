@@ -226,6 +226,7 @@ func TestValidationRules(t *testing.T) {
 		{"tier approvals", func(c *Config) { c.Purchasing.RequisitionApproval[0].Steps[0].Approvals = 0 }, "purchasing.requisition_approval[0].steps[0].approvals"},
 		{"release role", func(c *Config) { c.Payments.ReleaseRole = "" }, "payments.release_role"},
 		{"release approvals", func(c *Config) { c.Payments.ReleaseApprovals = 0 }, "payments.release_approvals"},
+		{"release approvals above one", func(c *Config) { c.Payments.ReleaseApprovals = 2 }, "payments.release_approvals"},
 		{"hold days", func(c *Config) { c.Payments.BankChangeHoldDays = -1 }, "payments.bank_change_hold_days"},
 		{"output", func(c *Config) { c.Output.PurchaseOrderChannel = "fax" }, "output.purchase_order_channel"},
 	}

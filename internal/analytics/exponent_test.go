@@ -43,7 +43,7 @@ func count(n int64) Value { return Value{Units: money.Minor(n)} }
 func exponentFacts() *Facts {
 	line := func(id, company, cur string, amount int64) Fact {
 		return Fact{ID: id, Amount: -money.Minor(amount), Currency: cur, Dims: map[string]string{
-			"company": company, "account_type": "revenue", "fiscal_year": "2026", "fiscal_month": "1", "posting_date": "2026-01-05"}}
+			"company": company, "account_type": "revenue", "determination": "none", "fiscal_year": "2026", "fiscal_month": "1", "posting_date": "2026-01-05"}}
 	}
 	return &Facts{
 		Companies: map[string]string{"4000": "BHD", "3000": "JPY"},

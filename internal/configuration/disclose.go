@@ -156,7 +156,8 @@ func (r *regressionRecord) recordedSummary() string {
 // counts of zero, and a case of no legal entity is shown only to a reader
 // of every company. The verdict (passed) is the change request's and is
 // shown whole, as its status shows it anyway. Evidence of no suite has no
-// case and no count, and is shown as it is.
+// case and no count, and is shown as it is; so is evidence of a suite of
+// no cases (noCases), whose summary counts none.
 func regressionShown(e Evidence, access authz.Access) (Evidence, error) {
 	if e.Kind != "regression" {
 		return e, nil

@@ -21,6 +21,9 @@ type CompanySettings struct {
 	LegalEntityID     uuid.UUID `json:"legal_entity_id"`
 	IsPostingBlocked  bool      `json:"is_posting_blocked"`
 	IsOpenItemManaged bool      `json:"is_open_item_managed"`
+	// DeterminationKeys name the account for automatic postings in the
+	// legal entity (ledger.account_determination), in key order.
+	DeterminationKeys []string `json:"determination_keys"`
 }
 
 // Account is a general ledger account with its settings in the legal
@@ -45,7 +48,9 @@ type Account struct {
 // accountSelect takes the caller's company access as $1 (all) and $2 (ids).
 const accountSelect = `SELECT a.id, a.chart_id, a.number, a.name, a.account_type, a.is_balance_sheet, a.reconciliation_kind, a.status,
 		coalesce((SELECT json_agg(json_build_object('legal_entity_id', ca.legal_entity_id, 'is_posting_blocked', ca.is_posting_blocked,
-			'is_open_item_managed', ca.is_open_item_managed) ORDER BY ca.legal_entity_id)
+			'is_open_item_managed', ca.is_open_item_managed,
+			'determination_keys', coalesce((SELECT json_agg(d.key ORDER BY d.key) FROM ledger.account_determination d
+				WHERE d.tenant_id = ca.tenant_id AND d.legal_entity_id = ca.legal_entity_id AND d.account_id = ca.account_id), '[]')) ORDER BY ca.legal_entity_id)
 		 FROM ledger.company_account ca WHERE ca.tenant_id = a.tenant_id AND ca.account_id = a.id AND ($1 OR ca.legal_entity_id = ANY($2))), '[]'),
 		a.version, a.created_at, a.created_by, a.updated_at, a.updated_by
 	FROM ledger.gl_account a`
