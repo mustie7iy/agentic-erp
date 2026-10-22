@@ -68,7 +68,8 @@ func downPaymentLines(ctx context.Context, in DownPaymentPayment) ([]PostingLine
 	}
 	net := in.Amount - in.Tax // no overflow: 0 <= Tax < Amount
 	special := SpecialDownPayment
-	lines := []PostingLine{{AccountID: account, Amount: net, PartnerID: &in.SupplierID, SpecialGL: &special}}
+	// The net is the tax code's base (ADR-0049 §5): the code on its line.
+	lines := []PostingLine{{AccountID: account, Amount: net, PartnerID: &in.SupplierID, SpecialGL: &special, TaxCode: in.TaxCode}}
 	if in.TaxCode != nil && in.Tax != 0 {
 		code, ok, err := Accounts{}.TaxCode(ctx, in.LegalEntityID, *in.TaxCode, in.PostingDate)
 		if err != nil {

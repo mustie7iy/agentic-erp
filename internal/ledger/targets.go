@@ -23,6 +23,8 @@ type ledgerChoice struct {
 	ledgers  []uuid.UUID
 	group    *uuid.UUID
 	specific bool
+	// offLeading: the ledgers posted to leave out the leading ledger.
+	offLeading bool
 }
 
 // chooseLedgers resolves the ledgers a manual entry of the legal entity le
@@ -39,14 +41,15 @@ func chooseLedgers(ctx context.Context, tx pgx.Tx, le uuid.UUID, in NewEntry) (l
 	if err != nil || in.LedgerID == nil {
 		return ledgerChoice{ledger: ledger}, err
 	}
-	var kept bool
-	if err := tx.QueryRow(ctx, `SELECT ledger.company_keeps($1, $2)`, le, ledger).Scan(&kept); err != nil {
+	var kept, leading bool
+	if err := tx.QueryRow(ctx, `SELECT ledger.company_keeps($1, l.id), l.is_leading FROM ledger.ledger l WHERE l.id = $2`, le, ledger).
+		Scan(&kept, &leading); err != nil {
 		return ledgerChoice{}, fmt.Errorf("ledger: ledgers of %s: %w", le, err)
 	}
 	if !kept {
 		return ledgerChoice{}, notKept("ledger_id")
 	}
-	return ledgerChoice{ledger: ledger, ledgers: []uuid.UUID{ledger}, specific: true}, nil
+	return ledgerChoice{ledger: ledger, ledgers: []uuid.UUID{ledger}, specific: true, offLeading: !leading}, nil
 }
 
 // groupLedgers resolves a ledger group by its code: its members the
@@ -59,12 +62,13 @@ func chooseLedgers(ctx context.Context, tx pgx.Tx, le uuid.UUID, in NewEntry) (l
 func groupLedgers(ctx context.Context, tx pgx.Tx, le uuid.UUID, code string) (ledgerChoice, error) {
 	var c ledgerChoice
 	var group uuid.UUID
+	var leading *bool
 	err := tx.QueryRow(ctx, `SELECT g.id, array_agg(m.ledger_id ORDER BY m.ledger_id <> g.representative_ledger_id, l.code)
-			FILTER (WHERE ledger.company_keeps($2, m.ledger_id))
+			FILTER (WHERE ledger.company_keeps($2, m.ledger_id)), bool_or(l.is_leading) FILTER (WHERE ledger.company_keeps($2, m.ledger_id))
 		FROM ledger.ledger_group g
 		JOIN ledger.ledger_group_member m ON m.tenant_id = g.tenant_id AND m.group_id = g.id
 		JOIN ledger.ledger l ON l.tenant_id = m.tenant_id AND l.id = m.ledger_id
-		WHERE g.code = $1 GROUP BY g.id`, code, le).Scan(&group, &c.ledgers)
+		WHERE g.code = $1 GROUP BY g.id`, code, le).Scan(&group, &c.ledgers, &leading)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return c, problem.Unprocessable("ledger.unknown_ledger_group", "No ledger group has the code "+code+".",
@@ -74,7 +78,7 @@ func groupLedgers(ctx context.Context, tx pgx.Tx, le uuid.UUID, code string) (le
 	case len(c.ledgers) == 0:
 		return c, notKept("ledger_group")
 	}
-	c.ledger, c.group = c.ledgers[0], &group
+	c.ledger, c.group, c.offLeading = c.ledgers[0], &group, !*leading // a kept member: not null
 	return c, nil
 }
 
@@ -91,6 +95,23 @@ func commonOnReconciliation(c ledgerChoice, lines []Line, accounts map[uuid.UUID
 			return problem.Unprocessable("ledger.ledger_specific_reconciliation", fmt.Sprintf("Line %d posts to a %s reconciliation account, "+
 				"which is posted in every ledger alike; post it without ledger_id and ledger_group, and a ledger's difference on a G/L account.", i+1, kind),
 				problem.FieldError{Field: fmt.Sprintf("lines[%d].account_id", i), Code: "reconciliation_account", Message: "not in a ledger-specific posting"})
+		}
+	}
+	return nil
+}
+
+// taxOnLeading refuses tax codes on a posting that leaves out the leading
+// ledger (product owner, 2026-10-21): tax items are the leading ledger's,
+// which the returns read, so tax comes only from postings they see.
+func taxOnLeading(c ledgerChoice, lines []Line) error {
+	if !c.offLeading {
+		return nil
+	}
+	for i, l := range lines {
+		if l.TaxCode != nil {
+			return problem.Unprocessable("ledger.tax_code_off_leading", fmt.Sprintf("Line %d carries tax code %s, but the entry leaves out the leading "+
+				"ledger, whose entries the tax returns read; post taxed lines in every ledger, or a ledger's difference without a tax code.", i+1, *l.TaxCode),
+				problem.FieldError{Field: fmt.Sprintf("lines[%d].tax_code", i), Code: "off_leading", Message: "no tax code in a posting without the leading ledger"})
 		}
 	}
 	return nil

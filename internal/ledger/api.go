@@ -38,7 +38,14 @@ func entryToAPI(e Entry) gen.JournalEntry {
 			line.PoItemNo.SetTo(*l.POItemNo)
 		}
 		line.SpecialGl = apitypes.OptString(l.SpecialGL)
+		if l.TaxBase != nil {
+			line.TaxBase.SetTo(apitypes.Money(*l.TaxBase, e.CurrencyTC, e.ExpTC))
+			line.TaxBaseLc.SetTo(apitypes.Money(*l.TaxBaseLC, e.CurrencyLC, e.ExpLC))
+		}
 		out.Lines[i] = line
+	}
+	if e.TaxDate != nil {
+		out.TaxDate.SetTo(*e.TaxDate)
 	}
 	return out
 }
@@ -213,14 +220,17 @@ func (e *Endpoints) UnlockFiscalPeriod(ctx context.Context, req *gen.ReasonInput
 // newEntry is the manual entry a create request describes.
 func newEntry(req *gen.JournalEntryCreate) NewEntry {
 	in := NewEntry{LegalEntityID: req.LegalEntityID, LedgerID: apitypes.Ptr[uuid.UUID](req.LedgerID), LedgerGroup: apitypes.Ptr[string](req.LedgerGroup),
-		DocumentType: req.DocumentType.Or("SA"),
-		DocumentDate: req.DocumentDate, PostingDate: req.PostingDate, Currency: req.Currency, Reference: apitypes.Ptr[string](req.Reference),
+		DocumentType: req.DocumentType.Or("SA"), DocumentDate: req.DocumentDate, PostingDate: req.PostingDate, TaxDate: apitypes.Ptr[time.Time](req.TaxDate),
+		Currency: req.Currency, Reference: apitypes.Ptr[string](req.Reference),
 		HeaderText: apitypes.Ptr[string](req.HeaderText), Lines: make([]NewLine, len(req.Lines))}
 	for i, l := range req.Lines {
 		line := NewLine{AccountID: l.AccountID, Amount: l.Amount.Amount, Currency: l.Amount.Currency, PartnerID: apitypes.Ptr[uuid.UUID](l.PartnerID),
 			TaxCode: apitypes.Ptr[string](l.TaxCode), Text: apitypes.Ptr[string](l.LineText)}
 		if q, ok := l.Quantity.Get(); ok {
 			line.Quantity, line.Unit = &q.Value, &q.Unit
+		}
+		if b, ok := l.TaxBase.Get(); ok {
+			line.TaxBase, line.TaxBaseCurrency = &b.Amount, b.Currency
 		}
 		in.Lines[i] = line
 	}

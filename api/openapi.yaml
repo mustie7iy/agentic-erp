@@ -20046,6 +20046,14 @@ components:
           x-extensible-enum:
             - A
           readOnly: true
+        tax_base:
+          $ref: "#/components/schemas/Money"
+          description: "A tax line's declared base (ADR-0049 §9): the declared value an import's tax from a customs declaration is on, which no line of the entry carries; its code's tax item takes it as its base. Absent on other lines."
+          readOnly: true
+        tax_base_lc:
+          $ref: "#/components/schemas/Money"
+          description: "The declared base in local currency, converted with the entry's rate; set with `tax_base`."
+          readOnly: true
         line_text:
           type: string
           description: Line text.
@@ -20137,6 +20145,11 @@ components:
           type: string
           format: date
           description: Posting date.
+          readOnly: true
+        tax_date:
+          type: string
+          format: date
+          description: "Tax date: the lines' tax codes' rates applied on it and its return reports their tax (ADR-0049 §4). Absent on entries posted before tax items (T61c), whose tax date is the posting date."
           readOnly: true
         currency:
           type: string
@@ -20289,6 +20302,9 @@ components:
           type: string
           description: Tax code.
           pattern: "^[A-Z0-9]{1,4}$"
+        tax_base:
+          $ref: "#/components/schemas/Money"
+          description: "Declared tax base of a tax line of an `import` code (ADR-0049 §9): the import's tax posted from the customs declaration, as tax lines alone, on the declared value no line of the entry carries. Only on a line with an import code on one of its components' accounts (422 `ledger.tax_base_not_import`), never zero (422 `ledger.zero_tax_base`); the line's amount is the tax at the component's rate on the tax date (the part recovered, or the self-assessed output tax), within one minor unit (422 `ledger.tax_base_mismatch`). The component's tax item takes it as its base."
         quantity:
           $ref: "#/components/schemas/Quantity"
           description: Quantity.
@@ -20337,6 +20353,10 @@ components:
           type: string
           format: date
           description: "Posting date; must fall in an open period."
+        tax_date:
+          type: string
+          format: date
+          description: "Tax date: the date the lines' tax codes must be valid on, whose rates apply and whose return reports their tax (ADR-0049 §4); defaults to the posting date."
         currency:
           type: string
           description: "Transaction currency; every line amount must use it."
@@ -20481,6 +20501,10 @@ components:
           type: string
           description: Tax code.
           readOnly: true
+        tax_base:
+          $ref: "#/components/schemas/Money"
+          description: "The line's declared tax base (JournalLineInput `tax_base`), absent when it declares none."
+          readOnly: true
         quantity:
           $ref: "#/components/schemas/Quantity"
           description: Quantity, where relevant.
@@ -20542,6 +20566,11 @@ components:
               type: string
               format: date
               description: "Posting date; its period must be open when the entry is posted."
+              readOnly: true
+            tax_date:
+              type: string
+              format: date
+              description: "Tax date the entry was parked with; absent: its posting date."
               readOnly: true
             currency:
               type: string
@@ -20641,6 +20670,12 @@ components:
           type: string
           format: date
           description: Posting date.
+        tax_date:
+          type:
+            - string
+            - "null"
+          format: date
+          description: "Tax date: the date the lines' tax codes' rates apply on and their tax is reported in (ADR-0049 §4). Send null to clear: the posting date then."
         currency:
           type: string
           description: "Transaction currency; every line amount must use it, so a change of currency comes with the lines."
@@ -23566,6 +23601,10 @@ components:
               type: string
               format: date
               description: "Posting date; set at the latest by `:post`."
+            tax_date:
+              type: string
+              format: date
+              description: "Tax date a person set (ADR-0049 §4, decision P6); absent: the invoice date, or for a correction the corrected invoice's tax date."
             gross_amount:
               $ref: "#/components/schemas/Money"
               description: Gross amount.
@@ -23706,6 +23745,10 @@ components:
           type: string
           format: date
           description: Posting date.
+        tax_date:
+          type: string
+          format: date
+          description: "Tax date: the date the items' tax codes' rates apply on and the tax is reported in (ADR-0049 §4, decision P6); defaults to the invoice date, or for a correction to the corrected invoice's tax date. Set by a person only: an agent's is 403 `payables.tax_date_human_only`."
         gross_amount:
           $ref: "#/components/schemas/Money"
           description: "Gross amount; all amounts must share one currency."
@@ -23785,6 +23828,12 @@ components:
             - "null"
           format: date
           description: Posting date. Send null to clear.
+        tax_date:
+          type:
+            - string
+            - "null"
+          format: date
+          description: "Tax date: the date the items' tax codes' rates apply on and the tax is reported in (ADR-0049 §4, decision P6). Set by a person only: an agent's is 403 `payables.tax_date_human_only`. Send null to clear: the invoice date, or for a correction the corrected invoice's tax date."
         gross_amount:
           $ref: "#/components/schemas/Money"
           description: Gross amount.

@@ -1294,7 +1294,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Tax-rate check on captured invoices: the capture agent proposes tax codes and flags a stated tax that differs from the calculated (the earlier capture.checkTaxRate was removed with T7/T8)",
       "r": "ADR-0049 · T61d",
       "c": []
@@ -1335,27 +1335,51 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "The ledger's cash discount tax split (ledger.itemTaxShares, T36d) uses money.Allocate instead of its own largest-remainder loop",
+        "s": "D",
+        "t": "The ledger's cash discount tax split (ledger.itemTaxShares, T36d) uses money.Allocate instead of its own largest-remainder loop, over the paid entries' tax items",
         "r": "internal/ledger/discounttax.go · money.Allocate · with T61c",
         "c": []
        },
        {
-        "s": "T",
-        "t": "Tax items in the ledger: ledger.tax_item written by every posting path that carries a tax code, reversals negated, checked against the tax lines at commit; the tax date on the entry; the ledger.TaxItems port; the contract step dropping the former ledger.tax_code (copied by 000124, no longer read), and the in-use check (ledger.tax_code_posted) reading tax items",
-        "r": "T61c",
+        "s": "D",
+        "t": "Tax items in the ledger: ledger.tax_item written by every posting path that carries a tax code, reversals negated, checked against the tax lines at commit; the tax date on the entry; the ledger.TaxItems port; the contract step dropping the former ledger.tax_code (copied by 000124, no longer read), and the in-use check (ledger.tax_code_posted) reading tax items; internal/tax in the shared kernel",
+        "r": "db/migrations/000144-000145 · ledger.tax_item · ledger.write_tax_items · ledger.TaxItems · journal_entry.tax_date · internal/layout shared tax · ADR-0049 · T61c",
         "c": []
        },
        {
         "s": "T",
-        "t": "Input tax on supplier invoices: tax per item code at the tax date, one tax line per code and component account, non-deductible tax on the item's line, the supplier's tax within the company's tolerance else 422 payables.tax_mismatch (P5), credit memos at the invoice's tax date, capture proposes codes and flags mismatches",
-        "r": "T61d",
+        "t": "Tax items catch-up: the next release's migration writes the items of the leading-ledger entries an instance of the previous release posted during T61c's rollout (no tax date, no items; their parallel-ledger copies keep none), so returns and the rate check see them",
+        "r": "ledger.write_tax_items · ADR-0049 §5 · after T61c",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Input tax on supplier invoices: tax per item code at the tax date, one tax line per code and component, non-deductible tax on the item's line, the supplier's tax within the company's tolerance else 422 payables.tax_mismatch (P5), credit memos at the invoice's tax date, capture proposes codes and flags mismatches",
+        "r": "db/migrations/000146 · supplier_invoice.tax_date · payables.calculateTax · invoice_tolerance.tax_units_per_code · ledger.PostingTaxItem · PostingLine.LC · capture.Line.TaxRate · ADR-0049 · T61d",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Tax codes only on postings the returns see (product owner, 2026-10-21): a posting leaving out the leading ledger with a taxed line is refused, 422 ledger.tax_code_off_leading; the commit-time check refuses a parallel ledger's entry with tax codes that is no copy of a leading ledger's (tax_code_off_leading)",
+        "r": "ledger.taxOnLeading · ledger.check_tax_items · ADR-0049 §5 · ADR-0045 · T61d follow-up",
         "c": []
        },
        {
         "s": "T",
-        "t": "Reverse charge, self-assessment and import tax: output and input pairs, import tax from customs declaration entries, UAE domestic reverse charge, Canada line 405, PST self-assessment",
-        "r": "T61e",
+        "t": "Input tax follow-up: down payment requests' tax checked at the run date's rate (left out with tax_code_invalid when it no longer matches); documentary-requirement warnings for CA ($100/$500 tiers) and the UAE (TRN above AED 10,000); the authority's rate type and rounding from the country pack",
+        "r": "ADR-0049 §4, §6, §8 · after T61d",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Reverse charge, self-assessment and import tax: output and input pairs from supplier invoices of reverse charge codes with the part not recovered on the expense; worked cases for Canada line 405, BC PST self-assessment, the UAE's imported services and domestic reverse charge; import tax from customs declarations as journal entries of tax lines declaring the base (tax_base), checked against the code's rate; UAE box 6 and Canada's CBSA GST cases",
+        "r": "db/migrations/000147 · journal_line.tax_base_tc · ledger.checkTaxBases · ledger.write_tax_items · payables TestSelfAssessment · ADR-0049 §9 · T61e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Import tax follow-up: the declared tax base on the journal_entry_posted event's lines (asyncapi), so analytics sees import bases",
+        "r": "ADR-0049 §9 · after T61e",
         "c": []
        },
        {

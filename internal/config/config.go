@@ -401,10 +401,23 @@ func (w WithholdingTaxCode) BaseOrNet() string {
 	return w.Base
 }
 
-// Tolerance bounds the price variance on an invoice line (SAP T169G key PP).
+// Tolerance bounds the price variance on an invoice line (SAP T169G key PP)
+// and how far a supplier's stated tax may differ from the calculated one:
+// TaxUnitsPerCode minor units of the invoice's currency per tax code that
+// charges tax (ADR-0049 §6, decision P5; nil: one).
 type Tolerance struct {
-	PricePercent  int    `yaml:"price_percent" json:"price_percent"`
-	PriceAbsolute string `yaml:"price_absolute" json:"price_absolute"`
+	PricePercent    int    `yaml:"price_percent" json:"price_percent"`
+	PriceAbsolute   string `yaml:"price_absolute" json:"price_absolute"`
+	TaxUnitsPerCode *int   `yaml:"tax_units_per_code,omitempty" json:"tax_units_per_code,omitempty"`
+}
+
+// TaxUnits is the tax tolerance in minor units per tax code: one unless
+// configured.
+func (t Tolerance) TaxUnits() int {
+	if t.TaxUnitsPerCode == nil {
+		return 1
+	}
+	return *t.TaxUnitsPerCode
 }
 
 type HouseBank struct {

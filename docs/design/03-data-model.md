@@ -391,7 +391,9 @@ requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
 in the currency of the requisition's company), the order release
 thresholds (`purchasing.order_release_approval[].up_to`, likewise in the
 order's company's currency, T47c), the invoice price tolerance
-(`invoice_tolerance.price_absolute`), the auto-post limit
+(`invoice_tolerance.price_absolute`; the tax tolerance,
+`invoice_tolerance.tax_units_per_code`, is in minor units of the invoice's
+currency per tax code, T61d), the auto-post limit
 (`auto_post_limit`) and the manual entry approval limit
 (`manual_entry_approval_limit`, T35: the largest manual journal entry, by
 its debits, that people post without approval; posting-relevant, so a
@@ -837,13 +839,43 @@ accounts) and `tax_rate` (a component's dated rates, a GiST exclusion over
 the live ones; a rate's value and start never change, a rate no posting
 used is withdrawn rather than deleted, and the database refuses withdrawing
 or re-dating a rate past a posting of its code or adding one over posted
-dates, `ledger.tax_rate_in_use`); the former `tax_code` (one rate and
-account per validity) is copied into them and dropped later, `withholding_tax_code` (T46e: the
+dates, `ledger.tax_rate_in_use`, read from the tax items by tax date since
+T61c); the former `tax_code` (one rate and account per validity) was copied
+into them and is dropped (000145, T61c), `withholding_tax_code` (T46e: the
 configuration's `companies[].withholding_tax_codes`, SAP T059P/T059Z, kept
 by the setup per legal entity: a rate above 0 and below 100% of the
 invoice's net, the default, or gross, deducted at invoice or at payment, to
 a liability that reconciles no supplier, the withholding tax payable; a code
 the document no longer has is deactivated).
+
+A journal line may declare a tax base (`tax_base_tc`, `tax_base_lc`;
+migration 000147, T61e, ADR-0049 §9): a tax line of an `import` code posted
+from a customs declaration, whose base, the declared value, no line of the
+entry carries; both or neither, only with a tax code
+(`journal_line_tax_base`), only on a component's account of an import code
+(trigger `journal_line_tax_base_import`); the component's item takes it. A
+parked line keeps it as `parked_entry_line.tax_base`
+(`parked_entry_line_tax_base`).
+
+Tax items (T61c, ADR-0049 §5; migrations 000144-000145): `tax_item`, one per
+entry of the leading ledger (a parallel ledger's copies and entries have
+none, `tax_item_leading`; a parallel ledger's entry that is no copy of a
+leading ledger's carries no tax code, `tax_code_off_leading`), tax code, component and tax line account, written with every entry
+that carries a tax code in its transaction (from its lines, or a reversal's
+and a down payment transfer's negated from the entries they reverse, a cash
+discount's from its items' at their rates): the tax date, the rate row and
+percentage applied, the recoverable share, base, tax and recoverable part in
+transaction and local currency, and `reported_in`, the return that reports
+it, set once (`tax_item_fixed`; nothing else changes and nothing is
+deleted). Output tax recovers nothing, input tax at most itself
+(`tax_item_recoverable`). When the entry commits, its tax lines and items
+agree (`tax_item_missing`, `tax_item_entity`, `tax_item_lines`, deferred
+like the balance; not for an entry without a tax date, which an instance of
+the release before writes during the rollout, nor for a code that posts to
+no account). `journal_entry.tax_date` and `parked_entry.tax_date` are
+the entry's tax date, none on entries posted before, whose items carry their
+posting date. Indexed by legal entity, code and tax date, what a return and
+the rate check read.
 
 An open item on a supplier reconciliation account keeps the payment terms
 it was posted with (`open_item_terms`, migration 000068, T36b), as SAP
@@ -1258,6 +1290,16 @@ erDiagram
     int config_version
     int invoice_version }
 ```
+
+A supplier invoice's `tax_date` (migration 000146, T61d, ADR-0049 §4) is
+the date its codes' rates apply on and its tax is reported in, set by a
+person only; none: the invoice date, or for a correction naming an invoice
+that invoice's. Its tax is calculated per item code when it posts, held to
+the stated tax within `invoice_tolerance.tax_units_per_code` (ADR-0049 §6).
+The column is nullable and the previous release names its columns, so the
+migration runs ahead of the code; invoices are not posted during the
+rollout, as the previous release posts them with the first item's code at
+the invoice date.
 
 A supplier invoice is of a `kind` (migration 000059, T34a), as SAP's MIRO
 transactions are: `invoice`, `credit_memo`, `subsequent_debit` or

@@ -19080,6 +19080,9 @@ type JournalEntry struct {
 	DocumentDate time.Time `json:"document_date"`
 	// Posting date.
 	PostingDate time.Time `json:"posting_date"`
+	// Tax date: the lines' tax codes' rates applied on it and its return reports their tax (ADR-0049 §4).
+	// Absent on entries posted before tax items (T61c), whose tax date is the posting date.
+	TaxDate OptDate `json:"tax_date"`
 	// Transaction currency.
 	Currency string `json:"currency"`
 	// Local currency.
@@ -19166,6 +19169,11 @@ func (s *JournalEntry) GetDocumentDate() time.Time {
 // GetPostingDate returns the value of PostingDate.
 func (s *JournalEntry) GetPostingDate() time.Time {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *JournalEntry) GetTaxDate() OptDate {
+	return s.TaxDate
 }
 
 // GetCurrency returns the value of Currency.
@@ -19298,6 +19306,11 @@ func (s *JournalEntry) SetPostingDate(val time.Time) {
 	s.PostingDate = val
 }
 
+// SetTaxDate sets the value of TaxDate.
+func (s *JournalEntry) SetTaxDate(val OptDate) {
+	s.TaxDate = val
+}
+
 // SetCurrency sets the value of Currency.
 func (s *JournalEntry) SetCurrency(val string) {
 	s.Currency = val
@@ -19403,6 +19416,9 @@ type JournalEntryCreate struct {
 	DocumentDate time.Time `json:"document_date"`
 	// Posting date; must fall in an open period.
 	PostingDate time.Time `json:"posting_date"`
+	// Tax date: the date the lines' tax codes must be valid on, whose rates apply and whose return reports
+	// their tax (ADR-0049 §4); defaults to the posting date.
+	TaxDate OptDate `json:"tax_date"`
 	// Transaction currency; every line amount must use it.
 	Currency string `json:"currency"`
 	// External reference.
@@ -19441,6 +19457,11 @@ func (s *JournalEntryCreate) GetDocumentDate() time.Time {
 // GetPostingDate returns the value of PostingDate.
 func (s *JournalEntryCreate) GetPostingDate() time.Time {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *JournalEntryCreate) GetTaxDate() OptDate {
+	return s.TaxDate
 }
 
 // GetCurrency returns the value of Currency.
@@ -19491,6 +19512,11 @@ func (s *JournalEntryCreate) SetDocumentDate(val time.Time) {
 // SetPostingDate sets the value of PostingDate.
 func (s *JournalEntryCreate) SetPostingDate(val time.Time) {
 	s.PostingDate = val
+}
+
+// SetTaxDate sets the value of TaxDate.
+func (s *JournalEntryCreate) SetTaxDate(val OptDate) {
+	s.TaxDate = val
 }
 
 // SetCurrency sets the value of Currency.
@@ -19745,6 +19771,12 @@ type JournalLine struct {
 	// payment account. Absent on ordinary lines. Open enumeration: clients must accept and preserve values
 	// not listed here; values may be added within /v1.
 	SpecialGl OptString `json:"special_gl"`
+	// A tax line's declared base (ADR-0049 §9): the declared value an import's tax from a customs
+	// declaration is on, which no line of the entry carries; its code's tax item takes it as its base.
+	// Absent on other lines.
+	TaxBase OptMoney `json:"tax_base"`
+	// The declared base in local currency, converted with the entry's rate; set with `tax_base`.
+	TaxBaseLc OptMoney `json:"tax_base_lc"`
 	// Line text.
 	LineText OptString `json:"line_text"`
 }
@@ -19802,6 +19834,16 @@ func (s *JournalLine) GetPoItemNo() OptInt32 {
 // GetSpecialGl returns the value of SpecialGl.
 func (s *JournalLine) GetSpecialGl() OptString {
 	return s.SpecialGl
+}
+
+// GetTaxBase returns the value of TaxBase.
+func (s *JournalLine) GetTaxBase() OptMoney {
+	return s.TaxBase
+}
+
+// GetTaxBaseLc returns the value of TaxBaseLc.
+func (s *JournalLine) GetTaxBaseLc() OptMoney {
+	return s.TaxBaseLc
 }
 
 // GetLineText returns the value of LineText.
@@ -19864,6 +19906,16 @@ func (s *JournalLine) SetSpecialGl(val OptString) {
 	s.SpecialGl = val
 }
 
+// SetTaxBase sets the value of TaxBase.
+func (s *JournalLine) SetTaxBase(val OptMoney) {
+	s.TaxBase = val
+}
+
+// SetTaxBaseLc sets the value of TaxBaseLc.
+func (s *JournalLine) SetTaxBaseLc(val OptMoney) {
+	s.TaxBaseLc = val
+}
+
 // SetLineText sets the value of LineText.
 func (s *JournalLine) SetLineText(val OptString) {
 	s.LineText = val
@@ -19880,6 +19932,13 @@ type JournalLineInput struct {
 	PartnerID OptUUID `json:"partner_id"`
 	// Tax code.
 	TaxCode OptString `json:"tax_code"`
+	// Declared tax base of a tax line of an `import` code (ADR-0049 §9): the import's tax posted from the
+	// customs declaration, as tax lines alone, on the declared value no line of the entry carries. Only on
+	// a line with an import code on one of its components' accounts (422 `ledger.tax_base_not_import`),
+	// never zero (422 `ledger.zero_tax_base`); the line's amount is the tax at the component's rate on the
+	// tax date (the part recovered, or the self-assessed output tax), within one minor unit (422
+	// `ledger.tax_base_mismatch`). The component's tax item takes it as its base.
+	TaxBase OptMoney `json:"tax_base"`
 	// Quantity.
 	Quantity OptQuantity `json:"quantity"`
 	// Line text.
@@ -19904,6 +19963,11 @@ func (s *JournalLineInput) GetPartnerID() OptUUID {
 // GetTaxCode returns the value of TaxCode.
 func (s *JournalLineInput) GetTaxCode() OptString {
 	return s.TaxCode
+}
+
+// GetTaxBase returns the value of TaxBase.
+func (s *JournalLineInput) GetTaxBase() OptMoney {
+	return s.TaxBase
 }
 
 // GetQuantity returns the value of Quantity.
@@ -19934,6 +19998,11 @@ func (s *JournalLineInput) SetPartnerID(val OptUUID) {
 // SetTaxCode sets the value of TaxCode.
 func (s *JournalLineInput) SetTaxCode(val OptString) {
 	s.TaxCode = val
+}
+
+// SetTaxBase sets the value of TaxBase.
+func (s *JournalLineInput) SetTaxBase(val OptMoney) {
+	s.TaxBase = val
 }
 
 // SetQuantity sets the value of Quantity.
@@ -25937,6 +26006,8 @@ type ParkedJournalEntry struct {
 	DocumentDate time.Time `json:"document_date"`
 	// Posting date; its period must be open when the entry is posted.
 	PostingDate time.Time `json:"posting_date"`
+	// Tax date the entry was parked with; absent: its posting date.
+	TaxDate OptDate `json:"tax_date"`
 	// Transaction currency.
 	Currency string `json:"currency"`
 	// External reference.
@@ -26026,6 +26097,11 @@ func (s *ParkedJournalEntry) GetDocumentDate() time.Time {
 // GetPostingDate returns the value of PostingDate.
 func (s *ParkedJournalEntry) GetPostingDate() time.Time {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *ParkedJournalEntry) GetTaxDate() OptDate {
+	return s.TaxDate
 }
 
 // GetCurrency returns the value of Currency.
@@ -26141,6 +26217,11 @@ func (s *ParkedJournalEntry) SetDocumentDate(val time.Time) {
 // SetPostingDate sets the value of PostingDate.
 func (s *ParkedJournalEntry) SetPostingDate(val time.Time) {
 	s.PostingDate = val
+}
+
+// SetTaxDate sets the value of TaxDate.
+func (s *ParkedJournalEntry) SetTaxDate(val OptDate) {
+	s.TaxDate = val
 }
 
 // SetCurrency sets the value of Currency.
@@ -26364,6 +26445,9 @@ type ParkedJournalEntryUpdate struct {
 	DocumentDate OptDate `json:"document_date"`
 	// Posting date.
 	PostingDate OptDate `json:"posting_date"`
+	// Tax date: the date the lines' tax codes' rates apply on and their tax is reported in (ADR-0049 §4).
+	// Send null to clear: the posting date then.
+	TaxDate OptNilDate `json:"tax_date"`
 	// Transaction currency; every line amount must use it, so a change of currency comes with the lines.
 	Currency OptString `json:"currency"`
 	// External reference. Send null to clear.
@@ -26387,6 +26471,11 @@ func (s *ParkedJournalEntryUpdate) GetDocumentDate() OptDate {
 // GetPostingDate returns the value of PostingDate.
 func (s *ParkedJournalEntryUpdate) GetPostingDate() OptDate {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *ParkedJournalEntryUpdate) GetTaxDate() OptNilDate {
+	return s.TaxDate
 }
 
 // GetCurrency returns the value of Currency.
@@ -26424,6 +26513,11 @@ func (s *ParkedJournalEntryUpdate) SetPostingDate(val OptDate) {
 	s.PostingDate = val
 }
 
+// SetTaxDate sets the value of TaxDate.
+func (s *ParkedJournalEntryUpdate) SetTaxDate(val OptNilDate) {
+	s.TaxDate = val
+}
+
 // SetCurrency sets the value of Currency.
 func (s *ParkedJournalEntryUpdate) SetCurrency(val OptString) {
 	s.Currency = val
@@ -26457,6 +26551,8 @@ type ParkedJournalLine struct {
 	PartnerID OptUUID `json:"partner_id"`
 	// Tax code.
 	TaxCode OptString `json:"tax_code"`
+	// The line's declared tax base (JournalLineInput `tax_base`), absent when it declares none.
+	TaxBase OptMoney `json:"tax_base"`
 	// Quantity, where relevant.
 	Quantity OptQuantity `json:"quantity"`
 	// Line text.
@@ -26486,6 +26582,11 @@ func (s *ParkedJournalLine) GetPartnerID() OptUUID {
 // GetTaxCode returns the value of TaxCode.
 func (s *ParkedJournalLine) GetTaxCode() OptString {
 	return s.TaxCode
+}
+
+// GetTaxBase returns the value of TaxBase.
+func (s *ParkedJournalLine) GetTaxBase() OptMoney {
+	return s.TaxBase
 }
 
 // GetQuantity returns the value of Quantity.
@@ -26521,6 +26622,11 @@ func (s *ParkedJournalLine) SetPartnerID(val OptUUID) {
 // SetTaxCode sets the value of TaxCode.
 func (s *ParkedJournalLine) SetTaxCode(val OptString) {
 	s.TaxCode = val
+}
+
+// SetTaxBase sets the value of TaxBase.
+func (s *ParkedJournalLine) SetTaxBase(val OptMoney) {
+	s.TaxBase = val
 }
 
 // SetQuantity sets the value of Quantity.
@@ -36829,6 +36935,9 @@ type SupplierInvoice struct {
 	InvoiceDate time.Time `json:"invoice_date"`
 	// Posting date; set at the latest by `:post`.
 	PostingDate OptDate `json:"posting_date"`
+	// Tax date a person set (ADR-0049 §4, decision P6); absent: the invoice date, or for a correction the
+	// corrected invoice's tax date.
+	TaxDate OptDate `json:"tax_date"`
 	// Gross amount.
 	GrossAmount Money `json:"gross_amount"`
 	// Tax amount.
@@ -36931,6 +37040,11 @@ func (s *SupplierInvoice) GetInvoiceDate() time.Time {
 // GetPostingDate returns the value of PostingDate.
 func (s *SupplierInvoice) GetPostingDate() OptDate {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *SupplierInvoice) GetTaxDate() OptDate {
+	return s.TaxDate
 }
 
 // GetGrossAmount returns the value of GrossAmount.
@@ -37068,6 +37182,11 @@ func (s *SupplierInvoice) SetPostingDate(val OptDate) {
 	s.PostingDate = val
 }
 
+// SetTaxDate sets the value of TaxDate.
+func (s *SupplierInvoice) SetTaxDate(val OptDate) {
+	s.TaxDate = val
+}
+
 // SetGrossAmount sets the value of GrossAmount.
 func (s *SupplierInvoice) SetGrossAmount(val Money) {
 	s.GrossAmount = val
@@ -37201,6 +37320,10 @@ type SupplierInvoiceCreate struct {
 	InvoiceDate time.Time `json:"invoice_date"`
 	// Posting date.
 	PostingDate OptDate `json:"posting_date"`
+	// Tax date: the date the items' tax codes' rates apply on and the tax is reported in (ADR-0049 §4,
+	// decision P6); defaults to the invoice date, or for a correction to the corrected invoice's tax date.
+	// Set by a person only: an agent's is 403 `payables.tax_date_human_only`.
+	TaxDate OptDate `json:"tax_date"`
 	// Gross amount; all amounts must share one currency.
 	GrossAmount Money `json:"gross_amount"`
 	// Tax amount.
@@ -37249,6 +37372,11 @@ func (s *SupplierInvoiceCreate) GetInvoiceDate() time.Time {
 // GetPostingDate returns the value of PostingDate.
 func (s *SupplierInvoiceCreate) GetPostingDate() OptDate {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *SupplierInvoiceCreate) GetTaxDate() OptDate {
+	return s.TaxDate
 }
 
 // GetGrossAmount returns the value of GrossAmount.
@@ -37314,6 +37442,11 @@ func (s *SupplierInvoiceCreate) SetInvoiceDate(val time.Time) {
 // SetPostingDate sets the value of PostingDate.
 func (s *SupplierInvoiceCreate) SetPostingDate(val OptDate) {
 	s.PostingDate = val
+}
+
+// SetTaxDate sets the value of TaxDate.
+func (s *SupplierInvoiceCreate) SetTaxDate(val OptDate) {
+	s.TaxDate = val
 }
 
 // SetGrossAmount sets the value of GrossAmount.
@@ -37687,6 +37820,10 @@ type SupplierInvoiceUpdate struct {
 	InvoiceDate OptDate `json:"invoice_date"`
 	// Posting date. Send null to clear.
 	PostingDate OptNilDate `json:"posting_date"`
+	// Tax date: the date the items' tax codes' rates apply on and the tax is reported in (ADR-0049 §4,
+	// decision P6). Set by a person only: an agent's is 403 `payables.tax_date_human_only`. Send null to
+	// clear: the invoice date, or for a correction the corrected invoice's tax date.
+	TaxDate OptNilDate `json:"tax_date"`
 	// Gross amount.
 	GrossAmount OptMoney `json:"gross_amount"`
 	// Tax amount.
@@ -37714,6 +37851,11 @@ func (s *SupplierInvoiceUpdate) GetInvoiceDate() OptDate {
 // GetPostingDate returns the value of PostingDate.
 func (s *SupplierInvoiceUpdate) GetPostingDate() OptNilDate {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *SupplierInvoiceUpdate) GetTaxDate() OptNilDate {
+	return s.TaxDate
 }
 
 // GetGrossAmount returns the value of GrossAmount.
@@ -37759,6 +37901,11 @@ func (s *SupplierInvoiceUpdate) SetInvoiceDate(val OptDate) {
 // SetPostingDate sets the value of PostingDate.
 func (s *SupplierInvoiceUpdate) SetPostingDate(val OptNilDate) {
 	s.PostingDate = val
+}
+
+// SetTaxDate sets the value of TaxDate.
+func (s *SupplierInvoiceUpdate) SetTaxDate(val OptNilDate) {
+	s.TaxDate = val
 }
 
 // SetGrossAmount sets the value of GrossAmount.

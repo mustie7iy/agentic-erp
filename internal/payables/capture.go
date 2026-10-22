@@ -103,10 +103,16 @@ func (e *Endpoints) capture(ctx context.Context, legalEntity uuid.UUID, document
 	if err != nil {
 		return operations.Operation{}, err
 	}
+	proposed, taxHeld, err := e.capturedTax(ctx, tx, &in, ext)
+	if err != nil {
+		return operations.Operation{}, err
+	}
+	held = strings.TrimSpace(held + " " + taxHeld)
 	if held, err = e.capturedExtensions(ctx, &in, held); err != nil {
 		return operations.Operation{}, err
 	}
 	status, reason, warnings := captureStatus(ext.Confidence, held)
+	warnings = append(warnings, proposed...)
 	v, err := e.insert(ctx, tx, p, newInvoice{Input: in, source: "capture", status: status, holdReason: reason, sha: sum[:], objectRef: objectRef})
 	if err != nil {
 		return operations.Operation{}, err
@@ -281,9 +287,10 @@ func capturedItems(lines []capture.Line, order procurement.Order, p *printed) ([
 			no = order.Items[i].ItemNo // same number of lines: match by position
 		}
 		unit := ""
+		var code *string // the order item's, which capturedTax may replace
 		for _, oi := range order.Items {
 			if oi.ItemNo == no {
-				unit = oi.Unit
+				unit, code = oi.Unit, oi.TaxCode
 			}
 		}
 		if unit == "" {
@@ -294,7 +301,7 @@ func capturedItems(lines []capture.Line, order procurement.Order, p *printed) ([
 			return nil, err
 		}
 		description := l.Description
-		items = append(items, ItemInput{POItemNo: &no, Description: &description, Quantity: p.quantity(l.Quantity), Unit: unit, Amount: a})
+		items = append(items, ItemInput{POItemNo: &no, Description: &description, Quantity: p.quantity(l.Quantity), Unit: unit, Amount: a, TaxCode: code})
 	}
 	return items, nil
 }

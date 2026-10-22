@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-faster/jx"
 	"github.com/google/uuid"
@@ -52,6 +53,25 @@ func TestOptNilString(t *testing.T) {
 	}
 	if got := apitypes.OptNilString(gen.NewOptNilString("x")); got == nil || *got == nil || **got != "x" {
 		t.Errorf("value: got %v, want a pointer to a pointer to x", got)
+	}
+}
+
+func TestOptDates(t *testing.T) {
+	day := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	if got := apitypes.OptDate(nil); got.Set {
+		t.Errorf("OptDate(nil): got %v, want unset", got)
+	}
+	if got := apitypes.OptDate(&day); !got.Set || !got.Value.Equal(day) {
+		t.Errorf("OptDate(day): got %v, want %s", got, day)
+	}
+	if got := apitypes.OptNilDate(gen.OptNilDate{}); got != nil {
+		t.Errorf("absent: got %v, want nil", got)
+	}
+	if got := apitypes.OptNilDate(gen.OptNilDate{Set: true, Null: true}); got == nil || *got != nil {
+		t.Errorf("null: got %v, want a pointer to nil", got)
+	}
+	if got := apitypes.OptNilDate(gen.NewOptNilDate(day)); got == nil || *got == nil || !(*got).Equal(day) {
+		t.Errorf("a date: got %v, want %s", got, day)
 	}
 }
 

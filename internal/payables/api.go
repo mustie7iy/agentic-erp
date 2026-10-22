@@ -43,6 +43,7 @@ func toAPI(v Invoice) gen.SupplierInvoice {
 	if v.PostingDate != nil {
 		out.PostingDate.SetTo(*v.PostingDate)
 	}
+	out.TaxDate = apitypes.OptDate(v.TaxDate)
 	if v.HoldReason != nil {
 		out.HoldReason.SetTo(*v.HoldReason)
 	}
@@ -114,8 +115,9 @@ func matchToAPI(m Match) gen.MatchResult {
 // CreateSupplierInvoice implements POST /v1/supplier-invoices.
 func (e *Endpoints) CreateSupplierInvoice(ctx context.Context, req *gen.SupplierInvoiceCreate, _ gen.CreateSupplierInvoiceParams) (gen.CreateSupplierInvoiceRes, error) {
 	v, err := e.CreateInvoice(ctx, Input{LegalEntityID: req.LegalEntityID, SupplierID: req.SupplierID, SupplierReference: req.SupplierReference,
-		InvoiceDate: req.InvoiceDate, PostingDate: apitypes.Ptr[time.Time](req.PostingDate), Gross: Amount{req.GrossAmount.Amount, req.GrossAmount.Currency},
-		Tax: Amount{req.TaxAmount.Amount, req.TaxAmount.Currency}, PurchaseOrderID: apitypes.Ptr[uuid.UUID](req.PurchaseOrderID), Items: fromItems(req.Items),
+		InvoiceDate: req.InvoiceDate, PostingDate: apitypes.Ptr[time.Time](req.PostingDate), TaxDate: apitypes.Ptr[time.Time](req.TaxDate),
+		Gross: Amount{req.GrossAmount.Amount, req.GrossAmount.Currency},
+		Tax:   Amount{req.TaxAmount.Amount, req.TaxAmount.Currency}, PurchaseOrderID: apitypes.Ptr[uuid.UUID](req.PurchaseOrderID), Items: fromItems(req.Items),
 		Extensions: apitypes.DecodeObject(req.Extensions.Value), Kind: req.Kind.Or(KindInvoice), ReferenceInvoiceID: apitypes.Ptr[uuid.UUID](req.ReferenceInvoiceID)},
 		req.Source.Or("manual"))
 	if err != nil {
@@ -223,6 +225,7 @@ func (e *Endpoints) UpdateSupplierInvoice(ctx context.Context, req *gen.Supplier
 		d := apitypes.Ptr[time.Time](req.PostingDate)
 		ch.PostingDate = &d
 	}
+	ch.TaxDate = apitypes.OptNilDate(req.TaxDate)
 	if req.PurchaseOrderID.Set {
 		po := apitypes.Ptr[uuid.UUID](req.PurchaseOrderID)
 		ch.PurchaseOrderID = &po
