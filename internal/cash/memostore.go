@@ -24,12 +24,14 @@ func init() {
 	problem.RegisterConstraint("memo_record_batch_reference", func() *problem.Problem {
 		return problem.Conflict("cash.memo_upload_concurrent", "A record of the batch key already has this reference; upload the batch again.")
 	})
-	for _, c := range []string{"memo_record_item_active", "memo_record_item_direction"} {
-		problem.RegisterConstraint(c, func() *problem.Problem {
-			return invalid("cash.liquidity_item_invalid", "The liquidity item is not active, or not for the amount's direction.", "liquidity_item",
-				"an active liquidity item of the amount's direction")
-		})
+	// Each constraint by its name, not in a loop: TestProblemCodes reads the
+	// names to place each constraint's problem on the operations writing it.
+	itemInvalid := func() *problem.Problem {
+		return invalid("cash.liquidity_item_invalid", "The liquidity item is not active, or not for the amount's direction.", "liquidity_item",
+			"an active liquidity item of the amount's direction")
 	}
+	problem.RegisterConstraint("memo_record_item_active", itemInvalid)
+	problem.RegisterConstraint("memo_record_item_direction", itemInvalid)
 }
 
 // memoSelect reads memo records with their currency's minor-unit digits.
