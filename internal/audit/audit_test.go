@@ -160,7 +160,7 @@ func TestDatabaseFailures(t *testing.T) {
 
 // TestAuditEventAddress: an event shows a person where its request came
 // from, and null where no request made it (ADR-0011 as amended by T73c);
-// an agent sees neither.
+// an agent or a service principal sees neither.
 func TestAuditEventAddress(t *testing.T) {
 	c := setup(t)
 	ctx := reqctx.WithClientAddress(context.Background(), netip.MustParseAddr("2001:db8::24"))
@@ -181,13 +181,19 @@ func TestAuditEventAddress(t *testing.T) {
 			t.Errorf("event %d client_address: got %v, want %v", i, got, want)
 		}
 	}
-	// An agent holding audit.event.read reads the same events without the
-	// address, absent rather than null (product owner 2026-10-22).
-	c.As = c.Tenant.Agent
-	page, _ = c.Must(200, "GET", "/v1/audit-events?page_size=2", "", "")
-	for i, item := range apitest.List(t, page, "items") {
-		if got, present := item.(map[string]any)["client_address"]; present {
-			t.Errorf("agent's event %d client_address: got %v, want it absent", i, got)
-		}
+	// An agent or a service principal holding audit.event.read reads the
+	// same events without the address, absent rather than null: people
+	// only (product owner 2026-10-22).
+	for name, reader := range map[string]pgtest.Actor{"agent": c.Tenant.Agent, "service principal": c.Tenant.Service} {
+		t.Run(name, func(t *testing.T) {
+			r := c
+			r.T, r.As = t, reader
+			page, _ := r.Must(200, "GET", "/v1/audit-events?page_size=2", "", "")
+			for i, item := range apitest.List(t, page, "items") {
+				if got, present := item.(map[string]any)["client_address"]; present {
+					t.Errorf("event %d client_address: got %v, want it absent", i, got)
+				}
+			}
+		})
 	}
 }

@@ -29900,7 +29900,7 @@ components:
         client_address:
           type: ["string", "null"]
           maxLength: 45
-          description: "The IP address the request came from: a person's in the web workspace as erp-web saw it, otherwise the connection's as the router saw it through its load balancer (ADR-0011, amended by T73c). Personal data: kept with the entry for the trail's retention, outside its hash chain, and erased with the tenant's data (ADR-0021). Null for work no request made (workers, workflows) and for entries recorded before addresses were. Omitted when an agent reads the trail: agents never see where people work from (product owner 2026-10-22)."
+          description: "The IP address the request came from: a person's in the web workspace as erp-web saw it, otherwise the connection's as the router saw it through its load balancer (ADR-0011, amended by T73c). Personal data: kept with the entry for the trail's retention, outside its hash chain, and erased with the tenant's data (ADR-0021). Null for work no request made (workers, workflows) and for entries recorded before addresses were. Shown to people alone: omitted when an agent, a service principal or any other non-person reads the trail (product owner 2026-10-22)."
           readOnly: true
       examples:
         - seq: 918273

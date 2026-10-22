@@ -39,7 +39,9 @@ hash chain: the chain covers what happened, and the erasure of a tenant
 (ADR-0021) blanks the addresses of its events without breaking the chain
 or its anchors (ADR-0026). An event stays insert-only otherwise; the
 erasure may change its address alone, to null. The address has the
-event's retention. People holding `audit.event.read` see it on
-`listAuditEvents`; an agent reading the trail gets each event without it
-(the field omitted, not null), as agents get bank accounts masked
-(`reqctx.Masked`, product owner 2026-10-22).
+event's retention. Only people holding `audit.event.read` see it on
+`listAuditEvents` (product owner 2026-10-22: people only). Every other
+reader, an agent, a service principal or any kind added later, gets each
+event without it (the field omitted, not null), and the address is not
+even read from the database for them. `reqctx.Masked` is an allow-list of
+people, so a new kind of principal is masked until decided otherwise.

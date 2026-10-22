@@ -135,13 +135,14 @@ func PrincipalFrom(ctx context.Context) (Principal, bool) {
 	return p, ok
 }
 
-// Masked reports whether data an agent does not need is withheld from the
-// caller: bank accounts (T49g) and client addresses in the audit trail
-// (T73c, product owner 2026-10-22). It is true for an agent, and for a
-// caller the request does not name, so a missing principal fails closed.
+// Masked reports whether personal data only people may see is withheld
+// from the caller, such as client addresses in the audit trail (T73c,
+// product owner 2026-10-22: people only). It is an allow-list: false for a
+// person alone, true for agents, service principals, any other kind and a
+// caller the request does not name, so a new kind fails closed.
 func Masked(ctx context.Context) bool {
 	p, ok := PrincipalFrom(ctx)
-	return !ok || p.Kind == KindAgent
+	return !ok || p.Kind != KindHuman
 }
 
 // WithTx attaches the request's transaction. Everything a handler reads or

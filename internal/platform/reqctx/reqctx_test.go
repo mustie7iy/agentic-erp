@@ -46,8 +46,8 @@ func TestContextValues(t *testing.T) {
 	}
 }
 
-// TestMasked: an agent, and a caller the context does not name, see masked
-// data; a person and a service do not.
+// TestMasked: only a person sees unmasked data; an agent, a service
+// principal, an unknown kind and a caller the context does not name do not.
 func TestMasked(t *testing.T) {
 	for name, tc := range map[string]struct {
 		ctx  context.Context
@@ -56,7 +56,10 @@ func TestMasked(t *testing.T) {
 		"no principal": {context.Background(), true},
 		"agent":        {WithPrincipal(context.Background(), Principal{Kind: KindAgent}), true},
 		"person":       {WithPrincipal(context.Background(), Principal{Kind: KindHuman}), false},
-		"service":      {WithPrincipal(context.Background(), Principal{Kind: KindService}), false},
+		"service":      {WithPrincipal(context.Background(), Principal{Kind: KindService}), true},
+		"system":       {WithPrincipal(context.Background(), Principal{Kind: KindSystem}), true},
+		"unknown kind": {WithPrincipal(context.Background(), Principal{Kind: "robot"}), true},
+		"no kind":      {WithPrincipal(context.Background(), Principal{}), true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := Masked(tc.ctx); got != tc.want {

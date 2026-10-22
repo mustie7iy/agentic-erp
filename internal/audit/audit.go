@@ -93,11 +93,15 @@ func (e *Endpoints) ListAuditEvents(ctx context.Context, params gen.ListAuditEve
 		}
 		after = &c.Seq
 	}
-	rows, _ := tx.Query(ctx, `SELECT seq, occurred_at, actor_id, actor_kind, action, object_type, object_id, outcome, detail, trace_id, client_address
+	// A masked reader's addresses never leave the database (people only,
+	// product owner 2026-10-22).
+	masked := reqctx.Masked(ctx)
+	rows, _ := tx.Query(ctx, `SELECT seq, occurred_at, actor_id, actor_kind, action, object_type, object_id, outcome, detail, trace_id,
+			CASE WHEN $7 THEN NULL ELSE client_address END
 		FROM audit.audit_event WHERE ($1 = '' OR object_type = $1) AND ($2::uuid IS NULL OR object_id = $2)
 			AND ($3::timestamptz IS NULL OR occurred_at >= $3) AND ($4::timestamptz IS NULL OR occurred_at <= $4)
 			AND ($5::bigint IS NULL OR seq `+cmp+` $5)
-		ORDER BY seq `+dir+` LIMIT $6`, pagination.PlanPerCall, params.ObjectType.Value, objectID, from, to, after, size+1)
+		ORDER BY seq `+dir+` LIMIT $6`, pagination.PlanPerCall, params.ObjectType.Value, objectID, from, to, after, size+1, masked)
 	events, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Event, error) {
 		var v Event
 		err := r.Scan(&v.Seq, &v.OccurredAt, &v.ActorID, &v.ActorKind, &v.Action, &v.ObjectType, &v.ObjectID, &v.Outcome, &v.Detail, &v.TraceID, &v.ClientAddress)
@@ -112,7 +116,6 @@ func (e *Endpoints) ListAuditEvents(ctx context.Context, params gen.ListAuditEve
 		tok, _ := e.Pages.Encode(scope, cursor{Seq: events[size-1].Seq}) // a number always encodes
 		page.NextPageToken.SetTo(tok)
 	}
-	masked := reqctx.Masked(ctx)
 	for _, v := range events {
 		page.Items = append(page.Items, auditEventItem(v, masked))
 	}
@@ -134,11 +137,10 @@ func auditOrder(orderBy string) (cmp, dir string, err error) {
 	return cmp, dir, nil
 }
 
-// auditEventItem is an event as the API answers it. Masked (an agent's
-// read) omits the client address: a person's address is personal data an
-// agent has no task for, while people holding audit.event.read see it
-// (product owner 2026-10-22). Omitted, not null, so it is not mistaken for
-// work no request made.
+// auditEventItem is an event as the API answers it. Masked (any reader but
+// a person) omits the client address: it is personal data only people
+// holding audit.event.read see (product owner 2026-10-22). Omitted, not
+// null, so it is not mistaken for work no request made.
 func auditEventItem(v Event, masked bool) gen.AuditEvent {
 	item := gen.AuditEvent{Seq: v.Seq, OccurredAt: v.OccurredAt, ActorID: v.ActorID, ActorKind: v.ActorKind, Action: v.Action,
 		ObjectType: v.ObjectType, Outcome: v.Outcome, Detail: gen.AuditEventDetail{}}
