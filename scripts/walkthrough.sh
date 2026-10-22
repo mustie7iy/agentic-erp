@@ -431,7 +431,7 @@ YAML
 }
 
 step_migrate() {
-  heading "Step 2 — The company's SAP data is migrated and reconciled"
+  heading "Step 3 — The company's SAP data is migrated and reconciled"
   as ada
   say "The periods of $YEAR are opened in both ledgers, for SAP's documents and the pilot's."
   local p
@@ -489,7 +489,7 @@ PILOT_SETTINGS='
         "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})'
 
 step_pack() {
-  heading "Step 3 — The Canada country pack and the pilot's settings, through a governed change request"
+  heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
   as ada
   api 200 '.items[] | "pack \(.country) \(.version): \(.contents.accounts) accounts, \(.contents.tax_codes) tax codes, \(.contents.holidays) holidays, \(.contents.number_ranges) number ranges; signed off: \(.signed_off)"' listCountryPacks
   local version
@@ -512,19 +512,27 @@ step_pack() {
   api 200 '"\(.number): \(.title)"' updateChangeRequest -p "id=$cr" -if-match "$ETAG" -body @proposal.json
   api 200 '"\(.status), tier \(.tier) (structural): \(.items | length) changes"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
   expect "status after submit" "$(field .status)" awaiting_evidence
-  say "A tier 4 change needs evidence: a regression suite of today's invoice decisions, replayed under the proposal."
-  api 201 '"regression suite \(.number): \(.case_count) cases from the migrated invoices"' createRegressionSuite \
-    -body '{"name": "Before the Canada pack", "window_days": 366}'
+  say "A tier 4 change needs evidence: a regression suite of the company's invoice decisions, replayed under the"
+  say "proposal. Nothing is migrated yet, so there are no invoices to capture:"
+  refused 422 config.no_cases createRegressionSuite -body '{"name": "Before the Canada pack", "window_days": 366}'
+  say "Ada records that there is nothing to replay: a suite of no cases, which the evidence and the approvers will show."
+  api 201 '"regression suite \(.number): \(.case_count) cases"' createRegressionSuite \
+    -body '{"name": "Before the Canada pack, no invoices yet", "window_days": 366, "allow_empty": true}'
   QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
   api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
   wait_op
   api 200 '.evidence[] | "evidence \(.kind): \(if .passed then "passed" else "FAILED" end), \(.summary)"' getChangeRequest -p "id=$cr"
   expect "status after the evidence" "$(field .status)" pending_approval
+  expect "the regression evidence says no case was replayed" "$(field '.evidence[] | select(.kind == "regression") | .detail.no_cases')" true
   local request
   request=$(field .workflow_request_id)
-  say "Two approvers, neither of them its author: the solution architect, then the controller."
-  approve sam "$request" "Structure checked"
-  approve carla "$request" "Postings checked"
+  say "Two approvers, neither of them its author: the solution architect, then the controller. Nothing was"
+  say "replayed, so an approval without a comment acknowledging that is refused:"
+  as sam
+  QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
+  refused 422 workflow.acknowledgement_required approveApprovalRequest -p "id=$request" -if-match "$ETAG" -body '{}'
+  approve sam "$request" "Structure checked; accepted without regression cases, as nothing is migrated yet"
+  approve carla "$request" "Postings checked; accepted without regression cases, as nothing is migrated yet"
   as ada
   QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
   api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
@@ -657,9 +665,8 @@ step_payment() {
   api 200 '.items[] | "bank file \(.id): \(.format), \(.status)"' listBankFiles -p "payment_run_id=$RUN"
   local file
   file=$(field '.items[0].id')
-  say "The pain.001 file, read from the API (erp call prints JSON answers only):"
-  show curl -H "Authorization: Bearer \$ERP_TOKEN" "$ERP_API_URL/v1/bank-files/$file/content"
-  curl -sf -H "Authorization: Bearer $ERP_TOKEN" "$ERP_API_URL/v1/bank-files/$file/content" >"$WORK/pain001.xml" || fail "the bank file cannot be read"
+  say "The pain.001 file, read from the API and written to a file:"
+  api 200 '' getBankFileContent -p "id=$file" -out pain001.xml
   grep -q 'urn:iso:std:iso:20022:tech:xsd:pain.001.001.03' "$WORK/pain001.xml" || fail "the bank file is not pain.001"
   grep -E '<(MsgId|NbOfTxs|CtrlSum|ReqdExctnDt)>' "$WORK/pain001.xml" | sed -n '1,4p' | sed -E 's/^ */     /'
   grep -A 12 '<EndToEndId>1000-' "$WORK/pain001.xml" | grep -E 'EndToEndId|InstdAmt|<Nm>' | sed -n '1,9p' | sed -E 's/^ */       /'
@@ -709,12 +716,8 @@ step_statement() {
   say "RBC's end-of-day statement (camt.053) shows the run's payments leaving the account."
   statement 500000.00
   say "  $(grep -c '<Ntry>' "$WORK/camt053.xml") entries, opening 500000.00, closing $CLOSING CAD"
-  say "Tom imports it (a multipart upload, which erp call does not send, so curl):"
-  show curl -H "Authorization: Bearer \$ERP_TOKEN" -F "house_bank_id=$RBC" -F format=camt.053 -F "file=<camt053.xml" "$ERP_API_URL/v1/bank-statements"
-  local code
-  code=$(curl -s -o "$WORK/last.json" -w '%{http_code}' -H "Authorization: Bearer $ERP_TOKEN" -H "Idempotency-Key: walkthrough-$TENANT-statement" \
-    -F "house_bank_id=$RBC" -F format=camt.053 -F "file=<$WORK/camt053.xml" "$ERP_API_URL/v1/bank-statements") || code=none
-  expect "the import's HTTP status" "$code" 201
+  say "Tom imports it, the file as a part of the upload's form:"
+  api 201 '' importBankStatements -body "{\"house_bank_id\": \"$RBC\", \"format\": \"camt.053\"}" -file file=@camt053.xml
   local st
   st=$(field '.statements[0].id')
   if [ -z "$st" ] || [ "$st" = null ]; then fail "the statement was not imported"; fi
@@ -888,7 +891,22 @@ step_reports() {
   "$ERP" query -measures revenue -by fiscal_year -companies 1000 >"$WORK/query.out" 2>&1 || { sed 's/^/     /' "$WORK/query.out"; fail "the query failed"; }
   sed 's/^/     /' "$WORK/query.out"
   grep -q "$YEAR" "$WORK/query.out" || fail "the query has no row for $YEAR"
-  say "That is SAP's sales (400000) and the 94.00 cash discount of step 7: the metric sums every revenue account."
+  say "Revenue is sales, SAP's 400000; income adds what automatic postings book on revenue accounts, such as"
+  say "the 94.00 cash discount of step 7 (account determination cash_discount):"
+  show erp query -measures revenue,income -by fiscal_year -companies 1000 -csv year.csv
+  "$ERP" query -measures revenue,income -by fiscal_year -companies 1000 -csv "$WORK/year.csv" >"$WORK/query.out" 2>&1 ||
+    { sed 's/^/     /' "$WORK/query.out"; fail "the query failed"; }
+  sed 's/^/     /' "$WORK/query.out"
+  local revenue income
+  revenue=$(awk -F, -v y="$YEAR" '$1 == y { print $2 }' "$WORK/year.csv")
+  income=$(awk -F, -v y="$YEAR" '$1 == y { print $3 }' "$WORK/year.csv")
+  expect "income less revenue in $YEAR" "$(amount $(($(cents "$income") - $(cents "$revenue"))))" 94.00
+  say "Expenses by month, SAP's months and the pilot's own: months come in their order, 9 before 10, not 1, 10, 2:"
+  show erp query -measures expenses -by fiscal_month -where "fiscal_year in $YEAR" -companies 1000 -csv months.csv
+  "$ERP" query -measures expenses -by fiscal_month -where "fiscal_year in $YEAR" -companies 1000 -csv "$WORK/months.csv" >"$WORK/query.out" 2>&1 ||
+    { sed 's/^/     /' "$WORK/query.out"; fail "the query failed"; }
+  sed 's/^/     /' "$WORK/query.out"
+  expect "the months' order" "$(awk -F, 'NR > 1 { printf "%s ", $1 }' "$WORK/months.csv")" "$(awk -F, 'NR > 1 { print $1 }' "$WORK/months.csv" | sort -n | tr '\n' ' ')"
   passed
 }
 
@@ -930,7 +948,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_migrate step_pack step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_audit'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_audit'
 
 main() {
   start

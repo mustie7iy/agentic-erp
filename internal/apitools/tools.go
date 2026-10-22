@@ -134,18 +134,25 @@ func (t *Tool) call(ctx context.Context, input map[string]any) (Response, error)
 		return Response{}, fmt.Errorf("missing path parameter in %s", path)
 	}
 	ifMatch, _ := input["if_match"].(string)
-	var body any
-	if b, ok := input["body"]; ok && t.op.body {
-		body = b
-	}
-	if t.op.multipart && body != nil {
-		form, err := formOf(body)
-		if err != nil {
-			return Response{}, err
-		}
-		body = form
+	body, err := t.body(input)
+	if err != nil {
+		return Response{}, err
 	}
 	return t.client.Do(ctx, t.op.method, path, query, body, ifMatch)
+}
+
+// body is the input's body as the operation takes it: a multipart
+// operation's as its form (formOf), any other as it is; none when the
+// operation has none.
+func (t *Tool) body(input map[string]any) (any, error) {
+	b, ok := input["body"]
+	switch {
+	case !ok || !t.op.body:
+		return nil, nil
+	case t.op.multipart:
+		return formOf(b)
+	}
+	return b, nil
 }
 
 // formOf is a multipart operation's body as its form: a field of text is

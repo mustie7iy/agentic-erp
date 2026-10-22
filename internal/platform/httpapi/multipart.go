@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -41,7 +42,7 @@ func fileParts(next http.Handler) http.Handler {
 func readForm(r *http.Request) (*multipart.Form, error) {
 	mr, err := r.MultipartReader()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("httpapi: multipart body: %w", err)
 	}
 	form := &multipart.Form{Value: map[string][]string{}, File: map[string][]*multipart.FileHeader{}}
 	for {
@@ -50,11 +51,11 @@ func readForm(r *http.Request) (*multipart.Form, error) {
 			return form, nil
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("httpapi: multipart body: %w", err)
 		}
 		b, err := io.ReadAll(p)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("httpapi: multipart part %q: %w", p.FormName(), err)
 		}
 		form.Value[p.FormName()] = append(form.Value[p.FormName()], string(b))
 	}
