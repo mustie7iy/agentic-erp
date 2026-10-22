@@ -91,8 +91,10 @@ mkdir -p data/objects && ./bin/erp gen-mock-sap -out data/extract.json
   -admin-subject ada -admin-name "Ada" -config data/config.yaml     # prints the tenant and administrator ids
 export ERP_TOKEN=$(./bin/erp token -tenant <tenant_id> -subject ada)
 ./bin/erp call listLegalEntities                                    # the configuration's companies, active
+./bin/erp call listFiscalPeriods -p legal_entity_id=<id> -p fiscal_year=2026 -p page_size=100   # every period starts closed
+./bin/erp call openFiscalPeriod -p id=<period_id> -if-match '"<version>"'   # each period SAP's documents post in, before erp migrate
 ./bin/erp call createConnector -body '{"kind": "sap_file", "name": "SAP PRD", "settings": {"path": "extract.json"}}'
-./bin/erp migrate -connector <id> -legal-entities <id>,... -year 2026 -rehearsal   # load, reconcile, roll back
+./bin/erp migrate -connector <id> -legal-entities <id>,... -year 2026 -rehearsal   # load, reconcile, roll back (a closed period refuses every document: ledger.period_not_open)
 ./bin/erp migrate -connector <id> -legal-entities <id>,... -year 2026              # fails unless the run reconciles
 ./bin/erp invoices                     # the rule: match parked invoices, post clean ones within the auto-post limit; exits 1 if the server refused a match
 ./bin/erp call listRecommendations -p outcome=open
@@ -331,14 +333,23 @@ Known gaps:
   to the store, or a signed path on the API with a directory store), up to
   50 MB. Without object storage configured the server keeps only hashes,
   serves no uploads and does not anchor the audit chain.
-- Single currency per company code. No FX revaluation yet.
+- One local currency per company code. Documents may be in another
+  currency, and a revaluation run values foreign-currency open items and
+  flagged G/L balances at a key date (`previewRevaluation`,
+  `postRevaluationRun`, reversed on the first day of the next period;
+  [ADR-0042](docs/design/adr/0042-foreign-currency-revaluation.md)). Rates
+  are loaded by operators (no rate feed), and there is no translation for
+  consolidation.
 - The OData entity and field mappings follow SAP API Business Hub names but have
   not yet been validated against a live system. Check them against your `$metadata`.
 - Agents are tested against a scripted model; their behavior with the live API
   needs evals before any agent gets autonomy above L0.
 - Tier 3 and 4 configuration changes need simulation and regression
   evidence; both replay supplier invoices only, so changes to other areas
-  pass with nothing to decide on.
+  pass with nothing to decide on. A tenant with no invoices yet (before
+  migration) captures a suite of no cases (`createRegressionSuite` with
+  `"allow_empty": true`); its evidence says nothing was replayed and every
+  approver acknowledges that in the approval's comment.
 - The load suite meets its budgets at the rate a laptop or CI runner
   reaches (about 500 requests/s); the largest tenant's peak needs a
   cell-sized environment.
