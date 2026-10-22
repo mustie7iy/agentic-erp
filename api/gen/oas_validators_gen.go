@@ -24132,6 +24132,36 @@ func (s *JournalLineInput) Validate() error {
 		})
 	}
 	if err := func() error {
+		if value, ok := s.TaxJurisdiction.Get(); ok {
+			if err := func() error {
+				if err := (validate.String{
+					MinLength:     0,
+					MinLengthSet:  false,
+					MaxLength:     0,
+					MaxLengthSet:  false,
+					Email:         false,
+					Hostname:      false,
+					Regex:         regexMap["^[A-Z]{2}-[A-Z0-9]{1,3}$"],
+					MinNumeric:    0,
+					MinNumericSet: false,
+					MaxNumeric:    0,
+					MaxNumericSet: false,
+				}).Validate(string(value)); err != nil {
+					return errors.Wrap(err, "string")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "tax_jurisdiction",
+			Error: err,
+		})
+	}
+	if err := func() error {
 		if value, ok := s.TaxBase.Get(); ok {
 			if err := func() error {
 				if err := value.Validate(); err != nil {

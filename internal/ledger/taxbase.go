@@ -59,8 +59,13 @@ func checkTaxBases(ctx context.Context, le uuid.UUID, date time.Time, lines []Li
 				"code (one on a component's account) does: an import's tax posted from the customs declaration.", i+1),
 				problem.FieldError{Field: fmt.Sprintf("lines[%d].tax_base", i), Code: "not_import", Message: "a tax line of an import code"})
 		}
-		if want, err := onAccount(t, k, *l.TaxBase, date); err != nil || want-l.TC > 1 || l.TC-want > 1 {
+		it, err := calculatedOn(t, k, *l.TaxBase, date)
+		if want := onAccountOf(it); err != nil || want-l.TC > 1 || l.TC-want > 1 {
 			return baseMismatch(err, i, l.TC, want, t.Code, expTC)
+		}
+		lines[i].component, lines[i].output = it.Key, it.AccountKey == tax.KeySelfOutput
+		if !lines[i].output {
+			lines[i].notRecovered = it.NonRecoverable
 		}
 	}
 	return nil
@@ -69,7 +74,8 @@ func checkTaxBases(ctx context.Context, le uuid.UUID, date time.Time, lines []Li
 // sameBases holds an entry's declared bases together: a code one line
 // declares a base for has it on every line carrying the code (each of its
 // tax lines, and no base line beside it, which would count the base twice),
-// the same base (422 ledger.tax_base_inconsistent).
+// the same base, and the entry carries no other code, its items being the
+// declared ones (importItems; 422 ledger.tax_base_inconsistent).
 func sameBases(lines []Line) error {
 	declared := map[string]money.Minor{}
 	for _, l := range lines {
@@ -82,6 +88,11 @@ func sameBases(lines []Line) error {
 			continue
 		}
 		base, ok := declared[*l.TaxCode]
+		if len(declared) > 0 && !ok {
+			return problem.Unprocessable("ledger.tax_base_inconsistent", fmt.Sprintf("Line %d carries tax code %s in an entry whose tax lines declare "+
+				"their bases: a customs declaration's entry carries its import codes alone.", i+1, *l.TaxCode),
+				problem.FieldError{Field: fmt.Sprintf("lines[%d].tax_code", i), Code: "inconsistent", Message: "an import code with its declared base"})
+		}
 		if ok && (l.TaxBase == nil || *l.TaxBase != base) {
 			return problem.Unprocessable("ledger.tax_base_inconsistent", fmt.Sprintf("Line %d carries tax code %s, whose tax lines declare a base: "+
 				"every line with the code declares the same one, and the code is on no other line.", i+1, *l.TaxCode),
@@ -121,16 +132,46 @@ func importComponent(ctx context.Context, le uuid.UUID, date time.Time, l Line) 
 	return t, -1, nil
 }
 
-// onAccount is what the code's component k puts on its account for a
-// base: the self-assessed output tax, or the input part recovered. The
-// calculator's items are the code's components in order.
-func onAccount(t TaxCode, k int, base money.Minor, date time.Time) (money.Minor, error) {
+// calculatedOn is the calculator's tax of the code's component k on a
+// base, the code's components being its items in order.
+func calculatedOn(t TaxCode, k int, base money.Minor, date time.Time) (tax.ComponentTax, error) {
 	res, err := tax.Calculate(tax.Document{TaxDate: date, Codes: map[string]tax.Code{t.Code: t.Calculable()}, Lines: []tax.Line{{Amount: base, Code: t.Code}}})
 	if err != nil {
-		return 0, fmt.Errorf("ledger: tax on a declared base of %s: %w", t.Code, err)
+		return tax.ComponentTax{}, fmt.Errorf("ledger: tax on a declared base of %s: %w", t.Code, err)
 	}
-	if it := res.Items[k]; it.AccountKey == tax.KeySelfOutput {
-		return it.Tax, nil
+	return res.Items[k], nil
+}
+
+// onAccountOf is what a component puts on its account: the self-assessed
+// output tax, or the input part recovered.
+func onAccountOf(it tax.ComponentTax) money.Minor {
+	if it.AccountKey == tax.KeySelfOutput {
+		return it.Tax
 	}
-	return res.Items[k].Recoverable, nil
+	return it.Recoverable
+}
+
+// importItems are the tax items of an entry whose tax lines declare their
+// bases (T61e): each line's component's, with the declared base, what the
+// line posts (the output tax, or the input part recovered) and, on an input
+// line, the tax not recovered beside it, so a partly recovered import's
+// claim carries its whole tax as a supplier invoice's does (one meaning
+// for an item on every path); nil when no line declares a base. The lines
+// are converted (convertLines).
+func importItems(lines []Line, rateLC exchange, expTC, expLC int) []PostingTaxItem {
+	var items []PostingTaxItem
+	for _, l := range lines {
+		if l.TaxBase == nil {
+			continue
+		}
+		it := PostingTaxItem{Code: *l.TaxCode, Component: l.component, Base: *l.TaxBase, BaseLC: *l.TaxBaseLC, Tax: l.TC, TaxLC: l.LC}
+		if !l.output {
+			// Smaller than the base, whose conversion succeeded: in range.
+			lc, _ := money.ConvertAt(l.notRecovered, rateLC.exact, expTC, expLC)
+			it.Recoverable, it.RecoverableLC = l.TC, l.LC
+			it.Tax, it.TaxLC = l.TC+l.notRecovered, l.LC+lc
+		}
+		items = append(items, it)
+	}
+	return items
 }

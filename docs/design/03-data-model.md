@@ -868,6 +868,15 @@ invoice's net, the default, or gross, deducted at invoice or at payment, to
 a liability that reconciles no supplier, the withholding tax payable; a code
 the document no longer has is deactivated).
 
+A journal line of an output code may name the subdivision its tax is
+levied in (`tax_jurisdiction`, ISO 3166-2; migration 000148, T61f,
+ADR-0049 §7), exactly where a component of its code levies its lines'
+(`tax_component.jurisdiction_on_line`, its jurisdiction then a country,
+`tax_component_jurisdiction_on_line`); only with a tax code
+(`journal_line_tax_jurisdiction`), one of the component's country (trigger
+`journal_line_tax_jurisdiction_code`, passed by reversals). The items are
+per jurisdiction. A parked line keeps it (`parked_entry_line.tax_jurisdiction`).
+
 A journal line may declare a tax base (`tax_base_tc`, `tax_base_lc`;
 migration 000147, T61e, ADR-0049 §9): a tax line of an `import` code posted
 from a customs declaration, whose base, the declared value, no line of the

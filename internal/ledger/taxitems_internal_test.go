@@ -62,11 +62,20 @@ func TestTaxBaseOutOfRange(t *testing.T) {
 // calculator's error, wrapped.
 func TestOnAccountInvalidCode(t *testing.T) {
 	code := TaxCode{Code: "IC5", Kind: "import", Components: []TaxComponent{{Key: "gst", AccountKey: "input", RecoverablePct: "100", RatePct: "abc"}}}
-	_, err := onAccount(code, 0, 100, time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC))
+	_, err := calculatedOn(code, 0, 100, time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC))
 	if err == nil {
 		t.Fatal("got nil error, want the calculator's")
 	}
 	if got := baseMismatch(err, 0, 5, 0, "IC5", 2); !errors.Is(got, err) {
 		t.Errorf("refusal with the calculator's error: got %v, want it", got)
+	}
+}
+
+// TestOutputCalculationFailed: the calculator's errors other than amounts
+// out of range are wrapped.
+func TestOutputCalculationFailed(t *testing.T) {
+	invalid := errors.New("tax: invalid tax code")
+	if err := calculationFailed("S5", invalid); !errors.Is(err, invalid) {
+		t.Errorf("got %v, want it wrapped", err)
 	}
 }

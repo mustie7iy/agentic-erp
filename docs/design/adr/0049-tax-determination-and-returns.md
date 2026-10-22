@@ -262,6 +262,8 @@ tax_codes:
         account: "1180"
         rates:
           - {valid_from: 2026-01-01, rate_percent: "5"}
+      # an output code may levy its lines' subdivision instead:
+      # jurisdiction: AE, jurisdiction_on_line: true (T61f)
       - key: pst_bc
         jurisdiction: CA-BC
         account_key: non_deductible   # added to the base line's account
@@ -545,6 +547,51 @@ carries its jurisdiction (province or emirate) when the code's components need
 one. Zero-rated and exempt bases carry their codes with no tax line, so lines
 101 and boxes 4/5 see them. How granular the pilot's import is (one entry per
 sales invoice or a daily summary per code and jurisdiction) is decision P2.
+- **As built (T61f, migration 000148):** a manual or integration entry
+  (`POST /v1/journal-entries`, idempotent by its `Idempotency-Key`; parked
+  ones alike) posts output codes on its base lines (the sales, credits) and
+  tax lines (on the code's component accounts). The ledger calculates each
+  output code's tax over its base lines, per jurisdiction, at the rates of
+  the tax date (`checkOutputTax`, `internal/tax`, rounded once per code and
+  component), and holds the tax lines on each component's account to it
+  within one minor unit per base line (422 `ledger.output_tax_mismatch`
+  with the figures): a billing system rounds each invoice or line it sums,
+  the calculator the sum once, so four invoices of 100.10 at 5% post 20.04
+  where the sum gives 20.02 (proposed; **for the product owner and the tax
+  specialist:** a summary carrying one base line per code and jurisdiction
+  for many invoices needs a base line per invoice, or a count of the
+  invoices it sums, for its rounding to pass); a code with tax lines and no base line is an adjustment of tax
+  alone, recorded as posted (base 0). Where a component levies its lines'
+  subdivision (`jurisdiction_on_line`, its jurisdiction the country: one
+  UAE code for every emirate, VAT 201 boxes 1a-1g), every line with the
+  code names it (`tax_jurisdiction`, ISO 3166-2, 422
+  `ledger.jurisdiction_required`), a subdivision of that country, and no
+  other line names one (422 `ledger.jurisdiction_not_levied`; database
+  trigger `journal_line_tax_jurisdiction_code`, which a reversal passes, as
+  it repeats the original's); the items are then per jurisdiction, the
+  line's on the component that levies it and its own on the others. A
+  component has one rate, so it levies its lines' subdivisions only where
+  they share it (the UAE's emirates); provinces with rates of their own
+  keep codes of their own. A code
+  of a province's own (Ontario's HST, `CA-ON`) needs none. Zero-rated and
+  exempt bases carry their codes without tax lines and are items at rate 0
+  (GST34 line 101, VAT 201 boxes 4/5). The posted event's lines do not
+  carry the declared base or the jurisdiction yet (tracker); nor do
+  postings that build lines of their own (a cash discount's tax
+  correction, a down payment's transfer, `ledger.Posting`): all are
+  supplier-side today, and a customer cash discount on such a code will
+  need it. **Rolling upgrade (06 §6.4):** 000148 is additive and runs ahead
+  of the code; an instance of the previous release posting a code that
+  levies its lines' subdivision fails the trigger (409), and its parked
+  line upserts leave `tax_jurisdiction` as it was, so
+  `jurisdiction_on_line` is configured only once the rollout is complete,
+  and an entry parked before T61f with output tax lines off its base is
+  refused when approved (release notes). **For the
+  product owner:** an integration posting sales entries is held to the
+  company's manual entry approval limit like a person (409
+  `ledger.approval_required` above it), which a billing system cannot
+  answer; whether a service principal's entries are exempt, or have a limit
+  of their own, is open.
 
 ### 8. Calculation and rounding
 - Base × rate is exact (`big.Rat`, as `money.Convert`), rounded **once per
@@ -644,9 +691,12 @@ the UAE's Box 6 for registrants who account for import VAT in the return
   140000; Canada's GST paid to the CBSA through a broker, CAD 13,000.00
   value for duty, 650.00 claimed (line 106) against the customs clearing
   account. A partly recovered import posts the part recovered on the input
-  account and the rest on an expense line without a code; the claim item's
-  tax is then the part recovered (an item derived from lines has the tax
-  its account carries), which is what box 10 and line 106 read. A reversal
+  account and the rest on an expense line without a code; the entry's items
+  are given (`importItems`, as a supplier invoice's are), so the claim item
+  carries the whole tax at the rate and the part recovered, as a supplier
+  invoice's self-assessed claim does: one meaning for an item on every path
+  (product owner, 2026-10-21). An entry declaring bases carries its import
+  codes alone (422 `ledger.tax_base_inconsistent`). A reversal
   negates the bases with the lines. **Rolling upgrade (06 §6.4):** 000147
   adds nullable columns and keeps `write_tax_items`' signature (a null
   base counts as none), so it runs ahead of the code; an instance of the
@@ -655,12 +705,7 @@ the UAE's Box 6 for registrants who account for import VAT in the return
   there drops the base (its items' base 0), and its reversals of new
   import entries leave the lines' bases out (their items, negated from the
   original's, are right). Import entries are not entered while the rollout
-  is under way (a step for the release notes; no release runbook exists yet). **Open (tax specialist and product owner):** a
-  partly recovered import's claim item carries the part recovered as its
-  tax, where a supplier invoice's self-assessed claim carries the whole tax
-  with its recovered part; the returns read the same, but the item's tax
-  means two things by its path. Giving the calculator's items for import
-  entries, as supplier invoices do, would align them. **Not yet:** the base on the posted
+  is under way (a step for the release notes; no release runbook exists yet). **Not yet:** the base on the posted
   event (`journal_entry_posted` lines), and a customs declaration as a
   document of its own (GTS, phase 4).
 

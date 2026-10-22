@@ -40,6 +40,10 @@ type TaxComponent struct {
 	// Jurisdiction is the country or subdivision that levies it (ISO 3166:
 	// CA, CA-BC, AE-DU); empty when the code's country is meant.
 	Jurisdiction string `yaml:"jurisdiction,omitempty" json:"jurisdiction,omitempty"`
+	// JurisdictionOnLine: the component levies the tax of the subdivision
+	// each line with the code names (CA-ON, AE-DU), its Jurisdiction the
+	// country (T61f): one output code for every province or emirate.
+	JurisdictionOnLine bool `yaml:"jurisdiction_on_line,omitempty" json:"jurisdiction_on_line,omitempty"`
 	// AccountKey says where the tax posts (SAP MWS, VST, NVV, ESA/ESE).
 	AccountKey string `yaml:"account_key" json:"account_key"`
 	// RecoverablePercent is the share of input tax that is recoverable: 100
@@ -227,6 +231,9 @@ func (v *validator) components(tp string, t TaxCode, account func(string) string
 		}
 		pairs[c.AccountKey]++
 		v.component(cp, kind, c, account)
+		if c.JurisdictionOnLine && (t.DirectionOrInput() != TaxOutput || !countryRe.MatchString(c.Jurisdiction)) {
+			v.err(cp+".jurisdiction_on_line", "a component of an output code whose jurisdiction is a country (CA, AE) levies its lines' subdivisions")
+		}
 	}
 	selfAssessed := kind == TaxReverseCharge || kind == TaxImport
 	switch {
