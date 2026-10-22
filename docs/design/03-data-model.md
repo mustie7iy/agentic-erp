@@ -182,7 +182,7 @@ erDiagram
     text_array acr_values "prove multi-factor"
     text_array amr_values "prove multi-factor (RFC 8176)"
     bool certificate_bound "binds tokens to client certificates (RFC 8705)"
-    text web_login_code "the web client's login code, active unique (000139)"
+    text web_login_code "the web client's login code, active unique (000141)"
     text web_client_id "with web_auth_method, web_credential_ref, web_scope: all or none"
     text status "active | retired" }
   auth_policy { uuid tenant_id PK
@@ -262,7 +262,7 @@ change by hand or a tenant from before gets there); the remedy,
 `erp-server register-provider`, needs no running server.
 
 A provider may carry the **web workspace's client** there (ADR-0052 G8,
-T73b, migration 000139): its client id, how erp-web authenticates at the
+T73b, migration 000141): its client id, how erp-web authenticates at the
 token endpoint (`private_key_jwt` or `client_secret_basic`), a secret
 reference to the credential (never the value), the login code people
 sign in with and the scope; all five or none
