@@ -19,6 +19,10 @@
 // (ledger.item_reservation), which refuses to clear or reverse them by hand
 // until the run pays or frees them.
 //
+// A run whose total, in its company's currency at the run date's rate, is
+// above the company's release_dual_limit is released only after a second
+// person approved its release (dualrelease.go, ADR-0038).
+//
 // :release posts one entry per payment (document type ZP, on the run date)
 // that offsets the supplier's items, credits the house bank's account and
 // clears the items, then writes the pain.001 bank file. :reject frees the
@@ -175,7 +179,7 @@ type Endpoints struct {
 	Retention     time.Duration       // how long statement files are locked against deletion (ERP_OBJECT_RETENTION); 0: not locked
 	Accounts      Accounts            // the cash discount account a run with discounts posts to
 	DownPayments  DownPayments        // the down payment requests runs pay (T46c)
-	Approvals     Approvals           // the approval of statement lines' postings (T49f)
+	Approvals     Approvals           // the approval of statement lines' postings (T49f) and of large runs' releases (ADR-0038)
 	Sessions      Sessions            // the agent sessions proposals are made in (T49g)
 	Now           func() time.Time    // the release's day; nil: time.Now
 }
@@ -231,21 +235,34 @@ type Run struct {
 	DecidedAt      *time.Time
 	OperationID    *uuid.UUID // the proposal's operation
 	ReleaseOpID    *uuid.UUID // the latest release operation, once a release was asked for
-	Version        int32
-	CreatedAt      time.Time
-	CreatedBy      uuid.UUID
-	UpdatedAt      time.Time
-	UpdatedBy      uuid.UUID
+	// Release is the latest request for a second person's approval of the
+	// release (ADR-0038), or nil when none was asked for.
+	Release   *ReleaseApproval
+	Version   int32
+	CreatedAt time.Time
+	CreatedBy uuid.UUID
+	UpdatedAt time.Time
+	UpdatedBy uuid.UUID
 }
 
 const runSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.house_bank_id, r.run_date, r.due_by, r.currency, c.exponent, r.total_amount,
-		r.status, r.proposed_by, r.decided_by, r.decided_at, r.operation_id, r.release_operation_id, r.version, r.created_at, r.created_by, r.updated_at, r.updated_by
+		r.status, r.proposed_by, r.decided_by, r.decided_at, r.operation_id, r.release_operation_id, r.version, r.created_at, r.created_by, r.updated_at, r.updated_by,
+		r.release_request_id, r.release_approval, r.release_request_total, r.release_approved_by, r.release_approved_at
 	FROM payments.payment_run r JOIN ref.currency c ON c.code = r.currency`
 
 func scanRun(row pgx.Row) (Run, error) {
 	var r Run
+	var a ReleaseApproval
+	var request *uuid.UUID
+	var status *string
+	var total *money.Minor
 	err := row.Scan(&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.HouseBankID, &r.RunDate, &r.DueBy, &r.Currency, &r.Exponent, &r.Total,
-		&r.Status, &r.ProposedBy, &r.DecidedBy, &r.DecidedAt, &r.OperationID, &r.ReleaseOpID, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
+		&r.Status, &r.ProposedBy, &r.DecidedBy, &r.DecidedAt, &r.OperationID, &r.ReleaseOpID, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy,
+		&request, &status, &total, &a.ApprovedBy, &a.ApprovedAt)
+	if err == nil && request != nil { // the three are set together (payment_run_release_request)
+		a.RequestID, a.Status, a.Total = *request, *status, *total
+		r.Release = &a
+	}
 	return r, errs.Wrapf(err, "scan payment run")
 }
 
@@ -458,8 +475,9 @@ func requireProposed(r Run, done string) error {
 // payment_run_sod constraint says the same), and the decider holds the
 // active configuration's payments.release_role today. A release
 // (release = true) is refused while the configuration asks for more than
-// one releaser (payments.release_approvals): a release by several people
-// is not built (T72), and one person's release must not stand in for it.
+// one releaser (payments.release_approvals): one person releases a run, a
+// second approving the release of a large one first (release_dual_limit,
+// dualrelease.go), and one person's release must not stand in for several.
 func (e *Endpoints) decider(ctx context.Context, r Run, p reqctx.Principal, release bool) error {
 	if p.ID == r.ProposedBy {
 		return problem.Forbidden("identity.sod_conflict", "Segregation of duties: whoever proposed a payment run can never release or reject it.")
@@ -470,7 +488,7 @@ func (e *Endpoints) decider(ctx context.Context, r Run, p reqctx.Principal, rele
 	}
 	if n := doc.Payments.ReleaseApprovals; release && n > 1 {
 		return problem.Unprocessable("payments.release_approvals_unsupported",
-			fmt.Sprintf("The configuration asks for %d people to release a payment run (payments.release_approvals), and a release by more than one person is not supported yet; set it to 1.", n))
+			fmt.Sprintf("The configuration asks for %d people to release a payment run (payments.release_approvals), and one person releases a run; set it to 1, and companies[].release_dual_limit for a second person's approval of large runs.", n))
 	}
 	code := doc.Payments.ReleaseRole
 	role, ok, err := e.Roles.RoleByCode(ctx, code)

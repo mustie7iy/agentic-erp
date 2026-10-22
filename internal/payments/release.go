@@ -55,6 +55,9 @@ func (e *Endpoints) StartRelease(ctx context.Context, id uuid.UUID, ifMatch func
 	if err := e.decider(ctx, r, p, true); err != nil {
 		return operations.Operation{}, err
 	}
+	if err := e.releaseApproved(ctx, tx, r, p); err != nil {
+		return operations.Operation{}, err
+	}
 	pays, err := paymentsOf(ctx, tx, r.ID)
 	if err != nil {
 		return operations.Operation{}, err
@@ -325,7 +328,7 @@ func (e *Endpoints) FinishRelease(ctx context.Context, r Run) (Run, error) {
 	}
 	return released, record(ctx, "payments.payment_run.complete", r.ID, map[string]any{"payments": len(pays), "bank_file_ids": ids},
 		append(events, runEvent(released, "payment_run_released", map[string]any{"house_bank_id": released.HouseBankID, "run_date": released.RunDate.Format(time.DateOnly),
-			"total_amount": money.EventAmount(released.Total, released.Currency, released.Exponent), "payment_count": len(pays), "workflow_request_id": nil,
+			"total_amount": money.EventAmount(released.Total, released.Currency, released.Exponent), "payment_count": len(pays), "workflow_request_id": requestOf(released),
 			"released_at": released.DecidedAt.UTC().Format(time.RFC3339Nano)}))...)
 }
 
@@ -483,6 +486,11 @@ func (e *Endpoints) RejectRun(ctx context.Context, id uuid.UUID, ifMatch func(in
 	if err := e.decider(ctx, r, p, false); err != nil {
 		return Run{}, err
 	}
+	if r.Release != nil && r.Release.Status == ReleasePending {
+		if err := e.withdrawRelease(ctx, tx, p, r, "the run was rejected: "+reason); err != nil {
+			return Run{}, err
+		}
+	}
 	tag, err := tx.Exec(ctx, `UPDATE payments.payment_item i SET is_active = false FROM payments.payment p
 		WHERE p.tenant_id = i.tenant_id AND p.id = i.payment_id AND p.payment_run_id = $1 AND i.is_active`, r.ID)
 	if err != nil {
@@ -500,7 +508,7 @@ func (e *Endpoints) RejectRun(ctx context.Context, id uuid.UUID, ifMatch func(in
 		return Run{}, err
 	}
 	return rejected, record(ctx, "payments.payment_run.reject", r.ID, map[string]any{"reason": reason, "released_items": tag.RowsAffected()},
-		runEvent(rejected, "payment_run_rejected", map[string]any{"workflow_request_id": nil, "released_item_count": tag.RowsAffected()}))
+		runEvent(rejected, "payment_run_rejected", map[string]any{"workflow_request_id": requestOf(rejected), "released_item_count": tag.RowsAffected()}))
 }
 
 // BankFile is a row of payments.bank_file with its run's legal entity.

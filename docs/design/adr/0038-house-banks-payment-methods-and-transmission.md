@@ -319,3 +319,76 @@ decided (ADR-0051, P2) that a house bank may hold another currency.
   USD run, its file, the USD statement imported, matched, posted with the
   realised loss, reconciled, and the bank account revalued at the month's
   end (`TestForeignCurrencyHouseBankEndToEnd`).
+
+## Amendment: two-person release of large payment runs (T72m, product owner 2026-10-22)
+
+The walkthrough found `payments.release_approvals` validated but never
+enforced; T72l made validation refuse it above 1 until the product owner
+decided how several people sign. Decision (2026-10-22): a payment run
+above a per-company amount needs an approval request, decided by a second
+person who is neither the proposer nor the releaser, **before** `:release`
+is allowed; at or below the amount one releaser who is not the proposer
+suffices, as before. `:reject` needs the release role too (T72l).
+
+- **Configuration.** `companies[].release_dual_limit`, an amount in the
+  company's currency, validated with its digits, posting-related (tier 3)
+  like the other payment controls and `manual_entry_approval_limit`.
+  Optional: a company without one releases every run with one person, so
+  runs of documents from before are unaffected and no rate is needed for
+  them. `payments.release_approvals` stays, exactly 1, so documents
+  activated earlier still parse; its removal is the contract step of
+  expand-migrate-contract, tracked. A document naming the limit is
+  activated only once every replica runs this version (06 §6.4): the
+  previous version's strict parse refuses the unknown field.
+- **The amount measured.** The run's total, in its currency, converted
+  exactly (unrounded, F13) into the company's currency at the average rate
+  valid on the **run date** (`ledger.Rates.ExactToCompany`, as manual
+  entries and requisitions are measured). The run date is the posting date
+  of every payment the release posts, at that same rate (T53a), so the
+  amount compared is what the ledger books; the proposal's or the
+  invoices' dates would measure another amount than the one paid. A
+  company with a limit and no rate on the run date is refused
+  (`ledger.no_exchange_rate`), as its release would be. A total above the
+  limit (strictly) needs the second person.
+- **The request.** A new approvals object type, `payment_run_release`,
+  through the existing mechanism: `POST /v1/payment-runs/{id}:submit`
+  (human-only, `payments.run.release`) opens it; the caller is checked as
+  a releaser (not the proposer, holding the release role) and is its
+  requester. One step, one approval by a holder of `payments.release_role`
+  with `payments.run.release` (its `x-object-permissions` entry); the
+  mechanism keeps the requester and agents from deciding it, and the
+  payments context bars the proposer (`Barrer`). Tiers (more approvers for
+  larger runs) are not built: one second person is what was decided.
+- **The approval does not release the run.** The callback records the
+  approval on the run (`release_approval` approved, `release_approved_by`,
+  `release_approved_at`) and nothing else: 04 §4.3 keeps the release a
+  direct human step, and posting from the approver's transaction would make
+  the approver the releaser, which the decision forbids. `:release` then
+  reads the run it locks `FOR UPDATE` and refuses, for a run above the
+  limit: 409 `payments.release_approval_required` without a request or
+  after a rejected or withdrawn one, 409 `payments.release_approval_pending`
+  while it waits, 409 `payments.release_approval_outdated` when the run's
+  total is now above the total approved, and 403 `identity.sod_conflict`
+  for the approver. A rejection leaves the run proposed: it is asked for
+  again or rejected (whether a rejection should end the run is a product
+  owner question). Rejecting the run, or releasing it once it no longer
+  needs the approval (the limit raised), withdraws a pending request, so
+  nothing is approved after the run is decided.
+- **A proposed run's total never grows**: the release only drops payments
+  whose items can no longer be paid. The approval is held to the total it
+  was asked for anyway (`release_request_total`), so a run that changed
+  upward by any path needs a new approval, and one that fell keeps it.
+- **Schema (000150, validated by 000151).** `payments.payment_run` takes
+  `release_request_id`, `release_approval` (`pending`, `approved`,
+  `rejected`, `withdrawn`), `release_request_total`, `release_approved_by`
+  and `release_approved_at`, nullable without a default and checked
+  `NOT VALID` then validated (06 §6.4): the request's fields are set
+  together, an approver exactly when approved, and the approver is never
+  the proposer nor, once the run is releasing or released, the releaser
+  (`payment_run_release_sod`). Every change is audited
+  (`payments.payment_run.submit`, `release_approved`, `release_rejected`,
+  `release_withdrawn`); the workflow context publishes `approval_requested`
+  and `approval_completed` for the request, and `payment_run_released` and
+  `payment_run_rejected` name it in `workflow_request_id`. The callbacks
+  change the run only while it waits for that request, guarded in the
+  update, so a decision is recorded once.

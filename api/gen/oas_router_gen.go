@@ -62,7 +62,7 @@ var (
 	rn213AllowedHeaders = map[string]string{
 		"GET": "Authorization",
 	}
-	rn328AllowedHeaders = map[string]string{
+	rn330AllowedHeaders = map[string]string{
 		"POST": "Authorization,Content-Type,Idempotency-Key",
 	}
 	rn215AllowedHeaders = map[string]string{
@@ -80,7 +80,7 @@ var (
 	rn298AllowedHeaders = map[string]string{
 		"POST": "Authorization,Content-Type,Idempotency-Key,If-Match",
 	}
-	rn322AllowedHeaders = map[string]string{
+	rn324AllowedHeaders = map[string]string{
 		"POST": "Authorization,Idempotency-Key,If-Match",
 	}
 	rn208AllowedHeaders = map[string]string{
@@ -140,7 +140,7 @@ var (
 	rn32AllowedHeaders = map[string]string{
 		"POST": "Authorization,Content-Type,Idempotency-Key,If-Match",
 	}
-	rn324AllowedHeaders = map[string]string{
+	rn326AllowedHeaders = map[string]string{
 		"POST": "Authorization,Content-Type,Idempotency-Key,If-Match",
 	}
 	rn167AllowedHeaders = map[string]string{
@@ -169,7 +169,7 @@ var (
 	rn315AllowedHeaders = map[string]string{
 		"POST": "Authorization,Idempotency-Key,If-Match",
 	}
-	rn329AllowedHeaders = map[string]string{
+	rn331AllowedHeaders = map[string]string{
 		"POST": "Authorization,Content-Type,Idempotency-Key,If-Match",
 	}
 	rn85AllowedHeaders = map[string]string{
@@ -226,7 +226,7 @@ var (
 	rn296AllowedHeaders = map[string]string{
 		"POST": "Authorization,Content-Type,Idempotency-Key,If-Match",
 	}
-	rn320AllowedHeaders = map[string]string{
+	rn322AllowedHeaders = map[string]string{
 		"POST": "Authorization,Content-Type,Idempotency-Key,If-Match",
 	}
 	rn90AllowedHeaders = map[string]string{
@@ -287,7 +287,7 @@ var (
 	rn264AllowedHeaders = map[string]string{
 		"POST": "Authorization,Idempotency-Key,If-Match",
 	}
-	rn327AllowedHeaders = map[string]string{
+	rn329AllowedHeaders = map[string]string{
 		"POST": "Authorization,Content-Type,Idempotency-Key,If-Match",
 	}
 	rn225AllowedHeaders = map[string]string{
@@ -370,7 +370,7 @@ var (
 	rn34AllowedHeaders = map[string]string{
 		"POST": "Authorization,Content-Type,Idempotency-Key,If-Match",
 	}
-	rn325AllowedHeaders = map[string]string{
+	rn327AllowedHeaders = map[string]string{
 		"POST": "Authorization,Idempotency-Key,If-Match",
 	}
 	rn184AllowedHeaders = map[string]string{
@@ -421,7 +421,7 @@ var (
 	rn36AllowedHeaders = map[string]string{
 		"POST": "Authorization,Content-Type,Idempotency-Key,If-Match",
 	}
-	rn326AllowedHeaders = map[string]string{
+	rn328AllowedHeaders = map[string]string{
 		"POST": "Authorization,Idempotency-Key,If-Match",
 	}
 	rn243AllowedHeaders = map[string]string{
@@ -462,6 +462,9 @@ var (
 	}
 	rn288AllowedHeaders = map[string]string{
 		"POST": "Authorization,Content-Type,Idempotency-Key,If-Match",
+	}
+	rn317AllowedHeaders = map[string]string{
+		"POST": "Authorization,Idempotency-Key,If-Match",
 	}
 	rn277AllowedHeaders = map[string]string{
 		"POST": "Authorization,Content-Type,Idempotency-Key",
@@ -519,7 +522,7 @@ var (
 	rn63AllowedHeaders = map[string]string{
 		"POST": "Authorization,Idempotency-Key,If-Match",
 	}
-	rn317AllowedHeaders = map[string]string{
+	rn319AllowedHeaders = map[string]string{
 		"POST": "Authorization,Idempotency-Key,If-Match",
 	}
 	rn60AllowedHeaders = map[string]string{
@@ -559,7 +562,7 @@ var (
 	rn66AllowedHeaders = map[string]string{
 		"POST": "Authorization,Idempotency-Key,If-Match",
 	}
-	rn319AllowedHeaders = map[string]string{
+	rn321AllowedHeaders = map[string]string{
 		"POST": "Authorization,Idempotency-Key,If-Match",
 	}
 	rn249AllowedHeaders = map[string]string{
@@ -1284,7 +1287,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 							default:
 								s.notAllowed(w, r, notAllowedParams{
 									allowedMethods: "POST",
-									allowedHeaders: rn328AllowedHeaders,
+									allowedHeaders: rn330AllowedHeaders,
 									acceptPost:     "application/json",
 									acceptPatch:    "",
 								})
@@ -1501,7 +1504,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 											default:
 												s.notAllowed(w, r, notAllowedParams{
 													allowedMethods: "POST",
-													allowedHeaders: rn322AllowedHeaders,
+													allowedHeaders: rn324AllowedHeaders,
 													acceptPost:     "",
 													acceptPatch:    "",
 												})
@@ -2142,7 +2145,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 									default:
 										s.notAllowed(w, r, notAllowedParams{
 											allowedMethods: "POST",
-											allowedHeaders: rn324AllowedHeaders,
+											allowedHeaders: rn326AllowedHeaders,
 											acceptPost:     "application/json",
 											acceptPatch:    "",
 										})
@@ -2448,7 +2451,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 									default:
 										s.notAllowed(w, r, notAllowedParams{
 											allowedMethods: "POST",
-											allowedHeaders: rn329AllowedHeaders,
+											allowedHeaders: rn331AllowedHeaders,
 											acceptPost:     "application/json",
 											acceptPatch:    "",
 										})
@@ -3032,7 +3035,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 											default:
 												s.notAllowed(w, r, notAllowedParams{
 													allowedMethods: "POST",
-													allowedHeaders: rn320AllowedHeaders,
+													allowedHeaders: rn322AllowedHeaders,
 													acceptPost:     "application/json",
 													acceptPatch:    "",
 												})
@@ -3634,7 +3637,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 								default:
 									s.notAllowed(w, r, notAllowedParams{
 										allowedMethods: "POST",
-										allowedHeaders: rn327AllowedHeaders,
+										allowedHeaders: rn329AllowedHeaders,
 										acceptPost:     "application/json",
 										acceptPatch:    "",
 									})
@@ -4522,7 +4525,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 									default:
 										s.notAllowed(w, r, notAllowedParams{
 											allowedMethods: "POST",
-											allowedHeaders: rn325AllowedHeaders,
+											allowedHeaders: rn327AllowedHeaders,
 											acceptPost:     "",
 											acceptPatch:    "",
 										})
@@ -5074,7 +5077,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 									default:
 										s.notAllowed(w, r, notAllowedParams{
 											allowedMethods: "POST",
-											allowedHeaders: rn326AllowedHeaders,
+											allowedHeaders: rn328AllowedHeaders,
 											acceptPost:     "",
 											acceptPatch:    "",
 										})
@@ -5457,9 +5460,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 								}
 
-							case ':': // Prefix: ":re"
+							case ':': // Prefix: ":"
 
-								if l := len(":re"); len(elem) >= l && elem[0:l] == ":re" {
+								if l := len(":"); len(elem) >= l && elem[0:l] == ":" {
 									elem = elem[l:]
 								} else {
 									break
@@ -5469,36 +5472,77 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 									break
 								}
 								switch elem[0] {
-								case 'j': // Prefix: "ject"
+								case 'r': // Prefix: "re"
 
-									if l := len("ject"); len(elem) >= l && elem[0:l] == "ject" {
+									if l := len("re"); len(elem) >= l && elem[0:l] == "re" {
 										elem = elem[l:]
 									} else {
 										break
 									}
 
 									if len(elem) == 0 {
-										// Leaf node.
-										switch r.Method {
-										case "POST":
-											s.handleRejectPaymentRunRequest([1]string{
-												args[0],
-											}, elemIsEscaped, w, r)
-										default:
-											s.notAllowed(w, r, notAllowedParams{
-												allowedMethods: "POST",
-												allowedHeaders: rn284AllowedHeaders,
-												acceptPost:     "application/json",
-												acceptPatch:    "",
-											})
+										break
+									}
+									switch elem[0] {
+									case 'j': // Prefix: "ject"
+
+										if l := len("ject"); len(elem) >= l && elem[0:l] == "ject" {
+											elem = elem[l:]
+										} else {
+											break
 										}
 
-										return
+										if len(elem) == 0 {
+											// Leaf node.
+											switch r.Method {
+											case "POST":
+												s.handleRejectPaymentRunRequest([1]string{
+													args[0],
+												}, elemIsEscaped, w, r)
+											default:
+												s.notAllowed(w, r, notAllowedParams{
+													allowedMethods: "POST",
+													allowedHeaders: rn284AllowedHeaders,
+													acceptPost:     "application/json",
+													acceptPatch:    "",
+												})
+											}
+
+											return
+										}
+
+									case 'l': // Prefix: "lease"
+
+										if l := len("lease"); len(elem) >= l && elem[0:l] == "lease" {
+											elem = elem[l:]
+										} else {
+											break
+										}
+
+										if len(elem) == 0 {
+											// Leaf node.
+											switch r.Method {
+											case "POST":
+												s.handleReleasePaymentRunRequest([1]string{
+													args[0],
+												}, elemIsEscaped, w, r)
+											default:
+												s.notAllowed(w, r, notAllowedParams{
+													allowedMethods: "POST",
+													allowedHeaders: rn288AllowedHeaders,
+													acceptPost:     "application/json",
+													acceptPatch:    "",
+												})
+											}
+
+											return
+										}
+
 									}
 
-								case 'l': // Prefix: "lease"
+								case 's': // Prefix: "submit"
 
-									if l := len("lease"); len(elem) >= l && elem[0:l] == "lease" {
+									if l := len("submit"); len(elem) >= l && elem[0:l] == "submit" {
 										elem = elem[l:]
 									} else {
 										break
@@ -5508,14 +5552,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 										// Leaf node.
 										switch r.Method {
 										case "POST":
-											s.handleReleasePaymentRunRequest([1]string{
+											s.handleSubmitPaymentRunRequest([1]string{
 												args[0],
 											}, elemIsEscaped, w, r)
 										default:
 											s.notAllowed(w, r, notAllowedParams{
 												allowedMethods: "POST",
-												allowedHeaders: rn288AllowedHeaders,
-												acceptPost:     "application/json",
+												allowedHeaders: rn317AllowedHeaders,
+												acceptPost:     "",
 												acceptPatch:    "",
 											})
 										}
@@ -6079,7 +6123,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 											default:
 												s.notAllowed(w, r, notAllowedParams{
 													allowedMethods: "POST",
-													allowedHeaders: rn317AllowedHeaders,
+													allowedHeaders: rn319AllowedHeaders,
 													acceptPost:     "",
 													acceptPatch:    "",
 												})
@@ -6511,7 +6555,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 										default:
 											s.notAllowed(w, r, notAllowedParams{
 												allowedMethods: "POST",
-												allowedHeaders: rn319AllowedHeaders,
+												allowedHeaders: rn321AllowedHeaders,
 												acceptPost:     "",
 												acceptPatch:    "",
 											})
@@ -12793,9 +12837,9 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 
 								}
 
-							case ':': // Prefix: ":re"
+							case ':': // Prefix: ":"
 
-								if l := len(":re"); len(elem) >= l && elem[0:l] == ":re" {
+								if l := len(":"); len(elem) >= l && elem[0:l] == ":" {
 									elem = elem[l:]
 								} else {
 									break
@@ -12805,34 +12849,73 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 									break
 								}
 								switch elem[0] {
-								case 'j': // Prefix: "ject"
+								case 'r': // Prefix: "re"
 
-									if l := len("ject"); len(elem) >= l && elem[0:l] == "ject" {
+									if l := len("re"); len(elem) >= l && elem[0:l] == "re" {
 										elem = elem[l:]
 									} else {
 										break
 									}
 
 									if len(elem) == 0 {
-										// Leaf node.
-										switch method {
-										case "POST":
-											r.name = RejectPaymentRunOperation
-											r.summary = "Reject a payment run"
-											r.operationID = "rejectPaymentRun"
-											r.operationGroup = ""
-											r.pathPattern = "/v1/payment-runs/{id}:reject"
-											r.args = args
-											r.count = 1
-											return r, true
-										default:
-											return
+										break
+									}
+									switch elem[0] {
+									case 'j': // Prefix: "ject"
+
+										if l := len("ject"); len(elem) >= l && elem[0:l] == "ject" {
+											elem = elem[l:]
+										} else {
+											break
 										}
+
+										if len(elem) == 0 {
+											// Leaf node.
+											switch method {
+											case "POST":
+												r.name = RejectPaymentRunOperation
+												r.summary = "Reject a payment run"
+												r.operationID = "rejectPaymentRun"
+												r.operationGroup = ""
+												r.pathPattern = "/v1/payment-runs/{id}:reject"
+												r.args = args
+												r.count = 1
+												return r, true
+											default:
+												return
+											}
+										}
+
+									case 'l': // Prefix: "lease"
+
+										if l := len("lease"); len(elem) >= l && elem[0:l] == "lease" {
+											elem = elem[l:]
+										} else {
+											break
+										}
+
+										if len(elem) == 0 {
+											// Leaf node.
+											switch method {
+											case "POST":
+												r.name = ReleasePaymentRunOperation
+												r.summary = "Release a payment run"
+												r.operationID = "releasePaymentRun"
+												r.operationGroup = ""
+												r.pathPattern = "/v1/payment-runs/{id}:release"
+												r.args = args
+												r.count = 1
+												return r, true
+											default:
+												return
+											}
+										}
+
 									}
 
-								case 'l': // Prefix: "lease"
+								case 's': // Prefix: "submit"
 
-									if l := len("lease"); len(elem) >= l && elem[0:l] == "lease" {
+									if l := len("submit"); len(elem) >= l && elem[0:l] == "submit" {
 										elem = elem[l:]
 									} else {
 										break
@@ -12842,11 +12925,11 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 										// Leaf node.
 										switch method {
 										case "POST":
-											r.name = ReleasePaymentRunOperation
-											r.summary = "Release a payment run"
-											r.operationID = "releasePaymentRun"
+											r.name = SubmitPaymentRunOperation
+											r.summary = "Ask for the approval of a payment run's release"
+											r.operationID = "submitPaymentRun"
 											r.operationGroup = ""
-											r.pathPattern = "/v1/payment-runs/{id}:release"
+											r.pathPattern = "/v1/payment-runs/{id}:submit"
 											r.args = args
 											r.count = 1
 											return r, true

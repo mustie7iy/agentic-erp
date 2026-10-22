@@ -70,7 +70,13 @@ ended only through an approved partner change.
 requests, partner changes, high-value invoices) are `:submit`ted, and move on
 when their approval request completes; they have no `:approve` method of their
 own. Payment-run `:release` / `:reject` are the single SoD-checked human
-release step, not a multi-step approval. The requester, human or agent, may
+release step, not a multi-step approval. A run above its company's
+`release_dual_limit` is the one exception to a direct release (product
+owner 2026-10-22, ADR-0038): a releaser first `:submit`s it, which opens a
+`payment_run_release` approval request that a second person, neither the
+proposer nor the releaser, approves; the approval moves nothing on, and
+`:release` stays the release step, refused until the approval is there.
+The requester, human or agent, may
 `:cancel` its own pending request with a reason.
 
 ## 4.4 Representations
@@ -416,7 +422,7 @@ with the month's total against the tenant's cap.
 | ledger | `accounts`, `fiscal-periods`, `journal-entries`, `parked-journal-entries`, `clearings`, `open-items`, `balances`, `exchange-rates` | `:reverse`, `:open`, `:close`, `:lock`, `:post`, `:cancel`, `:unlock` |
 | procurement | `requisitions`, `purchase-orders`, `contracts`, `goods-receipts` | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse` |
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
-| payments | `payment-runs`, `bank-files` | `:propose` (202), `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
+| payments | `payment-runs`, `bank-files` | `:propose` (202), `:submit`, `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
 | cash | `cash-position` (computed on read, ADR-0051) | |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |
 | audit | `audit-events` | `:verify` |

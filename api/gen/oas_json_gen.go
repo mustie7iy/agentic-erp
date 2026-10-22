@@ -37477,6 +37477,39 @@ func (s *OptPartnerSummary) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes PaymentRunReleaseApproval as json.
+func (o OptPaymentRunReleaseApproval) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes PaymentRunReleaseApproval from json.
+func (o *OptPaymentRunReleaseApproval) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptPaymentRunReleaseApproval to nil")
+	}
+	o.Set = true
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptPaymentRunReleaseApproval) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptPaymentRunReleaseApproval) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes Problem as json.
 func (o OptProblem) Encode(e *jx.Encoder) {
 	if !o.Set {
@@ -41497,9 +41530,15 @@ func (s *PaymentRun) encodeFields(e *jx.Encoder) {
 			s.ReleaseOperationID.Encode(e)
 		}
 	}
+	{
+		if s.ReleaseApproval.Set {
+			e.FieldStart("release_approval")
+			s.ReleaseApproval.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfPaymentRun = [18]string{
+var jsonFieldsNameOfPaymentRun = [19]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -41518,6 +41557,7 @@ var jsonFieldsNameOfPaymentRun = [18]string{
 	15: "decided_at",
 	16: "operation_id",
 	17: "release_operation_id",
+	18: "release_approval",
 }
 
 // Decode decodes PaymentRun from json.
@@ -41730,6 +41770,16 @@ func (s *PaymentRun) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"release_operation_id\"")
+			}
+		case "release_approval":
+			if err := func() error {
+				s.ReleaseApproval.Reset()
+				if err := s.ReleaseApproval.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"release_approval\"")
 			}
 		default:
 			return d.Skip()
@@ -42089,6 +42139,168 @@ func (s *PaymentRunPropose) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *PaymentRunPropose) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *PaymentRunReleaseApproval) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *PaymentRunReleaseApproval) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("request_id")
+		json.EncodeUUID(e, s.RequestID)
+	}
+	{
+		e.FieldStart("status")
+		e.Str(s.Status)
+	}
+	{
+		e.FieldStart("requested_total")
+		s.RequestedTotal.Encode(e)
+	}
+	{
+		if s.ApprovedBy.Set {
+			e.FieldStart("approved_by")
+			s.ApprovedBy.Encode(e)
+		}
+	}
+	{
+		if s.ApprovedAt.Set {
+			e.FieldStart("approved_at")
+			s.ApprovedAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+}
+
+var jsonFieldsNameOfPaymentRunReleaseApproval = [5]string{
+	0: "request_id",
+	1: "status",
+	2: "requested_total",
+	3: "approved_by",
+	4: "approved_at",
+}
+
+// Decode decodes PaymentRunReleaseApproval from json.
+func (s *PaymentRunReleaseApproval) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode PaymentRunReleaseApproval to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "request_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.RequestID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"request_id\"")
+			}
+		case "status":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Status = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"status\"")
+			}
+		case "requested_total":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				if err := s.RequestedTotal.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"requested_total\"")
+			}
+		case "approved_by":
+			if err := func() error {
+				s.ApprovedBy.Reset()
+				if err := s.ApprovedBy.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"approved_by\"")
+			}
+		case "approved_at":
+			if err := func() error {
+				s.ApprovedAt.Reset()
+				if err := s.ApprovedAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"approved_at\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode PaymentRunReleaseApproval")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfPaymentRunReleaseApproval) {
+					name = jsonFieldsNameOfPaymentRunReleaseApproval[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *PaymentRunReleaseApproval) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *PaymentRunReleaseApproval) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

@@ -103,9 +103,11 @@ type Invoker interface {
 	// that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
 	// fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
 	// statement line's posting (`bank_clearing`), and whoever matched the line by hand cannot approve its
-	// posting (403 `workflow.segregation_of_duties`). A change request whose latest regression evidence
-	// replayed no case (a suite captured with `allow_empty`) is approved only with a comment acknowledging
-	// that (422 `workflow.acknowledgement_required`).
+	// posting (403 `workflow.segregation_of_duties`). A payment run's release (`payment_run_release`) is
+	// approved by a holder of the release role who did not propose the run (403
+	// `workflow.segregation_of_duties`); the approval does not release it. A change request whose latest
+	// regression evidence replayed no case (a suite captured with `allow_empty`) is approved only with a
+	// comment acknowledging that (422 `workflow.acknowledgement_required`).
 	//
 	// POST /v1/approval-requests/{id}:approve
 	ApproveApprovalRequest(ctx context.Context, request OptDecisionInput, params ApproveApprovalRequestParams) (ApproveApprovalRequestRes, error)
@@ -1847,7 +1849,8 @@ type Invoker interface {
 	// Rejects the request with a mandatory comment. Human-only; the requester cannot reject. Besides
 	// `workflow.request.decide` the caller must hold the step's role and the approval permission of the
 	// object type, listed in `x-object-permissions`. The object is rejected with it (for example a
-	// supplier invoice exception leaves the invoice `rejected`).
+	// supplier invoice exception leaves the invoice `rejected`); a payment run whose release is rejected
+	// (`payment_run_release`) stays `proposed`, its `release_approval` rejected.
 	//
 	// POST /v1/approval-requests/{id}:reject
 	RejectApprovalRequest(ctx context.Context, request *CommentRequiredInput, params RejectApprovalRequestParams) (RejectApprovalRequestRes, error)
@@ -1868,8 +1871,8 @@ type Invoker interface {
 	// `:release`. Segregation of duties: the proposer can never reject the run (403
 	// `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). The decider
 	// holds the active configuration's `payments.release_role` today, as for `:release` (403
-	// `payments.release_role_missing`, 422 `workflow.unknown_role`). Sets `decided_by` and `decided_at`.
-	// Requires status `proposed`.
+	// `payments.release_role_missing`, 422 `workflow.unknown_role`). A pending request for the release's
+	// approval is withdrawn. Sets `decided_by` and `decided_at`. Requires status `proposed`.
 	//
 	// POST /v1/payment-runs/{id}:reject
 	RejectPaymentRun(ctx context.Context, request *ReasonInput, params RejectPaymentRunParams) (RejectPaymentRunRes, error)
@@ -1895,13 +1898,24 @@ type Invoker interface {
 	// releaser holds the active configuration's `payments.release_role` today (403
 	// `payments.release_role_missing`; 422 `workflow.unknown_role` when it names no active role). A
 	// configuration asking for more than one releaser (`payments.release_approvals` above 1, which
-	// validation now refuses) refuses the release with 422 `payments.release_approvals_unsupported` rather
+	// validation refuses) refuses the release with 422 `payments.release_approvals_unsupported` rather
 	// than letting one person release, the resumption of a failed release included, until a change request
-	// sets it to 1. Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a
-	// failed release operation, which resumes it. 409 `payments.discount_lapsed` when a payment takes a
-	// cash discount whose last day has passed (T36d): reject the run and propose again. 409
-	// `ledger.withholding_changed` when an item would withhold another amount than its payment deducted
-	// (T46f); the payment is not posted.
+	// sets it to 1. Two-person release (ADR-0038, product owner 2026-10-22): a run whose total, converted
+	// exactly into its company's currency at the average rate of the run date (the rate its payments post
+	// at), is above the company's `release_dual_limit` is released only after its release was approved
+	// (`:submit`, then `approveApprovalRequest` by a second holder of the release role): 409
+	// `payments.release_approval_required` when none was asked for or the last request was rejected or
+	// withdrawn, 409 `payments.release_approval_pending` while it waits, 409
+	// `payments.release_approval_outdated` when the run's total is now above the total that was approved;
+	// the approver can never release it (403 `identity.sod_conflict`; the database enforces it). The
+	// approval does not release the run: the release stays this step. A run at or below the limit, or of a
+	// company without one, is released by one person as before, and a request still pending for it is
+	// withdrawn. 422 `ledger.no_exchange_rate` when the company has a limit and no rate converts the run's
+	// currency on the run date. Sets `decided_by` and `decided_at`. Requires status `proposed`, or
+	// `releasing` after a failed release operation, which resumes it. 409 `payments.discount_lapsed` when
+	// a payment takes a cash discount whose last day has passed (T36d): reject the run and propose again.
+	// 409 `ledger.withholding_changed` when an item would withhold another amount than its payment
+	// deducted (T46f); the payment is not posted.
 	//
 	// POST /v1/payment-runs/{id}:release
 	ReleasePaymentRun(ctx context.Context, request OptDecisionInput, params ReleasePaymentRunParams) (ReleasePaymentRunRes, error)
@@ -2100,6 +2114,24 @@ type Invoker interface {
 	//
 	// POST /v1/change-requests/{id}:submit
 	SubmitChangeRequest(ctx context.Context, params SubmitChangeRequestParams) (SubmitChangeRequestRes, error)
+	// SubmitPaymentRun invokes submitPaymentRun operation.
+	//
+	// Two-person release (ADR-0038, product owner 2026-10-22): opens an approval request (object type
+	// `payment_run_release`) for the release of a proposed run whose total, converted exactly into its
+	// company's currency at the average rate of the run date, is above the company's `release_dual_limit`.
+	// The caller is the requester, and is checked as a releaser: human-only, never the proposer (403
+	// `identity.sod_conflict`), holding `payments.release_role` today (403
+	// `payments.release_role_missing`, 422 `workflow.unknown_role`). One holder of the release role who is
+	// neither the requester nor the proposer approves it (`approveApprovalRequest`, permission
+	// `payments.run.release`; agents never approve); the approval does not release the run, which a
+	// releaser other than the approver then releases with `:release`. Rejected or withdrawn, the run stays
+	// `proposed`: it is asked for again or rejected. 409 `payments.release_approval_not_required` when the
+	// run is within the limit (release it directly), 409 `workflow.request_pending` while a request waits,
+	// 409 `payments.release_already_approved` when its release is approved for its total already. Sets
+	// `release_approval`. Requires status `proposed`.
+	//
+	// POST /v1/payment-runs/{id}:submit
+	SubmitPaymentRun(ctx context.Context, params SubmitPaymentRunParams) (SubmitPaymentRunRes, error)
 	// SubmitPurchaseOrderChange invokes submitPurchaseOrderChange operation.
 	//
 	// Submits an order change in status `draft` (409 `procurement.invalid_status` otherwise) of an order
@@ -3360,9 +3392,11 @@ func (c *Client) sendApplyCountryPack(ctx context.Context, request *CountryPackA
 // that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
 // fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
 // statement line's posting (`bank_clearing`), and whoever matched the line by hand cannot approve its
-// posting (403 `workflow.segregation_of_duties`). A change request whose latest regression evidence
-// replayed no case (a suite captured with `allow_empty`) is approved only with a comment acknowledging
-// that (422 `workflow.acknowledgement_required`).
+// posting (403 `workflow.segregation_of_duties`). A payment run's release (`payment_run_release`) is
+// approved by a holder of the release role who did not propose the run (403
+// `workflow.segregation_of_duties`); the approval does not release it. A change request whose latest
+// regression evidence replayed no case (a suite captured with `allow_empty`) is approved only with a
+// comment acknowledging that (422 `workflow.acknowledgement_required`).
 //
 // POST /v1/approval-requests/{id}:approve
 func (c *Client) ApproveApprovalRequest(ctx context.Context, request OptDecisionInput, params ApproveApprovalRequestParams) (ApproveApprovalRequestRes, error) {
@@ -39232,7 +39266,8 @@ func (c *Client) sendRedeliverWebhookDelivery(ctx context.Context, params Redeli
 // Rejects the request with a mandatory comment. Human-only; the requester cannot reject. Besides
 // `workflow.request.decide` the caller must hold the step's role and the approval permission of the
 // object type, listed in `x-object-permissions`. The object is rejected with it (for example a
-// supplier invoice exception leaves the invoice `rejected`).
+// supplier invoice exception leaves the invoice `rejected`); a payment run whose release is rejected
+// (`payment_run_release`) stays `proposed`, its `release_approval` rejected.
 //
 // POST /v1/approval-requests/{id}:reject
 func (c *Client) RejectApprovalRequest(ctx context.Context, request *CommentRequiredInput, params RejectApprovalRequestParams) (RejectApprovalRequestRes, error) {
@@ -39580,8 +39615,8 @@ func (c *Client) sendRejectBankStatementLineProposal(ctx context.Context, reques
 // `:release`. Segregation of duties: the proposer can never reject the run (403
 // `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). The decider
 // holds the active configuration's `payments.release_role` today, as for `:release` (403
-// `payments.release_role_missing`, 422 `workflow.unknown_role`). Sets `decided_by` and `decided_at`.
-// Requires status `proposed`.
+// `payments.release_role_missing`, 422 `workflow.unknown_role`). A pending request for the release's
+// approval is withdrawn. Sets `decided_by` and `decided_at`. Requires status `proposed`.
 //
 // POST /v1/payment-runs/{id}:reject
 func (c *Client) RejectPaymentRun(ctx context.Context, request *ReasonInput, params RejectPaymentRunParams) (RejectPaymentRunRes, error) {
@@ -39912,13 +39947,24 @@ func (c *Client) sendReleaseContract(ctx context.Context, params ReleaseContract
 // releaser holds the active configuration's `payments.release_role` today (403
 // `payments.release_role_missing`; 422 `workflow.unknown_role` when it names no active role). A
 // configuration asking for more than one releaser (`payments.release_approvals` above 1, which
-// validation now refuses) refuses the release with 422 `payments.release_approvals_unsupported` rather
+// validation refuses) refuses the release with 422 `payments.release_approvals_unsupported` rather
 // than letting one person release, the resumption of a failed release included, until a change request
-// sets it to 1. Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a
-// failed release operation, which resumes it. 409 `payments.discount_lapsed` when a payment takes a
-// cash discount whose last day has passed (T36d): reject the run and propose again. 409
-// `ledger.withholding_changed` when an item would withhold another amount than its payment deducted
-// (T46f); the payment is not posted.
+// sets it to 1. Two-person release (ADR-0038, product owner 2026-10-22): a run whose total, converted
+// exactly into its company's currency at the average rate of the run date (the rate its payments post
+// at), is above the company's `release_dual_limit` is released only after its release was approved
+// (`:submit`, then `approveApprovalRequest` by a second holder of the release role): 409
+// `payments.release_approval_required` when none was asked for or the last request was rejected or
+// withdrawn, 409 `payments.release_approval_pending` while it waits, 409
+// `payments.release_approval_outdated` when the run's total is now above the total that was approved;
+// the approver can never release it (403 `identity.sod_conflict`; the database enforces it). The
+// approval does not release the run: the release stays this step. A run at or below the limit, or of a
+// company without one, is released by one person as before, and a request still pending for it is
+// withdrawn. 422 `ledger.no_exchange_rate` when the company has a limit and no rate converts the run's
+// currency on the run date. Sets `decided_by` and `decided_at`. Requires status `proposed`, or
+// `releasing` after a failed release operation, which resumes it. 409 `payments.discount_lapsed` when
+// a payment takes a cash discount whose last day has passed (T36d): reject the run and propose again.
+// 409 `ledger.withholding_changed` when an item would withhold another amount than its payment
+// deducted (T46f); the payment is not posted.
 //
 // POST /v1/payment-runs/{id}:release
 func (c *Client) ReleasePaymentRun(ctx context.Context, request OptDecisionInput, params ReleasePaymentRunParams) (ReleasePaymentRunRes, error) {
@@ -43158,6 +43204,175 @@ func (c *Client) sendSubmitChangeRequest(ctx context.Context, params SubmitChang
 
 	stage = "DecodeResponse"
 	result, err := decodeSubmitChangeRequestResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// SubmitPaymentRun invokes submitPaymentRun operation.
+//
+// Two-person release (ADR-0038, product owner 2026-10-22): opens an approval request (object type
+// `payment_run_release`) for the release of a proposed run whose total, converted exactly into its
+// company's currency at the average rate of the run date, is above the company's `release_dual_limit`.
+// The caller is the requester, and is checked as a releaser: human-only, never the proposer (403
+// `identity.sod_conflict`), holding `payments.release_role` today (403
+// `payments.release_role_missing`, 422 `workflow.unknown_role`). One holder of the release role who is
+// neither the requester nor the proposer approves it (`approveApprovalRequest`, permission
+// `payments.run.release`; agents never approve); the approval does not release the run, which a
+// releaser other than the approver then releases with `:release`. Rejected or withdrawn, the run stays
+// `proposed`: it is asked for again or rejected. 409 `payments.release_approval_not_required` when the
+// run is within the limit (release it directly), 409 `workflow.request_pending` while a request waits,
+// 409 `payments.release_already_approved` when its release is approved for its total already. Sets
+// `release_approval`. Requires status `proposed`.
+//
+// POST /v1/payment-runs/{id}:submit
+func (c *Client) SubmitPaymentRun(ctx context.Context, params SubmitPaymentRunParams) (SubmitPaymentRunRes, error) {
+	res, err := c.sendSubmitPaymentRun(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendSubmitPaymentRun(ctx context.Context, params SubmitPaymentRunParams) (res SubmitPaymentRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("submitPaymentRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/payment-runs/{id}:submit"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, SubmitPaymentRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/payment-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":submit"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, SubmitPaymentRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeSubmitPaymentRunResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

@@ -1286,9 +1286,11 @@ func (s *Server) handleApplyCountryPackRequest(args [0]string, argsEscaped bool,
 // that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
 // fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
 // statement line's posting (`bank_clearing`), and whoever matched the line by hand cannot approve its
-// posting (403 `workflow.segregation_of_duties`). A change request whose latest regression evidence
-// replayed no case (a suite captured with `allow_empty`) is approved only with a comment acknowledging
-// that (422 `workflow.acknowledgement_required`).
+// posting (403 `workflow.segregation_of_duties`). A payment run's release (`payment_run_release`) is
+// approved by a holder of the release role who did not propose the run (403
+// `workflow.segregation_of_duties`); the approval does not release it. A change request whose latest
+// regression evidence replayed no case (a suite captured with `allow_empty`) is approved only with a
+// comment acknowledging that (422 `workflow.acknowledgement_required`).
 //
 // POST /v1/approval-requests/{id}:approve
 func (s *Server) handleApproveApprovalRequestRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -43962,7 +43964,8 @@ func (s *Server) handleRedeliverWebhookDeliveryRequest(args [2]string, argsEscap
 // Rejects the request with a mandatory comment. Human-only; the requester cannot reject. Besides
 // `workflow.request.decide` the caller must hold the step's role and the approval permission of the
 // object type, listed in `x-object-permissions`. The object is rejected with it (for example a
-// supplier invoice exception leaves the invoice `rejected`).
+// supplier invoice exception leaves the invoice `rejected`); a payment run whose release is rejected
+// (`payment_run_release`) stays `proposed`, its `release_approval` rejected.
 //
 // POST /v1/approval-requests/{id}:reject
 func (s *Server) handleRejectApprovalRequestRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -44395,8 +44398,8 @@ func (s *Server) handleRejectBankStatementLineProposalRequest(args [2]string, ar
 // `:release`. Segregation of duties: the proposer can never reject the run (403
 // `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). The decider
 // holds the active configuration's `payments.release_role` today, as for `:release` (403
-// `payments.release_role_missing`, 422 `workflow.unknown_role`). Sets `decided_by` and `decided_at`.
-// Requires status `proposed`.
+// `payments.release_role_missing`, 422 `workflow.unknown_role`). A pending request for the release's
+// approval is withdrawn. Sets `decided_by` and `decided_at`. Requires status `proposed`.
 //
 // POST /v1/payment-runs/{id}:reject
 func (s *Server) handleRejectPaymentRunRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -44815,13 +44818,24 @@ func (s *Server) handleReleaseContractRequest(args [1]string, argsEscaped bool, 
 // releaser holds the active configuration's `payments.release_role` today (403
 // `payments.release_role_missing`; 422 `workflow.unknown_role` when it names no active role). A
 // configuration asking for more than one releaser (`payments.release_approvals` above 1, which
-// validation now refuses) refuses the release with 422 `payments.release_approvals_unsupported` rather
+// validation refuses) refuses the release with 422 `payments.release_approvals_unsupported` rather
 // than letting one person release, the resumption of a failed release included, until a change request
-// sets it to 1. Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a
-// failed release operation, which resumes it. 409 `payments.discount_lapsed` when a payment takes a
-// cash discount whose last day has passed (T36d): reject the run and propose again. 409
-// `ledger.withholding_changed` when an item would withhold another amount than its payment deducted
-// (T46f); the payment is not posted.
+// sets it to 1. Two-person release (ADR-0038, product owner 2026-10-22): a run whose total, converted
+// exactly into its company's currency at the average rate of the run date (the rate its payments post
+// at), is above the company's `release_dual_limit` is released only after its release was approved
+// (`:submit`, then `approveApprovalRequest` by a second holder of the release role): 409
+// `payments.release_approval_required` when none was asked for or the last request was rejected or
+// withdrawn, 409 `payments.release_approval_pending` while it waits, 409
+// `payments.release_approval_outdated` when the run's total is now above the total that was approved;
+// the approver can never release it (403 `identity.sod_conflict`; the database enforces it). The
+// approval does not release the run: the release stays this step. A run at or below the limit, or of a
+// company without one, is released by one person as before, and a request still pending for it is
+// withdrawn. 422 `ledger.no_exchange_rate` when the company has a limit and no rate converts the run's
+// currency on the run date. Sets `decided_by` and `decided_at`. Requires status `proposed`, or
+// `releasing` after a failed release operation, which resumes it. 409 `payments.discount_lapsed` when
+// a payment takes a cash discount whose last day has passed (T36d): reject the run and propose again.
+// 409 `ledger.withholding_changed` when an item would withhold another amount than its payment
+// deducted (T46f); the payment is not posted.
 //
 // POST /v1/payment-runs/{id}:release
 func (s *Server) handleReleasePaymentRunRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -48994,6 +49008,213 @@ func (s *Server) handleSubmitChangeRequestRequest(args [1]string, argsEscaped bo
 	}
 
 	if err := encodeSubmitChangeRequestResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleSubmitPaymentRunRequest handles submitPaymentRun operation.
+//
+// Two-person release (ADR-0038, product owner 2026-10-22): opens an approval request (object type
+// `payment_run_release`) for the release of a proposed run whose total, converted exactly into its
+// company's currency at the average rate of the run date, is above the company's `release_dual_limit`.
+// The caller is the requester, and is checked as a releaser: human-only, never the proposer (403
+// `identity.sod_conflict`), holding `payments.release_role` today (403
+// `payments.release_role_missing`, 422 `workflow.unknown_role`). One holder of the release role who is
+// neither the requester nor the proposer approves it (`approveApprovalRequest`, permission
+// `payments.run.release`; agents never approve); the approval does not release the run, which a
+// releaser other than the approver then releases with `:release`. Rejected or withdrawn, the run stays
+// `proposed`: it is asked for again or rejected. 409 `payments.release_approval_not_required` when the
+// run is within the limit (release it directly), 409 `workflow.request_pending` while a request waits,
+// 409 `payments.release_already_approved` when its release is approved for its total already. Sets
+// `release_approval`. Requires status `proposed`.
+//
+// POST /v1/payment-runs/{id}:submit
+func (s *Server) handleSubmitPaymentRunRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("submitPaymentRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/payment-runs/{id}:submit"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), SubmitPaymentRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: SubmitPaymentRunOperation,
+			ID:   "submitPaymentRun",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, SubmitPaymentRunOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeSubmitPaymentRunParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response SubmitPaymentRunRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    SubmitPaymentRunOperation,
+			OperationSummary: "Ask for the approval of a payment run's release",
+			OperationID:      "submitPaymentRun",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = SubmitPaymentRunParams
+			Response = SubmitPaymentRunRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackSubmitPaymentRunParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.SubmitPaymentRun(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.SubmitPaymentRun(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeSubmitPaymentRunResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)

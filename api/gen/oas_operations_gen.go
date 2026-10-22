@@ -246,6 +246,7 @@ const (
 	StartAgentSessionOperation                OperationName = "StartAgentSession"
 	StartMigrationRunOperation                OperationName = "StartMigrationRun"
 	SubmitChangeRequestOperation              OperationName = "SubmitChangeRequest"
+	SubmitPaymentRunOperation                 OperationName = "SubmitPaymentRun"
 	SubmitPurchaseOrderChangeOperation        OperationName = "SubmitPurchaseOrderChange"
 	SubmitRequisitionOperation                OperationName = "SubmitRequisition"
 	TerminateContractOperation                OperationName = "TerminateContract"

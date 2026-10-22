@@ -253,6 +253,9 @@ func (v *validator) company(p string, co *Company) {
 		v.amount(p+".invoice_tolerance.price_absolute", co.InvoiceTolerance.PriceAbsolute, exp)
 		v.amount(p+".auto_post_limit", co.AutoPostLimit, exp)
 		v.amount(p+".manual_entry_approval_limit", co.ManualEntryApprovalLimit, exp)
+		if co.ReleaseDualLimit != "" { // optional: no run then needs a second person
+			v.amount(p+".release_dual_limit", co.ReleaseDualLimit, exp)
+		}
 	}
 	if co.OverDeliveryPercent < 0 || co.OverDeliveryPercent > 100 {
 		v.err(p+".gr_over_delivery_percent", "must be 0-100")
@@ -851,13 +854,15 @@ func (v *validator) payments(c *Config) {
 			v.err("payments."+field, "the role is required")
 		}
 	}
-	// A release by several people is not built (T72): a document asking
-	// for it is refused, so the control is never activated unenforced.
+	// One person releases a run; a second approves the release of a run
+	// above its company's release_dual_limit first (ADR-0038). A document
+	// asking for several releasers is refused, so that control is never
+	// activated unenforced.
 	switch n := c.Payments.ReleaseApprovals; {
 	case n < 1:
 		v.err("payments.release_approvals", "must be at least 1")
 	case n > 1:
-		v.err("payments.release_approvals", "must be 1: a release by more than one person is not supported yet")
+		v.err("payments.release_approvals", "must be 1: one person releases a run; set companies[].release_dual_limit for a second person's approval of large runs")
 	}
 	if c.Payments.BankChangeHoldDays < 0 {
 		v.err("payments.bank_change_hold_days", "must not be negative")
