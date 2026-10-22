@@ -120,9 +120,13 @@ func newStore(t *testing.T) (*session.Store, *clock, *directory.Postgres) {
 	return st, c, dir
 }
 
+// person's tokens are fresh 256-bit random values, as an identity
+// provider's are, so a test can look for one in the stored bytes without
+// random ciphertext matching it by chance.
 func person() session.Session {
 	return session.Session{TenantID: uuid.New(), Issuer: "https://idp.example.com", Subject: "alice", LoginCode: "acme",
-		Secrets: session.Secrets{AccessToken: "at", AccessExpiry: time.Now().Add(time.Hour), RefreshToken: "rt", IDToken: "it"}}
+		Secrets: session.Secrets{AccessToken: session.NewSecret(), AccessExpiry: time.Now().Add(time.Hour),
+			RefreshToken: session.NewSecret(), IDToken: session.NewSecret()}}
 }
 
 // TestSessions: a session is made with a fresh id and CSRF token, the
@@ -131,7 +135,8 @@ func person() session.Session {
 func TestSessions(t *testing.T) {
 	ctx := context.Background()
 	st, c, dir := newStore(t)
-	s, err := st.Create(ctx, person())
+	alice := person()
+	s, err := st.Create(ctx, alice)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,11 +150,29 @@ func TestSessions(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if !hashed || bytes.Contains(stored, []byte("rt")) || bytes.Contains(stored, []byte(s.CSRF)) {
-		t.Errorf("stored: hashed id %v, sealed %q, want the id's hash and nothing readable", hashed, stored)
+	if !hashed {
+		t.Error("stored: got another id, want the id's hash")
 	}
+	for name, secret := range map[string]string{"access token": alice.AccessToken, "refresh token": alice.RefreshToken,
+		"id token": alice.IDToken, "csrf token": s.CSRF} {
+		if bytes.Contains(stored, []byte(secret)) {
+			t.Errorf("stored: the %s is readable, want it sealed", name)
+		}
+	}
+	t.Run("sealed under the session key, for this session", func(t *testing.T) {
+		if _, err := st.Sealer.Open(session.Hash(s.ID), stored); err != nil {
+			t.Errorf("the store's key: got %v, want it opened", err)
+		}
+		other, _ := session.NewSealer(secretB)
+		if _, err := other.Open(session.Hash(s.ID), stored); !errors.Is(err, session.ErrUnsealed) {
+			t.Errorf("another key: got %v, want ErrUnsealed", err)
+		}
+		if _, err := st.Sealer.Open(session.Hash("another session"), stored); !errors.Is(err, session.ErrUnsealed) {
+			t.Errorf("another session's id: got %v, want ErrUnsealed", err)
+		}
+	})
 	got, err := st.Load(ctx, s.ID)
-	if err != nil || got.Subject != "alice" || got.RefreshToken != "rt" || got.CSRF != s.CSRF || got.Version != 1 {
+	if err != nil || got.Subject != "alice" || got.RefreshToken != alice.RefreshToken || got.CSRF != s.CSRF || got.Version != 1 {
 		t.Fatalf("load: got %+v, %v", got, err)
 	}
 	t.Run("seen", func(t *testing.T) {
@@ -254,7 +277,7 @@ func TestRenewOnce(t *testing.T) {
 	}
 	var mu sync.Mutex
 	renewals := 0
-	fresh := func(sec session.Secrets) bool { return sec.AccessToken != "at" }
+	fresh := func(sec session.Secrets) bool { return sec.AccessToken != s.AccessToken }
 	renew := func(_ context.Context, sec session.Secrets) (session.Secrets, error) {
 		mu.Lock()
 		defer mu.Unlock()
