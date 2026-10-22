@@ -171,6 +171,7 @@ func (s *Server) order(w http.ResponseWriter, r *http.Request, p *person) {
 		s.notFound(w, r)
 		return
 	}
+	w.Header().Add("Vary", "HX-Request") // its refusals too: a page or a section
 	fragment := r.Header.Get("HX-Request") == "true"
 	var m me
 	if !fragment {
@@ -183,7 +184,6 @@ func (s *Server) order(w http.ResponseWriter, r *http.Request, p *person) {
 	if !ok {
 		return
 	}
-	w.Header().Add("Vary", "HX-Request")
 	if fragment {
 		s.render(w, r, http.StatusOK, ui.OrderSection(o))
 		return

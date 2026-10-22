@@ -61,8 +61,8 @@ func (e Env) AccountItem(tb testing.TB, description, amount string) string {
 }
 
 // SupplierInvoice enters, as the tenant's human, a parked invoice of the
-// supplier in company 2000 (EUR) dated 2026-03-10, on order po when it is
-// not uuid.Nil, and returns its id.
+// supplier in company 2000 (EUR) dated 2026-03-10, with the items (on an
+// order: POItem; on an account: AccountItem), and returns its id.
 func (e Env) SupplierInvoice(tb testing.TB, supplier uuid.UUID, ref, gross, tax string, items ...string) uuid.UUID {
 	tb.Helper()
 	inv, _ := e.Must(201, "POST", "/v1/supplier-invoices", fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "supplier_reference": %q,

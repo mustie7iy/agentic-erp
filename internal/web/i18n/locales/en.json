@@ -259,7 +259,7 @@
   "actions.title": "What you can do",
   "actions.none": "Nothing is left to do on this invoice.",
   "actions.notyours": "You may not change this invoice in its status.",
-  "actions.pending": "The invoice's exception waits for its approval request: someone who may approve it decides it in the approvals inbox. Releasing or cancelling the invoice by hand withdraws the request, and an invoice released by hand is matched again before it posts.",
+  "actions.pending": "An exception's approval request is linked to the invoice. While it waits, someone who may approve it decides it in the approvals inbox, and releasing or cancelling the invoice by hand withdraws it; an invoice released by hand is matched again before it posts.",
   "action.match": "Run the three-way match",
   "action.match.hint": "Compares the invoice with its order and receipts. Issues put it on hold for an approval.",
   "action.post": "Post the invoice",

@@ -21,6 +21,7 @@ const (
 	permReadRecommendations   = "agents.session.read"
 	permDecideRecommendations = "agents.recommendation.decide"
 	permReadOrders            = "procurement.order.read"
+	permReadReceipts          = "procurement.receipt.read"
 	permReadCompanies         = "tenancy.org.read"
 )
 
@@ -78,7 +79,7 @@ var Screens = func() map[string][]Operation {
 		"GET /invoices":                {opMe, opCompanies, {ID: "listSupplierInvoices", HiddenBy: permReadInvoices}, opNames},
 		"GET /invoices/{id}":           opInvoice,
 		"GET /invoices/{id}/order": {opMe, {ID: "getSupplierInvoice", HiddenBy: permReadInvoices}, {ID: "getPurchaseOrder", HiddenBy: permReadOrders},
-			{ID: "listGoodsReceipts", HiddenBy: "procurement.receipt.read"}},
+			{ID: "listGoodsReceipts", HiddenBy: permReadReceipts}},
 		"GET /invoices/{id}/document": {{ID: "getSupplierInvoiceDocument", HiddenBy: permReadInvoices}},
 		"POST /invoices/{id}/recommendations/{rec}/decide": append([]Operation{{ID: "decideRecommendation", HiddenBy: permDecideRecommendations,
 			HumanOnly: true}}, opInvoice...),

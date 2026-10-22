@@ -32,14 +32,14 @@ var (
 	invoiceStatuses = map[string]i18n.Key{"parked": i18n.InvoiceStatusParked, "on_hold": i18n.InvoiceStatusOnHold,
 		"posted": i18n.InvoiceStatusPosted, "rejected": i18n.InvoiceStatusRejected, "cancelled": i18n.InvoiceStatusCancelled,
 		"reversed": i18n.InvoiceStatusReversed}
-	invoiceKinds = map[string]i18n.Key{"invoice": i18n.InvoiceKindInvoice, "credit_memo": i18n.InvoiceKindCredit,
-		"subsequent_debit": i18n.InvoiceKindDebit, "subsequent_credit": i18n.InvoiceKindLaterCredit}
+	invoiceKinds = map[string]i18n.Key{"invoice": i18n.InvoiceKindInvoice, "credit_memo": i18n.InvoiceKindMemo,
+		"subsequent_debit": i18n.InvoiceKindDebit, "subsequent_credit": i18n.InvoiceKindLaterReduction}
 	invoiceSources = map[string]i18n.Key{"manual": i18n.InvoiceSourceManual, "capture": i18n.InvoiceSourceCapture,
 		"edi": i18n.InvoiceSourceEDI, "migration": i18n.InvoiceSourceMigration}
 	matchIssues = map[string]i18n.Key{"tax_or_total_mismatch": i18n.MatchIssueTax, "order_not_open": i18n.MatchIssueOrderClosed,
 		"order_item_missing": i18n.MatchIssueItemMissing, "price_variance": i18n.MatchIssuePrice,
 		"quantity_exceeds_received": i18n.MatchIssueQuantity}
-	recommendationKinds = map[string]i18n.Key{"approve_with_variance": i18n.RecKindVariance, "request_credit_note": i18n.RecKindCreditNote,
+	recommendationKinds = map[string]i18n.Key{"approve_with_variance": i18n.RecKindVariance, "request_credit_note": i18n.RecKindSupplierNote,
 		"reject_duplicate": i18n.RecKindDuplicate, "wait_for_goods_receipt": i18n.RecKindWait, "correct_tax": i18n.RecKindTax,
 		"other": i18n.RecKindOther}
 	recommendationOutcomes = map[string]i18n.Key{"": i18n.RecOpen, "accepted": i18n.RecAccepted, "overridden": i18n.RecOverridden,

@@ -16,7 +16,8 @@ import (
 // An invoice's page reads the invoice, its latest match, the agents'
 // recommendations on it, the companies' names and the principals' names:
 // with getCurrentPrincipal six calls at most (ADR-0052 §10). The order
-// and its receipts are a section of their own (order.go), which htmx
+// and its receipts are a section of their own (order, in
+// invoice_actions.go), which htmx
 // loads once the page is there.
 
 // maxRecommendations is the most recommendations an invoice's page shows,
@@ -92,7 +93,7 @@ func (s *Server) showInvoice(w http.ResponseWriter, r *http.Request, p *person, 
 	if !m.may(permDecideRecommendations) && slices.ContainsFunc(recs, func(rc gen.Recommendation) bool { return !rc.Outcome.Set }) {
 		ip.RecsWhy = i18n.RecNotYours
 	}
-	if inv.PurchaseOrderID.Set && m.may(permReadOrders) {
+	if inv.PurchaseOrderID.Set && m.may(permReadOrders) && m.may(permReadReceipts) {
 		ip.Order = invoicePath(id) + "/order"
 	}
 	if inv.Source == "capture" {

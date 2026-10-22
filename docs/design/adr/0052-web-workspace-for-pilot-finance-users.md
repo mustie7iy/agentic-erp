@@ -1356,11 +1356,13 @@ it departs from the step as first written:
   `listSupplierInvoices` with the supplier expanded, `listPrincipalNames`
   for the creators), an invoice's page six (with `getSupplierInvoice`,
   `listMatchResults`, `listRecommendations`). The order and its receipts
-  (`getPurchaseOrder`, `listGoodsReceipts`) are a section of their own,
+  (`getPurchaseOrder`, `listGoodsReceipts`; offered to a person holding
+  both read permissions) are a section of their own,
   `GET /invoices/{id}/order`, which htmx loads into the page once it is
   there (`hx-trigger="load"`) and which is a page of its own without
-  htmx, so no render passes six. A refused action re-renders the
-  invoice's page: the write and the page's six reads.
+  htmx, so no page's reads pass six. **Departs from §10** ("at most 6
+  API calls per page render"): a refused action re-renders the invoice's
+  page, which is the write and the page's six reads, seven calls.
   `TestScreensAgainstTheContract` now holds every route to six reads.
 - **Actions.** Match, post (optional posting date), hold (reason),
   release (optional comment), cancel (reason) and reverse (reason,
@@ -1371,7 +1373,10 @@ it departs from the step as first written:
   refusal and what was typed. The API releases an invoice whose
   exception waits by withdrawing the request, and posting it then needs a
   new match (`payables.match_required`): the page says both, where it
-  was first thought the release was refused.
+  was first thought the release was refused. The request's id stays on
+  an invoice after its exception is approved (and through a later hold
+  by hand), so the page words the waiting request conditionally rather
+  than reading its status (a seventh call).
 - **Refusals.** `i18n.InvoiceProblems` explains the payables codes the
   scenarios meet (`match_outdated`, `match_required`, `tax_mismatch`,
   `invalid_status`, `amounts_mismatch`, `supplier_not_usable`,
@@ -1381,7 +1386,7 @@ it departs from the step as first written:
   contract test holds these codes to the operations' `x-problem-codes`
   too. As §8 says, a refusal's `detail` is not shown: for
   `payables.tax_mismatch` it names each tax code's calculated tax, which
-  the page cannot show otherwise (decision D3 below).
+  the page cannot show otherwise (decision D3 below; §8 unchanged).
 - **Agents' work.** An invoice an agent entered is badged in the queue
   and says on its page that it is a proposal to check against the
   document. A recommendation (the AP exceptions agent's kinds named,
@@ -1428,7 +1433,8 @@ Decisions for the product owner (T73e):
   translated message for codes whose figures the page has no other way
   to show (`payables.tax_mismatch`: each code's calculated tax;
   `payables.match_outdated`: what changed), or whether the API should
-  carry those figures as fields (a contract change), as §8 now has it.
+  carry those figures as fields (a contract change); §8 as it stands
+  shows a `detail` only as the fallback for a code without a message.
 - **D4:** if the pilot's browsers do not render a sandboxed PDF, either
   serve PDFs as downloads (no preview), or loosen the sandbox for PDFs
   (`sandbox allow-scripts` without `allow-same-origin`, an opaque origin),

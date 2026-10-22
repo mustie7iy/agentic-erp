@@ -152,7 +152,7 @@ func components() map[string]templ.Component {
 func invoiceRow(agent bool) InvoiceRow {
 	r := InvoiceRow{Path: "/invoices/1", Number: "SI100001", Reference: "INV-1", Supplier: Supplier{ID: "s1", Number: "BP1", Name: "Northwind"},
 		FilterPath: "/invoices?supplier_id=s1", Company: "Acme GmbH", Date: day, Gross: Money{Amount: "119.00", Currency: "EUR"},
-		Status: Label{Key: i18n.InvoiceStatusOnHold}, Kind: Label{Key: i18n.InvoiceKindCredit, Raw: "credit_memo"}, HoldReason: "Three-way match"}
+		Status: Label{Key: i18n.InvoiceStatusOnHold}, Kind: Label{Key: i18n.InvoiceKindMemo, Raw: "credit_memo"}, HoldReason: "Three-way match"}
 	if agent {
 		r.Agent = &Name{Text: "Capturer", Agent: true}
 	}

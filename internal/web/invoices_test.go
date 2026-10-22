@@ -239,7 +239,7 @@ func TestInvoicePage(t *testing.T) {
 	holds(t, "the variance", variance.mainText(), "Status On hold", "The latest match found 1 issue:",
 		"The price differs from the order beyond the tolerance Line 1", "order item 1: invoiced 130.00 but the order price gives 120.00", "Matched by human",
 		"Agents' recommendations", "Approve with the variance", "An agent wrote this", "Recommended by agent Agent", "Decision Open", "Pay now <script>",
-		"waits for its approval request", "withdraws the request")
+		"An exception's approval request is linked to the invoice. While it waits", "withdraws it")
 	exception := ""
 	for _, a := range variance.all("a", "button") {
 		exception = attrOf(a, "href")
@@ -423,11 +423,7 @@ func TestExceptionDecidedElsewhere(t *testing.T) {
 	b.signIn()
 	var request uuid.UUID
 	pgtest.Scan(t, `SELECT workflow_request_id FROM payables.supplier_invoice WHERE id = $1`, []any{d.variance}, &request)
-	other := s.as(s.f.Approver2)
-	form := other.get(requestPath(request)).page(t).form(requestPath(request) + "/approve")
-	if r := other.do(http.MethodPost, requestPath(request)+"/approve", values(form, "Price list of March")); r.status != http.StatusSeeOther {
-		t.Fatalf("the exception's approval: got %d %s", r.status, r.page(t).mainText())
-	}
+	approveElsewhere(t, s, request)
 	if got := invoiceStatus(t, d.variance); got != "parked" {
 		t.Fatalf("after the exception's approval: got %s, want parked", got)
 	}
@@ -437,6 +433,37 @@ func TestExceptionDecidedElsewhere(t *testing.T) {
 	}
 	if got := invoiceStatus(t, d.variance); got != "posted" {
 		t.Errorf("status: got %s, want posted", got)
+	}
+}
+
+// approveElsewhere approves the exception's request as the second
+// approver, in the workspace's inbox.
+func approveElsewhere(t *testing.T, s *stack, request uuid.UUID) {
+	t.Helper()
+	other := s.as(s.f.Approver2)
+	form := other.get(requestPath(request)).page(t).form(requestPath(request) + "/approve")
+	if r := other.do(http.MethodPost, requestPath(request)+"/approve", values(form, "Price list of March")); r.status != http.StatusSeeOther {
+		t.Fatalf("the exception's approval: got %d %s", r.status, r.page(t).mainText())
+	}
+}
+
+// TestApprovedThenHeld: an invoice whose exception was approved and that
+// a person then held by hand keeps the approved request's link; the page
+// does not say the request still waits.
+func TestApprovedThenHeld(t *testing.T) {
+	s, d := invoicesStack(t)
+	b := s.browser()
+	b.signIn()
+	var request uuid.UUID
+	pgtest.Scan(t, `SELECT workflow_request_id FROM payables.supplier_invoice WHERE id = $1`, []any{d.variance}, &request)
+	approveElsewhere(t, s, request)
+	if r := act(b, d.variance, "hold", "Supplier dispute", ""); r.status != http.StatusSeeOther {
+		t.Fatalf("hold: got %d %s", r.status, r.page(t).mainText())
+	}
+	got := b.get(invoicePath(d.variance)).page(t).mainText()
+	holds(t, "approved, then held", got, "Status On hold", "Why it is on hold Supplier dispute", "Open the approval request", "While it waits")
+	if strings.Contains(got, "waits for its approval request") {
+		t.Errorf("approved, then held: the page says the request still waits: %s", got)
 	}
 }
 

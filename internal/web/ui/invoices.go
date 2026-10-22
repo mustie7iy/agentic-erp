@@ -291,7 +291,7 @@ type InvoicePage struct {
 	RecsWhy    i18n.Key // why the open recommendations offer no decision
 	Actions    []ActionForm
 	Why        i18n.Key // why Actions is empty
-	Pending    bool     // an exception request is linked to the invoice on hold
+	Pending    bool     // an exception's request is linked to the invoice on hold: waiting, or approved before a hold by hand
 	Done       i18n.Key
 	Refusal    *Refusal
 }

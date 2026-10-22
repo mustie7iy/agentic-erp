@@ -259,7 +259,7 @@
   "actions.title": "Ce que vous pouvez faire",
   "actions.none": "Il ne reste rien à faire sur cette facture.",
   "actions.notyours": "Vous ne pouvez pas modifier cette facture dans son statut actuel.",
-  "actions.pending": "L'exception de la facture attend sa demande d'approbation : une personne autorisée en décide dans la boîte des approbations. Libérer ou annuler la facture manuellement retire la demande, et une facture libérée manuellement est rapprochée de nouveau avant d'être comptabilisée.",
+  "actions.pending": "Une demande d'approbation d'exception est liée à la facture. Tant qu'elle est en attente, une personne autorisée en décide dans la boîte des approbations, et libérer ou annuler la facture manuellement la retire; une facture libérée manuellement est rapprochée de nouveau avant d'être comptabilisée.",
   "action.match": "Lancer le rapprochement à trois voies",
   "action.match.hint": "Compare la facture à sa commande et à ses réceptions. Un écart la met en attente d'une approbation.",
   "action.post": "Comptabiliser la facture",
