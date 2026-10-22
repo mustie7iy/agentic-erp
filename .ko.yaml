@@ -1,4 +1,5 @@
-# Container images of the three binaries (ADR-0032), built by `make images`.
+# Container images of the four pure-Go binaries (ADR-0032; erp-web,
+# ADR-0052), built by `make images`.
 #
 # The base is distroless static, nonroot (uid 65532, no shell, CA
 # certificates and time zones included), pinned by the digest of its
@@ -30,6 +31,11 @@ builds:
     ldflags: ["-s -w -buildid= -X github.com/mustie7iy/agentic-erp/internal/platform/buildinfo.version={{.Env.ERP_VERSION}}"]
   - id: erp-router
     main: ./cmd/erp-router
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: ["-s -w -buildid= -X github.com/mustie7iy/agentic-erp/internal/platform/buildinfo.version={{.Env.ERP_VERSION}}"]
+  - id: erp-web
+    main: ./cmd/erp-web
     env: [CGO_ENABLED=0]
     flags: [-trimpath]
     ldflags: ["-s -w -buildid= -X github.com/mustie7iy/agentic-erp/internal/platform/buildinfo.version={{.Env.ERP_VERSION}}"]

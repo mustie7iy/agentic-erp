@@ -1,0 +1,6 @@
+# The activities of a cash flow statement (IAS 7.10), suggested as the
+# top of the tenant's liquidity items.
+liquidity_items:
+  - {code: OPERATING, name: Operating activities, direction: both}
+  - {code: INVESTING, name: Investing activities, direction: both}
+  - {code: FINANCING, name: Financing activities, direction: both}

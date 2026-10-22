@@ -1,0 +1,4 @@
+# No tax codes yet: ADR-0049 (T61) models them anew (components, account
+# keys, jurisdiction, recoverable share, dated rates). The codes and rates
+# sourced for this pack wait in ../TAX-PENDING-T61a.md for T61a.
+tax_codes: []

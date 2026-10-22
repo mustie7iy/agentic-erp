@@ -34,7 +34,7 @@ func TestMiddlewareTracesLogsAndMeasures(t *testing.T) {
 	var seen string
 	h := Middleware(log, m, tp)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen = reqctx.TraceID(r.Context())
-		reqctx.InfoFrom(r.Context()).Operation = "getOperation"
+		SetOperation(r.Context(), "getOperation")
 		w.Write([]byte("ok"))
 	}))
 	r := httptest.NewRequest("GET", "/v1/operations/x", nil)
@@ -57,6 +57,16 @@ func TestMiddlewareTracesLogsAndMeasures(t *testing.T) {
 	m.Handler().ServeHTTP(mrec, httptest.NewRequest("GET", "/metrics", nil))
 	if !strings.Contains(mrec.Body.String(), `erp_http_requests_total{code="200",operation="getOperation"} 1`) {
 		t.Fatal(mrec.Body.String())
+	}
+}
+
+// TestSetOperationOutsideARequest: without Middleware's Info nothing is
+// named, and nothing fails.
+func TestSetOperationOutsideARequest(t *testing.T) {
+	ctx := context.Background()
+	SetOperation(ctx, "x")
+	if got := reqctx.InfoFrom(ctx).Operation; got != "" {
+		t.Errorf("got %q, want nothing outside a request", got)
 	}
 }
 

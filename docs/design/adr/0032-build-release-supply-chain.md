@@ -176,3 +176,16 @@ ko's; the provenance names both. The release pushes, signs and verifies
 it with the others, so a cell's `release.json` takes `images.analytics`
 from the release's `images.txt` like every other image.
 `scripts/test-images.sh` checks these scripts with fake tools.
+
+## Amendment (2026-10-21, T73a, ADR-0052)
+
+A fourth ko image: `erp-web`, the web workspace, built from `./cmd/erp-web`
+in `.ko.yaml` like `erp-server`, `erp-router` and `erp` (`CGO_ENABLED=0`,
+`-trimpath`, empty build id, distroless static), through the same double
+build, SBOM, grype scan, cosign signature and attestations and
+`verify-image.sh`; `release.json` names it as `images.web` (an
+`erp-web` repository in ECR), and `TestStaticBinaries` holds it to no cgo.
+Its static files (the stylesheet and the one vendored script, htmx, pinned
+by SHA-256 and checked at startup and in a test) are embedded in the
+binary, served under content-hashed names; the image holds nothing else.
+It takes no part in the cgo exception.

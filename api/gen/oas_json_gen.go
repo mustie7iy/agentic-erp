@@ -53157,9 +53157,15 @@ func (s *SupplierCompany) encodeFields(e *jx.Encoder) {
 			e.ArrEnd()
 		}
 	}
+	{
+		if s.PlanningGroup.Set {
+			e.FieldStart("planning_group")
+			s.PlanningGroup.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfSupplierCompany = [7]string{
+var jsonFieldsNameOfSupplierCompany = [8]string{
 	0: "legal_entity_id",
 	1: "reconciliation_account_id",
 	2: "payment_term_code",
@@ -53167,6 +53173,7 @@ var jsonFieldsNameOfSupplierCompany = [7]string{
 	4: "is_payment_blocked",
 	5: "withholding_tax_codes",
 	6: "payment_methods",
+	7: "planning_group",
 }
 
 // Decode decodes SupplierCompany from json.
@@ -53276,6 +53283,16 @@ func (s *SupplierCompany) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"payment_methods\"")
 			}
+		case "planning_group":
+			if err := func() error {
+				s.PlanningGroup.Reset()
+				if err := s.PlanningGroup.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"planning_group\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -53373,14 +53390,21 @@ func (s *SupplierCompanyInput) encodeFields(e *jx.Encoder) {
 			e.ArrEnd()
 		}
 	}
+	{
+		if s.PlanningGroup.Set {
+			e.FieldStart("planning_group")
+			s.PlanningGroup.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfSupplierCompanyInput = [5]string{
+var jsonFieldsNameOfSupplierCompanyInput = [6]string{
 	0: "legal_entity_id",
 	1: "reconciliation_account_id",
 	2: "payment_term_code",
 	3: "withholding_tax_codes",
 	4: "payment_methods",
+	5: "planning_group",
 }
 
 // Decode decodes SupplierCompanyInput from json.
@@ -53465,6 +53489,16 @@ func (s *SupplierCompanyInput) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"payment_methods\"")
+			}
+		case "planning_group":
+			if err := func() error {
+				s.PlanningGroup.Reset()
+				if err := s.PlanningGroup.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"planning_group\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)

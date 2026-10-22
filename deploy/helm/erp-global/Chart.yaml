@@ -5,7 +5,9 @@ description: >-
   the global tier's Network Load Balancer, registered in its target group
   by a TargetGroupBinding, terminating the public TLS and reading the
   balancer's PROXY v2 header, with its certificate, secrets, network
-  policies and disruption budget. Installed in the erp-global namespace of
+  policies and disruption budget; and the web workspace erp-web
+  (ADR-0052) likewise, behind a load balancer of its own on its own
+  hostname, calling the API through the router. Installed in the erp-global namespace of
   the environment's home cell, after the add-ons and the erp-cluster chart.
 type: application
 version: 0.1.0

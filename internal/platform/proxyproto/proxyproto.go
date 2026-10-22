@@ -15,15 +15,51 @@ package proxyproto
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 )
+
+// ParseFrom parses a setting listing the load balancer's subnets, a
+// comma-separated list of CIDRs (Listener.From); setting names it in the
+// error.
+func ParseFrom(setting, raw string) ([]netip.Prefix, error) {
+	var from []netip.Prefix
+	for part := range strings.SplitSeq(raw, ",") {
+		if part = strings.TrimSpace(part); part == "" {
+			continue
+		}
+		p, err := netip.ParsePrefix(part)
+		if err != nil {
+			return nil, fmt.Errorf("%s must be a comma-separated list of CIDRs (the load balancer's subnets), not %q", setting, part)
+		}
+		from = append(from, p.Masked())
+	}
+	return from, nil
+}
+
+// Listen opens a TCP listener on addr whose connections from the load
+// balancer's subnets (from) begin with its PROXY v2 header; with no
+// subnets it is the plain listener. A server's TLS goes on top, since the
+// header comes first.
+func Listen(ctx context.Context, addr string, from []netip.Prefix) (net.Listener, error) {
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("proxyproto: %w", err)
+	}
+	if len(from) == 0 {
+		return ln, nil
+	}
+	return &Listener{Listener: ln, From: from}, nil
+}
 
 // DefaultTimeout bounds the reading of a header.
 const DefaultTimeout = 10 * time.Second

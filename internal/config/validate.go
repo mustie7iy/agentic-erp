@@ -90,6 +90,7 @@ func Validate(c *Config, exponents currency.Exponents) []Finding {
 	v.packs(c)
 	v.calendars(c)
 	v.controlling(c)
+	v.cash(c)
 	switch c.Output.PurchaseOrderChannel {
 	case "email", "edi", "print":
 	default:
@@ -260,6 +261,7 @@ func (v *validator) company(p string, co *Company) {
 	v.paymentMethods(p, co)
 	v.bankStatements(p, co, exp, known)
 	v.companyControlling(p, co)
+	v.companyCash(p, co)
 }
 
 // isTaxAccount reports whether the account is the input tax account or a

@@ -1,13 +1,13 @@
-{{/* The router's image by digest; both parts required. */}}
+{{/* An image by digest, images.<name>; both parts required. */}}
 {{- define "erp-global.image" -}}
-{{- $image := .Values.images.router -}}
-{{- $repository := required "images.router.repository is required" $image.repository -}}
-{{- $digest := required "images.router.digest is required" $image.digest -}}
+{{- $image := index .root.Values.images .name -}}
+{{- $repository := required (printf "images.%s.repository is required" .name) $image.repository -}}
+{{- $digest := required (printf "images.%s.digest is required" .name) $image.digest -}}
 {{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
-{{- fail (printf "images.router.digest must be a sha256 digest, not %q" $digest) -}}
+{{- fail (printf "images.%s.digest must be a sha256 digest, not %q" .name $digest) -}}
 {{- end -}}
 {{- if contains "@" $repository -}}
-{{- fail "images.router.repository names the repository, the digest goes in images.router.digest" -}}
+{{- fail (printf "images.%s.repository names the repository, the digest goes in images.%s.digest" .name .name) -}}
 {{- end -}}
 {{- printf "%s@%s" $repository $digest -}}
 {{- end -}}
@@ -21,5 +21,10 @@ app.kubernetes.io/instance: {{ .root.Release.Name }}
 
 {{- define "erp-global.selector" -}}
 app.kubernetes.io/name: erp-router
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end -}}
+
+{{- define "erp-global.webSelector" -}}
+app.kubernetes.io/name: erp-web
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}

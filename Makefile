@@ -4,13 +4,14 @@ build:
 	go build -o bin/erp ./cmd/erp
 	go build -o bin/erp-server ./cmd/erp-server
 	go build -o bin/erp-router ./cmd/erp-router
+	go build -o bin/erp-web ./cmd/erp-web
 	# erp-analytics links DuckDB through cgo (ADR-0044): built with the host's
 	# C toolchain; its image is built with the others (make images).
 	CGO_ENABLED=1 go build -o bin/erp-analytics ./cmd/erp-analytics
 
-# Container images of the four binaries (ADR-0032), not pushed: digests in
+# Container images of the five binaries (ADR-0032), not pushed: digests in
 # dist/images/images.txt, SBOMs in dist/images/sbom. ko builds erp-server,
-# erp-router and erp (.ko.yaml); docker buildx builds erp-analytics (cgo,
+# erp-router, erp-web and erp (.ko.yaml); docker buildx builds erp-analytics (cgo,
 # DuckDB: not ko's, ADR-0044) from deploy/images/erp-analytics.Dockerfile,
 # one platform at a time, since each compiles api/gen in a few GB of the
 # Docker VM's memory (KO_PLATFORMS=linux/arm64 builds one platform of
@@ -91,9 +92,11 @@ db-up:
 test-db:
 	DATABASE_URL="$(DATABASE_URL)" go test -count=1 -v ./db
 
-# Regenerate the server and client from the API contract (ADR-0014).
+# Regenerate the server and client from the API contract (ADR-0014) and the
+# web workspace's templ components (ADR-0052); CI fails on any difference.
 generate:
 	cd api && go generate ./...
+	go generate ./internal/web/...
 
 # Run the API server against the local database (see internal/platform/config).
 # ERP_ENV has no default; a local run is development unless the caller says otherwise.

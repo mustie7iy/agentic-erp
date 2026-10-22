@@ -1,6 +1,6 @@
 # An environment's global values: most from Terraform's outputs
 # (envs/<env>: global.*, cell.cidr, subordinate_ca_certificate) and the
-# release (the router's image digest, T40d). Every one without a default is
+# release (the router's and erp-web's image digests, T40d). Every one without a default is
 # required: rendering fails without it.
 
 # The SPIFFE trust domain of the environment (ERP_TRUST_DOMAIN, ADR-0033).
@@ -17,6 +17,10 @@ vpcCidr: ""
 # policy admits nothing else.
 images:
   router:
+    repository: ""
+    digest: ""
+  # The web workspace (ADR-0052).
+  web:
     repository: ""
     digest: ""
 
@@ -52,6 +56,31 @@ router:
   # Further settings, by name.
   extraEnv: {}
 
+# The web workspace (ADR-0052 §6): erp-web on its own hostname and load
+# balancer, calling the API through the router.
+web:
+  replicas: 3
+  # The workspace's own hostname, app.<domain>: its address
+  # (ERP_WEB_PUBLIC_URL, https), whose record points at global.web_dns_name
+  # and whose public certificate operators load (<prefix>/web-public-*).
+  hostname: ""
+  # The public API's address, https://<the router's hostname>
+  # (ERP_WEB_API_URL): erp-web reaches it at the router's Service and
+  # verifies this name.
+  apiUrl: ""
+  # The target group the web load balancer forwards to (global.web_target_group_arn).
+  targetGroupArn: ""
+  # The web load balancer's subnets (global.web_proxy_sources): the only
+  # sources the public listener takes, each connection beginning with a
+  # PROXY v2 header (ERP_WEB_PROXY_FROM).
+  proxyFrom: []
+  logLevel: info
+  resources:
+    requests: {cpu: 250m, memory: 256Mi}
+    limits: {memory: 512Mi}
+  # Further settings, by name.
+  extraEnv: {}
+
 directory:
   # The directory database, host:port (global.directory_endpoint).
   endpoint: ""
@@ -69,7 +98,9 @@ secrets:
   # The global tier's entries in Secrets Manager (modules/global):
   # <prefix>/page-token-key (base64 of at least 32 random bytes),
   # router-public-certificate (the public listener's chain, PEM, from a
-  # public CA) and router-public-key (its key, PEM), which operators load.
+  # public CA) and router-public-key (its key, PEM), and the same pair for
+  # the web workspace (web-public-certificate, web-public-key), which
+  # operators load.
   prefix: erp/global
   # The store of the erp-cluster chart.
   store: erp-cell
