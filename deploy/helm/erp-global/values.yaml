@@ -74,6 +74,14 @@ web:
   # sources the public listener takes, each connection beginning with a
   # PROXY v2 header (ERP_WEB_PROXY_FROM).
   proxyFrom: []
+  # While the session sealing key rotates (ADR-0028): true mounts
+  # <prefix>/web-session-key-previous as ERP_WEB_SESSION_KEY_PREVIOUS, so
+  # sessions sealed under the previous key still open. To rotate: copy
+  # web-session-key into web-session-key-previous, write a new
+  # web-session-key, deploy with true (replicas read the keys at start);
+  # after a session's lifetime (24 h), deploy with false and empty the
+  # previous one.
+  sessionKeyPrevious: false
   logLevel: info
   resources:
     requests: {cpu: 250m, memory: 256Mi}
@@ -101,7 +109,7 @@ secrets:
   # public CA) and router-public-key (its key, PEM), and the same pair for
   # the web workspace (web-public-certificate, web-public-key), which
   # operators load; the workspace's web-session-key (at least 32 random
-  # bytes) and web-clients (a JSON object of file name to the web clients'
+  # bytes; web-session-key-previous during a rotation) and web-clients (a JSON object of file name to the web clients'
   # PEM keys or secrets, ADR-0052 G8).
   prefix: erp/global
   # The store of the erp-cluster chart.
