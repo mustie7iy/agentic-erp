@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -34,7 +35,7 @@ func shell() Shell {
 
 // components are every component, rendered alone.
 func components() map[string]templ.Component {
-	return map[string]templ.Component{
+	out := map[string]templ.Component{
 		"Layout":          Layout(shell(), Value("content")),
 		"Notice":          Notice("n", i18n.HomeNotice, Value("message")),
 		"SummaryList":     SummaryList([]Row{{Key: i18n.StatusState, Value: Value("v")}}),
@@ -146,6 +147,187 @@ func components() map[string]templ.Component {
 		"RefusalPage":        RefusalPage(shell(), i18n.DocumentTitle, "/invoices/1", i18n.OrderBack, refusal()),
 		"refusalPageContent": refusalPageContent(i18n.DocumentTitle, "/invoices/1", i18n.OrderBack, refusal()),
 	}
+	for name, c := range bankComponents() {
+		out[name] = c
+	}
+	return out
+}
+
+// bankComponents are the bank statement screens' components (T73g), with
+// the variants their branches need.
+func bankComponents() map[string]templ.Component {
+	r := refusal()
+	return map[string]templ.Component{
+		"Statements":               Statements(signedIn(), statementList(true)),
+		"statements plain":         statementsContent(statementList(false)),
+		"statements invalid":       statementsContent(StatementList{Invalid: true}),
+		"statements refused":       statementsContent(StatementList{Refusal: &r}),
+		"statements empty":         statementsContent(StatementList{Filter: BankFilter{Banks: []Option{}}}),
+		"HouseBankItem":            HouseBankItem(HouseBank{Code: "MAIN", Account: "•••• 3000", Currency: "EUR", Company: "Acme", Inactive: true}),
+		"house bank plain":         HouseBankItem(HouseBank{Code: "MAIN", Account: "•••• 3000", Currency: "EUR"}),
+		"BankFilterForm":           BankFilterForm(BankFilter{Status: "gap", Banks: []Option{{Value: "b1", Text: "MAIN", Selected: true}}}),
+		"StatementCard":            StatementCard(statementRow(true)),
+		"statement card plain":     StatementCard(statementRow(false)),
+		"StatementStatusTag":       StatementStatusTag(Label{Key: i18n.StatementStatusGap}),
+		"statement status raw":     StatementStatusTag(Label{Raw: "in_review"}),
+		"amountOn":                 amountOn(Money{Amount: "1.00", Currency: "EUR"}, day),
+		"UploadFormView":           UploadFormView(uploadForm(true)),
+		"upload plain":             UploadFormView(uploadForm(false)),
+		"Statement":                Statement(signedIn(), statementPage(true)),
+		"statement plain":          statementContent(statementPage(false)),
+		"statement no lines":       statementContent(StatementPage{Why: i18n.StatementReconciledWhy}),
+		"LineCard":                 LineCard(lineView(true)),
+		"line decided":             LineCard(lineView(false)),
+		"LineStatusTag":            LineStatusTag(Label{Key: i18n.LineStatusPosted}),
+		"MatchBlock":               MatchBlock(matchInfo(true)),
+		"match block plain":        MatchBlock(matchInfo(false)),
+		"TargetItem":               TargetItem(Target{Candidate: 2, Payment: "p1", BankFile: "f1"}, true),
+		"target payment":           TargetItem(Target{Candidate: 1, Payment: "p1"}, false),
+		"target rule":              TargetItem(Target{Candidate: 1, Rule: "NCHG", RuleText: "Bank charges"}, false),
+		"target rule bare":         TargetItem(Target{Candidate: 1, Rule: "NCHG"}, false),
+		"target incoming":          TargetItem(Target{Candidate: 1, Incoming: true}, false),
+		"target none":              TargetItem(Target{Candidate: 1}, false),
+		"LineFormView":             LineFormView(LineForm{Verb: LinePost, Line: 2, ID: "line-2-post", Action: "/x", Text: "t", Date: "d", TextError: i18n.LinePostReasonNeeded, DateError: i18n.ActionDateInvalid, Open: true}),
+		"line form plain":          LineFormView(LineForm{Verb: LineReject, Line: 2, ID: "line-2-reject", Action: "/x"}),
+		"MatchFormView":            MatchFormView(matchForm(true)),
+		"match form plain":         MatchFormView(matchForm(false)),
+		"ChoiceItem":               ChoiceItem("c", Choice{Value: "payments:p1,p2", Kind: ChoicePayments, Number: 1, Payments: []string{"p1", "p2"}}, "payments:p1,p2"),
+		"choice rule":              ChoiceItem("c", Choice{Value: "rule:NCHG", Kind: ChoiceRule, Rule: "NCHG", RuleText: "Bank charges"}, ""),
+		"choice incoming":          ChoiceItem("c", Choice{Value: ChoiceIncoming, Kind: ChoiceIncoming}, ""),
+		"Reconciliation":           Reconciliation(signedIn(), reconPage(true)),
+		"reconciliation plain":     reconciliationContent(reconPage(false)),
+		"reconciliation refused":   reconciliationContent(ReconciliationPage{Refusal: &r}),
+		"reconciliation none":      reconciliationContent(ReconciliationPage{Summary: &ReconSummary{}}),
+		"ReconFilterForm":          ReconFilterForm(ReconFilters{Path: "/r", From: "x", FromError: i18n.FilterDateInvalid, Statuses: []KeyOption{{Value: "posted", Label: i18n.LineStatusPosted, Selected: true}}}),
+		"ReconSummaryView":         ReconSummaryView(*reconPage(true).Summary),
+		"recon summary plain":      ReconSummaryView(ReconSummary{Statements: 0}),
+		"CountsList":               CountsList([]Count{{Status: Label{Key: i18n.LineStatusUnmatched}, N: 2}}),
+		"unexplained":              unexplained(Money{Amount: "-5.00", Currency: "EUR"}),
+		"ReconStatementCard":       ReconStatementCard(reconPage(true).Statements[0]),
+		"recon statement no lines": ReconStatementCard(ReconStatement{Path: "/s", Ref: "S1", Anchor: "statement-1", Figures: figures(false)}),
+		"ReconLinesTable":          ReconLinesTable("s", reconPage(true).Statements[0].Lines),
+		"ReconLineRow":             ReconLineRow(reconPage(true).Statements[0].Lines[0]),
+		"recon line approval":      ReconLineRow(ReconLine{No: 2, Amount: Money{Amount: "1.00", Currency: "EUR"}, Status: Label{Raw: "x"}, Approval: "/approvals/1"}),
+		"recon line bare":          ReconLineRow(ReconLine{No: 3, Amount: Money{Amount: "1.00", Currency: "EUR"}, Status: Label{Raw: "x"}}),
+	}
+}
+
+// statementRow is a statement of the list: a gap of a named company, or
+// a plain one.
+func statementRow(gap bool) StatementRow {
+	r := StatementRow{Path: "/bank/statements/1", Ref: "S1", Sequence: "1", Account: "•••• 3000", OpeningDay: day, ClosingDay: day,
+		Opening: Money{Amount: "1000.00", Currency: "EUR"}, Closing: Money{Amount: "957.25", Currency: "EUR"}, Lines: 5,
+		Status: Label{Key: i18n.StatementStatusImported}, BankReport: "/bank/house-banks/1/reconciliation"}
+	if gap {
+		r.Bank, r.Company, r.Gap, r.Status = "MAIN", "Acme GmbH", true, Label{Key: i18n.StatementStatusGap}
+	}
+	return r
+}
+
+// uploadForm is the upload form, with every error when failed.
+func uploadForm(failed bool) UploadForm {
+	f := UploadForm{CSRF: "c", Key: "k", Banks: []Option{{Value: "b1", Text: "MAIN", Selected: true}}, Format: "mt940"}
+	if failed {
+		f.BankError, f.FormatError, f.FileError = i18n.UploadBankNeeded, i18n.UploadFormatNeeded, i18n.UploadFileTooLarge
+		return f
+	}
+	f.Again = true
+	return f
+}
+
+// statementList is the list: everything, or a page of one statement.
+func statementList(full bool) StatementList {
+	if !full {
+		return StatementList{Rows: []StatementRow{statementRow(false)}}
+	}
+	r := refusal()
+	return StatementList{Banks: []HouseBank{{Code: "MAIN", Account: "•••• 3000", Currency: "EUR", Company: "Acme", Inactive: true}},
+		Tabs: []StatusTab{{Label: i18n.InvoicesStatusAll, Path: "/bank", Current: true}}, Filter: BankFilter{Banks: []Option{{Value: "b1", Text: "MAIN"}}},
+		Rows: []StatementRow{statementRow(true), statementRow(false)}, More: "/bank?page=t", Upload: new(uploadForm(true)),
+		Done: i18n.BankDoneImported, UploadRefusal: &r}
+}
+
+// matchInfo is a match: an agent's proposal with everything, or a plain
+// one.
+func matchInfo(full bool) MatchInfo {
+	if !full {
+		return MatchInfo{Kind: Label{Raw: "new_kind"}, Status: Label{Key: i18n.MatchStatusMatched}, Reason: "r"}
+	}
+	rule := Label{Key: i18n.RuleAmount}
+	return MatchInfo{Kind: Label{Key: i18n.MatchKindAgent}, Rule: &rule, By: Name{Text: "agent", Agent: true}, Agent: true,
+		Proposal: Label{Key: i18n.ProposalMatch}, Status: Label{Key: i18n.MatchStatusOpen}, Reason: "Pay <b>now</b>",
+		Targets: []Target{{Candidate: 1, Payment: "p1"}}, Open: true, PostingDay: &day, PostingReason: "Late", Approval: "/approvals/1", Entry: "e / 2026"}
+}
+
+// matchForm is a manual match: refused with every kind of choice, or
+// plain.
+func matchForm(failed bool) MatchForm {
+	f := MatchForm{LineForm: LineForm{Verb: LineMatch, Line: 1, ID: "line-1-match", Action: "/x"},
+		Choices: []Choice{{Value: "payments:p1", Kind: ChoicePayments, Number: 1, Payments: []string{"p1"}}, {Value: "rule:NCHG", Kind: ChoiceRule, Rule: "NCHG"},
+			{Value: ChoiceIncoming, Kind: ChoiceIncoming}}}
+	if failed {
+		f.Choice, f.ChoiceError, f.TextError, f.Open = "x", i18n.LineChoiceNeeded, i18n.ActionReasonNeeded, true
+	}
+	return f
+}
+
+// lineView is a line: open to every decision, or decided.
+func lineView(open bool) LineView {
+	l := LineView{No: 1, Anchor: "line-1", Amount: Money{Amount: "-10.50", Currency: "EUR"}, BookingDay: day, ValueDay: day, Code: "NCHG",
+		BankRef: "B1", OwnerRef: "NONREF", Status: Label{Key: i18n.LineStatusPosted}}
+	if !open {
+		return l
+	}
+	outcome := Label{Key: i18n.OutcomeRejected}
+	m := matchInfo(true)
+	l.Reversal, l.Text, l.LastOutcome, l.Match, l.Status = true, "CHARGES", &outcome, &m, Label{Key: i18n.LineStatusProposed}
+	form := func(verb string) *LineForm { return &LineForm{Verb: verb, Line: 1, ID: "line-1-" + verb, Action: "/x"} }
+	l.Accept, l.Reject, l.Exclude, l.Post = form(LineAccept), form(LineReject), form(LineExclude), form(LinePost)
+	l.Manual = new(matchForm(false))
+	return l
+}
+
+// statementPage is a statement: with everything, or plain.
+func statementPage(full bool) StatementPage {
+	h := StatementHeader{Ref: "S1", Sequence: "1", Format: "mt940", Account: "•••• 3000", OpeningDay: day, ClosingDay: day,
+		Opening: Money{Amount: "1.00", Currency: "EUR"}, Closing: Money{Amount: "1.00", Currency: "EUR"}, Lines: 1, Status: Label{Raw: "x"}}
+	if !full {
+		return StatementPage{Header: h, Report: "/r", Lines: []LineView{lineView(false)}}
+	}
+	r := refusal()
+	h.Bank, h.Previous, h.ReconciledAt, h.ReconciledBy = "MAIN", "/bank/statements/0", &day, &Name{Text: "Avery"}
+	return StatementPage{Header: h, Gap: true, Report: "/r", Lines: []LineView{lineView(true)}, Why: i18n.LinesNotYours, Done: i18n.LineDoneMatched,
+		DoneLine: 1, Refusal: &r}
+}
+
+// figures are a statement's figures: a bank without a ledger balance, or
+// with one and nothing unexplained.
+func figures(ledger bool) Figures {
+	f := Figures{AsOf: day, Closing: Money{Amount: "1.00", Currency: "EUR"}, Excluded: Money{Amount: "0.00", Currency: "EUR"},
+		InTransit: Money{Amount: "0.00", Currency: "EUR"}, PostedLater: Money{Amount: "0.00", Currency: "EUR"}}
+	if ledger {
+		f.Ledger, f.Unexplained = &Money{Amount: "1.00", Currency: "EUR"}, &Money{Amount: "0.00", Currency: "EUR"}
+	}
+	return f
+}
+
+// reconPage is a report: with everything, or a summary alone.
+func reconPage(full bool) ReconciliationPage {
+	if !full {
+		return ReconciliationPage{Bank: HouseBank{Code: "MAIN", Account: "•••• 3000"}, Summary: &ReconSummary{Statements: 1},
+			Statements: []ReconStatement{{Path: "/s", Ref: "S1", Anchor: "statement-1", Figures: figures(false)}}}
+	}
+	rule, kind, outcome := Label{Key: i18n.RuleCode}, Label{Key: i18n.MatchKindRule}, Label{Key: i18n.OutcomeAccepted}
+	f := figures(true)
+	f.Unexplained = &Money{Amount: "-5.00", Currency: "EUR"}
+	return ReconciliationPage{Bank: HouseBank{Code: "MAIN", Account: "•••• 3000"}, Filters: ReconFilters{Path: "/r"},
+		Summary: &ReconSummary{Statements: 2, Opening: &Money{Amount: "1.00", Currency: "EUR"}, OpeningDay: &day, Figures: new(figures(true)),
+			Counts: []Count{{Status: Label{Key: i18n.LineStatusPosted}, N: 1}}},
+		Statements: []ReconStatement{{Path: "/s", Ref: "S1", Sequence: "1", Status: Label{Key: i18n.StatementStatusReconciled}, OpeningDay: day,
+			Opening: Money{Amount: "1.00", Currency: "EUR"}, Figures: f, Anchor: "statement-1",
+			Lines: []ReconLine{{No: 1, BookingDay: day, Amount: Money{Amount: "1.00", Currency: "EUR"}, Reversal: true, Code: "NCHG",
+				Status: Label{Key: i18n.LineStatusPosted}, Match: &kind, Rule: &rule, PostingDay: &day, Outcome: &outcome}}}},
+		More: "/r?page=t"}
 }
 
 // invoiceRow is a queue's invoice, an agent's capture when agent is true.
@@ -495,8 +677,8 @@ func TestAmountWithoutLocale(t *testing.T) {
 	}
 }
 
-// TestSignedInNav: the inbox joins the navigation of a person who may
-// read approvals, the invoices that of a person who may read invoices.
+// TestSignedInNav: each job's screen joins the navigation of a person
+// who may read it: the inbox, the invoices, the bank statements.
 func TestSignedInNav(t *testing.T) {
 	paths := func(nav []NavItem) string {
 		var out []string
@@ -506,21 +688,22 @@ func TestSignedInNav(t *testing.T) {
 		return strings.Join(out, " ")
 	}
 	for name, tc := range map[string]struct {
-		approvals, invoices bool
-		want                string
+		jobs NavJobs
+		want string
 	}{
-		"neither":   {false, false, "/ /health"},
-		"approvals": {true, false, "/ /approvals /health"},
-		"invoices":  {false, true, "/ /invoices /health"},
-		"both":      {true, true, "/ /approvals /invoices /health"},
+		"none":      {NavJobs{}, "/ /health"},
+		"approvals": {NavJobs{Approvals: true}, "/ /approvals /health"},
+		"invoices":  {NavJobs{Invoices: true}, "/ /invoices /health"},
+		"bank":      {NavJobs{Bank: true}, "/ /bank /health"},
+		"all":       {NavJobs{Approvals: true, Invoices: true, Bank: true}, "/ /approvals /invoices /bank /health"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := paths(SignedInNav(tc.approvals, tc.invoices)); got != tc.want {
+			if got := paths(SignedInNav(tc.jobs)); got != tc.want {
 				t.Errorf("got %q, want %q", got, tc.want)
 			}
 		})
 	}
-	if got := navOf(Shell{Nav: SignedInNav(true, true)}); len(got) != 4 {
+	if got := navOf(Shell{Nav: SignedInNav(NavJobs{Approvals: true, Invoices: true})}); len(got) != 4 {
 		t.Errorf("a shell's own: got %v", got)
 	}
 }
@@ -537,5 +720,35 @@ func TestDecideFormFields(t *testing.T) {
 	}
 	if got, _ := attr(find(doc, "form"), "action"); got != "/approvals/1/reject" {
 		t.Errorf("action: got %q", got)
+	}
+}
+
+// TestBankHelpers: an account is shown by its last four characters
+// alone; the list's path drops empty filters; each status has its colour.
+func TestBankHelpers(t *testing.T) {
+	for account, want := range map[string]string{"DE89370400440532013000": "•••• 3000", "3000": "•••• 3000", "12": "•••• 12"} {
+		if got := Masked(account); got != want {
+			t.Errorf("Masked(%q): got %q, want %q", account, got, want)
+		}
+	}
+	if got := StatementsPath(url.Values{"status": {""}, "house_bank_id": {"b1"}}); got != "/bank?house_bank_id=b1" {
+		t.Errorf("StatementsPath: got %q", got)
+	}
+	if got := StatementsPath(url.Values{"status": {""}}); got != BankPath {
+		t.Errorf("StatementsPath, nothing chosen: got %q", got)
+	}
+	for l, want := range map[Label]string{{Key: i18n.LineStatusPosted}: "success", {Key: i18n.LineStatusExcluded}: "inactive",
+		{Key: i18n.LineStatusPending}: "warning", {Key: i18n.LineStatusProposed}: "warning", {Raw: "x"}: ""} {
+		if got := lineKind(l); got != want {
+			t.Errorf("lineKind(%v): got %q, want %q", l, got, want)
+		}
+	}
+	if !LineRequires(LineExclude) || LineRequires(LineAccept) {
+		t.Error("LineRequires: an exclusion needs its reason, an acceptance none")
+	}
+	for amount, want := range map[string]bool{"0.00": true, "-0.00": true, "0": true, "0.01": false, "-5.00": false, "10": false} {
+		if got := Zero(amount); got != want {
+			t.Errorf("Zero(%q): got %v, want %v", amount, got, want)
+		}
 	}
 }

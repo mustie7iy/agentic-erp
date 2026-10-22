@@ -182,6 +182,13 @@ func (s *Server) mux() *http.ServeMux {
 		route("POST "+ui.InvoicesPath+"/{id}/"+verb, s.signedIn(s.csrf(s.act(verb))))
 	}
 	route("POST "+ui.InvoicesPath+"/{id}/recommendations/{rec}/decide", s.signedIn(s.csrf(s.decideRecommendation)))
+	route("GET "+ui.BankPath, s.signedIn(s.statements))
+	route("POST "+ui.UploadPath, s.signedIn(s.csrfUpload(s.importStatement)))
+	route("GET "+ui.UploadPath+"/{id}", s.signedIn(s.statement))
+	for verb := range lineOps {
+		route("POST "+ui.UploadPath+"/{id}/"+verb, s.signedIn(s.csrf(s.decideLine(verb))))
+	}
+	route("GET "+ui.BankPath+"/house-banks/{id}/reconciliation", s.signedIn(s.reconciliation))
 	route("GET /signed-out", s.signedOut)
 	route("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		st := ui.Status{Version: s.Build.Version, Revision: s.Build.Revision}

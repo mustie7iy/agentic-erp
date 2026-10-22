@@ -23,6 +23,10 @@ const (
 	permReadOrders            = "procurement.order.read"
 	permReadReceipts          = "procurement.receipt.read"
 	permReadCompanies         = "tenancy.org.read"
+	permReadStatements        = "payments.statement.read"
+	permImportStatements      = "payments.statement.import"
+	permMatchLines            = "payments.statement.match"
+	permPostLines             = "payments.statement.post"
 )
 
 // objectApprovers are the decisions' x-object-permissions: the permission
@@ -54,7 +58,23 @@ var (
 	// opInvoice are the reads of an invoice's page (invoice.go).
 	opInvoice = []Operation{opMe, {ID: "getSupplierInvoice", HiddenBy: permReadInvoices}, {ID: "listMatchResults", HiddenBy: permReadInvoices},
 		{ID: "listRecommendations", HiddenBy: permReadRecommendations}, opNames, opCompanies}
+	opHouseBanks = Operation{ID: "listHouseBanks", HiddenBy: permReadStatements}
+	// opStatementList are the reads of the statements' list (bank.go),
+	// opStatement those of a statement's page (statement.go).
+	opStatementList = []Operation{opMe, opHouseBanks, opCompanies, {ID: "listBankStatements", HiddenBy: permReadStatements}}
+	opStatement     = []Operation{opMe, {ID: "getBankStatement", HiddenBy: permReadStatements},
+		{ID: "listBankStatementMatches", HiddenBy: permReadStatements}, {ID: "getBankStatementRules", HiddenBy: permReadStatements}, opHouseBanks, opNames}
 )
+
+// lineOps are the operations of the decisions on a statement's lines, by
+// verb, each hidden by its x-permission; all are people's alone.
+var lineOps = map[string]Operation{
+	ui.LineMatch:   {ID: "matchBankStatementLine", HiddenBy: permMatchLines, HumanOnly: true},
+	ui.LineExclude: {ID: "excludeBankStatementLine", HiddenBy: permMatchLines, HumanOnly: true},
+	ui.LinePost:    {ID: "postBankStatementLine", HiddenBy: permPostLines, HumanOnly: true},
+	ui.LineAccept:  {ID: "acceptBankStatementLineProposal", HiddenBy: permMatchLines, HumanOnly: true},
+	ui.LineReject:  {ID: "rejectBankStatementLineProposal", HiddenBy: permMatchLines, HumanOnly: true},
+}
 
 // actionOps are the operations of the actions on an invoice, by verb,
 // each hidden by its x-permission.
@@ -83,9 +103,16 @@ var Screens = func() map[string][]Operation {
 		"GET /invoices/{id}/document": {{ID: "getSupplierInvoiceDocument", HiddenBy: permReadInvoices}},
 		"POST /invoices/{id}/recommendations/{rec}/decide": append([]Operation{{ID: "decideRecommendation", HiddenBy: permDecideRecommendations,
 			HumanOnly: true}}, opInvoice...),
+		"GET /bank":                                 opStatementList,
+		"POST /bank/statements":                     append([]Operation{{ID: "importBankStatements", HiddenBy: permImportStatements}}, opStatementList...),
+		"GET /bank/statements/{id}":                 opStatement,
+		"GET /bank/house-banks/{id}/reconciliation": {opMe, opHouseBanks, {ID: "getBankReconciliation", HiddenBy: permReadStatements}},
 	}
 	for verb, op := range actionOps {
 		screens["POST /invoices/{id}/"+verb] = append([]Operation{op}, opInvoice...)
+	}
+	for verb, op := range lineOps {
+		screens["POST /bank/statements/{id}/"+verb] = append([]Operation{op}, opStatement...)
 	}
 	return screens
 }()

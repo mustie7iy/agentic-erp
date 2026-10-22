@@ -4578,7 +4578,7 @@
        },
        {
         "s": "T",
-        "t": "Invoices beyond the queue: capture by upload through the API's signed path (createUpload, the bytes relayed by erp-web, captureSupplierInvoice's 202 polled to the new invoice), editing a parked invoice (updateSupplierInvoice), clearing down payments; tax per code on the invoice's page once the API gives it (the representation has none: only a refused post's detail names each code's tax); walked through by a pilot AP clerk",
+        "t": "Invoices beyond the queue: capture by upload through the API's signed path (createUpload, the bytes relayed by erp-web, captureSupplierInvoice's 202 polled to the new invoice), editing a parked invoice (updateSupplierInvoice), clearing down payments; tax per code on the invoice's page once the API gives it (the representation has none: only a refused post's detail names each code's tax); a refusal's figures as structured fields of the problem (coordinator D3, contract change: payables.tax_mismatch's tax per code, payables.match_outdated's changes); walked through by a pilot AP clerk",
         "r": "T73e2 (split from T73e, 2026-10-22)",
         "c": []
        },
@@ -4589,9 +4589,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Bank statements and reconciliation: import by upload, statements by status and house bank with gaps flagged, a statement's lines with their matches (rules', people's, the agent's proposals inert), agent proposals accepted or rejected, manual match to the rules' candidate payments, a posting rule or the incoming account, exclude, post (another date with its reason) with the clearing approval (the matcher refused as approver in the inbox), reconciliation report per house bank (statement against the ledger, explained and unexplained), masked accounts; EN and FR; axe at zero at 1280 and 390 px. Coordinator D4 (PDFs downloaded) applied, D3 planned in T73e2",
+        "r": "internal/web bank.go · statement.go · statement_actions.go · reconciliation.go · ui/bank.templ · i18n BankProblems · fixture bank.go · TestStatementList · TestStatementPage · TestLineDecisions · TestLineRefusals · TestStatementUpload · TestReconciliationReport · TestBankAsOthers · TestBankStubbed · TestBankInTheBrowser · TestBankJobsInTheBrowser · ADR-0052 Built in T73g · T73g",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Bank statements and reconciliation: import by upload, statements and lines by status, agent proposals accepted or rejected, manual match from open items and payments, exclude, post with the clearing approval (the matcher refused as approver), reconciliation report per house bank, masked accounts",
-        "r": "T73g",
+        "t": "Bank statements beyond T73g: matching a line by hand to a payment or open item the rules did not find (needs an API search of a house bank's payments and open items: listPayments is per run), running the matching rules again from the statement's page (matchBankStatement), downloading a statement's file (getBankStatementFile); walked through by a pilot treasury user",
+        "r": "T73g2 (split from T73g, 2026-10-22)",
         "c": []
        },
        {

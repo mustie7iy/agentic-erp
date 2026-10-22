@@ -1,0 +1,747 @@
+package ui
+
+import (
+	"strconv"
+	"time"
+
+	"github.com/mustie7iy/agentic-erp/internal/web/i18n"
+)
+
+// Statements is the bank statements' list (ADR-0052 §2, T73g): the house
+// banks with their reports, the statements by status and bank, a gap
+// flagged where a statement does not follow the one before it, and the
+// upload of a bank's file.
+templ Statements(s Shell, l StatementList) {
+	@Layout(s, statementsContent(l))
+}
+
+templ statementsContent(l StatementList) {
+	<h1>
+		@T(i18n.BankTitle)
+	</h1>
+	@Paragraph(i18n.BankLead)
+	if l.Done != "" {
+		@Notice("bank-done", i18n.InvoiceDoneTitle, Paragraph(l.Done))
+	}
+	if l.UploadRefusal != nil {
+		@RefusalNotice(*l.UploadRefusal)
+	}
+	if l.Upload != nil {
+		@UploadFormView(*l.Upload)
+	}
+	if len(l.Banks) > 0 {
+		<h2>
+			@T(i18n.BankHouseBanks)
+		</h2>
+		<ul class="list" hx-disable>
+			for _, b := range l.Banks {
+				@HouseBankItem(b)
+			}
+		</ul>
+	}
+	<h2>
+		@T(i18n.BankStatements)
+	</h2>
+	@StatusTabs(l.Tabs)
+	@BankFilterForm(l.Filter)
+	if l.Invalid {
+		@Notice("bank-invalid", i18n.BankRefusedTitle, Paragraph(i18n.FilterInvalid))
+	} else if l.Refusal != nil {
+		@RefusalNotice(*l.Refusal)
+	} else if len(l.Rows) == 0 {
+		@Paragraph(i18n.BankEmpty)
+	} else {
+		<ul class="cards" { label(ctx, i18n.BankListLabel)... }>
+			for _, r := range l.Rows {
+				@StatementCard(r)
+			}
+		</ul>
+		if l.More != "" {
+			@ButtonLink(l.More, i18n.BankMore)
+		}
+	}
+}
+
+// HouseBankItem is one house bank: its code, account and currency, its
+// company, and links to its statements and its reconciliation report.
+templ HouseBankItem(b HouseBank) {
+	<li class="list__item bank">
+		<strong translate="no">
+			@Value(bankText(b))
+		</strong>
+		@Code(b.Currency)
+		if b.Company != "" {
+			@space()
+			@Data(b.Company)
+		}
+		if b.Inactive {
+			@Tag(i18n.BankInactive, "inactive")
+		}
+		<span class="bank__links">
+			<a { link(b.Statements, "")... }>
+				@T(i18n.BankItsStatements)
+			</a>
+			<a { link(b.Report, "")... }>
+				@T(i18n.BankItsReport)
+			</a>
+		</span>
+	</li>
+}
+
+// BankFilterForm is the list's house bank filter, a plain GET form that
+// keeps the status.
+templ BankFilterForm(f BankFilter) {
+	if f.Banks != nil {
+		<form class="filters" { get(BankPath)... }>
+			<input { hidden("status", f.Status)... }/>
+			<div class="filters__fields">
+				<div class="field">
+					<label class="field__label" for="filter-bank">
+						@T(i18n.BankFilterBank)
+					</label>
+					<select class="select" id="filter-bank" name="house_bank_id">
+						<option value="">
+							@T(i18n.BankFilterAll)
+						</option>
+						for _, o := range f.Banks {
+							<option translate="no" { option(o)... }>
+								@Value(o.Text)
+							</option>
+						}
+					</select>
+				</div>
+			</div>
+			<div class="filters__buttons">
+				<button class="button" type="submit">
+					@T(i18n.FilterApply)
+				</button>
+			</div>
+		</form>
+	}
+}
+
+// StatementCard is one statement of the list. Its reference is the
+// bank's: data, inside hx-disable.
+templ StatementCard(r StatementRow) {
+	<li class="card" hx-disable>
+		<h3 class="card__title">
+			<a translate="no" { link(r.Path, "")... }>
+				@Value(r.Ref)
+			</a>
+		</h3>
+		<dl class="facts">
+			@Fact(i18n.StatementStatus, StatementStatusTag(r.Status))
+			@Fact(i18n.StatementBank, Data(headerBank(r.Bank, r.Account)))
+			if r.Company != "" {
+				@Fact(i18n.InvoiceCompany, Data(r.Company))
+			}
+			@Fact(i18n.StatementSequence, Data(r.Sequence))
+			@Fact(i18n.StatementOpening, dated(r.Opening, r.OpeningDay))
+			@Fact(i18n.StatementClosing, dated(r.Closing, r.ClosingDay))
+			@Fact(i18n.StatementLineCount, Number(r.Lines))
+		</dl>
+		if r.Gap {
+			<p class="card__step">
+				@T(i18n.StatementGapShort)
+			</p>
+		}
+		<p class="card__step">
+			<a { link(r.BankReport, "")... }>
+				@T(i18n.BankItsReport)
+			</a>
+		</p>
+	</li>
+}
+
+// StatementStatusTag is a statement's status.
+templ StatementStatusTag(l Label) {
+	<strong { tagClass(statementKind(l))... }>
+		@labelText(l)
+	</strong>
+}
+
+// amountOn is an amount on its date.
+templ amountOn(m Money, day time.Time) {
+	@Amount(m)
+	@space()
+	<span class="hint">
+		@Day(day)
+	</span>
+}
+
+// UploadFormView imports a bank's statement file: the house bank, the
+// file's format and the file, posted as a multipart form with the CSRF
+// token and a fresh idempotency key.
+templ UploadFormView(f UploadForm) {
+	<form class="filters" enctype="multipart/form-data" { post(UploadPath)... }>
+		<h2 class="filters__title">
+			@T(i18n.UploadTitle)
+		</h2>
+		<input { csrfInput(f.CSRF)... }/>
+		<input { hidden(FieldIdempotency, f.Key)... }/>
+		<div class="filters__fields">
+			<div { fieldClass(f.BankError)... }>
+				<label class="field__label" for="upload-bank">
+					@T(i18n.UploadBank)
+				</label>
+				if f.BankError != "" {
+					<p class="field__error" id="upload-bank-error">
+						@T(f.BankError)
+					</p>
+				}
+				<select class="select" { uploadSelect("upload-bank", FieldHouseBank, f.BankError)... }>
+					for _, o := range f.Banks {
+						<option translate="no" { option(o)... }>
+							@Value(o.Text)
+						</option>
+					}
+				</select>
+			</div>
+			<div { fieldClass(f.FormatError)... }>
+				<label class="field__label" for="upload-format">
+					@T(i18n.UploadFormat)
+				</label>
+				if f.FormatError != "" {
+					<p class="field__error" id="upload-format-error">
+						@T(f.FormatError)
+					</p>
+				}
+				<select class="select" { uploadSelect("upload-format", FieldFormat, f.FormatError)... }>
+					for _, o := range UploadFormats {
+						<option { option(Option{Value: o.Value, Selected: o.Value == f.Format})... }>
+							@T(formatText[o.Value])
+						</option>
+					}
+				</select>
+			</div>
+			<div { fieldClass(f.FileError)... }>
+				<label class="field__label" for="upload-file">
+					@T(i18n.UploadFile)
+				</label>
+				<p class="field__hint" id="upload-file-hint">
+					@T(i18n.UploadFileHint)
+				</p>
+				if f.FileError != "" {
+					<p class="field__error" id="upload-file-error">
+						@T(f.FileError)
+					</p>
+				}
+				if f.Again {
+					<p class="hint">
+						@T(i18n.UploadChooseAgain)
+					</p>
+				}
+				<input class="input" { fileInput(f.FileError)... }/>
+			</div>
+		</div>
+		<div class="filters__buttons">
+			<button class="button" type="submit">
+				@T(i18n.UploadSubmit)
+			</button>
+		</div>
+	</form>
+}
+
+// Statement is one bank statement (ADR-0052 §2, T73g): its summary, a gap
+// before it, and its lines with their matches and the person's decisions
+// on them.
+templ Statement(s Shell, sp StatementPage) {
+	@Layout(s, statementContent(sp))
+}
+
+templ statementContent(sp StatementPage) {
+	<p>
+		<a { link(BankPath, "")... }>
+			@T(i18n.StatementBack)
+		</a>
+	</p>
+	<p class="caption">
+		@T(i18n.StatementTitle)
+	</p>
+	<h1 class="untrusted" translate="no" hx-disable>
+		@Value(sp.Header.Ref)
+	</h1>
+	if sp.Done != "" {
+		@Notice("statement-done", i18n.InvoiceDoneTitle, doneMessage(sp.Done, sp.DoneLine))
+	}
+	if sp.Refusal != nil {
+		@RefusalNotice(*sp.Refusal)
+	}
+	if sp.Gap {
+		@Notice("statement-gap", i18n.StatementGapTitle, Paragraph(i18n.StatementGapBody))
+	}
+	<div hx-disable>
+		@SummaryList(statementRows(sp.Header))
+	</div>
+	<p>
+		<a { link(sp.Report, "")... }>
+			@T(i18n.StatementReport)
+		</a>
+	</p>
+	<h2>
+		@T(i18n.StatementLines)
+	</h2>
+	if sp.Why != "" {
+		@Paragraph(sp.Why)
+	}
+	if len(sp.Lines) == 0 {
+		@Paragraph(i18n.StatementNoLines)
+	} else {
+		<ol class="cards lines">
+			for _, l := range sp.Lines {
+				@LineCard(l)
+			}
+		</ol>
+	}
+}
+
+// doneMessage is what was just done, with a link to its line.
+templ doneMessage(done i18n.Key, line int32) {
+	@Paragraph(done)
+	if line > 0 {
+		<p>
+			<a { lineLink(line)... }>
+				@T(i18n.LineGoTo, line)
+			</a>
+		</p>
+	}
+}
+
+// LineCard is one line: the bank's booking as data, its match, and the
+// person's decisions on it.
+templ LineCard(l LineView) {
+	<li class="card line" { idAttr(l.Anchor)... }>
+		<h3 class="card__title">
+			@T(i18n.LineTitle, l.No)
+		</h3>
+		<div hx-disable>
+			<dl class="facts">
+				for _, r := range lineRows(l) {
+					@Fact(r.Key, r.Value)
+				}
+			</dl>
+		</div>
+		if l.Match != nil {
+			@MatchBlock(*l.Match)
+		}
+		if !decided(l) {
+			<div class="line__decisions">
+				if l.Accept != nil {
+					@LineFormView(*l.Accept)
+				}
+				if l.Reject != nil {
+					@LineFormView(*l.Reject)
+				}
+				if l.Manual != nil {
+					@MatchFormView(*l.Manual)
+				}
+				if l.Exclude != nil {
+					@LineFormView(*l.Exclude)
+				}
+				if l.Post != nil {
+					@LineFormView(*l.Post)
+				}
+			</div>
+		}
+	</li>
+}
+
+// LineStatusTag is a line's status.
+templ LineStatusTag(l Label) {
+	<strong { tagClass(lineKind(l))... }>
+		@labelText(l)
+	</strong>
+}
+
+// MatchBlock is a line's live match: who made it and why, what it clears
+// (an open match's candidates by number), and its posting. The reason is
+// data; an agent's proposal is badged and says it is the agent's.
+templ MatchBlock(m MatchInfo) {
+	<div class="match" hx-disable>
+		<h4 class="match__title">
+			@labelText(m.Kind)
+			if m.Agent {
+				@Tag(i18n.TagAgent, "agent")
+			}
+		</h4>
+		if m.Agent {
+			<p class="hint">
+				@T(i18n.MatchAgentHint)
+			</p>
+		}
+		<dl class="facts">
+			@Fact(i18n.MatchStatus, labelText(m.Status))
+			if m.Rule != nil {
+				@Fact(i18n.MatchRule, labelText(*m.Rule))
+			}
+			if m.Agent {
+				@Fact(i18n.MatchProposal, labelText(m.Proposal))
+			}
+			@Fact(i18n.MatchBy, Principal(m.By))
+			if m.PostingDay != nil {
+				@Fact(i18n.MatchPostingDay, Day(*m.PostingDay))
+			}
+			if m.PostingReason != "" {
+				@Fact(i18n.MatchPostingReason, Data(m.PostingReason))
+			}
+			if m.Entry != "" {
+				@Fact(i18n.MatchEntry, Code(m.Entry))
+			}
+		</dl>
+		<p class="untrusted match__reason" translate="no">
+			@Value(m.Reason)
+		</p>
+		if len(m.Targets) > 0 {
+			<ul class="list">
+				for _, t := range m.Targets {
+					@TargetItem(t, m.Open)
+				}
+			</ul>
+		}
+		if m.Approval != "" {
+			@Paragraph(i18n.MatchApprovalHint)
+			@ButtonLink(m.Approval, i18n.MatchApprovalOpen)
+		}
+	</div>
+}
+
+// TargetItem is one thing a match clears; an open match's under its
+// candidate's number.
+templ TargetItem(t Target, open bool) {
+	<li class="list__item">
+		if open {
+			<span class="target__candidate">
+				@T(i18n.TargetCandidate, t.Candidate)
+			</span>
+		}
+		if t.Payment != "" {
+			@T(i18n.TargetPayment)
+			@space()
+			@Code(t.Payment)
+			if t.BankFile != "" {
+				@space()
+				@T(i18n.TargetBankFile)
+				@space()
+				@Code(t.BankFile)
+			}
+		} else if t.Rule != "" {
+			@T(i18n.TargetRule)
+			@space()
+			@Code(t.Rule)
+			if t.RuleText != "" {
+				@space()
+				@Data(t.RuleText)
+			}
+		} else if t.Incoming {
+			@T(i18n.TargetIncoming)
+		}
+	</li>
+}
+
+// LineFormView is one decision on a line, folded until opened: a real
+// form posting the CSRF token, the statement's ETag as If-Match and the
+// form's own idempotency key, with its text and date where it takes them.
+templ LineFormView(f LineForm) {
+	<details { disclosure(f.Open)... }>
+		<summary class="disclosure__summary">
+			@T(lineSpecs[f.Verb].Button)
+		</summary>
+		<form class="decide" { post(f.Action)... }>
+			@decideHidden(f.CSRF, f.ETag, f.Key)
+			<input { hidden(FieldLine, strconv.Itoa(int(f.Line)))... }/>
+			@Paragraph(lineSpecs[f.Verb].Hint)
+			if lineSpecs[f.Verb].Date != "" {
+				@InputField(f.ID+"-date", FieldDate, "date", lineSpecs[f.Verb].Date, lineSpecs[f.Verb].DateHint, f.Date, f.DateError)
+			}
+			@CommentField(f.ID+"-text", lineSpecs[f.Verb].Text, lineSpecs[f.Verb].TextHint, f.Text, f.TextError)
+			<button { lineButton(f.Verb)... }>
+				@T(lineSpecs[f.Verb].Button)
+			</button>
+		</form>
+	</details>
+}
+
+// MatchFormView is a line's manual match: one choice of what it clears,
+// and the reason.
+templ MatchFormView(f MatchForm) {
+	<details { disclosure(f.Open)... }>
+		<summary class="disclosure__summary">
+			@T(lineSpecs[LineMatch].Button)
+		</summary>
+		<form class="decide" { post(f.Action)... }>
+			@decideHidden(f.CSRF, f.ETag, f.Key)
+			<input { hidden(FieldLine, strconv.Itoa(int(f.Line)))... }/>
+			@Paragraph(lineSpecs[LineMatch].Hint)
+			<div { fieldClass(f.ChoiceError)... }>
+				<fieldset class="fieldset" { choiceFieldset(f)... }>
+					<legend class="field__label">
+						@T(i18n.LineMatchLegend)
+					</legend>
+					if f.ChoiceError != "" {
+						<p class="field__error" { idAttr(f.ID + "-choice-error")... }>
+							@T(f.ChoiceError)
+						</p>
+					}
+					for i, c := range f.Choices {
+						@ChoiceItem(f.ID+"-"+strconv.Itoa(i), c, f.Choice)
+					}
+				</fieldset>
+			</div>
+			@CommentField(f.ID+"-text", lineSpecs[LineMatch].Text, lineSpecs[LineMatch].TextHint, f.Text, f.TextError)
+			<button { lineButton(LineMatch)... }>
+				@T(lineSpecs[LineMatch].Button)
+			</button>
+		</form>
+	</details>
+}
+
+// ChoiceItem is one thing to match a line to.
+templ ChoiceItem(id string, c Choice, chosen string) {
+	<div class="radio">
+		<input class="radio__input" translate="no" { choiceRadio(id, c, chosen)... }/>
+		<label class="radio__label" { forAttr(id)... }>
+			switch c.Kind {
+				case ChoicePayments:
+					@T(i18n.ChoicePayments, c.Number)
+					for _, p := range c.Payments {
+						@space()
+						@Code(p)
+					}
+				case ChoiceRule:
+					@T(i18n.TargetRule)
+					@space()
+					@Code(c.Rule)
+					@space()
+					@Data(c.RuleText)
+				default:
+					@T(i18n.TargetIncoming)
+			}
+		</label>
+	</div>
+}
+
+// Reconciliation is a house bank's reconciliation report (ADR-0047,
+// T49h): the bank's statements against the ledger, what explains the
+// difference and what is left unexplained, per statement and for the
+// period.
+templ Reconciliation(s Shell, rp ReconciliationPage) {
+	@Layout(s, reconciliationContent(rp))
+}
+
+templ reconciliationContent(rp ReconciliationPage) {
+	<p>
+		<a { link(BankPath, "")... }>
+			@T(i18n.StatementBack)
+		</a>
+	</p>
+	<p class="caption">
+		@T(i18n.ReconTitle)
+	</p>
+	<h1 translate="no">
+		@Value(bankText(rp.Bank))
+	</h1>
+	@Paragraph(i18n.ReconLead)
+	@ReconFilterForm(rp.Filters)
+	if rp.Refusal != nil {
+		@RefusalNotice(*rp.Refusal)
+	} else if rp.Summary != nil {
+		@ReconSummaryView(*rp.Summary)
+		if len(rp.Statements) == 0 {
+			@Paragraph(i18n.ReconEmpty)
+		} else {
+			<ul class="cards">
+				for _, st := range rp.Statements {
+					@ReconStatementCard(st)
+				}
+			</ul>
+			if rp.More != "" {
+				@ButtonLink(rp.More, i18n.BankMore)
+			}
+		}
+	}
+}
+
+// ReconFilterForm is the report's period and line status: a plain GET
+// form, so a report is an address to keep or share.
+templ ReconFilterForm(f ReconFilters) {
+	<form class="filters" { get(f.Path)... }>
+		<h2 class="filters__title">
+			@T(i18n.ReconFilters)
+		</h2>
+		<div class="filters__fields">
+			@InputField("recon-from", "closing_date_from", "date", i18n.ReconFrom, i18n.FilterDateHint, f.From, f.FromError)
+			@InputField("recon-to", "closing_date_to", "date", i18n.ReconTo, i18n.FilterDateHint, f.To, f.ToError)
+			<div class="field">
+				<label class="field__label" for="recon-status">
+					@T(i18n.ReconLineStatus)
+				</label>
+				<select class="select" id="recon-status" name="line_status">
+					<option value="">
+						@T(i18n.ReconLineStatusAll)
+					</option>
+					for _, o := range f.Statuses {
+						<option { option(Option{Value: o.Value, Selected: o.Selected})... }>
+							@T(o.Label)
+						</option>
+					}
+				</select>
+			</div>
+		</div>
+		<div class="filters__buttons">
+			<button class="button" type="submit">
+				@T(i18n.FilterApply)
+			</button>
+			<a class="button button--secondary" draggable="false" { link(f.Path, "")... }>
+				@T(i18n.FilterClear)
+			</a>
+		</div>
+	</form>
+}
+
+// ReconSummaryView is the period's figures: its statements, its opening
+// balance, and the bank against the book on its last closing date.
+templ ReconSummaryView(sm ReconSummary) {
+	<section class="recon" { labelledBy("recon-summary")... }>
+		<h2 { idAttr("recon-summary")... }>
+			@T(i18n.ReconSummary)
+		</h2>
+		@Paragraph(i18n.ReconStatements, sm.Statements)
+		if sm.Opening != nil && sm.OpeningDay != nil {
+			<dl class="facts">
+				@Fact(i18n.ReconOpening, dated(*sm.Opening, *sm.OpeningDay))
+			</dl>
+		}
+		if sm.Figures != nil {
+			@SummaryList(figureRows(*sm.Figures))
+		}
+		@CountsList(sm.Counts)
+	</section>
+}
+
+// CountsList is how many lines are in each status.
+templ CountsList(counts []Count) {
+	<ul class="counts">
+		for _, c := range counts {
+			<li class="counts__item">
+				@LineStatusTag(c.Status)
+				@space()
+				@Number(c.N)
+			</li>
+		}
+	</ul>
+}
+
+// unexplained is a difference nothing explains, flagged.
+templ unexplained(m Money) {
+	@Amount(m)
+	@space()
+	@Tag(i18n.ReconUnexplainedTag, "warning")
+}
+
+// ReconStatementCard is one statement of the report: its figures, its
+// lines' counts and its lines.
+templ ReconStatementCard(st ReconStatement) {
+	<li class="card" { idAttr(st.Anchor)... }>
+		<h3 class="card__title" hx-disable>
+			<a translate="no" { link(st.Path, "")... }>
+				@Value(st.Ref)
+			</a>
+		</h3>
+		<dl class="facts" hx-disable>
+			@Fact(i18n.StatementStatus, StatementStatusTag(st.Status))
+			@Fact(i18n.StatementSequence, Data(st.Sequence))
+			@Fact(i18n.StatementOpening, dated(st.Opening, st.OpeningDay))
+		</dl>
+		@SummaryList(figureRows(st.Figures))
+		@CountsList(st.Counts)
+		if len(st.Lines) > 0 {
+			@ReconLinesTable(st.Anchor, st.Lines)
+		}
+	</li>
+}
+
+// ReconLinesTable is a statement's lines in the report, in a region that
+// scrolls sideways on its own on a phone.
+templ ReconLinesTable(anchor string, lines []ReconLine) {
+	<div class="table-wrap" role="region" tabindex="0" { labelledBy(anchor + "-caption")... }>
+		<table class="table" hx-disable>
+			<caption class="visually-hidden" { idAttr(anchor + "-caption")... }>
+				@T(i18n.StatementLines)
+			</caption>
+			<thead>
+				<tr>
+					@HeaderCell(i18n.LineNo)
+					@HeaderCell(i18n.LineBooked)
+					@HeaderCell(i18n.LineAmountLabel)
+					@HeaderCell(i18n.LineCode)
+					@HeaderCell(i18n.LineStatus)
+					@HeaderCell(i18n.ReconMatch)
+					@HeaderCell(i18n.MatchPostingDay)
+				</tr>
+			</thead>
+			<tbody>
+				for _, l := range lines {
+					@ReconLineRow(l)
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+// ReconLineRow is one line of the report: its match by kind and rule, its
+// posting, its approval request and the agent's last proposal's outcome.
+templ ReconLineRow(l ReconLine) {
+	<tr>
+		<td>
+			@Number(l.No)
+		</td>
+		<td>
+			@Day(l.BookingDay)
+		</td>
+		<td>
+			@Amount(l.Amount)
+		</td>
+		<td>
+			@Code(l.Code)
+			if l.Reversal {
+				@space()
+				@Tag(i18n.LineReversalYes, "inactive")
+			}
+		</td>
+		<td>
+			@LineStatusTag(l.Status)
+		</td>
+		<td>
+			if l.Match != nil {
+				@labelText(*l.Match)
+			} else {
+				@T(i18n.LineNone)
+			}
+			if l.Rule != nil {
+				@space()
+				<span class="hint">
+					@labelText(*l.Rule)
+				</span>
+			}
+			if l.Outcome != nil {
+				@space()
+				<span class="hint">
+					@T(i18n.LineLastProposal)
+					@space()
+					@labelText(*l.Outcome)
+				</span>
+			}
+		</td>
+		<td>
+			if l.PostingDay != nil {
+				@Day(*l.PostingDay)
+			} else if l.Approval != "" {
+				<a { link(l.Approval, "")... }>
+					@T(i18n.MatchApprovalOpen)
+				</a>
+			} else {
+				@T(i18n.LineNone)
+			}
+		</td>
+	</tr>
+}

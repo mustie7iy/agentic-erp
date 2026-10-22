@@ -81,18 +81,26 @@ var Nav = []NavItem{{Path: "/", Label: i18n.NavHome}, {Path: "/health", Label: i
 // ApprovalsPath is the approvals inbox's path.
 const ApprovalsPath = "/approvals"
 
-// SignedInNav is a signed-in person's navigation: the approvals inbox
-// where approvals is true (the person may read approval requests, by
-// getCurrentPrincipal; advisory, as the API decides each call) and the
-// supplier invoices where invoices is (they may read invoices), between
-// home and the service's status.
-func SignedInNav(approvals, invoices bool) []NavItem {
+// NavJobs is which of the jobs' screens a signed-in person may read, by
+// getCurrentPrincipal (advisory, as the API decides each call).
+type NavJobs struct {
+	Approvals bool // approval requests
+	Invoices  bool // supplier invoices
+	Bank      bool // bank statements
+}
+
+// SignedInNav is a signed-in person's navigation: the screens of the jobs
+// they may read, between home and the service's status.
+func SignedInNav(jobs NavJobs) []NavItem {
 	nav := []NavItem{Nav[0]}
-	if approvals {
+	if jobs.Approvals {
 		nav = append(nav, NavItem{Path: ApprovalsPath, Label: i18n.JobApprovals})
 	}
-	if invoices {
+	if jobs.Invoices {
 		nav = append(nav, NavItem{Path: InvoicesPath, Label: i18n.NavInvoices})
+	}
+	if jobs.Bank {
+		nav = append(nav, NavItem{Path: BankPath, Label: i18n.NavBank})
 	}
 	return append(nav, Nav[1])
 }

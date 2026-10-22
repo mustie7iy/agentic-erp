@@ -769,6 +769,103 @@ p,
   }
 }
 
+/* Bank statements (T73g): a house bank's links beside its name, a
+   statement's lines as cards, each line's match and its decisions folded
+   until opened, the lines' counts by status in a row that wraps. */
+.bank {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+}
+
+.bank__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+}
+
+.lines {
+  max-inline-size: 56rem;
+}
+
+/* A card is a grid item: it shrinks to the page, so a table in it
+   scrolls in its own region rather than widen the page. */
+.cards > .card {
+  min-inline-size: 0;
+}
+
+.match {
+  margin-block: 0.75rem 0;
+  padding-block-start: 0.75rem;
+  border-block-start: 1px solid var(--border);
+}
+
+.match__title {
+  margin-block: 0 0.5rem;
+  font-size: 1.125rem;
+}
+
+.match__reason {
+  margin-block: 0.5rem;
+}
+
+.target__candidate {
+  margin-inline-end: 0.5rem;
+  font-weight: 700;
+}
+
+.line__decisions {
+  margin-block-start: 0.75rem;
+}
+
+.disclosure {
+  margin-block-end: 0.5rem;
+}
+
+.disclosure__summary {
+  display: list-item;
+  min-block-size: 2.75rem;
+  padding-block: 0.6rem;
+  color: var(--link);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-thickness: max(1px, 0.0625rem);
+  text-underline-offset: 0.15em;
+}
+
+.disclosure__summary:focus-visible {
+  outline: 3px solid transparent;
+  background-color: var(--focus);
+  color: var(--focus-text);
+  box-shadow: 0 -2px var(--focus), 0 4px var(--focus-text);
+  text-decoration: none;
+}
+
+.disclosure[open] > .disclosure__summary {
+  margin-block-end: 0.5rem;
+}
+
+.counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.counts__item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.recon {
+  margin-block-end: 1.5rem;
+  max-inline-size: 48rem;
+}
+
 /* Footer: help in the same place on every page (WCAG 3.2.6). */
 .footer {
   padding-block: 1.5rem;
