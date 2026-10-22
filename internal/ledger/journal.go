@@ -464,7 +464,7 @@ type NewLine struct {
 	SpecialGL       *string // set by the posting contexts only (ADR-0037)
 	TaxBase         *string // a tax line's declared base (Line.TaxBase), in TaxBaseCurrency
 	TaxBaseCurrency string
-	TaxJurisdiction *string // the subdivision its tax is levied in (Line.TaxJurisdiction)
+	TaxJurisdiction *string      // the subdivision its tax is levied in (Line.TaxJurisdiction)
 	lc              *money.Minor // a kept local amount (PostingLine.LC): the posting contexts only
 }
 

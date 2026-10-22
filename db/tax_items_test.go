@@ -599,7 +599,7 @@ func TestLineJurisdictionRules(t *testing.T) {
 			}
 			return err
 		}, "journal_line_tax_jurisdiction"},
-		"a parked line's without a code": {parkedLine("", "AE-DU"), "parked_entry_line_tax_jurisdiction"},
+		"a parked line's without a code":    {parkedLine("", "AE-DU"), "parked_entry_line_tax_jurisdiction"},
 		"a parked line's not a subdivision": {parkedLine("S5", "AE"), "parked_entry_line_tax_jurisdiction"},
 		"a subdivision levying its lines'": {func(tx pgx.Tx) error {
 			return exec(tx, `UPDATE ledger.tax_component SET jurisdiction = 'AE-DU', version = version + 1 WHERE code = 'S5'`)
