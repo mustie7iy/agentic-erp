@@ -54,8 +54,18 @@ make db-up      # PostgreSQL 17 in Docker on :55432
 make test       # functional, end-to-end and resilience suites, race detector on
 make coverage   # whole-suite statement coverage gate
 make demo       # the CLI against a real API server: mock SAP -> migrate -> invoices -> agents -> analytics
+make walkthrough  # the pilot story narrated against the real binaries; WALKTHROUGH_PAUSE=1 waits after each step
 make load       # the load suite against the p95/p99 budgets (make soak, make resilience likewise)
 ```
+
+`make walkthrough` is the pilot's story for watching rather than testing:
+it builds `erp-server` and `erp`, starts the server with the development
+issuer on `DATABASE_URL`, and narrates a Canadian company from its SAP
+migration and the Canada country pack through procure-to-pay, a payment run,
+the bank statement, FX revaluation, parallel ledgers, cost centers, reports
+and the audit trail, printing each command and an excerpt of its answer and
+stopping at anything unexpected (`scripts/walkthrough.sh`; needs jq). Steps
+whose capability is not built yet say so and are skipped.
 
 `erp` is a thin client of the API: everything it reads or changes goes
 through `erp-server` with your token, under the same permissions, company
