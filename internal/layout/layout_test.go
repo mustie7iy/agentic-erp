@@ -17,8 +17,11 @@ import (
 
 const module = "github.com/mustie7iy/agentic-erp/internal/"
 
-// shared are packages every context may import: the shared kernel (§6.7).
-var shared = map[string]bool{"money": true}
+// shared are packages every context may import: the shared kernel (§6.7):
+// money, and tax, the pure tax calculator (ADR-0049 §2, §8), a library of
+// rules on amounts that the ledger and payables (T61d) call, which holds
+// no state and owns no data. A shared package imports only shared ones.
+var shared = map[string]bool{"money": true, "tax": true}
 
 // platformUsers are the platform packages allowed to import contexts: only
 // test support that builds a configured tenant. Every other platform
@@ -48,20 +51,26 @@ var testSupport = map[string]bool{
 // through the public API's client (api/gen) as the signed-in person
 // (ADR-0052 §7), so it can never become a second backend.
 var webPlatform = map[string]bool{
-	"platform/authn": true, "platform/buildinfo": true, "platform/etag": true, "platform/problem": true,
-	"platform/proxyproto": true, "platform/secrets": true, "platform/telemetry": true, "platform/tlsconf": true,
+	"platform/authn": true, "platform/buildinfo": true, "platform/clock": true, "platform/etag": true, "platform/problem": true,
+	"platform/proxyproto": true, "platform/secrets": true, "platform/telemetry": true, "platform/tlsconf": true, "platform/worker": true,
+	"platform/database": true, // web/session's alone: webStore
 }
 
-// webForbidden are packages the workspace may not link even through
-// another package: they hold a database pool or write tenants' data.
-// platform/reqctx (and with it pgx's transaction type) is linked, through
-// telemetry and authn, which keep a request's identity in it; the
-// workspace cannot open a transaction without a pool (ADR-0052, Built in
-// T73a).
-var webForbidden = []string{"platform/database", "platform/uow", "platform/outbox", "platform/audit", "platform/fieldcrypt", "platform/workflow", "platform/config"}
+// webStore is the one package of the workspace that holds a database pool:
+// its session store, on the directory database's web schema, as the
+// erp_web role that sees that schema alone (ADR-0052 §6, T73b). The pool
+// (platform/database, pgxpool) may be linked through it and nothing else.
+const webStore = "web/session"
 
-// webForbiddenModules are third-party packages likewise: a connection pool.
-var webForbiddenModules = []string{"github.com/jackc/pgx/v5/pgxpool"}
+// webPool are what only webStore (and the pool's own package) may import.
+var webPool = map[string]string{module + "platform/database": "web/session", "github.com/jackc/pgx/v5/pgxpool": "platform/database"}
+
+// webForbidden are packages the workspace may not link even through
+// another package: they hold a tenant's scope or write tenants' data.
+// platform/reqctx (and with it pgx's transaction type) is linked, through
+// telemetry and authn, which keep a request's identity in it (ADR-0052,
+// Built in T73a).
+var webForbidden = []string{"platform/uow", "platform/outbox", "platform/audit", "platform/fieldcrypt", "platform/workflow", "platform/config"}
 
 // allowed is every import from one context to another that production code
 // makes today, by importing unit. A new one fails TestImportRules; one that
@@ -183,9 +192,10 @@ func walk(root, prefix string, out map[string]map[string]bool) error {
 }
 
 // TestImportRules: production code (internal/ and cmd/) imports no test
-// support, platform packages (other than platformUsers) import no context,
-// the composition root and commands import any, a context imports no leaf
-// and another context only where allowed says so.
+// support, a shared package imports only shared ones, platform packages
+// (other than platformUsers) import no context, the composition root and
+// commands import any, a context imports no leaf and another context only
+// where allowed says so.
 func TestImportRules(t *testing.T) {
 	used := map[string]bool{}
 	for pkg, deps := range imports(t) {
@@ -196,11 +206,17 @@ func TestImportRules(t *testing.T) {
 				t.Errorf("%s imports %s: the web workspace imports only its own packages, the shared kernel and %v (ADR-0052 §7)", pkg, dep, slices.Sorted(maps.Keys(webPlatform)))
 				continue
 			}
+			if (from == "web" || pkg == "cmd/erp-web") && to == "platform/database" && pkg != webStore {
+				t.Errorf("%s imports %s: in the workspace only its session store (%s) holds a database pool (ADR-0052 §6)", pkg, dep, webStore)
+				continue
+			}
 			if testSupport[dep] && !testSupport[pkg] {
 				t.Errorf("%s imports %s: production code may not import test support", pkg, dep)
 				continue
 			}
 			switch {
+			case shared[from] && from != to && !shared[to]:
+				t.Errorf("%s imports %s: a shared package imports only shared ones", pkg, dep)
 			case from == to, strings.HasPrefix(to, "platform/"), shared[to]:
 			case strings.HasPrefix(from, "cmd/"), pkg == compositionRoot: // a command and the composition root wire contexts together
 			case strings.HasPrefix(from, "platform/"):
@@ -233,15 +249,19 @@ func TestImportRules(t *testing.T) {
 // TestWebLinksNoBackend: erp-web links no context and no package that
 // writes tenants' data, not even indirectly (ADR-0052 §7).
 func TestWebLinksNoBackend(t *testing.T) {
-	cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", "-f", "{{.ImportPath}}", "../../cmd/erp-web")
+	cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", "-f", `{{.ImportPath}} {{join .Imports " "}}`, "../../cmd/erp-web")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("go list: %v\n%s", err, out)
 	}
 	n := 0
-	for _, dep := range strings.Fields(string(out)) {
-		if slices.Contains(webForbiddenModules, dep) {
-			t.Errorf("erp-web links %s: the workspace holds no database pool (ADR-0052 §7)", dep)
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		fields := strings.Fields(line)
+		dep := fields[0]
+		for _, imported := range fields[1:] {
+			if only, pooled := webPool[imported]; pooled && dep != module+only {
+				t.Errorf("erp-web: %s imports %s: only %s may, the workspace's one database pool (ADR-0052 §6)", dep, imported, only)
+			}
 		}
 		pkg, ok := strings.CutPrefix(dep, module)
 		if !ok {

@@ -30,8 +30,8 @@ type env struct {
 	expense, tax, ap uuid.UUID // accounts 520000, 140000 and 211000 of company 2000
 }
 
-// twoParts is a code of GST and a non-deductible PST, which an invoice
-// cannot post on one tax line until T61d.
+// twoParts is a code of GST and a non-deductible PST: the GST posts on
+// its tax account, the PST on the item's line (T61d).
 var twoParts = config.TaxCode{Code: "V2", Description: "GST + PST", Components: []config.TaxComponent{
 	{Key: "gst", AccountKey: config.KeyInput, Account: "140000", Rates: []config.TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}},
 	{Key: "pst", AccountKey: config.KeyNonDeductible, Rates: []config.TaxRate{{RatePercent: "7", ValidFrom: "2026-01-01"}}}}}
@@ -93,6 +93,11 @@ func poItem(po uuid.UUID, item int, qty, unit, amount string) string {
 func accountItem(account uuid.UUID, amount string) string {
 	return fmt.Sprintf(`{"account_id": %q, "description": "Fees", "quantity": {"value": "1", "unit": "EA"}, "amount": {"amount": %q, "currency": "EUR"}, "tax_code": "V1"}`,
 		account, amount)
+}
+
+// untaxedItem is accountItem without a tax code.
+func untaxedItem(account uuid.UUID, amount string) string {
+	return strings.Replace(accountItem(account, amount), `, "tax_code": "V1"`, "", 1)
 }
 
 func id(m map[string]any) string { return m["id"].(string) }
@@ -284,7 +289,6 @@ func TestEntryRefusals(t *testing.T) {
 		"reconciliation":       {e.invoice(e.Supplier, "R", "1.00", "0.00", accountItem(e.ap, "1.00")), 422, "payables.account_not_postable"},
 		"tax code":             {e.invoice(e.Supplier, "R", "1.00", "0.00", strings.Replace(ap, `"V1"`, `"V7"`, 1)), 422, "payables.unknown_tax_code"},
 		"output tax code":      {e.invoice(e.Supplier, "R", "1.00", "0.00", strings.Replace(ap, `"V1"`, `"A1"`, 1)), 422, "payables.unknown_tax_code"},
-		"code with components": {e.invoice(e.Supplier, "R", "1.00", "0.00", strings.Replace(ap, `"V1"`, `"V2"`, 1)), 422, "payables.tax_code_components"},
 		"unit unknown":         {e.invoice(e.Supplier, "R", "1.00", "0.00", strings.Replace(ap, `"unit": "EA"`, `"unit": "XX"`, 1)), 422, "payables.unknown_unit"},
 		"no fiscal year":       {strings.Replace(e.invoice(e.Supplier, "R", "1.00", "0.00", ap), "2026-03-10", "2031-03-10", 1), 422, "ledger.no_fiscal_period"},
 	}

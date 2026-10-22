@@ -95,8 +95,10 @@ step schema go test -count=1 ./db
 # order dependence 07 §7.7 asks for, in one pass. Three runs of a package
 # take three times go test's default limit of 10 minutes: the schema
 # tests, which migrate up and down again and again, took longer than
-# that on a busy machine without hanging.
-step race go test -race -shuffle=on -count=3 -timeout 30m ./...
+# that on a busy machine without hanging. By batch 6 (2026-10-22) the
+# ledger and payments packages took over 30 minutes for their three runs on
+# a loaded machine, so the limit, which only guards against a hang, is 60.
+step race go test -race -shuffle=on -count=3 -timeout 60m ./...
 step budgets bash -c 'go test -count=1 -run Budget ./internal/ledger && go test -count=1 -run Perf ./internal/nfr'
 step coverage ./scripts/coverage.sh
 step fuzz make fuzz FUZZTIME=30s

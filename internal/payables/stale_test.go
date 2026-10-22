@@ -116,7 +116,7 @@ func TestApprovedExceptionCountsForItsVersion(t *testing.T) {
 		po := e.order(t, e.Supplier, number)
 		e.receive(t, po, 1, "10")
 		e.receive(t, po, 2, "5")
-		inv, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "INV-"+number, "167.80", "22.80",
+		inv, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "INV-"+number, "169.70", "24.70",
 			poItem(po, 1, "10", "EA", "130.00"), poItem(po, 2, "5", "KG", "15.00")), "")
 		if m := e.act(t, 200, id(inv), "match", ""); m["is_clean"] != false {
 			t.Fatalf("match is_clean: got %v, want false", m["is_clean"])
@@ -129,14 +129,15 @@ func TestApprovedExceptionCountsForItsVersion(t *testing.T) {
 		e.Approve(t, id(inv))
 		return inv
 	}
-	// oldEdit changes item 1 and the gross amount by delta minor units as
-	// the previous release's edit did: the version moves on, the approved
-	// request stays linked.
+	// oldEdit changes item 1 by delta minor units, its V1 tax at 19% and the
+	// gross with them, as the previous release's edit did: the version moves
+	// on, the approved request stays linked.
 	oldEdit := func(t *testing.T, inv map[string]any, delta int64) {
 		t.Helper()
 		invoice := uuid.MustParse(id(inv))
 		pgtest.Exec(t, `UPDATE payables.supplier_invoice_item SET amount = amount + $2 WHERE supplier_invoice_id = $1 AND item_no = 1`, invoice, delta)
-		pgtest.Exec(t, `UPDATE payables.supplier_invoice SET gross_amount = gross_amount + $2, version = version + 1 WHERE id = $1`, invoice, delta)
+		pgtest.Exec(t, `UPDATE payables.supplier_invoice SET gross_amount = gross_amount + $2 + $3, tax_amount = tax_amount + $3, version = version + 1
+			WHERE id = $1`, invoice, delta, delta*19/100)
 	}
 	posted := func(t *testing.T, e env, inv map[string]any) {
 		t.Helper()

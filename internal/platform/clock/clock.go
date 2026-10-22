@@ -14,3 +14,10 @@ func Now(now func() time.Time) time.Time {
 	}
 	return time.Now()
 }
+
+// Day is t's calendar date in UTC, at midnight: the business date of an
+// instant where no time zone of the company is known.
+func Day(t time.Time) time.Time {
+	y, m, d := t.UTC().Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}

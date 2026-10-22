@@ -69,7 +69,14 @@ cannot be re-bound (T37).
 - **Stateless sessions only:** cannot enforce an idle timeout. Opaque
   tokens with introspection: a call to the provider on every request.
 - **Session revocation through the API:** deferred; the session table can
-  end a session as revoked when it is needed.
+  end a session as revoked when it is needed. *Amended by T73b (ADR-0052
+  G9):* `endCurrentSession` (`POST /v1/sessions/current:end`) ends the
+  token's own session as `revoked`, audited, and its tokens get 401
+  `identity.session_revoked`; every person holds its permission
+  (`identity.session.end`, `authz.PersonsOwn`). The replica that ends it
+  forgets having seen it; the others refuse it at their next look at the
+  session, within `TouchEvery` (a minute). Ending another person's
+  sessions stays an administrator's question for later.
 
 ## Consequences
 - One cached lookup per request on the cell (as `erp_control`) and on the

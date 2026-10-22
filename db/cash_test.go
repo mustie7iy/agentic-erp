@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -106,4 +107,16 @@ func TestCashParentIsTheTenants(t *testing.T) {
 			VALUES ($1, 'OP_RENT', 'Rent', 'outflow', 'OPERATING', $2, $2)`, b.tenant, b.actor)
 	})
 	failsWith(t, err, "liquidity_item_tenant_id_parent_code_fkey")
+}
+
+// TestCashPositionPermission: the cash position's read permission is
+// seeded and is no approval permission (T53c, 000149).
+func TestCashPositionPermission(t *testing.T) {
+	var approval bool
+	if err := testDB.QueryRow(context.Background(), `SELECT is_approval FROM ref.permission WHERE code = 'cash.position.read'`).Scan(&approval); err != nil {
+		t.Fatalf("cash.position.read: %v", err)
+	}
+	if approval {
+		t.Error("cash.position.read: got an approval permission, want a read permission")
+	}
 }

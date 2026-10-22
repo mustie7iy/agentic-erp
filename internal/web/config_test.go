@@ -46,6 +46,9 @@ func TestLoadConfigProduction(t *testing.T) {
 		"ERP_WEB_PUBLIC_CERT": "file:" + tlstest.WriteFile(t, dir, "tls.crt", public.CertPEM),
 		"ERP_WEB_PUBLIC_KEY":  "file:" + tlstest.WriteFile(t, dir, "tls.key", public.KeyPEM),
 		"ERP_WEB_PROXY_FROM":  "10.16.0.0/24,10.16.1.0/24", "ERP_WEB_API_DIAL": "erp-router.erp-global.svc:8081", "ERP_WEB_ADDR": ":8443", "ERP_LOG_LEVEL": "warn", "ERP_SHUTDOWN_TIMEOUT": "5s",
+		"ERP_WEB_DIRECTORY_URL": "postgres://erp_admin@directory:5432/directory?sslmode=verify-full", "ERP_WEB_DIRECTORY_PASSWORD": "file:" + tlstest.WriteFile(t, dir, "password", []byte("pw\n")),
+		"ERP_WEB_SESSION_KEY": "env:KEY", "KEY": strings.Repeat("k", 32), "ERP_WEB_SESSION_KEY_PREVIOUS": "env:OLD", "OLD": strings.Repeat("o", 40),
+		"ERP_WEB_CLIENT_CREDENTIALS": "file:/etc/erp/web-clients/",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -59,6 +62,10 @@ func TestLoadConfigProduction(t *testing.T) {
 	if want := []netip.Prefix{netip.MustParsePrefix("10.16.0.0/24"), netip.MustParsePrefix("10.16.1.0/24")}; !slices.Equal(c.ProxyFrom, want) {
 		t.Errorf("proxy sources: got %v, want %v", c.ProxyFrom, want)
 	}
+	if pw, err := c.DirectoryPassword(t.Context()); err != nil || pw != "pw" || len(c.SessionSecrets) != 2 || string(c.SessionSecrets[0]) != strings.Repeat("k", 32) ||
+		c.CredentialPrefix != "file:/etc/erp/web-clients/" {
+		t.Errorf("sign-in: got password %q (%v), %d secrets, prefix %q", pw, err, len(c.SessionSecrets), c.CredentialPrefix)
+	}
 	if c.Addr != ":8443" || c.APIDial != "erp-router.erp-global.svc:8081" || c.ShutdownTimeout != 5*time.Second || c.LogLevel.String() != "WARN" || c.PublicURL.Host != "app.example.com" {
 		t.Errorf("settings: got %+v", c)
 	}
@@ -69,8 +76,10 @@ func TestLoadConfigRefuses(t *testing.T) {
 	public := ca.Issue(t, tlstest.Options{DNS: []string{"app.example.com"}})
 	prod := map[string]string{
 		"ERP_ENV": "production", "ERP_WEB_PUBLIC_URL": "https://app.example.com", "ERP_WEB_API_URL": "https://api.example.com",
-		"ERP_WEB_PUBLIC_CERT": "file:" + tlstest.WriteFile(t, dir, "tls.crt", public.CertPEM),
-		"ERP_WEB_PUBLIC_KEY":  "file:" + tlstest.WriteFile(t, dir, "tls.key", public.KeyPEM),
+		"ERP_WEB_PUBLIC_CERT":   "file:" + tlstest.WriteFile(t, dir, "tls.crt", public.CertPEM),
+		"ERP_WEB_PUBLIC_KEY":    "file:" + tlstest.WriteFile(t, dir, "tls.key", public.KeyPEM),
+		"ERP_WEB_DIRECTORY_URL": "postgres://erp_admin@directory:5432/directory?sslmode=verify-full",
+		"ERP_WEB_SESSION_KEY":   "env:KEY", "KEY": strings.Repeat("k", 32), "ERP_WEB_CLIENT_CREDENTIALS": "file:/etc/erp/web-clients/",
 	}
 	with := func(set map[string]string) map[string]string {
 		m := maps.Clone(prod)
@@ -81,21 +90,32 @@ func TestLoadConfigRefuses(t *testing.T) {
 		env  map[string]string
 		want string
 	}{
-		"no environment":         {with(map[string]string{"ERP_ENV": ""}), "ERP_ENV is required"},
-		"no public URL":          {with(map[string]string{"ERP_WEB_PUBLIC_URL": ""}), "ERP_WEB_PUBLIC_URL is required"},
-		"plain public URL":       {with(map[string]string{"ERP_WEB_PUBLIC_URL": "http://app.example.com"}), "ERP_WEB_PUBLIC_URL must be https with ERP_ENV=production"},
-		"public URL with a path": {with(map[string]string{"ERP_WEB_PUBLIC_URL": "https://app.example.com/x"}), "ERP_WEB_PUBLIC_URL must be an absolute http(s) URL"},
-		"public URL with a user": {with(map[string]string{"ERP_WEB_PUBLIC_URL": "https://u:p@app.example.com"}), "ERP_WEB_PUBLIC_URL must be an absolute http(s) URL"},
-		"no API":                 {with(map[string]string{"ERP_WEB_API_URL": ""}), "ERP_WEB_API_URL is required"},
-		"plain API":              {with(map[string]string{"ERP_WEB_API_URL": "http://api.example.com"}), "ERP_WEB_API_URL must be https"},
-		"API not a URL":          {with(map[string]string{"ERP_WEB_API_URL": "api.example.com"}), "ERP_WEB_API_URL must be an absolute http(s) URL"},
-		"API unparsable":         {with(map[string]string{"ERP_WEB_API_URL": "https://[::1"}), "ERP_WEB_API_URL must be an absolute http(s) URL"},
-		"no certificate":         {with(map[string]string{"ERP_WEB_PUBLIC_CERT": "", "ERP_WEB_PUBLIC_KEY": ""}), "ERP_WEB_PUBLIC_CERT and ERP_WEB_PUBLIC_KEY are required with ERP_ENV=production"},
-		"certificate alone":      {with(map[string]string{"ERP_WEB_PUBLIC_KEY": ""}), "ERP_WEB_PUBLIC_CERT, ERP_WEB_PUBLIC_KEY: "},
-		"bad shutdown":           {with(map[string]string{"ERP_SHUTDOWN_TIMEOUT": "-1s"}), "ERP_SHUTDOWN_TIMEOUT must be a positive duration"},
-		"bad log level":          {with(map[string]string{"ERP_LOG_LEVEL": "loud"}), "ERP_LOG_LEVEL must be"},
-		"bad API dial":           {with(map[string]string{"ERP_WEB_API_DIAL": "erp-router"}), "ERP_WEB_API_DIAL must be host:port"},
-		"bad proxy sources":      {with(map[string]string{"ERP_WEB_PROXY_FROM": "10.0.0.0/33"}), "ERP_WEB_PROXY_FROM must be a comma-separated list of CIDRs"},
+		"no environment":           {with(map[string]string{"ERP_ENV": ""}), "ERP_ENV is required"},
+		"no public URL":            {with(map[string]string{"ERP_WEB_PUBLIC_URL": ""}), "ERP_WEB_PUBLIC_URL is required"},
+		"plain public URL":         {with(map[string]string{"ERP_WEB_PUBLIC_URL": "http://app.example.com"}), "ERP_WEB_PUBLIC_URL must be https with ERP_ENV=production"},
+		"public URL with a path":   {with(map[string]string{"ERP_WEB_PUBLIC_URL": "https://app.example.com/x"}), "ERP_WEB_PUBLIC_URL must be an absolute http(s) URL"},
+		"public URL with a user":   {with(map[string]string{"ERP_WEB_PUBLIC_URL": "https://u:p@app.example.com"}), "ERP_WEB_PUBLIC_URL must be an absolute http(s) URL"},
+		"no API":                   {with(map[string]string{"ERP_WEB_API_URL": ""}), "ERP_WEB_API_URL is required"},
+		"plain API":                {with(map[string]string{"ERP_WEB_API_URL": "http://api.example.com"}), "ERP_WEB_API_URL must be https"},
+		"API not a URL":            {with(map[string]string{"ERP_WEB_API_URL": "api.example.com"}), "ERP_WEB_API_URL must be an absolute http(s) URL"},
+		"API unparsable":           {with(map[string]string{"ERP_WEB_API_URL": "https://[::1"}), "ERP_WEB_API_URL must be an absolute http(s) URL"},
+		"no certificate":           {with(map[string]string{"ERP_WEB_PUBLIC_CERT": "", "ERP_WEB_PUBLIC_KEY": ""}), "ERP_WEB_PUBLIC_CERT and ERP_WEB_PUBLIC_KEY are required with ERP_ENV=production"},
+		"certificate alone":        {with(map[string]string{"ERP_WEB_PUBLIC_KEY": ""}), "ERP_WEB_PUBLIC_CERT, ERP_WEB_PUBLIC_KEY: "},
+		"bad shutdown":             {with(map[string]string{"ERP_SHUTDOWN_TIMEOUT": "-1s"}), "ERP_SHUTDOWN_TIMEOUT must be a positive duration"},
+		"bad log level":            {with(map[string]string{"ERP_LOG_LEVEL": "loud"}), "ERP_LOG_LEVEL must be"},
+		"bad API dial":             {with(map[string]string{"ERP_WEB_API_DIAL": "erp-router"}), "ERP_WEB_API_DIAL must be host:port"},
+		"bad proxy sources":        {with(map[string]string{"ERP_WEB_PROXY_FROM": "10.0.0.0/33"}), "ERP_WEB_PROXY_FROM must be a comma-separated list of CIDRs"},
+		"no directory":             {with(map[string]string{"ERP_WEB_DIRECTORY_URL": ""}), "ERP_WEB_DIRECTORY_URL is required with ERP_ENV=production"},
+		"an unverified directory":  {with(map[string]string{"ERP_WEB_DIRECTORY_URL": "postgres://directory/directory?sslmode=require"}), "sslmode=verify-full"},
+		"a directory not a URL":    {with(map[string]string{"ERP_WEB_DIRECTORY_URL": "postgres://[::1"}), "sslmode=verify-full"},
+		"a missing password":       {with(map[string]string{"ERP_WEB_DIRECTORY_PASSWORD": "file:/nonexistent"}), "ERP_WEB_DIRECTORY_PASSWORD"},
+		"no session key":           {with(map[string]string{"ERP_WEB_SESSION_KEY": ""}), "ERP_WEB_SESSION_KEY must reference"},
+		"a session key value":      {with(map[string]string{"ERP_WEB_SESSION_KEY": strings.Repeat("v", 40)}), "ERP_WEB_SESSION_KEY must reference"},
+		"a short session key":      {with(map[string]string{"KEY": "short"}), "ERP_WEB_SESSION_KEY must reference"},
+		"a short previous key":     {with(map[string]string{"ERP_WEB_SESSION_KEY_PREVIOUS": "env:NONE"}), "ERP_WEB_SESSION_KEY_PREVIOUS must reference"},
+		"no credentials prefix":    {with(map[string]string{"ERP_WEB_CLIENT_CREDENTIALS": ""}), "ERP_WEB_CLIENT_CREDENTIALS must be"},
+		"a prefix not a directory": {with(map[string]string{"ERP_WEB_CLIENT_CREDENTIALS": "file:/etc/erp/web-clients"}), "ERP_WEB_CLIENT_CREDENTIALS must be"},
+		"no public URL to sign in": {with(map[string]string{"ERP_ENV": "development", "ERP_WEB_PUBLIC_URL": ""}), "ERP_WEB_PUBLIC_URL is required to sign in"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := LoadConfig(env(tc.env)); err == nil || !strings.Contains(err.Error(), tc.want) {

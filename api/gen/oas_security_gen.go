@@ -28,9 +28,10 @@ type SecurityHandler interface {
 	// the provider for); service and agent tokens are not asked. A person's session (one authentication at
 	// the provider: its `sid`, or the subject's `auth_time`) lasts the tenant's session lifetime from that
 	// authentication and ends after its idle timeout without a request: 401 `identity.session_expired` or
-	// `identity.session_idle`, and an ended session never resumes, even with a refreshed token. A person's
-	// token with neither `auth_time` nor `sid` is 401 `identity.session_unknown`, and one valid for longer
-	// than the session lifetime (`exp` − `iat`) 401 `identity.session_expired`.
+	// `identity.session_idle` (`identity.session_revoked` once the person ended it, `endCurrentSession`),
+	// and an ended session never resumes, even with a refreshed token. A person's token with neither
+	// `auth_time` nor `sid` is 401 `identity.session_unknown`, and one valid for longer than the session
+	// lifetime (`exp` − `iat`) 401 `identity.session_expired`.
 	HandleOidc(ctx context.Context, operationName OperationName, t Oidc) (context.Context, error)
 }
 
@@ -111,6 +112,7 @@ var operationRolesOidc = map[string][]string{
 	EnableConnectorOperation:                  []string{},
 	EndAgentSessionOperation:                  []string{},
 	EndCompanyAccessOperation:                 []string{},
+	EndCurrentSessionOperation:                []string{},
 	EndRoleAssignmentOperation:                []string{},
 	EndRolePermissionOperation:                []string{},
 	EndSodRuleOperation:                       []string{},
@@ -129,6 +131,7 @@ var operationRolesOidc = map[string][]string{
 	GetBankStatementFileOperation:             []string{},
 	GetBankStatementRulesOperation:            []string{},
 	GetBusinessPartnerOperation:               []string{},
+	GetCashPositionOperation:                  []string{},
 	GetCenterChangeOperation:                  []string{},
 	GetChangeRequestOperation:                 []string{},
 	GetClearingOperation:                      []string{},
@@ -373,9 +376,10 @@ type SecuritySource interface {
 	// the provider for); service and agent tokens are not asked. A person's session (one authentication at
 	// the provider: its `sid`, or the subject's `auth_time`) lasts the tenant's session lifetime from that
 	// authentication and ends after its idle timeout without a request: 401 `identity.session_expired` or
-	// `identity.session_idle`, and an ended session never resumes, even with a refreshed token. A person's
-	// token with neither `auth_time` nor `sid` is 401 `identity.session_unknown`, and one valid for longer
-	// than the session lifetime (`exp` − `iat`) 401 `identity.session_expired`.
+	// `identity.session_idle` (`identity.session_revoked` once the person ended it, `endCurrentSession`),
+	// and an ended session never resumes, even with a refreshed token. A person's token with neither
+	// `auth_time` nor `sid` is 401 `identity.session_unknown`, and one valid for longer than the session
+	// lifetime (`exp` − `iat`) 401 `identity.session_expired`.
 	Oidc(ctx context.Context, operationName OperationName) (Oidc, error)
 }
 

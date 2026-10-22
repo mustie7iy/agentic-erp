@@ -20,7 +20,11 @@ output "router_target_group_arn" {
 
 output "router_proxy_sources" {
   description = "The load balancer's subnets, whose connections carry a PROXY v2 header: the erp-global chart's router.proxyFrom (ERP_ROUTER_PROXY_FROM)."
-  value       = sort(distinct([for s in data.aws_subnet.public : s.cidr_block]))
+  value       = local.balancer_cidrs
+  precondition {
+    condition     = length(local.pods_in_balancer_subnets) == 0
+    error_message = "The cluster's private subnets overlap the load balancers' (${join(", ", local.pods_in_balancer_subnets)}): a pod's connection would be taken for the balancer's, and erp-web's calls to the router carry no PROXY header (T73b)."
+  }
 }
 
 output "web_dns_name" {
@@ -35,7 +39,11 @@ output "web_target_group_arn" {
 
 output "web_proxy_sources" {
   description = "The web load balancer's subnets, whose connections carry a PROXY v2 header: the erp-global chart's web.proxyFrom (ERP_WEB_PROXY_FROM)."
-  value       = sort(distinct([for s in data.aws_subnet.public : s.cidr_block]))
+  value       = local.balancer_cidrs
+  precondition {
+    condition     = length(local.pods_in_balancer_subnets) == 0
+    error_message = "The cluster's private subnets overlap the load balancers' (${join(", ", local.pods_in_balancer_subnets)}) (T73b)."
+  }
 }
 
 output "external_secrets" {

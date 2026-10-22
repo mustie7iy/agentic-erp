@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -155,7 +156,8 @@ func TestIssuerStatementFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer dir.Close()
-	is := directory.Issuer{Issuer: "https://f-" + uuid.NewString() + ".example.com", Audience: "erp", TenantID: uuid.New(), Cell: "f-" + uuid.NewString()}
+	is := directory.Issuer{Issuer: "https://f-" + uuid.NewString() + ".example.com", Audience: "erp", TenantID: uuid.New(), Cell: "f-" + uuid.NewString(),
+		Web: webClient("f-" + uuid.NewString()[:8])}
 	pool := dir.Pool
 	for name, op := range map[string]func() error{
 		"claim":   func() error { return dir.ClaimIssuer(ctx, is) },
@@ -168,7 +170,13 @@ func TestIssuerStatementFailures(t *testing.T) {
 			_, err := dir.SyncIssuers(ctx, is.Cell, []directory.Issuer{is})
 			return err
 		},
+		"web client": func() error { return dir.ClaimWebClient(ctx, is) },
 	} {
+		if name == "web client" {
+			if err := dir.ClaimIssuer(ctx, is); err != nil { // the claim it rides on
+				t.Fatal(err)
+			}
+		}
 		t.Run(name, func(t *testing.T) {
 			for n := 1; n < 10; n++ {
 				dir.InTx = func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
@@ -257,6 +265,9 @@ func TestSyncClaimsIssuers(t *testing.T) {
 		if _, err := b.RunOnce(ctx); err == nil {
 			t.Error("round with a closed directory: got success, want an error")
 		}
+		if got := problem.From(b.ClaimWebClient(ctx, directory.Issuer{Issuer: "https://down.example.com", Audience: "erp"})).Status; got != 503 {
+			t.Errorf("web client: got status %d, want 503", got)
+		}
 	})
 	t.Run("a directory whose issuers fail", func(t *testing.T) {
 		f := *s
@@ -283,6 +294,9 @@ func TestSyncClaimsIssuers(t *testing.T) {
 		m.Directory = &memory{}
 		if err := m.ClaimIssuer(ctx, ten.ID, uuid.New(), "https://memory.example.com", "erp"); err != nil {
 			t.Errorf("claim: got %v, want nothing to claim", err)
+		}
+		if err := m.ClaimWebClient(ctx, directory.Issuer{Issuer: "https://memory.example.com", Audience: "erp"}); err != nil {
+			t.Errorf("web client: got %v, want nothing to claim", err)
 		}
 		m.ReleaseIssuer(ctx, ten.ID, uuid.New(), "https://memory.example.com", "erp")
 	})
@@ -370,4 +384,153 @@ func TestIssuerRegistry(t *testing.T) {
 	if _, err := (directory.IssuerRegistry{Directory: broken}).Resolve(ctx, "https://r.example.com", []string{"erp"}); err == nil || errors.Is(err, authn.ErrUnknownIssuer) {
 		t.Errorf("a closed directory: got %v, want a failure to answer", err)
 	}
+}
+
+func webClient(code string) *directory.WebClient {
+	return &directory.WebClient{LoginCode: code, ClientID: "erp-web", AuthMethod: "private_key_jwt", CredentialRef: "file:/k/" + code, Scope: "openid erp"}
+}
+
+// loginClients lists the web clients erp-web sees, as erp_web: "code issuer".
+func loginClients(t *testing.T, dir *directory.Postgres) []string {
+	t.Helper()
+	var out []string
+	if err := dir.Pool.InTx(context.Background(), database.Scope{Role: "erp_web", ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+		rows, _ := tx.Query(ctx, `SELECT login_code || ' ' || issuer FROM web.login_client ORDER BY 1`)
+		var err error
+		out, err = pgx.CollectRows(rows, pgx.RowTo[string])
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// TestWebClientClaims: a registration's web client rides on its issuer's
+// claim (ADR-0052 G8): its login code is one claim's across cells, a round
+// projects it and leaves out a code another claim holds, a takeover of the
+// pair by another registration drops the old one's client, and erp-web
+// finds it by its code.
+func TestWebClientClaims(t *testing.T) {
+	ctx := context.Background()
+	dir, err := directory.Open(ctx, pgtest.EmptyDatabase(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	tenant := uuid.New()
+	a := directory.Issuer{Issuer: "https://a.example.com", Audience: "erp", TenantID: tenant, Cell: "eu-1", ProviderID: uuid.New(), Web: webClient("acme")}
+	if err := dir.ClaimIssuer(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := dir.ClaimWebClient(ctx, a); err != nil {
+		t.Fatalf("web client: %v", err)
+	}
+	if got := loginClients(t, dir); !slices.Equal(got, []string{"acme https://a.example.com"}) {
+		t.Errorf("login clients: got %v, want acme", got)
+	}
+	t.Run("another claim may not take the code", func(t *testing.T) {
+		b := directory.Issuer{Issuer: "https://b.example.com", Audience: "erp", TenantID: uuid.New(), Cell: "us-1", ProviderID: uuid.New(), Web: webClient("acme")}
+		if err := dir.ClaimIssuer(ctx, b); err != nil {
+			t.Fatal(err)
+		}
+		if err := dir.ClaimWebClient(ctx, b); !errors.Is(err, directory.ErrLoginCodeTaken) {
+			t.Errorf("claim: got %v, want ErrLoginCodeTaken", err)
+		}
+		taken, err := dir.SyncIssuers(ctx, "us-1", []directory.Issuer{b})
+		if err != nil || taken != 1 {
+			t.Errorf("round: got %d taken, %v, want 1", taken, err)
+		}
+		if got := loginClients(t, dir); len(got) != 1 {
+			t.Errorf("login clients: got %v, want acme's alone", got)
+		}
+	})
+	t.Run("a round projects and changes it", func(t *testing.T) {
+		a.Web = webClient("acme-2")
+		second := directory.Issuer{Issuer: "https://a2.example.com", Audience: "erp", TenantID: tenant, Cell: "eu-1", ProviderID: uuid.New(), Web: webClient("acme-1")}
+		if _, err := dir.SyncIssuers(ctx, "eu-1", []directory.Issuer{a, second}); err != nil {
+			t.Fatal(err)
+		}
+		if got := loginClients(t, dir); !slices.Contains(got, "acme-2 https://a.example.com") || slices.Contains(got, "acme https://a.example.com") {
+			t.Errorf("login clients: got %v, want acme-2 in acme's place", got)
+		}
+	})
+	t.Run("a takeover drops the old client", func(t *testing.T) {
+		again := a
+		again.ProviderID, again.Web = uuid.New(), nil
+		if err := dir.ClaimIssuer(ctx, again); err != nil {
+			t.Fatal(err)
+		}
+		if got := loginClients(t, dir); slices.Contains(got, "acme-2 https://a.example.com") {
+			t.Errorf("login clients: got %v, want the old registration's client gone", got)
+		}
+	})
+	t.Run("a registration without the claim", func(t *testing.T) {
+		stray := directory.Issuer{Issuer: "https://stray.example.com", Audience: "erp", ProviderID: uuid.New(), Web: webClient("stray")}
+		if err := dir.ClaimWebClient(ctx, stray); err == nil || errors.Is(err, directory.ErrLoginCodeTaken) {
+			t.Errorf("got %v, want the missing claim", err)
+		}
+	})
+}
+
+// TestWebSchema: erp-web's role sees its own schema alone: its sessions
+// and the web clients' view, never the directory's tables; and the
+// database holds a session to its rules (ADR-0052 §6).
+func TestWebSchema(t *testing.T) {
+	ctx := context.Background()
+	dir, err := directory.Open(ctx, pgtest.EmptyDatabase(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	asWeb := func(sql string, args ...any) error {
+		return dir.Pool.InTx(ctx, database.Scope{Role: "erp_web"}, func(ctx context.Context, tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, sql, args...)
+			return err
+		})
+	}
+	for _, sql := range []string{`SELECT * FROM directory.tenant`, `SELECT * FROM directory.issuer`, `SELECT * FROM directory.cell`,
+		`SELECT * FROM directory.placement`, `INSERT INTO web.login_client (login_code) VALUES ('x')`, `CREATE TABLE web.mine (x int)`} {
+		t.Run("refused: "+sql, func(t *testing.T) {
+			if err := asWeb(sql); err == nil || !strings.Contains(err.Error(), "permission denied") && !strings.Contains(err.Error(), "cannot insert") {
+				t.Errorf("got %v, want it refused", err)
+			}
+		})
+	}
+	insert := `INSERT INTO web.session (id_hash, tenant_id, issuer, subject, login_code, created_at, last_seen_at, expires_at, sealed)
+		VALUES ($1, $2, 'https://i', 's', 'c', $3, $4, $5, '\x00')`
+	now := time.Now()
+	id := bytes.Repeat([]byte{1}, 32)
+	if err := asWeb(insert, id, uuid.New(), now, now, now.Add(time.Hour)); err != nil {
+		t.Fatalf("a session: %v", err)
+	}
+	for name, c := range map[string]struct {
+		id         []byte
+		seen, ends time.Time
+	}{
+		"a short id":          {[]byte{1}, now, now.Add(time.Hour)},
+		"seen before created": {bytes.Repeat([]byte{2}, 32), now.Add(-time.Minute), now.Add(time.Hour)},
+		"ends before seen":    {bytes.Repeat([]byte{3}, 32), now, now.Add(-time.Minute)},
+		"the same id":         {id, now, now.Add(time.Hour)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := asWeb(insert, c.id, uuid.New(), now, c.seen, c.ends); err == nil {
+				t.Error("got it stored, want it refused")
+			}
+		})
+	}
+	if err := asWeb(`UPDATE web.session SET last_seen_at = $2, version = version + 1 WHERE id_hash = $1`, id, now.Add(time.Minute)); err != nil {
+		t.Errorf("touch: %v", err)
+	}
+	if err := asWeb(`DELETE FROM web.session WHERE id_hash = $1`, id); err != nil {
+		t.Errorf("delete: %v", err)
+	}
+	t.Run("a web client is all or nothing", func(t *testing.T) {
+		err := dir.Pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `INSERT INTO directory.issuer (issuer, audience, tenant_id, cell, login_code) VALUES ('https://x', 'a', $1, 'c', 'code')`, uuid.New())
+			return err
+		})
+		if err == nil || !strings.Contains(err.Error(), "issuer_web_client") {
+			t.Errorf("got %v, want issuer_web_client", err)
+		}
+	})
 }

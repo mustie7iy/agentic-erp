@@ -77,11 +77,12 @@ func TestOperationClasses(t *testing.T) {
 
 func TestOperationsRejectsBadContracts(t *testing.T) {
 	for name, src := range map[string]string{
-		"not yaml":      "paths: [",
-		"no permission": "paths:\n  /v1/x:\n    get:\n      operationId: getX\n",
-		"bad operation": "paths:\n  /v1/x:\n    get: [1]\n",
-		"bad autonomy":  "paths:\n  /v1/x:\n    post:\n      operationId: x\n      x-permission: a.b.c\n      x-autonomy: decide\n",
-		"bad class":     "paths:\n  /v1/x:\n    get:\n      operationId: x\n      x-permission: a.b.c\n      x-slo-class: read\n",
+		"not yaml":       "paths: [",
+		"no permission":  "paths:\n  /v1/x:\n    get:\n      operationId: getX\n",
+		"bad operation":  "paths:\n  /v1/x:\n    get: [1]\n",
+		"bad autonomy":   "paths:\n  /v1/x:\n    post:\n      operationId: x\n      x-permission: a.b.c\n      x-autonomy: decide\n",
+		"bad class":      "paths:\n  /v1/x:\n    get:\n      operationId: x\n      x-permission: a.b.c\n      x-slo-class: read\n",
+		"snapshot write": "paths:\n  /v1/x:\n    post:\n      operationId: x\n      x-permission: a.b.c\n      x-snapshot: true\n",
 		"both permissions": "paths:\n  /v1/x/{entity}:\n    get:\n      operationId: getX\n      x-permission: a.b.c\n" +
 			"      x-entity-permissions:\n        e: a.b.read\n",
 	} {
@@ -112,6 +113,22 @@ func TestOperationsRejectsBadContracts(t *testing.T) {
 	}
 	if !strings.HasPrefix(ops["getX"].Path, "/v1/") {
 		t.Errorf("path: got %s, want it under /v1/", ops["getX"].Path)
+	}
+}
+
+// TestSnapshotOperations: x-snapshot marks the GETs that read as of one
+// database state; the cash position is one, other reads are not.
+func TestSnapshotOperations(t *testing.T) {
+	ops, err := Operations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]bool{"getCashPosition": true, "getBankReconciliation": false, "listBalances": false} {
+		t.Run(id, func(t *testing.T) {
+			if got := ops[id].Snapshot; got != want {
+				t.Errorf("snapshot: got %v, want %v", got, want)
+			}
+		})
 	}
 }
 

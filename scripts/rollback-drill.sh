@@ -8,8 +8,10 @@
 #      contract (06 §6.4) makes safe.
 # After each step every drilled Application (erp-cell, and erp-global on a
 # home cell) synced that revision and is healthy, the deployments run that
-# release's images by digest and finished rolling out, and SMOKE, when
-# set, passes (a command, run with DRILL_STEP and DRILL_RELEASE set).
+# release's images by digest and finished rolling out (erp-server; on a
+# home cell erp-router and, for a release that has its image, erp-web),
+# and SMOKE, when set, passes (a command, run with DRILL_STEP and
+# DRILL_RELEASE set).
 # A step is a sync of the cell's own Argo CD to the main commit that
 # pinned that release, so nothing is pushed: the root Application's
 # automated sync is paused for the drill and restored when it ends,
@@ -90,10 +92,12 @@ def application(name):
     r = kube("-n", argocd, "get", "application", name, "-o", "json", check=False)
     return json.loads(r.stdout) if r.returncode == 0 else None
 
-# The drilled Applications and the deployment each must run, by image.
-apps = [("erp-cell", "erp", "erp-server", "server")]
+# The drilled Applications and the deployments each must run, by image.
+# erp-web (ADR-0052, T73b) is checked in a release that has its image; one
+# from before it has no erp-web to run.
+apps = [("erp-cell", "erp", [("erp-server", "server")])]
 if application("erp-global") is not None:
-    apps.append(("erp-global", "erp-global", "erp-router", "router"))
+    apps.append(("erp-global", "erp-global", [("erp-router", "router"), ("erp-web", "web")]))
 if application("erp-delivery") is None or application("erp-cell") is None:
     fail("no erp-delivery or erp-cell Application in %s: is this %s's cluster?" % (argocd, cell))
 
@@ -136,18 +140,21 @@ def step(label, rev, rel):
     if mode == "current":
         rev = head
     print("rollback-drill: %s: %s at %s (%s charts)" % (label, version, rev, "the current" if mode == "current" else "its"))
-    for name, namespace, deployment, image in apps:
+    for name, namespace, deployments in apps:
         before = started(name)
         if mode == "current":
             patch(name, {"spec": {"source": {"helm": {"valuesObject": {"release": rel["release"], "images": rel["images"]}}}}})
         patch(name, {"operation": {"initiatedBy": {"username": "rollback-drill"}, "sync": {"revision": rev}}})
         wait("%s %s" % (label, name), synced(name, rev, before))
-        d = json.loads(kube("-n", namespace, "get", "deployment", deployment, "-o", "json").stdout)
-        want = "%s@%s" % (rel["images"][image]["repository"], rel["images"][image]["digest"])
-        got = [c["image"] for c in d["spec"]["template"]["spec"]["containers"]]
-        if want not in got:
-            raise Step("%s: %s runs %s, not %s" % (label, deployment, ", ".join(got), want))
-        kube("-n", namespace, "rollout", "status", "deployment/" + deployment, "--timeout=%ds" % timeout)
+        for deployment, image in deployments:
+            if image not in rel["images"]:
+                continue
+            d = json.loads(kube("-n", namespace, "get", "deployment", deployment, "-o", "json").stdout)
+            want = "%s@%s" % (rel["images"][image]["repository"], rel["images"][image]["digest"])
+            got = [c["image"] for c in d["spec"]["template"]["spec"]["containers"]]
+            if want not in got:
+                raise Step("%s: %s runs %s, not %s" % (label, deployment, ", ".join(got), want))
+            kube("-n", namespace, "rollout", "status", "deployment/" + deployment, "--timeout=%ds" % timeout)
     smoke = os.environ.get("SMOKE")
     if smoke:
         r = subprocess.run(smoke, shell=True, env=dict(os.environ, DRILL_STEP=label, DRILL_RELEASE=version))

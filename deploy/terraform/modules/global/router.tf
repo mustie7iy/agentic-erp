@@ -87,3 +87,21 @@ data "aws_subnet" "public" {
   count = length(var.public_subnet_ids)
   id    = var.public_subnet_ids[count.index]
 }
+
+# The private subnets' ranges, where the cluster's nodes and pods are. They
+# must never overlap the balancers' (T73b): a connection from inside them
+# would be taken for the balancer's and asked for a PROXY header, and
+# erp-web's calls to the router's public listener carry none (they come
+# from no balancer).
+data "aws_subnet" "private" {
+  count = length(var.private_subnet_ids)
+  id    = var.private_subnet_ids[count.index]
+}
+
+locals {
+  balancer_cidrs = sort(distinct([for s in data.aws_subnet.public : s.cidr_block]))
+  # Two ranges overlap when their networks at the shorter prefix are one.
+  pods_in_balancer_subnets = flatten([for p in data.aws_subnet.private : [for b in local.balancer_cidrs : "${p.cidr_block} overlaps ${b}"
+    if cidrhost("${cidrhost(p.cidr_block, 0)}/${min(tonumber(split("/", p.cidr_block)[1]), tonumber(split("/", b)[1]))}", 0) ==
+  cidrhost("${cidrhost(b, 0)}/${min(tonumber(split("/", p.cidr_block)[1]), tonumber(split("/", b)[1]))}", 0)]])
+}

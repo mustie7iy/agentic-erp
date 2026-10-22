@@ -57,6 +57,12 @@ type Middleware struct {
 	// kill switch (agents.Admit, ADR-0036), so an agent stopped mid-run
 	// cannot go on acting; nil admits every agent.
 	Agents func(ctx context.Context, tx pgx.Tx) error
+	// Snapshot reports whether a safe request reads as of one database
+	// state (the contract's x-snapshot): its transaction then runs at
+	// REPEATABLE READ, so every statement sees the state of the first, as
+	// a cash position read from several contexts needs (ADR-0051 §6); nil
+	// keeps READ COMMITTED for every request.
+	Snapshot func(*http.Request) bool
 }
 
 // Sessions checks a person's session: its lifetime and idle timeout. It
@@ -142,7 +148,7 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 	if err := m.admit(ctx, claims); err != nil {
 		return err
 	}
-	tx, err := m.begin(ctx, database.Scope{Role: m.Role, TenantID: claims.TenantID, ReadOnly: req == nil})
+	tx, err := m.begin(ctx, m.scope(r, claims, req == nil))
 	if err != nil {
 		return err
 	}
@@ -183,6 +189,16 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, next http.Han
 	}
 	rec.send(w)
 	return nil
+}
+
+// scope is the request's transaction: read-only for a safe method, at
+// REPEATABLE READ for one that reads as of one database state (Snapshot).
+func (m *Middleware) scope(r *http.Request, claims reqctx.Claims, safe bool) database.Scope {
+	s := database.Scope{Role: m.Role, TenantID: claims.TenantID, ReadOnly: safe}
+	if safe && m.Snapshot != nil && m.Snapshot(r) {
+		s.Isolation = pgx.RepeatableRead
+	}
+	return s
 }
 
 // handlerContext is what the handler runs with: the transaction, the

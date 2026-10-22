@@ -139,11 +139,62 @@ CREATE TABLE IF NOT EXISTS directory.issuer (
   PRIMARY KEY (issuer, audience)
 );
 ALTER TABLE directory.issuer ADD COLUMN IF NOT EXISTS provider_id uuid;
+ALTER TABLE directory.issuer ADD COLUMN IF NOT EXISTS login_code text, ADD COLUMN IF NOT EXISTS client_id text,
+  ADD COLUMN IF NOT EXISTS auth_method text, ADD COLUMN IF NOT EXISTS credential_ref text, ADD COLUMN IF NOT EXISTS scope text;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT FROM pg_constraint WHERE conrelid = 'directory.issuer'::regclass AND conname = 'issuer_web_client') THEN
+    ALTER TABLE directory.issuer ADD CONSTRAINT issuer_web_client CHECK (num_nulls(login_code, client_id, auth_method, credential_ref, scope) IN (0, 5));
+  END IF;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS issuer_login_code ON directory.issuer (login_code) WHERE login_code IS NOT NULL;
 CREATE TABLE IF NOT EXISTS directory.placement (
   idempotency_key text PRIMARY KEY,
   cell            text NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now()
-);`
+);
+` + WebSchema
+
+// WebSchema is the web workspace's part of the directory database
+// (ADR-0052 §6, T73b): its people's sessions, and the web clients by login
+// code. erp-web works as erp_web, a role that sees the web schema alone:
+// it reads the clients through the view, never directory.issuer, and no
+// tenant, cell or placement. A session holds no business data: who signed
+// in (tenant, issuer, subject), through which login code, when, and the
+// tokens and CSRF secret sealed under erp-web's key (AES-256-GCM, bound to
+// the session's id hash), never the session id itself, which only the
+// browser's cookie holds.
+const WebSchema = `
+DO $$ BEGIN
+  -- Roles are the server's, not the database's, so openers of two
+  -- databases on one server (tests, a restore beside the live one) may
+  -- create it at once; the advisory lock serializes one database's alone.
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'erp_web') THEN CREATE ROLE erp_web NOLOGIN; END IF;
+EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL;
+END $$;
+CREATE SCHEMA IF NOT EXISTS web;
+CREATE TABLE IF NOT EXISTS web.session (
+  id_hash      bytea PRIMARY KEY CHECK (length(id_hash) = 32),
+  tenant_id    uuid NOT NULL,
+  issuer       text NOT NULL,
+  subject      text NOT NULL,
+  login_code   text NOT NULL,
+  created_at   timestamptz NOT NULL,
+  last_seen_at timestamptz NOT NULL,
+  expires_at   timestamptz NOT NULL,
+  sealed       bytea NOT NULL,
+  version      integer NOT NULL DEFAULT 1 CHECK (version > 0),
+  renewing_until timestamptz, -- a request renewing the tokens holds this claim (session.Store.Renew)
+  CONSTRAINT session_times CHECK (created_at <= last_seen_at AND last_seen_at <= expires_at)
+);
+CREATE INDEX IF NOT EXISTS session_last_seen ON web.session (last_seen_at);
+CREATE INDEX IF NOT EXISTS session_expires ON web.session (expires_at);
+CREATE OR REPLACE VIEW web.login_client WITH (security_barrier) AS
+  SELECT login_code, issuer, audience, tenant_id, client_id, auth_method, credential_ref, scope
+  FROM directory.issuer WHERE login_code IS NOT NULL;
+REVOKE ALL ON SCHEMA directory FROM erp_web;
+GRANT USAGE ON SCHEMA web TO erp_web;
+GRANT SELECT, INSERT, UPDATE, DELETE ON web.session TO erp_web;
+GRANT SELECT ON web.login_client TO erp_web;`
 
 // Postgres keeps the directory in a database of its own (ERP_DIRECTORY_URL).
 type Postgres struct {

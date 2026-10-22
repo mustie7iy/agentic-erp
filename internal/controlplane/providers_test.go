@@ -766,3 +766,130 @@ func TestARetryReplaysWithoutProbing(t *testing.T) {
 		t.Errorf("retry: got %s (replayed %v), %v, want %s replayed", again.ID, replayed, err, first.ID)
 	}
 }
+
+// webClient is a web_client body with the login code.
+func webClient(code string) string {
+	return `{"client_id": "erp-web", "auth_method": "private_key_jwt", "credential_ref": "file:/etc/erp/web-clients/` + code +
+		`.pem", "login_code": "` + code + `", "scope": "openid erp-api"}`
+}
+
+// loginCode is a fresh login code.
+func loginCode() string { return "t-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:20] }
+
+// TestWebClientsThroughTheControlPlane: a provider registers the web
+// workspace's client with it (ADR-0052 G8), changes it as a whole and
+// removes it; its login code is the cell's one provider's, and every field
+// is checked as the database checks it.
+func TestWebClientsThroughTheControlPlane(t *testing.T) {
+	p := newPlane(t)
+	ten := pgtest.NewTenant(t)
+	providers := tenants + "/" + ten.ID.String() + "/identity-providers"
+	code := loginCode()
+	iss := "https://web-" + uuid.NewString() + ".example.com"
+	created, _ := p.must(201, "ops|alice", "POST", providers, `{"issuer": "`+iss+`", "audience": "erp-api", "web_client": `+webClient(code)+`}`,
+		"Idempotency-Key", "key-"+uuid.NewString())
+	id := created["id"].(string)
+	if w, _ := created["web_client"].(map[string]any); w["login_code"] != code || w["auth_method"] != "private_key_jwt" || w["scope"] != "openid erp-api" {
+		t.Errorf("registered: got %v, want the web client with login code %s", created["web_client"], code)
+	}
+	var audited string
+	pgtest.Scan(t, `SELECT detail->'web_client'->>'login_code' FROM audit.audit_event WHERE tenant_id = $1 AND action = 'identity.identity_provider.register'`,
+		[]any{ten.ID}, &audited)
+	if audited != code {
+		t.Errorf("audit: got login code %q, want %s", audited, code)
+	}
+	t.Run("the code is one provider's", func(t *testing.T) {
+		other := pgtest.NewTenant(t)
+		p.in(t).problem(409, "identity.login_code_taken", "ops|alice", "POST", tenants+"/"+other.ID.String()+"/identity-providers",
+			`{"issuer": "https://other-`+uuid.NewString()+`.example.com", "audience": "erp-api", "web_client": `+webClient(code)+`}`, "Idempotency-Key", "key-"+uuid.NewString())
+	})
+	t.Run("changed and removed", func(t *testing.T) {
+		next := loginCode()
+		got, _ := p.in(t).must(200, "ops|alice", "PATCH", providers+"/"+id, `{"web_client": `+webClient(next)+`}`, "If-Match", `"1"`, "Content-Type", mergePatch)
+		if w, _ := got["web_client"].(map[string]any); w["login_code"] != next {
+			t.Errorf("replaced: got %v, want login code %s", got["web_client"], next)
+		}
+		got, _ = p.in(t).must(200, "ops|alice", "PATCH", providers+"/"+id, `{"acr_values": ["x"]}`, "If-Match", `"2"`, "Content-Type", mergePatch)
+		if got["web_client"] == nil {
+			t.Error("a patch without web_client: got it removed, want it kept")
+		}
+		got, _ = p.in(t).must(200, "ops|alice", "PATCH", providers+"/"+id, `{"web_client": null}`, "If-Match", `"3"`, "Content-Type", mergePatch)
+		if got["web_client"] != nil {
+			t.Errorf("removed: got %v, want null", got["web_client"])
+		}
+		p.in(t).problem(400, "request.invalid_body", "ops|alice", "PATCH", providers+"/"+id, `{"web_client": 5}`, "If-Match", `"4"`, "Content-Type", mergePatch)
+		p.in(t).problem(400, "request.invalid_body", "ops|alice", "PATCH", providers+"/"+id, `{"web_client": {"login_code": "x", "secret": "s"}}`, "If-Match", `"4"`, "Content-Type", mergePatch)
+	})
+	for field, web := range map[string]string{
+		"client_id":      `{"client_id": "a b", "auth_method": "private_key_jwt", "credential_ref": "file:/k", "login_code": "abc", "scope": "openid"}`,
+		"auth_method":    `{"client_id": "a", "auth_method": "none", "credential_ref": "file:/k", "login_code": "abc", "scope": "openid"}`,
+		"credential_ref": `{"client_id": "a", "auth_method": "client_secret_basic", "credential_ref": "s3cr3t", "login_code": "abc", "scope": "openid"}`,
+		"login_code":     `{"client_id": "a", "auth_method": "private_key_jwt", "credential_ref": "file:/k", "login_code": "Acme", "scope": "openid"}`,
+		"scope":          `{"client_id": "a", "auth_method": "private_key_jwt", "credential_ref": "file:/k", "login_code": "abc", "scope": "profile email"}`,
+		"scope spaces":   `{"client_id": "a", "auth_method": "private_key_jwt", "credential_ref": "file:/k", "login_code": "abc", "scope": "openid  email"}`,
+	} {
+		t.Run("invalid "+field, func(t *testing.T) {
+			m := p.in(t).problem(422, "identity.invalid_provider", "ops|alice", "POST", providers,
+				`{"issuer": "https://bad-`+uuid.NewString()+`.example.com", "audience": "erp-api", "web_client": `+web+`}`, "Idempotency-Key", "key-"+uuid.NewString())
+			errs, _ := m["errors"].([]any)
+			if len(errs) != 1 || !strings.HasPrefix(errs[0].(map[string]any)["field"].(string), "web_client."+strings.Fields(field)[0]) {
+				t.Errorf("errors: got %v, want web_client.%s", errs, field)
+			}
+		})
+	}
+}
+
+// TestRegistrationClaimsTheLoginCode: with a global directory a web
+// client's login code is claimed there with the issuer, so a code another
+// cell's provider holds is refused before the registration commits, and a
+// change or removal reaches the directory too (ADR-0052 G8).
+func TestRegistrationClaimsTheLoginCode(t *testing.T) {
+	ctx := context.Background()
+	s := service(t)
+	dir, err := directory.Open(ctx, pgtest.EmptyDatabase(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	s.Directory = &directory.Sync{Pool: s.Pool, ControlRole: "erp_control", Directory: dir, Cell: "web-cell", APIURL: "https://web.example.com"}
+	ten := pgtest.NewTenant(t)
+	op := controlplane.OperatorFrom(reqctx.Claims{Issuer: "https://ops", Subject: "alice"})
+	code := loginCode()
+	elsewhere := directory.Issuer{Issuer: "https://elsewhere-" + uuid.NewString() + ".example.com", Audience: "erp", TenantID: uuid.New(), Cell: "elsewhere", ProviderID: uuid.New(),
+		Web: &directory.WebClient{LoginCode: code, ClientID: "c", AuthMethod: "private_key_jwt", CredentialRef: "file:/k", Scope: "openid"}}
+	if _, err := dir.SyncIssuers(ctx, "elsewhere", []directory.Issuer{elsewhere}); err != nil {
+		t.Fatal(err)
+	}
+	web := &identity.WebClient{ClientID: "erp-web", AuthMethod: identity.PrivateKeyJWT, CredentialRef: "file:/etc/erp/web-clients/a.pem", LoginCode: code, Scope: "openid erp"}
+	in := identity.NewIdentityProvider{Issuer: "https://web-" + uuid.NewString() + ".example.com", Audience: "erp", Web: web}
+	_, _, err = s.RegisterProvider(ctx, op, ten.ID, in, nil)
+	pgtest.CheckErr(t, err, "identity.login_code_taken")
+	lookup := func(code string) (issuer string) {
+		t.Helper()
+		_ = dir.Pool.InTx(ctx, database.Scope{Role: "erp_web", ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+			if err := tx.QueryRow(ctx, `SELECT issuer FROM web.login_client WHERE login_code = $1`, code).Scan(&issuer); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				t.Fatal(err)
+			}
+			return nil
+		})
+		return issuer
+	}
+	web.LoginCode = loginCode()
+	p, _, err := s.RegisterProvider(ctx, op, ten.ID, in, nil)
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if got := lookup(web.LoginCode); got != in.Issuer {
+		t.Errorf("projected: got %q, want %s", got, in.Issuer)
+	}
+	taken := &identity.WebClient{ClientID: "erp-web", AuthMethod: identity.ClientSecretBasic, CredentialRef: "env:SECRET", LoginCode: code, Scope: "openid"}
+	_, err = s.UpdateProvider(ctx, op, ten.ID, p.ID, "*", identity.IdentityProviderChange{Web: &taken})
+	pgtest.CheckErr(t, err, "identity.login_code_taken")
+	var none *identity.WebClient
+	if _, err := s.UpdateProvider(ctx, op, ten.ID, p.ID, "*", identity.IdentityProviderChange{Web: &none}); err != nil {
+		t.Fatal(err)
+	}
+	if got := lookup(web.LoginCode); got != "" {
+		t.Errorf("removed: got %q still projected, want none", got)
+	}
+}

@@ -170,7 +170,7 @@ func checkDownPaymentEntry(t *testing.T, e env, entry string) {
 		t.Fatalf("down payment entry lines: got %d, want 3", len(lines))
 	}
 	for i, want := range []struct{ account, amount, special, tax string }{
-		{e.Account(t, "2000", "159000").String(), "1000.00", "A", ""},
+		{e.Account(t, "2000", "159000").String(), "1000.00", "A", "V1"}, // the net is the code's base (T61c)
 		{e.Account(t, "2000", "140000").String(), "190.00", "", "V1"},
 		{"", "-1190.00", "", ""},
 	} {

@@ -19,8 +19,11 @@ templ Layout(s Shell, content templ.Component) {
 			</title>
 			<link { stylesheet(s.CSS)... }/>
 			<script { script(ctx, s.Script)... }></script>
+			if s.Continue != "" {
+				<meta { refresh(s.Continue)... }/>
+			}
 		</head>
-		<body>
+		<body { bodyAttrs(s)... }>
 			<a class="skip-link" href="#main">
 				@T(i18n.SkipLink)
 			</a>
@@ -40,6 +43,9 @@ templ Layout(s Shell, content templ.Component) {
 							}
 						</ul>
 					</nav>
+					if s.Person != nil {
+						@SignOut(s.Person.CSRF)
+					}
 				</div>
 			</header>
 			<main class="main width-container" id="main" tabindex="-1">

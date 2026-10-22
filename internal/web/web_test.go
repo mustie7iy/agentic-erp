@@ -60,8 +60,12 @@ func get(t *testing.T, h http.Handler, path, lang string) *httptest.ResponseReco
 	return rec
 }
 
-// pages are the workspace's pages and their statuses.
-var pages = map[string]int{"/": http.StatusOK, "/health": http.StatusOK, "/no/such/page": http.StatusNotFound}
+// pages are the workspace's pages and their statuses, without a session
+// store (no one can sign in): the signed-in person's pages are the stack's
+// (signin_test.go).
+var pages = map[string]int{"/": http.StatusServiceUnavailable, "/login": http.StatusServiceUnavailable, "/signed-out": http.StatusOK,
+	"/login/acme": http.StatusServiceUnavailable, "/callback": http.StatusServiceUnavailable,
+	"/health": http.StatusOK, "/no/such/page": http.StatusNotFound}
 
 // routes are every kind of response: the pages, both static files and a
 // static path that is none.
@@ -464,9 +468,9 @@ func TestOutsideCatalog(t *testing.T) {
 func TestLanguages(t *testing.T) {
 	s, _ := testServer(t)
 	h := s.Handler()
-	for lang, want := range map[string]string{"": "Your workspace", "fr-CA,fr;q=0.9": "Votre espace de travail", "de": "Your workspace"} {
+	for lang, want := range map[string]string{"": "Service status", "fr-CA,fr;q=0.9": "État du service", "de": "Service status"} {
 		t.Run(lang, func(t *testing.T) {
-			rec := get(t, h, "/", lang)
+			rec := get(t, h, "/health", lang)
 			if body := rec.Body.String(); !strings.Contains(body, want) {
 				t.Errorf("got a page without %q", want)
 			}
@@ -495,7 +499,7 @@ func TestRenderFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	rec := httptest.NewRecorder()
-	s.render(rec, httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx), http.StatusOK, ui.Home(s.shell(i18n.HomeTitle, "/")))
+	s.render(rec, httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx), http.StatusOK, ui.Home(s.shell(i18n.HomeTitle, "/"), ui.HomePage{}))
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("status: got %d, want 500", rec.Code)
 	}
@@ -616,12 +620,25 @@ func TestNew(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.DiscardHandler)
-	s, err := New(Config{APIURL: api, PseudoLocales: true}, buildinfo.Info{Version: "v1"}, log)
+	s, err := New(t.Context(), Config{APIURL: api, PseudoLocales: true}, buildinfo.Info{Version: "v1"}, log)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.API == nil || s.Catalog.Match("en-XA").Tag != i18n.Long || s.Assets.Script == "" || s.Build.Version != "v1" {
-		t.Errorf("server: got %+v", s)
+	if s.API == nil || s.Catalog.Match("en-XA").Tag != i18n.Long || s.Assets.Script == "" || s.Build.Version != "v1" || s.Store != nil {
+		t.Errorf("server: got %+v, want no session store without a directory", s)
+	}
+	s.Close()
+	s.RunSweeper(t.Context()) // nothing to sweep: returns at once
+	for name, cfg := range map[string]Config{
+		"no session secret": {APIURL: api, SignIn: SignIn{DirectoryURL: "postgres://x"}},
+		"no database":       {APIURL: api, SignIn: SignIn{DirectoryURL: "postgres://nobody@127.0.0.1:1/x?connect_timeout=1", SessionSecrets: [][]byte{make([]byte, 32)}}},
+		"API":               {APIURL: &url.URL{Scheme: "http", Host: "[::1"}, SignIn: SignIn{DirectoryURL: "postgres://x"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := New(t.Context(), cfg, buildinfo.Info{}, log); err == nil {
+				t.Error("got a server, want the error")
+			}
+		})
 	}
 	refused := errors.New("refused")
 	for name, tc := range map[string]struct {

@@ -91,7 +91,8 @@ func TestCashDiscountExitCriterion(t *testing.T) {
 	}
 	ap, bank, cash, tax := e.Account(t, "2000", "211000").String(), e.Account(t, "2000", "100000").String(), e.Account(t, "2000", "400000").String(),
 		e.Account(t, "2000", "140000").String()
-	want := map[string]string{ap: "119.00 -11.90 ", bank: "-103.89 ", cash: "-2.70 ", tax + " V1": "-0.51 "}
+	// The net discount is V1's base, on cash_discount with the code (T61c).
+	want := map[string]string{ap: "119.00 -11.90 ", bank: "-103.89 ", cash + " V1": "-2.70 ", tax + " V1": "-0.51 "}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("payment entry: got %v, want %v", got, want)
 	}

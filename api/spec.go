@@ -49,6 +49,10 @@ type Operation struct {
 	Stability string
 	// Class is the operation's latency class (ADR-0043): one of Classes.
 	Class string
+	// Snapshot is x-snapshot: true, on a GET only: the operation reads as
+	// of one database state, so its unit of work runs at REPEATABLE READ
+	// (a cash position computed from several contexts, ADR-0051 §6).
+	Snapshot bool
 }
 
 // Lifecycle is a deprecated operation's schedule: deprecated: true with
@@ -76,6 +80,7 @@ type operationNode struct {
 	Sunset       string            `yaml:"x-sunset"`
 	Stability    string            `yaml:"x-stability-level"`
 	Class        string            `yaml:"x-slo-class"`
+	Snapshot     bool              `yaml:"x-snapshot"`
 	ExternalDocs struct {
 		URL string `yaml:"url"`
 	} `yaml:"externalDocs"`
@@ -109,10 +114,13 @@ func decodeOperation(method, path string, node yaml.Node, permissioned bool) (Op
 	if err != nil {
 		return Operation{}, err
 	}
+	if op.Snapshot && !strings.EqualFold(method, "get") {
+		return Operation{}, errors.New("x-snapshot is for GET operations, which run read-only")
+	}
 	return Operation{
 		ID: op.ID, Method: strings.ToUpper(method), Path: path, Permission: op.Permission, EntityPermissions: op.Entities,
 		AgentAllowed: op.Agent == nil || *op.Agent, Proposes: op.Autonomy == "propose", Reads: op.Autonomy == "read",
-		Lifecycle: life, Stability: op.Stability, Class: cls,
+		Lifecycle: life, Stability: op.Stability, Class: cls, Snapshot: op.Snapshot,
 	}, nil
 }
 

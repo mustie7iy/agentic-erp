@@ -2,6 +2,7 @@ package ledger_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -268,5 +269,73 @@ func TestReversalBelongsToTheOwner(t *testing.T) {
 	}
 	if !strings.Contains(detail, "no reversal path") {
 		t.Errorf("detail for a payables entry without its invoice: got %q, want it to say no reversal path exists", detail)
+	}
+}
+
+// TestCashPorts: what the cash position reads of the ledger (ADR-0051
+// §8, T53c). The open lines on accounts are the leading ledger's lines
+// neither cleared nor reversed, with the document they were posted for;
+// a rate of a type is the latest valid on the date in either direction,
+// with its first day, and none is found rather than refused.
+func TestCashPorts(t *testing.T) {
+	e := setup(t)
+	clearing, expense := e.account(t, "2000", "101000"), e.account(t, "2000", "520000")
+	open, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-20", "EUR", line{expense, "100.00", ""}, line{clearing, "-100.00", ""}), "")
+	gone, tag := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-03-21", "EUR", line{expense, "20.00", ""}, line{clearing, "-20.00", ""}), "")
+	e.Must(200, "POST", "/v1/journal-entries/"+gone["id"].(string)+":reverse", "", tag)
+	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
+		VALUES ($1, gen_random_uuid(), 'planning', 'EUR', 'USD', '2026-03-01', 1.25, 'plan', $2)`, e.ten.ID, e.ten.Human.ID)
+	var lines []ledger.OpenLine
+	rates := map[string]string{}
+	if err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
+		if lines, err = (ledger.Accounts{}).OpenLines(ctx, e.de, []uuid.UUID{uuid.MustParse(clearing)}); err != nil {
+			return err
+		}
+		for _, c := range []struct{ rateType, from, to string }{{"planning", "EUR", "USD"}, {"planning", "USD", "EUR"}, {"bank_buying", "EUR", "USD"}} {
+			conv, found, err := (ledger.Rates{}).OfType(ctx, c.rateType, c.from, c.to, date("2026-03-31"))
+			if err != nil {
+				return err
+			}
+			var converted money.Minor
+			if found {
+				if converted, err = conv.Convert(10000); err != nil {
+					return err
+				}
+			}
+			rates[c.rateType+" "+c.from+"/"+c.to] = fmt.Sprint(found, " ", conv.Rate, " ", conv.ValidFrom.Format(time.DateOnly), " ", int64(converted))
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, l := range lines {
+		got = append(got, fmt.Sprint(l.Item.EntryID, " ", l.Currency, " ", int64(l.Amount), " ", l.SourceContext))
+	}
+	if want := []string{fmt.Sprint(open["id"], " EUR -10000 ledger")}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("open lines: got %v, want %v (the unreversed entry's)", got, want)
+	}
+	for k, want := range map[string]string{"planning EUR/USD": "true 1.250000000000 2026-03-01 12500", "planning USD/EUR": "true 0.800000000000 2026-03-01 8000",
+		"bank_buying EUR/USD": "false  0001-01-01 0"} {
+		if rates[k] != want {
+			t.Errorf("rate %s: got %q, want %q", k, rates[k], want)
+		}
+	}
+	for name, call := range map[string]func(ctx context.Context) error{
+		"open lines": func(ctx context.Context) error {
+			_, err := (ledger.Accounts{}).OpenLines(ctx, e.de, []uuid.UUID{uuid.MustParse(clearing)})
+			return err
+		},
+		"rate of a type": func(ctx context.Context) error {
+			_, _, err := (ledger.Rates{}).OfType(ctx, "planning", "EUR", "USD", date("2026-03-31"))
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if call(context.Background()) == nil {
+				t.Error("outside a unit of work: got no error, want one")
+			}
+			apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
+		})
 	}
 }

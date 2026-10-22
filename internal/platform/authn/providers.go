@@ -72,6 +72,7 @@ type remote struct {
 	mu         sync.Mutex
 	jwksURI    string
 	algs       []string
+	endpoints  Endpoints
 	discovered time.Time // zero: never
 	keys       []jose.JSONWebKey
 	keysFrom   string // the key set URL keys came from: unused once the document names another
@@ -296,6 +297,7 @@ func (p *Providers) fetchDiscovery(ctx context.Context, r *remote) error {
 		Issuer  string   `json:"issuer"`
 		JWKSURI string   `json:"jwks_uri"`
 		Algs    []string `json:"id_token_signing_alg_values_supported"`
+		Endpoints
 	}
 	if _, err := p.get(ctx, strings.TrimSuffix(r.issuer, "/")+"/.well-known/openid-configuration", &doc); err != nil {
 		return err
@@ -306,6 +308,7 @@ func (p *Providers) fetchDiscovery(ctx context.Context, r *remote) error {
 	if _, err := p.allowedURL(doc.JWKSURI); err != nil {
 		return fmt.Errorf("authn: discovery of %s: jwks_uri: %w", r.issuer, err)
 	}
+	doc.Endpoints = p.allowedEndpoints(doc.Endpoints)
 	algs := slices.DeleteFunc(slices.Clone(doc.Algs), func(a string) bool { return !slices.Contains(asymmetric, a) })
 	if len(algs) == 0 {
 		algs = []string{oidc.RS256} // the OIDC default
@@ -315,9 +318,58 @@ func (p *Providers) fetchDiscovery(ctx context.Context, r *remote) error {
 	if doc.JWKSURI != r.jwksURI {
 		delete(r.attempt, "keys") // the new key set is fetched at once, whenever the old one was
 	}
-	r.jwksURI, r.algs, r.discovered = doc.JWKSURI, algs, p.now()
+	r.jwksURI, r.algs, r.discovered, r.endpoints = doc.JWKSURI, algs, p.now(), doc.Endpoints
 	return nil
 }
+
+// Endpoints are a provider's OAuth endpoints, from its discovery document
+// (OIDC Discovery §3; RP-Initiated Logout §2.1 for the end session
+// endpoint): those the web workspace signs people in and out at (ADR-0052
+// §5). An endpoint the document does not name, or names with a URL as
+// untrusted as Providers refuses, is empty.
+type Endpoints struct {
+	Authorization string `json:"authorization_endpoint"`
+	Token         string `json:"token_endpoint"`
+	EndSession    string `json:"end_session_endpoint"`
+	// IssParameter says the provider sends iss in its authorization
+	// responses (RFC 9207 §3), which a client must then require.
+	IssParameter bool `json:"authorization_response_iss_parameter_supported"`
+}
+
+// allowedEndpoints keeps the endpoints whose URLs are allowed.
+func (p *Providers) allowedEndpoints(e Endpoints) Endpoints {
+	for _, u := range []*string{&e.Authorization, &e.Token, &e.EndSession} { // IssParameter is no URL
+		if _, err := p.allowedURL(*u); err != nil {
+			*u = ""
+		}
+	}
+	return e
+}
+
+// Endpoints returns the issuer's OAuth endpoints from its discovery
+// document, which it shares with Verify's: fetched when there is none,
+// refreshed as Verify refreshes it. An issuer whose document cannot be had
+// is 503; one naming no authorization or token endpoint is too, since no
+// one can sign in there.
+func (p *Providers) Endpoints(ctx context.Context, issuer string) (Endpoints, error) {
+	r := p.remote(issuer)
+	if _, err := p.discover(ctx, r); err != nil {
+		return Endpoints{}, err
+	}
+	r.mu.Lock()
+	e := r.endpoints
+	r.mu.Unlock()
+	if e.Authorization == "" || e.Token == "" {
+		return Endpoints{}, unavailable(issuer, fmt.Errorf("authn: discovery of %s names no usable authorization or token endpoint", issuer))
+	}
+	return e, nil
+}
+
+// Client is the HTTP client Providers fetches with: its timeout, https
+// only and public addresses only in production, a redirect only to an
+// allowed URL. The web workspace calls a provider's token endpoint with
+// it, under the same rules (ADR-0052 §5).
+func (p *Providers) Client() *http.Client { return p.httpClient() }
 
 // fetchKeys reads the issuer's key set, kept for the response's max-age
 // within MinKeysTTL and MaxKeysTTL (DefaultKeysTTL without one).

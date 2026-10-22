@@ -40,7 +40,7 @@ func TestClearDownPaymentsRefusalsAndFailures(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	parked, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "P-1", "200.00", "0.00", accountItem(e.expense, "200.00")), "")
+	parked, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "P-1", "200.00", "0.00", untaxedItem(e.expense, "200.00")), "")
 	body := `{"posting_date": "2026-03-20", "items": [{"fiscal_year": 2026, "journal_entry_id": "` + entry.ID.String() + `", "line_no": 1}]}`
 	e.Problem(409, "payables.invalid_status", "POST", "/v1/supplier-invoices/"+id(parked)+":clearDownPayments", body, `"1"`)
 	e.act(t, 200, id(parked), "post", `{"posting_date": "2026-03-21"}`)

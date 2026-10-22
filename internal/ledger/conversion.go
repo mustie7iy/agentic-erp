@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
@@ -38,7 +39,10 @@ type Conversion struct {
 	// at Rate.
 	Rate           string
 	FromExp, ToExp int
-	exact          *big.Rat
+	// ValidFrom is the recorded rate's first day, zero for one currency
+	// (OfType sets it).
+	ValidFrom time.Time
+	exact     *big.Rat
 }
 
 // Convert translates an amount (money.Convert): rounded once, half away
@@ -100,14 +104,37 @@ func (Rates) Conversion(ctx context.Context, from, to string, date time.Time) (C
 	if err != nil {
 		return Conversion{}, err
 	}
-	c := Conversion{From: from, To: to, Rate: r.shown, exact: r.exact}
-	if c.FromExp, err = currency.Exponent(ctx, tx, from, nil); err != nil {
-		return Conversion{}, fmt.Errorf("ledger: conversion %s/%s: %w", from, to, err)
+	return withExponents(ctx, tx, Conversion{From: from, To: to, Rate: r.shown, exact: r.exact})
+}
+
+// withExponents is the conversion with its currencies' minor-unit digits.
+func withExponents(ctx context.Context, tx pgx.Tx, c Conversion) (Conversion, error) {
+	var err error
+	if c.FromExp, err = currency.Exponent(ctx, tx, c.From, nil); err != nil {
+		return Conversion{}, fmt.Errorf("ledger: conversion %s/%s: %w", c.From, c.To, err)
 	}
-	if c.ToExp, err = currency.Exponent(ctx, tx, to, nil); err != nil {
-		return Conversion{}, fmt.Errorf("ledger: conversion %s/%s: %w", from, to, err)
+	if c.ToExp, err = currency.Exponent(ctx, tx, c.To, nil); err != nil {
+		return Conversion{}, fmt.Errorf("ledger: conversion %s/%s: %w", c.From, c.To, err)
 	}
 	return c, nil
+}
+
+// OfType returns the conversion from one currency into another at the
+// latest rate of the type valid on the date, in either direction as a
+// posting finds its rate, with the day it is valid from; found is false
+// when there is none, which a reader that can do without the conversion
+// reports rather than refuses (the cash position's totals, ADR-0051 §10).
+func (Rates) OfType(ctx context.Context, rateType, from, to string, date time.Time) (c Conversion, found bool, err error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return Conversion{}, false, err
+	}
+	x, found, err := rateOfType(ctx, tx, rateType, from, to, date)
+	if err != nil || !found {
+		return Conversion{}, false, err
+	}
+	c, err = withExponents(ctx, tx, Conversion{From: from, To: to, Rate: x.shown, ValidFrom: x.validFrom, exact: x.exact})
+	return c, err == nil, err
 }
 
 // ExactToCompany converts an amount in the currency from into the legal

@@ -241,6 +241,10 @@ type EndCompanyAccessRes interface {
 	endCompanyAccessRes()
 }
 
+type EndCurrentSessionRes interface {
+	endCurrentSessionRes()
+}
+
 type EndRoleAssignmentRes interface {
 	endRoleAssignmentRes()
 }
@@ -311,6 +315,10 @@ type GetBankStatementRulesRes interface {
 
 type GetBusinessPartnerRes interface {
 	getBusinessPartnerRes()
+}
+
+type GetCashPositionRes interface {
+	getCashPositionRes()
 }
 
 type GetCenterChangeRes interface {

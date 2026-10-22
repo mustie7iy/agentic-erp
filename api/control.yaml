@@ -348,7 +348,7 @@ paths:
       tags:
         - identity
       summary: Register an identity provider
-      description: "Registers an identity provider of the tenant: tokens of its issuer for its audience authenticate the tenant's principals bound to it (ADR-0031). An active issuer and audience belong to one tenant, across cells when the cell has a global directory: 409 `identity.provider_taken` when another registration holds them. With `ERP_ENV=production` the issuer must be https. The provider's discovery document is read first: an issuer whose `/.well-known/openid-configuration` the cell cannot read is 422 `identity.provider_unreachable`. People's tokens must carry `auth_time` or `sid`, which their session is tracked by; a provider whose sessions (one `sid`) outlive 90 days must put `auth_time` in them, since an ended session keyed by `sid` alone is refused for 90 days, no longer (ADR-0031). When the tenant requires multi-factor authentication the provider must prove it by `acr_values` or `amr_values` (422 `identity.mfa_unprovable`). With `ERP_ENV=production` agents' tokens are accepted only from a provider registered with `certificate_bound_tokens`, bound to the agent's client certificate (ADR-0033). Needs the `erp:admin` role. Recorded in the tenant's audit trail and published as `IdentityProviderRegistered`. A retry with the same `Idempotency-Key` answers the provider the first request registered with `Idempotent-Replayed: true`; a concurrent request with the key waits for the first and replays it. 503 while the cell's global directory cannot be reached, since the issuer could not be claimed. Refused with 409 `tenancy.invalid_transition` once the tenant's offboarding has started; a suspended tenant's can still be changed."
+      description: "Registers an identity provider of the tenant: tokens of its issuer for its audience authenticate the tenant's principals bound to it (ADR-0031). An active issuer and audience belong to one tenant, across cells when the cell has a global directory: 409 `identity.provider_taken` when another registration holds them. With `ERP_ENV=production` the issuer must be https. The provider's discovery document is read first: an issuer whose `/.well-known/openid-configuration` the cell cannot read is 422 `identity.provider_unreachable`. People's tokens must carry `auth_time` or `sid`, which their session is tracked by; a provider whose sessions (one `sid`) outlive 90 days must put `auth_time` in them, since an ended session keyed by `sid` alone is refused for 90 days, no longer (ADR-0031). When the tenant requires multi-factor authentication the provider must prove it by `acr_values` or `amr_values` (422 `identity.mfa_unprovable`). With `ERP_ENV=production` agents' tokens are accepted only from a provider registered with `certificate_bound_tokens`, bound to the agent's client certificate (ADR-0033). With `web_client` the workspace's client is registered too (ADR-0052 G8): its login code is claimed in the global directory with the issuer, 409 `identity.login_code_taken` when another active provider holds it. Needs the `erp:admin` role. Recorded in the tenant's audit trail and published as `IdentityProviderRegistered`. A retry with the same `Idempotency-Key` answers the provider the first request registered with `Idempotent-Replayed: true`; a concurrent request with the key waits for the first and replays it. 503 while the cell's global directory cannot be reached, since the issuer could not be claimed. Refused with 409 `tenancy.invalid_transition` once the tenant's offboarding has started; a suspended tenant's can still be changed."
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -420,7 +420,7 @@ paths:
       tags:
         - identity
       summary: Update an identity provider
-      description: "Changes an active provider's tenant claim and the values that prove multi-factor authentication; issuer and audience never change (register a new provider instead). JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears the tenant claim or empties a list. 409 `identity.provider_retired` for a retired provider; 422 `identity.mfa_unprovable` when the tenant requires multi-factor authentication and the provider would prove it by neither list. Needs the `erp:admin` role. Recorded in the tenant's audit trail. Refused with 409 `tenancy.invalid_transition` once the tenant's offboarding has started; a suspended tenant's can still be changed."
+      description: "Changes an active provider's tenant claim, the values that prove multi-factor authentication and the workspace's client (`web_client`, ADR-0052 G8; 409 `identity.login_code_taken` when another active provider holds its login code); issuer and audience never change (register a new provider instead). JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears the tenant claim or empties a list. 409 `identity.provider_retired` for a retired provider; 422 `identity.mfa_unprovable` when the tenant requires multi-factor authentication and the provider would prove it by neither list. Needs the `erp:admin` role. Recorded in the tenant's audit trail. Refused with 409 `tenancy.invalid_transition` once the tenant's offboarding has started; a suspended tenant's can still be changed."
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/ProviderId"
@@ -1427,10 +1427,21 @@ components:
           type: boolean
           default: false
           description: "The provider binds the tokens it issues to the client's certificate (RFC 8705, `cnf.x5t#S256`); such a token is accepted only with the certificate it is bound to. With `ERP_ENV=production` an agent's token is accepted only from a provider that binds (ADR-0033)."
+        web_client:
+          description: "The web workspace's client at this provider (ADR-0052 G8): without one, people of this provider cannot sign in to the workspace."
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/WebClient"
       examples:
         - issuer: "https://login.acme.example/"
           audience: erp-api
           amr_values: ["mfa"]
+          web_client:
+            client_id: "3f2b6c1e-erp-web"
+            auth_method: private_key_jwt
+            credential_ref: "file:/etc/erp/web-clients/acme.pem"
+            login_code: acme
+            scope: "openid erp-api/.default"
     IdentityProviderUpdate:
       type: object
       description: "Merge patch of an identity provider: absent fields are unchanged, `null` clears the tenant claim or empties a list; `certificate_bound_tokens` is true or false, and `null` for it is 400 `request.invalid_body`."
@@ -1458,6 +1469,11 @@ components:
         certificate_bound_tokens:
           type: boolean
           description: "Whether the provider binds its tokens to the client's certificate (RFC 8705, ADR-0033); not null."
+        web_client:
+          description: "The web workspace's client at this provider, replaced as a whole; null removes it, and its people can no longer start a sign-in to the workspace (ADR-0052 G8)."
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/WebClient"
       examples:
         - acr_values: ["urn:acme:loa:2"]
     IdentityProvider:
@@ -1472,6 +1488,7 @@ components:
         - acr_values
         - amr_values
         - certificate_bound_tokens
+        - web_client
         - status
         - created_at
         - updated_at
@@ -1508,6 +1525,11 @@ components:
         certificate_bound_tokens:
           type: boolean
           description: "The provider binds the tokens it issues to the client's certificate (RFC 8705, `cnf.x5t#S256`); such a token is accepted only with the certificate it is bound to. With `ERP_ENV=production` an agent's token is accepted only from a provider that binds (ADR-0033)."
+        web_client:
+          description: "The web workspace's client at this provider; null when its people cannot sign in to the workspace."
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/WebClient"
         status:
           type: string
           enum: ["active", "retired"]
@@ -1537,11 +1559,56 @@ components:
           acr_values: []
           amr_values: ["mfa"]
           certificate_bound_tokens: false
+          web_client: null
           status: active
           created_at: "2026-10-16T09:00:00Z"
           updated_at: "2026-10-16T09:00:00Z"
           retired_at: null
           version: 1
+    WebClient:
+      type: object
+      description: "The web workspace's OAuth client at a tenant's identity provider (ADR-0052 §5, G8). erp-web signs the provider's people in as this confidential client, with the authorization code flow, PKCE and the redirect URI `https://app.<domain>/callback`, and asks for `scope`, which must yield an access token for the registration's audience. The credential is a reference to where the key or secret lives (ADR-0017), never the value; erp-web resolves only references under its own prefix (`ERP_WEB_CLIENT_CREDENTIALS`). Projected, with the login code, into the global directory, where erp-web finds it before anyone has signed in."
+      required:
+        - client_id
+        - auth_method
+        - credential_ref
+        - login_code
+        - scope
+      properties:
+        client_id:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: "^[!-~]+$"
+          description: The client id the provider gave the workspace.
+        auth_method:
+          type: string
+          enum: ["private_key_jwt", "client_secret_basic"]
+          description: "How erp-web authenticates at the token endpoint: `private_key_jwt` (OIDC Core §9, a JWT signed with the client's private key, preferred) or `client_secret_basic`, where the provider offers nothing else (ADR-0052 P2)."
+        credential_ref:
+          type: string
+          minLength: 1
+          maxLength: 512
+          pattern: "^(env|file|vault):[!-~]+$"
+          description: "A secret reference (`file:`, `env:` or `vault:`, ADR-0017) to the client's credential: a PEM private key (RSA, or EC P-256) for `private_key_jwt`, whose public key the provider holds; the client secret for `client_secret_basic`."
+        login_code:
+          type: string
+          minLength: 2
+          maxLength: 32
+          pattern: "^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$"
+          description: "The code people sign in with (`https://app.<domain>/login/<code>`), not a secret: lower-case letters, digits and inner hyphens. Unique across the deployment: 409 `identity.login_code_taken` when another active provider holds it."
+        scope:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          pattern: "^openid( [!-~]+)*$|^([!-~]+ )+openid( [!-~]+)*$"
+          description: "The scopes to ask for, space-separated, `openid` among them: those that yield an access token for the registration's audience (for Entra ID, `openid <application id URI>/.default`)."
+      examples:
+        - client_id: "3f2b6c1e-erp-web"
+          auth_method: private_key_jwt
+          credential_ref: "file:/etc/erp/web-clients/acme.pem"
+          login_code: acme
+          scope: "openid offline_access erp-api/.default"
     IdentityProviderList:
       type: object
       description: A tenant's identity providers.

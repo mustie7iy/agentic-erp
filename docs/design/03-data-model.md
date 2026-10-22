@@ -182,6 +182,8 @@ erDiagram
     text_array acr_values "prove multi-factor"
     text_array amr_values "prove multi-factor (RFC 8176)"
     bool certificate_bound "binds tokens to client certificates (RFC 8705)"
+    text web_login_code "the web client's login code, active unique (000148)"
+    text web_client_id "with web_auth_method, web_credential_ref, web_scope: all or none"
     text status "active | retired" }
   auth_policy { uuid tenant_id PK
     bool mfa_required
@@ -258,6 +260,24 @@ people could not sign in (provisioning registers one, the last one cannot
 be retired and a production import refuses a tenant without one, so a
 change by hand or a tenant from before gets there); the remedy,
 `erp-server register-provider`, needs no running server.
+
+A provider may carry the **web workspace's client** there (ADR-0052 G8,
+T73b, migration 000148): its client id, how erp-web authenticates at the
+token endpoint (`private_key_jwt` or `client_secret_basic`), a secret
+reference to the credential (never the value), the login code people
+sign in with and the scope; all five or none
+(`identity_provider_web_client`). Like the issuer and audience, a login
+code names a tenant, so it is unique among active registrations across
+tenants (`identity_provider_login_code`, also not led by `tenant_id`);
+`erp_control` reads it to project it into the global directory, whose
+`directory.issuer` keeps it with the issuer's claim, unique across cells.
+The directory database's `web` schema (`directory.WebSchema`) holds
+erp-web's sessions (`web.session`: the session id's SHA-256, tenant,
+issuer, subject, login code, times, and the tokens and CSRF secret sealed
+with AES-256-GCM) and the view `web.login_client` of the web clients by
+login code, which the role `erp_web` alone reads and writes; it sees no
+other table of the directory. Nothing in it is business data, exported or
+fingerprinted.
 
 People's **sessions** are kept in `session` (T37f, migration 000057): one
 row per authentication at the identity provider, keyed per principal by a
@@ -391,7 +411,9 @@ requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
 in the currency of the requisition's company), the order release
 thresholds (`purchasing.order_release_approval[].up_to`, likewise in the
 order's company's currency, T47c), the invoice price tolerance
-(`invoice_tolerance.price_absolute`), the auto-post limit
+(`invoice_tolerance.price_absolute`; the tax tolerance,
+`invoice_tolerance.tax_units_per_code`, is in minor units of the invoice's
+currency per tax code, T61d), the auto-post limit
 (`auto_post_limit`) and the manual entry approval limit
 (`manual_entry_approval_limit`, T35: the largest manual journal entry, by
 its debits, that people post without approval; posting-relevant, so a
@@ -837,13 +859,43 @@ accounts) and `tax_rate` (a component's dated rates, a GiST exclusion over
 the live ones; a rate's value and start never change, a rate no posting
 used is withdrawn rather than deleted, and the database refuses withdrawing
 or re-dating a rate past a posting of its code or adding one over posted
-dates, `ledger.tax_rate_in_use`); the former `tax_code` (one rate and
-account per validity) is copied into them and dropped later, `withholding_tax_code` (T46e: the
+dates, `ledger.tax_rate_in_use`, read from the tax items by tax date since
+T61c); the former `tax_code` (one rate and account per validity) was copied
+into them and is dropped (000145, T61c), `withholding_tax_code` (T46e: the
 configuration's `companies[].withholding_tax_codes`, SAP T059P/T059Z, kept
 by the setup per legal entity: a rate above 0 and below 100% of the
 invoice's net, the default, or gross, deducted at invoice or at payment, to
 a liability that reconciles no supplier, the withholding tax payable; a code
 the document no longer has is deactivated).
+
+A journal line may declare a tax base (`tax_base_tc`, `tax_base_lc`;
+migration 000147, T61e, ADR-0049 §9): a tax line of an `import` code posted
+from a customs declaration, whose base, the declared value, no line of the
+entry carries; both or neither, only with a tax code
+(`journal_line_tax_base`), only on a component's account of an import code
+(trigger `journal_line_tax_base_import`); the component's item takes it. A
+parked line keeps it as `parked_entry_line.tax_base`
+(`parked_entry_line_tax_base`).
+
+Tax items (T61c, ADR-0049 §5; migrations 000144-000145): `tax_item`, one per
+entry of the leading ledger (a parallel ledger's copies and entries have
+none, `tax_item_leading`; a parallel ledger's entry that is no copy of a
+leading ledger's carries no tax code, `tax_code_off_leading`), tax code, component and tax line account, written with every entry
+that carries a tax code in its transaction (from its lines, or a reversal's
+and a down payment transfer's negated from the entries they reverse, a cash
+discount's from its items' at their rates): the tax date, the rate row and
+percentage applied, the recoverable share, base, tax and recoverable part in
+transaction and local currency, and `reported_in`, the return that reports
+it, set once (`tax_item_fixed`; nothing else changes and nothing is
+deleted). Output tax recovers nothing, input tax at most itself
+(`tax_item_recoverable`). When the entry commits, its tax lines and items
+agree (`tax_item_missing`, `tax_item_entity`, `tax_item_lines`, deferred
+like the balance; not for an entry without a tax date, which an instance of
+the release before writes during the rollout, nor for a code that posts to
+no account). `journal_entry.tax_date` and `parked_entry.tax_date` are
+the entry's tax date, none on entries posted before, whose items carry their
+posting date. Indexed by legal entity, code and tax date, what a return and
+the rate check read.
 
 An open item on a supplier reconciliation account keeps the payment terms
 it was posted with (`open_item_terms`, migration 000068, T36b), as SAP
@@ -1258,6 +1310,16 @@ erDiagram
     int config_version
     int invoice_version }
 ```
+
+A supplier invoice's `tax_date` (migration 000146, T61d, ADR-0049 §4) is
+the date its codes' rates apply on and its tax is reported in, set by a
+person only; none: the invoice date, or for a correction naming an invoice
+that invoice's. Its tax is calculated per item code when it posts, held to
+the stated tax within `invoice_tolerance.tax_units_per_code` (ADR-0049 §6).
+The column is nullable and the previous release names its columns, so the
+migration runs ahead of the code; invoices are not posted during the
+rollout, as the previous release posts them with the first item's code at
+the invoice date.
 
 A supplier invoice is of a `kind` (migration 000059, T34a), as SAP's MIRO
 transactions are: `invoice`, `credit_memo`, `subsequent_debit` or
@@ -2206,4 +2268,16 @@ posting rules by transaction code, then a default per direction;
 `rate_type` default `planning`, `rate_max_age_days`, `order_lead_days`,
 `credit_lines` in the bank's currency, `snapshot_time`). All of them post
 nothing: names and the hierarchy are tier 1, the rest tier 2.
+
+The daily cash position (T53c, `GET /v1/cash-position`) stores nothing
+either: it is computed at the read, in one repeatable-read snapshot, from
+the payments context's house banks, statements (the latest closing before
+the first day, `gap` up to it, the reconciliation figures on its date) and
+payments (posted ones whose line on the bank's clearing account is still
+open, and unposted ones of runs `proposed` or `releasing`), and from the
+ledger's open lines on the clearing accounts (`ledger.Accounts.OpenLines`,
+leading ledger, neither cleared nor reversed; only lines an entry posted
+for a payment count, never a revaluation's) and rates of a type
+(`ledger.Rates.OfType`). Migration 000149 seeds its permission,
+`cash.position.read`.
 
