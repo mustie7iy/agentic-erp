@@ -9,7 +9,7 @@ types. Both are reviewed together.
 ### Schemas and ownership
 - One PostgreSQL schema per bounded context (`tenancy`, `identity`, `config`,
   `partner`, `ledger`, `procurement`, `payables`, `payments`, `workflow`,
-  `audit`, `integration`, `agents`, `analytics`), plus:
+  `audit`, `integration`, `agents`, `analytics`, `cash`), plus:
   - `ref`: global reference data (currencies, countries, units, permissions),
     identical in every cell, read-only to the application;
   - `platform`: per-cell infrastructure (idempotency keys, operations).
@@ -182,7 +182,7 @@ erDiagram
     text_array acr_values "prove multi-factor"
     text_array amr_values "prove multi-factor (RFC 8176)"
     bool certificate_bound "binds tokens to client certificates (RFC 8705)"
-    text web_login_code "the web client's login code, active unique (000141)"
+    text web_login_code "the web client's login code, active unique (000148)"
     text web_client_id "with web_auth_method, web_credential_ref, web_scope: all or none"
     text status "active | retired" }
   auth_policy { uuid tenant_id PK
@@ -262,7 +262,7 @@ change by hand or a tenant from before gets there); the remedy,
 `erp-server register-provider`, needs no running server.
 
 A provider may carry the **web workspace's client** there (ADR-0052 G8,
-T73b, migration 000141): its client id, how erp-web authenticates at the
+T73b, migration 000148): its client id, how erp-web authenticates at the
 token endpoint (`private_key_jwt` or `client_secret_basic`), a secret
 reference to the credential (never the value), the login code people
 sign in with and the scope; all five or none
@@ -411,7 +411,9 @@ requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
 in the currency of the requisition's company), the order release
 thresholds (`purchasing.order_release_approval[].up_to`, likewise in the
 order's company's currency, T47c), the invoice price tolerance
-(`invoice_tolerance.price_absolute`), the auto-post limit
+(`invoice_tolerance.price_absolute`; the tax tolerance,
+`invoice_tolerance.tax_units_per_code`, is in minor units of the invoice's
+currency per tax code, T61d), the auto-post limit
 (`auto_post_limit`) and the manual entry approval limit
 (`manual_entry_approval_limit`, T35: the largest manual journal entry, by
 its debits, that people post without approval; posting-relevant, so a
@@ -476,7 +478,8 @@ erDiagram
     text payment_term_code
     bool is_posting_blocked
     bool is_payment_blocked
-    text_array payment_methods "in order; T45b" }
+    text_array payment_methods "in order; T45b"
+    text planning_group "cash.planning_groups; T53b" }
   bank_account { uuid id PK
     uuid partner_id
     bytea account_cipher
@@ -536,6 +539,14 @@ the legal entity's `ledger.withholding_tax_code`, each once, replaced as a
 whole by a partner change (codes taken off are deactivated, never deleted).
 A configuration that takes a code away from a company while a supplier has
 it is refused (`partner.WithholdingCodes`).
+
+A supplier's company data may name its planning group (`planning_group`,
+SAP LFB1-FDGRV; migrations 000142-000143, T53b): an active code of the
+configuration's `cash.planning_groups`, which the cash context keeps and
+partner asks about through its own port (`partner.PlanningGroups`, wired by
+the composition root, §3.18). A configuration taking away a group a
+supplier has, or a pending change gives, is refused
+(`partner.PlanningGroupCodes`, under the planning group lock).
 
 ## 3.7 General ledger (`ledger`)
 
@@ -848,13 +859,43 @@ accounts) and `tax_rate` (a component's dated rates, a GiST exclusion over
 the live ones; a rate's value and start never change, a rate no posting
 used is withdrawn rather than deleted, and the database refuses withdrawing
 or re-dating a rate past a posting of its code or adding one over posted
-dates, `ledger.tax_rate_in_use`); the former `tax_code` (one rate and
-account per validity) is copied into them and dropped later, `withholding_tax_code` (T46e: the
+dates, `ledger.tax_rate_in_use`, read from the tax items by tax date since
+T61c); the former `tax_code` (one rate and account per validity) was copied
+into them and is dropped (000145, T61c), `withholding_tax_code` (T46e: the
 configuration's `companies[].withholding_tax_codes`, SAP T059P/T059Z, kept
 by the setup per legal entity: a rate above 0 and below 100% of the
 invoice's net, the default, or gross, deducted at invoice or at payment, to
 a liability that reconciles no supplier, the withholding tax payable; a code
 the document no longer has is deactivated).
+
+A journal line may declare a tax base (`tax_base_tc`, `tax_base_lc`;
+migration 000147, T61e, ADR-0049 §9): a tax line of an `import` code posted
+from a customs declaration, whose base, the declared value, no line of the
+entry carries; both or neither, only with a tax code
+(`journal_line_tax_base`), only on a component's account of an import code
+(trigger `journal_line_tax_base_import`); the component's item takes it. A
+parked line keeps it as `parked_entry_line.tax_base`
+(`parked_entry_line_tax_base`).
+
+Tax items (T61c, ADR-0049 §5; migrations 000144-000145): `tax_item`, one per
+entry of the leading ledger (a parallel ledger's copies and entries have
+none, `tax_item_leading`; a parallel ledger's entry that is no copy of a
+leading ledger's carries no tax code, `tax_code_off_leading`), tax code, component and tax line account, written with every entry
+that carries a tax code in its transaction (from its lines, or a reversal's
+and a down payment transfer's negated from the entries they reverse, a cash
+discount's from its items' at their rates): the tax date, the rate row and
+percentage applied, the recoverable share, base, tax and recoverable part in
+transaction and local currency, and `reported_in`, the return that reports
+it, set once (`tax_item_fixed`; nothing else changes and nothing is
+deleted). Output tax recovers nothing, input tax at most itself
+(`tax_item_recoverable`). When the entry commits, its tax lines and items
+agree (`tax_item_missing`, `tax_item_entity`, `tax_item_lines`, deferred
+like the balance; not for an entry without a tax date, which an instance of
+the release before writes during the rollout, nor for a code that posts to
+no account). `journal_entry.tax_date` and `parked_entry.tax_date` are
+the entry's tax date, none on entries posted before, whose items carry their
+posting date. Indexed by legal entity, code and tax date, what a return and
+the rate check read.
 
 An open item on a supplier reconciliation account keeps the payment terms
 it was posted with (`open_item_terms`, migration 000068, T36b), as SAP
@@ -1269,6 +1310,16 @@ erDiagram
     int config_version
     int invoice_version }
 ```
+
+A supplier invoice's `tax_date` (migration 000146, T61d, ADR-0049 §4) is
+the date its codes' rates apply on and its tax is reported in, set by a
+person only; none: the invoice date, or for a correction naming an invoice
+that invoice's. Its tax is calculated per item code when it posts, held to
+the stated tax within `invoice_tolerance.tax_units_per_code` (ADR-0049 §6).
+The column is nullable and the previous release names its columns, so the
+migration runs ahead of the code; invoices are not posted during the
+rollout, as the previous release posts them with the first item's code at
+the invoice date.
 
 A supplier invoice is of a `kind` (migration 000059, T34a), as SAP's MIRO
 transactions are: `invoice`, `credit_memo`, `subsequent_debit` or
@@ -2040,7 +2091,7 @@ the requester cannot decide (check against `approval_request.requester_id` in
 the decision trigger); decisions are insert-only. The inbox
 (`decidable_by=me`, ADR-0052 G1) reads the pending requests newest first
 through the partial index `approval_request_pending (tenant_id,
-created_at, id) WHERE status = 'pending'` (000142).
+created_at, id) WHERE status = 'pending'` (000150).
 
 A `manual_entry` request (T35) is opened for a parked manual journal entry
 whose debits, converted exactly into its company's currency at the average
@@ -2073,7 +2124,7 @@ activate, and orders under them are refused.
 
 | Table | Key | Notes |
 |---|---|---|
-| `audit_event` | `(tenant_id, occurred_at, seq)` | Insert-only, monthly partitions, `prev_hash`/`hash` chain per tenant; `client_address` (inet, 000142) where the request came from, outside the chain, which the tenant's erasure alone may blank (`audit.event_immutable`, ADR-0011 amended) |
+| `audit_event` | `(tenant_id, occurred_at, seq)` | Insert-only, monthly partitions, `prev_hash`/`hash` chain per tenant; `client_address` (inet, 000150) where the request came from, outside the chain, which the tenant's erasure alone may blank (`audit.event_immutable`, ADR-0011 amended) |
 | `chain_head` | `tenant_id` | Last sequence and hash per tenant |
 | `anchor` | `(tenant_id, seq)` | Chain heads written to write-once storage |
 | `verification` | `(tenant_id, verified_at)` | Insert-only; one row per scheduled verification round: head, events and anchors checked, the first broken sequence (ADR-0025) |
@@ -2165,6 +2216,7 @@ line or reservation. An agent's budget is identity's
 | ACDOCA | `ledger.journal_entry` + `ledger.journal_line` (TC/LC/GC amounts) |
 | BSEG clearing (AUGBL) | `ledger.clearing` + `ledger.clearing_item` |
 | LFA1/LFB1/LFBK, BUT000 | `partner.business_partner`, `supplier_company`, `bank_account`, `tax_identifier` |
+| FLQLITEM/FLQLITEMT liquidity items, T035 planning groups, LFB1-FDGRV | `cash.liquidity_item`, `cash.planning_group`, `supplier_company.planning_group` (T53b) |
 | EBAN | `procurement.requisition` |
 | EKKO/EKPO | `procurement.purchase_order` + items |
 | Outline agreements (EKKO BSTYP K) | `procurement.contract` |
@@ -2182,3 +2234,53 @@ line or reservation. An agent's budget is identity's
 | T030 | `ledger.account_determination` (VST, BNK, WRX, PRD, SKE) |
 | AGR_* | `identity.role`, `role_permission`, `principal_role` |
 | NRIV | `config.number_range` |
+
+## 3.18 Cash management (`cash`)
+
+A leaf context (ADR-0051 §2): it reads the ledger, payments, payables and
+procurement through ports they publish and owns only what it adds; no
+context imports it (`internal/layout`). Migration 000141 (T53b) creates the
+schema with the configuration it keeps; memo records, snapshots and
+variance comments follow in T53d and T53f.
+
+```mermaid
+erDiagram
+  liquidity_item ||--o{ liquidity_item : "parent of"
+  liquidity_item { text code PK
+    text name
+    text direction "inflow | outflow | both"
+    text parent_code
+    bool is_active }
+  planning_group { text code PK
+    text name
+    bool is_active }
+```
+
+| Table | Purpose |
+|---|---|
+| `cash.liquidity_item` | The configuration's `cash.liquidity_items` (SAP FLQLITEM), kept by `cash.Setup`: cash by purpose in one tree, a code of upper-case letters, digits and underscores, a direction, a parent of the tenant (never itself). One the document drops becomes inactive, never deleted, since memo records and snapshots name items; the configuration's validation keeps the tree acyclic, at most four levels, children of their parent's direction or of one for both |
+| `cash.planning_group` | The configuration's `cash.planning_groups` (SAP T035), kept by `cash.Setup`, inactive once dropped; suppliers name one per company (`partner.supplier_company.planning_group`, §3.6) |
+
+What is not stored, and read from the active document when a position or
+forecast is computed: the derivation rules (`cash.derivation`: account
+ranges first, compared as SAP's ALPHA conversion keeps numbers and split in
+proportion over a document's offsetting lines, then planning groups, then
+posting rules by transaction code, then a default per direction;
+`cash.Derive`) and each company's `cash` settings (`take_discounts`,
+`payment_days`, `value_days` per house bank and method, `buckets`,
+`rate_type` default `planning`, `rate_max_age_days`, `order_lead_days`,
+`credit_lines` in the bank's currency, `snapshot_time`). All of them post
+nothing: names and the hierarchy are tier 1, the rest tier 2.
+
+The daily cash position (T53c, `GET /v1/cash-position`) stores nothing
+either: it is computed at the read, in one repeatable-read snapshot, from
+the payments context's house banks, statements (the latest closing before
+the first day, `gap` up to it, the reconciliation figures on its date) and
+payments (posted ones whose line on the bank's clearing account is still
+open, and unposted ones of runs `proposed` or `releasing`), and from the
+ledger's open lines on the clearing accounts (`ledger.Accounts.OpenLines`,
+leading ledger, neither cleared nor reversed; only lines an entry posted
+for a payment count, never a revaluation's) and rates of a type
+(`ledger.Rates.OfType`). Migration 000149 seeds its permission,
+`cash.position.read`.
+

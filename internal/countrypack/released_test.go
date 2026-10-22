@@ -2,6 +2,8 @@ package countrypack
 
 import (
 	"os"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -101,5 +103,32 @@ func TestCanadaPack(t *testing.T) {
 		if _, ok := draft.Holiday("1000", d); !ok {
 			t.Errorf("holiday on %s: got none, want one", day)
 		}
+	}
+}
+
+// Canada 2026.2 suggests the activities of a cash flow statement as the
+// top of the tenant's liquidity items (ADR-0051 §4, T53b), and is 2026.1
+// otherwise.
+func TestCanadaPackCash(t *testing.T) {
+	lib, err := LoadAll(packs.FS)
+	if err != nil {
+		t.Fatalf("LoadAll(packs.FS): %v", err)
+	}
+	prev, ca := lib.Get("CA", "2026.1"), lib.Get("CA", "2026.2")
+	if ca == nil {
+		t.Fatal("Get(CA, 2026.2): got nil, want the Canada pack")
+	}
+	var codes []string
+	for _, it := range ca.Cash.LiquidityItems {
+		codes = append(codes, it.Code+"/"+it.Direction)
+	}
+	if got := strings.Join(codes, " "); got != "OPERATING/both INVESTING/both FINANCING/both" {
+		t.Errorf("liquidity items: got %s, want OPERATING, INVESTING and FINANCING for both directions", got)
+	}
+	if len(prev.Cash.LiquidityItems) != 0 {
+		t.Errorf("2026.1's liquidity items: got %d, want none", len(prev.Cash.LiquidityItems))
+	}
+	if !reflect.DeepEqual(prev.Accounts, ca.Accounts) || !reflect.DeepEqual(prev.Calendar, ca.Calendar) || !reflect.DeepEqual(prev.Payments, ca.Payments) {
+		t.Error("2026.2: got accounts, holidays or payment terms other than 2026.1's, want them unchanged")
 	}
 }

@@ -19,7 +19,8 @@ import (
 func parkedToAPI(pe ParkedEntry) gen.ParkedJournalEntry {
 	out := gen.ParkedJournalEntry{ID: pe.ID, Version: pe.Version, CreatedAt: pe.CreatedAt, CreatedBy: pe.CreatedBy, UpdatedAt: pe.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(pe.UpdatedBy), LegalEntityID: pe.LegalEntityID, LedgerID: pe.LedgerID, DocumentType: pe.DocumentType,
-		DocumentDate: pe.DocumentDate, PostingDate: pe.PostingDate, Currency: pe.Currency, Reference: apitypes.OptString(pe.Reference),
+		DocumentDate: pe.DocumentDate, PostingDate: pe.PostingDate, TaxDate: apitypes.OptDate(pe.TaxDate), Currency: pe.Currency,
+		Reference:  apitypes.OptString(pe.Reference),
 		HeaderText: apitypes.OptString(pe.HeaderText), Status: pe.Status, CreatedByKind: pe.CreatedByKind, OwnerID: apitypes.OptUUID(pe.OwnerID),
 		ApprovalRequestID: apitypes.OptUUID(pe.ApprovalRequestID), JournalEntryID: apitypes.OptUUID(pe.JournalEntryID),
 		LedgerSpecific: gen.NewOptBool(pe.LedgerSpecific), LedgerGroup: apitypes.OptString(pe.LedgerGroup),
@@ -32,6 +33,9 @@ func parkedToAPI(pe ParkedEntry) gen.ParkedJournalEntry {
 			PartnerID: apitypes.OptUUID(l.PartnerID), TaxCode: apitypes.OptString(l.TaxCode), LineText: apitypes.OptString(l.Text)}
 		if l.Quantity != nil {
 			line.Quantity.SetTo(gen.Quantity{Value: *l.Quantity, Unit: *l.Unit})
+		}
+		if l.TaxBase != nil {
+			line.TaxBase.SetTo(apitypes.Money(*l.TaxBase, pe.Currency, pe.Exp))
 		}
 		out.Lines[i] = line
 	}
@@ -99,7 +103,7 @@ func (e *Endpoints) ListParkedJournalEntries(ctx context.Context, params gen.Lis
 func (e *Endpoints) UpdateParkedJournalEntry(ctx context.Context, req *gen.ParkedJournalEntryUpdate,
 	params gen.UpdateParkedJournalEntryParams) (gen.UpdateParkedJournalEntryRes, error) {
 	ch := EntryChange{DocumentType: apitypes.Ptr[string](req.DocumentType), DocumentDate: apitypes.Ptr[time.Time](req.DocumentDate),
-		PostingDate: apitypes.Ptr[time.Time](req.PostingDate), Currency: apitypes.Ptr[string](req.Currency),
+		PostingDate: apitypes.Ptr[time.Time](req.PostingDate), TaxDate: apitypes.OptNilDate(req.TaxDate), Currency: apitypes.Ptr[string](req.Currency),
 		Reference: apitypes.OptNilString(req.Reference), HeaderText: apitypes.OptNilString(req.HeaderText)}
 	if req.Lines != nil {
 		ch.Lines = newEntry(&gen.JournalEntryCreate{Lines: req.Lines}).Lines

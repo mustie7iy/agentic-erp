@@ -177,6 +177,11 @@ Per ADR-0008:
   body is 422; a repeat while the first is still running is 409 with
   `Retry-After`.
 - Keys are scoped to tenant, so two tenants cannot collide.
+- A `GET` marked `x-snapshot: true` reads as of one database state: its
+  unit of work runs at `REPEATABLE READ` (read-only), so every statement
+  sees what the first saw. A report computed from several contexts' reads
+  needs it, such as the daily cash position (`getCashPosition`, ADR-0051
+  §6); the contract allows the mark on `GET` only (`api/spec.go`).
 
 ## 4.8 Long-running operations
 
@@ -399,7 +404,9 @@ report that names no account, such as a house bank's reconciliation
 (`getBankReconciliation`, ADR-0047, T49h: its statements' balances against
 the ledger's main bank account, what explains the difference and each
 line's match and proposal outcome, paged by statement), reaches agents as
-it reaches people.
+it reaches people, as does the daily cash position (`getCashPosition`,
+ADR-0051 §8, T53c), which names house banks by code and the last four
+characters of their accounts.
 `getAiUsage` reports a month's model calls per principal from the call
 ledger: calls, tokens, redactions and cost, summed exact and rounded once,
 with the month's total against the tenant's cap.
@@ -416,6 +423,7 @@ with the month's total against the tenant's cap.
 | procurement | `requisitions`, `purchase-orders`, `contracts`, `goods-receipts` | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse` |
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
 | payments | `payment-runs`, `bank-files` | `:propose` (202), `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
+| cash | `cash-position` (computed on read, ADR-0051) | |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |
 | audit | `audit-events` | `:verify` |
 | integration | `migration-runs`, `connectors` | `:start`, `:reconcile`, `:enable`, `:disable` |

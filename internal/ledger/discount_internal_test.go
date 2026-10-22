@@ -3,6 +3,7 @@ package ledger
 import (
 	"fmt"
 	"math"
+	"math/big"
 	"testing"
 
 	"github.com/google/uuid"
@@ -36,46 +37,133 @@ func TestSettlementDiscountsOutOfRange(t *testing.T) {
 	}
 }
 
-// TestSplitTax: an entry owing nothing, or whose tax lines run against its
+// taxedItems is an entry's tax items for the tests: one per key, with
+// its tax and no base, component "tax".
+func taxedItems(taxes map[taxKey]money.Minor) []sourceItem {
+	var out []sourceItem
+	n := int32(0)
+	for k, t := range taxes {
+		n++
+		out = append(out, sourceItem{no: n, component: "tax", key: k, tax: t})
+	}
+	return out
+}
+
+// TestSplitTax: an entry owing nothing, or whose tax runs against its
 // payment, is not split; tax shares adding up beyond an amount are refused.
 func TestSplitTax(t *testing.T) {
 	v1 := taxKey{code: "V1"}
 	for name, c := range map[string]taxedItem{
-		"owing nothing":           {discount: 100, paid: 0, taxes: map[taxKey]money.Minor{v1: 19}},
-		"tax against the payment": {discount: 100, paid: 119, taxes: map[taxKey]money.Minor{v1: -19}},
-		"no tax lines":            {discount: 100, paid: 119},
-		"tax beyond what is owed": {discount: 100, paid: 1400, taxes: map[taxKey]money.Minor{v1: 1900}},
-		"tax all that is owed":    {discount: 100, paid: 1900, taxes: map[taxKey]money.Minor{v1: 1900}},
+		"owing nothing":           {discount: 100, paid: 0, items: taxedItems(map[taxKey]money.Minor{v1: 19})},
+		"tax against the payment": {discount: 100, paid: 119, items: taxedItems(map[taxKey]money.Minor{v1: -19})},
+		"no tax items":            {discount: 100, paid: 119},
+		"tax beyond what is owed": {discount: 100, paid: 1400, items: taxedItems(map[taxKey]money.Minor{v1: 1900})},
+		"tax all that is owed":    {discount: 100, paid: 1900, items: taxedItems(map[taxKey]money.Minor{v1: 1900})},
 	} {
 		t.Run(name, func(t *testing.T) {
-			shares, total, err := splitTax([]taxedItem{c})
-			if err != nil || total != 0 || len(shares) != 0 {
-				t.Errorf("got %v %d %v, want no tax share", shares, total, err)
+			split, err := splitTax([]taxedItem{c})
+			if err != nil || split.tax != 0 || len(split.taxes) != 0 || len(split.shares) != 0 {
+				t.Errorf("got %+v %v, want no tax share", split, err)
 			}
 		})
 	}
 	const near = money.Minor(9_000_000_000_000_000_000)
-	huge := taxedItem{discount: near, paid: near + 1, taxes: map[taxKey]money.Minor{v1: near}}
-	if _, _, err := splitTax([]taxedItem{huge, huge}); err == nil {
+	huge := taxedItem{discount: near, paid: near + 1, items: taxedItems(map[taxKey]money.Minor{v1: near})}
+	if _, err := splitTax([]taxedItem{huge, huge}); err == nil {
 		t.Error("tax shares beyond an amount: got none, want an error")
+	}
+	based := taxedItem{discount: near - 1, paid: near, items: []sourceItem{{no: 1, component: "tax", key: v1, base: near - 2, tax: 1}}}
+	if _, err := splitTax([]taxedItem{based, based}); err == nil {
+		t.Error("base shares beyond an amount: got none, want an error")
 	}
 }
 
-// TestItemTaxShares: a credit memo's discount gives back tax of its sign,
-// and tax lines on different accounts each take their share.
+// TestItemTaxShares: a credit memo's discount gives back tax of its sign;
+// tax items on different accounts each take their share, largest
+// remainder first; the net is shared among the codes' bases and the
+// untaxed rest, once per code across its components.
 func TestItemTaxShares(t *testing.T) {
 	a, b := taxKey{account: uuid.UUID{1}, code: "V1"}, taxKey{account: uuid.UUID{2}, code: "V1"}
+	g, q := taxKey{account: uuid.UUID{3}, code: "I5"}, taxKey{account: uuid.UUID{4}, code: "I5"}
+	render := func(shares []itemShare) string {
+		out := ""
+		for _, sh := range shares {
+			out += fmt.Sprintf(" %s/%s:%d/%d/%v", sh.src.key.code, sh.src.component, sh.tax, sh.base, sh.codeBase)
+		}
+		return out
+	}
 	for name, c := range map[string]struct {
 		it   taxedItem
 		want string
 	}{
-		"a credit memo":           {taxedItem{discount: -238, paid: -11900, taxes: map[taxKey]money.Minor{a: -1900}}, "map[{[1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] V1}:-38 minor]"},
-		"two accounts, remainder": {taxedItem{discount: 500, paid: 10012, taxes: map[taxKey]money.Minor{b: 5, a: 7}}, "map[{[1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] V1}:1 minor]"},
+		"a credit memo": {taxedItem{discount: -238, paid: -11900, items: []sourceItem{{no: 1, component: "tax", key: a, base: -10000, tax: -1900}}},
+			" V1/tax:-38/-200/true"},
+		"two accounts, remainder": {taxedItem{discount: 500, paid: 10012, items: []sourceItem{{no: 1, component: "tax", key: b, tax: 5},
+			{no: 2, component: "tax", key: a, tax: 7}}}, " V1/tax:1/0/true V1/tax:0/0/false"},
+		"two components of one code, an untaxed rest": {taxedItem{discount: 300, paid: 15000, items: []sourceItem{
+			{no: 1, component: "gst", key: g, base: 10000, tax: 500}, {no: 2, component: "qst", key: q, base: 10000, tax: 1000}}},
+			" I5/gst:10/200/true I5/qst:20/200/false"},
+		"a base against the payment": {taxedItem{discount: 100, paid: 1000, items: []sourceItem{{no: 1, component: "tax", key: a, base: -500, tax: 100}}},
+			" V1/tax:10/0/true"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := fmt.Sprint(itemTaxShares(c.it)); got != c.want {
-				t.Errorf("shares: got %s, want %s", got, c.want)
+			if got := render(itemTaxShares(c.it, 0)); got != c.want {
+				t.Errorf("shares: got %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+// TestDiscountTaxItems: a settlement's items convert their shares at its
+// rate, each line rounded once: an invoice's and a credit memo's shares of
+// one code cancel to no line and items that add up to none; two discounted
+// lines of one entry each keep their own base in local currency; every
+// component of a code has the code's base, in local currency too.
+func TestDiscountTaxItems(t *testing.T) {
+	v1 := taxKey{account: uuid.UUID{1}, code: "V1"}
+	invoice := entryKey{entry: uuid.UUID{9}}
+	credit := entryKey{entry: uuid.UUID{8}}
+	bank := settlementBank{rateLC: exchange{exact: big.NewRat(2, 1)}, expTC: 2, expLC: 2}
+	render := func(items []sourcedTaxItem) string {
+		out := ""
+		for _, i := range items {
+			out += fmt.Sprintf(" %d/%d %d/%d", i.baseTC, i.taxTC, i.baseLC, i.taxLC)
+		}
+		return out
+	}
+	for name, c := range map[string]struct {
+		items []taxedItem
+		want  string
+		bases money.Minor
+	}{
+		"an invoice and a credit memo": {[]taxedItem{
+			{discount: 2, paid: 238, items: []sourceItem{{entry: invoice, no: 1, component: "tax", key: v1, base: 200, tax: 38}}},
+			{discount: -2, paid: -119, items: []sourceItem{{entry: credit, no: 1, component: "tax", key: v1, base: -100, tax: -19}}},
+		}, " -2/0 -4/0 2/0 4/0", 0},
+		"two components of one code": {[]taxedItem{
+			{discount: 300, paid: 11500, items: []sourceItem{
+				{entry: invoice, no: 1, component: "gst", key: taxKey{account: uuid.UUID{3}, code: "V1"}, base: 10000, tax: 500},
+				{entry: invoice, no: 2, component: "qst", key: taxKey{account: uuid.UUID{4}, code: "V1"}, base: 10000, tax: 1000}}},
+		}, " -261/-13 -522/-26 -261/-26 -522/-52", 261},
+		"two lines of one entry": {[]taxedItem{
+			{discount: 200, paid: 11900, items: []sourceItem{{entry: invoice, no: 1, component: "tax", key: v1, base: 10000, tax: 1900}}},
+			{discount: 300, paid: 11900, items: []sourceItem{{entry: invoice, no: 1, component: "tax", key: v1, base: 10000, tax: 1900}}},
+		}, " -168/-32 -336/-64 -252/-48 -504/-96", 420},
+	} {
+		t.Run(name, func(t *testing.T) {
+			split, err := splitTax(c.items)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := render(discountPlan{split: split}.taxItems(bank)); got != c.want {
+				t.Errorf("items: got %q, want %q", got, c.want)
+			}
+			if split.bases["V1"] != c.bases {
+				t.Errorf("V1's base: got %d, want %d", split.bases["V1"], c.bases)
+			}
+		})
+	}
+	if got := (discountPlan{}).taxItems(bank); got != nil {
+		t.Errorf("no split: got %v, want no items", got)
 	}
 }

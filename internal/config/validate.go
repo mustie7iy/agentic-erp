@@ -90,6 +90,7 @@ func Validate(c *Config, exponents currency.Exponents) []Finding {
 	v.packs(c)
 	v.calendars(c)
 	v.controlling(c)
+	v.cash(c)
 	switch c.Output.PurchaseOrderChannel {
 	case "email", "edi", "print":
 	default:
@@ -242,6 +243,9 @@ func (v *validator) company(p string, co *Company) {
 	if co.InvoiceTolerance.PricePercent < 0 || co.InvoiceTolerance.PricePercent > 100 {
 		v.err(p+".invoice_tolerance.price_percent", "must be 0-100")
 	}
+	if u := co.InvoiceTolerance.TaxUnits(); u < 0 || u > 100 {
+		v.err(p+".invoice_tolerance.tax_units_per_code", "must be 0-100 minor units per tax code")
+	}
 	// Amounts are read with the currency's digits from ref.currency; with
 	// no known currency there are none to read them with, and the
 	// currency's finding already blocks activation.
@@ -257,6 +261,7 @@ func (v *validator) company(p string, co *Company) {
 	v.paymentMethods(p, co)
 	v.bankStatements(p, co, exp, known)
 	v.companyControlling(p, co)
+	v.companyCash(p, co)
 }
 
 // isTaxAccount reports whether the account is the input tax account or a

@@ -21,3 +21,11 @@ func TestNow(t *testing.T) {
 		}
 	})
 }
+
+// TestDay: an instant's UTC calendar date, at midnight UTC.
+func TestDay(t *testing.T) {
+	late := time.Date(2026, 4, 17, 23, 30, 0, 0, time.FixedZone("UTC-5", -5*3600))
+	if got, want := Day(late), time.Date(2026, 4, 18, 0, 0, 0, 0, time.UTC); !got.Equal(want) || got.Location() != time.UTC {
+		t.Errorf("Day: got %v, want %v", got, want)
+	}
+}

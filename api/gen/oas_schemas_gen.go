@@ -3397,6 +3397,7 @@ func (*BadRequestHeaders) getBankStatementFileRes()             {}
 func (*BadRequestHeaders) getBankStatementRes()                 {}
 func (*BadRequestHeaders) getBankStatementRulesRes()            {}
 func (*BadRequestHeaders) getBusinessPartnerRes()               {}
+func (*BadRequestHeaders) getCashPositionRes()                  {}
 func (*BadRequestHeaders) getCenterChangeRes()                  {}
 func (*BadRequestHeaders) getChangeRequestRes()                 {}
 func (*BadRequestHeaders) getClearingRes()                      {}
@@ -7461,6 +7462,668 @@ func (s *CashDiscountTier) SetUntil(val time.Time) {
 // SetPercent sets the value of Percent.
 func (s *CashDiscountTier) SetPercent(val string) {
 	s.Percent = val
+}
+
+// The flows of a day of one source and certainty.
+// Ref: #/components/schemas/CashFlowTotal
+type CashFlowTotal struct {
+	// Where the flows come from (ADR-0051 §4). Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	Source string `json:"source"`
+	// How certain the flows are. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Certainty string `json:"certainty"`
+	// True for payments dated before the read date and still not at the bank, expected the working day
+	// after it.
+	Late   bool  `json:"late"`
+	Amount Money `json:"amount"`
+	// How many flows.
+	Count int32 `json:"count"`
+}
+
+// GetSource returns the value of Source.
+func (s *CashFlowTotal) GetSource() string {
+	return s.Source
+}
+
+// GetCertainty returns the value of Certainty.
+func (s *CashFlowTotal) GetCertainty() string {
+	return s.Certainty
+}
+
+// GetLate returns the value of Late.
+func (s *CashFlowTotal) GetLate() bool {
+	return s.Late
+}
+
+// GetAmount returns the value of Amount.
+func (s *CashFlowTotal) GetAmount() Money {
+	return s.Amount
+}
+
+// GetCount returns the value of Count.
+func (s *CashFlowTotal) GetCount() int32 {
+	return s.Count
+}
+
+// SetSource sets the value of Source.
+func (s *CashFlowTotal) SetSource(val string) {
+	s.Source = val
+}
+
+// SetCertainty sets the value of Certainty.
+func (s *CashFlowTotal) SetCertainty(val string) {
+	s.Certainty = val
+}
+
+// SetLate sets the value of Late.
+func (s *CashFlowTotal) SetLate(val bool) {
+	s.Late = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *CashFlowTotal) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetCount sets the value of Count.
+func (s *CashFlowTotal) SetCount(val int32) {
+	s.Count = val
+}
+
+// A legal entity's daily cash position (ADR-0051 §8, T53c): per house bank and per currency first,
+// then the converted total. Amounts are signed: money in the bank is positive, a payment out negative.
+// Ref: #/components/schemas/CashPosition
+type CashPosition struct {
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The day the position was read (UTC): what is late, stale and converted is judged by it.
+	ReadDate time.Time `json:"read_date"`
+	// The first day.
+	From time.Time `json:"from"`
+	// How many days.
+	Days int32 `json:"days"`
+	// The legal entity's active house banks, by code.
+	Banks []CashPositionBank `json:"banks"`
+	// The banks summed per currency, by currency code.
+	Currencies []CashPositionCurrency `json:"currencies"`
+	Converted  CashPositionConverted  `json:"converted"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CashPosition) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetReadDate returns the value of ReadDate.
+func (s *CashPosition) GetReadDate() time.Time {
+	return s.ReadDate
+}
+
+// GetFrom returns the value of From.
+func (s *CashPosition) GetFrom() time.Time {
+	return s.From
+}
+
+// GetDays returns the value of Days.
+func (s *CashPosition) GetDays() int32 {
+	return s.Days
+}
+
+// GetBanks returns the value of Banks.
+func (s *CashPosition) GetBanks() []CashPositionBank {
+	return s.Banks
+}
+
+// GetCurrencies returns the value of Currencies.
+func (s *CashPosition) GetCurrencies() []CashPositionCurrency {
+	return s.Currencies
+}
+
+// GetConverted returns the value of Converted.
+func (s *CashPosition) GetConverted() CashPositionConverted {
+	return s.Converted
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CashPosition) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetReadDate sets the value of ReadDate.
+func (s *CashPosition) SetReadDate(val time.Time) {
+	s.ReadDate = val
+}
+
+// SetFrom sets the value of From.
+func (s *CashPosition) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetDays sets the value of Days.
+func (s *CashPosition) SetDays(val int32) {
+	s.Days = val
+}
+
+// SetBanks sets the value of Banks.
+func (s *CashPosition) SetBanks(val []CashPositionBank) {
+	s.Banks = val
+}
+
+// SetCurrencies sets the value of Currencies.
+func (s *CashPosition) SetCurrencies(val []CashPositionCurrency) {
+	s.Currencies = val
+}
+
+// SetConverted sets the value of Converted.
+func (s *CashPosition) SetConverted(val CashPositionConverted) {
+	s.Converted = val
+}
+
+// A house bank's position, in its own currency: never converted.
+// Ref: #/components/schemas/CashPositionBank
+type CashPositionBank struct {
+	// The house bank.
+	HouseBankID uuid.UUID `json:"house_bank_id"`
+	// The house bank's code.
+	Code string `json:"code"`
+	// The last four characters of the bank account.
+	AccountLast4 string `json:"account_last4"`
+	// The house bank's currency (ISO 4217).
+	Currency    string                     `json:"currency"`
+	Opening     CashPositionOpening        `json:"opening"`
+	CreditLine  OptMoney                   `json:"credit_line"`
+	BookBalance OptCashPositionBookBalance `json:"book_balance"`
+	// The days in order.
+	Days []CashPositionDay `json:"days"`
+}
+
+// GetHouseBankID returns the value of HouseBankID.
+func (s *CashPositionBank) GetHouseBankID() uuid.UUID {
+	return s.HouseBankID
+}
+
+// GetCode returns the value of Code.
+func (s *CashPositionBank) GetCode() string {
+	return s.Code
+}
+
+// GetAccountLast4 returns the value of AccountLast4.
+func (s *CashPositionBank) GetAccountLast4() string {
+	return s.AccountLast4
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CashPositionBank) GetCurrency() string {
+	return s.Currency
+}
+
+// GetOpening returns the value of Opening.
+func (s *CashPositionBank) GetOpening() CashPositionOpening {
+	return s.Opening
+}
+
+// GetCreditLine returns the value of CreditLine.
+func (s *CashPositionBank) GetCreditLine() OptMoney {
+	return s.CreditLine
+}
+
+// GetBookBalance returns the value of BookBalance.
+func (s *CashPositionBank) GetBookBalance() OptCashPositionBookBalance {
+	return s.BookBalance
+}
+
+// GetDays returns the value of Days.
+func (s *CashPositionBank) GetDays() []CashPositionDay {
+	return s.Days
+}
+
+// SetHouseBankID sets the value of HouseBankID.
+func (s *CashPositionBank) SetHouseBankID(val uuid.UUID) {
+	s.HouseBankID = val
+}
+
+// SetCode sets the value of Code.
+func (s *CashPositionBank) SetCode(val string) {
+	s.Code = val
+}
+
+// SetAccountLast4 sets the value of AccountLast4.
+func (s *CashPositionBank) SetAccountLast4(val string) {
+	s.AccountLast4 = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CashPositionBank) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetOpening sets the value of Opening.
+func (s *CashPositionBank) SetOpening(val CashPositionOpening) {
+	s.Opening = val
+}
+
+// SetCreditLine sets the value of CreditLine.
+func (s *CashPositionBank) SetCreditLine(val OptMoney) {
+	s.CreditLine = val
+}
+
+// SetBookBalance sets the value of BookBalance.
+func (s *CashPositionBank) SetBookBalance(val OptCashPositionBookBalance) {
+	s.BookBalance = val
+}
+
+// SetDays sets the value of Days.
+func (s *CashPositionBank) SetDays(val []CashPositionDay) {
+	s.Days = val
+}
+
+// The opening statement against the ledger: the reconciliation report's figures on its closing date
+// (the main bank account's balance in the bank's currency, and what the statement lines not posted,
+// excluded or posted later explain), and the payments in transit, posted and not yet at the bank.
+// Absent when the bank has no statement before the first day.
+// Ref: #/components/schemas/CashPositionBookBalance
+type CashPositionBookBalance struct {
+	Figures           BankReconciliationFigures `json:"figures"`
+	PaymentsInTransit Money                     `json:"payments_in_transit"`
+}
+
+// GetFigures returns the value of Figures.
+func (s *CashPositionBookBalance) GetFigures() BankReconciliationFigures {
+	return s.Figures
+}
+
+// GetPaymentsInTransit returns the value of PaymentsInTransit.
+func (s *CashPositionBookBalance) GetPaymentsInTransit() Money {
+	return s.PaymentsInTransit
+}
+
+// SetFigures sets the value of Figures.
+func (s *CashPositionBookBalance) SetFigures(val BankReconciliationFigures) {
+	s.Figures = val
+}
+
+// SetPaymentsInTransit sets the value of PaymentsInTransit.
+func (s *CashPositionBookBalance) SetPaymentsInTransit(val Money) {
+	s.PaymentsInTransit = val
+}
+
+// Every currency's position converted into the display currency, at one rate for every day, and
+// summed.
+// Ref: #/components/schemas/CashPositionConverted
+type CashPositionConverted struct {
+	// The display currency (ISO 4217).
+	Currency string `json:"currency"`
+	// The rates used, by currency.
+	Rates []CashPositionRate `json:"rates"`
+	// The currencies without a rate into the display currency, left out of the totals; empty when the
+	// totals are complete.
+	IncompleteCurrencies []string `json:"incomplete_currencies"`
+	// The days in order.
+	Days []CashPositionTotal `json:"days"`
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CashPositionConverted) GetCurrency() string {
+	return s.Currency
+}
+
+// GetRates returns the value of Rates.
+func (s *CashPositionConverted) GetRates() []CashPositionRate {
+	return s.Rates
+}
+
+// GetIncompleteCurrencies returns the value of IncompleteCurrencies.
+func (s *CashPositionConverted) GetIncompleteCurrencies() []string {
+	return s.IncompleteCurrencies
+}
+
+// GetDays returns the value of Days.
+func (s *CashPositionConverted) GetDays() []CashPositionTotal {
+	return s.Days
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CashPositionConverted) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetRates sets the value of Rates.
+func (s *CashPositionConverted) SetRates(val []CashPositionRate) {
+	s.Rates = val
+}
+
+// SetIncompleteCurrencies sets the value of IncompleteCurrencies.
+func (s *CashPositionConverted) SetIncompleteCurrencies(val []string) {
+	s.IncompleteCurrencies = val
+}
+
+// SetDays sets the value of Days.
+func (s *CashPositionConverted) SetDays(val []CashPositionTotal) {
+	s.Days = val
+}
+
+// The banks of one currency summed.
+// Ref: #/components/schemas/CashPositionCurrency
+type CashPositionCurrency struct {
+	// The currency (ISO 4217).
+	Currency   string   `json:"currency"`
+	CreditLine OptMoney `json:"credit_line"`
+	// The days in order.
+	Days []CashPositionDay `json:"days"`
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CashPositionCurrency) GetCurrency() string {
+	return s.Currency
+}
+
+// GetCreditLine returns the value of CreditLine.
+func (s *CashPositionCurrency) GetCreditLine() OptMoney {
+	return s.CreditLine
+}
+
+// GetDays returns the value of Days.
+func (s *CashPositionCurrency) GetDays() []CashPositionDay {
+	return s.Days
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CashPositionCurrency) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetCreditLine sets the value of CreditLine.
+func (s *CashPositionCurrency) SetCreditLine(val OptMoney) {
+	s.CreditLine = val
+}
+
+// SetDays sets the value of Days.
+func (s *CashPositionCurrency) SetDays(val []CashPositionDay) {
+	s.Days = val
+}
+
+// A day: its opening balance, its flows, its closing balance (opening plus flows) and what is
+// available with the credit line.
+// Ref: #/components/schemas/CashPositionDay
+type CashPositionDay struct {
+	// The day.
+	Date    time.Time `json:"date"`
+	Opening Money     `json:"opening"`
+	// The day's flows by source, certainty and whether late.
+	Flows     []CashFlowTotal `json:"flows"`
+	Closing   Money           `json:"closing"`
+	Available Money           `json:"available"`
+}
+
+// GetDate returns the value of Date.
+func (s *CashPositionDay) GetDate() time.Time {
+	return s.Date
+}
+
+// GetOpening returns the value of Opening.
+func (s *CashPositionDay) GetOpening() Money {
+	return s.Opening
+}
+
+// GetFlows returns the value of Flows.
+func (s *CashPositionDay) GetFlows() []CashFlowTotal {
+	return s.Flows
+}
+
+// GetClosing returns the value of Closing.
+func (s *CashPositionDay) GetClosing() Money {
+	return s.Closing
+}
+
+// GetAvailable returns the value of Available.
+func (s *CashPositionDay) GetAvailable() Money {
+	return s.Available
+}
+
+// SetDate sets the value of Date.
+func (s *CashPositionDay) SetDate(val time.Time) {
+	s.Date = val
+}
+
+// SetOpening sets the value of Opening.
+func (s *CashPositionDay) SetOpening(val Money) {
+	s.Opening = val
+}
+
+// SetFlows sets the value of Flows.
+func (s *CashPositionDay) SetFlows(val []CashFlowTotal) {
+	s.Flows = val
+}
+
+// SetClosing sets the value of Closing.
+func (s *CashPositionDay) SetClosing(val Money) {
+	s.Closing = val
+}
+
+// SetAvailable sets the value of Available.
+func (s *CashPositionDay) SetAvailable(val Money) {
+	s.Available = val
+}
+
+// CashPositionHeaders wraps CashPosition with response headers.
+type CashPositionHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           CashPosition
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *CashPositionHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *CashPositionHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *CashPositionHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *CashPositionHeaders) GetResponse() CashPosition {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *CashPositionHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *CashPositionHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *CashPositionHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CashPositionHeaders) SetResponse(val CashPosition) {
+	s.Response = val
+}
+
+func (*CashPositionHeaders) getCashPositionRes() {}
+
+// What the first day opens at: the latest statement closing before it, and whether it can be relied
+// on.
+// Ref: #/components/schemas/CashPositionOpening
+type CashPositionOpening struct {
+	Balance Money `json:"balance"`
+	// The statement's closing date; absent when the bank has no statement before the first day.
+	StatementDate OptDate `json:"statement_date"`
+	// True when the statement closes before the working day before the read date, or there is none.
+	Stale bool `json:"stale"`
+	// True when a statement of the bank up to it is in `gap`: a statement is missing, so the balance may
+	// be wrong.
+	Gap bool `json:"gap"`
+}
+
+// GetBalance returns the value of Balance.
+func (s *CashPositionOpening) GetBalance() Money {
+	return s.Balance
+}
+
+// GetStatementDate returns the value of StatementDate.
+func (s *CashPositionOpening) GetStatementDate() OptDate {
+	return s.StatementDate
+}
+
+// GetStale returns the value of Stale.
+func (s *CashPositionOpening) GetStale() bool {
+	return s.Stale
+}
+
+// GetGap returns the value of Gap.
+func (s *CashPositionOpening) GetGap() bool {
+	return s.Gap
+}
+
+// SetBalance sets the value of Balance.
+func (s *CashPositionOpening) SetBalance(val Money) {
+	s.Balance = val
+}
+
+// SetStatementDate sets the value of StatementDate.
+func (s *CashPositionOpening) SetStatementDate(val OptDate) {
+	s.StatementDate = val
+}
+
+// SetStale sets the value of Stale.
+func (s *CashPositionOpening) SetStale(val bool) {
+	s.Stale = val
+}
+
+// SetGap sets the value of Gap.
+func (s *CashPositionOpening) SetGap(val bool) {
+	s.Gap = val
+}
+
+// The rate a currency is converted at.
+// Ref: #/components/schemas/CashPositionRate
+type CashPositionRate struct {
+	// The currency converted (ISO 4217).
+	Currency string `json:"currency"`
+	// The rate type used. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	RateType string  `json:"rate_type"`
+	Rate     Decimal `json:"rate"`
+	// The day the rate is valid from.
+	ValidFrom time.Time `json:"valid_from"`
+	// True when the rate is valid from more than the company's `cash.rate_max_age_days` before the read
+	// date.
+	Stale bool `json:"stale"`
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CashPositionRate) GetCurrency() string {
+	return s.Currency
+}
+
+// GetRateType returns the value of RateType.
+func (s *CashPositionRate) GetRateType() string {
+	return s.RateType
+}
+
+// GetRate returns the value of Rate.
+func (s *CashPositionRate) GetRate() Decimal {
+	return s.Rate
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *CashPositionRate) GetValidFrom() time.Time {
+	return s.ValidFrom
+}
+
+// GetStale returns the value of Stale.
+func (s *CashPositionRate) GetStale() bool {
+	return s.Stale
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CashPositionRate) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetRateType sets the value of RateType.
+func (s *CashPositionRate) SetRateType(val string) {
+	s.RateType = val
+}
+
+// SetRate sets the value of Rate.
+func (s *CashPositionRate) SetRate(val Decimal) {
+	s.Rate = val
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *CashPositionRate) SetValidFrom(val time.Time) {
+	s.ValidFrom = val
+}
+
+// SetStale sets the value of Stale.
+func (s *CashPositionRate) SetStale(val bool) {
+	s.Stale = val
+}
+
+// A day's converted totals.
+// Ref: #/components/schemas/CashPositionTotal
+type CashPositionTotal struct {
+	// The day.
+	Date      time.Time `json:"date"`
+	Opening   Money     `json:"opening"`
+	Closing   Money     `json:"closing"`
+	Available Money     `json:"available"`
+}
+
+// GetDate returns the value of Date.
+func (s *CashPositionTotal) GetDate() time.Time {
+	return s.Date
+}
+
+// GetOpening returns the value of Opening.
+func (s *CashPositionTotal) GetOpening() Money {
+	return s.Opening
+}
+
+// GetClosing returns the value of Closing.
+func (s *CashPositionTotal) GetClosing() Money {
+	return s.Closing
+}
+
+// GetAvailable returns the value of Available.
+func (s *CashPositionTotal) GetAvailable() Money {
+	return s.Available
+}
+
+// SetDate sets the value of Date.
+func (s *CashPositionTotal) SetDate(val time.Time) {
+	s.Date = val
+}
+
+// SetOpening sets the value of Opening.
+func (s *CashPositionTotal) SetOpening(val Money) {
+	s.Opening = val
+}
+
+// SetClosing sets the value of Closing.
+func (s *CashPositionTotal) SetClosing(val Money) {
+	s.Closing = val
+}
+
+// SetAvailable sets the value of Available.
+func (s *CashPositionTotal) SetAvailable(val Money) {
+	s.Available = val
 }
 
 // Merged schema.
@@ -14869,6 +15532,7 @@ func (*ForbiddenHeaders) getBankStatementFileRes()             {}
 func (*ForbiddenHeaders) getBankStatementRes()                 {}
 func (*ForbiddenHeaders) getBankStatementRulesRes()            {}
 func (*ForbiddenHeaders) getBusinessPartnerRes()               {}
+func (*ForbiddenHeaders) getCashPositionRes()                  {}
 func (*ForbiddenHeaders) getCenterChangeRes()                  {}
 func (*ForbiddenHeaders) getChangeRequestRes()                 {}
 func (*ForbiddenHeaders) getClearingRes()                      {}
@@ -19283,6 +19947,9 @@ type JournalEntry struct {
 	DocumentDate time.Time `json:"document_date"`
 	// Posting date.
 	PostingDate time.Time `json:"posting_date"`
+	// Tax date: the lines' tax codes' rates applied on it and its return reports their tax (ADR-0049 §4).
+	// Absent on entries posted before tax items (T61c), whose tax date is the posting date.
+	TaxDate OptDate `json:"tax_date"`
 	// Transaction currency.
 	Currency string `json:"currency"`
 	// Local currency.
@@ -19369,6 +20036,11 @@ func (s *JournalEntry) GetDocumentDate() time.Time {
 // GetPostingDate returns the value of PostingDate.
 func (s *JournalEntry) GetPostingDate() time.Time {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *JournalEntry) GetTaxDate() OptDate {
+	return s.TaxDate
 }
 
 // GetCurrency returns the value of Currency.
@@ -19501,6 +20173,11 @@ func (s *JournalEntry) SetPostingDate(val time.Time) {
 	s.PostingDate = val
 }
 
+// SetTaxDate sets the value of TaxDate.
+func (s *JournalEntry) SetTaxDate(val OptDate) {
+	s.TaxDate = val
+}
+
 // SetCurrency sets the value of Currency.
 func (s *JournalEntry) SetCurrency(val string) {
 	s.Currency = val
@@ -19606,6 +20283,9 @@ type JournalEntryCreate struct {
 	DocumentDate time.Time `json:"document_date"`
 	// Posting date; must fall in an open period.
 	PostingDate time.Time `json:"posting_date"`
+	// Tax date: the date the lines' tax codes must be valid on, whose rates apply and whose return reports
+	// their tax (ADR-0049 §4); defaults to the posting date.
+	TaxDate OptDate `json:"tax_date"`
 	// Transaction currency; every line amount must use it.
 	Currency string `json:"currency"`
 	// External reference.
@@ -19644,6 +20324,11 @@ func (s *JournalEntryCreate) GetDocumentDate() time.Time {
 // GetPostingDate returns the value of PostingDate.
 func (s *JournalEntryCreate) GetPostingDate() time.Time {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *JournalEntryCreate) GetTaxDate() OptDate {
+	return s.TaxDate
 }
 
 // GetCurrency returns the value of Currency.
@@ -19694,6 +20379,11 @@ func (s *JournalEntryCreate) SetDocumentDate(val time.Time) {
 // SetPostingDate sets the value of PostingDate.
 func (s *JournalEntryCreate) SetPostingDate(val time.Time) {
 	s.PostingDate = val
+}
+
+// SetTaxDate sets the value of TaxDate.
+func (s *JournalEntryCreate) SetTaxDate(val OptDate) {
+	s.TaxDate = val
 }
 
 // SetCurrency sets the value of Currency.
@@ -19948,6 +20638,12 @@ type JournalLine struct {
 	// payment account. Absent on ordinary lines. Open enumeration: clients must accept and preserve values
 	// not listed here; values may be added within /v1.
 	SpecialGl OptString `json:"special_gl"`
+	// A tax line's declared base (ADR-0049 §9): the declared value an import's tax from a customs
+	// declaration is on, which no line of the entry carries; its code's tax item takes it as its base.
+	// Absent on other lines.
+	TaxBase OptMoney `json:"tax_base"`
+	// The declared base in local currency, converted with the entry's rate; set with `tax_base`.
+	TaxBaseLc OptMoney `json:"tax_base_lc"`
 	// Line text.
 	LineText OptString `json:"line_text"`
 }
@@ -20005,6 +20701,16 @@ func (s *JournalLine) GetPoItemNo() OptInt32 {
 // GetSpecialGl returns the value of SpecialGl.
 func (s *JournalLine) GetSpecialGl() OptString {
 	return s.SpecialGl
+}
+
+// GetTaxBase returns the value of TaxBase.
+func (s *JournalLine) GetTaxBase() OptMoney {
+	return s.TaxBase
+}
+
+// GetTaxBaseLc returns the value of TaxBaseLc.
+func (s *JournalLine) GetTaxBaseLc() OptMoney {
+	return s.TaxBaseLc
 }
 
 // GetLineText returns the value of LineText.
@@ -20067,6 +20773,16 @@ func (s *JournalLine) SetSpecialGl(val OptString) {
 	s.SpecialGl = val
 }
 
+// SetTaxBase sets the value of TaxBase.
+func (s *JournalLine) SetTaxBase(val OptMoney) {
+	s.TaxBase = val
+}
+
+// SetTaxBaseLc sets the value of TaxBaseLc.
+func (s *JournalLine) SetTaxBaseLc(val OptMoney) {
+	s.TaxBaseLc = val
+}
+
 // SetLineText sets the value of LineText.
 func (s *JournalLine) SetLineText(val OptString) {
 	s.LineText = val
@@ -20083,6 +20799,13 @@ type JournalLineInput struct {
 	PartnerID OptUUID `json:"partner_id"`
 	// Tax code.
 	TaxCode OptString `json:"tax_code"`
+	// Declared tax base of a tax line of an `import` code (ADR-0049 §9): the import's tax posted from the
+	// customs declaration, as tax lines alone, on the declared value no line of the entry carries. Only on
+	// a line with an import code on one of its components' accounts (422 `ledger.tax_base_not_import`),
+	// never zero (422 `ledger.zero_tax_base`); the line's amount is the tax at the component's rate on the
+	// tax date (the part recovered, or the self-assessed output tax), within one minor unit (422
+	// `ledger.tax_base_mismatch`). The component's tax item takes it as its base.
+	TaxBase OptMoney `json:"tax_base"`
 	// Quantity.
 	Quantity OptQuantity `json:"quantity"`
 	// Line text.
@@ -20107,6 +20830,11 @@ func (s *JournalLineInput) GetPartnerID() OptUUID {
 // GetTaxCode returns the value of TaxCode.
 func (s *JournalLineInput) GetTaxCode() OptString {
 	return s.TaxCode
+}
+
+// GetTaxBase returns the value of TaxBase.
+func (s *JournalLineInput) GetTaxBase() OptMoney {
+	return s.TaxBase
 }
 
 // GetQuantity returns the value of Quantity.
@@ -20137,6 +20865,11 @@ func (s *JournalLineInput) SetPartnerID(val OptUUID) {
 // SetTaxCode sets the value of TaxCode.
 func (s *JournalLineInput) SetTaxCode(val OptString) {
 	s.TaxCode = val
+}
+
+// SetTaxBase sets the value of TaxBase.
+func (s *JournalLineInput) SetTaxBase(val OptMoney) {
+	s.TaxBase = val
 }
 
 // SetQuantity sets the value of Quantity.
@@ -22801,6 +23534,7 @@ func (*NotFoundHeaders) getBankStatementFileRes()             {}
 func (*NotFoundHeaders) getBankStatementRes()                 {}
 func (*NotFoundHeaders) getBankStatementRulesRes()            {}
 func (*NotFoundHeaders) getBusinessPartnerRes()               {}
+func (*NotFoundHeaders) getCashPositionRes()                  {}
 func (*NotFoundHeaders) getCenterChangeRes()                  {}
 func (*NotFoundHeaders) getChangeRequestRes()                 {}
 func (*NotFoundHeaders) getClearingRes()                      {}
@@ -24168,6 +24902,52 @@ func (o OptBool) Get() (v bool, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptBool) Or(d bool) bool {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptCashPositionBookBalance returns new OptCashPositionBookBalance with value set to v.
+func NewOptCashPositionBookBalance(v CashPositionBookBalance) OptCashPositionBookBalance {
+	return OptCashPositionBookBalance{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptCashPositionBookBalance is optional CashPositionBookBalance.
+type OptCashPositionBookBalance struct {
+	Value CashPositionBookBalance
+	Set   bool
+}
+
+// IsSet returns true if OptCashPositionBookBalance was set.
+func (o OptCashPositionBookBalance) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptCashPositionBookBalance) Reset() {
+	var v CashPositionBookBalance
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptCashPositionBookBalance) SetTo(v CashPositionBookBalance) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptCashPositionBookBalance) Get() (v CashPositionBookBalance, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptCashPositionBookBalance) Or(d CashPositionBookBalance) CashPositionBookBalance {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -26276,6 +27056,8 @@ type ParkedJournalEntry struct {
 	DocumentDate time.Time `json:"document_date"`
 	// Posting date; its period must be open when the entry is posted.
 	PostingDate time.Time `json:"posting_date"`
+	// Tax date the entry was parked with; absent: its posting date.
+	TaxDate OptDate `json:"tax_date"`
 	// Transaction currency.
 	Currency string `json:"currency"`
 	// External reference.
@@ -26365,6 +27147,11 @@ func (s *ParkedJournalEntry) GetDocumentDate() time.Time {
 // GetPostingDate returns the value of PostingDate.
 func (s *ParkedJournalEntry) GetPostingDate() time.Time {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *ParkedJournalEntry) GetTaxDate() OptDate {
+	return s.TaxDate
 }
 
 // GetCurrency returns the value of Currency.
@@ -26480,6 +27267,11 @@ func (s *ParkedJournalEntry) SetDocumentDate(val time.Time) {
 // SetPostingDate sets the value of PostingDate.
 func (s *ParkedJournalEntry) SetPostingDate(val time.Time) {
 	s.PostingDate = val
+}
+
+// SetTaxDate sets the value of TaxDate.
+func (s *ParkedJournalEntry) SetTaxDate(val OptDate) {
+	s.TaxDate = val
 }
 
 // SetCurrency sets the value of Currency.
@@ -26703,6 +27495,9 @@ type ParkedJournalEntryUpdate struct {
 	DocumentDate OptDate `json:"document_date"`
 	// Posting date.
 	PostingDate OptDate `json:"posting_date"`
+	// Tax date: the date the lines' tax codes' rates apply on and their tax is reported in (ADR-0049 §4).
+	// Send null to clear: the posting date then.
+	TaxDate OptNilDate `json:"tax_date"`
 	// Transaction currency; every line amount must use it, so a change of currency comes with the lines.
 	Currency OptString `json:"currency"`
 	// External reference. Send null to clear.
@@ -26726,6 +27521,11 @@ func (s *ParkedJournalEntryUpdate) GetDocumentDate() OptDate {
 // GetPostingDate returns the value of PostingDate.
 func (s *ParkedJournalEntryUpdate) GetPostingDate() OptDate {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *ParkedJournalEntryUpdate) GetTaxDate() OptNilDate {
+	return s.TaxDate
 }
 
 // GetCurrency returns the value of Currency.
@@ -26763,6 +27563,11 @@ func (s *ParkedJournalEntryUpdate) SetPostingDate(val OptDate) {
 	s.PostingDate = val
 }
 
+// SetTaxDate sets the value of TaxDate.
+func (s *ParkedJournalEntryUpdate) SetTaxDate(val OptNilDate) {
+	s.TaxDate = val
+}
+
 // SetCurrency sets the value of Currency.
 func (s *ParkedJournalEntryUpdate) SetCurrency(val OptString) {
 	s.Currency = val
@@ -26796,6 +27601,8 @@ type ParkedJournalLine struct {
 	PartnerID OptUUID `json:"partner_id"`
 	// Tax code.
 	TaxCode OptString `json:"tax_code"`
+	// The line's declared tax base (JournalLineInput `tax_base`), absent when it declares none.
+	TaxBase OptMoney `json:"tax_base"`
 	// Quantity, where relevant.
 	Quantity OptQuantity `json:"quantity"`
 	// Line text.
@@ -26825,6 +27632,11 @@ func (s *ParkedJournalLine) GetPartnerID() OptUUID {
 // GetTaxCode returns the value of TaxCode.
 func (s *ParkedJournalLine) GetTaxCode() OptString {
 	return s.TaxCode
+}
+
+// GetTaxBase returns the value of TaxBase.
+func (s *ParkedJournalLine) GetTaxBase() OptMoney {
+	return s.TaxBase
 }
 
 // GetQuantity returns the value of Quantity.
@@ -26860,6 +27672,11 @@ func (s *ParkedJournalLine) SetPartnerID(val OptUUID) {
 // SetTaxCode sets the value of TaxCode.
 func (s *ParkedJournalLine) SetTaxCode(val OptString) {
 	s.TaxCode = val
+}
+
+// SetTaxBase sets the value of TaxBase.
+func (s *ParkedJournalLine) SetTaxBase(val OptMoney) {
+	s.TaxBase = val
 }
 
 // SetQuantity sets the value of Quantity.
@@ -37168,6 +37985,10 @@ type SupplierCompany struct {
 	// The methods the supplier may be paid by in this legal entity, in order of preference (SAP
 	// LFB1-ZWELS; ADR-0038): codes of the company's `payment_methods` in the configuration.
 	PaymentMethods []string `json:"payment_methods"`
+	// The supplier's planning group in this legal entity (SAP LFB1-FDGRV; ADR-0051 §4): a code of the
+	// configuration's `cash.planning_groups`, which gives the supplier's cash flows a liquidity item when
+	// no account rule does. Absent for none.
+	PlanningGroup OptString `json:"planning_group"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -37205,6 +38026,11 @@ func (s *SupplierCompany) GetPaymentMethods() []string {
 	return s.PaymentMethods
 }
 
+// GetPlanningGroup returns the value of PlanningGroup.
+func (s *SupplierCompany) GetPlanningGroup() OptString {
+	return s.PlanningGroup
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *SupplierCompany) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -37240,6 +38066,11 @@ func (s *SupplierCompany) SetPaymentMethods(val []string) {
 	s.PaymentMethods = val
 }
 
+// SetPlanningGroup sets the value of PlanningGroup.
+func (s *SupplierCompany) SetPlanningGroup(val OptString) {
+	s.PlanningGroup = val
+}
+
 // Company-specific supplier data to set up.
 // Ref: #/components/schemas/SupplierCompanyInput
 type SupplierCompanyInput struct {
@@ -37259,6 +38090,10 @@ type SupplierCompanyInput struct {
 	// methods in the legal entity: leaving it out takes every method off the supplier there, as the other
 	// company data is replaced too.
 	PaymentMethods []string `json:"payment_methods"`
+	// The supplier's planning group in this legal entity (ADR-0051 §4): an active code of the
+	// configuration's `cash.planning_groups` (422 `partner.unknown_planning_group` otherwise). Like the
+	// other company data it is replaced: leaving it out takes the supplier's group off it there.
+	PlanningGroup OptString `json:"planning_group"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -37286,6 +38121,11 @@ func (s *SupplierCompanyInput) GetPaymentMethods() []string {
 	return s.PaymentMethods
 }
 
+// GetPlanningGroup returns the value of PlanningGroup.
+func (s *SupplierCompanyInput) GetPlanningGroup() OptString {
+	return s.PlanningGroup
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *SupplierCompanyInput) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -37309,6 +38149,11 @@ func (s *SupplierCompanyInput) SetWithholdingTaxCodes(val []string) {
 // SetPaymentMethods sets the value of PaymentMethods.
 func (s *SupplierCompanyInput) SetPaymentMethods(val []string) {
 	s.PaymentMethods = val
+}
+
+// SetPlanningGroup sets the value of PlanningGroup.
+func (s *SupplierCompanyInput) SetPlanningGroup(val OptString) {
+	s.PlanningGroup = val
 }
 
 // Merged schema.
@@ -37338,6 +38183,9 @@ type SupplierInvoice struct {
 	InvoiceDate time.Time `json:"invoice_date"`
 	// Posting date; set at the latest by `:post`.
 	PostingDate OptDate `json:"posting_date"`
+	// Tax date a person set (ADR-0049 §4, decision P6); absent: the invoice date, or for a correction the
+	// corrected invoice's tax date.
+	TaxDate OptDate `json:"tax_date"`
 	// Gross amount.
 	GrossAmount Money `json:"gross_amount"`
 	// Tax amount.
@@ -37440,6 +38288,11 @@ func (s *SupplierInvoice) GetInvoiceDate() time.Time {
 // GetPostingDate returns the value of PostingDate.
 func (s *SupplierInvoice) GetPostingDate() OptDate {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *SupplierInvoice) GetTaxDate() OptDate {
+	return s.TaxDate
 }
 
 // GetGrossAmount returns the value of GrossAmount.
@@ -37577,6 +38430,11 @@ func (s *SupplierInvoice) SetPostingDate(val OptDate) {
 	s.PostingDate = val
 }
 
+// SetTaxDate sets the value of TaxDate.
+func (s *SupplierInvoice) SetTaxDate(val OptDate) {
+	s.TaxDate = val
+}
+
 // SetGrossAmount sets the value of GrossAmount.
 func (s *SupplierInvoice) SetGrossAmount(val Money) {
 	s.GrossAmount = val
@@ -37710,6 +38568,10 @@ type SupplierInvoiceCreate struct {
 	InvoiceDate time.Time `json:"invoice_date"`
 	// Posting date.
 	PostingDate OptDate `json:"posting_date"`
+	// Tax date: the date the items' tax codes' rates apply on and the tax is reported in (ADR-0049 §4,
+	// decision P6); defaults to the invoice date, or for a correction to the corrected invoice's tax date.
+	// Set by a person only: an agent's is 403 `payables.tax_date_human_only`.
+	TaxDate OptDate `json:"tax_date"`
 	// Gross amount; all amounts must share one currency.
 	GrossAmount Money `json:"gross_amount"`
 	// Tax amount.
@@ -37758,6 +38620,11 @@ func (s *SupplierInvoiceCreate) GetInvoiceDate() time.Time {
 // GetPostingDate returns the value of PostingDate.
 func (s *SupplierInvoiceCreate) GetPostingDate() OptDate {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *SupplierInvoiceCreate) GetTaxDate() OptDate {
+	return s.TaxDate
 }
 
 // GetGrossAmount returns the value of GrossAmount.
@@ -37823,6 +38690,11 @@ func (s *SupplierInvoiceCreate) SetInvoiceDate(val time.Time) {
 // SetPostingDate sets the value of PostingDate.
 func (s *SupplierInvoiceCreate) SetPostingDate(val OptDate) {
 	s.PostingDate = val
+}
+
+// SetTaxDate sets the value of TaxDate.
+func (s *SupplierInvoiceCreate) SetTaxDate(val OptDate) {
+	s.TaxDate = val
 }
 
 // SetGrossAmount sets the value of GrossAmount.
@@ -38196,6 +39068,10 @@ type SupplierInvoiceUpdate struct {
 	InvoiceDate OptDate `json:"invoice_date"`
 	// Posting date. Send null to clear.
 	PostingDate OptNilDate `json:"posting_date"`
+	// Tax date: the date the items' tax codes' rates apply on and the tax is reported in (ADR-0049 §4,
+	// decision P6). Set by a person only: an agent's is 403 `payables.tax_date_human_only`. Send null to
+	// clear: the invoice date, or for a correction the corrected invoice's tax date.
+	TaxDate OptNilDate `json:"tax_date"`
 	// Gross amount.
 	GrossAmount OptMoney `json:"gross_amount"`
 	// Tax amount.
@@ -38223,6 +39099,11 @@ func (s *SupplierInvoiceUpdate) GetInvoiceDate() OptDate {
 // GetPostingDate returns the value of PostingDate.
 func (s *SupplierInvoiceUpdate) GetPostingDate() OptNilDate {
 	return s.PostingDate
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *SupplierInvoiceUpdate) GetTaxDate() OptNilDate {
+	return s.TaxDate
 }
 
 // GetGrossAmount returns the value of GrossAmount.
@@ -38268,6 +39149,11 @@ func (s *SupplierInvoiceUpdate) SetInvoiceDate(val OptDate) {
 // SetPostingDate sets the value of PostingDate.
 func (s *SupplierInvoiceUpdate) SetPostingDate(val OptNilDate) {
 	s.PostingDate = val
+}
+
+// SetTaxDate sets the value of TaxDate.
+func (s *SupplierInvoiceUpdate) SetTaxDate(val OptNilDate) {
+	s.TaxDate = val
 }
 
 // SetGrossAmount sets the value of GrossAmount.
@@ -38496,6 +39382,7 @@ func (*TooManyRequestsHeaders) getBankStatementFileRes()             {}
 func (*TooManyRequestsHeaders) getBankStatementRes()                 {}
 func (*TooManyRequestsHeaders) getBankStatementRulesRes()            {}
 func (*TooManyRequestsHeaders) getBusinessPartnerRes()               {}
+func (*TooManyRequestsHeaders) getCashPositionRes()                  {}
 func (*TooManyRequestsHeaders) getCenterChangeRes()                  {}
 func (*TooManyRequestsHeaders) getChangeRequestRes()                 {}
 func (*TooManyRequestsHeaders) getClearingRes()                      {}
@@ -38824,6 +39711,7 @@ func (*UnauthorizedHeaders) getBankStatementFileRes()             {}
 func (*UnauthorizedHeaders) getBankStatementRes()                 {}
 func (*UnauthorizedHeaders) getBankStatementRulesRes()            {}
 func (*UnauthorizedHeaders) getBusinessPartnerRes()               {}
+func (*UnauthorizedHeaders) getCashPositionRes()                  {}
 func (*UnauthorizedHeaders) getCenterChangeRes()                  {}
 func (*UnauthorizedHeaders) getChangeRequestRes()                 {}
 func (*UnauthorizedHeaders) getClearingRes()                      {}
@@ -39129,6 +40017,7 @@ func (*UnprocessableHeaders) endSodRuleRes()                       {}
 func (*UnprocessableHeaders) excludeBankStatementLineRes()         {}
 func (*UnprocessableHeaders) getAnalyticsModelRes()                {}
 func (*UnprocessableHeaders) getBankReconciliationRes()            {}
+func (*UnprocessableHeaders) getCashPositionRes()                  {}
 func (*UnprocessableHeaders) grantRolePermissionRes()              {}
 func (*UnprocessableHeaders) holdSupplierInvoiceRes()              {}
 func (*UnprocessableHeaders) importBankStatementsRes()             {}

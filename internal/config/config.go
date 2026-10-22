@@ -48,6 +48,9 @@ type Config struct {
 	// Controlling holds the tenant-wide rules about cost and profit
 	// centers (ADR-0050 §4); the centers themselves are master data.
 	Controlling Controlling `yaml:"controlling,omitempty" json:"controlling,omitzero"`
+	// Cash is the tenant's liquidity items, planning groups and the rules
+	// assigning flows their items (ADR-0051 §4).
+	Cash Cash `yaml:"cash,omitempty" json:"cash,omitzero"`
 }
 
 // Calendar is a company's holidays, each date once.
@@ -216,6 +219,9 @@ type Company struct {
 	// DefaultAssignments give the cost center a line on an account takes
 	// when none is entered or derived (SAP OKB9).
 	DefaultAssignments []DefaultAssignment `yaml:"default_assignments,omitempty" json:"default_assignments,omitempty"`
+	// Cash is how the company's cash position and liquidity forecast are
+	// computed (ADR-0051 §5, §8-§10).
+	Cash CompanyCash `yaml:"cash,omitempty" json:"cash,omitzero"`
 }
 
 // FXValuation is the company's foreign-currency valuation (ADR-0042): the
@@ -395,10 +401,23 @@ func (w WithholdingTaxCode) BaseOrNet() string {
 	return w.Base
 }
 
-// Tolerance bounds the price variance on an invoice line (SAP T169G key PP).
+// Tolerance bounds the price variance on an invoice line (SAP T169G key PP)
+// and how far a supplier's stated tax may differ from the calculated one:
+// TaxUnitsPerCode minor units of the invoice's currency per tax code that
+// charges tax (ADR-0049 §6, decision P5; nil: one).
 type Tolerance struct {
-	PricePercent  int    `yaml:"price_percent" json:"price_percent"`
-	PriceAbsolute string `yaml:"price_absolute" json:"price_absolute"`
+	PricePercent    int    `yaml:"price_percent" json:"price_percent"`
+	PriceAbsolute   string `yaml:"price_absolute" json:"price_absolute"`
+	TaxUnitsPerCode *int   `yaml:"tax_units_per_code,omitempty" json:"tax_units_per_code,omitempty"`
+}
+
+// TaxUnits is the tax tolerance in minor units per tax code: one unless
+// configured.
+func (t Tolerance) TaxUnits() int {
+	if t.TaxUnitsPerCode == nil {
+		return 1
+	}
+	return *t.TaxUnitsPerCode
 }
 
 type HouseBank struct {

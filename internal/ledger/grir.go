@@ -266,6 +266,10 @@ func determined(ctx context.Context, le uuid.UUID, key, code string) (uuid.UUID,
 // and counter line, converted at the posting's rates, and what the GR/IR
 // lines' local and group amounts leave as exchange differences.
 func (g grirPosting) lines(ctx context.Context, tx pgx.Tx) ([]Line, error) {
+	lines, kept, err := g.ownLines()
+	if err != nil {
+		return nil, err
+	}
 	keys := make([]orderItem, len(g.in.GRIR))
 	for i, it := range g.in.GRIR {
 		if (it.OffsetAccountID == nil) == (it.Invoiced == nil) {
@@ -278,17 +282,32 @@ func (g grirPosting) lines(ctx context.Context, tx pgx.Tx) ([]Line, error) {
 	if err != nil {
 		return nil, err
 	}
-	lines := make([]Line, 0, len(g.in.Lines)+2*len(g.in.GRIR)+2)
-	for _, l := range g.in.Lines {
-		lines = append(lines, Line{AccountID: l.AccountID, TC: l.Amount, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text,
-			SpecialGL: l.SpecialGL})
-	}
-	kept := make([]bool, len(lines))
 	moved, keep, err := g.itemLines(pos, keys)
 	if err != nil {
 		return nil, err
 	}
 	return g.convert(ctx, append(lines, moved...), append(kept, keep...))
+}
+
+// ownLines are the posting's own lines and which of them keep the local
+// amount they are given (a tax line's at the tax date's rate), its group
+// amount converted from it.
+func (g grirPosting) ownLines() ([]Line, []bool, error) {
+	lines := make([]Line, 0, len(g.in.Lines)+2*len(g.in.GRIR)+2)
+	kept := make([]bool, 0, cap(lines))
+	for _, l := range g.in.Lines {
+		line := Line{AccountID: l.AccountID, TC: l.Amount, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text,
+			SpecialGL: l.SpecialGL}
+		if l.LC != nil {
+			gc, err := convert(*l.LC, g.rates.toGC, g.rates.expLC, g.rates.expGC)
+			if err != nil {
+				return nil, nil, err
+			}
+			line.LC, line.GC = *l.LC, gc
+		}
+		lines, kept = append(lines, line), append(kept, l.LC != nil)
+	}
+	return lines, kept, nil
 }
 
 // itemLines are each item's GR/IR line and its counter line, and which of
@@ -303,8 +322,14 @@ func (g grirPosting) itemLines(pos map[orderItem]*position, keys []orderItem) ([
 		if err != nil {
 			return nil, nil, err
 		}
+		// An invoiced item's lines are its tax code's base; a goods
+		// movement's carry none.
+		var code *string
+		if it.Invoiced != nil {
+			code = it.TaxCode
+		}
 		lines = append(lines, Line{AccountID: g.grir, TC: tc, LC: lc, GC: gc, Quantity: &g.in.GRIR[i].Quantity, Unit: &g.in.GRIR[i].Unit,
-			Text: it.Text, PurchaseOrderID: &g.in.GRIR[i].PurchaseOrderID, POItemNo: &g.in.GRIR[i].POItemNo})
+			Text: it.Text, PurchaseOrderID: &g.in.GRIR[i].PurchaseOrderID, POItemNo: &g.in.GRIR[i].POItemNo, TaxCode: code})
 		kept = append(kept, true)
 		switch {
 		case it.OffsetAccountID != nil && (tc != 0 || lc != 0 || gc != 0):
@@ -315,7 +340,7 @@ func (g grirPosting) itemLines(pos map[orderItem]*position, keys []orderItem) ([
 				return nil, nil, errTotalTooLarge("grir")
 			}
 			if diff != 0 {
-				lines, kept = append(lines, Line{AccountID: g.diff, TC: diff, Text: it.Text}), append(kept, false)
+				lines, kept = append(lines, Line{AccountID: g.diff, TC: diff, Text: it.Text, TaxCode: code}), append(kept, false)
 			}
 		}
 	}
@@ -375,13 +400,17 @@ func (p Postings) postGRIR(ctx context.Context, in Posting) (Entry, error) {
 	if err := e.checkAccounts(ctx, tx, g.le.ID, lines, true); err != nil {
 		return Entry{}, err
 	}
-	if err := checkTaxCodes(ctx, tx, g.le.ID, in.PostingDate, lines); err != nil {
+	taxDate := in.PostingDate
+	if in.TaxDate != nil {
+		taxDate = *in.TaxDate
+	}
+	if err := checkTaxCodes(ctx, tx, g.le.ID, taxDate, lines, in.TaxItems != nil); err != nil {
 		return Entry{}, err
 	}
 	posted, err := e.post(ctx, tx, actor, draft{entity: g.le, documentType: in.DocumentType, documentDate: in.DocumentDate,
-		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: g.le.LocalCurrency, currencyGC: g.group, rateTCLC: g.rates.toLC.shown,
+		postingDate: in.PostingDate, taxDate: taxDate, currencyTC: in.Currency, currencyLC: g.le.LocalCurrency, currencyGC: g.group, rateTCLC: g.rates.toLC.shown,
 		rateLCGC: g.rates.toGC.shown, reference: in.Reference, headerText: in.HeaderText, sourceContext: in.SourceContext,
-		sourceDocumentID: &in.SourceDocumentID, lines: lines})
+		sourceDocumentID: &in.SourceDocumentID, lines: lines, givenItems: in.TaxItems})
 	if err != nil {
 		return Entry{}, err
 	}

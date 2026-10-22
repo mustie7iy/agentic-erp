@@ -51,16 +51,20 @@ func init() {
 // Entry is a posted journal entry with its lines. Amounts are signed minor
 // units, debit positive; Exp* are the currencies' minor-unit digits.
 type Entry struct {
-	ID               uuid.UUID
-	LegalEntityID    uuid.UUID
-	LedgerID         uuid.UUID
-	Leading          bool // the ledger is the tenant's leading ledger
-	FiscalYear       int16
-	FiscalPeriod     int16
-	DocumentType     string
-	DocumentNumber   string
-	DocumentDate     time.Time
-	PostingDate      time.Time
+	ID             uuid.UUID
+	LegalEntityID  uuid.UUID
+	LedgerID       uuid.UUID
+	Leading        bool // the ledger is the tenant's leading ledger
+	FiscalYear     int16
+	FiscalPeriod   int16
+	DocumentType   string
+	DocumentNumber string
+	DocumentDate   time.Time
+	PostingDate    time.Time
+	// TaxDate decides the tax rate and the return period (ADR-0049 §4);
+	// nil on entries posted before T61c, whose tax date is the posting
+	// date.
+	TaxDate          *time.Time
 	CurrencyTC       string
 	CurrencyLC       string
 	CurrencyGC       string
@@ -105,17 +109,25 @@ type Line struct {
 	// SpecialGL is the special G/L indicator of a supplier line, A for a
 	// down payment (ADR-0037), or nil for an ordinary line.
 	SpecialGL *string `json:"special_gl"`
+	// TaxBase is a tax line's declared base, in transaction and local
+	// currency (TaxBaseLC): an import's from the customs declaration, the
+	// base no line of the entry carries (T61e, ADR-0049 §9).
+	TaxBase   *money.Minor `json:"tax_base_tc"`
+	TaxBaseLC *money.Minor `json:"tax_base_lc"`
+	// keptLC is a local amount the posting keeps rather than converts
+	// (PostingLine.LC).
+	keptLC *money.Minor
 }
 
 const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id,
 		(SELECT g.is_leading FROM ledger.ledger g WHERE g.tenant_id = e.tenant_id AND g.id = e.ledger_id), e.fiscal_year, e.fiscal_period, e.document_type, e.document_number,
-		e.document_date, e.posting_date, e.currency_tc, e.currency_lc, e.currency_gc, e.rate_tc_lc::text, e.rate_lc_gc::text,
+		e.document_date, e.posting_date, e.tax_date, e.currency_tc, e.currency_lc, e.currency_gc, e.rate_tc_lc::text, e.rate_lc_gc::text,
 		e.reference, e.header_text, e.source_context, e.source_document_id, e.reversal_of_id, e.reversal_of_year, r.reversal_entry_id,
 		e.posting_group_id, e.ledger_group_id, e.posted_at, e.posted_by, ctc.exponent, clc.exponent, cgc.exponent,
 		(SELECT json_agg(json_build_object('line_no', l.line_no, 'account_id', l.account_id, 'tc', l.amount_tc, 'lc', l.amount_lc,
 			'gc', l.amount_gc, 'partner_id', l.partner_id, 'tax_code', l.tax_code, 'quantity', trim_scale(l.quantity)::text,
 			'unit', l.uom_code, 'text', l.line_text, 'purchase_order_id', l.purchase_order_id, 'po_item_no', l.po_item_no,
-			'special_gl', l.special_gl) ORDER BY l.line_no)
+			'special_gl', l.special_gl, 'tax_base_tc', l.tax_base_tc, 'tax_base_lc', l.tax_base_lc) ORDER BY l.line_no)
 		 FROM ledger.journal_line l WHERE l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year AND l.journal_entry_id = e.id)
 	FROM ledger.journal_entry e
 	JOIN ref.currency ctc ON ctc.code = e.currency_tc
@@ -126,7 +138,7 @@ const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id,
 func scanEntry(row pgx.Row) (Entry, error) {
 	var e Entry
 	err := errs.Wrapf(row.Scan(&e.ID, &e.LegalEntityID, &e.LedgerID, &e.Leading, &e.FiscalYear, &e.FiscalPeriod, &e.DocumentType, &e.DocumentNumber,
-		&e.DocumentDate, &e.PostingDate, &e.CurrencyTC, &e.CurrencyLC, &e.CurrencyGC, &e.RateTCLC, &e.RateLCGC,
+		&e.DocumentDate, &e.PostingDate, &e.TaxDate, &e.CurrencyTC, &e.CurrencyLC, &e.CurrencyGC, &e.RateTCLC, &e.RateLCGC,
 		&e.Reference, &e.HeaderText, &e.SourceContext, &e.SourceDocumentID, &e.ReversalOfID, &e.ReversalOfYear, &e.ReversedByID,
 		&e.PostingGroupID, &e.LedgerGroupID, &e.PostedAt, &e.PostedBy, &e.ExpTC, &e.ExpLC, &e.ExpGC, &e.Lines), "scan journal entry")
 	return e, err
@@ -159,11 +171,13 @@ type draft struct {
 	entity tenancy.Entity
 	// ledgers are the ledgers posted to, the representative first; nil:
 	// every ledger the company keeps. ledgerGroup is the group named.
-	ledgers          []uuid.UUID
-	ledgerGroup      *uuid.UUID
-	documentType     string
-	documentDate     time.Time
-	postingDate      time.Time
+	ledgers      []uuid.UUID
+	ledgerGroup  *uuid.UUID
+	documentType string
+	documentDate time.Time
+	postingDate  time.Time
+	// taxDate is the entry's tax date; zero: its posting date.
+	taxDate          time.Time
 	currencyTC       string
 	currencyLC       string
 	currencyGC       string
@@ -178,6 +192,13 @@ type draft struct {
 	// by the reversal's copy in that ledger.
 	reversedCopies map[uuid.UUID]uuid.UUID
 	lines          []Line
+	// sourcedItems are the entry's tax items when they come from other
+	// entries' items (a reversal, a down payment transfer, a cash
+	// discount's tax correction); givenItems those a context calculated
+	// (T61d); neither: those its lines carry. Only the leading ledger's
+	// entry has items (writeTaxItems).
+	sourcedItems []sourcedTaxItem
+	givenItems   []PostingTaxItem
 }
 
 // target is a ledger a posting goes to, with the status of its period.
@@ -291,7 +312,8 @@ func (e *Endpoints) postAll(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 		if i > 0 {
 			id = uuid.Must(uuid.NewV7())
 		}
-		if entries[i], err = insertEntry(ctx, tx, p, d, cols, header{id: id, group: group, ledger: t.ledger, year: year, period: number, number: docNumber}); err != nil {
+		if entries[i], err = insertEntry(ctx, tx, p, d, cols, header{id: id, group: group, ledger: t.ledger, leading: t.leading, year: year,
+			period: number, number: docNumber}); err != nil {
 			return nil, err
 		}
 	}
@@ -301,6 +323,7 @@ func (e *Endpoints) postAll(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 // header is what one entry of a posting group is posted with.
 type header struct {
 	id, group, ledger uuid.UUID
+	leading           bool
 	year, period      int16
 	number            string
 }
@@ -313,18 +336,21 @@ type lineColumns struct {
 	partners, orders                          []*uuid.UUID
 	tcs, lcs, gcs                             []money.Minor
 	taxes, quantities, units, texts, specials []*string
+	bases, basesLC                            []*money.Minor
 }
 
 func lineColumnsOf(lines []Line) lineColumns {
 	n := len(lines)
 	c := lineColumns{nos: make([]int32, n), items: make([]*int32, n), accounts: make([]uuid.UUID, n), partners: make([]*uuid.UUID, n),
 		orders: make([]*uuid.UUID, n), tcs: make([]money.Minor, n), lcs: make([]money.Minor, n), gcs: make([]money.Minor, n),
-		taxes: make([]*string, n), quantities: make([]*string, n), units: make([]*string, n), texts: make([]*string, n), specials: make([]*string, n)}
+		taxes: make([]*string, n), quantities: make([]*string, n), units: make([]*string, n), texts: make([]*string, n), specials: make([]*string, n),
+		bases: make([]*money.Minor, n), basesLC: make([]*money.Minor, n)}
 	for i, l := range lines {
 		c.nos[i], c.accounts[i], c.partners[i] = int32(i+1), l.AccountID, l.PartnerID
 		c.tcs[i], c.lcs[i], c.gcs[i] = l.TC, l.LC, l.GC
 		c.taxes[i], c.quantities[i], c.units[i], c.texts[i] = l.TaxCode, l.Quantity, l.Unit, l.Text
 		c.orders[i], c.items[i], c.specials[i] = l.PurchaseOrderID, l.POItemNo, l.SpecialGL
+		c.bases[i], c.basesLC[i] = l.TaxBase, l.TaxBaseLC
 	}
 	return c
 }
@@ -343,22 +369,31 @@ func insertEntry(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d draft, c 
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period,
 			document_type, document_number, document_date, posting_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc,
-			reference, header_text, source_context, source_document_id, reversal_of_id, reversal_of_year, posted_by, posting_group_id, ledger_group_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::numeric, $15::numeric, $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
+			reference, header_text, source_context, source_document_id, reversal_of_id, reversal_of_year, posted_by, posting_group_id, ledger_group_id,
+			tax_date)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::numeric, $15::numeric, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)`,
 		p.TenantID, h.year, h.id, d.entity.ID, h.ledger, h.period, d.documentType, h.number, d.documentDate, d.postingDate,
 		d.currencyTC, d.currencyLC, d.currencyGC, d.rateTCLC, d.rateLCGC, d.reference, d.headerText, d.sourceContext, d.sourceDocumentID,
-		reversalOf, reversalYear, p.ID, h.group, d.ledgerGroup); err != nil {
+		reversalOf, reversalYear, p.ID, h.group, d.ledgerGroup, d.taxDay()); err != nil {
 		return Entry{}, fmt.Errorf("ledger: post entry %s: %w", h.id, err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id,
 			fiscal_period, posting_date, account_id, amount_tc, amount_lc, amount_gc, partner_id, tax_code, quantity, uom_code, line_text,
-			purchase_order_id, po_item_no, special_gl)
-		SELECT $1, $2, $3, n, $4, $5, $6, $7, a, tc, lc, gc, pa, tx, q::numeric, u, t, o, i, s
+			purchase_order_id, po_item_no, special_gl, tax_base_tc, tax_base_lc)
+		SELECT $1, $2, $3, n, $4, $5, $6, $7, a, tc, lc, gc, pa, tx, q::numeric, u, t, o, i, s, b, bl
 		FROM unnest($8::int[], $9::uuid[], $10::bigint[], $11::bigint[], $12::bigint[], $13::uuid[], $14::text[], $15::text[], $16::text[], $17::text[],
-			$18::uuid[], $19::int[], $20::text[]) AS x(n, a, tc, lc, gc, pa, tx, q, u, t, o, i, s)`,
+			$18::uuid[], $19::int[], $20::text[], $21::bigint[], $22::bigint[]) AS x(n, a, tc, lc, gc, pa, tx, q, u, t, o, i, s, b, bl)`,
 		p.TenantID, h.year, h.id, d.entity.ID, h.ledger, h.period, d.postingDate, c.nos, c.accounts, c.tcs, c.lcs, c.gcs, c.partners,
-		c.taxes, c.quantities, c.units, c.texts, c.orders, c.items, c.specials); err != nil {
+		c.taxes, c.quantities, c.units, c.texts, c.orders, c.items, c.specials, c.bases, c.basesLC); err != nil {
 		return Entry{}, fmt.Errorf("ledger: post entry %s: lines: %w", h.id, err)
+	}
+	// Tax items are the leading ledger's (ADR-0045, ADR-0049 §5): returns
+	// are statutory and read it, so a copy in a parallel ledger, or an entry
+	// of a parallel ledger alone, has none.
+	if h.leading {
+		if err := writeTaxItems(ctx, tx, p.TenantID, h.year, h.id, d); err != nil {
+			return Entry{}, err
+		}
 	}
 	// Read back without the caller's company filter: the caller was let post
 	// in the legal entity, or an approval it decides authorises the posting
@@ -408,14 +443,17 @@ func postedEvent(e Entry) outbox.Event {
 
 // NewLine is a line of a manual entry, in transaction currency.
 type NewLine struct {
-	AccountID      uuid.UUID
-	Amount         string
-	Currency       string
-	PartnerID      *uuid.UUID
-	TaxCode        *string
-	Quantity, Unit *string
-	Text           *string
-	SpecialGL      *string // set by the posting contexts only (ADR-0037)
+	AccountID       uuid.UUID
+	Amount          string
+	Currency        string
+	PartnerID       *uuid.UUID
+	TaxCode         *string
+	Quantity, Unit  *string
+	Text            *string
+	SpecialGL       *string // set by the posting contexts only (ADR-0037)
+	TaxBase         *string // a tax line's declared base (Line.TaxBase), in TaxBaseCurrency
+	TaxBaseCurrency string
+	lc              *money.Minor // a kept local amount (PostingLine.LC): the posting contexts only
 }
 
 // NewEntry is a manual journal entry to post.
@@ -428,14 +466,36 @@ type NewEntry struct {
 	DocumentType string
 	DocumentDate time.Time
 	PostingDate  time.Time
-	Currency     string
-	Reference    *string
-	HeaderText   *string
-	Lines        []NewLine
+	// TaxDate is the date its tax codes' rates apply on and its tax is
+	// reported in; nil: the posting date (ADR-0049 §4).
+	TaxDate    *time.Time
+	Currency   string
+	Reference  *string
+	HeaderText *string
+	Lines      []NewLine
 	// The context and document a posting is made for; manual entries are
 	// the ledger's own (source "ledger", no document).
 	SourceContext    string
 	SourceDocumentID *uuid.UUID
+	// taxItems are the context's calculated items (Posting.TaxItems).
+	taxItems []PostingTaxItem
+}
+
+// taxDay is the entry's tax date: the one it names, else its posting date.
+func (in NewEntry) taxDay() time.Time {
+	if in.TaxDate != nil {
+		return *in.TaxDate
+	}
+	return in.PostingDate
+}
+
+// taxDay is the entry's tax date: the one it was posted with, else (an
+// entry posted before T61c) its posting date.
+func (e Entry) taxDay() time.Time {
+	if e.TaxDate != nil {
+		return *e.TaxDate
+	}
+	return e.PostingDate
 }
 
 // legalEntity loads a legal entity the caller may post in; field names the
@@ -608,10 +668,14 @@ func requirePostable(i int, field string, a account, ok bool) error {
 }
 
 // checkTaxCodes requires every tax code to be valid in the legal entity on
-// the posting date: to have a rate in force then. It takes the codes' lock
+// the tax date: to have a rate in force then; and its components with a
+// rate then to post to accounts of their own, since a tax line names its
+// account and code, not its component (422 ledger.tax_code_components),
+// unless the posting gives its tax items (given: a document that
+// calculated each component's tax, T61d). It takes the codes' lock
 // first (lockTaxCodes), so it reads the rates as a setup that held them
 // left them, and none changes until the posting commits.
-func checkTaxCodes(ctx context.Context, tx pgx.Tx, le uuid.UUID, date time.Time, lines []Line) error {
+func checkTaxCodes(ctx context.Context, tx pgx.Tx, le uuid.UUID, date time.Time, lines []Line, given bool) error {
 	var codes []string
 	var taxes []*string
 	for _, l := range lines {
@@ -625,16 +689,28 @@ func checkTaxCodes(ctx context.Context, tx pgx.Tx, le uuid.UUID, date time.Time,
 	if err := lockTaxCodes(ctx, tx, le, taxes); err != nil {
 		return err
 	}
-	rows, _ := tx.Query(ctx, `SELECT code FROM ledger.tax_rate WHERE legal_entity_id = $2 AND code = ANY($1) AND withdrawn_at IS NULL
-		AND valid_from <= $3 AND (valid_to IS NULL OR valid_to > $3)`, codes, le, date)
-	valid, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
+	rows, _ := tx.Query(ctx, `SELECT r.code, count(c.account_id) > count(DISTINCT c.account_id) FROM ledger.tax_rate r
+		JOIN ledger.tax_component c ON c.tenant_id = r.tenant_id AND c.legal_entity_id = r.legal_entity_id AND c.code = r.code AND c.component = r.component
+		WHERE r.legal_entity_id = $2 AND r.code = ANY($1) AND r.withdrawn_at IS NULL AND r.valid_from <= $3 AND (r.valid_to IS NULL OR r.valid_to > $3)
+		GROUP BY 1`, codes, le, date)
+	valid := map[string]bool{} // code: whether two of its components post to one account
+	var code string
+	var shared bool
+	if _, err := pgx.ForEachRow(rows, []any{&code, &shared}, func() error { valid[code] = shared; return nil }); err != nil {
 		return fmt.Errorf("ledger: check tax codes in %s: %w", le, err)
 	}
 	slices.Sort(codes)
-	if i := slices.IndexFunc(codes, func(c string) bool { return !slices.Contains(valid, c) }); i >= 0 {
-		return problem.Unprocessable("ledger.unknown_tax_code", "Tax code "+codes[i]+" is not valid in this legal entity on the posting date.",
-			problem.FieldError{Field: "lines.tax_code", Code: "unknown", Message: "a tax code of the legal entity"})
+	for _, c := range codes {
+		shared, ok := valid[c]
+		switch {
+		case !ok:
+			return problem.Unprocessable("ledger.unknown_tax_code", "Tax code "+c+" is not valid in this legal entity on the tax date.",
+				problem.FieldError{Field: "lines.tax_code", Code: "unknown", Message: "a tax code of the legal entity"})
+		case shared && !given:
+			return problem.Unprocessable("ledger.tax_code_components", "Tax code "+c+" has two components on one account, whose tax the ledger "+
+				"cannot tell apart from the lines; a document posting it calculates the tax.", problem.FieldError{Field: "lines.tax_code", Code: "components",
+				Message: "a code whose components post to accounts of their own"})
+		}
 	}
 	return nil
 }
@@ -835,7 +911,13 @@ func (e *Endpoints) prepareFor(ctx context.Context, tx pgx.Tx, le tenancy.Entity
 	if err := commonOnReconciliation(choice, lines, accounts); err != nil {
 		return prepared{}, err
 	}
-	if err := checkTaxCodes(ctx, tx, le.ID, in.PostingDate, lines); err != nil {
+	if err := taxOnLeading(choice, lines); err != nil {
+		return prepared{}, err
+	}
+	if err := checkTaxCodes(ctx, tx, le.ID, in.taxDay(), lines, in.taxItems != nil); err != nil {
+		return prepared{}, err
+	}
+	if err := checkTaxBases(ctx, le.ID, in.taxDay(), lines, expTC); err != nil {
 		return prepared{}, err
 	}
 	return prepared{le: le, choice: choice, group: group, exps: exps, expTC: expTC, lines: lines}, nil
@@ -879,15 +961,18 @@ func (e *Endpoints) postPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 	if err := convertLines(v.lines, rateLC, rateGC, v.expTC, v.exps[v.le.LocalCurrency], v.exps[v.group]); err != nil {
 		return Entry{}, err
 	}
+	if v.lines, err = keepLocal(ctx, v.le.ID, v.lines, rateGC, v.exps[v.le.LocalCurrency], v.exps[v.group], in.HeaderText); err != nil {
+		return Entry{}, err
+	}
 	if check != nil {
 		if err := check(ctx, tx, v, in); err != nil {
 			return Entry{}, err
 		}
 	}
 	posted, err := e.post(ctx, tx, p, draft{entity: v.le, ledgers: v.choice.ledgers, ledgerGroup: v.choice.group, documentType: in.DocumentType, documentDate: in.DocumentDate,
-		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: v.le.LocalCurrency, currencyGC: v.group, rateTCLC: rateLC.shown,
+		postingDate: in.PostingDate, taxDate: in.taxDay(), currencyTC: in.Currency, currencyLC: v.le.LocalCurrency, currencyGC: v.group, rateTCLC: rateLC.shown,
 		rateLCGC: rateGC.shown, reference: in.Reference, headerText: in.HeaderText, sourceContext: cmp.Or(in.SourceContext, "ledger"),
-		sourceDocumentID: in.SourceDocumentID, lines: v.lines})
+		sourceDocumentID: in.SourceDocumentID, lines: v.lines, givenItems: in.taxItems})
 	if err != nil {
 		return Entry{}, err
 	}
@@ -916,9 +1001,13 @@ func entryLines(in NewEntry, expTC int) ([]Line, error) {
 			return nil, problem.Unprocessable("ledger.zero_amount", "Line amounts are never zero.",
 				problem.FieldError{Field: field + ".amount", Code: "zero", Message: "debit positive, credit negative"})
 		}
+		base, err := taxBase(l, i, expTC)
+		if err != nil {
+			return nil, err
+		}
 		amounts[i] = tc
 		lines[i] = Line{AccountID: l.AccountID, TC: tc, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text,
-			SpecialGL: l.SpecialGL}
+			SpecialGL: l.SpecialGL, TaxBase: base, keptLC: l.lc}
 	}
 	sum, err := money.Sum(amounts...)
 	if err != nil {
@@ -949,6 +1038,13 @@ func convertLines(lines []Line, rateLC, rateGC exchange, expTC, expLC, expGC int
 	}
 	for i := range lines {
 		lines[i].LC, lines[i].GC = lcs[i], gcs[i]
+		if b := lines[i].TaxBase; b != nil {
+			lc, err := convert(*b, rateLC, expTC, expLC)
+			if err != nil {
+				return err
+			}
+			lines[i].TaxBaseLC = &lc
+		}
 	}
 	return nil
 }
@@ -1032,8 +1128,18 @@ func (e *Endpoints) postReversal(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 		text := "Reversal of " + orig.DocumentNumber
 		headerText = &text
 	}
+	// The original's tax items negated, each on its own tax date: a
+	// reversal takes back the tax where it was due (ADR-0049 §4). Only the
+	// leading ledger's entry has items.
+	items, err := negatedTaxItems(ctx, tx, []int16{orig.FiscalYear}, []uuid.UUID{orig.ID}, true)
+	if err != nil {
+		return Entry{}, err
+	}
+	if len(items) == 0 {
+		items = nil // an original without items (its codes post to no account): the reversal's lines give its own
+	}
 	revs, err := e.postAll(ctx, tx, p, draft{entity: le, ledgers: ledgers, ledgerGroup: orig.LedgerGroupID, documentType: orig.DocumentType, documentDate: orig.DocumentDate,
-		postingDate: date, currencyTC: orig.CurrencyTC, currencyLC: orig.CurrencyLC, currencyGC: orig.CurrencyGC, rateTCLC: orig.RateTCLC,
+		postingDate: date, taxDate: orig.taxDay(), sourcedItems: items, currencyTC: orig.CurrencyTC, currencyLC: orig.CurrencyLC, currencyGC: orig.CurrencyGC, rateTCLC: orig.RateTCLC,
 		rateLCGC: orig.RateLCGC, reference: orig.Reference, headerText: headerText, sourceContext: orig.SourceContext,
 		sourceDocumentID: orig.SourceDocumentID, reversalOf: &orig, reversedCopies: copies, lines: lines})
 	if err != nil {
@@ -1145,9 +1251,19 @@ func reversalLines(orig Entry) []Line {
 	lines := make([]Line, len(orig.Lines))
 	for i, l := range orig.Lines {
 		lines[i] = Line{AccountID: l.AccountID, TC: -l.TC, LC: -l.LC, GC: -l.GC, PartnerID: l.PartnerID, TaxCode: l.TaxCode,
-			Quantity: negate(l.Quantity), Unit: l.Unit, Text: l.Text, PurchaseOrderID: l.PurchaseOrderID, POItemNo: l.POItemNo, SpecialGL: l.SpecialGL}
+			Quantity: negate(l.Quantity), Unit: l.Unit, Text: l.Text, PurchaseOrderID: l.PurchaseOrderID, POItemNo: l.POItemNo, SpecialGL: l.SpecialGL,
+			TaxBase: negatedAmount(l.TaxBase), TaxBaseLC: negatedAmount(l.TaxBaseLC)}
 	}
 	return lines
+}
+
+// negatedAmount is an optional amount negated.
+func negatedAmount(m *money.Minor) *money.Minor {
+	if m == nil {
+		return nil
+	}
+	n := -*m
+	return &n
 }
 
 // negate flips the sign of a decimal quantity.

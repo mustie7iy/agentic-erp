@@ -312,6 +312,61 @@ cash:
   were taken with; a rule change does not restate history (as P7 of
   ADR-0050).
 
+As built (T53b):
+- **Context and imports.** `internal/cash` imports only `config` (and the
+  platform and `money`); `internal/layout` lists it with `config` and adds
+  a rule that no context imports a **leaf** (`cash`), whatever the
+  allowlist says. Its ports into the ledger, payments, payables and
+  procurement are interfaces it declares and the composition root wires
+  (T53c, T53e add them), so the four contexts gain no import either. The
+  one question another context asks it, whether a planning group exists,
+  goes through a port partner declares (`partner.PlanningGroups`,
+  implemented by `cash.PlanningGroups`, wired in `app`), the way partner
+  asks payments about payment methods: no context imports `cash`.
+- **Stored or read.** Migration 000141 creates the `cash` schema (RLS,
+  `tenant_id` first) with `liquidity_item` (code, name, direction, parent
+  of the tenant) and `planning_group`, kept from the document by
+  `cash.Setup` (inactive when dropped, never deleted). The derivation
+  rules and the companies' settings are not copied: position, forecast and
+  the snapshot workflow read them from the active document, as payments
+  reads `bank_statements`.
+- **Document.** `cash` at the top level (`liquidity_items`,
+  `planning_groups`, `derivation` with `accounts` in order, then
+  `planning_groups`, `posting_rules` naming a company's posting rule by
+  its transaction code, and `defaults`) and `companies[].cash`
+  (`take_discounts` default true, `payment_days` mon-sun, `value_days`
+  per house bank and optional method 0-30, `buckets` of `day` (≤ 92),
+  `week` (≤ 104) and `month` (≤ 36) in that order, default 14 days, 11
+  weeks and 9 months, `rate_type` default `planning`, `rate_max_age_days`
+  1-365 default 7, `order_lead_days` 0-365 default 30, `credit_lines` a
+  positive amount in the bank's currency, `snapshot_time` HH:MM default
+  07:00). Account ranges compare as SAP's ALPHA conversion keeps numbers
+  (all-digit numbers zero-padded to ten). Rules name items without
+  children; a default names an item of its direction or of both, and a
+  planning group's rule one for outflows or both; missing
+  defaults are a warning (a flow no rule assigns then has no item, shown
+  unclassified), so a pack can bring a tree alone. The account rules are
+  diffed by position, their order being a setting.
+- **Derivation.** `cash.Derive` gives each offsetting line the first
+  covering account rule's item, else the fallback (planning group, then
+  posting rule, then default), and shares the amount out over the items
+  in proportion to the lines' signed amounts with `money.Allocate`, so a
+  credit line (a discount on its own account) takes its item's share
+  down; lines that cancel out give the whole amount to the fallback.
+- **Partner.** `planning_group` on supplier company data (migrations
+  000142-000143, `SupplierCompany(Input).planning_group` in the contract,
+  `partner.Supplier.PlanningGroup` in the port), checked against active
+  groups (422 `partner.unknown_planning_group`); a document dropping a
+  group a supplier has, or a pending change gives, is refused
+  (`partner.PlanningGroupCodes`, 409 `partner.planning_group_in_use`).
+- **Packs.** A pack may carry an optional `cash.yaml` of liquidity items,
+  merged into the tenant's by code; the Canada pack 2026.2 (2026.1 plus
+  that file and IAS 7 as a source) suggests OPERATING, INVESTING and
+  FINANCING, each for both directions.
+- **Deferred to T53e:** the derivation simulation (the open flows whose
+  item a rule change moves) needs the flow readers T53e builds; until then
+  a rule change is approved on its diff alone, at tier 2.
+
 ### 5. Dates and amounts of document flows
 **Supplier open items** (decision P5). The expected payment date of an
 item is:
@@ -453,6 +508,79 @@ days ≤ 31, default 14):
   amount in the bank's currency) to show available liquidity; no limits
   are enforced (Bank Account Management's overdraft limits are
   information here too).
+
+As built (T53c):
+- **Request.** `GET /v1/cash-position?legal_entity_id=…&from=…&days=…&display_currency=…`
+  (`cash.position.read`, migration 000149; `x-slo-class: report`; agents
+  read it as people do, banks by code and last four characters). `from`
+  defaults to the read date, the clock's date in UTC (the companies have no
+  time zone yet), and is never before it (422): past days are actuals,
+  whose balances come from the statements of those days (T53f), not from
+  what is open now, `days` 1-31 default 14, the display currency the
+  company's. A legal entity the caller cannot act in is 404 (fail closed).
+  No paging: a company has a handful of banks and at most 31 days.
+- **One snapshot.** The contract marks the operation `x-snapshot: true`;
+  the unit of work runs such a `GET` at REPEATABLE READ (read-only), so the
+  payments, the ledger and the configuration are read as of one state
+  (`uow.Middleware.Snapshot`, `api.Operation.Snapshot`, 04 §4.7). A
+  separate transaction was rejected: it would hold a second connection
+  per request.
+- **Ports.** `cash` declares `Payments` (house banks with their opening
+  statement, posted payments by id, payments of runs not posted),
+  `Ledger` (open lines on accounts, a rate of a type), `LegalEntities` and
+  `Settings`; the composition root adapts `payments.CashPosition`,
+  `ledger.Accounts.OpenLines`, `ledger.Rates.OfType` and
+  `tenancy.Directory` to them (`internal/app/cash.go`), so `cash` still
+  imports only `config` (and `api/gen`, the platform, `money`) and the
+  layout allow-list is unchanged.
+- **Opening.** The latest statement closing before the first day, its
+  `gap` (a statement of the bank up to it in `gap`), and `stale` when it
+  closes before the working day before the read date, or the bank has
+  none (opening zero). Working days are the
+  company's calendar: weekends and its holidays (ADR-0048). The flows
+  dated before the first day are added to it.
+- **In transit** (`in_transit`, `confirmed`): the leading ledger's open
+  lines (neither cleared nor reversed) on each bank's clearing account
+  whose entry was posted by payments for a payment
+  (`source_context = payments`, the payment as source document), at the
+  line's amount in its currency, which must be the bank's. A
+  revaluation's valuation and reset lines there name the ledger as source
+  and never count (ADR-0038, T53a); parallel ledgers' copies are never
+  read (ADR-0045). A payment a statement line up to the opening statement
+  is matched to (`statement_match.status = matched`, its posting perhaps
+  waiting for approval) is already in the opening balance and left out.
+- **Runs** (`payment_run`, `confirmed`): the unposted payments of runs
+  `proposed` or `releasing`, paid by the payment's bank or the run's.
+- **Dates.** A payment's day at the bank is its run date plus the bank's
+  `cash.value_days` for its method, moved to the next working day; one
+  before the read date is `late`, on the working day after the read date.
+- **Book balance check.** The reconciliation report's figures on the
+  opening statement's date (`payments.Figures`: the main bank account's
+  balance through `ledger.Accounts.Balances` in the bank's currency, the
+  statement lines not posted, excluded or posted later, and what is left
+  unexplained), beside the payments in transit: booked and not yet at the
+  bank. Absent without a statement.
+- **Credit lines** are parsed in the bank's currency and added to each
+  day's closing balance as `available`.
+- **Conversion.** Per currency first (the banks summed), then each
+  currency's days in the display currency at one rate: the latest of the
+  company's `cash.rate_type` valid on the read date, or, where that type is
+  `planning` and there is no planning rate, the latest `average` rate
+  (the rate type used is shown); `stale` beyond `cash.rate_max_age_days`;
+  a currency with no rate is listed in `incomplete_currencies` and left
+  out. A sum out of the range of an amount refuses the position (422
+  `cash.amount_too_large`); an unknown display currency is 422
+  `cash.unknown_currency`.
+- **Budget.** `TestCashPositionBudget`: p95 2 s (§6's number) for 100,000
+  payments posted to two ledgers, 2,000 of them in transit, 1,000 in
+  proposed runs and a statement a day, over 31 days; measured about
+  0.5 s median, 0.9 s p95 on a laptop. The open-line read scans the
+  clearing accounts' history (index `journal_line_account`); a partial
+  index of open lines, or the flow table of §6, is the path if it grows.
+- **Not yet.** Bank memo records (T53d) and, with `include_forecast`, the
+  forecast's flows assigned to a bank (T53e) join the days as further
+  sources; drill-down to the payments of a day is through payments' own
+  API (`GET /v1/payment-runs`).
 
 ### 9. Liquidity forecast
 `GET /v1/liquidity-forecast?company=…&horizon=…` (`cash.forecast.read`):

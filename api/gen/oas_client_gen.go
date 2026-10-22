@@ -696,6 +696,37 @@ type Invoker interface {
 	//
 	// GET /v1/business-partners/{id}
 	GetBusinessPartner(ctx context.Context, params GetBusinessPartnerParams) (GetBusinessPartnerRes, error)
+	// GetCashPosition invokes getCashPosition operation.
+	//
+	// The daily cash position of a legal entity (ADR-0051 §8, T53c), computed at the read from one
+	// database state (a repeatable-read snapshot): per house bank, in its own currency, and day from
+	// `from` (default the read date, UTC; an earlier day is 422, past days being actuals) for `days` days
+	// (1-31, default 14), the opening balance, the flows of the day by source and certainty, and the
+	// closing balance. The first day opens at the closing balance of the bank's latest statement closing
+	// before it (`opening.statement_date`; none: zero), plus the flows dated before it; it is `stale` when
+	// that statement closes before the working day before the read date (the company's calendar: weekends
+	// and its holidays) or there is none, and `gap` when a statement of the bank up to it does not open at
+	// its previous one's closing balance (ADR-0047). Flows: `in_transit`, the released payments whose line
+	// on the bank's clearing account is still open and that no statement line up to the opening statement
+	// matches (a revaluation's valuation and reset lines on the account are not payments and never count),
+	// and `payment_run`, the payments of runs `proposed` or `releasing` not posted yet, both `confirmed`,
+	// each dated its run date plus the bank's `cash.value_days` (by method), moved to the next working
+	// day; one dated before the read date is expected the working day after it and marked `late`.
+	// `book_balance` checks the opening statement against the ledger as the reconciliation report does
+	// (`GET /v1/house-banks/{id}/reconciliation`: the main bank account's balance on the statement's date,
+	// in the bank's currency, and what the statement lines explain of the difference), with the payments
+	// in transit, posted and not yet at the bank. A bank's `cash.credit_lines` amount is shown, and added
+	// to its closing balance as `available`; no limit is enforced. `currencies` sums the banks of each
+	// currency. `converted` totals every currency in `display_currency` (default the company's currency)
+	// at the latest rate of the company's `cash.rate_type` (default `planning`; with no planning rate,
+	// `average`) valid on the read date, one rate for every day; a rate valid from more than
+	// `cash.rate_max_age_days` (default 7) before the read date is used and marked `stale`, and a currency
+	// without a rate is left out of the total and listed in `incomplete_currencies`. Bank accounts appear
+	// by house bank code and last four characters, so agents read the position as people do. A legal
+	// entity the caller cannot act in is 404.
+	//
+	// GET /v1/cash-position
+	GetCashPosition(ctx context.Context, params GetCashPositionParams) (GetCashPositionRes, error)
 	// GetCenterChange invokes getCenterChange operation.
 	//
 	// Returns one center change.
@@ -14033,6 +14064,213 @@ func (c *Client) sendGetBusinessPartner(ctx context.Context, params GetBusinessP
 
 	stage = "DecodeResponse"
 	result, err := decodeGetBusinessPartnerResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetCashPosition invokes getCashPosition operation.
+//
+// The daily cash position of a legal entity (ADR-0051 §8, T53c), computed at the read from one
+// database state (a repeatable-read snapshot): per house bank, in its own currency, and day from
+// `from` (default the read date, UTC; an earlier day is 422, past days being actuals) for `days` days
+// (1-31, default 14), the opening balance, the flows of the day by source and certainty, and the
+// closing balance. The first day opens at the closing balance of the bank's latest statement closing
+// before it (`opening.statement_date`; none: zero), plus the flows dated before it; it is `stale` when
+// that statement closes before the working day before the read date (the company's calendar: weekends
+// and its holidays) or there is none, and `gap` when a statement of the bank up to it does not open at
+// its previous one's closing balance (ADR-0047). Flows: `in_transit`, the released payments whose line
+// on the bank's clearing account is still open and that no statement line up to the opening statement
+// matches (a revaluation's valuation and reset lines on the account are not payments and never count),
+// and `payment_run`, the payments of runs `proposed` or `releasing` not posted yet, both `confirmed`,
+// each dated its run date plus the bank's `cash.value_days` (by method), moved to the next working
+// day; one dated before the read date is expected the working day after it and marked `late`.
+// `book_balance` checks the opening statement against the ledger as the reconciliation report does
+// (`GET /v1/house-banks/{id}/reconciliation`: the main bank account's balance on the statement's date,
+// in the bank's currency, and what the statement lines explain of the difference), with the payments
+// in transit, posted and not yet at the bank. A bank's `cash.credit_lines` amount is shown, and added
+// to its closing balance as `available`; no limit is enforced. `currencies` sums the banks of each
+// currency. `converted` totals every currency in `display_currency` (default the company's currency)
+// at the latest rate of the company's `cash.rate_type` (default `planning`; with no planning rate,
+// `average`) valid on the read date, one rate for every day; a rate valid from more than
+// `cash.rate_max_age_days` (default 7) before the read date is used and marked `stale`, and a currency
+// without a rate is left out of the total and listed in `incomplete_currencies`. Bank accounts appear
+// by house bank code and last four characters, so agents read the position as people do. A legal
+// entity the caller cannot act in is 404.
+//
+// GET /v1/cash-position
+func (c *Client) GetCashPosition(ctx context.Context, params GetCashPositionParams) (GetCashPositionRes, error) {
+	res, err := c.sendGetCashPosition(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCashPosition(ctx context.Context, params GetCashPositionParams) (res GetCashPositionRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCashPosition"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/cash-position"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCashPositionOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/cash-position"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.From.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "days" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "days",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Days.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "display_currency" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "display_currency",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.DisplayCurrency.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCashPositionOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCashPositionResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

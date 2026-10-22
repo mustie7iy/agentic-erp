@@ -991,15 +991,15 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Cash context and configuration: cash schema and package with its imports in TestImportRules, RLS, tenant_id first; liquidity items (tree, direction), derivation (accounts, planning groups, posting rules, defaults), planning groups, per company take_discounts, payment_days, value_days, buckets, rate_type, rate_max_age_days, order_lead_days, credit_lines, snapshot_time; tiers and the derivation simulation; planning_group on partner company data; packs suggest the operating/investing/financing tree",
-        "r": "T53b",
+        "s": "D",
+        "t": "Cash context and configuration: cash schema and package (a leaf: imports config only, no context imports it, TestImportRules' leaf rule), RLS, tenant_id first; liquidity items (tree of at most 4 levels, direction) and planning groups kept by cash.Setup; derivation (accounts in order with ALPHA ranges, planning groups, posting rules, defaults) and per company take_discounts, payment_days, value_days, buckets, rate_type (default planning), rate_max_age_days, order_lead_days, credit_lines, snapshot_time, validated and tiered (names and hierarchy 1, the rest 2), read from the document; cash.Derive with the proportional split; planning_group on partner company data with partner.PlanningGroupCodes; packs carry an optional cash.yaml, Canada 2026.2 suggests the operating/investing/financing tree; the derivation simulation moves to T53e",
+        "r": "internal/cash (Setup, PlanningGroups, Derive) · config.Cash, config.CompanyCash · migrations 000141-000143 · partner.PlanningGroups, partner.PlanningGroupCodes · SupplierCompany(Input).planning_group · countrypack cash.yaml · packs/ca/2026.2 · internal/layout leaves · db/cash_test.go · ADR-0051 (as built, T53b) · 03-data-model §3.18 · T53b",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Cash position: ports from payments (statement balances, in-transit payments, runs) and ledger (book balances, rates); GET /v1/cash-position per bank, currency and day with opening, flows by source and certainty, closing, staleness and gap flags, book balance check, credit lines; converted totals with incomplete currencies; one-snapshot read; FailingTx on every path; in-transit payments are the payments' open lines on the clearing account, never a revaluation's valuation or reset lines there (T53a review)",
-        "r": "T53c",
+        "r": "GET /v1/cash-position (cash.Endpoints.Position, x-snapshot: REPEATABLE READ through uow.Middleware.Snapshot) · cash ports Payments, Ledger, LegalEntities, Settings wired in internal/app/cash.go · payments.CashPosition (Banks with the reconciliation figures, Released, Pending) · ledger.Accounts.OpenLines · ledger.Rates.OfType · migration 000149 (cash.position.read) · fixture.Maple · TestCashPosition*, TestCashPositionBudget, TestCashPorts, TestForeignCurrencyHouseBankEndToEnd · ADR-0051 (as built, T53c) · 03-data-model §3.18 · 04-api-design §4.7, §4.13 · 05-scalability · T53c",
         "c": []
        },
        {
@@ -1010,7 +1010,7 @@
        },
        {
         "s": "T",
-        "t": "Forecast from payables and payments (P5): ports for supplier open items (terms, discount tiers, supplier blocks, withholding, credit memos, items in runs excluded), parked and held invoices, down payment requests; the proposer's due-date and tier logic moved to ledger.ItemTerms and used by both; expected-date rule with payment days, value days and the company calendar; liquidity item derivation with proportional split; GET /v1/liquidity-forecast with buckets, certainty cut, per currency and converted, drill-down; performance budget measured at 100,000 open items",
+        "t": "Forecast from payables and payments (P5): ports for supplier open items (terms, discount tiers, supplier blocks, withholding, credit memos, items in runs excluded), parked and held invoices, down payment requests; the proposer's due-date and tier logic moved to ledger.ItemTerms and used by both; expected-date rule with payment days, value days and the company calendar; liquidity item derivation with proportional split (cash.Derive, T53b) and the derivation simulation listing the open flows whose item a rule change moves (moved from T53b); GET /v1/liquidity-forecast with buckets, certainty cut, per currency and converted, drill-down; performance budget measured at 100,000 open items",
         "r": "T53e",
         "c": []
        },
@@ -1294,7 +1294,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Tax-rate check on captured invoices: the capture agent proposes tax codes and flags a stated tax that differs from the calculated (the earlier capture.checkTaxRate was removed with T7/T8)",
       "r": "ADR-0049 · T61d",
       "c": []
@@ -1335,27 +1335,51 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "The ledger's cash discount tax split (ledger.itemTaxShares, T36d) uses money.Allocate instead of its own largest-remainder loop",
+        "s": "D",
+        "t": "The ledger's cash discount tax split (ledger.itemTaxShares, T36d) uses money.Allocate instead of its own largest-remainder loop, over the paid entries' tax items",
         "r": "internal/ledger/discounttax.go · money.Allocate · with T61c",
         "c": []
        },
        {
-        "s": "T",
-        "t": "Tax items in the ledger: ledger.tax_item written by every posting path that carries a tax code, reversals negated, checked against the tax lines at commit; the tax date on the entry; the ledger.TaxItems port; the contract step dropping the former ledger.tax_code (copied by 000124, no longer read), and the in-use check (ledger.tax_code_posted) reading tax items",
-        "r": "T61c",
+        "s": "D",
+        "t": "Tax items in the ledger: ledger.tax_item written by every posting path that carries a tax code, reversals negated, checked against the tax lines at commit; the tax date on the entry; the ledger.TaxItems port; the contract step dropping the former ledger.tax_code (copied by 000124, no longer read), and the in-use check (ledger.tax_code_posted) reading tax items; internal/tax in the shared kernel",
+        "r": "db/migrations/000144-000145 · ledger.tax_item · ledger.write_tax_items · ledger.TaxItems · journal_entry.tax_date · internal/layout shared tax · ADR-0049 · T61c",
         "c": []
        },
        {
         "s": "T",
-        "t": "Input tax on supplier invoices: tax per item code at the tax date, one tax line per code and component account, non-deductible tax on the item's line, the supplier's tax within the company's tolerance else 422 payables.tax_mismatch (P5), credit memos at the invoice's tax date, capture proposes codes and flags mismatches",
-        "r": "T61d",
+        "t": "Tax items catch-up: the next release's migration writes the items of the leading-ledger entries an instance of the previous release posted during T61c's rollout (no tax date, no items; their parallel-ledger copies keep none), so returns and the rate check see them",
+        "r": "ledger.write_tax_items · ADR-0049 §5 · after T61c",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Input tax on supplier invoices: tax per item code at the tax date, one tax line per code and component, non-deductible tax on the item's line, the supplier's tax within the company's tolerance else 422 payables.tax_mismatch (P5), credit memos at the invoice's tax date, capture proposes codes and flags mismatches",
+        "r": "db/migrations/000146 · supplier_invoice.tax_date · payables.calculateTax · invoice_tolerance.tax_units_per_code · ledger.PostingTaxItem · PostingLine.LC · capture.Line.TaxRate · ADR-0049 · T61d",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Tax codes only on postings the returns see (product owner, 2026-10-21): a posting leaving out the leading ledger with a taxed line is refused, 422 ledger.tax_code_off_leading; the commit-time check refuses a parallel ledger's entry with tax codes that is no copy of a leading ledger's (tax_code_off_leading)",
+        "r": "ledger.taxOnLeading · ledger.check_tax_items · ADR-0049 §5 · ADR-0045 · T61d follow-up",
         "c": []
        },
        {
         "s": "T",
-        "t": "Reverse charge, self-assessment and import tax: output and input pairs, import tax from customs declaration entries, UAE domestic reverse charge, Canada line 405, PST self-assessment",
-        "r": "T61e",
+        "t": "Input tax follow-up: down payment requests' tax checked at the run date's rate (left out with tax_code_invalid when it no longer matches); documentary-requirement warnings for CA ($100/$500 tiers) and the UAE (TRN above AED 10,000); the authority's rate type and rounding from the country pack",
+        "r": "ADR-0049 §4, §6, §8 · after T61d",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Reverse charge, self-assessment and import tax: output and input pairs from supplier invoices of reverse charge codes with the part not recovered on the expense; worked cases for Canada line 405, BC PST self-assessment, the UAE's imported services and domestic reverse charge; import tax from customs declarations as journal entries of tax lines declaring the base (tax_base), checked against the code's rate; UAE box 6 and Canada's CBSA GST cases",
+        "r": "db/migrations/000147 · journal_line.tax_base_tc · ledger.checkTaxBases · ledger.write_tax_items · payables TestSelfAssessment · ADR-0049 §9 · T61e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Import tax follow-up: the declared tax base on the journal_entry_posted event's lines (asyncapi), so analytics sees import bases",
+        "r": "ADR-0049 §9 · after T61e",
         "c": []
        },
        {
@@ -4314,8 +4338,8 @@
        },
        {
         "s": "T",
-        "t": "Canada pack 2026.2: the tax codes (GST/HST/QST/PST) in the component schema of T61a, from packs/ca/TAX-PENDING-T61a.md, with all their dated rates; released beside 2026.1 (which stays as released); signed off by the tax specialist before the pilot",
-        "r": "packs/ca/2026.2 · packs/released.sha256 · ADR-0048 · ADR-0049 · T62g",
+        "t": "Canada pack 2026.3: the tax codes (GST/HST/QST/PST) in the component schema of T61a, from packs/ca/TAX-PENDING-T61a.md, with all their dated rates; 2026.2 plus the tax codes, keeping its cash.yaml (a version without it would drop the suggested liquidity items from tenants that adopted 2026.2), released beside 2026.1 and 2026.2 (both stay as released); signed off by the tax specialist before the pilot",
+        "r": "packs/ca/2026.3 · packs/released.sha256 · ADR-0048 · ADR-0049 · T62g",
         "c": []
        }
       ]
@@ -4524,14 +4548,14 @@
        },
        {
         "s": "D",
-        "t": "Sign-in through the BFF (P2, P3, P4; G8, G9): web_client with login code on identity provider registrations (api/control.yaml, migration 000141) projected into the directory; the code flow with PKCE (S256), state, nonce, private_key_jwt (client_secret_basic where nothing else), the ID token through authn.Providers; sessions in the directory database's web schema as erp_web, tokens sealed (AES-256-GCM), idle 8 h, lifetime 24 h, hourly sweep, refresh once under a row lock; __Host-Http- Strict session cookie, Lax sign-in cookie, remembered login code; CSRF by CrossOriginProtection and synchronizer token; the API's 401 ends the session, its RFC 9470 challenge signs in again (no loop); endCurrentSession (identity.session.end, every person's) and RP-initiated logout; authntest's authorization server; production startup checks; network policy to the directory and the providers; Terraform refuses pod subnets overlapping the balancers'; the rollback drill checks erp-web; facts verified (certificate picker, Entra token size). PO: D1 (erp-web's own directory login), D2 (client addresses in the API's audit)",
+        "t": "Sign-in through the BFF (P2, P3, P4; G8, G9): web_client with login code on identity provider registrations (api/control.yaml, migration 000148) projected into the directory; the code flow with PKCE (S256), state, nonce, private_key_jwt (client_secret_basic where nothing else), the ID token through authn.Providers; sessions in the directory database's web schema as erp_web, tokens sealed (AES-256-GCM), idle 8 h, lifetime 24 h, hourly sweep, refresh once under a row lock; __Host-Http- Strict session cookie, Lax sign-in cookie, remembered login code; CSRF by CrossOriginProtection and synchronizer token; the API's 401 ends the session, its RFC 9470 challenge signs in again (no loop); endCurrentSession (identity.session.end, every person's) and RP-initiated logout; authntest's authorization server; production startup checks; network policy to the directory and the providers; Terraform refuses pod subnets overlapping the balancers'; the rollback drill checks erp-web; facts verified (certificate picker, Entra token size). PO: D1 (erp-web's own directory login), D2 (client addresses in the API's audit)",
         "r": "internal/web/signin.go · internal/web/session · TestSignIn · TestCallbackRefusals · TestTokenRefusals · TestCSRF · TestRefresh · TestSignInInTheBrowser · TestEndCurrentSession · TestWebSchema · TestWebClients · ADR-0052 Built in T73b · T73b",
         "c": []
        },
        {
         "s": "D",
         "t": "API for the workspace (G1, G2, G3, G7), contract first: listApprovalRequests decidable_by=me (what approveApprovalRequest accepts: a person, not the requester, workflow.request.decide unbarred, the object type's approval permission, the step's role, not yet approved, not barred by the owning context) with its partial index; getCurrentPrincipal (GET /v1/me: who, companies, usable and SoD-barred permissions, an agent's level) and listPrincipalNames (id, name, kind; the tenant's alone), identity.self.read held by every principal (authz.Own); x-problem-codes on every operation and the document, derived from erp-server's call graph and the registered constraints' tables (TestProblemCodes, -update). PO D2: the API's audit trail records each person's client address (erp-web's SPIFFE identity towards the router, Erp-Client-Address believed from it alone, the cell from the router alone; audit_event.client_address outside the hash chain, blanked by the tenant's erasure). Chart: erp-web's certificate, the session key's rotation (web.sessionKeyPrevious)",
-        "r": "migration 000142 · internal/approvals inbox.go · internal/identity self.go · internal/platform/authz Effective, Own · api/problemcodes_test.go · internal/router forwardClientAddress · internal/platform/httpapi ClientAddress · tlsconf VerifiedClient · internal/web forwardAddress · TestInbox · TestCurrentPrincipal · TestPrincipalNames · TestProblemCodes · TestForwardsTheClientAddress · TestAuditClientAddresses · TestThePersonsAddressInTheAudit · ADR-0052 Built in T73c · ADR-0011, ADR-0033 amended · T73c",
+        "r": "migration 000150 · internal/approvals inbox.go · internal/identity self.go · internal/platform/authz Effective, Own · api/problemcodes_test.go · internal/router forwardClientAddress · internal/platform/httpapi ClientAddress · tlsconf VerifiedClient · internal/web forwardAddress · TestInbox · TestCurrentPrincipal · TestPrincipalNames · TestProblemCodes · TestForwardsTheClientAddress · TestAuditClientAddresses · TestThePersonsAddressInTheAudit · ADR-0052 Built in T73c · ADR-0011, ADR-0033 amended · T73c",
         "c": []
        },
        {
@@ -6941,6 +6965,12 @@
     "sap": "—",
     "ph": 1,
     "c": [
+     {
+      "s": "T",
+      "t": "Test suite duration: the ledger and payments packages exceed 30 minutes for ci-local's three race runs under load (batch 6, 2026-10-22); find the slow tests (schema migrate cycles, fixtures) and bring each package back under 10 minutes per run without dropping coverage",
+      "r": "scripts/ci-local.sh race step · internal/ledger · internal/payments",
+      "c": []
+     },
      {
       "s": "D",
       "t": "Two invoices matched against one order item cannot both post past its received quantity: :post locks the order items (FOR UPDATE) and matches again under the lock, refusing a changed verdict (409 payables.match_outdated)",

@@ -10,7 +10,7 @@ import (
 
 // TestAuditClientAddresses: an audit event records where its request came
 // from, and stays insert-only but for the erasure of its tenant blanking
-// that address, and nothing else (migration 000142, ADR-0011 as amended by
+// that address, and nothing else (migration 000150, ADR-0011 as amended by
 // T73c): not another tenant's erasure, not another column, not a new
 // address; a delete only during the erasure, as before.
 // platform.erase_tenant blanks the addresses and keeps the events.

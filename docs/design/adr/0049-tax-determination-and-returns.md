@@ -279,7 +279,7 @@ tax_codes:
   code is valid on a date when one of its components has a rate then. The old
   `ledger.tax_code` (one row per validity, one rate and account) was copied
   into them, each code one component `tax`, and is no longer read or written;
-  a later release drops it (contract, with T61c). Rates in the future are
+  a later release drops it (contract, with T61c: dropped by 000145). Rates in the future are
   written when the configuration is activated, so a known change (NS HST 15%
   to 14%) is set up once, ahead. The "changed today" refusal goes: a rate's
   dates are explicit, a different rate is a new row (a rate's value and start
@@ -287,8 +287,8 @@ tax_codes:
   **database** refuses withdrawing a rate, or moving its end, past a posting
   of its code, and a new rate over dates already posted with its code (409
   `ledger.tax_rate_in_use`), so the past is never re-rated. Until T61c's tax
-  items name the rate they applied, "posted" is a journal line with the code
-  by posting date; every posting holds its codes' definitions `FOR KEY SHARE`
+  items named the rate they applied, "posted" was a journal line with the
+  code by posting date; since T61c it is a tax item of the code by tax date; every posting holds its codes' definitions `FOR KEY SHARE`
   and the setup locks them `FOR UPDATE` first, so a setup waits for postings
   in flight and then sees them, and a posting checks its codes' rates only
   after taking the lock. A tax amount a context worked out before posting
@@ -326,10 +326,11 @@ tax_codes:
   the diff; not built). **Accepted** (coordinator 2026-10-21): future-only rate
   changes stay tier 3. The payables simulation of rate changes (07, T22)
   compares the rate in force on each replayed invoice's date, per component.
-- Until T61d posts every component, supplier invoices and down payments take
-  only a code with one component on an account of its own, wholly recoverable
-  (422 `payables.tax_code_components`, `ledger.tax_code_components`), and an
-  input code (`payables.unknown_tax_code`, `procurement.unknown_tax_code` for
+- Until T61d posted every component, supplier invoices and down payments took
+  only a code with one component on an account of its own, wholly recoverable;
+  since T61d supplier invoices take every input code, and down payments still
+  take only such a code (422 `payables.tax_code_components`,
+  `ledger.tax_code_components`), and an input code (`payables.unknown_tax_code`, `procurement.unknown_tax_code` for
   an output code).
 - Country packs (ADR-0048, amended) write all their rates; the "later rates
   noted" note and the re-application after a change are gone. T62f (the UAE
@@ -376,9 +377,95 @@ writes items too. A schema test enforces that every tax line has its item and
 that items balance with the tax lines per entry and account (the ledger's
 commit-time check, like the balance trigger).
 
+- **As built (T61c, migrations 000144-000145):** `ledger.tax_item`, keyed by
+  entry and item number, `tenant_id` first, RLS, fixed but for `reported_in`
+  (set once, `tax_item_fixed`; the application may update that column only).
+  An item names its code, component, jurisdiction, direction, kind, account
+  key, the tax line's account (instead of a line: a component's tax may be on
+  several lines, and a line carries one code), the tax date, the rate row
+  applied (`tax_rate_id`) and its percentage, the recoverable share, base,
+  tax and recoverable part in transaction and local currency; the
+  non-recoverable part is derived (`TaxItem.NonRecoverable`). **Written on
+  every posting path** in the posting's transaction, by the one insert all
+  paths share (`post`): from the entry's lines by default
+  (`ledger.write_tax_items`: per code its lines carry and per component with
+  a rate on the tax date, the tax the lines on the component's account, the
+  base the code's lines on no account of its components, once per
+  component); a reversal writes the original's items negated at their tax
+  date; a down payment transfer the down payments' items negated at its own
+  tax date; a cash discount's correction one item per item of the paid
+  entries with a share, at their codes and rates and the payment's tax date,
+  its local amounts the converted lines' shared out (`money.Allocate`). For
+  the base to be reported, a down payment's net and an invoice's GR/IR and
+  price difference lines now carry the code (as invoice expense lines did),
+  and the discount's net that is a code's base is posted on `cash_discount`
+  with the code, the untaxed rest without one. The cash discount split reads
+  the paid entries' items, so it needs no account history
+  (`former_account_ids` is read only by 000144's migration of the entries
+  posted before, which writes their items from their lines at their posting
+  date, former accounts included), and allocates with `money.Allocate`.
+  **Commit-time check** (`journal_entry_tax_items`, `tax_item_checked`,
+  deferred): each code the lines carry has an item (`tax_item_missing`),
+  items are of the entry's legal entity (`tax_item_entity`), and per account
+  and code the lines on an item's or a component's account add up to the
+  items' tax in both currencies (`tax_item_lines`). **The tax date** is on
+  the entry (`journal_entry.tax_date`, also on parked entries and in the API,
+  `tax_date`): a manual entry's as given, else its posting date; a supplier
+  invoice's the one a person set, else its invoice date, or for a credit
+  memo naming an invoice that invoice's (P6, T61d §6); a reversal's the original's; other postings' their
+  posting date. Codes are validated on the tax date. The in-use check of
+  rates (`ledger.tax_code_posted`) reads items by tax date, and `ledger.tax_code`
+  and the index of lines by tax code are dropped (000145). `ledger.TaxItems`
+  is the port: `Of` an entry, `Dated` by legal entity and tax date range.
+  **Parallel ledgers (ADR-0045):** tax items are the leading ledger's
+  entry's alone. Returns are statutory and read the leading ledger; a
+  posting's copy in a parallel ledger carries the same tax lines and has
+  no items, which would count the tax twice. The commit-time check holds a
+  parallel ledger's entry to having none (`tax_item_leading`), and the
+  migration writes items for the leading ledger's entries only. **A posting
+  that leaves out the leading ledger may carry no tax code** (product owner,
+  2026-10-21, as SAP is often configured), so tax only ever comes from
+  postings the returns see: a manual entry to a parallel ledger, or to a
+  ledger group without the leading ledger, with a taxed line is refused
+  (422 `ledger.tax_code_off_leading`), and the commit-time check refuses a
+  parallel ledger's entry with tax codes that is no copy of a leading
+  ledger's entry in its posting group (`tax_code_off_leading`). A ledger's
+  difference on tax is posted without a code. Entries posted to a parallel
+  ledger alone before the rule keep their codes; reversing one fails the
+  commit-time check (409 `request.rule_violated`; none exist before the
+  pilot).
+  A tax line names its account and code, not its component, so the ledger
+  refuses on a posting that derives its items from its lines a code two
+  of whose components with a rate on the tax date post to one account (422
+  `ledger.tax_code_components`; the database's `tax_item_lines` is the
+  backstop); a posting that gives its items (a supplier invoice, T61d) may
+  carry it. A code that posts to no account
+  (non-deductible only) has no item and is not required to have one. A
+  reversal of an entry without items (such a code) takes its items from its
+  own lines. An entry posted before T61c has the items of the components
+  rated on its posting date, the date its codes were validated on, so each
+  code it carries that posts to an account has one, and its reversal posts. **Rolling upgrade (06 §6.4):** an instance of the previous
+  release writes neither tax dates nor items; the commit-time check skips
+  an entry without a tax date, the rate check does not see such postings
+  (T61a's constraint holds: tax code changes wait until the rollout is
+  complete), and the next release writes their items (tracker, T61c
+  follow-up). The migration of the entries posted before writes their items
+  in the migration, one statement, not as a batched operation: pre-pilot
+  volumes (decision recorded for the coordinator). A reversal posted before
+  T61c has items from its own lines at its posting date and rate, not the
+  original's negated. **Not yet:** a derived item set (a manual entry's)
+  has no item for a non-deductible component, which has no line of its
+  own (a supplier invoice gives one, T61d); the partner's tax id
+  fingerprint is added with the returns that read it (T61g); a manual
+  entry's tax date is not yet held to the open return periods (P6; with the
+  return periods, T61g/T61i); local amounts are the lines', converted at the
+  posting date's average rate as every posting is, not yet at the
+  authority's rate type on the tax date (§8: T61d's calculation converts at
+  it).
+
 ### 6. Input tax (supplier invoices, capture, down payments)
 - Items may carry different codes; the invoice's tax is calculated per code
-  (§8) and **posted as one tax line per code and component account**, replacing
+  (§8) and **posted as one tax line per code and component**, replacing
   "the first item's code". A `non_deductible` part is added to the base line it
   belongs to (SAP `NVV`), so a BC PST purchase expenses its PST on the item.
 - The supplier's stated tax (entered, or captured from the PDF) is compared with
@@ -396,6 +483,56 @@ commit-time check, like the balance trigger).
 - A recoverable share below 100% (meals 50%, blocked UAE input) splits each item
   into recoverable (on the tax account, in the return's input box) and
   non-recoverable (on the expense).
+- **As built (T61d, migration 000146):** payables calculates an invoice's tax
+  when it posts (`calculateTax`, `internal/tax`) per item code at the tax
+  date: `supplier_invoice.tax_date`, set by a person only (403
+  `payables.tax_date_human_only` for an agent that sets, changes or clears
+  it; an agent's change that keeps it passes), else the invoice date, else,
+  for a credit memo or subsequent debit or credit naming an invoice, that
+  invoice's, so it is calculated at its rates. One tax line per code and
+  component with an account carries the input tax recovered (or a self-assessed
+  output tax); a non-deductible component's tax and the part of a
+  component's tax not recovered (a self-assessed claim's too) go on the
+  item's line (for an item on a
+  GR/IR order, into what it invoices, so onto the price difference). A
+  reverse charge code posts its self-assessed pair, the supplier owed the
+  base only. The supplier's stated tax is held to the calculated within
+  `companies[].invoice_tolerance.tax_units_per_code` minor units per code
+  that charges tax (default 1): within it the stated amount posts, its
+  difference shared out (`money.Allocate`) among the components putting
+  tax on an account, in proportion to what they put there (an input
+  component's recovered part), and recovered; with
+  none, among those whose tax is a cost (non-deductible, or recovering
+  none), onto their items' lines (a BC PST invoice's stated PST is its
+  cost). Beyond the tolerance, with no component to take it, or where it
+  would recover more than a component's tax or turn its sign, 422
+  `payables.tax_mismatch` names the calculated tax per code; tax out of
+  range is 422 `payables.amount_too_large`. The ledger writes the calculated items as given
+  (`Posting.TaxItems`, with the component's account and the rate of the tax
+  date), and keeps the tax lines' local amounts at the tax date's rate
+  (`PostingLine.LC`): the other lines are converted at the posting date's
+  rate as ever, and what that leaves is an exchange difference on
+  `fx_gain`/`fx_loss`. The rate is the average rate of the tax date; the
+  authority's rate type a country pack would name is not yet in the pack
+  schema, nor its `rounding` (per document, the default). An invoice whose
+  items carry no code posts its stated tax on `input_tax` as before, without
+  items. What a tax line posts on its account is what the ledger's check
+  holds the items to: the output tax, or the input tax recovered (T61c's
+  derived items recover all their account's tax). The capture reads each
+  line's printed tax rate (`capture.Line.TaxRate`): a rate its order item's
+  code charges keeps it; a rate one input code charges on the tax date
+  proposes it (a warning in the operation's result); none, several or no
+  number hold the invoice for a person to choose; and a stated tax the
+  codes do not bear out holds it with the figures (eval suite capture,
+  version 3). **Rolling upgrade (06 §6.4):** 000146 adds a nullable
+  column the previous release neither reads nor writes (its statements name
+  their columns), so it runs ahead of the code; but an instance of the
+  previous release posts an invoice with the first item's code at the
+  invoice date, so invoices are not posted while the rollout is under way
+  (a step for the release notes). **Not yet:** down payment requests' tax checked at the run
+  date's rate, the documentary-requirement warnings for Canada and the UAE
+  (tracker, T61d follow-up), and the tax date held to the open return
+  periods (P6; with the return periods, T61g/T61i).
 
 ### 7. Output tax and the pilot's sales
 The ERP issues no sales invoices until phase 3, so the pilot's output tax
@@ -422,7 +559,9 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   the tax date, of the rate type the country pack names (Bank of Canada; UAE
   Central Bank), rounded once per item; the ledger already stores the
   conversion (ADR-0005). Which rate type the ledger has for these authorities
-  is checked in T61c, with T48's document currency.
+  is checked in T61c, with T48's document currency: as built, an item's local
+  amounts are its lines', at the posting date's average rate; the
+  authority's rate on the tax date comes with T61d's calculation.
 - All amounts `money.Minor`; rates and percentages decimal strings as today.
 - **As built (T61b):** `internal/tax` (imports only `money`) holds the
   `Calculator` port and `BuiltIn`, which calls the pure `tax.Calculate`. A
@@ -471,6 +610,59 @@ broker or authority with an `import` input code, its base the declared value:
 the UAE's Box 6 for registrants who account for import VAT in the return
 (output and input), Canada's ITC on 106. From 2026 the UAE needs no self-invoice
 (Federal Decree-Law No. 16 of 2025), so none is generated.
+- **As built (T61e, migration 000147):** reverse charge and self-assessment
+  post from supplier invoices of `reverse_charge` codes as T61d built them:
+  the supplier is owed the base, the `self_output` tax is owed on its
+  account and the `self_input` part recovered on its own, two items, and the
+  part not recovered is a cost on the item's line. Worked cases (payables
+  `TestSelfAssessment`): Canada line 405, imported services used 60% in
+  commercial activities, HST 13% on 1,000.00: 130.00 owed, 78.00 recovered
+  (line 106), 52.00 on the expense; BC PST self-assessed where the vendor
+  charged none, 7% recovering nothing: 70.00 owed and expensed; the UAE's
+  imported services and its domestic reverse charge, 5% on AED 4,000.00:
+  200.00 owed (box 3) and recovered (box 10), netting to zero. The domestic
+  reverse charge is a code the clerk chooses; the buyer's declaration is
+  kept as the invoice's document, as any evidence is (no field of its own).
+  **Import tax from a customs declaration** is a journal entry of tax lines
+  alone (`POST /v1/journal-entries`, or parked first): each line of an
+  `import` code on one of its components' accounts names the declared value
+  as its `tax_base`, which no line of the entry carries
+  (`journal_line.tax_base_tc`/`tax_base_lc`, the local base at the entry's
+  rate; `parked_entry_line.tax_base`). The ledger refuses a base on any
+  other line (422 `ledger.tax_base_not_import`, database trigger
+  `journal_line_tax_base_import`), a zero one, and a line whose amount is
+  not the tax on the base at the component's rate on the tax date (the
+  part recovered, or the self-assessed output tax) within one minor unit
+  (422 `ledger.tax_base_mismatch`); a code one line declares a base for
+  has the same base on every line carrying it, and no base line beside it,
+  which would count the base twice (422 `ledger.tax_base_inconsistent`).
+  The component's item takes the base; a reversal or a parallel ledger's
+  copy repeats it on the original's account, which the trigger accepts as
+  a component's former account after the component moved on.
+  Worked cases (ledger `TestImportFromCustomsDeclaration`): the UAE's box 6,
+  AED 10,000.00 declared, 500.00 self-assessed on 240000 and recovered on
+  140000; Canada's GST paid to the CBSA through a broker, CAD 13,000.00
+  value for duty, 650.00 claimed (line 106) against the customs clearing
+  account. A partly recovered import posts the part recovered on the input
+  account and the rest on an expense line without a code; the claim item's
+  tax is then the part recovered (an item derived from lines has the tax
+  its account carries), which is what box 10 and line 106 read. A reversal
+  negates the bases with the lines. **Rolling upgrade (06 §6.4):** 000147
+  adds nullable columns and keeps `write_tax_items`' signature (a null
+  base counts as none), so it runs ahead of the code; an instance of the
+  previous release neither writes nor resets the bases: an edit of a parked
+  import line there keeps its stale base, posting a parked import entry
+  there drops the base (its items' base 0), and its reversals of new
+  import entries leave the lines' bases out (their items, negated from the
+  original's, are right). Import entries are not entered while the rollout
+  is under way (a step for the release notes; no release runbook exists yet). **Open (tax specialist and product owner):** a
+  partly recovered import's claim item carries the part recovered as its
+  tax, where a supplier invoice's self-assessed claim carries the whole tax
+  with its recovered part; the returns read the same, but the item's tax
+  means two things by its path. Giving the calculator's items for import
+  entries, as supplier invoices do, would align them. **Not yet:** the base on the posted
+  event (`journal_entry_posted` lines), and a customs declaration as a
+  document of its own (GTS, phase 4).
 
 ### 10. Tax registrations and periods
 A company has **tax registrations** in the configuration (T61h): authority
@@ -585,7 +777,7 @@ coverage 100%, reviewer) like every step.
 | T61a (done) | **Dated tax codes with components** (config + ledger) | `config.TaxCode` with direction, kind, category, components (key, jurisdiction, account key, recoverable %, account, dated rates); old one-rate codes still load; validation as §3; `ledger.tax_rate` with a GiST exclusion per component; setup writes future rates, never edits a used rate (409 `ledger.tax_rate_in_use`, enforced by the database), no "changed today" refusal; `Accounts.TaxCode` returns the components at a date; the payables rate simulation reads dated rates; the pack schema carries the components and `countrypack.Apply` merges them; schema tests for each database rule; ADR-0048 amended (packs write all rates, the note goes) |
 | T61b (done) | **The calculator** (`internal/tax`, pure) | Exclusive and inclusive bases; per document, code and component rounding half away from zero with largest-remainder allocation (and `line` mode); recoverable split; reverse-charge pairs; LC conversion at a given rate; the `Calculator` port; table tests incl. NS 15→14%, BC GST+PST, UAE 5%/0%/exempt; fuzz test that line tax sums to document tax and recoverable + non-recoverable = tax |
 | T61c | **Tax items in the ledger** | `ledger.tax_item` (insert-only, RLS, `tenant_id` first) written by every posting path that carries a tax code (journal entries, invoices, GR/IR, down payments, settlements' discount correction, reversals negated); commit-time check that items match tax lines per entry and account; tax date on the entry (default as §4); `ledger.TaxItems` port; `FailingTx` tests on every path; the stale `capture.checkTaxRate` tracker entry corrected |
-| T61d | **Input tax on supplier invoices** | Tax calculated per item code at the tax date; one tax line per code and component account; non-deductible tax on the item's line; supplier's stated tax posted within the configured tolerance, else 422 `payables.tax_mismatch` with each code's figures; credit memos at the named invoice's tax date and rates; down payment requests' tax checked at the run date's rate; capture agent proposes codes (eval cases added) and flags mismatches; documentary-requirement warnings for CA/AE |
+| T61d | **Input tax on supplier invoices** | Tax calculated per item code at the tax date; one tax line per code and component; non-deductible tax on the item's line; supplier's stated tax posted within the configured tolerance, else 422 `payables.tax_mismatch` with each code's figures; credit memos at the named invoice's tax date and rates; down payment requests' tax checked at the run date's rate; capture agent proposes codes (eval cases added) and flags mismatches; documentary-requirement warnings for CA/AE |
 | T61e | **Reverse charge, self-assessment and import tax** | `reverse_charge` and `import` codes post output and input lines and two items, the supplier owed the base; import tax from a customs declaration entry; UAE domestic RCM codes with the declaration as evidence; Canada line-405 codes; tests that a fully recoverable reverse charge nets to zero and a partly recoverable one leaves the blocked share on expense |
 | T61f | **Output tax from the pilot's sales** | Output codes accepted on manual and integration journal entries; the ledger calculates and checks the tax lines within tolerance; jurisdiction required where a component needs it; zero-rated and exempt bases recorded as items; idempotent by the integration's reference; the shape decided in P2 |
 | T61g | **Registrations and tax periods** | `companies[].tax_registrations` (authority, number encrypted as tax ids are, return type, frequency, first period; UAE tax group across companies); tier 3; tax periods generated; API to list registrations and periods |
@@ -673,7 +865,11 @@ the UAE company's revenue reaches AED 50m (e-invoicing from 2027-01-01, T65).
 
 **Unsure, for the tax specialist:** rounding per line or per invoice in either
 country; the FPZ-500 lines; the exact VAT 201 labels on EmaraTax; the scope of
-the 2026 five-year limit; the UAE six-month payment rule and the AED 10,000
+the 2026 five-year limit; on an invoice mixing a recoverable code with a
+cost one (V1 with BC PST), whether a rounding difference to the supplier's
+tax may be recovered as the recoverable code's input tax, as T61d posts it
+(the recovering components take it before the cost components), or should
+stay a cost (product owner, 2026-10-21: to the tax specialist list); the UAE six-month payment rule and the AED 10,000
 correction threshold after the 2026 procedures amendments; the CRA's reporting
 period thresholds and ITC time limit as stated here from memory; the currency
 conversion articles cited from memory.

@@ -196,7 +196,7 @@ func (p Postings) Settle(ctx context.Context, in Settlement) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	paid, bank, err := e.paymentLines(ctx, tx, in, le, items, settled{tc: tc, lc: lc, gc: gc})
+	paid, bank, taxItems, err := e.paymentLines(ctx, tx, in, le, items, settled{tc: tc, lc: lc, gc: gc})
 	if err != nil {
 		return Entry{}, err
 	}
@@ -206,7 +206,8 @@ func (p Postings) Settle(ctx context.Context, in Settlement) (Entry, error) {
 	}
 	entry, err := e.post(ctx, tx, actor, draft{entity: le, documentType: in.DocumentType, documentDate: in.PostingDate,
 		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: le.LocalCurrency, currencyGC: bank.group, rateTCLC: bank.rateLC.shown, rateLCGC: bank.rateGC.shown,
-		reference: in.Reference, headerText: in.HeaderText, sourceContext: in.SourceContext, sourceDocumentID: &in.SourceDocumentID, lines: lines})
+		reference: in.Reference, headerText: in.HeaderText, sourceContext: in.SourceContext, sourceDocumentID: &in.SourceDocumentID, lines: lines,
+		sourcedItems: taxItems})
 	if err != nil {
 		return Entry{}, err
 	}
@@ -256,41 +257,44 @@ type settled struct{ tc, lc, gc money.Minor }
 // cash_discount account, and one per withholding tax code and account;
 // all converted at the posting date's rates, and what that leaves of the
 // items' local and group totals as exchange differences.
-func (e *Endpoints) paymentLines(ctx context.Context, tx pgx.Tx, in Settlement, le tenancy.Entity, items []item, total settled) ([]Line, settlementBank, error) {
+func (e *Endpoints) paymentLines(ctx context.Context, tx pgx.Tx, in Settlement, le tenancy.Entity, items []item, total settled) ([]Line, settlementBank,
+	[]sourcedTaxItem, error) {
 	withheld, wht, err := settlementWithholding(ctx, tx, in, items)
 	if err != nil {
-		return nil, settlementBank{}, err
+		return nil, settlementBank{}, nil, err
 	}
 	discount, bankTC, err := settlementDiscount(in, items, total.tc, wht)
 	if err != nil {
-		return nil, settlementBank{}, err
+		return nil, settlementBank{}, nil, err
 	}
 	bank, err := e.bankAmounts(ctx, tx, in.Currency, in.PostingDate, le, bankTC)
 	if err != nil {
-		return nil, settlementBank{}, err
+		return nil, settlementBank{}, nil, err
 	}
 	lines := []Line{{AccountID: in.BankAccountID, TC: bankTC, LC: bank.lc, GC: bank.gc, Text: in.HeaderText}}
 	var more []Line
+	var plan discountPlan
 	if discount != 0 {
-		if more, err = discountLines(ctx, tx, le.ID, items, in, discount); err != nil {
-			return nil, settlementBank{}, err
+		if more, plan, err = discountLines(ctx, tx, le.ID, items, in, discount); err != nil {
+			return nil, settlementBank{}, nil, err
 		}
 	}
 	more = append(more, withholdingLines(withheld, in)...)
 	paid := bank
 	for i := range more {
 		if more[i].LC, more[i].GC, err = bank.convert(more[i].TC); err != nil {
-			return nil, settlementBank{}, err
+			return nil, settlementBank{}, nil, err
 		}
 		if paid.lc, err = money.Sum(paid.lc, more[i].LC); err == nil {
 			paid.gc, err = money.Sum(paid.gc, more[i].GC)
 		}
 		if err != nil {
-			return nil, settlementBank{}, errTotalTooLarge("items")
+			return nil, settlementBank{}, nil, errTotalTooLarge("items")
 		}
 	}
+	taxItems := plan.taxItems(bank)
 	fx, err := exchangeDifferenceLines(ctx, le.ID, total.lc, total.gc, paid, in.HeaderText)
-	return append(append(lines, more...), fx...), bank, err
+	return append(append(lines, more...), fx...), bank, taxItems, err
 }
 
 // settlementDiscount is the total of the discounts taken on the items, in
@@ -320,34 +324,44 @@ func settlementDiscount(in Settlement, items []item, tc, withheld money.Minor) (
 	return discount, bank, nil
 }
 
-// discountLines credit the discounts taken: their net part to the legal
-// entity's cash_discount account (SAP SKE), and their tax share to each
-// tax line's account with its tax code (discountTax), in transaction
-// currency (paymentLines converts them).
-func discountLines(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, items []item, in Settlement, discount money.Minor) ([]Line, error) {
+// discountLines credit the discounts taken (T36d): the net that is a tax
+// code's base to the legal entity's cash_discount account (SAP SKE) with
+// the code, the untaxed rest of it there without one, and their tax share
+// to each tax line's account with its code (discountTax), in transaction
+// currency (paymentLines converts them); with the plan of their tax items.
+func discountLines(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, items []item, in Settlement, discount money.Minor) ([]Line, discountPlan, error) {
 	account, ok, err := Accounts{}.Determination(ctx, legalEntity, "cash_discount")
 	if err != nil {
-		return nil, err
+		return nil, discountPlan{}, err
 	}
 	if !ok {
-		return nil, problem.Unprocessable("ledger.no_cash_discount_account", "The payment takes a cash discount, and the legal entity has no cash_discount account in its account determination.")
+		return nil, discountPlan{}, problem.Unprocessable("ledger.no_cash_discount_account",
+			"The payment takes a cash discount, and the legal entity has no cash_discount account in its account determination.")
 	}
-	taxes, tax, err := discountTax(ctx, tx, items, in.Discounts)
+	split, err := discountTax(ctx, tx, items, in.Discounts)
 	if err != nil {
-		return nil, err
+		return nil, discountPlan{}, err
 	}
-	// The tax share is part of the discount, of its sign and at most it
-	// (itemTaxShares), so the net is of the discount's sign or 0, when
-	// rounding gives the tax the whole of a small discount: no line then.
+	plan := discountPlan{split: split}
+	// Tax and bases are shares of the discount, of its sign and adding up
+	// to at most it (itemTaxShares), so the untaxed net is of the
+	// discount's sign or 0: no line then.
 	var lines []Line
-	if net := discount - tax; net != 0 {
+	if net := discount - split.tax - split.base; net != 0 {
 		lines = append(lines, Line{AccountID: account, TC: -net, Text: in.HeaderText})
 	}
-	for _, k := range slices.SortedFunc(maps.Keys(taxes), compareTaxKeys) {
-		code := k.code
-		lines = append(lines, Line{AccountID: k.account, TC: -taxes[k], TaxCode: &code, Text: in.HeaderText})
+	// Shares of an invoice and a credit memo can cancel: no line then.
+	for _, c := range slices.Sorted(maps.Keys(split.bases)) {
+		if code := c; split.bases[c] != 0 {
+			lines = append(lines, Line{AccountID: account, TC: -split.bases[c], TaxCode: &code, Text: in.HeaderText})
+		}
 	}
-	return lines, nil
+	for _, k := range slices.SortedFunc(maps.Keys(split.taxes), compareTaxKeys) {
+		if code := k.code; split.taxes[k] != 0 {
+			lines = append(lines, Line{AccountID: k.account, TC: -split.taxes[k], TaxCode: &code, Text: in.HeaderText})
+		}
+	}
+	return lines, plan, nil
 }
 
 // bankAmounts converts the settled transaction amount to local currency,

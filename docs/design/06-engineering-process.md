@@ -225,6 +225,7 @@ needs and `payments.Reservations` satisfies it), wired together in one place:
 internal/<context>/      one context: types, use cases, SQL, api.go handlers
 internal/delivery/<agent>/  each delivery agent stands alone
 internal/money/          shared kernel every context may import
+internal/tax/            shared kernel: the pure tax calculator (ADR-0049)
 internal/platform/<pkg>/ technical services the contexts use (database, uow,
                          outbox, audit, authn, problem, ...) and test support
 internal/platform/httpapi/  the request pipeline around the generated server
@@ -241,13 +242,18 @@ every production file under `internal/` and `cmd/`:
 
 - A platform package imports no context. The one exception is named in the
   test: `platform/fixture`, test support that builds a configured tenant.
-- Any package may import the platform and the shared kernel (`money`); the
+- Any package may import the platform and the shared kernel (`money`, `tax`,
+  which imports only `money`: a shared package imports only shared ones); the
   composition root `app` and a command under `cmd/` may import any context,
   since they wire them together.
 - A context imports another context only where the test's allowlist says so.
   The list is exact: a new dependency fails the test until it is added there,
   in the same change as the interface it uses (and an ADR if it reverses a
   dependency direction), and an entry no longer used fails it too.
+- A leaf context (today `cash`, ADR-0051 §2) is imported by no context,
+  whatever the allowlist says: it reads others through ports, and another
+  context that must ask it something declares a port of its own, which the
+  composition root wires (as `partner.PlanningGroups` is).
 - Tests are not checked: a test may import whatever it needs.
 
 The test also refuses a production import of test support (`pgtest`,

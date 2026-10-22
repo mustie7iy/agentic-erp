@@ -1055,7 +1055,7 @@ What sign-in settled that §§5-6 left open, and where it departs from them:
   tenant's web client; mounted optional, so none is needed until then.
 - **G8 as built.** `web_client` on `IdentityProviderCreate`, `Update` and
   the representation (`api/control.yaml`); the cell keeps it (migration
-  000141) with its login code unique among active providers; the
+  000148) with its login code unique among active providers; the
   control plane claims it in the global directory with the issuer before
   the change commits (409 `identity.login_code_taken` for a code another
   cell's provider holds); every round of the directory sync projects it,
@@ -1143,7 +1143,7 @@ What the API gaps settled, and where they depart from §3:
   An agent's or a service's inbox is empty; any value but `me` is 400
   `request.invalid_parameter`. The partial index
   `approval_request_pending (tenant_id, created_at, id) WHERE status =
-  'pending'` serves the filter and the sort (04 §4.5; migration 000142);
+  'pending'` serves the filter and the sort (04 §4.5; migration 000150);
   the step and the caller's approvals are read by their keys.
   `TestInbox` checks, for six kinds of caller and every request, that a
   request is in the inbox exactly when approving it succeeds.
@@ -1161,7 +1161,7 @@ What the API gaps settled, and where they depart from §3:
   every role by a migration"). As T73b did for `identity.session.end`, it
   is held whatever the roles (`authz.Own`), and by agents and services
   too, so that an agent learns its own autonomy level and the names on
-  what it reads. Migration 000142 seeds it and grants it to no role; a
+  what it reads. Migration 000150 seeds it and grants it to no role; a
   segregation-of-duties rule may not name it.
 - **G3 as built.** `listPrincipalNames` (`GET
   /v1/principal-names?ids=…`, 1 to 100) returns id, display name and kind
@@ -1221,7 +1221,7 @@ What the API gaps settled, and where they depart from §3:
     without a trust domain (development) it records the connection's
     address. The address rides the request's context into every audit
     entry the request writes (`audit.audit_event.client_address`, inet,
-    migration 000142) and shows on `listAuditEvents`; work no request made
+    migration 000150) and shows on `listAuditEvents`; work no request made
     records none.
   - It is personal data. It is kept outside the hash chain, so it can be
     erased without breaking the chain or its anchors (ADR-0026's reason
@@ -1239,8 +1239,8 @@ What the API gaps settled, and where they depart from §3:
   runbook is in the values; Terraform creates the entry empty).
   `helm-checks.sh` holds erp-web's certificate to its client identity and
   the previous key to a rotation.
-- **Migrations.** T73b's web client is 000141 here (main took 000139 and
-  000140), this step's 000142; integration renumbers as batches land.
+- **Migrations.** T73b's web client is 000148 (main renumbered it), this
+  step's 000150; integration renumbers as batches land.
 
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
