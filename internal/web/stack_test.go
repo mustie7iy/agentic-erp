@@ -31,6 +31,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -97,6 +98,7 @@ type stack struct {
 	public string
 	logs   *pgtest.SyncBuffer
 	client authntest.Client
+	remote string
 }
 
 // stackOptions change the stack before it starts.
@@ -104,6 +106,7 @@ type stackOptions struct {
 	method     string // the web client's auth method; "" private_key_jwt
 	credential string // its credential reference; "" the stack's key under the prefix
 	discovery  []byte // the provider's discovery document in place of its own
+	remote     string // the people's address, as erp-web's load balancer names it; "" the connection's
 }
 
 const loginCodeOf = "acme"
@@ -129,7 +132,9 @@ func newStack(t *testing.T, opts stackOptions) *stack {
 		cfg.Verifier = v
 		cfg.Now = s.clock.Now // the cell's sessions age with erp-web's
 	})
-	s.api = httptest.NewServer(api.Handler)
+	// The cell believes the address erp-web forwards, as it believes the
+	// router's, which passes erp-web's on (ADR-0033).
+	s.api = httptest.NewServer(httpapi.ClientAddress(true, api.Handler))
 	t.Cleanup(s.api.Close)
 	s.web = httptest.NewUnstartedServer(nil)
 	t.Cleanup(s.web.Close)
@@ -146,6 +151,7 @@ func newStack(t *testing.T, opts stackOptions) *stack {
 	}
 	s.is.RegisterClient(s.client)
 	s.is.SignIn(authntest.User{Tenant: s.ten.ID, Subject: s.ten.Human.Subject})
+	s.remote = opts.remote
 	s.start(ctx, creds)
 	return s
 }
@@ -193,7 +199,15 @@ func (s *stack) start(ctx context.Context, creds string) {
 	s.t.Cleanup(srv.Close)
 	srv.Now, srv.Store.Now, srv.OIDC.Now = s.clock.Now, s.clock.Now, s.clock.Now
 	s.srv = srv
-	s.web.Config.Handler = srv.Handler()
+	h := srv.Handler()
+	if s.remote != "" {
+		next := h
+		h = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r.RemoteAddr = s.remote
+			next.ServeHTTP(w, r)
+		})
+	}
+	s.web.Config.Handler = h
 	s.web.StartTLS()
 }
 

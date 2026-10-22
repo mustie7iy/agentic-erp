@@ -31,34 +31,32 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
+// init registers the problems of identity's constraints, each by its own
+// call, so the contract's test can tell each constraint's table
+// (api's TestProblemCodes).
 func init() {
-	for name, p := range map[string]func() *problem.Problem{
-		// A subject is unique per issuer (ADR-0010; 000048 dropped the
-		// index that made it unique per tenant).
-		"principal_issuer_subject": func() *problem.Problem {
-			return problem.Conflict("identity.subject_taken", "Another principal already has this identity provider subject.")
-		},
-		"role_tenant_id_code_key": func() *problem.Problem {
-			return problem.Conflict("identity.role_code_taken", "Another role already has this code.")
-		},
-		"agent_approval_permission": func() *problem.Problem {
-			return problem.Conflict("identity.agent_approval_permission",
-				"Agents may not hold approval permissions: the role would give an agent an approval permission.")
-		},
-	} {
-		problem.RegisterConstraint(name, p)
-	}
-	overlap := func() *problem.Problem {
-		return problem.Conflict("identity.grant_overlaps", "An existing grant for the same pair overlaps this period; end it first or start after it.")
-	}
-	for _, name := range []string{
-		"principal_role_tenant_id_principal_id_role_id_daterange_excl",
-		"role_permission_tenant_id_role_id_permission_code_daterang_excl",
-		"company_access_tenant_id_principal_id_legal_entity_id_date_excl",
-		"sod_rule_tenant_id_permission_a_permission_b_daterange_excl",
-	} {
-		problem.RegisterConstraint(name, overlap)
-	}
+	// A subject is unique per issuer (ADR-0010; 000048 dropped the index
+	// that made it unique per tenant).
+	problem.RegisterConstraint("principal_issuer_subject", func() *problem.Problem {
+		return problem.Conflict("identity.subject_taken", "Another principal already has this identity provider subject.")
+	})
+	problem.RegisterConstraint("role_tenant_id_code_key", func() *problem.Problem {
+		return problem.Conflict("identity.role_code_taken", "Another role already has this code.")
+	})
+	problem.RegisterConstraint("agent_approval_permission", func() *problem.Problem {
+		return problem.Conflict("identity.agent_approval_permission",
+			"Agents may not hold approval permissions: the role would give an agent an approval permission.")
+	})
+	problem.RegisterConstraint("principal_role_tenant_id_principal_id_role_id_daterange_excl", grantOverlaps)
+	problem.RegisterConstraint("role_permission_tenant_id_role_id_permission_code_daterang_excl", grantOverlaps)
+	problem.RegisterConstraint("company_access_tenant_id_principal_id_legal_entity_id_date_excl", grantOverlaps)
+	problem.RegisterConstraint("sod_rule_tenant_id_permission_a_permission_b_daterange_excl", grantOverlaps)
+}
+
+// grantOverlaps is the problem of an effective-dated grant overlapping
+// another for the same pair.
+func grantOverlaps() *problem.Problem {
+	return problem.Conflict("identity.grant_overlaps", "An existing grant for the same pair overlaps this period; end it first or start after it.")
 }
 
 // LegalEntities is what identity needs to know about the tenancy context's

@@ -393,6 +393,23 @@ func TestSignOut(t *testing.T) {
 	}
 }
 
+// TestThePersonsAddressInTheAudit: the API's audit trail records the
+// signed-in person's address as erp-web's load balancer named it, not
+// erp-web's own (ADR-0011 as amended by T73c): ending the session at
+// sign-out is audited with it.
+func TestThePersonsAddressInTheAudit(t *testing.T) {
+	s := newStack(t, stackOptions{remote: "198.51.100.23:50211"})
+	b := s.browser()
+	b.signIn()
+	b.do(http.MethodPost, "/logout", url.Values{"csrf_token": {b.csrf()}})
+	var got []string
+	pgtest.Scan(t, `SELECT coalesce(array_agg(host(client_address)), '{}') FROM audit.audit_event WHERE tenant_id = $1 AND action = 'identity.session.end'`,
+		[]any{s.ten.ID}, &got)
+	if !slices.Equal(got, []string{"198.51.100.23"}) {
+		t.Errorf("the session's end in the audit: got addresses %v, want the person's 198.51.100.23", got)
+	}
+}
+
 // TestSignOutWithoutTheProvidersLogout: a provider without an end
 // session endpoint, or an API that cannot be reached, still signs the
 // person out here.

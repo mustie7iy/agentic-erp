@@ -313,13 +313,17 @@ func TestSegregationOfDuties(t *testing.T) {
 	}
 }
 
-// TestSodRuleOnAPersonsOwnPermission: every person holds their own
-// permissions, so a rule naming one would refuse everyone holding the
-// other; it is refused.
-func TestSodRuleOnAPersonsOwnPermission(t *testing.T) {
+// TestSodRuleOnAnOwnPermission: every principal, or every person, holds
+// their own permissions, so a rule naming one would refuse everyone
+// holding the other; it is refused.
+func TestSodRuleOnAnOwnPermission(t *testing.T) {
 	c, _ := admin(t)
-	for _, body := range []string{`{"permission_a": "identity.session.end", "permission_b": "payables.invoice.post", "description": "d"}`,
-		`{"permission_a": "payables.invoice.post", "permission_b": "identity.session.end", "description": "d"}`} {
-		c.Problem(422, "identity.invalid_sod_rule", "POST", "/v1/sod-rules", body, "")
+	for _, own := range []string{"identity.session.end", "identity.self.read"} {
+		for _, body := range []string{`{"permission_a": "` + own + `", "permission_b": "payables.invoice.post", "description": "d"}`,
+			`{"permission_a": "payables.invoice.post", "permission_b": "` + own + `", "description": "d"}`} {
+			t.Run(body, func(t *testing.T) {
+				c.In(t).Problem(422, "identity.invalid_sod_rule", "POST", "/v1/sod-rules", body, "")
+			})
+		}
 	}
 }

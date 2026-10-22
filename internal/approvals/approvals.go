@@ -127,6 +127,9 @@ type Settings interface {
 type Roles interface {
 	RoleByCode(ctx context.Context, code string) (uuid.UUID, bool, error)
 	HoldsRole(ctx context.Context, principal, role uuid.UUID) (bool, error)
+	// RolesHeld returns every role HoldsRole would report the principal
+	// holds today.
+	RolesHeld(ctx context.Context, principal uuid.UUID) ([]uuid.UUID, error)
 }
 
 // Handler is the context that owns an object type. It moves the object on

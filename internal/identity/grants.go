@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -266,10 +265,10 @@ func CreateSodRule(ctx context.Context, a, b, description string, from, to *time
 		return SodRule{}, problem.Unprocessable("identity.invalid_sod_rule", "A rule needs two different permissions.",
 			problem.FieldError{Field: "permission_b", Code: "same_as_a", Message: "differs from permission_a"})
 	}
-	// Every person holds their own permissions (authz.PersonsOwn): a rule
-	// naming one would refuse everyone holding the other.
+	// Every principal or every person holds their own permissions
+	// (authz.Own): a rule naming one would refuse everyone holding the other.
 	for field, p := range map[string]string{"permission_a": a, "permission_b": b} {
-		if slices.Contains(authz.PersonsOwn(), p) {
+		if authz.IsOwn(p) {
 			return SodRule{}, problem.Unprocessable("identity.invalid_sod_rule", "A rule cannot name a permission every person holds.",
 				problem.FieldError{Field: field, Code: "held_by_everyone", Message: "a permission roles grant"})
 		}

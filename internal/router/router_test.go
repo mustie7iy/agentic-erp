@@ -25,6 +25,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/proxyproto"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf/tlstest"
 	"github.com/mustie7iy/agentic-erp/internal/router"
@@ -469,6 +470,64 @@ func TestForwardsTheClientCertificate(t *testing.T) {
 			rt.ServeHTTP(httptest.NewRecorder(), req)
 			if forwarded != c.want {
 				t.Errorf("forwarded thumbprint: got %q, want %q", forwarded, c.want)
+			}
+		})
+	}
+}
+
+// TestForwardsTheClientAddress: the cell is told the address erp-web
+// forwarded only when the connection is erp-web's verified identity, and
+// otherwise the connection's own; an address anyone else sent is never
+// passed on (ADR-0011 as amended by T73c, ADR-0033).
+func TestForwardsTheClientAddress(t *testing.T) {
+	is := authntest.New(t)
+	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenant := uuid.New()
+	m := &memory{entries: map[uuid.UUID]directory.Entry{tenant: {TenantID: tenant, Cell: "eu-1", APIURL: "https://eu1.internal", Status: directory.Active}}}
+	var forwarded []string
+	transport := roundTrip(func(r *http.Request) (*http.Response, error) {
+		forwarded = r.Header.Values(proxyproto.ClientAddressHeader)
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}")), Header: http.Header{}}, nil
+	})
+	web := &tls.ConnectionState{ServerName: "erp-web"}
+	isWeb := func(cs *tls.ConnectionState) bool { return cs == web }
+	for _, c := range []struct {
+		name      string
+		forwarder func(*tls.ConnectionState) bool
+		tls       *tls.ConnectionState
+		remote    string
+		header    string
+		want      string
+	}{
+		{"erp-web's person", isWeb, web, "10.20.0.7:40000", "198.51.100.9", "198.51.100.9"},
+		{"erp-web's person, IPv6", isWeb, web, "10.20.0.7:40000", "2001:db8::9", "2001:db8::9"},
+		{"erp-web forwarding none", isWeb, web, "10.20.0.7:40000", "", "10.20.0.7"},
+		{"erp-web forwarding a malformed one", isWeb, web, "10.20.0.7:40000", "198.51.100.9, 10.0.0.1", "10.20.0.7"},
+		{"spoofed by another client", isWeb, &tls.ConnectionState{}, "203.0.113.5:4431", "198.51.100.9", "203.0.113.5"},
+		{"spoofed over plaintext", isWeb, nil, "203.0.113.5:4431", "198.51.100.9", "203.0.113.5"},
+		{"spoofed with nobody believed", nil, web, "203.0.113.5:4431", "198.51.100.9", "203.0.113.5"},
+		{"a direct caller", isWeb, &tls.ConnectionState{}, "203.0.113.5:4431", "", "203.0.113.5"},
+		{"no address at all", nil, nil, "pipe", "198.51.100.9", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			rt := &router.Router{Verifier: v, Directory: lookup{m}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Transport: transport,
+				Forwarder: c.forwarder}
+			req := httptest.NewRequest(http.MethodGet, "/v1/balances", nil)
+			req.Header.Set("Authorization", "Bearer "+is.Token(t, tenant, "ada", nil))
+			if c.header != "" {
+				req.Header.Set(proxyproto.ClientAddressHeader, c.header)
+			}
+			req.TLS, req.RemoteAddr, forwarded = c.tls, c.remote, nil
+			rt.ServeHTTP(httptest.NewRecorder(), req)
+			var want []string
+			if c.want != "" {
+				want = []string{c.want}
+			}
+			if fmt.Sprint(forwarded) != fmt.Sprint(want) {
+				t.Errorf("forwarded address: got %q, want %q", forwarded, want)
 			}
 		})
 	}

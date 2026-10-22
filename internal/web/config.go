@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -30,6 +31,13 @@ type Config struct {
 	LogLevel        slog.Level     // ERP_LOG_LEVEL (default info)
 	ShutdownTimeout time.Duration  // ERP_SHUTDOWN_TIMEOUT (default 20s)
 	PseudoLocales   bool           // the pseudo-locales en-XA and ar-XB, offered outside production only
+	// Identity is ERP_TLS_CERT and ERP_TLS_KEY (env: or file:): erp-web's
+	// SPIFFE identity, spiffe://<domain>/global/erp-web, which it presents
+	// to the router, and from which alone the router believes the
+	// person's address erp-web forwards (Erp-Client-Address, ADR-0033);
+	// required in production. nil: none (development), and the API's
+	// audit trail records erp-web's own address.
+	Identity *tlsconf.Store
 	SignIn
 }
 
@@ -129,7 +137,46 @@ func (c *Config) loadTLS(getenv func(string) string, production bool) []error {
 	if production && c.Public == nil {
 		return []error{errors.New("ERP_WEB_PUBLIC_CERT and ERP_WEB_PUBLIC_KEY are required with ERP_ENV=production: the workspace serves TLS only (ADR-0052 §6)")}
 	}
+	return c.loadIdentity(getenv, production)
+}
+
+// webIdentity is the end of erp-web's SPIFFE ID, whatever the trust
+// domain: the router believes the person's address from this identity
+// alone.
+const webIdentity = "/global/erp-web"
+
+// loadIdentity reads erp-web's SPIFFE identity, which it presents to the
+// router. Production requires it: without it the router would record
+// erp-web's address for every person, a silent loss of the audit's
+// addresses.
+func (c *Config) loadIdentity(getenv func(string) string, production bool) []error {
+	src := tlsconf.Source{Cert: getenv("ERP_TLS_CERT"), Key: getenv("ERP_TLS_KEY")}
+	if !src.Enabled() {
+		if production {
+			return []error{errors.New("ERP_TLS_CERT and ERP_TLS_KEY are required with ERP_ENV=production: erp-web presents its SPIFFE identity to the router, which believes the person's address from it alone (ADR-0033)")}
+		}
+		return nil
+	}
+	s := &tlsconf.Store{Source: src, Resolver: secrets.Local{Getenv: getenv}}
+	if err := s.Refresh(context.Background()); err != nil {
+		return []error{fmt.Errorf("ERP_TLS_CERT, ERP_TLS_KEY: %w", err)}
+	}
+	cert, _ := s.Certificate() // Refresh read the certificate and key, both set, or failed above
+	if id := spiffeID(cert.Leaf); !strings.HasPrefix(id, "spiffe://") || !strings.HasSuffix(id, webIdentity) {
+		return []error{fmt.Errorf("ERP_TLS_CERT must name erp-web's SPIFFE ID, spiffe://<domain>%s, not %q", webIdentity, id)}
+	}
+	c.Identity = s
 	return nil
+}
+
+// spiffeID is the certificate's first spiffe URI, or "".
+func spiffeID(cert *x509.Certificate) string {
+	for _, u := range cert.URIs {
+		if u.Scheme == "spiffe" {
+			return u.String()
+		}
+	}
+	return ""
 }
 
 // loadSignIn reads sign-in's settings: all of them, or (outside

@@ -349,6 +349,10 @@ type GetCostCenterRes interface {
 	getCostCenterRes()
 }
 
+type GetCurrentPrincipalRes interface {
+	getCurrentPrincipalRes()
+}
+
 type GetDownPaymentRequestRes interface {
 	getDownPaymentRequestRes()
 }
@@ -679,6 +683,10 @@ type ListPaymentRunsRes interface {
 
 type ListPaymentsRes interface {
 	listPaymentsRes()
+}
+
+type ListPrincipalNamesRes interface {
+	listPrincipalNamesRes()
 }
 
 type ListPrincipalsRes interface {

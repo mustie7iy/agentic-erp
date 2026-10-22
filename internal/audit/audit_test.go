@@ -2,19 +2,23 @@ package audit_test
 
 import (
 	"context"
+	"net/netip"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/audit"
 	trail "github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -151,5 +155,25 @@ func TestDatabaseFailures(t *testing.T) {
 		return err
 	}); err == nil {
 		t.Error("page size 0 accepted")
+	}
+}
+
+// TestAuditEventAddress: an event shows where its request came from, and
+// null where no request made it (ADR-0011 as amended by T73c).
+func TestAuditEventAddress(t *testing.T) {
+	c := setup(t)
+	ctx := reqctx.WithClientAddress(context.Background(), netip.MustParseAddr("2001:db8::24"))
+	if err := pgtest.Pool(t).InTx(ctx, database.Scope{Role: "erp_app", TenantID: c.Tenant.ID}, func(ctx context.Context, tx pgx.Tx) error {
+		return trail.Write(ctx, tx, reqctx.Principal{ID: c.Tenant.Human.ID, Kind: "human", TenantID: c.Tenant.ID}, "", time.Now(),
+			trail.Entry{Action: "test.thing.do", ObjectType: "test.thing", Outcome: "succeeded"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	page, _ := c.Must(200, "GET", "/v1/audit-events?page_size=2", "", "")
+	items := apitest.List(t, page, "items")
+	for i, want := range []any{"2001:db8::24", nil} {
+		if got := items[i].(map[string]any)["client_address"]; got != want {
+			t.Errorf("event %d client_address: got %v, want %v", i, got, want)
+		}
 	}
 }

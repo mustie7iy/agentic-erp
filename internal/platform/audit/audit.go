@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"regexp"
 	"slices"
 	"strings"
@@ -263,6 +264,13 @@ func Write(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, traceID strin
 		prev = nil // the first event has no predecessor
 	}
 	at := now.UTC().Truncate(time.Microsecond)
+	// Where the request came from, beside each entry but outside its hash:
+	// personal data the erasure blanks without breaking the chain
+	// (ADR-0026); none for work no request made.
+	var from *netip.Addr
+	if addr, ok := reqctx.ClientAddressFrom(ctx); ok {
+		from = &addr
+	}
 	for _, e := range entries {
 		if field, found := Personal(e.Detail); found {
 			return fmt.Errorf("audit: %s: detail %s carries personal data (ADR-0026)", e.Action, field)
@@ -281,8 +289,8 @@ func Write(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, traceID strin
 		}
 		h := r.hash(prev)
 		if _, err := tx.Exec(ctx, `INSERT INTO audit.audit_event (tenant_id, occurred_at, seq, actor_id, actor_kind, action, object_type,
-			object_id, outcome, detail, trace_id, prev_hash, hash) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,nullif($11, ''),$12,$13)`,
-			r.TenantID, at, seq, r.ActorID, r.ActorKind, r.Action, r.ObjectType, objectID, r.Outcome, string(detail), traceID, prev, h); err != nil {
+			object_id, outcome, detail, trace_id, prev_hash, hash, client_address) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,nullif($11, ''),$12,$13,$14)`,
+			r.TenantID, at, seq, r.ActorID, r.ActorKind, r.Action, r.ObjectType, objectID, r.Outcome, string(detail), traceID, prev, h, from); err != nil {
 			return fmt.Errorf("audit: %s: %w", e.Action, err)
 		}
 		prev = h

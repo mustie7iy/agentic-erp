@@ -57,6 +57,14 @@ func endpointCalls(f *fixture) map[string]func(ctx context.Context) error {
 			_, err := e.BlockPrincipal(ctx, &gen.ReasonInput{Reason: "r"}, gen.BlockPrincipalParams{ID: f.agent, IfMatch: "*"})
 			return err
 		},
+		"get current principal": func(ctx context.Context) error {
+			_, err := e.GetCurrentPrincipal(ctx)
+			return err
+		},
+		"list principal names": func(ctx context.Context) error {
+			_, err := e.ListPrincipalNames(ctx, gen.ListPrincipalNamesParams{Ids: []uuid.UUID{f.agent}})
+			return err
+		},
 		"create role": func(ctx context.Context) error {
 			_, err := e.CreateRole(ctx, &gen.RoleCreate{Code: "NEW", Name: "N"}, gen.CreateRoleParams{})
 			return err

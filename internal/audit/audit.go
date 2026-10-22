@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -46,6 +47,9 @@ type Event struct {
 	Outcome    string
 	Detail     map[string]json.RawMessage
 	TraceID    *string
+	// ClientAddress is where the request came from (ADR-0011 as amended
+	// by T73c); nil for work no request made, and after an erasure.
+	ClientAddress *netip.Addr
 }
 
 type cursor struct {
@@ -89,14 +93,14 @@ func (e *Endpoints) ListAuditEvents(ctx context.Context, params gen.ListAuditEve
 		}
 		after = &c.Seq
 	}
-	rows, _ := tx.Query(ctx, `SELECT seq, occurred_at, actor_id, actor_kind, action, object_type, object_id, outcome, detail, trace_id
+	rows, _ := tx.Query(ctx, `SELECT seq, occurred_at, actor_id, actor_kind, action, object_type, object_id, outcome, detail, trace_id, client_address
 		FROM audit.audit_event WHERE ($1 = '' OR object_type = $1) AND ($2::uuid IS NULL OR object_id = $2)
 			AND ($3::timestamptz IS NULL OR occurred_at >= $3) AND ($4::timestamptz IS NULL OR occurred_at <= $4)
 			AND ($5::bigint IS NULL OR seq `+cmp+` $5)
 		ORDER BY seq `+dir+` LIMIT $6`, pagination.PlanPerCall, params.ObjectType.Value, objectID, from, to, after, size+1)
 	events, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Event, error) {
 		var v Event
-		err := r.Scan(&v.Seq, &v.OccurredAt, &v.ActorID, &v.ActorKind, &v.Action, &v.ObjectType, &v.ObjectID, &v.Outcome, &v.Detail, &v.TraceID)
+		err := r.Scan(&v.Seq, &v.OccurredAt, &v.ActorID, &v.ActorKind, &v.Action, &v.ObjectType, &v.ObjectID, &v.Outcome, &v.Detail, &v.TraceID, &v.ClientAddress)
 		return v, errs.Wrapf(err, "scan audit event")
 	})
 	if err != nil {
@@ -138,6 +142,10 @@ func auditEventItem(v Event) gen.AuditEvent {
 	}
 	if v.TraceID != nil {
 		item.TraceID.SetTo(*v.TraceID)
+	}
+	item.ClientAddress.SetToNull()
+	if v.ClientAddress != nil {
+		item.ClientAddress.SetTo(v.ClientAddress.String())
 	}
 	for k, raw := range v.Detail {
 		item.Detail[k] = jx.Raw(raw)

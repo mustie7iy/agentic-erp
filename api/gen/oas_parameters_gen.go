@@ -15925,6 +15925,9 @@ type ListApprovalRequestsParams struct {
 	ObjectType OptString `json:",omitempty,omitzero"`
 	// Only requests for this object.
 	ObjectID OptUUID `json:",omitempty,omitzero"`
+	// `me`: only the pending requests the caller may approve now (ADR-0052 G1); with a `status` other than
+	// `pending` the page is empty. Any other value is 400 `request.invalid_parameter`.
+	DecidableBy OptString `json:",omitempty,omitzero"`
 	// Maximum number of items to return. Defaults to 50, maximum 500.
 	PageSize OptInt32 `json:",omitempty,omitzero"`
 	// Opaque cursor from `next_page_token` of the previous page. Tokens are signed and encode the sort
@@ -15964,6 +15967,15 @@ func unpackListApprovalRequestsParams(packed middleware.Parameters) (params List
 		}
 		if v, ok := packed[key]; ok {
 			params.ObjectID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "decidable_by",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.DecidableBy = v.(OptString)
 		}
 	}
 	{
@@ -16126,6 +16138,47 @@ func decodeListApprovalRequestsParams(args [0]string, argsEscaped bool, r *http.
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "object_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: decidable_by.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "decidable_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotDecidableByVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotDecidableByVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.DecidableBy.SetTo(paramsDotDecidableByVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "decidable_by",
 			In:   "query",
 			Err:  err,
 		}
@@ -34598,6 +34651,90 @@ func decodeListPaymentsParams(args [1]string, argsEscaped bool, r *http.Request)
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "page_token",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
+// ListPrincipalNamesParams is parameters of listPrincipalNames operation.
+type ListPrincipalNamesParams struct {
+	// The principals' ids, comma-separated, 1 to 100.
+	Ids []uuid.UUID `json:",omitempty"`
+}
+
+func unpackListPrincipalNamesParams(packed middleware.Parameters) (params ListPrincipalNamesParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "ids",
+			In:   "query",
+		}
+		params.Ids = packed[key].([]uuid.UUID)
+	}
+	return params
+}
+
+func decodeListPrincipalNamesParams(args [0]string, argsEscaped bool, r *http.Request) (params ListPrincipalNamesParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
+	// Decode query: ids.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "ids",
+			Style:   uri.QueryStyleForm,
+			Explode: false,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				params.Ids = nil
+				return d.DecodeArray(func(d uri.Decoder) error {
+					var paramsDotIdsVal uuid.UUID
+					if err := func() error {
+						val, err := d.DecodeValue()
+						if err != nil {
+							return err
+						}
+
+						c, err := conv.ToUUID(val)
+						if err != nil {
+							return err
+						}
+
+						paramsDotIdsVal = c
+						return nil
+					}(); err != nil {
+						return err
+					}
+					params.Ids = append(params.Ids, paramsDotIdsVal)
+					return nil
+				})
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if params.Ids == nil {
+					return errors.New("nil is invalid value")
+				}
+				if err := (validate.Array{
+					MinLength:    1,
+					MinLengthSet: true,
+					MaxLength:    100,
+					MaxLengthSet: true,
+				}).ValidateLength(len(params.Ids)); err != nil {
+					return errors.Wrap(err, "array")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "ids",
 			In:   "query",
 			Err:  err,
 		}

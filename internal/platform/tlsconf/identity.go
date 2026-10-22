@@ -31,6 +31,35 @@ func PeerID(cs *tls.ConnectionState) string {
 	return spiffeID(cs.VerifiedChains[0][0].URIs)
 }
 
+// VerifiedClient is the SPIFFE ID of the client certificate a connection
+// presented, verified here against the bundle alone for client
+// authentication, or "" when it presented none or one the bundle does not
+// vouch for. It is for a listener that asks for any certificate without
+// verifying it (tls.RequestClientCert: the router's public listener,
+// where agents bind their tokens to self-signed ones), so the deployment's
+// own services are told apart from everyone else by their identity.
+func (s *Store) VerifiedClient(cs *tls.ConnectionState) string {
+	if cs == nil || len(cs.PeerCertificates) == 0 {
+		return ""
+	}
+	m, err := s.snapshot()
+	if err != nil {
+		return ""
+	}
+	intermediates := x509.NewCertPool()
+	for _, c := range cs.PeerCertificates[1:] {
+		intermediates.AddCert(c)
+	}
+	opts := x509.VerifyOptions{Roots: m.bundle, Intermediates: intermediates, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
+	if s.Now != nil {
+		opts.CurrentTime = s.Now()
+	}
+	if _, err := cs.PeerCertificates[0].Verify(opts); err != nil {
+		return ""
+	}
+	return spiffeID(cs.PeerCertificates[0].URIs)
+}
+
 // ServerConfig serves with the material read last, taken on each
 // handshake in one read: the store's certificate, and clients verified
 // against the bundle alone as clientAuth says. It issues no session
