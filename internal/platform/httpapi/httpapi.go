@@ -100,7 +100,7 @@ func New(h gen.Handler, p Pipeline) (http.Handler, error) {
 	}
 	unit := &uow.Middleware{Pool: p.Pool, Role: p.AppRole, Log: p.Log, Now: p.Now, Sessions: p.Sessions, RequireBoundAgents: p.RequireBoundAgents,
 		Agents: p.Agents, Snapshot: snapshot(srv, api.MustOperations())}
-	chain := unit.Wrap(srv)
+	chain := unit.Wrap(fileParts(srv))
 	if p.Loopback != nil {
 		p.Loopback.handler = chain
 	}
