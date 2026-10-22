@@ -3384,6 +3384,7 @@ paths:
         - partner.unknown_kind
         - partner.unknown_payment_method
         - partner.unknown_payment_term
+        - partner.unknown_planning_group
         - partner.unknown_role
         - partner.unknown_withholding_tax_code
         - request.invalid_extension
@@ -3933,6 +3934,7 @@ paths:
         - partner.unknown_country
         - partner.unknown_payment_method
         - partner.unknown_payment_term
+        - partner.unknown_planning_group
         - partner.unknown_role
         - partner.unknown_withholding_tax_code
         - partner.unsupported_kind
@@ -6532,6 +6534,7 @@ paths:
         - ledger.legal_entity_not_active
         - ledger.no_exchange_rate
         - ledger.no_fiscal_period
+        - ledger.no_fx_account
         - ledger.partner_not_allowed
         - ledger.partner_not_postable
         - ledger.partner_required
@@ -6539,6 +6542,11 @@ paths:
         - ledger.rate_not_recordable
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -6546,6 +6554,7 @@ paths:
         - ledger.unknown_tax_code
         - ledger.unknown_unit
         - ledger.zero_amount
+        - ledger.zero_tax_base
         - request.invalid_amount
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -6922,6 +6931,11 @@ paths:
         - ledger.partner_required
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -6929,6 +6943,7 @@ paths:
         - ledger.unknown_tax_code
         - ledger.unknown_unit
         - ledger.zero_amount
+        - ledger.zero_tax_base
         - request.invalid_amount
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -7058,6 +7073,11 @@ paths:
         - ledger.partner_required
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -7065,6 +7085,7 @@ paths:
         - ledger.unknown_tax_code
         - ledger.unknown_unit
         - ledger.zero_amount
+        - ledger.zero_tax_base
         - request.invalid_amount
         - request.version_mismatch
       parameters:
@@ -7202,6 +7223,7 @@ paths:
         - ledger.legal_entity_not_active
         - ledger.no_exchange_rate
         - ledger.no_fiscal_period
+        - ledger.no_fx_account
         - ledger.not_entry_owner
         - ledger.partner_not_allowed
         - ledger.partner_not_postable
@@ -7210,6 +7232,11 @@ paths:
         - ledger.rate_not_recordable
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -7217,6 +7244,7 @@ paths:
         - ledger.unknown_tax_code
         - ledger.unknown_unit
         - ledger.zero_amount
+        - ledger.zero_tax_base
         - request.invalid_amount
         - request.version_mismatch
         - workflow.no_policy
@@ -10007,6 +10035,11 @@ paths:
         - ledger.rate_not_recordable
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -10014,6 +10047,7 @@ paths:
         - ledger.unknown_tax_code
         - ledger.unknown_unit
         - ledger.zero_amount
+        - ledger.zero_tax_base
         - procurement.invalid_movement_type
         - procurement.invalid_org_unit
         - procurement.invalid_quantity
@@ -10142,6 +10176,11 @@ paths:
         - ledger.rate_not_recordable
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -10149,6 +10188,7 @@ paths:
         - ledger.unknown_tax_code
         - ledger.unknown_unit
         - ledger.zero_amount
+        - ledger.zero_tax_base
         - procurement.already_reversed
         - procurement.cannot_reverse_reversal
         - procurement.mixed_currencies
@@ -10318,7 +10358,7 @@ paths:
         - payables.quantity_not_zero
         - payables.reference_not_allowed
         - payables.supplier_not_usable
-        - payables.tax_code_components
+        - payables.tax_date_human_only
         - payables.unit_mismatch
         - payables.unknown_currency
         - payables.unknown_kind
@@ -10446,11 +10486,14 @@ paths:
       x-permission: payables.invoice.capture
       x-problem-codes:
         - config.no_number_range
+        - config.not_bootstrapped
         - config.number_range_exhausted
+        - ledger.no_exchange_rate
         - ledger.no_fiscal_period
         - payables.account_not_postable
         - payables.account_required
         - payables.already_captured
+        - payables.amount_too_large
         - payables.capture_needs_document
         - payables.capture_needs_order
         - payables.currency_mismatch
@@ -10466,7 +10509,8 @@ paths:
         - payables.quantity_not_zero
         - payables.reference_not_allowed
         - payables.supplier_not_usable
-        - payables.tax_code_components
+        - payables.tax_date_human_only
+        - payables.tax_mismatch
         - payables.unit_mismatch
         - payables.unknown_currency
         - payables.unknown_kind
@@ -10721,7 +10765,7 @@ paths:
         - payables.quantity_not_zero
         - payables.reference_not_allowed
         - payables.supplier_not_usable
-        - payables.tax_code_components
+        - payables.tax_date_human_only
         - payables.unit_mismatch
         - payables.unknown_currency
         - payables.unknown_kind
@@ -10879,6 +10923,11 @@ paths:
         - ledger.rate_not_recordable
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -10886,7 +10935,9 @@ paths:
         - ledger.unknown_tax_code
         - ledger.unknown_unit
         - ledger.zero_amount
+        - ledger.zero_tax_base
         - payables.already_captured
+        - payables.amount_too_large
         - payables.amounts_mismatch
         - payables.duplicate_invoice
         - payables.invalid_status
@@ -10900,8 +10951,9 @@ paths:
         - payables.order_not_found
         - payables.reference_not_posted
         - payables.supplier_not_usable
-        - payables.tax_code_components
+        - payables.tax_mismatch
         - payables.unknown_payment_term
+        - payables.unknown_tax_code
         - payables.withholding_exceeds_invoice
         - payables.withholding_tax_code_unknown
         - request.invalid_amount
@@ -13137,6 +13189,11 @@ paths:
       x-permission: cash.position.read
       x-slo-class: report
       x-snapshot: true
+      x-problem-codes:
+        - cash.amount_too_large
+        - cash.unknown_currency
+        - config.not_bootstrapped
+        - request.validation_failed
       parameters:
         - name: legal_entity_id
           in: query
@@ -13563,6 +13620,11 @@ paths:
         - ledger.special_gl_account
         - ledger.special_gl_required
         - ledger.standard_hierarchy_exists
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -13570,6 +13632,7 @@ paths:
         - ledger.unknown_tax_code
         - ledger.unknown_unit
         - ledger.zero_amount
+        - ledger.zero_tax_base
         - partner.address_overlap
         - partner.bank_account_overlap
         - partner.change_pending
@@ -15297,6 +15360,11 @@ paths:
         - ledger.special_gl_account
         - ledger.special_gl_item
         - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -15304,6 +15372,7 @@ paths:
         - ledger.unknown_tax_code
         - ledger.unknown_unit
         - ledger.zero_amount
+        - ledger.zero_tax_base
         - partner.address_overlap
         - partner.backdated_address
         - partner.backdated_bank_account
@@ -15334,6 +15403,7 @@ paths:
         - partner.unknown_kind
         - partner.unknown_payment_method
         - partner.unknown_payment_term
+        - partner.unknown_planning_group
         - partner.unknown_role
         - partner.unknown_withholding_tax_code
         - payables.account_not_postable
@@ -15351,7 +15421,7 @@ paths:
         - payables.quantity_not_zero
         - payables.reference_not_allowed
         - payables.supplier_not_usable
-        - payables.tax_code_components
+        - payables.tax_date_human_only
         - payables.unit_mismatch
         - payables.unknown_currency
         - payables.unknown_kind
@@ -15487,6 +15557,11 @@ paths:
         - ledger.special_gl_account
         - ledger.special_gl_item
         - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
         - ledger.unbalanced
         - ledger.unknown_currency
         - ledger.unknown_ledger
@@ -15494,6 +15569,7 @@ paths:
         - ledger.unknown_tax_code
         - ledger.unknown_unit
         - ledger.zero_amount
+        - ledger.zero_tax_base
         - partner.address_overlap
         - partner.backdated_address
         - partner.backdated_bank_account
@@ -15524,6 +15600,7 @@ paths:
         - partner.unknown_kind
         - partner.unknown_payment_method
         - partner.unknown_payment_term
+        - partner.unknown_planning_group
         - partner.unknown_role
         - partner.unknown_withholding_tax_code
         - payables.account_not_postable
@@ -15541,7 +15618,7 @@ paths:
         - payables.quantity_not_zero
         - payables.reference_not_allowed
         - payables.supplier_not_usable
-        - payables.tax_code_components
+        - payables.tax_date_human_only
         - payables.unit_mismatch
         - payables.unknown_currency
         - payables.unknown_kind
