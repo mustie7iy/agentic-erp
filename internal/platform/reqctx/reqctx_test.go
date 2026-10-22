@@ -46,8 +46,8 @@ func TestContextValues(t *testing.T) {
 	}
 }
 
-// TestClientAddress: an address recorded is read back; none, or an invalid
-// one, is no address.
+// TestMasked: an agent, and a caller the context does not name, see masked
+// data; a person and a service do not.
 func TestMasked(t *testing.T) {
 	for name, tc := range map[string]struct {
 		ctx  context.Context
@@ -66,6 +66,8 @@ func TestMasked(t *testing.T) {
 	}
 }
 
+// TestClientAddress: an address recorded is read back; none, or an invalid
+// one, is no address.
 func TestClientAddress(t *testing.T) {
 	if _, ok := ClientAddressFrom(context.Background()); ok {
 		t.Error("empty context: got an address, want none")

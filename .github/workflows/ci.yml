@@ -235,7 +235,9 @@ jobs:
     # builds the pinned tools (about 10 minutes) before the cache has them.
     # A pull request runs the short job above instead.
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    # Above the race step's -timeout 60m plus the other steps, so a hung
+    # package is reported by go test before the runner stops the job.
+    timeout-minutes: 100
     services:
       postgres:
         image: postgres:17
