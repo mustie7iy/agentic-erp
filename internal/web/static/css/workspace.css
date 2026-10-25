@@ -99,9 +99,14 @@ code,
   font-size: 0.95em;
 }
 
-/* Skip link: hidden until focused, the first stop on every page; when
-   focused it takes its place above the header, so it covers nothing
-   (WCAG 2.4.11). */
+/* Skip link: hidden until focused, the first stop on every page. Focused,
+   it covers the whole header, out of the page's flow: it covers nothing
+   that has focus (WCAG 2.4.11), the header's links are hidden whole, not
+   left as part-covered targets (WCAG 2.5.8), and neither its showing nor
+   its hiding moves the page. In the page's flow, a mouse press elsewhere
+   took its focus, hid it and moved the page up under the pointer, so the
+   release landed beside the button pressed and no click happened (the
+   browser tests' presses after an audit; found in T73h). */
 .skip-link {
   position: absolute;
   inline-size: 1px;
@@ -113,8 +118,10 @@ code,
 }
 
 .skip-link:focus-visible {
-  position: static;
-  display: block;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
   inline-size: auto;
   block-size: auto;
   padding: 0.6rem var(--gutter);
@@ -132,6 +139,7 @@ code,
 
 /* Header and service navigation. */
 .header {
+  position: relative;
   background: var(--header);
   color: var(--header-text);
   border-block-end: 0.5rem solid var(--brand);

@@ -11,9 +11,9 @@ import templruntime "github.com/a-h/templ/runtime"
 import "github.com/mustie7iy/agentic-erp/internal/web/i18n"
 
 // Layout is every page's document: language and direction from the
-// locale, the stylesheet and htmx (with the request's nonce), a skip link,
-// the header with the main navigation, the page's content and the footer
-// with help in the same place on every page.
+// locale, the stylesheet and htmx (with the request's nonce), the header
+// with the skip link first and the main navigation, the page's content and
+// the footer with help in the same place on every page.
 func Layout(s Shell, content templ.Component) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -101,7 +101,7 @@ func Layout(s Shell, content templ.Component) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "><a class=\"skip-link\" href=\"#main\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "><header class=\"header\"><a class=\"skip-link\" href=\"#main\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -109,7 +109,7 @@ func Layout(s Shell, content templ.Component) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</a><header class=\"header\"><div class=\"width-container header__bar\"><a class=\"header__name\" href=\"/\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</a><div class=\"width-container header__bar\"><a class=\"header__name\" href=\"/\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
