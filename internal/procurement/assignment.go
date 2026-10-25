@@ -62,11 +62,7 @@ func (e *Endpoints) checkAssignments(ctx context.Context, le uuid.UUID, date tim
 	if len(items) == 0 {
 		return nil
 	}
-	year, err := e.Calendar.FiscalYear(ctx, le, date)
-	if err != nil {
-		return err
-	}
-	return e.Accounts.CheckAssignments(ctx, le, year, date, items, false)
+	return e.Accounts.CheckAssignments(ctx, le, date, items, false)
 }
 
 // assignments are the items from position from on as the ledger checks

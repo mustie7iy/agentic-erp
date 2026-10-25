@@ -50,7 +50,7 @@ type Accounts interface {
 	Determination(ctx context.Context, legalEntity uuid.UUID, key string) (uuid.UUID, bool, error)
 	IsPostable(ctx context.Context, legalEntity, account uuid.UUID) (bool, error)
 	TaxCode(ctx context.Context, legalEntity uuid.UUID, code string, date time.Time) (ledger.TaxCode, bool, error)
-	CheckAssignments(ctx context.Context, legalEntity uuid.UUID, year int16, date time.Time, items []ledger.ItemAssignment, defaults bool) error
+	CheckAssignments(ctx context.Context, legalEntity uuid.UUID, date time.Time, items []ledger.ItemAssignment, defaults bool) error
 }
 
 // Numbers issues document numbers (configuration context).

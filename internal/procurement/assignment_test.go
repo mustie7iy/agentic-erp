@@ -157,12 +157,21 @@ func TestItemAssignmentChanges(t *testing.T) {
 		e := e.in(t)
 		for name, it := range map[string]string{
 			"another cost center": centered(e.expense, "5.00", e.c.Sales, ""),
-			"none":                centered(e.expense, "5.00", uuid.Nil, ""),
+			"none":                centered(e.expense, "5.00", uuid.Nil, `, "account_assignment": "none"`),
 		} {
 			t.Run(name, func(t *testing.T) {
 				e.in(t).Problem(422, "procurement.invalid_change", "POST", path+"/changes", `{"reason": "r", "items": `+items(it)+`}`, "")
 			})
 		}
+	})
+	t.Run("an item resent without its assignment keeps it", func(t *testing.T) {
+		e := e.in(t)
+		ch, _ := e.Must(201, "POST", path+"/changes", `{"reason": "r", "items": `+items(centered(e.expense, "6.00", uuid.Nil, ""))+`}`, "")
+		if it := ch["items"].([]any)[0].(map[string]any); it["cost_center_id"] != e.c.Admin.String() {
+			t.Errorf("item: got cost center %v, want the item's %s", it["cost_center_id"], e.c.Admin)
+		}
+		_, tag := e.Must(200, "GET", path+"/changes/"+id(ch), "", "")
+		e.Must(200, "POST", path+"/changes/"+id(ch)+":cancel", "", tag)
 	})
 	t.Run("an added item is checked at submission", func(t *testing.T) {
 		e := e.in(t)

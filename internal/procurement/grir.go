@@ -16,8 +16,8 @@ const WEDocumentType = "WE"
 
 // postMovement posts a goods movement's WE entry (T33): for each item of
 // an order valued through GR/IR, Dr the order item's account (with its
-// cost center, T56e) / Cr GR/IR at the item's valuation price, which the ledger books as the item's GR/IR
-// position moves (ledger.GRIRItem). The GR/IR line's quantity is the
+// cost center, T56e) / Cr GR/IR at the item's valuation price, which the
+// ledger books as the item's GR/IR position moves (ledger.GRIRItem). The GR/IR line's quantity is the
 // movement's negated: a receipt (101) and a return's reversal (123) credit
 // GR/IR, a receipt's reversal (102) and a return (122) debit it. A movement
 // without such items posts nothing (nil year and entry); one whose items

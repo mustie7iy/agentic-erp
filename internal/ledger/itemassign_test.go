@@ -20,7 +20,7 @@ func TestCheckAssignments(t *testing.T) {
 	check := func(t *testing.T, le uuid.UUID, day string, defaults bool, items ...ledger.ItemAssignment) error {
 		t.Helper()
 		return apitest.InRequest(t, a.ten, a.ten.Human, func(ctx context.Context) error {
-			return ledger.Accounts{}.CheckAssignments(ctx, le, 2026, date(day), items, defaults)
+			return ledger.Accounts{}.CheckAssignments(ctx, le, date(day), items, defaults)
 		})
 	}
 	item := func(index int, account uuid.UUID, cc, pc *uuid.UUID) ledger.ItemAssignment {
@@ -42,6 +42,10 @@ func TestCheckAssignments(t *testing.T) {
 				}
 			})
 		}
+		// A date in no fiscal year: nothing applies, the posting refuses it.
+		if err := check(t, a.de, "1999-05-10", false, item(0, a.it, &a.cc2000, nil)); err != nil {
+			t.Errorf("a date in no fiscal year: got %v, want none", err)
+		}
 	})
 	t.Run("refused", func(t *testing.T) {
 		for name, c := range map[string]struct {
@@ -52,7 +56,7 @@ func TestCheckAssignments(t *testing.T) {
 		}{
 			"an order item without a cost center": {false, []ledger.ItemAssignment{item(0, a.it, &a.cc1000, nil), item(3, a.office, nil, nil)},
 				"ledger.cost_center_required", "items[3].cost_center_id", "required", "Item 4 posts to a primary cost account and needs a cost center; " +
-					"while cost center accounting applies, an order item names its own."},
+					"while cost center accounting applies, a requisition or order item names its own."},
 			"a cost center locked for costs": {true, []ledger.ItemAssignment{item(1, a.it, &a.cc2000, nil)},
 				"ledger.cost_center_invalid", "items[1].cost_center_id", "locked_for_costs", "Item 2: The cost center is locked for actual costs on the posting date."},
 			"another profit center than the cost center's": {true, []ledger.ItemAssignment{item(0, a.it, &a.cc1000, &a.dummy)},
@@ -77,11 +81,11 @@ func TestCheckAssignments(t *testing.T) {
 		}
 	})
 	t.Run("outside a unit of work", func(t *testing.T) {
-		if err := (ledger.Accounts{}).CheckAssignments(context.Background(), a.de, 2026, date("2026-05-10"), nil, true); err == nil {
+		if err := (ledger.Accounts{}).CheckAssignments(context.Background(), a.de, date("2026-05-10"), nil, true); err == nil {
 			t.Error("got nil error, want one")
 		}
 	})
 	apitest.EveryFailure(t, a.ten, a.ten.Human, "check assignments", func(ctx context.Context) error {
-		return ledger.Accounts{}.CheckAssignments(ctx, a.de, 2026, date("2026-05-10"), []ledger.ItemAssignment{item(0, a.it, &a.cc1000, nil)}, false)
+		return ledger.Accounts{}.CheckAssignments(ctx, a.de, date("2026-05-10"), []ledger.ItemAssignment{item(0, a.it, &a.cc1000, nil)}, false)
 	})
 }

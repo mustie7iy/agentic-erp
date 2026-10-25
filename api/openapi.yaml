@@ -8631,7 +8631,6 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.no_exchange_rate
-        - ledger.no_fiscal_period
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.segment_mismatch
@@ -9026,7 +9025,6 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.no_exchange_rate
-        - ledger.no_fiscal_period
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.segment_mismatch
@@ -9507,7 +9505,6 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.no_exchange_rate
-        - ledger.no_fiscal_period
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.segment_mismatch
@@ -10891,7 +10888,6 @@ paths:
       x-problem-codes:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
-        - ledger.no_fiscal_period
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.segment_mismatch

@@ -721,6 +721,21 @@ As built in T56e (migrations 000161-000162; the capture agent's proposals are T5
   account's default, as its posting will. Every posting checks again.
   Own lines of a GR/IR posting (an invoice on a GR/IR order with items
   without an order item) now carry their centers into the ledger.
+- **No fiscal year, nothing checked.** The check resolves the date's
+  fiscal year from the legal entity's own periods; a date in none (an
+  order released before the next year is set up) checks nothing, as no
+  switch applies to it and its posting is refused for the date, so the
+  check adds no `ledger.no_fiscal_period` to release or submission.
+- **Order changes.** An item an order change resends without
+  `account_assignment` or `cost_center_id` keeps the item's, as its
+  tolerance, so clients that do not know the fields change cost-centred
+  orders as before.
+- **Rolling upgrade.** The previous release reads and writes items without
+  the columns: a goods receipt or invoice it posts for a cost-centred item
+  carries none of the item's centers. Cost-centred items exist only once
+  this release writes them, and turning cost center accounting on is a
+  tier 4 change, which belongs after the rollout (06 §6.4); the window is
+  accepted.
 - **Not built (no source in the design):** copying a requisition's items
   to the order (the client sends the order's items, as for every other
   field); assignment fields on `PurchaseOrderReleased`/`PurchaseOrderChanged`

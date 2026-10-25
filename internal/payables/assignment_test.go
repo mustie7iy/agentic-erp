@@ -196,6 +196,7 @@ func TestOrderItemAssignment(t *testing.T) {
 			t.Errorf("invoice lines: got %v, want %v", got, want)
 		}
 	})
+	// Last: it changes the tenant's price difference account for good.
 	t.Run("the price difference on an account taking no cost center", func(t *testing.T) {
 		pgtest.Exec(t, `UPDATE ledger.gl_account SET cost_element = 'none', version = version + 1 WHERE id = $1`, e.diff)
 		want := sortedLines(assignedLine(e.grir, none, none), assignedLine(e.diff, none, none), assignedLine(e.ap, none, none))

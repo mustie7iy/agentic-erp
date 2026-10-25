@@ -330,12 +330,20 @@ func removedItems(ctx context.Context, tx pgx.Tx, order uuid.UUID) ([]Item, erro
 // keptTolerance gives an item the change keeps the tolerance it has when
 // the change leaves it out, rather than the company default a new item
 // takes: a change of price alone does not move the tolerance, nor refuse
-// an item over-delivered within it.
+// an item over-delivered within it. Likewise its assignment (T56e), which
+// a released item keeps: a client that sends neither field keeps it.
 func keptTolerance(current []Item, in []ItemInput) []ItemInput {
 	out := slices.Clone(in)
 	for i := range out {
-		if i < len(current) && out[i].OverDelivery == nil {
+		if i >= len(current) {
+			continue
+		}
+		if out[i].OverDelivery == nil {
 			out[i].OverDelivery = &current[i].OverDelivery
+		}
+		if out[i].AccountAssignment == nil && out[i].CostCenterID == nil {
+			assignment := current[i].assignment()
+			out[i].AccountAssignment, out[i].CostCenterID = &assignment, current[i].CostCenterID
 		}
 	}
 	return out

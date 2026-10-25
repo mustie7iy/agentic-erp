@@ -129,7 +129,7 @@ type Accounts interface {
 	TaxCode(ctx context.Context, legalEntity uuid.UUID, code string, date time.Time) (ledger.TaxCode, bool, error)
 	TaxCodes(ctx context.Context, legalEntity uuid.UUID, date time.Time) ([]ledger.TaxCode, error)
 	WithholdingTaxCode(ctx context.Context, legalEntity uuid.UUID, code string) (ledger.WithholdingTaxCode, bool, error)
-	CheckAssignments(ctx context.Context, legalEntity uuid.UUID, year int16, date time.Time, items []ledger.ItemAssignment, defaults bool) error
+	CheckAssignments(ctx context.Context, legalEntity uuid.UUID, date time.Time, items []ledger.ItemAssignment, defaults bool) error
 }
 
 // Numbers issues document numbers (configuration context).
@@ -500,11 +500,7 @@ func (v *invoiceCheck) assignments() error {
 	if v.in.PostingDate != nil {
 		date = *v.in.PostingDate
 	}
-	year, err := v.e.Calendar.FiscalYear(v.ctx, v.le.ID, date)
-	if err != nil {
-		return err
-	}
-	return v.e.Accounts.CheckAssignments(v.ctx, v.le.ID, year, date, items, true)
+	return v.e.Accounts.CheckAssignments(v.ctx, v.le.ID, date, items, true)
 }
 
 // invoiceParties resolves the legal entity, which the caller must be allowed

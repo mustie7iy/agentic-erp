@@ -188,7 +188,7 @@ func (r assignRules) deriveCostCenters(lines []Line, found []lineCenters) error 
 		case r.ownCostCenter || a.defaultCC == nil:
 			why := "the account has no default cost center in the legal entity"
 			if r.ownCostCenter {
-				why = "while cost center accounting applies, an order item names its own"
+				why = "while cost center accounting applies, a requisition or order item names its own"
 			}
 			return problem.Unprocessable("ledger.cost_center_required", fmt.Sprintf("Line %d posts to a primary cost account and needs a cost center; "+
 				"%s.", i+1, why),
