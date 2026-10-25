@@ -1662,6 +1662,106 @@ and where it departs from the step as first written:
   a proposal watched until it is built, then its release refused above
   the limit and the second approval asked for.
 
+## Built in T73i (2026-10-25)
+The period close (T32, ADR-0042, ADR-0045), as accountant and as
+controller. What it settled, and where it departs from the step as first
+written:
+- **Pages.** `GET /close`: the posting periods of a company and ledger in
+  a fiscal year (the first company by name, the leading ledger and this
+  year until chosen, a plain GET form), each with its dates, special
+  periods marked, its status, an unlock asked for, and who changed it
+  last, linked to its page; and the way to the company's revaluation.
+  `GET /close/periods/{id}`: the period's summary, its pending unlock
+  request with a link to it in the inbox, the person's decisions, the
+  revaluation at its end while it is open, and its pre-close checks.
+  `GET /close/revaluation`: the preview's form (company, ledger, key
+  date; a period's page fills it with its end) and the company's runs.
+  `GET /close/revaluation/{id}`: a run's summary, its valuation and reset
+  entries, its totals and items.
+- **Decisions** (T32). Close an open period, open a closed one, lock a
+  closed one, and ask for a locked one's unlock with a reason, each a form
+  with the period's ETag and a fresh idempotency key, offered by the
+  period's status and the operation's `x-permission`; the lock and the
+  unlock request are `x-agent: false` and marked human-only. Done, the
+  period's page says so; refused (a stale form, a status that no longer
+  allows it), it is rendered again with the refusal and the reason typed.
+  The unlock is a `period_unlock` request the controller decides in the
+  approvals inbox (T73d), not a screen of its own; approved, the period
+  is closed again and opened by `:open`. Segregation of duties is the
+  API's: whoever asked for the unlock is refused as its approver
+  (`workflow.own_request`), and the inbox says so by the code.
+- **Pre-close checks.** A section htmx loads into the period's page (as
+  the invoice's order section), a page of its own without htmx
+  (`GET /close/checks`, the company, ledger, year and period in the
+  query): the GR/IR positions still open (`listGrIrBalances`), the
+  period's ledger reconciled with another the company keeps
+  (`listLedgerReconciliation`: a parallel ledger with the leading one,
+  the leading ledger with the company's first parallel one by code; a
+  company keeping one ledger has nothing to reconcile), and the company's
+  bank statements imported and after a gap (`listBankStatements`, once
+  per status), ten of each with "more" said, each check's result as
+  "nothing to look at" or "to look at". **Departs from the tracker row:**
+  the GR/IR and ledger reconciliation reports are T73j's, so those two
+  checks show their results in place without a link; a statement links
+  to its page and its bank's reconciliation report (T73g), and the
+  workspace's statements lists by status, which offer no company filter
+  (the API's has one). The checks
+  read the figures as they stand now, not as at the period's end
+  (`listGrIrBalances` takes a key date for one order only).
+- **Revaluation** (ADR-0042). The preview is posted (`previewRevaluation`
+  is a POST with an idempotency key, reads only) and shows the key date's
+  period, the rate type, the totals per account, currency and direction,
+  and every item (an open item by its entry, line and partner, or a
+  flagged account's balance, valued without a rate when it is zero in its
+  currency), with the post of its run for a person holding
+  `ledger.entry.post`; the post (`postRevaluationRun`, human-only) goes to
+  the run's page. A second run of a key date is refused
+  (`ledger.revaluation_exists`) and the company's runs list the first.
+  The run is synchronous (201), so there is no progress to poll.
+- **Calls.** The list makes five (`getCurrentPrincipal`,
+  `listLegalEntities`, `listLedgers`, `listFiscalPeriods`,
+  `listPrincipalNames`), a period five (`getFiscalPeriod` in place of the
+  list), the checks six (`getCurrentPrincipal`, `listLedgers`,
+  `listGrIrBalances`, `listLedgerReconciliation`, `listBankStatements`
+  twice), the revaluation five (`listRevaluationRuns` in place of the
+  periods), a preview those and `listAccounts`, a run six
+  (`getRevaluationRun`, `listAccounts` besides the companies, ledgers and
+  names). Ledgers, accounts and names that cannot be read are no reason to
+  refuse a page: they are logged, and shown by id.
+- **Refusals.** `i18n.PeriodProblems` explains the codes of a period's
+  decisions and of the unlock's approval request in a period's words,
+  `i18n.RevaluationProblems` those of a preview and a post; the contract
+  test holds both to the operations' `x-problem-codes`. A check the API
+  refuses is said in its place.
+- **Not built, tracker item T73i2:** cancelling a run
+  (`cancelRevaluationRun`, in §2's list but not the step's criteria);
+  orders, partners, entries and the reconciliation's accounts named (by
+  id now: a contract change, or more calls than the six); the checks as
+  at the period's end; the workspace's statements list (`/bank`) filtered by company, so
+  the check's links by status are not tenant-wide (`listBankStatements`
+  takes `legal_entity_id`; the screen offers no such filter); the entries
+  behind a ledger difference (`listLedgerReconciliationEntries`), as a
+  drill-down beside T73j's report; links to T73j's reports once they exist.
+- **Tests.** Handlers against the real API and PostgreSQL (`fixture`
+  gained `ClosePermissions`, `Parallel`, `Ledger`, `LedgerOnly`,
+  `Revalues`, `GRIROpen`): the list and its filters; the accountant
+  closing, locking and asking for March's unlock, refused as its approver
+  in the inbox by `workflow.own_request`, the controller approving it and
+  the accountant opening March again; a stale form, a replayed one and a
+  status refused; the checks of a company keeping two ledgers and of one
+  keeping one; the revaluation previewed from March's page, posted,
+  listed and refused a second time; a person who may only read periods
+  and one who may not. The rarer answers (pages more, values the
+  workspace does not know, unreadable ledgers, names and accounts, an
+  unbalanced ledger, a balance valued without a rate, an unreachable API)
+  come from the stub, as in T73d. The browser suite runs axe on the list,
+  an open period with its checks, a locked one whose unlock waits, the
+  checks' page, the revaluation and a posted run in English, French and
+  both pseudo-locales at 1280 and 390 px, and walks the revaluation
+  previewed and posted at a desktop's width, March closed, locked and its
+  unlock asked for from the keyboard at a phone's, and the unlock approved
+  by the controller in the inbox.
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF
