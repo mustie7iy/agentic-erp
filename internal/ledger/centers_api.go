@@ -158,7 +158,7 @@ func (e *Endpoints) ListCostCenters(ctx context.Context, params gen.ListCostCent
 	if err != nil {
 		return nil, fmt.Errorf("ledger: list cost centers: %w", err)
 	}
-	periods, err := costCenterPeriods(ctx, tx, ids(cs, func(c CostCenter) uuid.UUID { return c.ID }))
+	periods, err := costCenterPeriods(ctx, tx, ids(cs, func(c CostCenter) uuid.UUID { return c.ID }), noLock)
 	if err != nil {
 		return nil, err
 	}
@@ -269,7 +269,7 @@ func (e *Endpoints) ListProfitCenters(ctx context.Context, params gen.ListProfit
 	if err != nil {
 		return nil, fmt.Errorf("ledger: list profit centers: %w", err)
 	}
-	periods, err := profitCenterPeriods(ctx, tx, ids(cs, func(c ProfitCenter) uuid.UUID { return c.ID }))
+	periods, err := profitCenterPeriods(ctx, tx, ids(cs, func(c ProfitCenter) uuid.UUID { return c.ID }), noLock)
 	if err != nil {
 		return nil, err
 	}

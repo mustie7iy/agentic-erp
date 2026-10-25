@@ -20754,6 +20754,20 @@ type JournalLine struct {
 	TaxBase OptMoney `json:"tax_base"`
 	// The declared base in local currency, converted with the entry's rate; set with `tax_base`.
 	TaxBaseLc OptMoney `json:"tax_base_lc"`
+	// The line's cost center (ADR-0050 §5): as entered or derived (the account's default cost center);
+	// absent when it has none.
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// Code of the cost center, set with `cost_center_id`.
+	CostCenterCode OptString `json:"cost_center_code"`
+	// The line's profit center: as entered, its cost center's on the posting date, or the company's
+	// default profit center on a P&L line with profit center accounting; absent when it has none.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// Code of the profit center, set with `profit_center_id`.
+	ProfitCenterCode OptString `json:"profit_center_code"`
+	// The line's segment: always its profit center's; absent when it has none.
+	SegmentID OptUUID `json:"segment_id"`
+	// Code of the segment, set with `segment_id`.
+	SegmentCode OptString `json:"segment_code"`
 	// Line text.
 	LineText OptString `json:"line_text"`
 }
@@ -20826,6 +20840,36 @@ func (s *JournalLine) GetTaxBase() OptMoney {
 // GetTaxBaseLc returns the value of TaxBaseLc.
 func (s *JournalLine) GetTaxBaseLc() OptMoney {
 	return s.TaxBaseLc
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *JournalLine) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *JournalLine) GetCostCenterCode() OptString {
+	return s.CostCenterCode
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *JournalLine) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetProfitCenterCode returns the value of ProfitCenterCode.
+func (s *JournalLine) GetProfitCenterCode() OptString {
+	return s.ProfitCenterCode
+}
+
+// GetSegmentID returns the value of SegmentID.
+func (s *JournalLine) GetSegmentID() OptUUID {
+	return s.SegmentID
+}
+
+// GetSegmentCode returns the value of SegmentCode.
+func (s *JournalLine) GetSegmentCode() OptString {
+	return s.SegmentCode
 }
 
 // GetLineText returns the value of LineText.
@@ -20903,6 +20947,36 @@ func (s *JournalLine) SetTaxBaseLc(val OptMoney) {
 	s.TaxBaseLc = val
 }
 
+// SetCostCenterID sets the value of CostCenterID.
+func (s *JournalLine) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *JournalLine) SetCostCenterCode(val OptString) {
+	s.CostCenterCode = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *JournalLine) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetProfitCenterCode sets the value of ProfitCenterCode.
+func (s *JournalLine) SetProfitCenterCode(val OptString) {
+	s.ProfitCenterCode = val
+}
+
+// SetSegmentID sets the value of SegmentID.
+func (s *JournalLine) SetSegmentID(val OptUUID) {
+	s.SegmentID = val
+}
+
+// SetSegmentCode sets the value of SegmentCode.
+func (s *JournalLine) SetSegmentCode(val OptString) {
+	s.SegmentCode = val
+}
+
 // SetLineText sets the value of LineText.
 func (s *JournalLine) SetLineText(val OptString) {
 	s.LineText = val
@@ -20934,6 +21008,20 @@ type JournalLineInput struct {
 	TaxBase OptMoney `json:"tax_base"`
 	// Quantity.
 	Quantity OptQuantity `json:"quantity"`
+	// Cost center of the line (ADR-0050 §5): one of the entry's legal entity, active, valid on the
+	// posting date and not locked for the line's kind (422 `ledger.cost_center_invalid` with the reason as
+	// the field error's code). Only on a primary cost or revenue account (revenue: a category that allows
+	// it). Without one, a primary cost line takes the account's default cost center while cost center
+	// accounting applies, or is refused (422 `ledger.cost_center_required`).
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// Profit center of the line: assigned to the legal entity, active, valid and unlocked on the posting
+	// date (422 `ledger.profit_center_invalid`). A line with a cost center takes its cost center's, and
+	// another one given is refused (422 `ledger.profit_center_mismatch`); without either, a P&L line takes
+	// the company's default profit center while profit center accounting applies.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// Segment of the line: derived from the profit center, so one given must be its profit center's (422
+	// `ledger.segment_mismatch`).
+	SegmentID OptUUID `json:"segment_id"`
 	// Line text.
 	LineText OptString `json:"line_text"`
 }
@@ -20971,6 +21059,21 @@ func (s *JournalLineInput) GetTaxBase() OptMoney {
 // GetQuantity returns the value of Quantity.
 func (s *JournalLineInput) GetQuantity() OptQuantity {
 	return s.Quantity
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *JournalLineInput) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *JournalLineInput) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetSegmentID returns the value of SegmentID.
+func (s *JournalLineInput) GetSegmentID() OptUUID {
+	return s.SegmentID
 }
 
 // GetLineText returns the value of LineText.
@@ -21011,6 +21114,21 @@ func (s *JournalLineInput) SetTaxBase(val OptMoney) {
 // SetQuantity sets the value of Quantity.
 func (s *JournalLineInput) SetQuantity(val OptQuantity) {
 	s.Quantity = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *JournalLineInput) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *JournalLineInput) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetSegmentID sets the value of SegmentID.
+func (s *JournalLineInput) SetSegmentID(val OptUUID) {
+	s.SegmentID = val
 }
 
 // SetLineText sets the value of LineText.
@@ -29331,6 +29449,19 @@ type ParkedJournalLine struct {
 	TaxBase OptMoney `json:"tax_base"`
 	// Quantity, where relevant.
 	Quantity OptQuantity `json:"quantity"`
+	// The cost center entered on the line (JournalLineInput `cost_center_id`), absent when none was: the
+	// rest is derived when the entry is posted, and checked when it is parked.
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// Code of the cost center, set with `cost_center_id`.
+	CostCenterCode OptString `json:"cost_center_code"`
+	// The profit center entered on the line, absent when none was.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// Code of the profit center, set with `profit_center_id`.
+	ProfitCenterCode OptString `json:"profit_center_code"`
+	// The segment entered on the line, absent when none was.
+	SegmentID OptUUID `json:"segment_id"`
+	// Code of the segment, set with `segment_id`.
+	SegmentCode OptString `json:"segment_code"`
 	// Line text.
 	LineText OptString `json:"line_text"`
 }
@@ -29373,6 +29504,36 @@ func (s *ParkedJournalLine) GetTaxBase() OptMoney {
 // GetQuantity returns the value of Quantity.
 func (s *ParkedJournalLine) GetQuantity() OptQuantity {
 	return s.Quantity
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *ParkedJournalLine) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *ParkedJournalLine) GetCostCenterCode() OptString {
+	return s.CostCenterCode
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *ParkedJournalLine) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetProfitCenterCode returns the value of ProfitCenterCode.
+func (s *ParkedJournalLine) GetProfitCenterCode() OptString {
+	return s.ProfitCenterCode
+}
+
+// GetSegmentID returns the value of SegmentID.
+func (s *ParkedJournalLine) GetSegmentID() OptUUID {
+	return s.SegmentID
+}
+
+// GetSegmentCode returns the value of SegmentCode.
+func (s *ParkedJournalLine) GetSegmentCode() OptString {
+	return s.SegmentCode
 }
 
 // GetLineText returns the value of LineText.
@@ -29418,6 +29579,36 @@ func (s *ParkedJournalLine) SetTaxBase(val OptMoney) {
 // SetQuantity sets the value of Quantity.
 func (s *ParkedJournalLine) SetQuantity(val OptQuantity) {
 	s.Quantity = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *ParkedJournalLine) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *ParkedJournalLine) SetCostCenterCode(val OptString) {
+	s.CostCenterCode = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *ParkedJournalLine) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetProfitCenterCode sets the value of ProfitCenterCode.
+func (s *ParkedJournalLine) SetProfitCenterCode(val OptString) {
+	s.ProfitCenterCode = val
+}
+
+// SetSegmentID sets the value of SegmentID.
+func (s *ParkedJournalLine) SetSegmentID(val OptUUID) {
+	s.SegmentID = val
+}
+
+// SetSegmentCode sets the value of SegmentCode.
+func (s *ParkedJournalLine) SetSegmentCode(val OptString) {
+	s.SegmentCode = val
 }
 
 // SetLineText sets the value of LineText.

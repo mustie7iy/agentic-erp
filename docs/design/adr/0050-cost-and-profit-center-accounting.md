@@ -198,13 +198,29 @@ As built in T56a (migration 000128):
   profit center `FOR SHARE`, its redate takes it `FOR UPDATE`.
 - **Categories** are a code (`^[0-9A-Z_]{1,10}$`), checked since T56c
   against `controlling.cost_center_categories` (§4 as built).
-- **In use.** The refusals that need postings (`cost_center_period_in_use`,
-  `cost_center_posted_after`, `segment_in_use`) come with T56d, when lines
-  carry the centers; until then no center is in use.
-  A change joins neighbouring periods that end up alike, so a period whose
-  attributes did not change may still be retired and re-inserted; T56d's
-  in-use check therefore compares the attributes in force on each posted
-  date, not period rows.
+- **In use** (T56d2). A change joins neighbouring periods that end up
+  alike, so a period whose attributes did not change may still be retired
+  and re-inserted; the in-use check therefore compares the attributes in
+  force on each posted date, not period rows. A cost center's redate, lock
+  or move is refused when its validity would end on or before the posting
+  date of one of its lines (409 `ledger.cost_center_posted_after`), or when
+  what a line read on its posting date would differ after it: the
+  category, the profit center or the actual cost or revenue lock, or no
+  period at all, as for a later start (409
+  `ledger.cost_center_period_in_use`). The plan lock is not compared: no
+  actual posting reads it. A line dated before the center's first period,
+  which took a default's first period (§5 as built), read that period. The
+  check computes in Go the date ranges in which the attributes differ and
+  asks for the first line on the center within them
+  (`journal_line_cost_center` index). A profit center's segment move is
+  refused once any line carries the profit center (409
+  `ledger.segment_in_use`). Both locks are compared on every posted line,
+  whatever its kind, so unlocking costs over dates with only revenue lines
+  is refused too, and a reversal dated after the end counts as a posting:
+  the stricter reading of "what posted lines read", for the product owner
+  to relax if wanted (review of T56d2). Both are planned at the request and again at
+  the approval, with the center held for update: a posting under way holds
+  it for key share, so the change waits for it and then sees its lines.
 
 - **Codes**: `^[0-9A-Z_-]{1,10}$`, as SAP's `KOSTL`/`PRCTR` (10 characters,
   migrated with leading zeros stripped by the existing ALPHA rule).
@@ -506,6 +522,92 @@ waits for postings under way and postings after it see it.
   `JournalEntryPosted` event gain the three ids and the codes (additive,
   ADR-0041).
 
+As built in T56d and T56d2 (migrations 000155-000160; the commit-time check is T56d3):
+- **Columns and keys.** `cost_center_id`, `profit_center_id`, `segment_id`
+  on `journal_line`. PostgreSQL 17 cannot add a `NOT VALID` foreign key to
+  a partitioned table, so 000155 adds each key `NOT VALID` to every
+  partition under the parent's name, 000156 validates them partition by
+  partition and then adds the parent's, which takes the validated ones over
+  without a scan (new partitions get them from the parent). The cost center
+  key is `(tenant_id, cost_center_id, legal_entity_id)` → `cost_center`; the
+  profit center's is `(tenant_id, profit_center_id, legal_entity_id)` →
+  `profit_center_company`, so a line's profit center is assigned to its
+  company by the database; the segment's → `segment`. 000157-000158 build
+  the two partial indexes per partition (`migrate:partitioned-index`).
+- **Commit-time check: T56d3.** The table above held by the database
+  would refuse, during the rolling upgrade, the previous release's
+  postings for a company whose center accounting is on (it writes no
+  centers), against 06 §6.4. It is a contract step of its own, in the
+  release after the one that ships T56d and T56d2, once no replica writes
+  lines without centers. Until then the ledger's derivation is the only
+  check, and every line is written through it.
+- **Derivation and validation** (`ledger.assign`, `assignment.go`) run in
+  `postAll`, which every posting path ends in (manual and parked entries,
+  `Postings`, GR/IR, clearings, down payments, revaluation, statements,
+  migration), once per posting group, so every ledger's copy carries the
+  same (T52). Parking checks an entry the same way without locks (the
+  posting checks it again). The order is §5's: the line's cost center, else
+  the account's active `default_assignment` while cost center accounting
+  applies to the posting's fiscal year (else 422
+  `ledger.cost_center_required`); the line's profit center, else the cost
+  center's in its period on the posting date (a different one given: 422
+  `ledger.profit_center_mismatch`), else for a P&L line with profit center
+  accounting the company's default (always there:
+  `company_controlling_needs_default`, so `ledger.profit_center_required`
+  is the database check's alone, T56d2); the segment is the profit
+  center's (422 `ledger.segment_mismatch` for another, or one without a
+  profit center). A center given is validated whether or not accounting is
+  on. Reasons of `ledger.cost_center_invalid`: those listed above, plus
+  `not_active` (a pending or rejected center) and `not_allowed` (a cost
+  center on a `none` account); of `ledger.profit_center_invalid`:
+  `unknown`, `not_in_company`, `not_active`, `not_valid_on_date`, `locked`
+  (a profit center has one lock). The rules read are T56c's:
+  `gl_account.cost_element`, `company_controlling`'s years compared with
+  the posting's fiscal year, active `default_assignment` rows and the
+  category's `revenue_allowed`.
+- **A default before its validity.** A default is valid from the day it was
+  set (T56c), so an automatic posting dated earlier, such as a revaluation
+  at a past period end, would otherwise be refused. A center that came from
+  a default (the cost center, its profit center, or the default profit
+  center) on a date before its first period takes its first period's
+  attributes. The posting path does not tell automatic from manual
+  postings, so a manual line taking a default is treated alike; a center
+  entered on such a date is refused (`not_valid_on_date`). Product owner
+  2026-10-25: a posting dated before a default's validity may take the
+  default whether it is automatic or manual, as built; a center entered on
+  such a date stays refused.
+- **Locks.** The posting reads the centers `FOR KEY SHARE` (a change takes
+  the center `FOR UPDATE` and waits; text changes do not), then, in a new
+  statement, their active periods `FOR SHARE`, so a posting that waited for
+  a change reads the periods it wrote; after the period statuses and before
+  the number range. Categories are read unlocked: an activation changing
+  `revenue_allowed` applies to the postings after it. A race test proves a
+  posting and a lock's approval serialize both ways.
+- **One clock.** `keepsDefaultCostCenter`/`keepsDefaultProfitCenter` take
+  today from `Endpoints.Now` and `CenterChanges.Now`, wired to the server's
+  clock as `Setup.Now` is, instead of the database's `current_date`.
+- **Simulation.** `AssignmentSimulation` leaves out lines whose cost center
+  is not the account's active default: their document gave it, the rules
+  do not decide it (the column does not record whether a center was
+  entered or derived).
+- **T56d2** (split for size, released with T56d): the in-use refusals of
+  §3 as built. The journal API's lines take `cost_center_id`,
+  `profit_center_id` and `segment_id` (JournalLineInput) on manual and
+  parked entries and show each with its code (`cost_center_code`,
+  `profit_center_code`, `segment_code`, read by joining the centers); a
+  parked line stores the centers as entered (migrations 000159-000160:
+  three nullable columns on `parked_entry_line` with foreign keys to the
+  tenant's centers, added `NOT VALID` and validated), so its posting
+  derives the rest on its posting date, and a header change keeps them.
+  `GET /v1/journal-entries` filters by `cost_center_id` and
+  `profit_center_id` (entries with a line on the center, listed with all
+  their lines). `JournalEntryPosted` lines carry the three ids with their
+  codes, absent when a line has none. All additive (ADR-0041).
+- **Not covered** (no step asks for it): a profit center's redate or lock
+  over dates with posted lines is checked only against the cost center
+  periods naming it (`ledger.profit_center_in_use`), not against the lines
+  carrying it: tracker T56d4, for the product owner to decide.
+
 ### 6. Procurement and payables capture the assignment
 - **Requisition and PO items** gain `account_assignment` (`none` | `cost_center`;
   `none` stays only for accounts whose `cost_element` is `none`, until
@@ -723,7 +825,9 @@ coverage 100%, reviewer). Lane F (ledger), after T52 for T56d.
 | T56a | **Center master data** (ledger) | `cost_center`, `cost_center_period`, `profit_center`, `profit_center_period`, `profit_center_company`, `segment` with RLS, `tenant_id` first, `center_change`, EXCLUDE on validity, periods written once; codes, company rules (the in-use refusals need postings and move to T56d); `/v1/cost-centers`, `/v1/profit-centers`, `/v1/segments`, `/v1/center-changes` (contract first; list, read, create, texts, redate, lock, move, assign; creation and every period, segment or company change as a `center_change` approval request with the approval table of §11); audit and events; `FailingTx` tests on every path; schema tests per database rule |
 | T56b | **Hierarchies** (done; as built in §3) | Standard and alternative hierarchies per kind; one leaf per center in the standard (commit-time check), no cycles, depth ≤ 12; node moves as change requests; `GET /v1/hierarchies/{id}` with members; schema tests |
 | T56c | **Configuration rules** (done; as built in §4) | `controlling.cost_center_categories`, `cost_element` per account (defaults by type), `default_assignments`, `profit_center_accounting`, `default_profit_center`; tiers as §4; activation refuses an automatically posted account needing a cost object without a default; packs (ADR-0048) set `cost_element` for their accounts; simulation lists lines that would be refused or reassigned |
-| T56d | **Assignment on the journal** | The in-use refusals T56a leaves out: `ledger.cost_center_period_in_use` (a change whose periods would differ from what posted lines read), `ledger.cost_center_posted_after` (validity ended before a posting), `ledger.segment_in_use` (a posted profit center's segment); expand migration (columns, FKs NOT VALID then validated per partition, partial indexes concurrently); derivation and validation in every posting path incl. parked and `Postings`; commit-time check of §5's table; reversals copy; T52 copies carry the same; errors and constraint mappings as §5; journal API, list filters and event fields (additive); `FOR SHARE` on center periods with a race test against a lock |
+| T56d | **Assignment on the journal** (built with T56d2; the commit-time check is T56d3, see §5 as built) | The in-use refusals T56a leaves out: `ledger.cost_center_period_in_use` (a change whose periods would differ from what posted lines read), `ledger.cost_center_posted_after` (validity ended before a posting), `ledger.segment_in_use` (a posted profit center's segment); expand migration (columns, FKs NOT VALID then validated per partition, partial indexes concurrently); derivation and validation in every posting path incl. parked and `Postings`; commit-time check of §5's table; reversals copy; T52 copies carry the same; errors and constraint mappings as §5; journal API, list filters and event fields (additive); `FOR SHARE` on center periods with a race test against a lock |
+| T56d2 | **Assignment in the journal API; in-use refusals** (released with T56d; built, see §5 as built) | `ledger.cost_center_period_in_use`, `ledger.cost_center_posted_after`, `ledger.segment_in_use` (attributes in force on each posted date); journal API lines with the three ids and codes, entered on manual and parked entries (stored on parked lines), list filters `cost_center_id`/`profit_center_id`, `JournalEntryPosted` fields (additive, openapi and asyncapi) |
+| T56d3 | **Commit-time check of §5's table** (contract step: the release after the one shipping T56d and T56d2) | Deferred constraint trigger on `journal_line` holding the table for fiscal years from the switches, the segment always the profit center's, reversals exempt; constraint names mapped to the §5 problems (`ledger.profit_center_required` for a P&L line without one); schema tests per rule |
 | T56e | **Procurement and payables** | `account_assignment` and `cost_center_id` on requisition and PO items (validated at release), GR and price-difference lines with the item's center; invoice items' `cost_center_id`/`profit_center_id`; capture agent proposals with eval cases; the free-text custom field in fixtures replaced; ADR-0034 note |
 | T56f | **Actual reports** | `ledger.assignment_balance` maintained by the projector (exactly once, run-twice test); `GET /v1/cost-center-balances`, `/v1/profit-center-balances` (by center, node, segment, account, period; exact at the read); schema test that assignment balances add up to `period_balance` on P&L accounts; drill-down via journal filters |
 | T56g | **Plan and plan/actual** (P5) | `controlling` context and schema; plan categories with a human-only lock; plan lines by upload and API, idempotent by batch; `GET /v1/cost-center-plan-actual`; actuals through `ledger.AssignmentBalances` |

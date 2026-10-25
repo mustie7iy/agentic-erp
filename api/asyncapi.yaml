@@ -3024,6 +3024,12 @@ components:
               purchase_order_id: {$ref: '#/components/schemas/NullableUuid', description: 'Purchase order whose item a GR/IR line belongs to.'}
               po_item_no: {type: [integer, 'null'], minimum: 1, description: 'Item of the purchase order, set with purchase_order_id.'}
               special_gl: {type: string, description: 'Special G/L indicator of a supplier line (ADR-0037), open enum: A, a down payment. Absent on ordinary lines.'}
+              cost_center_id: {$ref: '#/components/schemas/Uuid', description: 'The line''s cost center (ADR-0050 §5), entered or derived. Absent on lines without one.'}
+              cost_center_code: {type: string, description: 'Code of the cost center, set with cost_center_id.'}
+              profit_center_id: {$ref: '#/components/schemas/Uuid', description: 'The line''s profit center, entered or derived. Absent on lines without one.'}
+              profit_center_code: {type: string, description: 'Code of the profit center, set with profit_center_id.'}
+              segment_id: {$ref: '#/components/schemas/Uuid', description: 'The line''s segment, its profit center''s. Absent on lines without one.'}
+              segment_code: {type: string, description: 'Code of the segment, set with segment_id.'}
     JournalEntryReversedV1:
       type: object
       required: [journal_entry_id, fiscal_year, legal_entity_id, document_number, reversal_entry_id, reversal_fiscal_year, reversal_document_number, reversal_posting_date]

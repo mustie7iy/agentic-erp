@@ -614,7 +614,10 @@ erDiagram
     uuid partner_id
     text tax_code
     uuid purchase_order_id "GR/IR lines"
-    int po_item_no }
+    int po_item_no
+    uuid cost_center_id "T56d"
+    uuid profit_center_id
+    uuid segment_id }
   clearing { uuid id PK
     uuid legal_entity_id
     date clearing_date
@@ -1066,6 +1069,29 @@ the cost center lines on an account take when none is given (SAP OKB9),
 per legal entity and account set up there, a cost center of that legal
 entity (`default_assignment_cost_center_company`), deactivated when the
 configuration drops it.
+
+Account assignment on the journal line (T56d, ADR-0050 §5, migrations
+000155-000158). `journal_line` carries `cost_center_id`, `profit_center_id`
+and `segment_id`, nullable, NULL on lines posted before. The cost center is
+one of the line's legal entity (`journal_line_cost_center_fkey` to
+`cost_center (tenant_id, id, legal_entity_id)`), the profit center one
+assigned to it (`journal_line_profit_center_fkey` to
+`profit_center_company`), the segment a segment
+(`journal_line_segment_fkey`); added `NOT VALID` per partition and
+validated per partition before the parent took them over. Partial indexes
+`journal_line_cost_center` and `journal_line_profit_center` (company,
+center, year, period). The ledger derives and validates every line's
+centers before writing it; the database check of ADR-0050 §5's table at
+commit comes with T56d3, in the release after (06 §6.4). A parked entry's
+lines keep the centers entered on them (T56d2, migrations 000159-000160:
+`parked_entry_line.cost_center_id`, `profit_center_id`, `segment_id`,
+foreign keys `parked_entry_line_cost_center_fkey`,
+`parked_entry_line_profit_center_fkey` and `parked_entry_line_segment_fkey`
+to the tenant's centers, added `NOT VALID` and validated); the rest is
+derived when the entry is posted. A center change is checked against the
+lines carrying the center (ADR-0050 §3, T56d2: the
+`journal_line_cost_center` index serves the cost center's ranges of
+posting dates).
 
 ## 3.8 Procurement (`procurement`)
 
