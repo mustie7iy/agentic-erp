@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"golang.org/x/net/html"
@@ -129,7 +128,7 @@ func TestPeriodList(t *testing.T) {
 	if !selected[d.f.US.String()] || !selected[d.leading.String()] {
 		t.Errorf("the default choice: got %v, want the first company by name (Acme Corp US) and the leading ledger", selected)
 	}
-	if got := field(p.form("/close"), "fiscal_year"); got != fmt.Sprint(time.Now().Year()) {
+	if got := field(p.form("/close"), "fiscal_year"); got != fmt.Sprint(s.clock.Now().Year()) {
 		t.Errorf("the default year: got %q, want this year", got)
 	}
 	current := ""
@@ -368,7 +367,7 @@ func TestRevaluation(t *testing.T) {
 	r := previewAs(b, d, nil)
 	status(t, "the preview", r, http.StatusOK)
 	pv := r.page(t)
-	holds(t, "the preview", pv.mainText(), "What the revaluation would value", "Key date 2026-03-31", "Period Period 3 of 2026", "Rate type Bank selling rate",
+	holds(t, "the preview", pv.mainText(), "What the revaluation would value", "Key date 2026-03-31", "Period of the key date Period 3 of 2026", "Rate type Bank selling rate",
 		"211000 Accounts Payable - Domestic USD Loss 1 USD -100.00 EUR -80.00 EUR -90.00 EUR -10.00", "line 2", "0.900000000000", "Post the revaluation")
 	post := pv.form("/close/revaluation/post")
 	posted := postForm(b, post, "/close/revaluation/post", nil)

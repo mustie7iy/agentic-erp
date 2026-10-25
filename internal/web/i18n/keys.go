@@ -807,4 +807,5 @@ const (
 	ProblemValuationAccount     Key = "problem.ledger.revaluation_account_missing"
 	ProblemRevaluationExists    Key = "problem.ledger.revaluation_exists"
 	ProblemRevaluationPeriod    Key = "problem.revaluation.period_not_open"
+	RevaluationPeriod           Key = "revaluation.period"
 )

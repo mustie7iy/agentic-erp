@@ -178,7 +178,6 @@ type PeriodPage struct {
 // another ledger the company keeps, and the bank statements not yet
 // reconciled, each with its result or the API's refusal in its place.
 type ChecksView struct {
-	Self       string // the section's own path
 	Period     string // the period's page; "" when it is not known
 	GRIR       GRIRCheck
 	Ledgers    LedgerCheck

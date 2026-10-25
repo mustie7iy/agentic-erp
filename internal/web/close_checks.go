@@ -53,7 +53,7 @@ func (s *Server) checks(w http.ResponseWriter, r *http.Request, p *person) {
 		return
 	}
 	q := r.URL.Query()
-	v := ui.ChecksView{Self: ui.ChecksPath + "?" + q.Encode()}
+	var v ui.ChecksView
 	if id, err := uuid.Parse(q.Get("period_id")); err == nil {
 		v.Period = periodPath(id)
 	}

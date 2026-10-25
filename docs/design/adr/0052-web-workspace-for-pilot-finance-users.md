@@ -1704,7 +1704,8 @@ written:
   the GR/IR and ledger reconciliation reports are T73j's, so those two
   checks show their results in place without a link; a statement links
   to its page and its bank's reconciliation report (T73g), and the
-  statements' lists by status, which have no company filter. The checks
+  workspace's statements lists by status, which offer no company filter
+  (the API's has one). The checks
   read the figures as they stand now, not as at the period's end
   (`listGrIrBalances` takes a key date for one order only).
 - **Revaluation** (ADR-0042). The preview is posted (`previewRevaluation`
@@ -1736,8 +1737,11 @@ written:
   (`cancelRevaluationRun`, in §2's list but not the step's criteria);
   orders, partners, entries and the reconciliation's accounts named (by
   id now: a contract change, or more calls than the six); the checks as
-  at the period's end; the statements' list by company; links to T73j's
-  reports once they exist.
+  at the period's end; the workspace's statements list (`/bank`) filtered by company, so
+  the check's links by status are not tenant-wide (`listBankStatements`
+  takes `legal_entity_id`; the screen offers no such filter); the entries
+  behind a ledger difference (`listLedgerReconciliationEntries`), as a
+  drill-down beside T73j's report; links to T73j's reports once they exist.
 - **Tests.** Handlers against the real API and PostgreSQL (`fixture`
   gained `ClosePermissions`, `Parallel`, `Ledger`, `LedgerOnly`,
   `Revalues`, `GRIROpen`): the list and its filters; the accountant

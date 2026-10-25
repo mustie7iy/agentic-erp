@@ -2195,7 +2195,7 @@ func PreviewSection(v PreviewView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = Fact(i18n.PeriodNumber, T(i18n.PeriodHeading, v.Period, yearText(v.Year))).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = Fact(i18n.RevaluationPeriod, T(i18n.PeriodHeading, v.Period, yearText(v.Year))).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

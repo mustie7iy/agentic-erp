@@ -787,5 +787,6 @@
   "problem.ledger.rate_stale": "Un taux du type de taux d'évaluation est valide depuis avant la période de la date de référence; il est donc périmé. Enregistrez le taux de la période.",
   "problem.ledger.revaluation_account_missing": "Un compte ayant des postes à évaluer n'a pas de comptes d'évaluation dans la configuration.",
   "problem.ledger.revaluation_exists": "Une réévaluation de cette société, de ce grand livre et de cette date de référence est déjà comptabilisée : elle figure ci-dessous.",
-  "problem.revaluation.period_not_open": "La période de la date de référence ou la suivante n'est pas ouverte dans ce grand livre; la réévaluation ne peut donc pas être comptabilisée."
+  "problem.revaluation.period_not_open": "La période de la date de référence ou la suivante n'est pas ouverte dans ce grand livre; la réévaluation ne peut donc pas être comptabilisée.",
+  "revaluation.period": "Période de la date de référence"
 }

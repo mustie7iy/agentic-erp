@@ -117,7 +117,7 @@ func difference() DifferenceView {
 // checksView is the checks: each with something to look at and more, or
 // each clear.
 func checksView(full bool) ChecksView {
-	v := ChecksView{Self: "/close/checks", Ledgers: LedgerCheck{Single: true}, Statements: StatementCheck{Imported: "/bank?status=imported", Gap: "/bank?status=gap"}}
+	v := ChecksView{Ledgers: LedgerCheck{Single: true}, Statements: StatementCheck{Imported: "/bank?status=imported", Gap: "/bank?status=gap"}}
 	if !full {
 		return v
 	}

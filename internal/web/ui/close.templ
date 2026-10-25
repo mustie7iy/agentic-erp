@@ -578,7 +578,7 @@ templ PreviewSection(v PreviewView) {
 		</h2>
 		<dl class="facts">
 			@Fact(i18n.RevaluationKeyDate, Day(v.KeyDate))
-			@Fact(i18n.PeriodNumber, T(i18n.PeriodHeading, v.Period, yearText(v.Year)))
+			@Fact(i18n.RevaluationPeriod, T(i18n.PeriodHeading, v.Period, yearText(v.Year)))
 			@Fact(i18n.RevaluationRateType, labelText(v.RateType))
 		</dl>
 		@valuedLists(v.Totals, v.Items)

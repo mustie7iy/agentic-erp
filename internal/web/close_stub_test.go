@@ -219,20 +219,18 @@ func TestCloseUnavailable(t *testing.T) {
 // a preview without the permission to read accounts names them by id.
 func TestPostRefusedBeforeTheAPI(t *testing.T) {
 	st := &stubbed{routes: map[string]http.HandlerFunc{
-		"GET /v1/me":                answer(200, meJSON(permReadEntries, permPostEntries)),
-		"GET /v1/revaluation-runs":  answer(200, `{"items":[]}`),
-		"POST /v1/revaluation-runs": answer(500, problemJSON(500, "platform.internal")),
+		"GET /v1/me":               answer(200, meJSON(permReadEntries, permPostEntries)),
+		"GET /v1/revaluation-runs": answer(200, `{"items":[]}`),
+		"POST /v1/revaluation-runs": func(w http.ResponseWriter, r *http.Request) {
+			t.Error("the post reached the API")
+			answer(500, problemJSON(500, "platform.internal"))(w, r)
+		},
 		"POST /v1/revaluation-runs/preview": answer(200, fmt.Sprintf(`{"legal_entity_id":%q,"ledger_id":%q,"key_date":"2026-03-31","fiscal_year":2026,
 			"fiscal_period":3,"rate_type":"average","items":[%s],"totals":[]}`, uuid.New(), uuid.New(), balanceItemJSON())),
 	}}
 	_, b, token := stubStack(t, st)
 	r := b.do(http.MethodPost, "/close/revaluation/post", url.Values{"csrf_token": {token}, "idempotency_key": {uuid.NewString()}, "key_date": {"x"}})
 	status(t, "a post without its company", r, http.StatusUnprocessableEntity)
-	for _, q := range st.queries {
-		if q.Has("legal_entity_id") {
-			t.Errorf("the API was called: %v", q)
-		}
-	}
 	// Without the accounts' permission a preview names its accounts by id.
 	p := b.do(http.MethodPost, "/close/revaluation/preview", url.Values{"csrf_token": {token}, "idempotency_key": {uuid.NewString()},
 		"legal_entity_id": {uuid.NewString()}, "key_date": {"2026-03-31"}})
