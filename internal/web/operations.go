@@ -38,6 +38,7 @@ var objectApprovers = map[string]string{
 	"period_unlock": "ledger.period.unlock.approve", "manual_entry": "ledger.entry.approve",
 	"purchase_order": "procurement.order.approve", "order_change": "procurement.order.approve",
 	"bank_clearing": "payments.statement.clearing.approve", "center_change": "ledger.cost_center.approve",
+	"payment_run_release": "payments.run.release",
 }
 
 // Operation is one API operation a route calls: its operationId, the
