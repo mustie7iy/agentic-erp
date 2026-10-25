@@ -1623,7 +1623,7 @@ and where it departs from the step as first written:
   inbox (T73d), not a screen of its own: `payment_run_release` is named
   there, and the decisions' `x-object-permissions` gained it on main
   with T72m, so `TestScreensAgainstTheContract` failed until the
-  workspace's `objectApprovers` held it. A request rejected in the inbox
+  workspace's `objectApprovers` held it (integration, ab2a3add). A request rejected in the inbox
   rejects its run, which its page then shows.
 - **Calls.** The list makes at most five (`getCurrentPrincipal`,
   `listLegalEntities`, `listHouseBanks` for the banks' codes and the
