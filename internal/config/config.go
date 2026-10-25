@@ -187,9 +187,15 @@ type Company struct {
 	// ManualEntryApprovalLimit is the largest manual journal entry, by its
 	// debits in the company's currency, that people post without approval
 	// (T35); above it the controller approves the entry first.
-	ManualEntryApprovalLimit string    `yaml:"manual_entry_approval_limit" json:"manual_entry_approval_limit"`
-	OverDeliveryPercent      int       `yaml:"gr_over_delivery_percent" json:"gr_over_delivery_percent"`
-	HouseBank                HouseBank `yaml:"house_bank" json:"house_bank"`
+	ManualEntryApprovalLimit string `yaml:"manual_entry_approval_limit" json:"manual_entry_approval_limit"`
+	// ReleaseDualLimit is the largest payment run, by its total in the
+	// company's currency at the run date's rate, that one releaser
+	// releases (ADR-0038, product owner 2026-10-22); above it a second
+	// holder of payments.release_role approves the release first
+	// (approvals.PaymentRunRelease). Empty: no run needs the second person.
+	ReleaseDualLimit    string    `yaml:"release_dual_limit,omitempty" json:"release_dual_limit,omitempty"`
+	OverDeliveryPercent int       `yaml:"gr_over_delivery_percent" json:"gr_over_delivery_percent"`
+	HouseBank           HouseBank `yaml:"house_bank" json:"house_bank"`
 	// HouseBanks are the company's further house banks (SAP T012K), each
 	// with its own ledger account (ADR-0038).
 	HouseBanks []HouseBank `yaml:"house_banks,omitempty" json:"house_banks,omitempty"`

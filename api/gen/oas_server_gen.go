@@ -90,9 +90,11 @@ type Handler interface {
 	// that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
 	// fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
 	// statement line's posting (`bank_clearing`), and whoever matched the line by hand cannot approve its
-	// posting (403 `workflow.segregation_of_duties`). A change request whose latest regression evidence
-	// replayed no case (a suite captured with `allow_empty`) is approved only with a comment acknowledging
-	// that (422 `workflow.acknowledgement_required`).
+	// posting (403 `workflow.segregation_of_duties`). A payment run's release (`payment_run_release`) is
+	// approved by a holder of the release role who did not propose the run (403
+	// `workflow.segregation_of_duties`); the approval does not release it. A change request whose latest
+	// regression evidence replayed no case (a suite captured with `allow_empty`) is approved only with a
+	// comment acknowledging that (422 `workflow.acknowledgement_required`).
 	//
 	// POST /v1/approval-requests/{id}:approve
 	ApproveApprovalRequest(ctx context.Context, req OptDecisionInput, params ApproveApprovalRequestParams) (ApproveApprovalRequestRes, error)
@@ -1948,7 +1950,8 @@ type Handler interface {
 	// Rejects the request with a mandatory comment. Human-only; the requester cannot reject. Besides
 	// `workflow.request.decide` the caller must hold the step's role and the approval permission of the
 	// object type, listed in `x-object-permissions`. The object is rejected with it (for example a
-	// supplier invoice exception leaves the invoice `rejected`).
+	// supplier invoice exception leaves the invoice `rejected`); a payment run whose release is rejected
+	// (`payment_run_release`) is rejected too, its items freed (product owner 2026-10-25).
 	//
 	// POST /v1/approval-requests/{id}:reject
 	RejectApprovalRequest(ctx context.Context, req *CommentRequiredInput, params RejectApprovalRequestParams) (RejectApprovalRequestRes, error)
@@ -1977,8 +1980,8 @@ type Handler interface {
 	// `:release`. Segregation of duties: the proposer can never reject the run (403
 	// `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). The decider
 	// holds the active configuration's `payments.release_role` today, as for `:release` (403
-	// `payments.release_role_missing`, 422 `workflow.unknown_role`). Sets `decided_by` and `decided_at`.
-	// Requires status `proposed`.
+	// `payments.release_role_missing`, 422 `workflow.unknown_role`). A pending request for the release's
+	// approval is withdrawn. Sets `decided_by` and `decided_at`. Requires status `proposed`.
 	//
 	// POST /v1/payment-runs/{id}:reject
 	RejectPaymentRun(ctx context.Context, req *ReasonInput, params RejectPaymentRunParams) (RejectPaymentRunRes, error)
@@ -2004,9 +2007,22 @@ type Handler interface {
 	// releaser holds the active configuration's `payments.release_role` today (403
 	// `payments.release_role_missing`; 422 `workflow.unknown_role` when it names no active role). A
 	// configuration asking for more than one releaser (`payments.release_approvals` above 1, which
-	// validation now refuses) refuses the release with 422 `payments.release_approvals_unsupported` rather
+	// validation refuses) refuses the release with 422 `payments.release_approvals_unsupported` rather
 	// than letting one person release, the resumption of a failed release included, until a change request
-	// sets it to 1. Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a
+	// sets it to 1. Two-person release (ADR-0038, product owner 2026-10-22): a run whose total, converted
+	// exactly into its company's currency at the average rate of the run date (the rate its payments post
+	// at), is above the company's `release_dual_limit` is released only after its release was approved
+	// (`:submit`, then `approveApprovalRequest` by a second holder of the release role): 409
+	// `payments.release_approval_required` when none was asked for or the last request was rejected or
+	// withdrawn, 409 `payments.release_approval_pending` while it waits, 409
+	// `payments.release_approval_outdated` when the run's total is now above the total that was approved;
+	// the approver can never release it (403 `identity.sod_conflict`; the database enforces it). The
+	// approval does not release the run: the release stays this step. A run at or below the limit, or of a
+	// company without one, is released by one person as before, and a request still pending for it is
+	// withdrawn. A release resumed after its operation failed is not measured again: it was decided, with
+	// the approval it needed, when it started; only its approver is still refused. 422
+	// `ledger.no_exchange_rate` when the company has a limit and no rate converts the run's currency on
+	// the run date. Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a
 	// failed release operation, which resumes it. 409 `payments.discount_lapsed` when a payment takes a
 	// cash discount whose last day has passed (T36d): reject the run and propose again. 409
 	// `ledger.withholding_changed` when an item would withhold another amount than its payment deducted
@@ -2209,6 +2225,25 @@ type Handler interface {
 	//
 	// POST /v1/change-requests/{id}:submit
 	SubmitChangeRequest(ctx context.Context, params SubmitChangeRequestParams) (SubmitChangeRequestRes, error)
+	// SubmitPaymentRun implements submitPaymentRun operation.
+	//
+	// Two-person release (ADR-0038, product owner 2026-10-22): opens an approval request (object type
+	// `payment_run_release`) for the release of a proposed run whose total, converted exactly into its
+	// company's currency at the average rate of the run date, is above the company's `release_dual_limit`.
+	// The caller is the requester, and is checked as a releaser: human-only, never the proposer (403
+	// `identity.sod_conflict`), holding `payments.release_role` today (403
+	// `payments.release_role_missing`, 422 `workflow.unknown_role`). One holder of the release role who is
+	// neither the requester nor the proposer approves it (`approveApprovalRequest`, permission
+	// `payments.run.release`; agents never approve); the approval does not release the run, which a
+	// releaser other than the approver then releases with `:release`. Rejected, the run is rejected too
+	// and its items freed (product owner 2026-10-25); withdrawn by the requester, the run stays
+	// `proposed`, to be asked for again or rejected. 409 `payments.release_approval_not_required` when the
+	// run is within the limit (release it directly), 409 `payments.release_approval_pending` while a
+	// request waits, 409 `payments.release_already_approved` when its release is approved for its total
+	// already. Sets `release_approval`. Requires status `proposed`.
+	//
+	// POST /v1/payment-runs/{id}:submit
+	SubmitPaymentRun(ctx context.Context, params SubmitPaymentRunParams) (SubmitPaymentRunRes, error)
 	// SubmitPurchaseOrderChange implements submitPurchaseOrderChange operation.
 	//
 	// Submits an order change in status `draft` (409 `procurement.invalid_status` otherwise) of an order

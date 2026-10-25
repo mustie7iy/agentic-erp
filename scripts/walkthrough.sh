@@ -367,6 +367,7 @@ people() {
   person sam "Sam Solution Architect" finance_staff solution_architect
   person tom "Tom Treasurer" finance_staff Z_TREASURY_MGR
   person tara "Tara Treasury Manager" finance_staff Z_TREASURY_MGR
+  person fiona "Fiona Finance Director" finance_staff Z_TREASURY_MGR
 }
 
 # person SUBJECT NAME ROLE... creates a person who may act in every
@@ -496,6 +497,7 @@ PILOT_SETTINGS='
        "gl_account": "1010", "main_gl_account": "1000", "incoming_gl_account": "1015"},
       {"name": "RBCUS", "bic": "ROYCCAT2", "institution_number": "003", "transit_number": "00002", "account_number": "4000001",
        "gl_account": "1020", "main_gl_account": "1030", "incoming_gl_account": "1040", "currency": "USD"}])
+    | .release_dual_limit = "4000.00"
     | .fx_valuation = {"accounts": ["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"})}
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
         "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})'
@@ -517,8 +519,9 @@ step_pack() {
   field '.notes[] | .message' | grep -q 'signed' || fail "no note says the pack is not signed off"
   say "  ($(field '[.notes[] | select(.message | startswith("conflict"))] | length') more notes list where SAP's settings were kept over the pack's)"
   say "Ada adds the pilot's own settings to the proposal: RBC house banks in CAD and USD, USD accounts revalued"
-  say "at month end, bank statement rules (match by end-to-end id, approval above CAD 10,000), a 2/10 net 30"
-  say "cash discount term, cost center categories, liquidity items and an output tax code for GST (step 11)."
+  say "at month end, bank statement rules (match by end-to-end id, approval above CAD 10,000), payment runs"
+  say "above CAD 4,000 released only after a second person approves, a 2/10 net 30 cash discount term,"
+  say "cost center categories, liquidity items and an output tax code for GST (step 11)."
   jq "{title: \"Canada pack $version and the pilot's settings\", rationale: \"Pilot company set-up\", proposed: (.proposed | ${PILOT_SETTINGS//@YEAR@/$YEAR})}" \
     "$WORK/last.json" >"$WORK/proposal.json"
   api 200 '"\(.number): \(.title)"' updateChangeRequest -p "id=$cr" -if-match "$ETAG" -body @proposal.json
@@ -648,7 +651,7 @@ step_credit() {
 }
 
 step_payment() {
-  heading "Step 7 — A payment run: proposed with the cash discount, released by someone else, the bank file"
+  heading "Step 7 — A payment run: proposed with the cash discount, its release approved by a second person, released by a third, the bank file"
   as tom
   say "Tom proposes a run from the RBC account for everything due within 30 days: Tyrell's invoice less"
   say "the credit memo and the 2% discount, and the open payables migrated from SAP that are overdue."
@@ -669,6 +672,28 @@ step_payment() {
     name_partners
   say "Tom holds the release permission too, but whoever proposes a run can never release it:"
   refused 403 identity.sod_conflict releasePaymentRun -p "id=$RUN" -if-match "$version_etag" -body '{}'
+  as tara
+  say "The run is above company 1000's release_dual_limit of CAD 4,000.00, so Tara cannot release it alone:"
+  refused 409 payments.release_approval_required releasePaymentRun -p "id=$RUN" -if-match "$version_etag" -body '{}'
+  say "She asks for a second person's approval of the release."
+  api 200 '"run \(.document_number): release approval \(.release_approval.status), \(.release_approval.requested_total.amount) \(.release_approval.requested_total.currency)"' \
+    submitPaymentRun -p "id=$RUN" -if-match "$version_etag"
+  local request
+  request=$(field .release_approval.request_id)
+  say "Tara asked for it, so she cannot approve it; Tom proposed the run, so he cannot either:"
+  QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
+  refused 403 workflow.own_request approveApprovalRequest -p "id=$request" -if-match "$ETAG" -body '{}'
+  as tom
+  QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
+  refused 403 workflow.segregation_of_duties approveApprovalRequest -p "id=$request" -if-match "$ETAG" -body '{}'
+  say "Fiona, the finance director, approves. The approval releases nothing, and she cannot release the run herself:"
+  approve fiona "$request" "Within the cash plan"
+  api 200 '"run \(.document_number): \(.status), release \(.release_approval.status)"' getPaymentRun -p "id=$RUN"
+  expect "run status after the approval" "$(field .status)" proposed
+  expect "release approval" "$(field .release_approval.status)" approved
+  version_etag=$ETAG
+  refused 403 identity.sod_conflict releasePaymentRun -p "id=$RUN" -if-match "$version_etag" -body '{}'
+  say "Tara releases it."
   as tara
   api 202 '"\(.kind) \(.status)"' releasePaymentRun -p "id=$RUN" -if-match "$version_etag" -body '{"comment": "Checked against the cash plan"}'
   wait_op

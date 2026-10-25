@@ -40,9 +40,14 @@ import (
 // source context; they draw numbers from the journal_sa number range.
 const StatementDocumentType = "SA"
 
-// Approvals opens approval requests (workflow context).
+// Approvals opens approval requests (workflow context): of statement
+// lines' postings, and of large payment runs' releases (ADR-0038), which
+// the release asks whether it needs and withdraws when it no longer waits
+// for them.
 type Approvals interface {
 	Open(ctx context.Context, in approvals.NewRequest) (id uuid.UUID, needed bool, err error)
+	Required(ctx context.Context, in approvals.NewRequest) (bool, error)
+	Withdraw(ctx context.Context, objectType string, objectID uuid.UUID, comment string) error
 }
 
 // LinePosting is a person's posting of a matched line: on its booking

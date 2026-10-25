@@ -133,6 +133,9 @@ func TestValidationRules(t *testing.T) {
 		{"manual entry limit", func(c *Config) { c.Companies[0].ManualEntryApprovalLimit = "lots" }, "companies[1000].manual_entry_approval_limit"},
 		{"manual entry limit missing", func(c *Config) { c.Companies[0].ManualEntryApprovalLimit = "" }, "companies[1000].manual_entry_approval_limit"},
 		{"manual entry limit negative", func(c *Config) { c.Companies[0].ManualEntryApprovalLimit = "-1.00" }, "companies[1000].manual_entry_approval_limit"},
+		{"release dual limit", func(c *Config) { c.Companies[0].ReleaseDualLimit = "lots" }, "companies[1000].release_dual_limit"},
+		{"release dual limit negative", func(c *Config) { c.Companies[0].ReleaseDualLimit = "-1.00" }, "companies[1000].release_dual_limit"},
+		{"release dual limit digits", func(c *Config) { c.Companies[0].ReleaseDualLimit = "1000.001" }, "companies[1000].release_dual_limit"},
 		{"over delivery", func(c *Config) { c.Companies[0].OverDeliveryPercent = 101 }, "companies[1000].gr_over_delivery_percent"},
 		{"iban", func(c *Config) { c.Companies[0].HouseBank.IBAN = "GB33BUKB20201555555556" }, "companies[1000].house_bank.iban"},
 		{"bic", func(c *Config) { c.Companies[0].HouseBank.BIC = "BUK" }, "companies[1000].house_bank.bic"},
@@ -263,6 +266,21 @@ func adopt(a PackAdoption) func(c *Config) {
 			}
 		}
 		c.Packs = []PackAdoption{p}
+	}
+}
+
+// TestReleaseDualLimit: a company's release_dual_limit is optional (no run
+// then needs a second person) and, when given, an amount in the company's
+// currency (ADR-0038).
+func TestReleaseDualLimit(t *testing.T) {
+	for name, limit := range map[string]string{"none": "", "an amount": "50000.00", "zero": "0.00"} {
+		t.Run(name, func(t *testing.T) {
+			c := fixture(t)
+			c.Companies[0].ReleaseDualLimit = limit
+			if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
+				t.Errorf("Validate: got %v, want no errors", fs)
+			}
+		})
 	}
 }
 
@@ -501,6 +519,7 @@ func TestDiffTiers(t *testing.T) {
 		{"account determination", func(c *Config) { c.Companies[0].AccountDetermination.InputTax = "100000" }, "companies[1000].account_determination.input_tax", TierPostingRelated},
 		{"auto limit", func(c *Config) { c.Companies[0].AutoPostLimit = "75000.00" }, "companies[1000].auto_post_limit", TierPostingRelated},
 		{"manual entry limit", func(c *Config) { c.Companies[0].ManualEntryApprovalLimit = "25000.00" }, "companies[1000].manual_entry_approval_limit", TierPostingRelated},
+		{"release dual limit", func(c *Config) { c.Companies[0].ReleaseDualLimit = "50000.00" }, "companies[1000].release_dual_limit", TierPostingRelated},
 		{"release role", func(c *Config) { c.Payments.ReleaseRole = "controller" }, "payments.release_role", TierPostingRelated},
 		{"currency", func(c *Config) { c.Companies[0].Currency = "CAD" }, "companies[1000].currency", TierStructural},
 		{"new account", func(c *Config) {

@@ -89,6 +89,7 @@ const (
 	ObjectOrderChange  Key = "object.order_change"
 	ObjectBankClearing Key = "object.bank_clearing"
 	ObjectCenterChange Key = "object.center_change"
+	ObjectRunRelease   Key = "object.payment_run_release"
 	StatusPending      Key = "approval.status.pending"
 	StatusApproved     Key = "approval.status.approved"
 	StatusRejected     Key = "approval.status.rejected"

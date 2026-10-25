@@ -7080,9 +7080,21 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "Two-person release of large payment runs (PO 2026-10-22): a run above its company's release_dual_limit, at the run date's rate, is released only after a payment_run_release approval request (:submit) is approved by a second person, neither proposer nor releaser; the approval releases nothing; runs within the limit unchanged. PO 2026-10-25: a rejected request rejects the run (items freed, payment_run_rejected with the request id), so a new run is proposed; a withdrawn one leaves it proposed",
+      "r": "internal/payments dualrelease.go · approvals.PaymentRunRelease releaseSteps · config companies[].release_dual_limit · 000153-000154 · ADR-0038 amendment · 04 §4.3 · walkthrough step 7 · T72m",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "A payment run released by more than one person (payments.release_approvals above 1): validation refuses it until it is built; the product owner decides how the releasers sign (an approval request before :release, or signatures on the run), since 04 §4.3 makes the release a single human step",
-      "r": "walkthrough 2026-10-22 · internal/payments decider · internal/config validate.go · 04-api-design §4.3 · T72l",
+      "t": "Remove payments.release_approvals (contract step): it stays exactly 1 so documents activated earlier still parse; once no stored document needs it, drop it from the configuration and its validation",
+      "r": "ADR-0038 amendment 2026-10-22 · internal/config Payments.ReleaseApprovals · payments decider · T72m",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Configuration activation refused while replicas of two versions run, so a key an older replica would ignore (companies[].release_dual_limit: the old :release has no approval check) cannot take effect on part of the cell; until then the release runbook activates such changes only after the upgrade completes",
+      "r": "ADR-0038 amendment (rollout) · 06 §6.4 config.ParseActive · T72m",
       "c": []
      },
      {

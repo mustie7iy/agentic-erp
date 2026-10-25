@@ -1,0 +1,10 @@
+ALTER TABLE payments.payment_run
+  DROP CONSTRAINT payment_run_release_sod,
+  DROP CONSTRAINT payment_run_release_approved,
+  DROP CONSTRAINT payment_run_release_request,
+  DROP CONSTRAINT payment_run_release_approval_check,
+  DROP COLUMN release_approved_at,
+  DROP COLUMN release_approved_by,
+  DROP COLUMN release_request_total,
+  DROP COLUMN release_approval,
+  DROP COLUMN release_request_id;
