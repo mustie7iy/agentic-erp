@@ -87,6 +87,7 @@ type NavJobs struct {
 	Approvals bool // approval requests
 	Invoices  bool // supplier invoices
 	Bank      bool // bank statements
+	Payments  bool // payment runs
 }
 
 // SignedInNav is a signed-in person's navigation: the screens of the jobs
@@ -101,6 +102,9 @@ func SignedInNav(jobs NavJobs) []NavItem {
 	}
 	if jobs.Bank {
 		nav = append(nav, NavItem{Path: BankPath, Label: i18n.NavBank})
+	}
+	if jobs.Payments {
+		nav = append(nav, NavItem{Path: PaymentsPath, Label: i18n.JobPayments})
 	}
 	return append(nav, Nav[1])
 }
