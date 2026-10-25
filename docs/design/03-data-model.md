@@ -1082,7 +1082,16 @@ validated per partition before the parent took them over. Partial indexes
 `journal_line_cost_center` and `journal_line_profit_center` (company,
 center, year, period). The ledger derives and validates every line's
 centers before writing it; the database check of ADR-0050 §5's table at
-commit comes with T56d3, in the release after (06 §6.4).
+commit comes with T56d3, in the release after (06 §6.4). A parked entry's
+lines keep the centers entered on them (T56d2, migrations 000159-000160:
+`parked_entry_line.cost_center_id`, `profit_center_id`, `segment_id`,
+foreign keys `parked_entry_line_cost_center_fkey`,
+`parked_entry_line_profit_center_fkey` and `parked_entry_line_segment_fkey`
+to the tenant's centers, added `NOT VALID` and validated); the rest is
+derived when the entry is posted. A center change is checked against the
+lines carrying the center (ADR-0050 §3, T56d2: the
+`journal_line_cost_center` index serves the cost center's ranges of
+posting dates).
 
 ## 3.8 Procurement (`procurement`)
 

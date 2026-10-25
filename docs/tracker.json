@@ -1652,19 +1652,25 @@
        {
         "s": "D",
         "t": "Assignment on the journal (part 1): cost_center_id, profit_center_id, segment_id on journal_line, FKs NOT VALID per partition then validated per partition and taken over by the parent (cost center of the line's company, profit center assigned to it), partial indexes per partition; derivation and validation once per posting group in postAll (every posting path, Postings, parked entries checked at parking, T52 copies alike, reversals copy), reading cost_element, company_controlling per posting fiscal year, active default_assignment and revenue_allowed; 422 cost_center_required/cost_center_invalid/profit_center_invalid/profit_center_mismatch/segment_mismatch with reasons, FK constraint mappings; centers FOR KEY SHARE and periods FOR SHARE with a race test against a lock; a default may precede its validity (first period), whether the posting is automatic or manual, a center entered on such a date refused (PO 2026-10-25); keepsDefault* by Endpoints.Now/CenterChanges.Now; AssignmentSimulation leaves out lines with a cost center other than the default; released only together with T56d2",
-        "r": "migrations 000155-000158 · internal/ledger assignment.go, journal.go, parked.go, ports.go, controlling.go, assignsim.go · api/openapi.yaml (x-problem-codes) · ADR-0050 §5 · T56d",
+        "r": "migrations 000155-000158 · internal/ledger assignment.go, journal.go, parked.go, ports.go, controlling.go, assignsim.go · api/openapi.yaml (x-problem-codes) · ADR-0050 §5 · T56d (released with T56d2)",
         "c": []
        },
        {
-        "s": "T",
-        "t": "Assignment in the journal API and the in-use refusals, split from T56d for size and released with it (T56d alone refuses manual primary cost lines without a default and lets center changes contradict posted lines): ledger.cost_center_period_in_use (a change whose attributes in force on a posted date differ), ledger.cost_center_posted_after (validity ended before a posting), ledger.segment_in_use (a posted profit center's segment); journal API lines with the three ids and codes, entered on manual and parked entries (stored on parked lines), list filters cost_center_id/profit_center_id, JournalEntryPosted fields (additive: openapi, asyncapi, make generate). Until then the API takes no entered center",
-        "r": "T56d2",
+        "s": "D",
+        "t": "Assignment in the journal API and the in-use refusals, split from T56d for size and released with it: ledger.cost_center_posted_after (a validity ending on or before a posting) and ledger.cost_center_period_in_use (category, profit center or actual locks in force on a posted date differ, or no period; plan lock not compared; a line before a default's first period read that period), computed as date ranges and checked against the lines at request and approval; ledger.segment_in_use (a posted profit center's segment); journal API lines take cost_center_id, profit_center_id, segment_id and show each with its code, entered on manual and parked entries (stored as entered on parked_entry_line, FKs NOT VALID then validated), list filters cost_center_id/profit_center_id, JournalEntryPosted fields (additive: openapi, asyncapi, make generate, x-problem-codes); race test for the profit center lock path",
+        "r": "migrations 000159-000160 · internal/ledger centeruse.go, costcenters.go, profitcenters.go, journal.go, parked.go, api.go, parked_api.go · api/openapi.yaml, api/asyncapi.yaml · ADR-0050 §3, §5 · T56d2",
         "c": []
        },
        {
         "s": "T",
         "t": "Commit-time check of ADR-0050 §5's table, a contract step in the release after the one shipping T56d and T56d2 (the previous release writes lines without centers and would be refused during the rollout, 06 §6.4): deferred trigger on journal_line for fiscal years from the switches (primary_cost needs a cost center, none takes none, revenue only a revenue-allowed category, P&L a profit center with PCA), segment always the profit center's, reversals exempt; constraint mappings (ledger.profit_center_required); schema tests per rule",
         "r": "T56d3",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Profit center changes against posted lines (gap found in T56d2): a profit center's redate ending on or before a line carrying it, or a lock over a date with such lines, is checked only against the cost center periods naming it (ledger.profit_center_in_use), not the lines; the PO decides whether these are refused as the cost center's are (ledger.cost_center_posted_after / cost_center_period_in_use) before the step is built",
+        "r": "T56d4 (gap, ADR-0050 §5 as built: Not covered)",
         "c": []
        },
        {
