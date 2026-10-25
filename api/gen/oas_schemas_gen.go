@@ -6,7 +6,6 @@ import (
 	"io"
 	"time"
 
-	"github.com/go-faster/errors"
 	"github.com/go-faster/jx"
 	"github.com/google/uuid"
 )
@@ -28125,52 +28124,6 @@ func (o OptProblem) Or(d Problem) Problem {
 	return d
 }
 
-// NewOptPurchaseOrderItemAccountAssignment returns new OptPurchaseOrderItemAccountAssignment with value set to v.
-func NewOptPurchaseOrderItemAccountAssignment(v PurchaseOrderItemAccountAssignment) OptPurchaseOrderItemAccountAssignment {
-	return OptPurchaseOrderItemAccountAssignment{
-		Value: v,
-		Set:   true,
-	}
-}
-
-// OptPurchaseOrderItemAccountAssignment is optional PurchaseOrderItemAccountAssignment.
-type OptPurchaseOrderItemAccountAssignment struct {
-	Value PurchaseOrderItemAccountAssignment
-	Set   bool
-}
-
-// IsSet returns true if OptPurchaseOrderItemAccountAssignment was set.
-func (o OptPurchaseOrderItemAccountAssignment) IsSet() bool { return o.Set }
-
-// Reset unsets value.
-func (o *OptPurchaseOrderItemAccountAssignment) Reset() {
-	var v PurchaseOrderItemAccountAssignment
-	o.Value = v
-	o.Set = false
-}
-
-// SetTo sets value to v.
-func (o *OptPurchaseOrderItemAccountAssignment) SetTo(v PurchaseOrderItemAccountAssignment) {
-	o.Set = true
-	o.Value = v
-}
-
-// Get returns value and boolean that denotes whether value was set.
-func (o OptPurchaseOrderItemAccountAssignment) Get() (v PurchaseOrderItemAccountAssignment, ok bool) {
-	if !o.Set {
-		return v, false
-	}
-	return o.Value, true
-}
-
-// Or returns value if set, or given parameter if does not.
-func (o OptPurchaseOrderItemAccountAssignment) Or(d PurchaseOrderItemAccountAssignment) PurchaseOrderItemAccountAssignment {
-	if v, ok := o.Get(); ok {
-		return v
-	}
-	return d
-}
-
 // NewOptQuantity returns new OptQuantity with value set to v.
 func NewOptQuantity(v Quantity) OptQuantity {
 	return OptQuantity{
@@ -28211,52 +28164,6 @@ func (o OptQuantity) Get() (v Quantity, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptQuantity) Or(d Quantity) Quantity {
-	if v, ok := o.Get(); ok {
-		return v
-	}
-	return d
-}
-
-// NewOptRequisitionItemAccountAssignment returns new OptRequisitionItemAccountAssignment with value set to v.
-func NewOptRequisitionItemAccountAssignment(v RequisitionItemAccountAssignment) OptRequisitionItemAccountAssignment {
-	return OptRequisitionItemAccountAssignment{
-		Value: v,
-		Set:   true,
-	}
-}
-
-// OptRequisitionItemAccountAssignment is optional RequisitionItemAccountAssignment.
-type OptRequisitionItemAccountAssignment struct {
-	Value RequisitionItemAccountAssignment
-	Set   bool
-}
-
-// IsSet returns true if OptRequisitionItemAccountAssignment was set.
-func (o OptRequisitionItemAccountAssignment) IsSet() bool { return o.Set }
-
-// Reset unsets value.
-func (o *OptRequisitionItemAccountAssignment) Reset() {
-	var v RequisitionItemAccountAssignment
-	o.Value = v
-	o.Set = false
-}
-
-// SetTo sets value to v.
-func (o *OptRequisitionItemAccountAssignment) SetTo(v RequisitionItemAccountAssignment) {
-	o.Set = true
-	o.Value = v
-}
-
-// Get returns value and boolean that denotes whether value was set.
-func (o OptRequisitionItemAccountAssignment) Get() (v RequisitionItemAccountAssignment, ok bool) {
-	if !o.Set {
-		return v, false
-	}
-	return o.Value, true
-}
-
-// Or returns value if set, or given parameter if does not.
-func (o OptRequisitionItemAccountAssignment) Or(d RequisitionItemAccountAssignment) RequisitionItemAccountAssignment {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -34107,19 +34014,20 @@ type PurchaseOrderItem struct {
 	PriceUnit OptInt32 `json:"price_unit"`
 	// General ledger account.
 	AccountID uuid.UUID `json:"account_id"`
-	// Account assignment (ADR-0050 §6, SAP's account assignment category): `cost_center` with
-	// `cost_center_id`, or `none` without (422 `procurement.invalid_account_assignment`). Absent:
-	// `cost_center` when a cost center is given, else `none`. Checked against the ledger on the order date
-	// when the order is released and again when its release is approved, and for the items an order change
-	// adds when it is submitted and approved, as the item's postings will be: on a primary cost account
-	// the item names a cost center while cost center accounting applies (422
-	// `ledger.cost_center_required`; the account's default is not taken), and the cost center is one of
-	// the legal entity, active, valid on the order date and not locked for costs (422
-	// `ledger.cost_center_invalid` with the reason; its profit center: `ledger.profit_center_invalid`).
-	// Goods receipts post the item's account with its cost center, and an invoice's price difference on
-	// the item too when the price difference account is a primary cost account. A released order's item
-	// keeps its assignment, as its account (422 `procurement.invalid_change`).
-	AccountAssignment OptPurchaseOrderItemAccountAssignment `json:"account_assignment"`
+	// Account assignment (ADR-0050 §6, SAP's account assignment category; open enumeration: clients must
+	// accept and preserve values not listed here): `cost_center` with `cost_center_id`, or `none` without
+	// (422 `procurement.invalid_account_assignment`). Absent: `cost_center` when a cost center is given,
+	// else `none`. Checked against the ledger on the order date when the order is released and again when
+	// its release is approved, and for the items an order change adds when it is submitted and approved,
+	// as the item's postings will be: on a primary cost account the item names a cost center while cost
+	// center accounting applies (422 `ledger.cost_center_required`; the account's default is not taken),
+	// and the cost center is one of the legal entity, active, valid on the order date and not locked for
+	// costs (422 `ledger.cost_center_invalid` with the reason; its profit center:
+	// `ledger.profit_center_invalid`). Goods receipts post the item's account with its cost center, and an
+	// invoice's price difference on the item too when the price difference account is a primary cost
+	// account. A released order's item keeps its assignment, as its account (422
+	// `procurement.invalid_change`).
+	AccountAssignment OptString `json:"account_assignment"`
 	// Cost center the item is charged to, with `account_assignment` `cost_center`.
 	CostCenterID OptUUID `json:"cost_center_id"`
 	// Over-delivery tolerance in percent (0-100).
@@ -34174,7 +34082,7 @@ func (s *PurchaseOrderItem) GetAccountID() uuid.UUID {
 }
 
 // GetAccountAssignment returns the value of AccountAssignment.
-func (s *PurchaseOrderItem) GetAccountAssignment() OptPurchaseOrderItemAccountAssignment {
+func (s *PurchaseOrderItem) GetAccountAssignment() OptString {
 	return s.AccountAssignment
 }
 
@@ -34249,7 +34157,7 @@ func (s *PurchaseOrderItem) SetAccountID(val uuid.UUID) {
 }
 
 // SetAccountAssignment sets the value of AccountAssignment.
-func (s *PurchaseOrderItem) SetAccountAssignment(val OptPurchaseOrderItemAccountAssignment) {
+func (s *PurchaseOrderItem) SetAccountAssignment(val OptString) {
 	s.AccountAssignment = val
 }
 
@@ -34286,59 +34194,6 @@ func (s *PurchaseOrderItem) SetValuationPrice(val OptMoney) {
 // SetValuationPriceUnit sets the value of ValuationPriceUnit.
 func (s *PurchaseOrderItem) SetValuationPriceUnit(val OptInt32) {
 	s.ValuationPriceUnit = val
-}
-
-// Account assignment (ADR-0050 §6, SAP's account assignment category): `cost_center` with
-// `cost_center_id`, or `none` without (422 `procurement.invalid_account_assignment`). Absent:
-// `cost_center` when a cost center is given, else `none`. Checked against the ledger on the order date
-// when the order is released and again when its release is approved, and for the items an order change
-// adds when it is submitted and approved, as the item's postings will be: on a primary cost account
-// the item names a cost center while cost center accounting applies (422
-// `ledger.cost_center_required`; the account's default is not taken), and the cost center is one of
-// the legal entity, active, valid on the order date and not locked for costs (422
-// `ledger.cost_center_invalid` with the reason; its profit center: `ledger.profit_center_invalid`).
-// Goods receipts post the item's account with its cost center, and an invoice's price difference on
-// the item too when the price difference account is a primary cost account. A released order's item
-// keeps its assignment, as its account (422 `procurement.invalid_change`).
-type PurchaseOrderItemAccountAssignment string
-
-const (
-	PurchaseOrderItemAccountAssignmentNone       PurchaseOrderItemAccountAssignment = "none"
-	PurchaseOrderItemAccountAssignmentCostCenter PurchaseOrderItemAccountAssignment = "cost_center"
-)
-
-// AllValues returns all PurchaseOrderItemAccountAssignment values.
-func (PurchaseOrderItemAccountAssignment) AllValues() []PurchaseOrderItemAccountAssignment {
-	return []PurchaseOrderItemAccountAssignment{
-		PurchaseOrderItemAccountAssignmentNone,
-		PurchaseOrderItemAccountAssignmentCostCenter,
-	}
-}
-
-// MarshalText implements encoding.TextMarshaler.
-func (s PurchaseOrderItemAccountAssignment) MarshalText() ([]byte, error) {
-	switch s {
-	case PurchaseOrderItemAccountAssignmentNone:
-		return []byte(s), nil
-	case PurchaseOrderItemAccountAssignmentCostCenter:
-		return []byte(s), nil
-	default:
-		return nil, errors.Errorf("invalid value: %q", s)
-	}
-}
-
-// UnmarshalText implements encoding.TextUnmarshaler.
-func (s *PurchaseOrderItemAccountAssignment) UnmarshalText(data []byte) error {
-	switch PurchaseOrderItemAccountAssignment(data) {
-	case PurchaseOrderItemAccountAssignmentNone:
-		*s = PurchaseOrderItemAccountAssignmentNone
-		return nil
-	case PurchaseOrderItemAccountAssignmentCostCenter:
-		*s = PurchaseOrderItemAccountAssignmentCostCenter
-		return nil
-	default:
-		return errors.Errorf("invalid value: %q", data)
-	}
 }
 
 // One page of purchase orders.
@@ -36176,14 +36031,15 @@ type RequisitionItem struct {
 	PriceUnit OptInt32 `json:"price_unit"`
 	// General ledger account to charge.
 	AccountID uuid.UUID `json:"account_id"`
-	// Account assignment (ADR-0050 §6, SAP's account assignment category): `cost_center` with
-	// `cost_center_id`, or `none` without (422 `procurement.invalid_account_assignment`). Absent:
-	// `cost_center` when a cost center is given, else `none`. Checked against the ledger when the
-	// requisition is submitted, on that day, as its postings will be: on a primary cost account the item
-	// names a cost center while cost center accounting applies (422 `ledger.cost_center_required`; the
-	// account's default is not taken), and the cost center is one of the legal entity, active, valid on
-	// the day and not locked for costs (422 `ledger.cost_center_invalid` with the reason).
-	AccountAssignment OptRequisitionItemAccountAssignment `json:"account_assignment"`
+	// Account assignment (ADR-0050 §6, SAP's account assignment category; open enumeration: clients must
+	// accept and preserve values not listed here): `cost_center` with `cost_center_id`, or `none` without
+	// (422 `procurement.invalid_account_assignment`). Absent: `cost_center` when a cost center is given,
+	// else `none`. Checked against the ledger when the requisition is submitted, on that day, as its
+	// postings will be: on a primary cost account the item names a cost center while cost center
+	// accounting applies (422 `ledger.cost_center_required`; the account's default is not taken), and the
+	// cost center is one of the legal entity, active, valid on the day and not locked for costs (422
+	// `ledger.cost_center_invalid` with the reason).
+	AccountAssignment OptString `json:"account_assignment"`
 	// Cost center the item is charged to, with `account_assignment` `cost_center`.
 	CostCenterID OptUUID `json:"cost_center_id"`
 }
@@ -36224,7 +36080,7 @@ func (s *RequisitionItem) GetAccountID() uuid.UUID {
 }
 
 // GetAccountAssignment returns the value of AccountAssignment.
-func (s *RequisitionItem) GetAccountAssignment() OptRequisitionItemAccountAssignment {
+func (s *RequisitionItem) GetAccountAssignment() OptString {
 	return s.AccountAssignment
 }
 
@@ -36269,61 +36125,13 @@ func (s *RequisitionItem) SetAccountID(val uuid.UUID) {
 }
 
 // SetAccountAssignment sets the value of AccountAssignment.
-func (s *RequisitionItem) SetAccountAssignment(val OptRequisitionItemAccountAssignment) {
+func (s *RequisitionItem) SetAccountAssignment(val OptString) {
 	s.AccountAssignment = val
 }
 
 // SetCostCenterID sets the value of CostCenterID.
 func (s *RequisitionItem) SetCostCenterID(val OptUUID) {
 	s.CostCenterID = val
-}
-
-// Account assignment (ADR-0050 §6, SAP's account assignment category): `cost_center` with
-// `cost_center_id`, or `none` without (422 `procurement.invalid_account_assignment`). Absent:
-// `cost_center` when a cost center is given, else `none`. Checked against the ledger when the
-// requisition is submitted, on that day, as its postings will be: on a primary cost account the item
-// names a cost center while cost center accounting applies (422 `ledger.cost_center_required`; the
-// account's default is not taken), and the cost center is one of the legal entity, active, valid on
-// the day and not locked for costs (422 `ledger.cost_center_invalid` with the reason).
-type RequisitionItemAccountAssignment string
-
-const (
-	RequisitionItemAccountAssignmentNone       RequisitionItemAccountAssignment = "none"
-	RequisitionItemAccountAssignmentCostCenter RequisitionItemAccountAssignment = "cost_center"
-)
-
-// AllValues returns all RequisitionItemAccountAssignment values.
-func (RequisitionItemAccountAssignment) AllValues() []RequisitionItemAccountAssignment {
-	return []RequisitionItemAccountAssignment{
-		RequisitionItemAccountAssignmentNone,
-		RequisitionItemAccountAssignmentCostCenter,
-	}
-}
-
-// MarshalText implements encoding.TextMarshaler.
-func (s RequisitionItemAccountAssignment) MarshalText() ([]byte, error) {
-	switch s {
-	case RequisitionItemAccountAssignmentNone:
-		return []byte(s), nil
-	case RequisitionItemAccountAssignmentCostCenter:
-		return []byte(s), nil
-	default:
-		return nil, errors.Errorf("invalid value: %q", s)
-	}
-}
-
-// UnmarshalText implements encoding.TextUnmarshaler.
-func (s *RequisitionItemAccountAssignment) UnmarshalText(data []byte) error {
-	switch RequisitionItemAccountAssignment(data) {
-	case RequisitionItemAccountAssignmentNone:
-		*s = RequisitionItemAccountAssignmentNone
-		return nil
-	case RequisitionItemAccountAssignmentCostCenter:
-		*s = RequisitionItemAccountAssignmentCostCenter
-		return nil
-	default:
-		return errors.Errorf("invalid value: %q", data)
-	}
 }
 
 // One page of requisitions.

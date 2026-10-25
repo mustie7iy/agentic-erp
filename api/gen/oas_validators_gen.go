@@ -35879,24 +35879,6 @@ func (s *PurchaseOrderItem) Validate() error {
 		})
 	}
 	if err := func() error {
-		if value, ok := s.AccountAssignment.Get(); ok {
-			if err := func() error {
-				if err := value.Validate(); err != nil {
-					return err
-				}
-				return nil
-			}(); err != nil {
-				return err
-			}
-		}
-		return nil
-	}(); err != nil {
-		failures = append(failures, validate.FieldError{
-			Name:  "account_assignment",
-			Error: err,
-		})
-	}
-	if err := func() error {
 		if value, ok := s.OverDeliveryPct.Get(); ok {
 			if err := func() error {
 				if err := value.Validate(); err != nil {
@@ -36040,17 +36022,6 @@ func (s *PurchaseOrderItem) Validate() error {
 		return &validate.Error{Fields: failures}
 	}
 	return nil
-}
-
-func (s PurchaseOrderItemAccountAssignment) Validate() error {
-	switch s {
-	case "none":
-		return nil
-	case "cost_center":
-		return nil
-	default:
-		return errors.Errorf("invalid value: %v", s)
-	}
 }
 
 func (s *PurchaseOrderPage) Validate() error {
@@ -38287,39 +38258,10 @@ func (s *RequisitionItem) Validate() error {
 			Error: err,
 		})
 	}
-	if err := func() error {
-		if value, ok := s.AccountAssignment.Get(); ok {
-			if err := func() error {
-				if err := value.Validate(); err != nil {
-					return err
-				}
-				return nil
-			}(); err != nil {
-				return err
-			}
-		}
-		return nil
-	}(); err != nil {
-		failures = append(failures, validate.FieldError{
-			Name:  "account_assignment",
-			Error: err,
-		})
-	}
 	if len(failures) > 0 {
 		return &validate.Error{Fields: failures}
 	}
 	return nil
-}
-
-func (s RequisitionItemAccountAssignment) Validate() error {
-	switch s {
-	case "none":
-		return nil
-	case "cost_center":
-		return nil
-	default:
-		return errors.Errorf("invalid value: %v", s)
-	}
 }
 
 func (s *RequisitionPage) Validate() error {

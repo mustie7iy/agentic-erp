@@ -73,6 +73,7 @@ func TestItemAssignment(t *testing.T) {
 		for name, it := range map[string]string{
 			"a cost center assignment without one": item(e.expense, "1", "EA", "1.00", "EUR", `, "account_assignment": "cost_center"`),
 			"none with a cost center":              centered(e.expense, "1.00", e.c.Admin, `, "account_assignment": "none"`),
+			"an assignment not known":              centered(e.expense, "1.00", e.c.Admin, `, "account_assignment": "order"`),
 		} {
 			t.Run(name, func(t *testing.T) {
 				p := e.in(t).Problem(422, "procurement.invalid_account_assignment", "POST", "/v1/requisitions",

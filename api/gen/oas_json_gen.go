@@ -40335,39 +40335,6 @@ func (s *OptProblem) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
-// Encode encodes PurchaseOrderItemAccountAssignment as json.
-func (o OptPurchaseOrderItemAccountAssignment) Encode(e *jx.Encoder) {
-	if !o.Set {
-		return
-	}
-	e.Str(string(o.Value))
-}
-
-// Decode decodes PurchaseOrderItemAccountAssignment from json.
-func (o *OptPurchaseOrderItemAccountAssignment) Decode(d *jx.Decoder) error {
-	if o == nil {
-		return errors.New("invalid: unable to decode OptPurchaseOrderItemAccountAssignment to nil")
-	}
-	o.Set = true
-	if err := o.Value.Decode(d); err != nil {
-		return err
-	}
-	return nil
-}
-
-// MarshalJSON implements stdjson.Marshaler.
-func (s OptPurchaseOrderItemAccountAssignment) MarshalJSON() ([]byte, error) {
-	e := jx.Encoder{}
-	s.Encode(&e)
-	return e.Bytes(), nil
-}
-
-// UnmarshalJSON implements stdjson.Unmarshaler.
-func (s *OptPurchaseOrderItemAccountAssignment) UnmarshalJSON(data []byte) error {
-	d := jx.DecodeBytes(data)
-	return s.Decode(d)
-}
-
 // Encode encodes Quantity as json.
 func (o OptQuantity) Encode(e *jx.Encoder) {
 	if !o.Set {
@@ -40397,39 +40364,6 @@ func (s OptQuantity) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *OptQuantity) UnmarshalJSON(data []byte) error {
-	d := jx.DecodeBytes(data)
-	return s.Decode(d)
-}
-
-// Encode encodes RequisitionItemAccountAssignment as json.
-func (o OptRequisitionItemAccountAssignment) Encode(e *jx.Encoder) {
-	if !o.Set {
-		return
-	}
-	e.Str(string(o.Value))
-}
-
-// Decode decodes RequisitionItemAccountAssignment from json.
-func (o *OptRequisitionItemAccountAssignment) Decode(d *jx.Decoder) error {
-	if o == nil {
-		return errors.New("invalid: unable to decode OptRequisitionItemAccountAssignment to nil")
-	}
-	o.Set = true
-	if err := o.Value.Decode(d); err != nil {
-		return err
-	}
-	return nil
-}
-
-// MarshalJSON implements stdjson.Marshaler.
-func (s OptRequisitionItemAccountAssignment) MarshalJSON() ([]byte, error) {
-	e := jx.Encoder{}
-	s.Encode(&e)
-	return e.Bytes(), nil
-}
-
-// UnmarshalJSON implements stdjson.Unmarshaler.
-func (s *OptRequisitionItemAccountAssignment) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -49742,46 +49676,6 @@ func (s *PurchaseOrderItem) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
-// Encode encodes PurchaseOrderItemAccountAssignment as json.
-func (s PurchaseOrderItemAccountAssignment) Encode(e *jx.Encoder) {
-	e.Str(string(s))
-}
-
-// Decode decodes PurchaseOrderItemAccountAssignment from json.
-func (s *PurchaseOrderItemAccountAssignment) Decode(d *jx.Decoder) error {
-	if s == nil {
-		return errors.New("invalid: unable to decode PurchaseOrderItemAccountAssignment to nil")
-	}
-	v, err := d.StrBytes()
-	if err != nil {
-		return err
-	}
-	// Try to use constant string.
-	switch PurchaseOrderItemAccountAssignment(v) {
-	case PurchaseOrderItemAccountAssignmentNone:
-		*s = PurchaseOrderItemAccountAssignmentNone
-	case PurchaseOrderItemAccountAssignmentCostCenter:
-		*s = PurchaseOrderItemAccountAssignmentCostCenter
-	default:
-		*s = PurchaseOrderItemAccountAssignment(v)
-	}
-
-	return nil
-}
-
-// MarshalJSON implements stdjson.Marshaler.
-func (s PurchaseOrderItemAccountAssignment) MarshalJSON() ([]byte, error) {
-	e := jx.Encoder{}
-	s.Encode(&e)
-	return e.Bytes(), nil
-}
-
-// UnmarshalJSON implements stdjson.Unmarshaler.
-func (s *PurchaseOrderItemAccountAssignment) UnmarshalJSON(data []byte) error {
-	d := jx.DecodeBytes(data)
-	return s.Decode(d)
-}
-
 // Encode implements json.Marshaler.
 func (s *PurchaseOrderPage) Encode(e *jx.Encoder) {
 	e.ObjStart()
@@ -52656,46 +52550,6 @@ func (s *RequisitionItem) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *RequisitionItem) UnmarshalJSON(data []byte) error {
-	d := jx.DecodeBytes(data)
-	return s.Decode(d)
-}
-
-// Encode encodes RequisitionItemAccountAssignment as json.
-func (s RequisitionItemAccountAssignment) Encode(e *jx.Encoder) {
-	e.Str(string(s))
-}
-
-// Decode decodes RequisitionItemAccountAssignment from json.
-func (s *RequisitionItemAccountAssignment) Decode(d *jx.Decoder) error {
-	if s == nil {
-		return errors.New("invalid: unable to decode RequisitionItemAccountAssignment to nil")
-	}
-	v, err := d.StrBytes()
-	if err != nil {
-		return err
-	}
-	// Try to use constant string.
-	switch RequisitionItemAccountAssignment(v) {
-	case RequisitionItemAccountAssignmentNone:
-		*s = RequisitionItemAccountAssignmentNone
-	case RequisitionItemAccountAssignmentCostCenter:
-		*s = RequisitionItemAccountAssignmentCostCenter
-	default:
-		*s = RequisitionItemAccountAssignment(v)
-	}
-
-	return nil
-}
-
-// MarshalJSON implements stdjson.Marshaler.
-func (s RequisitionItemAccountAssignment) MarshalJSON() ([]byte, error) {
-	e := jx.Encoder{}
-	s.Encode(&e)
-	return e.Bytes(), nil
-}
-
-// UnmarshalJSON implements stdjson.Unmarshaler.
-func (s *RequisitionItemAccountAssignment) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
