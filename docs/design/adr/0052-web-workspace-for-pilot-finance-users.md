@@ -1759,8 +1759,144 @@ written:
   checks' page, the revaluation and a posted run in English, French and
   both pseudo-locales at 1280 and 390 px, and walks the revaluation
   previewed and posted at a desktop's width, March closed, locked and its
-  unlock asked for from the keyboard at a phone's, and the unlock approved
+  unlock asked for at a phone's (with the mouse since T73h), and the unlock approved
   by the controller in the inbox.
+
+## Built in T73h (2026-10-25)
+Manual journal entries (T35, ADR-0006, ADR-0050 §5), as GL accountant
+and as controller. What it settled, and where it departs from the step
+as first written:
+- **Pages.** `GET /journal`: the parked entries, people's and agents'
+  proposals, by status (parked, waiting for approval, posted, rejected,
+  cancelled) and by kind (`created_by_kind=agent`, the agents'
+  proposals), 25 a page as cards with their company, header text, debits,
+  lines, who parked them and, for an agent's proposal no person owns,
+  that no one owns it; the way to a new entry and to the journal.
+  `GET /journal/new` and `GET /journal/parked/{id}/edit`: the entry form,
+  a new entry's (its company chosen, dated today in the company's
+  currency) or a parked one's change. `GET /journal/parked/{id}`: a parked
+  entry's summary and lines, its approval request and the journal entry
+  it became, and the person's decisions. `GET /journal/entries`: the
+  journal of a company and ledger (the first company and the leading
+  ledger until chosen), filtered by the API's own filters, the line's
+  cost and profit centers among them (T56d2); `GET /journal/entries/{id}`:
+  a posted entry with its lines, linked to the parked entry it was posted
+  for and to its reversal either way, and its reversal.
+- **The entry form.** A real form (with a fresh idempotency key; a change
+  with the entry's ETag as If-Match, kept across the form's own
+  re-renders so a change meanwhile is caught). Its header: company (a new
+  entry's), document type, document and posting dates, tax date,
+  currency, reference and header text. Its lines name the account by
+  number (the company's chart suggested in a `datalist`), the amount
+  signed (debit positive, credit negative) in the person's locale (its
+  decimal sign or a point, no grouping: `i18n.Locale.Amount`), the cost
+  and profit centers and the segment by code, the partner by number, the
+  tax code and a text. A line is added by the form's button and left out
+  by its box: without htmx the form is sent and rendered again, with htmx
+  the lines' section alone is swapped (`hx-post`, `Vary: HX-Request`)
+  and the new line's account (or the line now in a removed line's place)
+  takes the focus (`autofocus`). The send is the first button in the
+  form, so Enter in a field sends it (HTML's implicit submission), never
+  adds or removes a line. A line left empty is left out; at most 100
+  lines are typed, more come from a file. What is wrong is said on its
+  field before the API is called (the shapes of `JournalLineInput`: a
+  decimal of at most 18 and 4 digits that is not zero, codes, tax codes,
+  texts; at least two lines), and what the API refuses of a line (its
+  `errors[]`, `lines[i].field`) on that line with the API's reason.
+  **No API names a currency's minor-unit digits**, so the workspace
+  cannot check them: the API's `request.invalid_amount` says so. Digits
+  are ASCII until T73l formats and reads them per locale.
+- **Codes become ids before the call.** The API takes ids; a person types
+  numbers and codes, as in SAP. erp-web looks each up once a send: an
+  account in the company's chart (the page of 500 the form suggests from,
+  then by `number` when the chart is longer), each center and segment by
+  the API's `code` filter, a partner by `number`. An id is taken as it is
+  (a parked line names its partner by id, the API naming no partner's
+  number on a line). A code the API does not know, or a lookup that
+  fails (logged), is said on its line and nothing is sent. **Departs from
+  §10:** these lookups are part of the write, not the page's reads: the
+  inventory marks them (`Operation.Lookup`) and
+  `TestScreensAgainstTheContract` leaves them out of the six, one call
+  per distinct code a send names.
+- **Decisions** (T35, ADR-0036). The owner posts a parked entry
+  (`postParkedJournalEntry`, human-only), which within the company's
+  `manual_entry_approval_limit` posts it at once (the page links the
+  journal entry) and above it opens a `manual_entry` request decided by
+  another person in the approvals inbox (T73d, not a screen of its own;
+  the requester is refused there by `workflow.own_request`); cancels it
+  with a reason; changes it or replaces its lines from a CSV file; and,
+  while it waits, withdraws the request with a reason
+  (`cancelApprovalRequest` at the request's ETag, the form naming the
+  request, read and checked to be this entry's), which parks it again.
+  An agent's proposal no person owns is offered to every person who may
+  act on it, and acting takes it on, said on the page; another person's
+  entry offers nothing (`ledger.not_entry_owner` if sent anyway). Posting
+  directly (`postJournalEntry` within the limit) is not offered: an entry
+  is parked, then posted (T73h2).
+- **CSV upload of lines.** On a parked entry's page, a file's lines
+  replace the entry's (`updateParkedJournalEntry` with its lines alone):
+  UTF-8 (a byte order mark allowed), comma- or semicolon-separated, a
+  header naming `account` and `amount` and optionally `cost_center`,
+  `profit_center`, `segment`, `partner`, `tax_code`, `line_text` in any
+  order, at most 4 MB and 10,000 lines; every row checked and looked up
+  as a typed line is, the wrong ones listed by row and column (the first
+  20, the rest counted), the API's field errors by row too.
+- **Reversal.** `reverseJournalEntry` (human-only) with an optional
+  posting date and header text, at the entry's ETag; offered for an entry
+  neither reversed nor itself a reversal, to a person who may post. The
+  API refuses an entry another context owns (`ledger.entry_owned_elsewhere`)
+  and a parallel ledger's copy (`ledger.entry_is_copy`), explained by
+  their codes; done, the reversal's page.
+- **Calls.** The parked entries' list makes four (`getCurrentPrincipal`,
+  `listLegalEntities`, `listParkedJournalEntries`, `listPrincipalNames`),
+  a parked entry's page six (`getParkedJournalEntry`, the companies, the
+  company's accounts, names, and `getApprovalRequest` while it waits), the
+  new entry's form three, a change's four, the journal six (the company's
+  cost and profit centers for its filters besides the companies and
+  ledgers), a posted entry's page six. Companies, ledgers, accounts,
+  centers and names that cannot be read are no reason to refuse a page:
+  they are logged, and shown by id or not offered.
+- **Refusals.** `i18n.EntryProblems` explains the ledger codes of a park,
+  change, post, cancellation and reversal, the workflow codes of the
+  approval and its withdrawal, and the general ones in an entry's words;
+  the contract test holds them to the operations' `x-problem-codes`.
+- **The 390 px click (T73i2).** A mouse press after the skip link had
+  the focus (every browser test's audit leaves it there) hid the link,
+  which sat in the page's flow, and moved the page up under the pointer:
+  the release landed beside the button and no click happened, which is
+  why T73i (at 390 px) and T73f (at 1280 px) pressed buttons by keyboard.
+  The skip link now covers the whole header while focused, out of the
+  flow (WCAG 2.4.11 and 2.5.8 hold: the header's links are hidden whole,
+  not part-covered), and those presses are mouse clicks again.
+- **Not built, tracker item T73h2:** posting an entry at once from the
+  form (`postJournalEntry`, with `ledger.approval_required` turned into a
+  park); parking a new entry straight from a CSV file (today: parked with
+  two lines, then its lines replaced); ledger-specific entries and ledger
+  groups (`ledger_id`, `ledger_group`); tax jurisdictions, declared tax
+  bases and quantities on a line; partners named on lines and in the form
+  (by id now: the contract change of T73f2, an ids filter or an
+  expansion); the form's running totals; walked through by a pilot GL
+  accountant and controller.
+- **Tests.** Handlers against the real API and PostgreSQL (`fixture`
+  gained `JournalPermissions`, `Centers`, `Park`, `PostedBy`): the list
+  and its tabs; the form's lines added and left out with and without
+  htmx, its errors before the API and the API's on their lines, an entry
+  parked with its centers, partner and tax code from French amounts; a
+  post within the limit and one above it approved by the controller in
+  the inbox after the accountant was refused there, one withdrawn and
+  cancelled; a stale form, a replayed one, a status refused, another
+  entry's request; an agent's proposal taken on and another person
+  refused by its code; a change, stale and kept; the CSV upload and its
+  refusals by row; the journal by its centers, an entry's reversal and
+  the refusal of the payables context's; a person who may only read, one
+  who may not, and a segregation-of-duties rule barring the post. The
+  rarer answers come from the stub, as in T73d. The browser suite runs
+  axe on the lists, the form, an agent's proposal, an entry waiting with
+  its withdrawal, a change, the journal and a posted entry, in English,
+  French and both pseudo-locales at 1280 and 390 px, and walks a ten-line
+  entry typed from the keyboard alone at a desktop's width, a post and a
+  withdrawal clicked with the mouse at a phone's, the approval in the
+  inbox, and a reversal.
 
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August

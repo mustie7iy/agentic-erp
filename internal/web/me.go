@@ -72,7 +72,7 @@ func (s *Server) page(title i18n.Key, current string, p *person, m me) ui.Shell 
 	sh := s.shell(title, current)
 	sh.Person = &ui.Person{CSRF: p.CSRF}
 	sh.Nav = ui.SignedInNav(ui.NavJobs{Approvals: m.may(permReadApprovals), Invoices: m.may(permReadInvoices), Bank: m.may(permReadStatements),
-		Payments: m.may(permReadRuns), Close: m.may(permReadPeriods)})
+		Payments: m.may(permReadRuns), Journal: m.may(permReadEntries), Close: m.may(permReadPeriods)})
 	return sh
 }
 

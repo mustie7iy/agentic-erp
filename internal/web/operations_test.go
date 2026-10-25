@@ -77,6 +77,9 @@ func TestScreensAgainstTheContract(t *testing.T) {
 			if method == "POST" && len(calls) > 1 {
 				reads = calls[1:]
 			}
+			// Nor are the lookups that turn a form's codes into the
+			// write's ids (T73h).
+			reads = slices.DeleteFunc(slices.Clone(reads), func(op Operation) bool { return op.Lookup })
 			if len(reads) > 6 {
 				t.Errorf("%d calls to render the page, want at most six", len(reads))
 			}
@@ -104,7 +107,7 @@ func TestScreensAgainstTheContract(t *testing.T) {
 		}
 	}
 	for _, explained := range []map[string]i18n.Key{i18n.Problems, i18n.InvoiceProblems, i18n.BankProblems, i18n.PaymentProblems,
-		i18n.PeriodProblems, i18n.RevaluationProblems} {
+		i18n.PeriodProblems, i18n.RevaluationProblems, i18n.EntryProblems} {
 		for _, code := range slices.Sorted(maps.Keys(explained)) {
 			if !answerable[code] {
 				t.Errorf("problem %s: explained by the catalog, but no operation the screens call answers it", code)

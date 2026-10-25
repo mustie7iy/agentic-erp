@@ -918,3 +918,65 @@ p,
   padding: 1rem;
   border: 1px solid var(--border);
 }
+
+/* The entry form (T73h): its header's fields as the filters' are, and
+   each line a fieldset whose fields sit in a grid, two to a row on a
+   phone and eight on a desktop, so a line reads across as in a table. */
+.entry {
+  margin-block-end: 1.5rem;
+}
+
+.entry__header {
+  margin-block-end: 1rem;
+  padding: 1rem;
+  background: #f3f2f1;
+}
+
+.entry-line {
+  margin: 0 0 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+}
+
+.entry-line__legend {
+  padding-inline: 0.25rem;
+  font-weight: 700;
+}
+
+.entry-line__fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 0.75rem;
+}
+
+.entry-line__fields .field {
+  margin-block-end: 0.75rem;
+}
+
+.entry-line__fields .field__label {
+  font-size: 0.875rem;
+}
+
+@media (min-width: 64rem) {
+  .entry-line__fields {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-block-size: 2.75rem;
+}
+
+.checkbox__input {
+  inline-size: 1.5rem;
+  block-size: 1.5rem;
+  margin: 0;
+}
+
+.checkbox__input:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 1px;
+}
