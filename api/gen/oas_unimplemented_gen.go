@@ -2631,7 +2631,7 @@ func (UnimplementedHandler) RedeliverWebhookDelivery(ctx context.Context, params
 // `workflow.request.decide` the caller must hold the step's role and the approval permission of the
 // object type, listed in `x-object-permissions`. The object is rejected with it (for example a
 // supplier invoice exception leaves the invoice `rejected`); a payment run whose release is rejected
-// (`payment_run_release`) stays `proposed`, its `release_approval` rejected.
+// (`payment_run_release`) is rejected too, its items freed (product owner 2026-10-25).
 //
 // POST /v1/approval-requests/{id}:reject
 func (UnimplementedHandler) RejectApprovalRequest(ctx context.Context, req *CommentRequiredInput, params RejectApprovalRequestParams) (r RejectApprovalRequestRes, _ error) {
@@ -2990,8 +2990,9 @@ func (UnimplementedHandler) SubmitChangeRequest(ctx context.Context, params Subm
 // `payments.release_role_missing`, 422 `workflow.unknown_role`). One holder of the release role who is
 // neither the requester nor the proposer approves it (`approveApprovalRequest`, permission
 // `payments.run.release`; agents never approve); the approval does not release the run, which a
-// releaser other than the approver then releases with `:release`. Rejected or withdrawn, the run stays
-// `proposed`: it is asked for again or rejected. 409 `payments.release_approval_not_required` when the
+// releaser other than the approver then releases with `:release`. Rejected, the run is rejected too
+// and its items freed (product owner 2026-10-25); withdrawn by the requester, the run stays
+// `proposed`, to be asked for again or rejected. 409 `payments.release_approval_not_required` when the
 // run is within the limit (release it directly), 409 `payments.release_approval_pending` while a
 // request waits, 409 `payments.release_already_approved` when its release is approved for its total
 // already. Sets `release_approval`. Requires status `proposed`.
