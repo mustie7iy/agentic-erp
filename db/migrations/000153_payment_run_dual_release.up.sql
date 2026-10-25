@@ -6,7 +6,7 @@
 -- outcome, the total it was asked for and who approved it, so :release
 -- reads the approval from the run it locks.
 -- The columns are nullable without a default and the checks NOT VALID, so
--- nothing rewrites or scans the table under its lock (06 §6.4); 000151
+-- nothing rewrites or scans the table under its lock (06 §6.4); 000154
 -- validates them.
 ALTER TABLE payments.payment_run
   ADD COLUMN release_request_id uuid,          -- workflow context: the latest request for the release's approval

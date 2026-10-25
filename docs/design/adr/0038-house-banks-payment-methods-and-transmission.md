@@ -411,7 +411,7 @@ suffices, as before. `:reject` needs the release role too (T72l).
   whose items can no longer be paid. The approval is held to the total it
   was asked for anyway (`release_request_total`), so a run that changed
   upward by any path needs a new approval, and one that fell keeps it.
-- **Schema (000150, validated by 000151).** `payments.payment_run` takes
+- **Schema (000153, validated by 000154).** `payments.payment_run` takes
   `release_request_id`, `release_approval` (`pending`, `approved`,
   `rejected`, `withdrawn`), `release_request_total`, `release_approved_by`
   and `release_approved_at`, nullable without a default and checked

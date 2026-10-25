@@ -816,7 +816,7 @@ func TestPaymentItemsAreReservedOnce(t *testing.T) {
 	}
 	// A large run's release is approved by a second person, neither its
 	// proposer nor its releaser, and the run records the request whole
-	// (ADR-0038, 000150).
+	// (ADR-0038, 000153).
 	approval := func(state any, total any, by any) error {
 		return asApp(t, f.tenant, func(tx pgx.Tx) error {
 			return exec(tx, `UPDATE payments.payment_run SET release_request_id = $3, release_approval = $4, release_request_total = $5,

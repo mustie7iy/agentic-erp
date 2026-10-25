@@ -7046,7 +7046,7 @@
      {
       "s": "D",
       "t": "Two-person release of large payment runs (PO 2026-10-22): a run above its company's release_dual_limit, at the run date's rate, is released only after a payment_run_release approval request (:submit) is approved by a second person, neither proposer nor releaser; the approval releases nothing; runs within the limit unchanged. PO 2026-10-25: a rejected request rejects the run (items freed, payment_run_rejected with the request id), so a new run is proposed; a withdrawn one leaves it proposed",
-      "r": "internal/payments dualrelease.go · approvals.PaymentRunRelease releaseSteps · config companies[].release_dual_limit · 000150-000151 · ADR-0038 amendment · 04 §4.3 · walkthrough step 7 · T72m",
+      "r": "internal/payments dualrelease.go · approvals.PaymentRunRelease releaseSteps · config companies[].release_dual_limit · 000153-000154 · ADR-0038 amendment · 04 §4.3 · walkthrough step 7 · T72m",
       "c": []
      },
      {

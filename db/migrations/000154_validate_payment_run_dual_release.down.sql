@@ -1,5 +1,5 @@
 -- A validated constraint cannot be marked unvalidated again; the down
--- restores 000150's state by adding each one back NOT VALID.
+-- restores 000153's state by adding each one back NOT VALID.
 ALTER TABLE payments.payment_run
   DROP CONSTRAINT payment_run_release_sod,
   ADD CONSTRAINT payment_run_release_sod
