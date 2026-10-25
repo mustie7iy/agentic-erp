@@ -178,8 +178,7 @@ Every operation that posts can answer the account assignment refusals
 `ledger.cost_center_invalid` and `ledger.profit_center_invalid` (the
 reason is the field error's `code`, on `lines[i].cost_center_id` or
 `lines[i].profit_center_id`), `ledger.profit_center_mismatch`,
-`ledger.segment_mismatch`, and `ledger.profit_center_required` from the
-database's check.
+and `ledger.segment_mismatch`.
 
 ## 4.7 Concurrency and idempotency
 

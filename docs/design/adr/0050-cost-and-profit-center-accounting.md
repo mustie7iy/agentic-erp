@@ -519,16 +519,12 @@ As built in T56d (migrations 000155-000158; the rest is T56d2, below):
   `profit_center_company`, so a line's profit center is assigned to its
   company by the database; the segment's → `segment`. 000157-000158 build
   the two partial indexes per partition (`migrate:partitioned-index`).
-- **Commit-time check** (`ledger.check_line_assignment`, deferred, beside
-  the balance trigger): the table above for fiscal years from each switch's
-  year in `company_controlling` (`journal_line_cost_center_required`,
-  `_cost_center_not_allowed`, `_cost_center_revenue` against the category
-  of the period on the posting date, `_profit_center_required`), and at all
-  times a segment that is its profit center's or none
-  (`journal_line_segment_of_profit_center`). Reversals are exempt. During
-  the rolling upgrade an instance of the previous release posting for a
-  company with center accounting on is refused (fails closed). Each
-  constraint maps to the problem below.
+- **Commit-time check: in T56d2.** The table above held by the database
+  would refuse, during the rolling upgrade, the previous release's
+  postings for a company whose center accounting is on (it writes no
+  centers), against 06 §6.4; it comes in a migration of the release after,
+  with the journal API. Until then the ledger's derivation is the only
+  check, and every line is written through it.
 - **Derivation and validation** (`ledger.assign`, `assignment.go`) run in
   `postAll`, which every posting path ends in (manual and parked entries,
   `Postings`, GR/IR, clearings, down payments, revaluation, statements,
@@ -541,15 +537,15 @@ As built in T56d (migrations 000155-000158; the rest is T56d2, below):
   center's in its period on the posting date (a different one given: 422
   `ledger.profit_center_mismatch`), else for a P&L line with profit center
   accounting the company's default (always there:
-  `company_controlling_needs_default`); the segment is the profit
+  `company_controlling_needs_default`, so `ledger.profit_center_required`
+  is the database check's alone, T56d2); the segment is the profit
   center's (422 `ledger.segment_mismatch` for another, or one without a
   profit center). A center given is validated whether or not accounting is
   on. Reasons of `ledger.cost_center_invalid`: those listed above, plus
   `not_active` (a pending or rejected center) and `not_allowed` (a cost
   center on a `none` account); of `ledger.profit_center_invalid`:
   `unknown`, `not_in_company`, `not_active`, `not_valid_on_date`, `locked`
-  (a profit center has one lock). `ledger.profit_center_required` comes
-  only from the database check. The rules read are T56c's:
+  (a profit center has one lock). The rules read are T56c's:
   `gl_account.cost_element`, `company_controlling`'s years compared with
   the posting's fiscal year, active `default_assignment` rows and the
   category's `revenue_allowed`.
@@ -560,7 +556,9 @@ As built in T56d (migrations 000155-000158; the rest is T56d2, below):
   center) on a date before its first period takes its first period's
   attributes. The posting path does not tell automatic from manual
   postings, so a manual line taking a default is treated alike; a center
-  entered on such a date is refused (`not_valid_on_date`).
+  entered on such a date is refused (`not_valid_on_date`). The tracker
+  scoped this to automatic postings: product owner to confirm the wider
+  rule.
 - **Locks.** The posting reads the centers `FOR KEY SHARE` (a change takes
   the center `FOR UPDATE` and waits; text changes do not), then, in a new
   statement, their active periods `FOR SHARE`, so a posting that waited for
@@ -575,11 +573,14 @@ As built in T56d (migrations 000155-000158; the rest is T56d2, below):
   is not the account's active default: their document gave it, the rules
   do not decide it (the column does not record whether a center was
   entered or derived).
-- **T56d2** (split for size): the in-use refusals of §3, the journal API's
-  lines (ids and codes, entered assignment on manual and parked entries,
-  stored on parked lines), the journal list's `cost_center_id` /
-  `profit_center_id` filters and the `JournalEntryPosted` fields. Until
-  then the API takes no entered center: manual lines get defaults only.
+- **T56d2** (split for size): the in-use refusals of §3, the commit-time
+  check, the journal API's lines (ids and codes, entered assignment on
+  manual and parked entries, stored on parked lines), the journal list's
+  `cost_center_id` / `profit_center_id` filters and the
+  `JournalEntryPosted` fields. **T56d is not released without T56d2:**
+  until then the API takes no entered center (a manual primary cost line
+  without a default is refused with no way to give one), and a center
+  change is not refused for the lines that carry the center.
 
 ### 6. Procurement and payables capture the assignment
 - **Requisition and PO items** gain `account_assignment` (`none` | `cost_center`;
@@ -799,7 +800,7 @@ coverage 100%, reviewer). Lane F (ledger), after T52 for T56d.
 | T56b | **Hierarchies** (done; as built in §3) | Standard and alternative hierarchies per kind; one leaf per center in the standard (commit-time check), no cycles, depth ≤ 12; node moves as change requests; `GET /v1/hierarchies/{id}` with members; schema tests |
 | T56c | **Configuration rules** (done; as built in §4) | `controlling.cost_center_categories`, `cost_element` per account (defaults by type), `default_assignments`, `profit_center_accounting`, `default_profit_center`; tiers as §4; activation refuses an automatically posted account needing a cost object without a default; packs (ADR-0048) set `cost_element` for their accounts; simulation lists lines that would be refused or reassigned |
 | T56d | **Assignment on the journal** (built in part; the rest is T56d2, see §5 as built) | The in-use refusals T56a leaves out: `ledger.cost_center_period_in_use` (a change whose periods would differ from what posted lines read), `ledger.cost_center_posted_after` (validity ended before a posting), `ledger.segment_in_use` (a posted profit center's segment); expand migration (columns, FKs NOT VALID then validated per partition, partial indexes concurrently); derivation and validation in every posting path incl. parked and `Postings`; commit-time check of §5's table; reversals copy; T52 copies carry the same; errors and constraint mappings as §5; journal API, list filters and event fields (additive); `FOR SHARE` on center periods with a race test against a lock |
-| T56d2 | **Assignment in the journal API; in-use refusals** | `ledger.cost_center_period_in_use`, `ledger.cost_center_posted_after`, `ledger.segment_in_use` (attributes in force on each posted date); journal API lines with the three ids and codes, entered on manual and parked entries (stored on parked lines), list filters `cost_center_id`/`profit_center_id`, `JournalEntryPosted` fields (additive, openapi and asyncapi) |
+| T56d2 | **Assignment in the journal API; in-use refusals; commit-time check** (released with T56d) | the database check of §5's table (contract step, after T56d's rollout); `ledger.cost_center_period_in_use`, `ledger.cost_center_posted_after`, `ledger.segment_in_use` (attributes in force on each posted date); journal API lines with the three ids and codes, entered on manual and parked entries (stored on parked lines), list filters `cost_center_id`/`profit_center_id`, `JournalEntryPosted` fields (additive, openapi and asyncapi) |
 | T56e | **Procurement and payables** | `account_assignment` and `cost_center_id` on requisition and PO items (validated at release), GR and price-difference lines with the item's center; invoice items' `cost_center_id`/`profit_center_id`; capture agent proposals with eval cases; the free-text custom field in fixtures replaced; ADR-0034 note |
 | T56f | **Actual reports** | `ledger.assignment_balance` maintained by the projector (exactly once, run-twice test); `GET /v1/cost-center-balances`, `/v1/profit-center-balances` (by center, node, segment, account, period; exact at the read); schema test that assignment balances add up to `period_balance` on P&L accounts; drill-down via journal filters |
 | T56g | **Plan and plan/actual** (P5) | `controlling` context and schema; plan categories with a human-only lock; plan lines by upload and API, idempotent by batch; `GET /v1/cost-center-plan-actual`; actuals through `ledger.AssignmentBalances` |

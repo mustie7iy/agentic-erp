@@ -3,11 +3,13 @@ package ledger_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
@@ -234,29 +236,33 @@ func TestAssignmentRefused(t *testing.T) {
 			if p.Code != c.code {
 				t.Fatalf("post: got %v, want %s", err, c.code)
 			}
-			if len(p.Errors) != 1 || p.Errors[0].Code != c.why || p.Errors[0].Field[:len("lines[0]")] != "lines[0]" {
+			if len(p.Errors) != 1 || p.Errors[0].Code != c.why || !strings.HasPrefix(p.Errors[0].Field, "lines[0].") {
 				t.Errorf("field errors: got %+v, want one on lines[0] with code %s", p.Errors, c.why)
 			}
 		})
 	}
 	t.Run("parking", func(t *testing.T) {
-		a.in(t).Problem(422, "ledger.cost_center_required", "POST", "/v1/parked-journal-entries",
-			entry(a.de, "2026-05-10", "EUR", line{a.it.String(), "1.00", ""}, line{a.ap.String(), "-1.00", a.supplier.String()}), "")
+		a := a.in(t)
+		lines := func(account uuid.UUID) []line {
+			return []line{{account.String(), "1.00", ""}, {a.ap.String(), "-1.00", a.supplier.String()}}
+		}
+		a.Problem(422, "ledger.cost_center_required", "POST", "/v1/parked-journal-entries", entry(a.de, "2026-05-10", "EUR", lines(a.it)...), "")
+		// The default's profit center PC1 is locked in March.
+		a.Problem(422, "ledger.profit_center_invalid", "POST", "/v1/parked-journal-entries", entry(a.de, "2026-03-10", "EUR", lines(a.office)...), "")
+		a.Must(201, "POST", "/v1/parked-journal-entries", entry(a.de, "2026-05-10", "EUR", lines(a.office)...), "")
+		// No fiscal year: refused when it is posted, not parked.
+		a.Must(201, "POST", "/v1/parked-journal-entries", entry(a.de, "2041-05-10", "EUR", lines(a.office)...), "")
 	})
 }
 
-// TestAssignmentConstraints: the database's refusals of an assignment, a
-// writer that skipped the ledger's checks, map to the ledger's problems.
+// TestAssignmentConstraints: the database's refusals of a center of
+// another company, for a writer that skipped the ledger's checks, map to
+// the ledger's problems.
 func TestAssignmentConstraints(t *testing.T) {
 	for constraint, code := range map[string]string{
-		"journal_line_cost_center_fkey":         "ledger.cost_center_invalid",
-		"journal_line_profit_center_fkey":       "ledger.profit_center_invalid",
-		"journal_line_segment_fkey":             "ledger.segment_mismatch",
-		"journal_line_segment_of_profit_center": "ledger.segment_mismatch",
-		"journal_line_cost_center_required":     "ledger.cost_center_required",
-		"journal_line_cost_center_not_allowed":  "ledger.cost_center_invalid",
-		"journal_line_cost_center_revenue":      "ledger.cost_center_invalid",
-		"journal_line_profit_center_required":   "ledger.profit_center_required",
+		"journal_line_cost_center_fkey":   "ledger.cost_center_invalid",
+		"journal_line_profit_center_fkey": "ledger.profit_center_invalid",
+		"journal_line_segment_fkey":       "ledger.segment_mismatch",
 	} {
 		t.Run(constraint, func(t *testing.T) {
 			if got := problem.From(&pgconn.PgError{Code: "23514", ConstraintName: constraint}); got.Code != code || got.Status != 422 {
@@ -267,9 +273,17 @@ func TestAssignmentConstraints(t *testing.T) {
 }
 
 // TestAssignmentDatabaseFailures fails each statement of a posting that
-// reads every rule and center in turn.
+// reads every rule and center in turn, and of parking one.
 func TestAssignmentDatabaseFailures(t *testing.T) {
 	a := setupAssigned(t)
+	h := endpoints()
+	apitest.EveryFailure(t, a.ten, a.ten.Human, "park with an assignment", func(ctx context.Context) error {
+		_, err := h.ParkJournalEntry(ctx, &gen.JournalEntryCreate{LegalEntityID: a.de, DocumentDate: date("2026-05-10"), PostingDate: date("2026-05-10"),
+			Currency: "EUR", Lines: []gen.JournalLineInput{
+				{AccountID: a.office, Amount: gen.Money{Amount: "1.00", Currency: "EUR"}},
+				{AccountID: a.bank, Amount: gen.Money{Amount: "-1.00", Currency: "EUR"}}}}, gen.ParkJournalEntryParams{})
+		return err
+	})
 	apitest.EveryFailure(t, a.ten, a.ten.Human, "post with an assignment", func(ctx context.Context) error {
 		_, err := postings().Post(ctx, ledger.Posting{LegalEntityID: a.de, DocumentType: "SA", DocumentDate: date("2026-05-10"), PostingDate: date("2026-05-10"),
 			Currency: "EUR", SourceContext: "payables", SourceDocumentID: uuid.New(), Lines: []ledger.PostingLine{

@@ -21,9 +21,9 @@ import (
 // copy carries the same (T52), and validates them before a line is
 // written; parking checks an entry the same way without locking. A
 // reversal carries its original's assignment and is neither derived nor
-// validated again. The database holds the table of §5 at commit
-// (ledger.check_line_assignment, 000155) and the centers' companies by
-// foreign key.
+// validated again. The database holds the centers' companies by foreign
+// key (000155-000156); its commit-time check of §5's table comes with
+// T56d2, after the rolling upgrade (06 §6.4).
 //
 // Derivation, first hit wins: the cost center as the line gives it, else,
 // on a primary cost account with cost center accounting on in the posting's
@@ -43,23 +43,6 @@ func init() {
 			problem.FieldError{Field: "lines.profit_center_id", Code: reasonNotInCompany, Message: "a profit center assigned to the legal entity"})
 	})
 	problem.RegisterConstraint("journal_line_segment_fkey", segmentMismatch)
-	problem.RegisterConstraint("journal_line_segment_of_profit_center", segmentMismatch)
-	problem.RegisterConstraint("journal_line_cost_center_required", func() *problem.Problem {
-		return problem.Unprocessable("ledger.cost_center_required", "A line on a primary cost account needs a cost center.",
-			problem.FieldError{Field: "lines.cost_center_id", Code: "required", Message: "a cost center of the legal entity"})
-	})
-	problem.RegisterConstraint("journal_line_cost_center_not_allowed", func() *problem.Problem {
-		return problem.Unprocessable("ledger.cost_center_invalid", "A line on an account that takes no cost object has a cost center.",
-			problem.FieldError{Field: "lines.cost_center_id", Code: reasonNotAllowed, Message: "none on this account"})
-	})
-	problem.RegisterConstraint("journal_line_cost_center_revenue", func() *problem.Problem {
-		return problem.Unprocessable("ledger.cost_center_invalid", "A revenue line's cost center is of a category that takes no revenue.",
-			problem.FieldError{Field: "lines.cost_center_id", Code: reasonRevenueNotAllowed, Message: "a cost center whose category allows revenue"})
-	})
-	problem.RegisterConstraint("journal_line_profit_center_required", func() *problem.Problem {
-		return problem.Unprocessable("ledger.profit_center_required", "A P&L line needs a profit center.",
-			problem.FieldError{Field: "lines.profit_center_id", Code: "required", Message: "a profit center assigned to the legal entity"})
-	})
 }
 
 func segmentMismatch() *problem.Problem {

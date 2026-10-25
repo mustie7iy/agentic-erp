@@ -1080,16 +1080,9 @@ assigned to it (`journal_line_profit_center_fkey` to
 (`journal_line_segment_fkey`); added `NOT VALID` per partition and
 validated per partition before the parent took them over. Partial indexes
 `journal_line_cost_center` and `journal_line_profit_center` (company,
-center, year, period). At commit (`check_line_assignment`, deferred), for
-fiscal years from `company_controlling`'s switches: a `primary_cost` line
-has a cost center (`journal_line_cost_center_required`), a `none` line none
-(`journal_line_cost_center_not_allowed`), a `revenue` line's cost center
-is of a category allowing revenue on the posting date
-(`journal_line_cost_center_revenue`), and with profit center accounting
-every P&L line has a profit center (`journal_line_profit_center_required`);
-always, the segment is the profit center's or none
-(`journal_line_segment_of_profit_center`). Reversals are exempt: they copy
-their original's lines.
+center, year, period). The ledger derives and validates every line's
+centers before writing it; the database check of ADR-0050 §5's table at
+commit comes with T56d2, after the rolling upgrade (06 §6.4).
 
 ## 3.8 Procurement (`procurement`)
 

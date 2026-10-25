@@ -8,7 +8,8 @@ import (
 )
 
 // Account assignment on the journal line (T56d, migrations 000155-000158):
-// the centers' companies by foreign key and ADR-0050 §5's table at commit.
+// the centers' companies by foreign key, on every partition. ADR-0050 §5's
+// table is checked at commit from T56d2.
 
 // assignedLine is a journal line with its centers (nil: none).
 type assignedLine struct {
@@ -18,30 +19,24 @@ type assignedLine struct {
 }
 
 // assignedEntry inserts an entry of the fixture's company in March 2026
-// with the lines, reversing reversalOf when set; it returns its id.
-func (f centerFixture) assignedEntry(tx pgx.Tx, reversalOf *uuid.UUID, lines ...assignedLine) (uuid.UUID, error) {
+// with the lines.
+func (f centerFixture) assignedEntry(tx pgx.Tx, lines ...assignedLine) error {
 	je := id()
-	var year *int16
-	if reversalOf != nil {
-		y := int16(2026)
-		year = &y
-	}
 	if err := exec(tx, `INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period, document_type,
-		document_number, document_date, posting_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, posted_by,
-		reversal_of_id, reversal_of_year)
-		VALUES ($1,2026,$2,$3,$4,3,'SA',$5,'2026-03-10','2026-03-10','USD','USD','EUR',1,0.9,'ledger',$6,$7,$8)`,
-		f.tenant, je, f.entity, f.ledger, je.String()[24:], f.actor, reversalOf, year); err != nil {
-		return je, err
+		document_number, document_date, posting_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, posted_by)
+		VALUES ($1,2026,$2,$3,$4,3,'SA',$5,'2026-03-10','2026-03-10','USD','USD','EUR',1,0.9,'ledger',$6)`,
+		f.tenant, je, f.entity, f.ledger, je.String()[24:], f.actor); err != nil {
+		return err
 	}
 	for i, l := range lines {
 		if err := exec(tx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id, fiscal_period,
 			posting_date, account_id, amount_tc, amount_lc, amount_gc, cost_center_id, profit_center_id, segment_id)
 			VALUES ($1,2026,$2,$3,$4,$5,3,'2026-03-10',$6,$7,$7,$8,$9,$10,$11)`,
 			f.tenant, je, i+1, f.entity, f.ledger, l.account, l.amount, l.amount*9/10, l.cc, l.pc, l.seg); err != nil {
-			return je, err
+			return err
 		}
 	}
-	return je, nil
+	return nil
 }
 
 func TestJournalLineAssignment(t *testing.T) {
@@ -67,40 +62,15 @@ func TestJournalLineAssignment(t *testing.T) {
 		}
 		return nil
 	})
-	post := func(t *testing.T, reversalOf *uuid.UUID, lines ...assignedLine) (uuid.UUID, error) {
+	post := func(t *testing.T, lines ...assignedLine) error {
 		t.Helper()
-		var je uuid.UUID
-		err := asApp(t, f.tenant, func(tx pgx.Tx) error {
-			var err error
-			je, err = f.assignedEntry(tx, reversalOf, lines...)
-			return err
-		})
-		return je, err
+		return asApp(t, f.tenant, func(tx pgx.Tx) error { return f.assignedEntry(tx, lines...) })
 	}
 	bank := func(amount int64) assignedLine { return assignedLine{account: f.bank, amount: amount} }
-	unassigned, err := post(t, nil, assignedLine{account: f.expense, amount: 100}, bank(-100))
-	if err != nil {
-		t.Fatalf("a cost line before center accounting is on: %v", err)
-	}
-	mustApp(t, f.tenant, func(tx pgx.Tx) error {
-		return exec(tx, `INSERT INTO ledger.company_controlling (tenant_id, legal_entity_id, cost_center_accounting_from, profit_center_accounting_from,
-			default_profit_center_id, created_by, updated_by) VALUES ($1, $2, 2026, 2026, $3, $4, $4)`, f.tenant, f.entity, f.pc, f.actor)
-	})
 	for name, c := range map[string]struct {
 		lines []assignedLine
 		want  string
 	}{
-		"a primary cost line without a cost center": {[]assignedLine{{account: f.expense, amount: 100, pc: &f.pc}, bank(-100)},
-			"a primary cost line needs a cost center"},
-		"a cost center on an account that takes none": {[]assignedLine{{account: f.bank, amount: -100, cc: &f.cc}, {account: f.expense, amount: 100, cc: &f.cc, pc: &f.pc}},
-			"the account takes no cost center"},
-		"revenue on a category that takes none": {[]assignedLine{{account: revenue, amount: -100, cc: &f.cc, pc: &f.pc}, bank(100)},
-			"category takes no revenue"},
-		"a P&L line without a profit center": {[]assignedLine{{account: revenue, amount: -100}, bank(100)}, "a P&L line needs a profit center"},
-		"a segment without a profit center": {[]assignedLine{{account: revenue, amount: -100, pc: &f.pc}, {account: f.bank, amount: 100, seg: &segment}},
-			"the segment is not its profit center's"},
-		"another segment than the profit center's": {[]assignedLine{{account: revenue, amount: -100, pc: &f.pc, seg: &segment}, bank(100)},
-			"the segment is not its profit center's"},
 		"another company's cost center": {[]assignedLine{{account: f.expense, amount: 100, cc: &otherCC, pc: &f.pc}, bank(-100)},
 			"journal_line_cost_center_fkey"},
 		"a profit center not assigned to the company": {[]assignedLine{{account: revenue, amount: -100, pc: &otherPC}, bank(100)},
@@ -109,13 +79,13 @@ func TestJournalLineAssignment(t *testing.T) {
 			"journal_line_segment_fkey"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := post(t, nil, c.lines...)
+			err := post(t, c.lines...)
 			failsWith(t, err, c.want)
 		})
 	}
-	t.Run("lines as the table wants them", func(t *testing.T) {
-		if _, err := post(t, nil, assignedLine{account: f.expense, amount: 100, cc: &f.cc, pc: &f.pc}, assignedLine{account: revenue, amount: -100, pc: &f.pc},
-			assignedLine{account: f.bank, amount: 50, pc: &f.pc}, bank(-50)); err != nil {
+	t.Run("centers of the company", func(t *testing.T) {
+		if err := post(t, assignedLine{account: f.expense, amount: 100, cc: &f.cc, pc: &f.pc}, assignedLine{account: revenue, amount: -100, pc: &f.pc},
+			assignedLine{account: f.bank, amount: 50, pc: &f.pc, seg: &segment}, bank(-50)); err != nil {
 			t.Errorf("got %v, want them posted", err)
 		}
 	})
@@ -123,7 +93,8 @@ func TestJournalLineAssignment(t *testing.T) {
 		var partitions, keys, indexes int
 		if err := testDB.QueryRow(t.Context(), `SELECT count(*),
 				(SELECT count(*) FROM pg_inherits i JOIN pg_constraint c ON c.conrelid = i.inhrelid WHERE i.inhparent = 'ledger.journal_line'::regclass
-					AND c.conname IN ('journal_line_cost_center_fkey', 'journal_line_profit_center_fkey', 'journal_line_segment_fkey') AND c.convalidated),
+					AND c.conname IN ('journal_line_cost_center_fkey', 'journal_line_profit_center_fkey', 'journal_line_segment_fkey') AND c.convalidated
+					AND c.conparentid <> 0),
 				(SELECT count(*) FROM pg_inherits i JOIN pg_index x ON x.indrelid = i.inhrelid JOIN pg_inherits a ON a.inhrelid = x.indexrelid
 					WHERE i.inhparent = 'ledger.journal_line'::regclass AND x.indisvalid
 					AND a.inhparent IN ('ledger.journal_line_cost_center'::regclass, 'ledger.journal_line_profit_center'::regclass))
@@ -131,12 +102,7 @@ func TestJournalLineAssignment(t *testing.T) {
 			t.Fatal(err)
 		}
 		if keys != 3*partitions || indexes != 2*partitions {
-			t.Errorf("of %d partitions: got %d validated keys and %d indexes, want %d and %d", partitions, keys, indexes, 3*partitions, 2*partitions)
-		}
-	})
-	t.Run("a reversal carries its original's lines", func(t *testing.T) {
-		if _, err := post(t, &unassigned, assignedLine{account: f.expense, amount: -100}, bank(100)); err != nil {
-			t.Errorf("got %v, want it posted", err)
+			t.Errorf("of %d partitions: got %d validated keys taken over by the parent and %d indexes, want %d and %d", partitions, keys, indexes, 3*partitions, 2*partitions)
 		}
 	})
 }
