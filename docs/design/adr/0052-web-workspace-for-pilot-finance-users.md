@@ -1928,12 +1928,15 @@ written:
   by number, posted or due by a date, with their aging on a key date
   (today until chosen), each item's net due date, the last day of its
   earliest discount still open and its days overdue. `GET /reports/gr-ir`:
-  a company's GR/IR positions, those still open or every one. `GET
+  a company's GR/IR positions, those still open or every one. A supplier
+  named to a person who may not look suppliers up is refused on its
+  field, never dropped from the filters. `GET
   /reports/ledger-reconciliation`: two ledgers a company keeps compared
   (the chosen ledger, the leading one until then, with the leading one,
   or the leading one with the company's first parallel one, as T73i's
-  check compares them), each ledger's trial balance check and the
-  accounts that differ. `GET /reports/ledger-reconciliation/entries`:
+  check compares them; ledgers the company does not keep, which the form
+  keeps when the company changed, are the company's own), each ledger's
+  trial balance check and the accounts that differ. `GET /reports/ledger-reconciliation/entries`:
   the lines behind one account's difference
   (`listLedgerReconciliationEntries`). `GET /reports/audit`: a document's
   events newest first, who (by name and kind), what, the outcome, the

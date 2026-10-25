@@ -69,13 +69,13 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request, p *person, m m
 			return
 		}
 		rows = append(rows, page...)
-		if next == "" {
-			break
-		}
-		if len(rows) >= maxExportRows || pages >= maxExportPages {
+		if len(rows) > maxExportRows || next != "" && (len(rows) == maxExportRows || pages >= maxExportPages) {
 			s.render(w, r, http.StatusUnprocessableEntity, ui.Problem(s.page(x.title, ui.ReportsPath, p, m), i18n.ReportTooManyTitle,
 				i18n.ReportTooManyBody, x.back, i18n.ReportBackToReport))
 			return
+		}
+		if next == "" {
+			break
 		}
 		token = next
 	}
@@ -117,8 +117,9 @@ func (s *Server) writeCSV(w http.ResponseWriter, r *http.Request, x export, rows
 // byteOrderMark is UTF-8's, the file's first bytes.
 const byteOrderMark = "\xef\xbb\xbf"
 
-// numeric is a cell a spreadsheet reads as a number or a date, as it is.
-var numeric = regexp.MustCompile(`^-?[0-9][0-9.:-]*$`)
+// numeric is a cell a spreadsheet reads as a number or a date, as it is:
+// an amount as the API writes it, or an ISO date.
+var numeric = regexp.MustCompile(`^(-?[0-9]+(\.[0-9]+)?|[0-9]{4}-[0-9]{2}-[0-9]{2})$`)
 
 // safeCell is a cell a spreadsheet does not run: a text a person or an
 // agent typed (an account's name, a reference) that begins as a formula

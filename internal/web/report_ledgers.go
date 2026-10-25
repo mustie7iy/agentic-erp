@@ -165,7 +165,7 @@ func (s *Server) ledgerRecon(w http.ResponseWriter, r *http.Request, p *person) 
 	ledger, compare, found := compared(kept, chosenLedger(kept, q.Get(ui.FieldLedger)))
 	switch {
 	case found:
-		q = defaulted(q, map[string]uuid.UUID{ui.FieldLedger: ledger.ID, ui.FieldCompare: compare.ID})
+		q = defaulted(q, kept, map[string]uuid.UUID{ui.FieldLedger: ledger.ID, ui.FieldCompare: compare.ID})
 		lp.Filters.Ledgers, lp.Filters.Compare = ledgerOptions(kept, q.Get(ui.FieldLedger)), ledgerOptions(kept, q.Get(ui.FieldCompare))
 	case ledgers == nil && q.Get(ui.FieldLedger) != "" && q.Get(ui.FieldCompare) != "":
 		found = true // the ledgers could not be read: the query's, by id
@@ -201,7 +201,8 @@ func keptBy(ledgers []gen.Ledger, company string) []gen.Ledger {
 }
 
 // chosenLedger is the ledger the query names, the leading one (first of
-// kept) when it names none or one the company does not keep.
+// kept) when it names none or one the company does not keep (defaulted
+// then replaces it in the query).
 func chosenLedger(kept []gen.Ledger, asked string) uuid.UUID {
 	if i := slices.IndexFunc(kept, func(l gen.Ledger) bool { return l.ID.String() == asked }); i >= 0 {
 		return kept[i].ID
@@ -212,12 +213,13 @@ func chosenLedger(kept []gen.Ledger, asked string) uuid.UUID {
 	return uuid.Nil
 }
 
-// defaulted is a copy of q, its page kept, with each key it names none
-// of set to its default.
-func defaulted(q url.Values, defaults map[string]uuid.UUID) url.Values {
+// defaulted is a copy of q, its page kept, with each key that names none
+// of the kept ledgers set to its default: the form keeps the ledgers of
+// the company it was sent for when the company changed.
+func defaulted(q url.Values, kept []gen.Ledger, defaults map[string]uuid.UUID) url.Values {
 	out := maps.Clone(q)
 	for k, id := range defaults {
-		if out.Get(k) == "" {
+		if !slices.ContainsFunc(kept, func(l gen.Ledger) bool { return l.ID.String() == out.Get(k) }) {
 			out.Set(k, id.String())
 		}
 	}

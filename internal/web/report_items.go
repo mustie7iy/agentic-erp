@@ -146,8 +146,15 @@ func (s *Server) itemQuery(ctx context.Context, m me, q url.Values, op *ui.OpenI
 	iq.key = key.Value
 	iq.postingTo, f.PostingError = dateParam(f.PostingTo)
 	iq.dueTo, f.DueError = dateParam(f.DueTo)
-	if f.Supplier != "" && f.Suppliers {
+	switch {
+	case f.Supplier == "":
+	case f.Suppliers:
 		iq.supplier, op.Supplier, f.SupplierError = s.supplierOf(ctx, f.Supplier)
+	default:
+		// A supplier named by a person who may not look suppliers up (a
+		// link shared): said, rather than every supplier's items listed
+		// under a filter that was dropped.
+		f.SupplierError = i18n.EntryLookupRefused
 	}
 	op.Filters = f
 	return iq, valid

@@ -355,7 +355,8 @@ func (e *Endpoints) ListOpenItems(ctx context.Context, params gen.ListOpenItemsP
 	if err != nil {
 		return nil, err
 	}
-	// The Opt values, not the pointers: a pointer prints its address.
+	// The page token is bound to the filters (the aging's parameters
+	// bear on the first page alone).
 	scope := fmt.Sprintf("listOpenItems|%v|%v|%v|%v|%v", params.LegalEntityID, params.PartnerID, params.AccountID, params.PostingDateTo, params.DueDateTo)
 	ks, err := e.Pages.Keyset(openItemSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {

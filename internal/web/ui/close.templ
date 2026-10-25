@@ -419,7 +419,7 @@ templ TrialItem(tb TrialView) {
 // ledgers.
 templ DifferencesTable(differences []DifferenceView) {
 	<div class="table-wrap" role="region" tabindex="0" { labelledBy("differences-caption")... }>
-		<table class="table">
+		<table class="table" hx-disable>
 			<caption class="visually-hidden" { idAttr("differences-caption")... }>
 				@T(i18n.CheckLedgerTitle)
 			</caption>

@@ -273,7 +273,10 @@ func TestLedgerReconReport(t *testing.T) {
 	holds(t, "2L's reconciliation", local, "Ledger 2L compared with ledger 0L.")
 	us := b.get("/reports/ledger-reconciliation?legal_entity_id=" + d.f.US.String()).page(t).mainText()
 	holds(t, "company 1000's", us, "The company keeps one ledger: there is nothing to reconcile.")
-	status(t, "a ledger, no id", b.get("/reports/ledger-reconciliation?"+companyQuery(d, "ledger_id", "0L")), http.StatusBadRequest)
+	// The form keeps the ledgers of the company it was sent for when the
+	// company changed: ledgers the company does not keep are its own.
+	stale := b.get("/reports/ledger-reconciliation?" + companyQuery(d, "fiscal_year", "2026", "ledger_id", "0L", "compare_ledger_id", uuid.NewString()))
+	holds(t, "ledgers the company does not keep", stale.page(t).mainText(), "Ledger 0L compared with ledger 2L.")
 	status(t, "a company, no id", b.get("/reports/ledger-reconciliation?legal_entity_id=x"), http.StatusBadRequest)
 	status(t, "a year, none", b.get("/reports/ledger-reconciliation?"+companyQuery(d, "fiscal_year", "x")), http.StatusUnprocessableEntity)
 	status(t, "entries without an account", b.get("/reports/ledger-reconciliation/entries?"+companyQuery(d)), http.StatusBadRequest)
@@ -351,6 +354,9 @@ func TestReportsAsOthers(t *testing.T) {
 		status(t, path, r, http.StatusForbidden)
 		holds(t, path, r.page(t).mainText(), "The report could not be shown", "You do not have the permission this needs.")
 	}
+	supplier := viewer.get("/reports/open-items?" + companyQuery(d, "supplier", "BP90000001"))
+	status(t, "a supplier named to the viewer", supplier, http.StatusUnprocessableEntity)
+	holds(t, "a supplier named to the viewer", supplier.page(t).mainText(), "You may not look this up")
 	refused := outsider.get("/reports/trial-balance.csv?" + companyQuery(d, "fiscal_year", "2026"))
 	status(t, "the outsider's download", refused, http.StatusForbidden)
 	holds(t, "the outsider's download", refused.page(t).mainText(), "The report could not be shown", "Back to the report")

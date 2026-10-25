@@ -95,6 +95,8 @@ func TestReportsStubbed(t *testing.T) {
 	co.Set("compare_ledger_id", compare.String())
 	recon := b.get("/reports/ledger-reconciliation?" + co.Encode()).page(t)
 	holds(t, "the reconciliation by the address's ledgers", recon.mainText(), "Ledger "+ledger.String()+" compared with ledger "+compare.String(), "More rows")
+	status(t, "a ledger, no id, the ledgers unread", b.get("/reports/ledger-reconciliation?"+url.Values{"legal_entity_id": {company.String()},
+		"ledger_id": {"0L"}, "compare_ledger_id": {compare.String()}}.Encode()), http.StatusBadRequest)
 	co.Set("account_id", uuid.NewString())
 	co.Set("currency", "EUR")
 	entries := b.get("/reports/ledger-reconciliation/entries?" + co.Encode()).page(t).mainText()
@@ -151,16 +153,18 @@ func TestDownloadLimits(t *testing.T) {
 	company := uuid.New()
 	full := strings.Repeat(balanceJSON(company)+",", exportPageSize-1) + balanceJSON(company)
 	short := balanceJSON(company)
+	almost := strings.Repeat(balanceJSON(company)+",", exportPageSize-2) + balanceJSON(company)
 	for name, tc := range map[string]struct {
 		page   string
 		pages  int // pages with a next one; 0 every page
 		status int
 		want   string
 	}{
-		"two pages":        {full, 1, http.StatusOK, ""},
-		"over 10,000 rows": {full, 0, http.StatusUnprocessableEntity, "The filters select more than 10,000 rows."},
-		"too many pages":   {short, 0, http.StatusUnprocessableEntity, "The report is too long to download"},
-		"the pages' end":   {short, 3, http.StatusOK, ""},
+		"two pages":          {full, 1, http.StatusOK, ""},
+		"over 10,000 rows":   {full, 0, http.StatusUnprocessableEntity, "The filters select more than 10,000 rows."},
+		"too many pages":     {short, 0, http.StatusUnprocessableEntity, "The report is too long to download"},
+		"the pages' end":     {short, 3, http.StatusOK, ""},
+		"the last page over": {almost, 20, http.StatusUnprocessableEntity, "The filters select more than 10,000 rows."},
 	} {
 		t.Run(name, func(t *testing.T) {
 			read := 0
@@ -257,9 +261,11 @@ func TestDownloadCutShort(t *testing.T) {
 // as text; numbers, dates and other texts are as they are.
 func TestSafeCell(t *testing.T) {
 	for in, want := range map[string]string{"=SUM(A1)": "'=SUM(A1)", "+1": "'+1", "-x": "'-x", "@x": "'@x", "\tx": "'\tx", "\rx": "'\rx",
-		"-119.00": "-119.00", "2026-04-09": "2026-04-09", "INV-1": "INV-1", "": ""} {
-		if got := safeCell(in); got != want {
-			t.Errorf("safeCell(%q): got %q, want %q", in, got, want)
-		}
+		"-2-3": "'-2-3", "-119.00": "-119.00", "2026-04-09": "2026-04-09", "INV-1": "INV-1", "": ""} {
+		t.Run(in, func(t *testing.T) {
+			if got := safeCell(in); got != want {
+				t.Errorf("got %q, want %q", got, want)
+			}
+		})
 	}
 }

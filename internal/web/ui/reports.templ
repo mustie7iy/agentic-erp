@@ -142,7 +142,7 @@ templ trialBalanceContent(tp TrialBalancePage) {
 // sideways on its own on a phone.
 templ BalancesTable(rows []BalanceRow) {
 	<div class="table-wrap" role="region" tabindex="0" { labelledBy("balances-caption")... }>
-		<table class="table">
+		<table class="table" hx-disable>
 			<caption class="visually-hidden" { idAttr("balances-caption")... }>
 				@T(i18n.TrialBalanceTitle)
 			</caption>
@@ -207,7 +207,7 @@ templ openItemsContent(op OpenItemsPage) {
 	@Paragraph(i18n.OpenItemsLead)
 	@OpenItemFilterForm(op.Filters)
 	if op.Supplier != "" {
-		<p>
+		<p hx-disable>
 			@T(i18n.OpenItemsOf)
 			@space()
 			@Data(op.Supplier)
@@ -220,10 +220,12 @@ templ openItemsContent(op OpenItemsPage) {
 	} else if len(op.Rows) == 0 {
 		@Paragraph(i18n.OpenItemsEmpty)
 	} else {
-		<h2>
-			@T(i18n.AgingTitle, op.Filters.KeyDate)
-		</h2>
-		@AgingTable(op.Aging)
+		if len(op.Aging) > 0 {
+			<h2>
+				@T(i18n.AgingTitle, op.Filters.KeyDate)
+			</h2>
+			@AgingTable(op.Aging)
+		}
 		<h2>
 			@T(i18n.OpenItemsListTitle)
 		</h2>
@@ -248,7 +250,7 @@ templ OpenItemFilterForm(f ItemFilters) {
 			if f.Accounts != nil {
 				@optionSelect("items-account", FieldAccount, i18n.OpenItemsAccount, f.Accounts)
 			}
-			if f.Suppliers {
+			if f.Suppliers || f.SupplierError != "" {
 				@InputField("items-supplier", FieldSupplier, "text", i18n.OpenItemsSupplier, i18n.OpenItemsSupplierHint, f.Supplier, f.SupplierError)
 			}
 			@InputField("items-posting-to", FieldPostingDateTo, "date", i18n.OpenItemsPostingTo, i18n.FilterDateHint, f.PostingTo, f.PostingError)
@@ -509,7 +511,7 @@ templ reconEntriesContent(ep ReconEntriesPage) {
 	if ep.Invalid {
 		@Notice("report-invalid", i18n.ReportRefusedTitle, Paragraph(i18n.FilterInvalid))
 	} else {
-		<dl class="facts">
+		<dl class="facts" hx-disable>
 			@Fact(i18n.DifferenceAccount, Code(ep.Account))
 			@Fact(i18n.DifferenceCurrency, Code(ep.Currency))
 			@Fact(i18n.PeriodLedger, Code(ep.Ledger))
