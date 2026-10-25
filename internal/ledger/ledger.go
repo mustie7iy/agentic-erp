@@ -16,6 +16,9 @@
 // standard and alternative hierarchies (T56b) change the same way
 // (hierarchies.go, hierarchychange.go).
 //
+// Journal lines carry their cost center, profit center and segment from
+// T56d (ADR-0050 §5), derived and validated at posting (assignment.go).
+//
 // Parallel ledgers (ADR-0045, T52): the leading ledger 0L and ledgers kept
 // under other accounting principles, assigned per company, and ledger
 // groups (ledgers.go).

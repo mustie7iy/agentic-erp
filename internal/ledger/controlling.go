@@ -135,7 +135,7 @@ func (c *companyControlling) checkDefaultCostCenters(ctx context.Context, tx pgx
 	if _, err := pgx.ForEachRow(rows, []any{&code, &id}, func() error { byCode[code] = id; return nil }); err != nil {
 		return fmt.Errorf("ledger: default cost centers of company %s: %w", co.Code, err)
 	}
-	periods, err := costCenterPeriods(ctx, tx, slices.Collect(maps.Values(byCode)))
+	periods, err := costCenterPeriods(ctx, tx, slices.Collect(maps.Values(byCode)), noLock)
 	if err != nil {
 		return err
 	}

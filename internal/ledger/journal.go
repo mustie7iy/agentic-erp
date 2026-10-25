@@ -117,6 +117,12 @@ type Line struct {
 	// TaxJurisdiction is the subdivision the line's tax is levied in
 	// (CA-ON, AE-DU) where its code's component levies the line's (T61f).
 	TaxJurisdiction *string `json:"tax_jurisdiction"`
+	// The line's account assignment (ADR-0050 §5, T56d): its cost center,
+	// profit center and segment, as entered and then derived at posting
+	// (assign).
+	CostCenterID   *uuid.UUID `json:"cost_center_id"`
+	ProfitCenterID *uuid.UUID `json:"profit_center_id"`
+	SegmentID      *uuid.UUID `json:"segment_id"`
 	// keptLC is a local amount the posting keeps rather than converts
 	// (PostingLine.LC).
 	keptLC *money.Minor
@@ -136,7 +142,8 @@ const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id,
 		(SELECT json_agg(json_build_object('line_no', l.line_no, 'account_id', l.account_id, 'tc', l.amount_tc, 'lc', l.amount_lc,
 			'gc', l.amount_gc, 'partner_id', l.partner_id, 'tax_code', l.tax_code, 'quantity', trim_scale(l.quantity)::text,
 			'unit', l.uom_code, 'text', l.line_text, 'purchase_order_id', l.purchase_order_id, 'po_item_no', l.po_item_no,
-			'special_gl', l.special_gl, 'tax_base_tc', l.tax_base_tc, 'tax_base_lc', l.tax_base_lc, 'tax_jurisdiction', l.tax_jurisdiction)
+			'special_gl', l.special_gl, 'tax_base_tc', l.tax_base_tc, 'tax_base_lc', l.tax_base_lc, 'tax_jurisdiction', l.tax_jurisdiction,
+			'cost_center_id', l.cost_center_id, 'profit_center_id', l.profit_center_id, 'segment_id', l.segment_id)
 			ORDER BY l.line_no)
 		 FROM ledger.journal_line l WHERE l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year AND l.journal_entry_id = e.id)
 	FROM ledger.journal_entry e
@@ -229,11 +236,8 @@ type target struct {
 // first. The lock comes after the entry buckets and before the number range
 // (03-data-model, entry locks); a close takes nothing else, so no cycle.
 func postingPeriod(ctx context.Context, tx pgx.Tx, e tenancy.Entity, ledgers []uuid.UUID, date time.Time) (int16, int16, []target, error) {
-	var year, number int16
 	day := date.Format(time.DateOnly)
-	err := tx.QueryRow(ctx, `SELECT fiscal_year, period FROM ledger.fiscal_period
-		WHERE calendar_id = $1 AND NOT is_special AND $2 BETWEEN start_date AND end_date`,
-		e.FiscalCalendarID, date).Scan(&year, &number)
+	year, number, err := periodOn(ctx, tx, e.FiscalCalendarID, date)
 	var targets []target
 	if err == nil {
 		// FOR SHARE in a lateral subquery: it cannot lock the nullable side of an outer join.
@@ -266,6 +270,14 @@ func postingPeriod(ctx context.Context, tx pgx.Tx, e tenancy.Entity, ledgers []u
 		}
 	}
 	return year, number, targets, nil
+}
+
+// periodOn is the fiscal year and regular period of the calendar the date
+// is in; pgx.ErrNoRows when no fiscal year is set up for it.
+func periodOn(ctx context.Context, tx pgx.Tx, calendar uuid.UUID, date time.Time) (year, number int16, err error) {
+	err = tx.QueryRow(ctx, `SELECT fiscal_year, period FROM ledger.fiscal_period
+		WHERE calendar_id = $1 AND NOT is_special AND $2 BETWEEN start_date AND end_date`, calendar, date).Scan(&year, &number)
+	return year, number, errs.Wrapf(err, "ledger: fiscal period of calendar %s on %s", calendar, date.Format(time.DateOnly))
 }
 
 // noFiscalPeriod refuses a document dated outside every fiscal period;
@@ -304,6 +316,16 @@ func (e *Endpoints) postAll(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	year, number, targets, err := postingPeriod(ctx, tx, d.entity, d.ledgers, d.postingDate)
 	if err != nil {
 		return nil, err
+	}
+	// Derived once for the posting group: every ledger's copy carries the
+	// same assignment (ADR-0050 §5); a reversal carries its original's. The
+	// centers are locked after the period statuses and before the number
+	// range, which every posting of the company waits for.
+	if d.reversalOf == nil {
+		d.lines = slices.Clone(d.lines)
+		if err := assign(ctx, tx, d.entity.ID, year, d.postingDate, d.lines, true); err != nil {
+			return nil, err
+		}
 	}
 	docNumber, err := e.Numbers.Next(ctx, d.entity.ID, "journal_"+strings.ToLower(d.documentType), year)
 	if err != nil {
@@ -348,6 +370,7 @@ type lineColumns struct {
 	taxes, quantities, units, texts, specials []*string
 	bases, basesLC                            []*money.Minor
 	jurisdictions                             []*string
+	costCenters, profitCenters, segments      []*uuid.UUID
 }
 
 func lineColumnsOf(lines []Line) lineColumns {
@@ -355,13 +378,15 @@ func lineColumnsOf(lines []Line) lineColumns {
 	c := lineColumns{nos: make([]int32, n), items: make([]*int32, n), accounts: make([]uuid.UUID, n), partners: make([]*uuid.UUID, n),
 		orders: make([]*uuid.UUID, n), tcs: make([]money.Minor, n), lcs: make([]money.Minor, n), gcs: make([]money.Minor, n),
 		taxes: make([]*string, n), quantities: make([]*string, n), units: make([]*string, n), texts: make([]*string, n), specials: make([]*string, n),
-		bases: make([]*money.Minor, n), basesLC: make([]*money.Minor, n), jurisdictions: make([]*string, n)}
+		bases: make([]*money.Minor, n), basesLC: make([]*money.Minor, n), jurisdictions: make([]*string, n),
+		costCenters: make([]*uuid.UUID, n), profitCenters: make([]*uuid.UUID, n), segments: make([]*uuid.UUID, n)}
 	for i, l := range lines {
 		c.nos[i], c.accounts[i], c.partners[i] = int32(i+1), l.AccountID, l.PartnerID
 		c.tcs[i], c.lcs[i], c.gcs[i] = l.TC, l.LC, l.GC
 		c.taxes[i], c.quantities[i], c.units[i], c.texts[i] = l.TaxCode, l.Quantity, l.Unit, l.Text
 		c.orders[i], c.items[i], c.specials[i] = l.PurchaseOrderID, l.POItemNo, l.SpecialGL
 		c.bases[i], c.basesLC[i], c.jurisdictions[i] = l.TaxBase, l.TaxBaseLC, l.TaxJurisdiction
+		c.costCenters[i], c.profitCenters[i], c.segments[i] = l.CostCenterID, l.ProfitCenterID, l.SegmentID
 	}
 	return c
 }
@@ -390,12 +415,14 @@ func insertEntry(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d draft, c 
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id,
 			fiscal_period, posting_date, account_id, amount_tc, amount_lc, amount_gc, partner_id, tax_code, quantity, uom_code, line_text,
-			purchase_order_id, po_item_no, special_gl, tax_base_tc, tax_base_lc, tax_jurisdiction)
-		SELECT $1, $2, $3, n, $4, $5, $6, $7, a, tc, lc, gc, pa, tx, q::numeric, u, t, o, i, s, b, bl, j
+			purchase_order_id, po_item_no, special_gl, tax_base_tc, tax_base_lc, tax_jurisdiction, cost_center_id, profit_center_id, segment_id)
+		SELECT $1, $2, $3, n, $4, $5, $6, $7, a, tc, lc, gc, pa, tx, q::numeric, u, t, o, i, s, b, bl, j, cc, pc, sg
 		FROM unnest($8::int[], $9::uuid[], $10::bigint[], $11::bigint[], $12::bigint[], $13::uuid[], $14::text[], $15::text[], $16::text[], $17::text[],
-			$18::uuid[], $19::int[], $20::text[], $21::bigint[], $22::bigint[], $23::text[]) AS x(n, a, tc, lc, gc, pa, tx, q, u, t, o, i, s, b, bl, j)`,
+			$18::uuid[], $19::int[], $20::text[], $21::bigint[], $22::bigint[], $23::text[], $24::uuid[], $25::uuid[], $26::uuid[])
+			AS x(n, a, tc, lc, gc, pa, tx, q, u, t, o, i, s, b, bl, j, cc, pc, sg)`,
 		p.TenantID, h.year, h.id, d.entity.ID, h.ledger, h.period, d.postingDate, c.nos, c.accounts, c.tcs, c.lcs, c.gcs, c.partners,
-		c.taxes, c.quantities, c.units, c.texts, c.orders, c.items, c.specials, c.bases, c.basesLC, c.jurisdictions); err != nil {
+		c.taxes, c.quantities, c.units, c.texts, c.orders, c.items, c.specials, c.bases, c.basesLC, c.jurisdictions,
+		c.costCenters, c.profitCenters, c.segments); err != nil {
 		return Entry{}, fmt.Errorf("ledger: post entry %s: lines: %w", h.id, err)
 	}
 	// Tax items are the leading ledger's (ADR-0045, ADR-0049 §5): returns
@@ -464,8 +491,10 @@ type NewLine struct {
 	SpecialGL       *string // set by the posting contexts only (ADR-0037)
 	TaxBase         *string // a tax line's declared base (Line.TaxBase), in TaxBaseCurrency
 	TaxBaseCurrency string
-	TaxJurisdiction *string      // the subdivision its tax is levied in (Line.TaxJurisdiction)
-	lc              *money.Minor // a kept local amount (PostingLine.LC): the posting contexts only
+	TaxJurisdiction *string // the subdivision its tax is levied in (Line.TaxJurisdiction)
+	// The assignment entered (Line.CostCenterID...); the rest is derived.
+	CostCenterID, ProfitCenterID, SegmentID *uuid.UUID
+	lc                                      *money.Minor // a kept local amount (PostingLine.LC): the posting contexts only
 }
 
 // NewEntry is a manual journal entry to post.
@@ -1025,7 +1054,8 @@ func entryLines(in NewEntry, expTC int) ([]Line, error) {
 		}
 		amounts[i] = tc
 		lines[i] = Line{AccountID: l.AccountID, TC: tc, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text,
-			SpecialGL: l.SpecialGL, TaxBase: base, TaxJurisdiction: l.TaxJurisdiction, keptLC: l.lc}
+			SpecialGL: l.SpecialGL, TaxBase: base, TaxJurisdiction: l.TaxJurisdiction, CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID,
+			SegmentID: l.SegmentID, keptLC: l.lc}
 	}
 	sum, err := money.Sum(amounts...)
 	if err != nil {
@@ -1264,13 +1294,16 @@ func requireOwnEntry(orig Entry) error {
 }
 
 // reversalLines are the entry's lines with every amount and quantity
-// negated, each on the order item of the line it reverses.
+// negated, each on the order item and with the assignment of the line it
+// reverses: a reversal undoes, it does not charge new cost, so it is not
+// refused for a center locked or ended since (ADR-0050 §5).
 func reversalLines(orig Entry) []Line {
 	lines := make([]Line, len(orig.Lines))
 	for i, l := range orig.Lines {
 		lines[i] = Line{AccountID: l.AccountID, TC: -l.TC, LC: -l.LC, GC: -l.GC, PartnerID: l.PartnerID, TaxCode: l.TaxCode,
 			Quantity: negate(l.Quantity), Unit: l.Unit, Text: l.Text, PurchaseOrderID: l.PurchaseOrderID, POItemNo: l.POItemNo, SpecialGL: l.SpecialGL,
-			TaxBase: negatedAmount(l.TaxBase), TaxBaseLC: negatedAmount(l.TaxBaseLC), TaxJurisdiction: l.TaxJurisdiction}
+			TaxBase: negatedAmount(l.TaxBase), TaxBaseLC: negatedAmount(l.TaxBaseLC), TaxJurisdiction: l.TaxJurisdiction,
+			CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID, SegmentID: l.SegmentID}
 	}
 	return lines
 }

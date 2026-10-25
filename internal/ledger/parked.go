@@ -2,8 +2,10 @@ package ledger
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -117,7 +119,7 @@ func (e *Endpoints) parkEntry(ctx context.Context, in NewEntry) (ParkedEntry, er
 	if err != nil {
 		return ParkedEntry{}, err
 	}
-	if err := parkable(ctx, v); err != nil {
+	if err := parkable(ctx, tx, v, in.PostingDate); err != nil {
 		return ParkedEntry{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
@@ -143,13 +145,25 @@ func (e *Endpoints) parkEntry(ctx context.Context, in NewEntry) (ParkedEntry, er
 }
 
 // parkable refuses, before anything is written, a prepared entry that
-// could never be posted (refuseAutomatic) or whose debits are out of range.
-func parkable(ctx context.Context, v prepared) error {
+// could never be posted (refuseAutomatic), whose debits are out of range,
+// or whose lines' assignment posting it on the date would refuse now
+// (assign, without locking the centers: it is checked again when the
+// entry is posted). A date in no fiscal year is refused when it is posted.
+func parkable(ctx context.Context, tx pgx.Tx, v prepared, date time.Time) error {
 	if err := refuseAutomatic(ctx, v.le.ID, v.lines); err != nil {
 		return err
 	}
-	_, err := debitTotal(v.lines)
-	return err
+	if _, err := debitTotal(v.lines); err != nil {
+		return err
+	}
+	year, _, err := periodOn(ctx, tx, v.le.FiscalCalendarID, date)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return nil
+	case err != nil:
+		return err
+	}
+	return assign(ctx, tx, v.le.ID, year, date, slices.Clone(v.lines), false)
 }
 
 // refuseAutomatic refuses a line on the legal entity's GR/IR account, which
@@ -338,7 +352,7 @@ func (e *Endpoints) changeEntry(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return ParkedEntry{}, err
 	}
-	if err := parkable(ctx, v); err != nil {
+	if err := parkable(ctx, tx, v, in.PostingDate); err != nil {
 		return ParkedEntry{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE ledger.parked_entry SET ledger_id = $2, document_type = $3, document_date = $4, posting_date = $5, currency = $6,

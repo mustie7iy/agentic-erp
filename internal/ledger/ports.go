@@ -46,6 +46,10 @@ type PostingLine struct {
 	// posting date's rate, and what kept amounts leave unbalanced is an
 	// exchange difference (fx_gain or fx_loss). nil: converted as usual.
 	LC *money.Minor
+	// The assignment the document gives the line (ADR-0050 §5): an order
+	// or invoice item's cost center, a profit center for a P&L line
+	// without one; nil: derived by the ledger.
+	CostCenterID, ProfitCenterID, SegmentID *uuid.UUID
 }
 
 // PostingTaxItem is a tax item a context calculated (ADR-0049 §5, T61d):
@@ -223,7 +227,8 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 		SourceDocumentID: &in.SourceDocumentID, Lines: make([]NewLine, len(in.Lines)), taxItems: in.TaxItems}
 	for i, l := range in.Lines {
 		entry.Lines[i] = NewLine{AccountID: l.AccountID, Amount: l.Amount.Plain(exps[in.Currency]), Currency: in.Currency,
-			PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, SpecialGL: l.SpecialGL, lc: l.LC}
+			PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, SpecialGL: l.SpecialGL, lc: l.LC,
+			CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID, SegmentID: l.SegmentID}
 	}
 	posted, err := p.endpoints().postJournalEntry(ctx, entry)
 	if err != nil {

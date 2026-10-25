@@ -6528,6 +6528,8 @@ paths:
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
@@ -6543,7 +6545,11 @@ paths:
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.profit_center_required
         - ledger.rate_not_recordable
+        - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
         - ledger.tax_base_inconsistent
@@ -6730,6 +6736,8 @@ paths:
         - ledger.amount_too_large
         - ledger.automatic_account
         - ledger.cannot_reverse_reversal
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.entry_cleared
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
@@ -6743,6 +6751,10 @@ paths:
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.profit_center_required
+        - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
         - ledger.unknown_unit
@@ -6925,6 +6937,8 @@ paths:
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
@@ -6936,6 +6950,9 @@ paths:
         - ledger.partner_not_allowed
         - ledger.partner_not_postable
         - ledger.partner_required
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
         - ledger.tax_base_inconsistent
@@ -7068,6 +7085,8 @@ paths:
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.invalid_parked_status
         - ledger.jurisdiction_not_levied
@@ -7081,6 +7100,9 @@ paths:
         - ledger.partner_not_allowed
         - ledger.partner_not_postable
         - ledger.partner_required
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
         - ledger.tax_base_inconsistent
@@ -7225,6 +7247,8 @@ paths:
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.invalid_parked_status
         - ledger.jurisdiction_not_levied
@@ -7242,7 +7266,11 @@ paths:
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.profit_center_required
         - ledger.rate_not_recordable
+        - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
         - ledger.tax_base_inconsistent
@@ -7407,6 +7435,8 @@ paths:
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.key_date_not_period_end
         - ledger.ledger_not_kept
         - ledger.legal_entity_not_active
@@ -7416,10 +7446,14 @@ paths:
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.profit_center_required
         - ledger.rate_not_recordable
         - ledger.rate_stale
         - ledger.revaluation_account_missing
         - ledger.revaluation_exists
+        - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
         - ledger.unknown_unit
@@ -7529,6 +7563,8 @@ paths:
         - ledger.amount_too_large
         - ledger.automatic_account
         - ledger.cannot_reverse_reversal
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.entry_cleared
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
@@ -7542,7 +7578,11 @@ paths:
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.profit_center_required
         - ledger.revaluation_not_posted
+        - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
         - ledger.unknown_unit
@@ -8200,6 +8240,8 @@ paths:
         - ledger.account_not_postable
         - ledger.automatic_account
         - ledger.clearing_not_balanced
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.duplicate_item
         - ledger.entry_reversed
         - ledger.item_already_cleared
@@ -8212,6 +8254,10 @@ paths:
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.profit_center_required
+        - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_item
         - ledger.special_gl_required
@@ -10030,6 +10076,8 @@ paths:
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
         - ledger.jurisdiction_not_levied
@@ -10048,7 +10096,11 @@ paths:
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.profit_center_required
         - ledger.rate_not_recordable
+        - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
         - ledger.tax_base_inconsistent
@@ -10174,6 +10226,8 @@ paths:
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
         - ledger.jurisdiction_not_levied
@@ -10192,7 +10246,11 @@ paths:
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.profit_center_required
         - ledger.rate_not_recordable
+        - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
         - ledger.tax_base_inconsistent
@@ -10924,6 +10982,8 @@ paths:
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
         - ledger.jurisdiction_not_levied
@@ -10942,7 +11002,11 @@ paths:
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.profit_center_required
         - ledger.rate_not_recordable
+        - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
         - ledger.tax_base_inconsistent
@@ -11216,6 +11280,8 @@ paths:
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.down_payment_tax_shared
         - ledger.duplicate_item
         - ledger.entry_reversed
@@ -11231,6 +11297,10 @@ paths:
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.profit_center_required
+        - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_item
         - ledger.special_gl_required
@@ -11373,6 +11443,8 @@ paths:
         - ledger.amount_too_large
         - ledger.automatic_account
         - ledger.cannot_reverse_reversal
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.entry_cleared
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
@@ -11386,6 +11458,10 @@ paths:
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.profit_center_required
+        - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
         - ledger.unknown_unit
@@ -12352,6 +12428,8 @@ paths:
         - ledger.amount_too_large
         - ledger.automatic_account
         - ledger.clearing_not_balanced
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.entry_reversed
         - ledger.item_already_cleared
         - ledger.legal_entity_not_active
@@ -12365,7 +12443,11 @@ paths:
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.profit_center_required
         - ledger.rate_not_recordable
+        - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
         - ledger.unknown_unit
@@ -12530,6 +12612,8 @@ paths:
         - ledger.amount_too_large
         - ledger.automatic_account
         - ledger.clearing_not_balanced
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.entry_reversed
         - ledger.item_already_cleared
         - ledger.legal_entity_not_active
@@ -12543,7 +12627,11 @@ paths:
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.profit_center_required
         - ledger.rate_not_recordable
+        - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
         - ledger.unknown_unit
@@ -12837,6 +12925,8 @@ paths:
         - ledger.amount_too_large
         - ledger.automatic_account
         - ledger.clearing_not_balanced
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.entry_reversed
         - ledger.item_already_cleared
         - ledger.legal_entity_not_active
@@ -12850,7 +12940,11 @@ paths:
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.profit_center_required
         - ledger.rate_not_recordable
+        - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
         - ledger.unknown_unit
@@ -14388,6 +14482,8 @@ paths:
         - ledger.center_change_pending
         - ledger.clearing_not_balanced
         - ledger.cost_center_category_invalid
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.default_center_in_use
         - ledger.entry_reversed
@@ -14416,7 +14512,10 @@ paths:
         - ledger.period_not_open
         - ledger.profit_center_in_use
         - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.profit_center_required
         - ledger.rate_not_recordable
+        - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
         - ledger.standard_hierarchy_exists
@@ -16141,6 +16240,8 @@ paths:
         - ledger.amount_too_large
         - ledger.automatic_account
         - ledger.clearing_not_balanced
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.entry_reversed
         - ledger.gr_ir_currency_mismatch
@@ -16164,7 +16265,11 @@ paths:
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.profit_center_required
         - ledger.rate_not_recordable
+        - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_item
         - ledger.special_gl_required
@@ -16341,6 +16446,8 @@ paths:
         - ledger.amount_too_large
         - ledger.automatic_account
         - ledger.clearing_not_balanced
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.entry_reversed
         - ledger.gr_ir_currency_mismatch
@@ -16364,7 +16471,11 @@ paths:
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.profit_center_required
         - ledger.rate_not_recordable
+        - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_item
         - ledger.special_gl_required
