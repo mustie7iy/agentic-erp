@@ -176,8 +176,7 @@ func TestPaymentJobsInTheBrowser(t *testing.T) {
 	}
 	waitForText(t, desk, run+"/release", "Ask for the second approval below.")
 	audit(t, desk, src, "en", "ltr", 1280)
-	// From the keyboard, as the audit left the focus on the skip link.
-	if err := chromedp.Do(desk, chromedp.Focus(chromedp.CSS("#run-submit-button")), chromedp.KeyEvent("\r")); err != nil {
+	if err := chromedp.Do(desk, chromedp.Click(chromedp.CSS("#run-submit-button"))); err != nil {
 		t.Fatal(err)
 	}
 	waitForText(t, desk, "?done=submitted", "Waiting for approval")

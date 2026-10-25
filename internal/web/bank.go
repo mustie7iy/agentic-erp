@@ -311,17 +311,24 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, p *pers
 // statementFile is the upload's file, or what is wrong with it: none
 // chosen, empty, or larger than the API takes.
 func statementFile(r *http.Request) ([]byte, i18n.Key) {
+	return formFile(r, i18n.UploadFileNeeded, i18n.UploadFileTooLarge)
+}
+
+// formFile is an upload's file, or what is wrong with it, in the
+// upload's words: none chosen or empty (missing), or larger than the
+// API takes (tooLarge).
+func formFile(r *http.Request, missing, tooLarge i18n.Key) ([]byte, i18n.Key) {
 	f, _, err := r.FormFile(ui.FieldFile)
 	if err != nil {
-		return nil, i18n.UploadFileNeeded
+		return nil, missing
 	}
 	defer func() { _ = f.Close() }() // held in memory: closing cannot fail
 	data, _ := io.ReadAll(f)         // in memory (csrfUpload): reading cannot fail
 	switch {
 	case len(data) == 0:
-		return nil, i18n.UploadFileNeeded
+		return nil, missing
 	case len(data) > maxStatementFile:
-		return nil, i18n.UploadFileTooLarge
+		return nil, tooLarge
 	}
 	return data, ""
 }

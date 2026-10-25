@@ -1,0 +1,734 @@
+package ui
+
+import "github.com/mustie7iy/agentic-erp/internal/web/i18n"
+
+// Parked is the manual journal entries waiting to be posted, people's
+// and agents' proposals, by status (ADR-0052 §2, T73h), with the way to a
+// new entry and to the journal.
+templ Parked(s Shell, l ParkedList) {
+	@Layout(s, parkedContent(l))
+}
+
+templ parkedContent(l ParkedList) {
+	<h1>
+		@T(i18n.JournalTitle)
+	</h1>
+	@Paragraph(i18n.JournalLead)
+	if l.New != "" || l.Entries != "" {
+		<p class="filters__buttons">
+			if l.New != "" {
+				@ButtonLink(l.New, i18n.NewEntryButton)
+			}
+			if l.Entries != "" {
+				<a { link(l.Entries, "")... }>
+					@T(i18n.EntriesLink)
+				</a>
+			}
+		</p>
+	}
+	@StatusTabs(l.Tabs)
+	@KindTabs(l.Kinds)
+	if l.Invalid {
+		@Notice("parked-invalid", i18n.ParkedRefusedTitle, Paragraph(i18n.FilterInvalid))
+	} else if l.Refusal != nil {
+		@RefusalNotice(*l.Refusal)
+	} else if len(l.Rows) == 0 {
+		@Paragraph(i18n.ParkedEmpty)
+	} else {
+		<ul class="cards" { label(ctx, i18n.ParkedListLabel)... }>
+			for _, r := range l.Rows {
+				@ParkedCard(r)
+			}
+		</ul>
+		if l.More != "" {
+			@ButtonLink(l.More, i18n.ParkedMore)
+		}
+	}
+}
+
+// KindTabs are who parked the entries: everyone, or agents alone.
+templ KindTabs(tabs []StatusTab) {
+	<nav class="tabs" { label(ctx, i18n.ParkedKindNav)... }>
+		<ul class="tabs__list">
+			for _, t := range tabs {
+				<li class="tabs__item">
+					<a { tab(t)... }>
+						@T(t.Label)
+					</a>
+				</li>
+			}
+		</ul>
+	</nav>
+}
+
+// ParkedCard is one parked entry of the list. Its texts are data, inside
+// hx-disable (ADR-0052 §7): an agent may have written them.
+templ ParkedCard(r ParkedRow) {
+	<li class="card" hx-disable>
+		<h2 class="card__title">
+			<a { link(r.Path, "")... }>
+				@T(i18n.ParkedCardTitle, r.DocType, isoDate(r.Posting))
+			</a>
+		</h2>
+		<dl class="facts">
+			@Fact(i18n.ParkedStatus, ParkedStatusTag(r.Status))
+			if r.Company != "" {
+				@Fact(i18n.InvoiceCompany, Data(r.Company))
+			}
+			if r.Header != "" {
+				@Fact(i18n.EntryHeaderText, Data(r.Header))
+			}
+			if r.Debits != nil {
+				@Fact(i18n.EntryDebits, Amount(*r.Debits))
+			}
+			@Fact(i18n.EntryLineCount, Number(int32(r.Lines)))
+			@Fact(i18n.ParkedBy, Principal(r.CreatedBy))
+			@Fact(i18n.ParkedAt, Date(r.Created))
+			if r.Unowned {
+				@Fact(i18n.ParkedOwner, T(i18n.ParkedNoOwner))
+			}
+		</dl>
+	</li>
+}
+
+// ParkedStatusTag is a parked entry's status.
+templ ParkedStatusTag(l Label) {
+	<strong { tagClass(parkedStatusKind(l))... }>
+		@labelText(l)
+	</strong>
+}
+
+// Entries is the journal: the posted entries of a company and ledger,
+// filtered by the API's own filters (ADR-0052 §8), each linked to its
+// page.
+templ Entries(s Shell, l EntryList) {
+	@Layout(s, entriesContent(l))
+}
+
+templ entriesContent(l EntryList) {
+	<p>
+		<a { link(JournalPath, "")... }>
+			@T(i18n.EntriesBack)
+		</a>
+	</p>
+	<h1>
+		@T(i18n.EntriesTitle)
+	</h1>
+	@Paragraph(i18n.EntriesLead)
+	@EntryFilterForm(l.Filters)
+	if l.Invalid {
+		@Notice("entries-invalid", i18n.EntriesRefusedTitle, Paragraph(i18n.FilterInvalid))
+	} else if l.Refusal != nil {
+		@RefusalNotice(*l.Refusal)
+	} else if len(l.Rows) == 0 {
+		@Paragraph(i18n.EntriesEmpty)
+	} else {
+		<ul class="cards" { label(ctx, i18n.EntriesListLabel)... }>
+			for _, r := range l.Rows {
+				@EntryCard(r)
+			}
+		</ul>
+		if l.More != "" {
+			@ButtonLink(l.More, i18n.EntriesMore)
+		}
+	}
+}
+
+// EntryFilterForm is the journal's filters: a plain GET form, so a
+// filtered journal is an address to keep or share.
+templ EntryFilterForm(f EntryFilters) {
+	<form class="filters" { get(EntriesPath)... }>
+		<h2 class="filters__title">
+			@T(i18n.EntriesFilters)
+		</h2>
+		<div class="filters__fields">
+			if f.Companies != nil {
+				@optionSelect("entries-company", FieldCompany, i18n.FilterCompany, f.Companies)
+			}
+			if f.Ledgers != nil {
+				@optionSelect("entries-ledger", FieldLedger, i18n.PeriodLedger, f.Ledgers)
+			}
+			if f.CostCenters != nil {
+				@centerSelect("entries-cost-center", FieldCostCenter, i18n.EntryLineCostCenter, f.CostCenters)
+			}
+			if f.ProfitCenters != nil {
+				@centerSelect("entries-profit-center", FieldProfitCenter, i18n.EntryLineProfitCenter, f.ProfitCenters)
+			}
+			@InputField("entries-number", FieldDocumentNumber, "text", i18n.FilterNumber, i18n.EntriesNumberHint, f.Number, "")
+			@InputField("entries-from", FieldPostingDateFrom, "date", i18n.EntriesFrom, i18n.FilterDateHint, f.From, f.FromError)
+			@InputField("entries-to", FieldPostingDateTo, "date", i18n.EntriesTo, i18n.FilterDateHint, f.To, f.ToError)
+		</div>
+		<div class="filters__buttons">
+			<button class="button" type="submit">
+				@T(i18n.FilterApply)
+			</button>
+		</div>
+	</form>
+}
+
+// centerSelect is a labelled select of a company's centers, any of them
+// first.
+templ centerSelect(id, name string, labelKey i18n.Key, options []Option) {
+	<div class="field">
+		<label class="field__label" { forAttr(id)... }>
+			@T(labelKey)
+		</label>
+		<select class="select" { uploadSelect(id, name, "")... }>
+			<option { emptyOption(anyChosen(options))... }>
+				@T(i18n.EntriesAnyCenter)
+			</option>
+			for _, o := range options {
+				<option translate="no" { option(o)... }>
+					@Value(o.Text)
+				</option>
+			}
+		</select>
+	</div>
+}
+
+// EntryCard is one posted entry of the journal; its header text is data.
+templ EntryCard(r EntryRow) {
+	<li class="card" hx-disable>
+		<h2 class="card__title">
+			<a translate="no" { link(r.Path, "")... }>
+				@Value(r.Number)
+			</a>
+		</h2>
+		<dl class="facts">
+			@Fact(i18n.EntryDocType, Code(r.DocType))
+			@Fact(i18n.EntryPostingDate, Day(r.Posting))
+			if r.Header != "" {
+				@Fact(i18n.EntryHeaderText, Data(r.Header))
+			}
+			if r.Debits != nil {
+				@Fact(i18n.EntryDebits, Amount(*r.Debits))
+			}
+			@Fact(i18n.EntrySource, labelText(r.Source))
+			if r.Reversed {
+				@Fact(i18n.EntryReversal, Tag(i18n.EntryReversedTag, "inactive"))
+			}
+			if r.Reversal {
+				@Fact(i18n.EntryReversal, Tag(i18n.EntryReversalTag, ""))
+			}
+		</dl>
+	</li>
+}
+
+// Entry is one posted entry (ADR-0052 §2, T73h): its summary and lines,
+// the entries it is linked to, and its reversal.
+templ Entry(s Shell, ep EntryPage) {
+	@Layout(s, entryContent(ep))
+}
+
+templ entryContent(ep EntryPage) {
+	<p>
+		<a { link(ep.Back, "")... }>
+			@T(i18n.EntryBack)
+		</a>
+	</p>
+	<p class="caption">
+		@T(i18n.EntryTitle)
+	</p>
+	<h1>
+		@T(i18n.EntryHeading, ep.Number)
+	</h1>
+	if ep.Done != "" {
+		@Notice("entry-done", i18n.InvoiceDoneTitle, Paragraph(ep.Done))
+	}
+	if ep.Refusal != nil {
+		@RefusalNotice(*ep.Refusal)
+	}
+	<div hx-disable>
+		@SummaryList(entryRows(ep.Header))
+	</div>
+	@EntryLinks(ep.Header)
+	<h2>
+		@T(i18n.EntryLinesTitle)
+	</h2>
+	@JournalLinesTable(ep.Lines, true)
+	if ep.Reverse != nil {
+		@ReverseFormView(*ep.Reverse)
+	} else if ep.Why != "" {
+		<h2>
+			@T(i18n.EntryReverseTitle)
+		</h2>
+		@Paragraph(ep.Why)
+	}
+}
+
+// EntryLinks are the entries a posted one is linked to: the parked entry
+// it was posted for, the entry it reverses and the one that reversed it.
+templ EntryLinks(h EntryHeader) {
+	if h.Parked != "" || h.ReversalOf != "" || h.ReversedBy != "" {
+		<ul class="list">
+			if h.Parked != "" {
+				<li class="list__item">
+					<a { link(h.Parked, "")... }>
+						@T(i18n.EntryParkedLink)
+					</a>
+				</li>
+			}
+			if h.ReversalOf != "" {
+				<li class="list__item">
+					<a { link(h.ReversalOf, "")... }>
+						@T(i18n.EntryReversalOfLink)
+					</a>
+				</li>
+			}
+			if h.ReversedBy != "" {
+				<li class="list__item">
+					<a { link(h.ReversedBy, "")... }>
+						@T(i18n.EntryReversedByLink)
+					</a>
+				</li>
+			}
+		</ul>
+	}
+}
+
+// JournalLinesTable is an entry's lines, posted (with their amounts in
+// the company's currency) or parked, in a region that scrolls sideways on
+// its own on a phone. Their texts are data.
+templ JournalLinesTable(lines []JournalLine, posted bool) {
+	<div class="table-wrap" role="region" tabindex="0" { labelledBy("entry-lines-caption")... }>
+		<table class="table" hx-disable>
+			<caption class="visually-hidden" { idAttr("entry-lines-caption")... }>
+				@T(i18n.EntryLinesTitle)
+			</caption>
+			<thead>
+				<tr>
+					@HeaderCell(i18n.LineNo)
+					@HeaderCell(i18n.EntryLineAccount)
+					@HeaderCell(i18n.EntryLineAmount)
+					if posted {
+						@HeaderCell(i18n.EntryLineAmountLC)
+					}
+					@HeaderCell(i18n.EntryLineCostCenter)
+					@HeaderCell(i18n.EntryLineProfitCenter)
+					@HeaderCell(i18n.EntryLineSegment)
+					@HeaderCell(i18n.EntryLinePartner)
+					@HeaderCell(i18n.EntryLineTaxCode)
+					@HeaderCell(i18n.EntryLineText)
+				</tr>
+			</thead>
+			<tbody>
+				for _, l := range lines {
+					@JournalLineRow(l)
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+// JournalLineRow is one line of an entry.
+templ JournalLineRow(l JournalLine) {
+	<tr>
+		<td>
+			@Number(l.No)
+		</td>
+		<td>
+			@Code(l.Account)
+		</td>
+		<td>
+			@Amount(l.Amount)
+		</td>
+		if l.AmountLC != nil {
+			<td>
+				@Amount(*l.AmountLC)
+			</td>
+		}
+		<td>
+			@codeOrNone(l.CostCenter)
+		</td>
+		<td>
+			@codeOrNone(l.ProfitCenter)
+		</td>
+		<td>
+			@codeOrNone(l.Segment)
+		</td>
+		<td>
+			@codeOrNone(l.Partner)
+		</td>
+		<td>
+			@codeOrNone(l.TaxCode)
+		</td>
+		<td>
+			@Data(l.Text)
+		</td>
+	</tr>
+}
+
+// codeOrNone is a code, or that there is none.
+templ codeOrNone(code string) {
+	if code != "" {
+		@Code(code)
+	} else {
+		@T(i18n.LineNone)
+	}
+}
+
+// ReverseFormView reverses a posted entry: a real form posting the CSRF
+// token, the entry's ETag as If-Match and the form's own idempotency key,
+// with the reversal's posting date and header text.
+templ ReverseFormView(f ReverseForm) {
+	<h2>
+		@T(i18n.EntryReverseTitle)
+	</h2>
+	<form class="decide" { post(f.Action)... }>
+		@decideHidden(f.CSRF, f.ETag, f.Key)
+		<p class="hint">
+			@T(i18n.EntryReverseHint)
+		</p>
+		@InputField("reverse-date", FieldPostingDate, "date", i18n.EntryReverseDate, i18n.EntryReverseDateHint, f.Date, f.DateError)
+		@InputField("reverse-text", FieldHeaderText, "text", i18n.EntryHeaderText, i18n.EntryHeaderTextHint, f.Text, f.TextError)
+		<button class="button button--warning" type="submit" id="entry-reverse-button">
+			@T(i18n.EntryReverseButton)
+		</button>
+	</form>
+}
+
+// ParkedEntry is one parked entry (ADR-0052 §2, T73h): its summary and
+// lines, its approval request and the journal entry it became, and the
+// person's decisions on it.
+templ ParkedEntry(s Shell, pp ParkedPage) {
+	@Layout(s, parkedEntryContent(pp))
+}
+
+templ parkedEntryContent(pp ParkedPage) {
+	<p>
+		<a { link(pp.Back, "")... }>
+			@T(i18n.ParkedBack)
+		</a>
+	</p>
+	<p class="caption">
+		@T(i18n.ParkedTitle)
+	</p>
+	<h1>
+		@T(i18n.ParkedHeading, pp.Header.DocType, isoDate(pp.Header.Posting))
+	</h1>
+	if pp.Done != "" {
+		@Notice("parked-done", i18n.InvoiceDoneTitle, Paragraph(pp.Done))
+	}
+	if pp.Refusal != nil {
+		@RefusalNotice(*pp.Refusal)
+	}
+	<div hx-disable>
+		@SummaryList(parkedRows(pp.Header))
+	</div>
+	if pp.Approval != "" {
+		<p>
+			<a { link(pp.Approval, "")... }>
+				@T(i18n.ParkedApprovalLink)
+			</a>
+		</p>
+	}
+	if pp.Journal != "" {
+		<p>
+			<a { link(pp.Journal, "")... }>
+				@T(i18n.ParkedJournalLink)
+			</a>
+		</p>
+	}
+	<h2>
+		@T(i18n.EntryLinesTitle)
+	</h2>
+	@JournalLinesTable(pp.Lines, false)
+	@ParkedActions(pp)
+}
+
+// ParkedActions are the person's decisions on a parked entry, or why
+// there are none.
+templ ParkedActions(pp ParkedPage) {
+	if pp.Why != "" || len(pp.Actions) > 0 || pp.Edit != "" || pp.Upload != nil {
+		<h2>
+			@T(i18n.ParkedActionsTitle)
+		</h2>
+		if pp.TakeOn {
+			@Notice("parked-take-on", i18n.ParkedTakeOnTitle, Paragraph(i18n.ParkedTakeOn))
+		}
+		if pp.Why != "" {
+			@Paragraph(pp.Why)
+		}
+		if pp.Edit != "" {
+			<p>
+				@ButtonLink(pp.Edit, i18n.ParkedEditButton)
+			</p>
+		}
+		for _, f := range pp.Actions {
+			@ParkedFormView(f)
+		}
+		if pp.Upload != nil {
+			@UploadLinesView(*pp.Upload)
+		}
+	}
+}
+
+// ParkedFormView is one decision on a parked entry: a real form posting
+// the CSRF token, the ETag as If-Match and the form's own idempotency key,
+// with its reason where it needs one.
+templ ParkedFormView(f ParkedForm) {
+	<form class="decide" { post(f.Action)... }>
+		@decideHidden(f.CSRF, f.ETag, f.Key)
+		if f.Request != "" {
+			<input { hidden(FieldRequest, f.Request)... }/>
+		}
+		<p class="hint">
+			@T(parkedSpecs[f.Verb].Hint)
+		</p>
+		if parkedSpecs[f.Verb].Text != "" {
+			@CommentField("parked-"+f.Verb+"-text", parkedSpecs[f.Verb].Text, parkedSpecs[f.Verb].TextHint, f.Text, f.TextError)
+		}
+		<button { parkedButton(f)... }>
+			@T(parkedSpecs[f.Verb].Button)
+		</button>
+	</form>
+}
+
+// UploadLinesView replaces the entry's lines with a CSV file's: a
+// multipart form with the CSRF token, the entry's ETag and a fresh
+// idempotency key, and what is wrong with the file or its rows.
+templ UploadLinesView(f LinesUpload) {
+	<form class="filters" enctype="multipart/form-data" { post(f.Action)... }>
+		<h3 class="filters__title">
+			@T(i18n.UploadLinesTitle)
+		</h3>
+		@decideHidden(f.CSRF, f.ETag, f.Key)
+		@Paragraph(i18n.UploadLinesLead)
+		if len(f.Rows) > 0 {
+			<div class="refusal" role="alert" { labelledBy("rows-title")... }>
+				<h4 class="refusal__title" { idAttr("rows-title")... }>
+					@T(i18n.UploadLinesRowsTitle)
+				</h4>
+				<ul class="list">
+					for _, e := range f.Rows {
+						@RowErrorItem(e)
+					}
+				</ul>
+				if f.More > 0 {
+					@Paragraph(i18n.UploadLinesMore, f.More)
+				}
+			</div>
+		}
+		<div { fieldClass(f.FileError)... }>
+			<label class="field__label" for="upload-file">
+				@T(i18n.UploadLinesFile)
+			</label>
+			<p class="field__hint" id="upload-file-hint">
+				@T(i18n.UploadLinesFileHint)
+			</p>
+			if f.FileError != "" {
+				<p class="field__error" id="upload-file-error">
+					@T(f.FileError)
+				</p>
+			}
+			if f.Again {
+				<p class="hint">
+					@T(i18n.UploadChooseAgain)
+				</p>
+			}
+			<input class="input" accept=".csv,text/csv" { fileInput(f.FileError)... }/>
+		</div>
+		<div class="filters__buttons">
+			<button class="button button--secondary" type="submit" id="upload-lines-button">
+				@T(i18n.UploadLinesSubmit)
+			</button>
+		</div>
+	</form>
+}
+
+// RowErrorItem is what is wrong with one of a file's rows.
+templ RowErrorItem(e RowError) {
+	<li class="list__item">
+		if e.Column != "" {
+			@T(i18n.UploadLinesRowColumn, e.Row, e.Column)
+		} else {
+			@T(i18n.UploadLinesRow, e.Row)
+		}
+		@space()
+		if e.Reason != "" {
+			@T(e.Error, e.Reason)
+		} else {
+			@T(e.Error)
+		}
+	</li>
+}
+
+// EntryFormPage is the entry form as a page of its own: a new entry's, or
+// a parked one's change.
+templ EntryFormPage(s Shell, f EntryForm) {
+	@Layout(s, entryFormContent(f))
+}
+
+templ entryFormContent(f EntryForm) {
+	<p>
+		<a { link(f.Back, "")... }>
+			@T(i18n.ParkedBack)
+		</a>
+	</p>
+	<h1>
+		if f.Edit {
+			@T(i18n.EditEntryTitle)
+		} else {
+			@T(i18n.NewEntryTitle)
+		}
+	</h1>
+	@Paragraph(i18n.EntryFormLead)
+	if f.Refusal != nil {
+		@RefusalNotice(*f.Refusal)
+	}
+	if !f.Edit && len(f.Companies) == 0 {
+		@Paragraph(i18n.EntryNoCompany)
+	} else {
+		@EntryFormView(f)
+	}
+}
+
+// EntryFormView is the entry form: a real form posting the CSRF token, the
+// form's own idempotency key and, for a change, the entry's ETag as
+// If-Match; its header, then its lines.
+templ EntryFormView(f EntryForm) {
+	<form class="entry" { post(f.Action)... }>
+		<input { csrfInput(f.CSRF)... }/>
+		<input { hidden(FieldIdempotency, f.Key)... }/>
+		if f.Edit {
+			<input { hidden(FieldIfMatch, f.ETag)... }/>
+		}
+		<fieldset class="fieldset entry__header">
+			<legend class="field__label">
+				@T(i18n.EntryHeaderTitle)
+			</legend>
+			<div class="filters__fields">
+				if f.Edit {
+					<p>
+						@T(i18n.InvoiceCompany)
+						@space()
+						@Data(f.Company)
+					</p>
+				} else {
+					@companyChoice(f)
+				}
+				@InputField("entry-doctype", FieldDocType, "text", i18n.EntryDocType, i18n.EntryDocTypeHint, f.DocType, f.Errors[FieldDocType])
+				@InputField("entry-docdate", FieldDocDate, "date", i18n.EntryDocDate, i18n.FilterDateHint, f.DocDate, f.Errors[FieldDocDate])
+				@InputField("entry-postingdate", FieldPostingDate, "date", i18n.EntryPostingDate, i18n.EntryPostingDateHint, f.PostingDate, f.Errors[FieldPostingDate])
+				@InputField("entry-taxdate", FieldTaxDate, "date", i18n.EntryTaxDate, i18n.EntryTaxDateHint, f.TaxDate, f.Errors[FieldTaxDate])
+				@InputField("entry-currency", FieldCurrency, "text", i18n.EntryCurrency, i18n.EntryCurrencyHint, f.Currency, f.Errors[FieldCurrency])
+				@InputField("entry-reference", FieldReference, "text", i18n.EntryReference, i18n.EntryReferenceHint, f.Reference, f.Errors[FieldReference])
+				@InputField("entry-header", FieldHeaderText, "text", i18n.EntryHeaderText, i18n.EntryHeaderTextHint, f.Header, f.Errors[FieldHeaderText])
+			</div>
+		</fieldset>
+		<datalist id="entry-accounts">
+			for _, o := range f.Accounts {
+				<option { option(Option{Value: o.Value})... }>
+					@Value(o.Text)
+				</option>
+			}
+		</datalist>
+		@EntryLines(f)
+	</form>
+}
+
+// companyChoice is a new entry's company.
+templ companyChoice(f EntryForm) {
+	<div { fieldClass(f.CompanyError)... }>
+		<label class="field__label" for="entry-company">
+			@T(i18n.ProposeCompany)
+		</label>
+		if f.CompanyError != "" {
+			<p class="field__error" id="entry-company-error">
+				@T(f.CompanyError)
+			</p>
+		}
+		<select class="select" { uploadSelect("entry-company", FieldCompany, f.CompanyError)... }>
+			for _, o := range f.Companies {
+				<option translate="no" { option(o)... }>
+					@Value(o.Text)
+				</option>
+			}
+		</select>
+	</div>
+}
+
+// EntryLines are the form's lines and its buttons, the section htmx swaps
+// when a line is added or left out. The form's send comes first, so it
+// is the button Enter presses in a field (HTML's implicit submission).
+templ EntryLines(f EntryForm) {
+	<div class="entry__lines" id="entry-lines">
+		<h2>
+			@T(i18n.EntryLinesTitle)
+		</h2>
+		<p class="hint" id="lines-hint">
+			@T(i18n.EntryLinesHint)
+		</p>
+		if f.LinesError != "" {
+			<p class="field__error">
+				@T(f.LinesError)
+			</p>
+		}
+		for _, l := range f.Lines {
+			@EntryLineView(f.Action, l)
+		}
+		<div class="filters__buttons">
+			<button class="button" type="submit" name="op" value="send" id="entry-send-button">
+				if f.Edit {
+					@T(i18n.EntrySaveButton)
+				} else {
+					@T(i18n.EntryParkButton)
+				}
+			</button>
+			if f.CanAdd() {
+				<button { addButton(f.Action)... }>
+					@T(i18n.EntryAddLine)
+				</button>
+			}
+		</div>
+	</div>
+}
+
+// EntryLineView is one line of the form: its fields, each with its error,
+// what the API refused of it, and its box to leave it out.
+templ EntryLineView(action string, l LineInput) {
+	<fieldset class="entry-line">
+		<legend class="entry-line__legend">
+			@T(i18n.EntryLineHeading, l.No)
+		</legend>
+		<div class="entry-line__fields">
+			for _, fd := range lineFields {
+				<div { fieldClass(l.Errors[fd.Name])... }>
+					<label class="field__label" { forAttr(lineID(l.No, fd.Name))... }>
+						@T(fd.Label)
+					</label>
+					if l.Errors[fd.Name] != "" {
+						<p class="field__error" { idAttr(lineID(l.No, fd.Name) + "-error")... }>
+							@T(l.Errors[fd.Name])
+						</p>
+					}
+					<input { lineInput(l, fd.Name, lineValue(l, fd.Name))... }/>
+				</div>
+			}
+		</div>
+		if len(l.Refused) > 0 {
+			<ul class="list field__error">
+				for _, rf := range l.Refused {
+					@RefusedItem(rf)
+				}
+			</ul>
+		}
+		<div class="checkbox">
+			<input { removeBox(action, l)... }/>
+			<label class="checkbox__label" { forAttr(lineID(l.No, FieldLineRemove))... }>
+				@T(i18n.EntryLineRemove)
+			</label>
+		</div>
+	</fieldset>
+}
+
+// RefusedItem is a line's field the API refused, and its reason.
+templ RefusedItem(rf FieldRefusal) {
+	<li class="list__item">
+		if rf.Field != "" {
+			@refusedText(rf)
+		} else {
+			@T(i18n.EntryLineRefused, rf.Reason)
+		}
+	</li>
+}

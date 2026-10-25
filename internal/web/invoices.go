@@ -188,6 +188,21 @@ func statusTabs(q url.Values) []ui.StatusTab {
 // that fails leaves them unnamed, logged: names are no reason to refuse a
 // page.
 func (s *Server) companies(ctx context.Context, m me) map[uuid.UUID]string {
+	entities := s.entities(ctx, m)
+	if entities == nil {
+		return nil
+	}
+	out := make(map[uuid.UUID]string, len(entities))
+	for id, e := range entities {
+		out[id] = e.Name
+	}
+	return out
+}
+
+// entities are the companies the person may see, by id
+// (listLegalEntities), as companies reads them: their currencies besides
+// their names.
+func (s *Server) entities(ctx context.Context, m me) map[uuid.UUID]gen.LegalEntity {
 	if !m.may(permReadCompanies) {
 		return nil
 	}
@@ -197,9 +212,9 @@ func (s *Server) companies(ctx context.Context, m me) map[uuid.UUID]string {
 		s.Log.WarnContext(ctx, "web: the companies could not be read", "answer", res, "error", err)
 		return nil
 	}
-	out := make(map[uuid.UUID]string, len(page.Response.Items))
+	out := make(map[uuid.UUID]gen.LegalEntity, len(page.Response.Items))
 	for _, e := range page.Response.Items {
-		out[e.ID] = e.Name
+		out[e.ID] = e
 	}
 	return out
 }

@@ -125,3 +125,44 @@ var RevaluationProblems = map[string]Key{
 	"ledger.revaluation_exists":          ProblemRevaluationExists,
 	"ledger.period_not_open":             ProblemRevaluationPeriod,
 }
+
+// EntryProblems are the codes the manual journal entry screens (T73h)
+// explain in their own words, looked up before Problems: the ledger
+// codes of an entry's park, change, post, cancellation and reversal, the
+// workflow codes of its approval and its withdrawal, and the general ones
+// in an entry's words.
+var EntryProblems = map[string]Key{
+	"ledger.unbalanced":              ProblemUnbalanced,
+	"ledger.account_not_postable":    ProblemAccountNotPostable,
+	"ledger.partner_required":        ProblemPartnerRequired,
+	"ledger.partner_not_allowed":     ProblemPartnerNotAllowed,
+	"ledger.partner_not_postable":    ProblemPartnerNotPostable,
+	"ledger.cost_center_required":    ProblemCostCenterRequired,
+	"ledger.cost_center_invalid":     ProblemCostCenterInvalid,
+	"ledger.profit_center_invalid":   ProblemProfitCenterInvalid,
+	"ledger.profit_center_mismatch":  ProblemProfitCenterMismatch,
+	"ledger.segment_mismatch":        ProblemSegmentMismatch,
+	"ledger.unknown_tax_code":        ProblemUnknownTaxCode,
+	"ledger.unknown_currency":        ProblemUnknownCurrency,
+	"ledger.zero_amount":             ProblemZeroAmount,
+	"ledger.automatic_account":       ProblemAutomaticAccount,
+	"ledger.amount_too_large":        ProblemAmountTooLarge,
+	"request.invalid_amount":         ProblemInvalidAmount,
+	"ledger.no_exchange_rate":        ProblemEntryRate,
+	"ledger.period_not_open":         ProblemEntryPeriod,
+	"ledger.no_fiscal_period":        ProblemEntryFiscalPeriod,
+	"ledger.invalid_parked_status":   ProblemParkedStatus,
+	"ledger.not_entry_owner":         ProblemNotEntryOwner,
+	"request.version_mismatch":       ProblemEntryVersion,
+	"workflow.request_pending":       ProblemEntryPending,
+	"workflow.no_policy":             ProblemEntryNoPolicy,
+	"workflow.unknown_role":          ProblemEntryRole,
+	"workflow.not_requester":         ProblemNotRequester,
+	"ledger.already_reversed":        ProblemAlreadyReversed,
+	"ledger.cannot_reverse_reversal": ProblemReverseReversal,
+	"ledger.entry_owned_elsewhere":   ProblemOwnedElsewhere,
+	"ledger.entry_is_copy":           ProblemEntryIsCopy,
+	"ledger.entry_cleared":           ProblemEntryCleared,
+	"ledger.legal_entity_not_active": ProblemEntryCompany,
+	"config.no_number_range":         ProblemNoNumberRange,
+}

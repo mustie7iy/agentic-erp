@@ -1,6 +1,7 @@
 package i18n
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -55,4 +56,43 @@ func digits(s string) bool {
 		}
 	}
 	return true
+}
+
+// DecimalSign is the locale's decimal sign, as Decimal writes it.
+func (l Locale) DecimalSign() string {
+	r := []rune(l.Decimal("0.0"))
+	return string(r[1 : len(r)-1])
+}
+
+// typedAmount is what Amount takes once the sign is set aside and the
+// decimal sign is a point: the shape of the API's Money.amount.
+var typedAmount = regexp.MustCompile(`^(0|[1-9][0-9]{0,17})(\.[0-9]{1,4})?$`)
+
+// Amount reads an amount a person typed (ADR-0052 §7): an optional minus,
+// the digits and at most one decimal sign, the locale's or a point, with
+// no grouping, as the API's decimal string with a point. ok is false for
+// anything else, and for the shapes the API's amount never takes (a
+// leading zero, more than eighteen whole or four fraction digits). Whether
+// the fraction has the currency's minor-unit digits is the API's to say:
+// no operation names a currency's digits.
+func (l Locale) Amount(typed string) (string, bool) {
+	s := strings.TrimSpace(typed)
+	neg := strings.HasPrefix(s, "-")
+	s = strings.TrimPrefix(s, "-")
+	if sign := l.DecimalSign(); sign != "." {
+		s = strings.Replace(s, sign, ".", 1)
+	}
+	if !typedAmount.MatchString(s) {
+		return "", false
+	}
+	if neg {
+		s = "-" + s
+	}
+	return s, true
+}
+
+// AmountInput is an API amount as a person would type it: with the
+// locale's decimal sign and no grouping, so Amount reads it back.
+func (l Locale) AmountInput(amount string) string {
+	return strings.Replace(amount, ".", l.DecimalSign(), 1)
 }
