@@ -388,8 +388,8 @@ suffices, as before. `:reject` needs the release role too (T72l).
   put to approver after approver. The approver holds
   `payments.release_role` (the request's step), as `:reject` requires; the
   run's proposer, whom the workflow context does not bar from rejecting,
-  is refused (403 `identity.sod_conflict`), as on `:reject`. The callback run again finds the run
-  rejected by that request and changes nothing. A request withdrawn by
+  is refused (403 `identity.sod_conflict`), as on `:reject`. The callback
+  run again finds the run rejected by that request and changes nothing. A request withdrawn by
   its requester leaves the run proposed, to be asked for again or
   rejected. Rejecting the run, or releasing it once it no longer needs
   the approval (the limit raised), withdraws a pending request, so
