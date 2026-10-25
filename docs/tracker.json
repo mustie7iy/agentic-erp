@@ -1657,8 +1657,14 @@
        },
        {
         "s": "T",
-        "t": "Assignment in the journal API, the in-use refusals and the commit-time check, split from T56d for size and released with it (T56d alone refuses manual primary cost lines without a default and lets center changes contradict posted lines): the database check of ADR-0050 §5's table at commit (contract step after T56d's rollout, so the previous release is not refused, 06 §6.4; reversals exempt); ledger.cost_center_period_in_use (a change whose attributes in force on a posted date differ), ledger.cost_center_posted_after (validity ended before a posting), ledger.segment_in_use (a posted profit center's segment); journal API lines with the three ids and codes, entered on manual and parked entries (stored on parked lines), list filters cost_center_id/profit_center_id, JournalEntryPosted fields (additive: openapi, asyncapi, make generate). Until then the API takes no entered center",
+        "t": "Assignment in the journal API and the in-use refusals, split from T56d for size and released with it (T56d alone refuses manual primary cost lines without a default and lets center changes contradict posted lines): ledger.cost_center_period_in_use (a change whose attributes in force on a posted date differ), ledger.cost_center_posted_after (validity ended before a posting), ledger.segment_in_use (a posted profit center's segment); journal API lines with the three ids and codes, entered on manual and parked entries (stored on parked lines), list filters cost_center_id/profit_center_id, JournalEntryPosted fields (additive: openapi, asyncapi, make generate). Until then the API takes no entered center",
         "r": "T56d2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Commit-time check of ADR-0050 §5's table, a contract step in the release after the one shipping T56d and T56d2 (the previous release writes lines without centers and would be refused during the rollout, 06 §6.4): deferred trigger on journal_line for fiscal years from the switches (primary_cost needs a cost center, none takes none, revenue only a revenue-allowed category, P&L a profit center with PCA), segment always the profit center's, reversals exempt; constraint mappings (ledger.profit_center_required); schema tests per rule",
+        "r": "T56d3",
         "c": []
        },
        {

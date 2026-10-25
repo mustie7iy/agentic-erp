@@ -6,7 +6,7 @@
 -- validates them partition by partition and adds them to the parent, and
 -- 000157-000158 build the indexes. Lines posted before keep NULL; nothing
 -- is backfilled. The commit-time check of ADR-0050 §5's table comes in the
--- release after (T56d2), once no replica of the previous release, which
+-- release after (T56d3), once no replica of the previous release, which
 -- writes lines without centers, posts any more (06 §6.4); until then the
 -- ledger derives and validates every line before it writes it.
 ALTER TABLE ledger.journal_line ADD COLUMN cost_center_id uuid, ADD COLUMN profit_center_id uuid, ADD COLUMN segment_id uuid;

@@ -1082,7 +1082,7 @@ validated per partition before the parent took them over. Partial indexes
 `journal_line_cost_center` and `journal_line_profit_center` (company,
 center, year, period). The ledger derives and validates every line's
 centers before writing it; the database check of ADR-0050 §5's table at
-commit comes with T56d2, after the rolling upgrade (06 §6.4).
+commit comes with T56d3, in the release after (06 §6.4).
 
 ## 3.8 Procurement (`procurement`)
 

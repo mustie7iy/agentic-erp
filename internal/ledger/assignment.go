@@ -23,7 +23,7 @@ import (
 // reversal carries its original's assignment and is neither derived nor
 // validated again. The database holds the centers' companies by foreign
 // key (000155-000156); its commit-time check of §5's table comes with
-// T56d2, after the rolling upgrade (06 §6.4).
+// T56d3, in the release after (06 §6.4).
 //
 // Derivation, first hit wins: the cost center as the line gives it, else,
 // on a primary cost account with cost center accounting on in the posting's

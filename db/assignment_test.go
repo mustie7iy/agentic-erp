@@ -9,7 +9,7 @@ import (
 
 // Account assignment on the journal line (T56d, migrations 000155-000158):
 // the centers' companies by foreign key, on every partition. ADR-0050 §5's
-// table is checked at commit from T56d2.
+// table is checked at commit from T56d3.
 
 // assignedLine is a journal line with its centers (nil: none).
 type assignedLine struct {
