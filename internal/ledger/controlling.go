@@ -135,7 +135,7 @@ func (c *companyControlling) checkDefaultCostCenters(ctx context.Context, tx pgx
 	if _, err := pgx.ForEachRow(rows, []any{&code, &id}, func() error { byCode[code] = id; return nil }); err != nil {
 		return fmt.Errorf("ledger: default cost centers of company %s: %w", co.Code, err)
 	}
-	periods, err := costCenterPeriods(ctx, tx, slices.Collect(maps.Values(byCode)))
+	periods, err := costCenterPeriods(ctx, tx, slices.Collect(maps.Values(byCode)), noLock)
 	if err != nil {
 		return err
 	}
@@ -356,11 +356,12 @@ func applyDefaultAssignments(ctx context.Context, tx pgx.Tx, p reqctx.Principal,
 // not be a default from today on (unusableDefault): automatic postings to
 // those accounts would fail (409 ledger.default_center_in_use). The change
 // holds the cost center for update, so an activation naming it waits.
-func keepsDefaultCostCenter(ctx context.Context, tx pgx.Tx, id uuid.UUID, spans []span[CostCenterAttrs]) error {
-	var today time.Time
+// today is the clock's (Endpoints.Now), the one the setup reads the same
+// rule by (Setup.Now).
+func keepsDefaultCostCenter(ctx context.Context, tx pgx.Tx, id uuid.UUID, spans []span[CostCenterAttrs], today time.Time) error {
 	var accounts []string
-	if err := tx.QueryRow(ctx, `SELECT current_date, coalesce(array_agg(g.number ORDER BY g.number), '{}') FROM ledger.default_assignment d
-		JOIN ledger.gl_account g ON g.tenant_id = d.tenant_id AND g.id = d.account_id WHERE d.cost_center_id = $1 AND d.is_active`, id).Scan(&today, &accounts); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT coalesce(array_agg(g.number ORDER BY g.number), '{}') FROM ledger.default_assignment d
+		JOIN ledger.gl_account g ON g.tenant_id = d.tenant_id AND g.id = d.account_id WHERE d.cost_center_id = $1 AND d.is_active`, id).Scan(&accounts); err != nil {
 		return fmt.Errorf("ledger: default assignments of cost center %s: %w", id, err)
 	}
 	if len(accounts) == 0 {
@@ -376,11 +377,10 @@ func keepsDefaultCostCenter(ctx context.Context, tx pgx.Tx, id uuid.UUID, spans 
 // keepsDefaultProfitCenter refuses a profit center's new periods when it
 // is a company's default profit center and, after the change, could not be
 // a default from today on (409 ledger.default_center_in_use).
-func keepsDefaultProfitCenter(ctx context.Context, tx pgx.Tx, id uuid.UUID, spans []span[ProfitCenterAttrs]) error {
-	var today time.Time
+func keepsDefaultProfitCenter(ctx context.Context, tx pgx.Tx, id uuid.UUID, spans []span[ProfitCenterAttrs], today time.Time) error {
 	var isDefault bool
-	if err := tx.QueryRow(ctx, `SELECT current_date, EXISTS (SELECT FROM ledger.company_controlling WHERE default_profit_center_id = $1)`, id).
-		Scan(&today, &isDefault); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.company_controlling WHERE default_profit_center_id = $1)`, id).
+		Scan(&isDefault); err != nil {
 		return fmt.Errorf("ledger: companies defaulting to profit center %s: %w", id, err)
 	}
 	if !isDefault {

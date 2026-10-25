@@ -43,6 +43,17 @@ func TestAssignmentSimulation(t *testing.T) {
 	c.Must(201, "POST", "/v1/journal-entries", entry(c.de, "2026-03-16", "EUR", line{supplies, "30.00", ""}, line{it, "20.00", ""}, line{bank, "-50.00", ""}), "")
 	c.Must(201, "POST", "/v1/journal-entries", entry(c.de, "2026-03-17", "EUR", line{supplies, "5.00", ""}, line{bank, "-5.00", ""}), "")
 	c.Must(201, "POST", "/v1/journal-entries", entry(c.de, "2026-01-02", "EUR", line{supplies, "5.00", ""}, line{bank, "-5.00", ""}), "") // before the window
+	// A line its document gave a cost center (T56d) is not the rules' to
+	// assign: left out of the replay.
+	cc := uuid.MustParse(c.approved(t, "2000", "")[len("/v1/cost-centers/"):])
+	if err := apitest.Committed(t, c.ten, c.ten.Human, func(ctx context.Context) error {
+		_, err := postings().Post(ctx, ledger.Posting{LegalEntityID: c.de, DocumentType: "SA", DocumentDate: date("2026-03-18"), PostingDate: date("2026-03-18"),
+			Currency: "EUR", SourceContext: "payables", SourceDocumentID: uuid.New(), Lines: []ledger.PostingLine{
+				{AccountID: uuid.MustParse(it), Amount: 700, CostCenterID: &cc}, {AccountID: uuid.MustParse(bank), Amount: -700}}})
+		return err
+	}); err != nil {
+		t.Fatalf("post with a cost center: %v", err)
+	}
 	sim := ledger.AssignmentSimulation{LegalEntities: tenancy.Directory{}, Now: at(t, "2026-04-15")}
 	var got configuration.Simulation
 	simulate := func(t *testing.T, base, proposed *config.Config) configuration.Simulation {

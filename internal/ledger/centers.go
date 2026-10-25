@@ -135,10 +135,10 @@ func scanProfitCenter(row pgx.Row) (ProfitCenter, error) {
 }
 
 // costCenterPeriods reads the active periods of the cost centers, in date
-// order.
-func costCenterPeriods(ctx context.Context, tx pgx.Tx, ids []uuid.UUID) (map[uuid.UUID][]span[CostCenterAttrs], error) {
+// order, with the row lock given: none, or periodsForShare for a posting.
+func costCenterPeriods(ctx context.Context, tx pgx.Tx, ids []uuid.UUID, lock string) (map[uuid.UUID][]span[CostCenterAttrs], error) {
 	rows, _ := tx.Query(ctx, `SELECT cost_center_id, id, valid_from, valid_to, category, profit_center_id, lock_actual_cost, lock_actual_revenue, lock_plan
-		FROM ledger.cost_center_period WHERE cost_center_id = ANY($1) AND retired_by_change_id IS NULL ORDER BY cost_center_id, valid_from`, ids)
+		FROM ledger.cost_center_period WHERE cost_center_id = ANY($1) AND retired_by_change_id IS NULL ORDER BY cost_center_id, valid_from`+lock, ids)
 	out := map[uuid.UUID][]span[CostCenterAttrs]{}
 	var owner uuid.UUID
 	var s span[CostCenterAttrs]
@@ -160,10 +160,10 @@ func costCenterPeriods(ctx context.Context, tx pgx.Tx, ids []uuid.UUID) (map[uui
 }
 
 // profitCenterPeriods reads the active periods of the profit centers, in
-// date order.
-func profitCenterPeriods(ctx context.Context, tx pgx.Tx, ids []uuid.UUID) (map[uuid.UUID][]span[ProfitCenterAttrs], error) {
+// date order, with the row lock given (costCenterPeriods).
+func profitCenterPeriods(ctx context.Context, tx pgx.Tx, ids []uuid.UUID, lock string) (map[uuid.UUID][]span[ProfitCenterAttrs], error) {
 	rows, _ := tx.Query(ctx, `SELECT profit_center_id, id, valid_from, valid_to, locked
-		FROM ledger.profit_center_period WHERE profit_center_id = ANY($1) AND retired_by_change_id IS NULL ORDER BY profit_center_id, valid_from`, ids)
+		FROM ledger.profit_center_period WHERE profit_center_id = ANY($1) AND retired_by_change_id IS NULL ORDER BY profit_center_id, valid_from`+lock, ids)
 	out := map[uuid.UUID][]span[ProfitCenterAttrs]{}
 	var owner uuid.UUID
 	var s span[ProfitCenterAttrs]
@@ -192,7 +192,7 @@ func getCostCenter(ctx context.Context, tx pgx.Tx, access authz.Access, id uuid.
 	if err := authz.Visible(err, access, c.LegalEntityID, problem.NotFoundOf("cost center"), "ledger: read cost center %s", id); err != nil {
 		return CostCenter{}, err
 	}
-	periods, err := costCenterPeriods(ctx, tx, []uuid.UUID{id})
+	periods, err := costCenterPeriods(ctx, tx, []uuid.UUID{id}, noLock)
 	c.Periods = periods[id]
 	return c, err
 }
@@ -209,16 +209,20 @@ func getProfitCenter(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock string) 
 	if err != nil {
 		return ProfitCenter{}, fmt.Errorf("ledger: read profit center %s: %w", id, err)
 	}
-	periods, err := profitCenterPeriods(ctx, tx, []uuid.UUID{id})
+	periods, err := profitCenterPeriods(ctx, tx, []uuid.UUID{id}, noLock)
 	c.Periods = periods[id]
 	return c, err
 }
 
-// Row locks for getProfitCenter.
+// Row locks for getProfitCenter and the period readers. A posting holds
+// the periods it reads for share (periodsForShare): every change of a
+// center retires the periods it does not keep, an update that waits for
+// the postings under way (ADR-0050 §5).
 const (
-	noLock    = ""
-	forUpdate = ` FOR UPDATE OF c`
-	forShare  = ` FOR SHARE OF c`
+	noLock          = ""
+	forUpdate       = ` FOR UPDATE OF c`
+	forShare        = ` FOR SHARE OF c`
+	periodsForShare = ` FOR SHARE`
 )
 
 const segmentColumns = `id, code, name, description, version, created_at, created_by, updated_at, updated_by`

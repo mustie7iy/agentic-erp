@@ -31,7 +31,9 @@ func entryToAPI(e Entry) gen.JournalEntry {
 		line := gen.JournalLine{LineNo: l.LineNo, AccountID: l.AccountID, Amount: apitypes.Money(l.TC, e.CurrencyTC, e.ExpTC),
 			AmountLc: apitypes.Money(l.LC, e.CurrencyLC, e.ExpLC), AmountGc: apitypes.Money(l.GC, e.CurrencyGC, e.ExpGC), PartnerID: apitypes.OptUUID(l.PartnerID),
 			TaxCode: apitypes.OptString(l.TaxCode), LineText: apitypes.OptString(l.Text), PurchaseOrderID: apitypes.OptUUID(l.PurchaseOrderID),
-			TaxJurisdiction: apitypes.OptString(l.TaxJurisdiction)}
+			TaxJurisdiction: apitypes.OptString(l.TaxJurisdiction), CostCenterID: apitypes.OptUUID(l.CostCenterID),
+			CostCenterCode: apitypes.OptString(l.CostCenterCode), ProfitCenterID: apitypes.OptUUID(l.ProfitCenterID),
+			ProfitCenterCode: apitypes.OptString(l.ProfitCenterCode), SegmentID: apitypes.OptUUID(l.SegmentID), SegmentCode: apitypes.OptString(l.SegmentCode)}
 		if l.Quantity != nil {
 			line.Quantity.SetTo(gen.Quantity{Value: *l.Quantity, Unit: *l.Unit})
 		}
@@ -226,7 +228,9 @@ func newEntry(req *gen.JournalEntryCreate) NewEntry {
 		HeaderText: apitypes.Ptr[string](req.HeaderText), Lines: make([]NewLine, len(req.Lines))}
 	for i, l := range req.Lines {
 		line := NewLine{AccountID: l.AccountID, Amount: l.Amount.Amount, Currency: l.Amount.Currency, PartnerID: apitypes.Ptr[uuid.UUID](l.PartnerID),
-			TaxCode: apitypes.Ptr[string](l.TaxCode), Text: apitypes.Ptr[string](l.LineText), TaxJurisdiction: apitypes.Ptr[string](l.TaxJurisdiction)}
+			TaxCode: apitypes.Ptr[string](l.TaxCode), Text: apitypes.Ptr[string](l.LineText), TaxJurisdiction: apitypes.Ptr[string](l.TaxJurisdiction),
+			CostCenterID: apitypes.Ptr[uuid.UUID](l.CostCenterID), ProfitCenterID: apitypes.Ptr[uuid.UUID](l.ProfitCenterID),
+			SegmentID: apitypes.Ptr[uuid.UUID](l.SegmentID)}
 		if q, ok := l.Quantity.Get(); ok {
 			line.Quantity, line.Unit = &q.Value, &q.Unit
 		}
@@ -273,8 +277,9 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 	}
 	from, to := apitypes.Ptr[time.Time](params.PostingDateFrom), apitypes.Ptr[time.Time](params.PostingDateTo)
 	ledger := apitypes.Ptr[uuid.UUID](params.LedgerID)
-	scope := fmt.Sprintf("listJournalEntries|%s|%s|%v|%v|%d|%s|%s|%s", apitypes.Ptr[uuid.UUID](params.LegalEntityID), params.DocumentNumber.Value, from, to,
-		params.FiscalYear.Value, params.SourceContext.Value, apitypes.Ptr[uuid.UUID](params.SourceDocumentID), ledger)
+	costCenter, profitCenter := apitypes.Ptr[uuid.UUID](params.CostCenterID), apitypes.Ptr[uuid.UUID](params.ProfitCenterID)
+	scope := fmt.Sprintf("listJournalEntries|%s|%s|%v|%v|%d|%s|%s|%s|%s|%s", apitypes.Ptr[uuid.UUID](params.LegalEntityID), params.DocumentNumber.Value,
+		from, to, params.FiscalYear.Value, params.SourceContext.Value, apitypes.Ptr[uuid.UUID](params.SourceDocumentID), ledger, costCenter, profitCenter)
 	ks, err := e.Pages.Keyset(entrySort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
@@ -294,9 +299,13 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 	q, args := ks.SQL(entrySelect+` WHERE ($1 OR e.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR e.legal_entity_id = $3)
 		AND ($4 = '' OR e.document_number = $4) AND ($5::date IS NULL OR e.posting_date >= $5) AND ($6::date IS NULL OR e.posting_date <= $6)
 		AND ($7::smallint IS NULL OR e.fiscal_year = $7) AND ($8 = '' OR e.source_context = $8) AND ($9::uuid IS NULL OR e.source_document_id = $9)
-		AND CASE WHEN e.ledger_id = coalesce($10, (SELECT g.id FROM ledger.ledger g WHERE g.is_leading)) THEN true ELSE false END`,
+		AND CASE WHEN e.ledger_id = coalesce($10, (SELECT g.id FROM ledger.ledger g WHERE g.is_leading)) THEN true ELSE false END
+		AND ($11::uuid IS NULL OR EXISTS (SELECT FROM ledger.journal_line l WHERE l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year
+			AND l.journal_entry_id = e.id AND l.cost_center_id = $11))
+		AND ($12::uuid IS NULL OR EXISTS (SELECT FROM ledger.journal_line l WHERE l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year
+			AND l.journal_entry_id = e.id AND l.profit_center_id = $12))`,
 		[]any{access.All, access.IDs, apitypes.Ptr[uuid.UUID](params.LegalEntityID), params.DocumentNumber.Value, from, to, apitypes.Ptr[int32](params.FiscalYear),
-			params.SourceContext.Value, apitypes.Ptr[uuid.UUID](params.SourceDocumentID), ledger})
+			params.SourceContext.Value, apitypes.Ptr[uuid.UUID](params.SourceDocumentID), ledger, costCenter, profitCenter})
 	rows, _ := tx.Query(ctx, q, args...)
 	entries, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Entry, error) { return scanEntry(r) })
 	if err != nil {

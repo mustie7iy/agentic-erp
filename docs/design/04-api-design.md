@@ -173,6 +173,21 @@ timeouts, the database's generic codes). Both are derived from the code
 and checked to match it (`api`'s `TestProblemCodes`, ADR-0052 G7); `go
 test ./api -run TestProblemCodes -update` rewrites them.
 
+Every operation that posts can answer the account assignment refusals
+(ADR-0050 §5, T56d): 422 `ledger.cost_center_required`,
+`ledger.cost_center_invalid` and `ledger.profit_center_invalid` (the
+reason is the field error's `code`, on `lines[i].cost_center_id` or
+`lines[i].profit_center_id`), `ledger.profit_center_mismatch`,
+and `ledger.segment_mismatch`. Manual and parked entries take the centers
+on their lines (`cost_center_id`, `profit_center_id`, `segment_id`, T56d2);
+journal lines show each with its code (`cost_center_code`...), parked lines
+the ones entered; `GET /v1/journal-entries` filters by `cost_center_id`
+and `profit_center_id`. A center change that contradicts posted lines is
+409: `ledger.cost_center_posted_after` (its validity would end on or before
+a line's posting date), `ledger.cost_center_period_in_use` (the attributes
+in force on a posted date would differ) and `ledger.segment_in_use` (a
+posted profit center's segment), at the request and again at the approval.
+
 ## 4.7 Concurrency and idempotency
 
 Per ADR-0008:
