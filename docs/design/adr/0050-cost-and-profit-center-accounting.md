@@ -557,9 +557,10 @@ As built in T56d (migrations 000155-000158; the rest is T56d2, below):
   center) on a date before its first period takes its first period's
   attributes. The posting path does not tell automatic from manual
   postings, so a manual line taking a default is treated alike; a center
-  entered on such a date is refused (`not_valid_on_date`). The tracker
-  scoped this to automatic postings: product owner to confirm the wider
-  rule.
+  entered on such a date is refused (`not_valid_on_date`). Product owner
+  2026-10-25: a posting dated before a default's validity may take the
+  default whether it is automatic or manual, as built; a center entered on
+  such a date stays refused.
 - **Locks.** The posting reads the centers `FOR KEY SHARE` (a change takes
   the center `FOR UPDATE` and waits; text changes do not), then, in a new
   statement, their active periods `FOR SHARE`, so a posting that waited for
