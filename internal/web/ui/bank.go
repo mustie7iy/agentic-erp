@@ -17,17 +17,7 @@ const BankPath = "/bank"
 
 // StatementsPath is the statements' list with the query, "" values left
 // out.
-func StatementsPath(q url.Values) string {
-	for k, v := range q {
-		if len(v) == 0 || v[0] == "" {
-			delete(q, k)
-		}
-	}
-	if len(q) == 0 {
-		return BankPath
-	}
-	return BankPath + "?" + q.Encode()
-}
+func StatementsPath(q url.Values) string { return listPath(BankPath, q) }
 
 // Masked is an account as the workspace shows it: its last four
 // characters after a mask, never the whole number (ADR-0047: the API gives

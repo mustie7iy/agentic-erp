@@ -152,7 +152,14 @@ func TestConsumerFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	event(t, b, "ledger")
-	if n, err := failing.RunOnce(ctx); err == nil || n != 0 {
+	// A fetch can end before the event is visible to the consumer (seen on
+	// a loaded CI runner: 0 handled, no error), so read until it arrives.
+	var n int
+	pgtest.Eventually(t, 10*time.Second, func() bool {
+		n, err = failing.RunOnce(ctx)
+		return err != nil || n != 0
+	}, "failed handler: the event never arrived")
+	if err == nil || n != 0 {
 		t.Errorf("failed handler: handled %d, error %v; want 0 and an error", n, err)
 	}
 	// A consumer deleted under the reader answers the fetch with an error.

@@ -1553,6 +1553,115 @@ and where it departs from the step as first written:
   1280 and 390 px, and walks a rejection refused then made, an
   acceptance and a posting that waits for its approval.
 
+## Built in T73f (2026-10-25)
+Payment runs (ADR-0038), as proposer and as releaser. What it settled,
+and where it departs from the step as first written:
+- **Pages.** `GET /payments`: the runs by status (proposing, proposed,
+  being released, released, rejected, failed) as cards, 25 a page,
+  latest run date first, with each run's company, house bank (or that
+  the suppliers' payment methods choose it), dates, total and proposer,
+  the company and document number as a plain GET form, and the proposal
+  for a person holding `payments.run.propose`: company, house bank or
+  none (then the run's currency), payment date and due date, posted to
+  `POST /payments/propose` (under the list, so a sign-in again comes back
+  to it). `GET /payments/{id}`: the run's summary, its release's second
+  approval, its operation's progress, a page of its payments and of what
+  it left out (each paged by its own token, 50 a page), its bank files
+  once it is released or being released, and the person's decisions.
+- **Progress, polled.** The proposal and the release are operations
+  (202). A run being proposed or released shows its latest operation
+  (the release's, else the proposal's) as a section,
+  `GET /payments/{id}/progress`, which htmx loads into the page
+  (`hx-trigger="load"`, as the invoice's order section) and which is a
+  page of its own without htmx, refreshed by a link. While the operation
+  runs, its state is a `role="status"` region that htmx asks for again
+  every two seconds (`hx-trigger="every 2s"`, `part=status`; no script
+  of the workspace's own, no meta refresh, which WCAG 2.2.1 and axe
+  refuse); the cancellation's button is outside that region, so a swap
+  never takes the focus from it. Once the operation has stopped, that
+  answer has the browser load the run's page again (`HX-Redirect`, the
+  page without the notice of what was asked), which shows what the
+  operation left: the proposal's payments, the release's files. A
+  proposal cancelled leaves its run being proposed until the worker fails
+  it, so the section asks again until then; a failed run shows its
+  progress too, with why the proposal stopped.
+- **Cancel and resume.** While an operation is queued or running, a
+  person holding `platform.operation.cancel` cancels it
+  (`POST /payments/{id}/cancel`, the operation named in the form, its
+  resource checked to be this run). **Departs from §7:** the form holds
+  no If-Match, since the operation's version moves with every step of
+  progress and a form's would be stale at once; erp-web reads the
+  operation when the form is sent (`getOperation`) and cancels at that
+  version. What the person asked is to cancel that operation whatever it
+  has done since; one that finished meanwhile is refused
+  (`platform.operation_not_cancellable`) and said on the progress page.
+  A proposal cancelled fails its run; a release that failed or was
+  cancelled leaves the run being released, and its progress offers the
+  release again, which resumes it (ADR-0038), to whoever may release it.
+- **Decisions.** Release (optional comment), reject (reason) and, above
+  the company's limit, the request for a second approval, each a form
+  with the run's ETag and a fresh idempotency key; a bank file's
+  transmission (created or failed files, `payments.file.transmit`) with
+  the file's ETag. All but the transmission are `x-agent: false` and
+  marked human-only. Done, the run's page says so (`?done=…`); refused, it
+  is rendered again with the refusal and what was typed. Segregation of
+  duties is the API's: no form is offered to the run's proposer, and the
+  approver of its release is offered its rejection but not its release
+  (ADR-0038: the approver never releases); the page says why, and a form
+  sent anyway is refused (`identity.sod_conflict`) and explained by its
+  code.
+- **Two-person release** (ADR-0038 as amended by T72m, product owner
+  2026-10-22, in the API before this step). The page cannot know whether
+  a run is above its company's `release_dual_limit` (configuration and
+  rates), so the release is offered as usual; when it answers
+  `payments.release_approval_required` (or `_outdated`), the page says
+  why and offers to ask for the second approval (`submitPaymentRun`), as
+  it does after a request was withdrawn. The run's page shows the request's state
+  (waiting, approved with by whom and when, rejected, withdrawn), the
+  total asked for and a link to the request; while it waits, the run may
+  be rejected but not released. The approval is decided in the approvals
+  inbox (T73d), not a screen of its own: `payment_run_release` is named
+  there, and the decisions' `x-object-permissions` gained it on main
+  with T72m, so `TestScreensAgainstTheContract` failed until the
+  workspace's `objectApprovers` held it (integration, ab2a3add). A request rejected in the inbox
+  rejects its run, which its page then shows.
+- **Calls.** The list makes at most five (`getCurrentPrincipal`,
+  `listLegalEntities`, `listHouseBanks` for the banks' codes and the
+  proposal's choice, `listPaymentRuns`, `listPrincipalNames`), a run six
+  (`getPaymentRun`, `listPayments`, `listPaymentExclusions`,
+  `listBankFiles` once released or being released, names), the progress
+  three (`getCurrentPrincipal`, `getPaymentRun`, `getOperation`). A run's payments, exclusions,
+  files and operation that the API refuses are said in their place.
+- **Departs from the tracker row.** A payment and an exclusion name their
+  supplier by id: the API gives no supplier's name on them and
+  `listBusinessPartners` filters by no id, so naming them is a contract
+  change (tracker item T73f2). Within the six calls, a run's page names
+  neither its company nor its house bank (its list card does).
+- **Refusals.** `i18n.PaymentProblems` explains the codes of a
+  proposal, a release and its approval, a rejection, a cancellation and
+  a transmission, and the general ones in a run's words; the contract
+  test holds them to the operations' `x-problem-codes`. An operation's
+  own error (a release that found nothing left to pay) is explained the
+  same way on its progress.
+- **Tests.** Handlers against the real API and PostgreSQL, the proposal,
+  release and transmission workers run in process by the test
+  (`fixture` gained `PaymentPermissions`, `BankAccount`, `Payable`,
+  `Accepting`, `RunProposals`, `RunReleases`, `RunTransmissions`): a run
+  proposed and its progress polled to the built run; its proposer
+  refused; a release and its bank file sent; a rejection, a stale form
+  and a replayed one; a proposal cancelled, a release cancelled and
+  resumed, a cancellation too late; the two-person release approved by a
+  second person in the inbox and released by the requester, and one
+  rejected there; a person who may only read and one who may not. The
+  rarer answers (pages more, values the workspace does not know, a
+  release stopped with its error, refusals in place, an unreachable API)
+  come from the stub, as in T73d. The browser suite runs axe on the
+  list, a released run with its file, a proposed run, a run being
+  proposed with its progress polling, and the progress page, in
+  English, French and both pseudo-locales at 1280 and 390 px, and walks
+  a proposal watched until it is built, then its release refused above
+  the limit and the second approval asked for.
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF

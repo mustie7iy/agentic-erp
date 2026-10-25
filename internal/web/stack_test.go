@@ -26,6 +26,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
@@ -121,6 +122,9 @@ type stackOptions struct {
 	permissions []string
 	// objects is the API's object storage; a fresh one when its Root is "".
 	objects blobstore.Dir
+	// extend changes the configured tenant's configuration document before
+	// it is bootstrapped (fixture.NewWith).
+	extend func(*config.Config)
 }
 
 const loginCodeOf = "acme"
@@ -136,7 +140,7 @@ func newStack(t *testing.T, opts stackOptions) *stack {
 		s.is.Serve(authntest.DiscoveryPath, bytes.ReplaceAll(opts.discovery, []byte("ISSUER"), []byte(s.is.URL)))
 	}
 	if opts.seed != nil {
-		s.f = fixture.New(t, append([]string{"tenancy.org.read", "procurement.requisition.read", "procurement.requisition.create",
+		s.f = fixture.NewWith(t, nil, opts.extend, append([]string{"tenancy.org.read", "procurement.requisition.read", "procurement.requisition.create",
 			"partner.supplier.read", "partner.supplier.create", "partner.supplier.change"}, opts.permissions...)...)
 		s.ten, s.person = s.f.Tenant, s.f.Approver
 		opts.seed(s.f)
@@ -157,6 +161,7 @@ func newStack(t *testing.T, opts stackOptions) *stack {
 		cfg.Verifier = v
 		cfg.Now = s.clock.Now // the cell's sessions age with erp-web's
 		cfg.Objects = s.objects
+		cfg.Connector = fixture.Accepting{} // a bank that takes every file a payment run's transmission sends
 	})
 	// The cell believes the address erp-web forwards, as it believes the
 	// router's, which passes erp-web's on (ADR-0033).
