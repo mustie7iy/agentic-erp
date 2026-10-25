@@ -172,6 +172,7 @@ templ periodContent(pp PeriodPage) {
 	<div hx-disable>
 		@SummaryList(periodRows(pp.Header))
 	</div>
+	@AuditLinkView(pp.Audit)
 	if pp.Unlock != "" {
 		@UnlockBlock(pp.Unlock)
 	}
@@ -302,6 +303,18 @@ templ GRIRCheckView(c GRIRCheck) {
 				@Paragraph(i18n.CheckMore)
 			}
 		}
+		@checkReport(c.Report)
+	}
+}
+
+// checkReport links a check to the report that shows all it found.
+templ checkReport(path string) {
+	if path != "" {
+		<p>
+			<a { link(path, "")... }>
+				@T(i18n.CheckReport)
+			</a>
+		</p>
 	}
 }
 
@@ -386,6 +399,7 @@ templ LedgerCheckView(c LedgerCheck) {
 				@Paragraph(i18n.CheckMore)
 			}
 		}
+		@checkReport(c.Report)
 	}
 }
 
@@ -431,7 +445,13 @@ templ DifferencesTable(differences []DifferenceView) {
 templ DifferenceRow(d DifferenceView) {
 	<tr>
 		<td>
-			@Code(d.Account)
+			if d.Entries != "" {
+				<a translate="no" { link(d.Entries, "")... }>
+					@Value(d.Account)
+				</a>
+			} else {
+				@Code(d.Account)
+			}
 		</td>
 		<td>
 			@Code(d.Currency)

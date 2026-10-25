@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/internal/web/i18n"
+	"github.com/mustie7iy/agentic-erp/internal/web/ui"
 )
 
 // specOperation is what the contract says of an operation that the
@@ -86,6 +87,19 @@ func TestScreensAgainstTheContract(t *testing.T) {
 			reads = slices.DeleteFunc(slices.Clone(reads), func(op Operation) bool { return op.Lookup })
 			if n := len(reads) + len(lookups) + maxCodeLookups; len(lookups) > 0 && n > 40 {
 				t.Errorf("%d calls at most for a send with its lookups, want at most 40 of the API's 50 a second", n)
+			}
+			// A download (T73j) reads its report's pages, at most
+			// maxExportPages of them, within the API's burst of a
+			// principal's calls (100 at 50 a second): its other reads and
+			// its pages stay at 40 at most, as a send's lookups do.
+			if exports := slices.DeleteFunc(slices.Clone(reads), func(op Operation) bool { return !op.Export }); len(exports) > 0 {
+				if n := len(reads) - len(exports) + len(exports)*maxExportPages; n > 40 {
+					t.Errorf("%d calls at most for a download, want at most 40", n)
+				}
+				if !strings.HasSuffix(path, ui.CSVSuffix) {
+					t.Errorf("a route reading pages for a download: %s, want a CSV's path", path)
+				}
+				reads = slices.DeleteFunc(slices.Clone(reads), func(op Operation) bool { return op.Export })
 			}
 			if len(reads) > 6 {
 				t.Errorf("%d calls to render the page, want at most six", len(reads))

@@ -1,0 +1,682 @@
+package ui
+
+import "github.com/mustie7iy/agentic-erp/internal/web/i18n"
+
+// Reports is the reports' index (ADR-0052 §2, T73j): the reports the
+// person may read, each house bank's reconciliation report, and a
+// document's audit history by its id.
+templ Reports(s Shell, l ReportLinks) {
+	@Layout(s, reportsContent(l))
+}
+
+templ reportsContent(l ReportLinks) {
+	<h1>
+		@T(i18n.ReportsTitle)
+	</h1>
+	@Paragraph(i18n.ReportsLead)
+	if l.TrialBalance != "" {
+		<ul class="list">
+			@reportItem(l.TrialBalance, i18n.TrialBalanceTitle, i18n.ReportsTrialBalanceLead)
+			@reportItem(l.OpenItems, i18n.OpenItemsTitle, i18n.ReportsOpenItemsLead)
+			@reportItem(l.GRIR, i18n.GRIRReportTitle, i18n.ReportsGRIRLead)
+			@reportItem(l.LedgerRecon, i18n.LedgerReconTitle, i18n.ReportsLedgerReconLead)
+		</ul>
+	}
+	if len(l.Banks) > 0 || l.BanksUnread {
+		<h2>
+			@T(i18n.ReportsBanksTitle)
+		</h2>
+		if l.BanksUnread {
+			@Paragraph(i18n.ReportsBanksUnread)
+		} else {
+			@Paragraph(i18n.ReportsBanksLead)
+			<ul class="list" hx-disable>
+				for _, b := range l.Banks {
+					@HouseBankItem(b)
+				}
+			</ul>
+		}
+	}
+	if l.Audit {
+		@AuditForm("", "")
+	}
+	if l.TrialBalance == "" && len(l.Banks) == 0 && !l.BanksUnread && !l.Audit {
+		@Paragraph(i18n.ReportsNone)
+	}
+}
+
+// reportItem is one report of the index: its link and what it shows.
+templ reportItem(path string, title, lead i18n.Key) {
+	<li class="list__item">
+		<a { link(path, "")... }>
+			@T(title)
+		</a>
+		<span class="hint">
+			@T(lead)
+		</span>
+	</li>
+}
+
+// reportBack is the way back to the reports' index.
+templ reportBack() {
+	<p>
+		<a { link(ReportsPath, "")... }>
+			@T(i18n.ReportsBack)
+		</a>
+	</p>
+}
+
+// DownloadLink is a report's CSV download: the rows its filters select,
+// up to the workspace's limit (ADR-0052 G5).
+templ DownloadLink(path string) {
+	<p>
+		<a download { link(path, "")... }>
+			@T(i18n.ReportDownload)
+		</a>
+		@space()
+		<span class="hint">
+			@T(i18n.ReportDownloadHint)
+		</span>
+	</p>
+}
+
+// LedgerFilterForm is a ledger report's choice of company, ledger, the
+// ledger compared with, year and period: a plain GET form, so a report
+// is an address to keep or share.
+templ LedgerFilterForm(f LedgerFilters) {
+	<form class="filters" { get(f.Action)... }>
+		<h2 class="filters__title">
+			@T(i18n.ReportFilters)
+		</h2>
+		<div class="filters__fields">
+			if f.Companies != nil {
+				@optionSelect("report-company", FieldCompany, i18n.FilterCompany, f.Companies)
+			}
+			if f.Ledgers != nil {
+				@optionSelect("report-ledger", FieldLedger, i18n.PeriodLedger, f.Ledgers)
+			}
+			if f.Compare != nil {
+				@optionSelect("report-compare", FieldCompare, i18n.ReconCompareLedger, f.Compare)
+			}
+			@InputField("report-year", FieldYear, "text", i18n.PeriodYear, i18n.PeriodYearHint, f.Year, f.YearError)
+			@InputField("report-period", FieldPeriod, "text", i18n.ReportPeriod, i18n.ReportPeriodHint, f.Period, f.PeriodError)
+		</div>
+		<div class="filters__buttons">
+			<button class="button" type="submit">
+				@T(i18n.FilterApply)
+			</button>
+		</div>
+	</form>
+}
+
+// TrialBalance is a company's trial balance in a ledger and fiscal year
+// (ADR-0052 §2, T73j): its totals per account, period and transaction
+// currency.
+templ TrialBalance(s Shell, tp TrialBalancePage) {
+	@Layout(s, trialBalanceContent(tp))
+}
+
+templ trialBalanceContent(tp TrialBalancePage) {
+	@reportBack()
+	<h1>
+		@T(i18n.TrialBalanceTitle)
+	</h1>
+	@Paragraph(i18n.TrialBalanceLead)
+	@LedgerFilterForm(tp.Filters)
+	if tp.Invalid {
+		@Notice("report-invalid", i18n.ReportRefusedTitle, Paragraph(i18n.FilterInvalid))
+	} else if tp.Refusal != nil {
+		@RefusalNotice(*tp.Refusal)
+	} else if len(tp.Rows) == 0 {
+		@Paragraph(i18n.TrialBalanceEmpty)
+	} else {
+		@DownloadLink(tp.CSV)
+		@BalancesTable(tp.Rows)
+		if tp.More != "" {
+			@ButtonLink(tp.More, i18n.ReportMore)
+		}
+	}
+}
+
+// BalancesTable is a trial balance's totals, in a region that scrolls
+// sideways on its own on a phone.
+templ BalancesTable(rows []BalanceRow) {
+	<div class="table-wrap" role="region" tabindex="0" { labelledBy("balances-caption")... }>
+		<table class="table">
+			<caption class="visually-hidden" { idAttr("balances-caption")... }>
+				@T(i18n.TrialBalanceTitle)
+			</caption>
+			<thead>
+				<tr>
+					@HeaderCell(i18n.BalanceAccount)
+					@HeaderCell(i18n.BalancePeriod)
+					@HeaderCell(i18n.BalanceCurrency)
+					@HeaderCell(i18n.BalanceDebit)
+					@HeaderCell(i18n.BalanceCredit)
+					@HeaderCell(i18n.BalanceDebitLC)
+					@HeaderCell(i18n.BalanceCreditLC)
+				</tr>
+			</thead>
+			<tbody>
+				for _, r := range rows {
+					@BalanceRowView(r)
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+// BalanceRowView is one account's totals of a period in a currency.
+templ BalanceRowView(r BalanceRow) {
+	<tr>
+		<td>
+			@Code(r.Account)
+		</td>
+		<td>
+			@Number(r.Period)
+		</td>
+		<td>
+			@Code(r.Currency)
+		</td>
+		<td>
+			@Amount(r.Debit)
+		</td>
+		<td>
+			@Amount(r.Credit)
+		</td>
+		<td>
+			@Amount(r.DebitLC)
+		</td>
+		<td>
+			@Amount(r.CreditLC)
+		</td>
+	</tr>
+}
+
+// OpenItems is the supplier open items with their due dates and aging
+// (ADR-0052 §2 and G4, T73j).
+templ OpenItems(s Shell, op OpenItemsPage) {
+	@Layout(s, openItemsContent(op))
+}
+
+templ openItemsContent(op OpenItemsPage) {
+	@reportBack()
+	<h1>
+		@T(i18n.OpenItemsTitle)
+	</h1>
+	@Paragraph(i18n.OpenItemsLead)
+	@OpenItemFilterForm(op.Filters)
+	if op.Supplier != "" {
+		<p>
+			@T(i18n.OpenItemsOf)
+			@space()
+			@Data(op.Supplier)
+		</p>
+	}
+	if op.Invalid {
+		@Notice("report-invalid", i18n.ReportRefusedTitle, Paragraph(i18n.FilterInvalid))
+	} else if op.Refusal != nil {
+		@RefusalNotice(*op.Refusal)
+	} else if len(op.Rows) == 0 {
+		@Paragraph(i18n.OpenItemsEmpty)
+	} else {
+		<h2>
+			@T(i18n.AgingTitle, op.Filters.KeyDate)
+		</h2>
+		@AgingTable(op.Aging)
+		<h2>
+			@T(i18n.OpenItemsListTitle)
+		</h2>
+		@DownloadLink(op.CSV)
+		@OpenItemsTable(op.Rows)
+		if op.More != "" {
+			@ButtonLink(op.More, i18n.ReportMore)
+		}
+	}
+}
+
+// OpenItemFilterForm is the open items' filters: a plain GET form.
+templ OpenItemFilterForm(f ItemFilters) {
+	<form class="filters" { get(OpenItemsPath)... }>
+		<h2 class="filters__title">
+			@T(i18n.ReportFilters)
+		</h2>
+		<div class="filters__fields">
+			if f.Companies != nil {
+				@optionSelect("items-company", FieldCompany, i18n.FilterCompany, f.Companies)
+			}
+			if f.Accounts != nil {
+				@optionSelect("items-account", FieldAccount, i18n.OpenItemsAccount, f.Accounts)
+			}
+			if f.Suppliers {
+				@InputField("items-supplier", FieldSupplier, "text", i18n.OpenItemsSupplier, i18n.OpenItemsSupplierHint, f.Supplier, f.SupplierError)
+			}
+			@InputField("items-posting-to", FieldPostingDateTo, "date", i18n.OpenItemsPostingTo, i18n.FilterDateHint, f.PostingTo, f.PostingError)
+			@InputField("items-due-to", FieldDueDateTo, "date", i18n.OpenItemsDueTo, i18n.OpenItemsDueToHint, f.DueTo, f.DueError)
+			@InputField("items-key-date", FieldKeyDate, "date", i18n.OpenItemsKeyDate, i18n.OpenItemsKeyDateHint, f.KeyDate, f.KeyDateError)
+		</div>
+		<div class="filters__buttons">
+			<button class="button" type="submit">
+				@T(i18n.FilterApply)
+			</button>
+		</div>
+	</form>
+}
+
+// AgingTable is the open items' aging on the key date: every item the
+// filters select, per currency and bucket.
+templ AgingTable(rows []AgingRow) {
+	<div class="table-wrap" role="region" tabindex="0" { labelledBy("aging-caption")... }>
+		<table class="table">
+			<caption class="visually-hidden" { idAttr("aging-caption")... }>
+				@T(i18n.AgingCaption)
+			</caption>
+			<thead>
+				<tr>
+					@HeaderCell(i18n.AgingBucket)
+					@HeaderCell(i18n.AgingDays)
+					@HeaderCell(i18n.BalanceCurrency)
+					@HeaderCell(i18n.AgingItems)
+					@HeaderCell(i18n.AgingAmount)
+				</tr>
+			</thead>
+			<tbody>
+				for _, a := range rows {
+					@AgingRowView(a)
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+// AgingRowView is one bucket of one currency.
+templ AgingRowView(a AgingRow) {
+	<tr>
+		<td>
+			<strong { tagClass(agingKind(a.Bucket))... }>
+				@labelText(a.Bucket)
+			</strong>
+		</td>
+		<td>
+			if a.From == 0 {
+				@T(i18n.LineNone)
+			} else if a.To == 0 {
+				@T(i18n.AgingDaysMore, a.From-1)
+			} else {
+				@T(i18n.AgingDaysRange, a.From, a.To)
+			}
+		</td>
+		<td>
+			@Code(a.Currency)
+		</td>
+		<td>
+			@Tally(a.Items)
+		</td>
+		<td>
+			@Amount(a.Amount)
+		</td>
+	</tr>
+}
+
+// OpenItemsTable is a page of open items, each linked to its entry.
+templ OpenItemsTable(rows []OpenItemRow) {
+	<div class="table-wrap" role="region" tabindex="0" { labelledBy("items-caption")... }>
+		<table class="table" hx-disable>
+			<caption class="visually-hidden" { idAttr("items-caption")... }>
+				@T(i18n.OpenItemsListTitle)
+			</caption>
+			<thead>
+				<tr>
+					@HeaderCell(i18n.OpenItemDocument)
+					@HeaderCell(i18n.EntryLinePartner)
+					@HeaderCell(i18n.EntryReference)
+					@HeaderCell(i18n.EntryPostingDate)
+					@HeaderCell(i18n.OpenItemDue)
+					@HeaderCell(i18n.OpenItemDiscount)
+					@HeaderCell(i18n.OpenItemOverdue)
+					@HeaderCell(i18n.EntryLineAmount)
+					@HeaderCell(i18n.EntryLineAmountLC)
+				</tr>
+			</thead>
+			<tbody>
+				for _, r := range rows {
+					@OpenItemRowView(r)
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+// OpenItemRowView is one open item; its reference is data.
+templ OpenItemRowView(r OpenItemRow) {
+	<tr>
+		<td>
+			<a translate="no" { link(r.Entry, "")... }>
+				@Value(r.Number)
+			</a>
+			if r.DownPay {
+				@space()
+				@Tag(i18n.OpenItemDownPayment, "")
+			}
+		</td>
+		<td>
+			@codeOrNone(r.Partner)
+		</td>
+		<td>
+			@Data(r.Reference)
+		</td>
+		<td>
+			@Day(r.Posting)
+		</td>
+		<td>
+			if r.Due != nil {
+				@Day(*r.Due)
+			} else {
+				@T(i18n.OpenItemNoDue)
+			}
+		</td>
+		<td>
+			if r.Discount != nil {
+				@Day(*r.Discount)
+			} else {
+				@T(i18n.LineNone)
+			}
+		</td>
+		<td>
+			if r.Overdue > 0 {
+				@Tally(int64(r.Overdue))
+			} else {
+				@T(i18n.LineNone)
+			}
+		</td>
+		<td>
+			@Amount(r.Amount)
+		</td>
+		<td>
+			@Amount(r.AmountLC)
+		</td>
+	</tr>
+}
+
+// GRIRReport is a company's GR/IR positions (ADR-0052 §2, T73j): those
+// still open, or every one.
+templ GRIRReport(s Shell, gp GRIRPage) {
+	@Layout(s, grirContent(gp))
+}
+
+templ grirContent(gp GRIRPage) {
+	@reportBack()
+	<h1>
+		@T(i18n.GRIRReportTitle)
+	</h1>
+	@Paragraph(i18n.GRIRReportLead)
+	<form class="filters" { get(GRIRPath)... }>
+		<h2 class="filters__title">
+			@T(i18n.ReportFilters)
+		</h2>
+		<div class="filters__fields">
+			if gp.Companies != nil {
+				@optionSelect("grir-company", FieldCompany, i18n.FilterCompany, gp.Companies)
+			}
+			<div class="checkbox">
+				<input { allBox(gp.All)... }/>
+				<label class="checkbox__label" for="grir-all">
+					@T(i18n.GRIRReportAll)
+				</label>
+			</div>
+		</div>
+		<div class="filters__buttons">
+			<button class="button" type="submit">
+				@T(i18n.FilterApply)
+			</button>
+		</div>
+	</form>
+	if gp.Invalid {
+		@Notice("report-invalid", i18n.ReportRefusedTitle, Paragraph(i18n.FilterInvalid))
+	} else if gp.Refusal != nil {
+		@RefusalNotice(*gp.Refusal)
+	} else if len(gp.Positions) == 0 {
+		@Paragraph(i18n.CheckGRIRNone)
+	} else {
+		@DownloadLink(gp.CSV)
+		@GRIRTable(gp.Positions)
+		if gp.More != "" {
+			@ButtonLink(gp.More, i18n.ReportMore)
+		}
+	}
+}
+
+// LedgerRecon is the reconciliation of two ledgers of a company
+// (ADR-0052 §2, ADR-0045, T73j): each ledger's trial balance check and
+// the accounts that differ, each linked to the entries behind it.
+templ LedgerRecon(s Shell, lp LedgerReconPage) {
+	@Layout(s, ledgerReconContent(lp))
+}
+
+templ ledgerReconContent(lp LedgerReconPage) {
+	@reportBack()
+	<h1>
+		@T(i18n.LedgerReconTitle)
+	</h1>
+	@Paragraph(i18n.LedgerReconLead)
+	@LedgerFilterForm(lp.Filters)
+	if lp.Invalid {
+		@Notice("report-invalid", i18n.ReportRefusedTitle, Paragraph(i18n.FilterInvalid))
+	} else if lp.Unknown {
+		@Paragraph(i18n.CheckLedgerUnknown)
+	} else if lp.Single {
+		@Paragraph(i18n.CheckLedgerSingle)
+	} else if lp.Refusal != nil {
+		@RefusalNotice(*lp.Refusal)
+	} else {
+		@Paragraph(i18n.LedgerReconCompared, lp.Ledger, lp.Compare)
+		<p>
+			@checked(len(lp.Differences) == 0 && balanced(lp.Trials))
+		</p>
+		<ul class="list">
+			for _, tb := range lp.Trials {
+				@TrialItem(tb)
+			}
+		</ul>
+		if len(lp.Differences) == 0 {
+			@Paragraph(i18n.CheckLedgerNone)
+		} else {
+			@DifferencesTable(lp.Differences)
+			if lp.More != "" {
+				@ButtonLink(lp.More, i18n.ReportMore)
+			}
+		}
+	}
+}
+
+// ReconEntries is the entries behind one account's difference between two
+// ledgers (ADR-0045, T73j): each ledger's lines whose entry has no copy in
+// the other, each linked to its entry.
+templ ReconEntries(s Shell, ep ReconEntriesPage) {
+	@Layout(s, reconEntriesContent(ep))
+}
+
+templ reconEntriesContent(ep ReconEntriesPage) {
+	<p>
+		<a { link(ep.Back, "")... }>
+			@T(i18n.ReconEntriesBack)
+		</a>
+	</p>
+	<h1>
+		@T(i18n.ReconEntriesTitle)
+	</h1>
+	@Paragraph(i18n.ReconEntriesLead)
+	if ep.Invalid {
+		@Notice("report-invalid", i18n.ReportRefusedTitle, Paragraph(i18n.FilterInvalid))
+	} else {
+		<dl class="facts">
+			@Fact(i18n.DifferenceAccount, Code(ep.Account))
+			@Fact(i18n.DifferenceCurrency, Code(ep.Currency))
+			@Fact(i18n.PeriodLedger, Code(ep.Ledger))
+			@Fact(i18n.ReconCompareLedger, Code(ep.Compare))
+		</dl>
+		if ep.Refusal != nil {
+			@RefusalNotice(*ep.Refusal)
+		} else if len(ep.Rows) == 0 {
+			@Paragraph(i18n.ReconEntriesEmpty)
+		} else {
+			@ReconEntriesTable(ep.Rows)
+			if ep.More != "" {
+				@ButtonLink(ep.More, i18n.ReportMore)
+			}
+		}
+	}
+}
+
+// ReconEntriesTable is the lines behind a difference.
+templ ReconEntriesTable(rows []ReconEntryRow) {
+	<div class="table-wrap" role="region" tabindex="0" { labelledBy("recon-entries-caption")... }>
+		<table class="table">
+			<caption class="visually-hidden" { idAttr("recon-entries-caption")... }>
+				@T(i18n.ReconEntriesTitle)
+			</caption>
+			<thead>
+				<tr>
+					@HeaderCell(i18n.PeriodLedger)
+					@HeaderCell(i18n.OpenItemDocument)
+					@HeaderCell(i18n.LineNo)
+					@HeaderCell(i18n.EntryPostingDate)
+					@HeaderCell(i18n.BalancePeriod)
+					@HeaderCell(i18n.EntryLineAmount)
+					@HeaderCell(i18n.EntryLineAmountLC)
+				</tr>
+			</thead>
+			<tbody>
+				for _, r := range rows {
+					@ReconEntryRowView(r)
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+// ReconEntryRowView is one line behind a difference.
+templ ReconEntryRowView(r ReconEntryRow) {
+	<tr>
+		<td>
+			@Code(r.Ledger)
+		</td>
+		<td>
+			<a translate="no" { link(r.Entry, "")... }>
+				@Value(r.Number)
+			</a>
+		</td>
+		<td>
+			@Number(r.Line)
+		</td>
+		<td>
+			@Day(r.Posting)
+		</td>
+		<td>
+			@Number(r.Period)
+		</td>
+		<td>
+			@Amount(r.Amount)
+		</td>
+		<td>
+			@Amount(r.AmountLC)
+		</td>
+	</tr>
+}
+
+// AuditForm names the document whose audit history to show, by its id: a
+// plain GET form.
+templ AuditForm(object string, err i18n.Key) {
+	<form class="filters" { get(AuditPath)... }>
+		<h2 class="filters__title">
+			@T(i18n.AuditTitle)
+		</h2>
+		<div class="filters__fields">
+			@InputField("audit-object", FieldObject, "text", i18n.AuditObject, i18n.AuditObjectHint, object, err)
+		</div>
+		<div class="filters__buttons">
+			<button class="button" type="submit">
+				@T(i18n.AuditShow)
+			</button>
+		</div>
+	</form>
+}
+
+// Audit is a document's audit history (ADR-0052 §2, ADR-0011, T73j):
+// who did what to it and when, newest first. The details are data.
+templ Audit(s Shell, ap AuditPage) {
+	@Layout(s, auditContent(ap))
+}
+
+templ auditContent(ap AuditPage) {
+	@reportBack()
+	<h1>
+		@T(i18n.AuditTitle)
+	</h1>
+	@Paragraph(i18n.AuditLead)
+	@AuditForm(ap.Object, ap.ObjectError)
+	if ap.Refusal != nil {
+		@RefusalNotice(*ap.Refusal)
+	} else if ap.Object != "" && ap.ObjectError == "" {
+		if len(ap.Rows) == 0 {
+			@Paragraph(i18n.AuditEmpty)
+		} else {
+			<ul class="cards" hx-disable { label(ctx, i18n.AuditTitle)... }>
+				for _, r := range ap.Rows {
+					@AuditCard(r)
+				}
+			</ul>
+			if ap.More != "" {
+				@ButtonLink(ap.More, i18n.ReportMore)
+			}
+		}
+	}
+}
+
+// AuditCard is one audit event: its action, when, who and its outcome,
+// the address a person acted from, and its details.
+templ AuditCard(r AuditRow) {
+	<li class="card">
+		<h2 class="card__title">
+			@Code(r.Action)
+		</h2>
+		<dl class="facts">
+			@Fact(i18n.AuditAt, Date(r.At))
+			@Fact(i18n.AuditActor, Principal(r.Actor))
+			@Fact(i18n.AuditActorKind, labelText(r.Kind))
+			@Fact(i18n.AuditOutcome, Code(r.Outcome))
+			if r.Address != "" {
+				@Fact(i18n.AuditAddress, Code(r.Address))
+			}
+			for _, d := range r.Details {
+				<div class="facts__row">
+					<dt class="facts__key">
+						@Code(d.Name)
+					</dt>
+					<dd class="facts__value">
+						@Data(d.Value)
+					</dd>
+				</div>
+			}
+		</dl>
+	</li>
+}
+
+// Tally is a number of things, as many digits as it has.
+templ Tally(n int64) {
+	<bdi translate="no">
+		@Value(countText(n))
+	</bdi>
+}
+
+// AuditLinkView links a document's page to its audit history, for a
+// person who may read the audit trail.
+templ AuditLinkView(path string) {
+	if path != "" {
+		<p>
+			<a { link(path, "")... }>
+				@T(i18n.AuditLink)
+			</a>
+		</p>
+	}
+}

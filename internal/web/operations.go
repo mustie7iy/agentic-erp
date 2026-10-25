@@ -42,6 +42,8 @@ const (
 	permParkEntries           = "ledger.entry.park"
 	permReadCenters           = "ledger.cost_center.read"
 	permCancelRequests        = "workflow.request.cancel"
+	permReadAudit             = "audit.event.read"
+	permReadSuppliers         = "partner.supplier.read"
 )
 
 // objectApprovers are the decisions' x-object-permissions: the permission
@@ -67,6 +69,7 @@ type Operation struct {
 	HiddenBy  string
 	HumanOnly bool
 	Lookup    bool
+	Export    bool // read page by page for a download, up to maxExportPages times (T73j)
 }
 
 var (
@@ -123,7 +126,28 @@ var (
 	opLookups     = []Operation{{ID: "listAccounts", Lookup: true}, {ID: "listCostCenters", Lookup: true}, {ID: "listProfitCenters", Lookup: true},
 		{ID: "listSegments", Lookup: true}, {ID: "listBusinessPartners", Lookup: true}}
 	opUpdateParked = Operation{ID: "updateParkedJournalEntry", HiddenBy: permParkEntries}
+	// opBalances are the reads of the trial balance (report_ledgers.go),
+	// opReconciliation those of the ledger reconciliation and
+	// opReconEntries those of the entries behind a difference; opOpenItems
+	// those of the supplier open items and opGRIR those of the GR/IR
+	// positions (report_items.go). A download reads its report's pages,
+	// up to maxExportPages of them (paged, report_csv.go).
+	opListBalances = Operation{ID: "listBalances", HiddenBy: permReadEntries}
+	opListItems    = Operation{ID: "listOpenItems", HiddenBy: permReadEntries}
+	opListGRIR     = Operation{ID: "listGrIrBalances", HiddenBy: permReadEntries}
+	opBalances     = []Operation{opMe, opCompanies, opLedgers, opAccounts, opListBalances}
+	opSupplier     = Operation{ID: "listBusinessPartners", HiddenBy: permReadSuppliers}
+	opOpenItems    = []Operation{opMe, opCompanies, opAccounts, opSupplier, opListItems}
+	opGRIR         = []Operation{opMe, opCompanies, opListGRIR}
+	opReconcile    = []Operation{opMe, opCompanies, opLedgers, opAccounts, {ID: "listLedgerReconciliation", HiddenBy: permReadEntries}}
+	opReconEntries = []Operation{opMe, opLedgers, opAccounts, {ID: "listLedgerReconciliationEntries", HiddenBy: permReadEntries}}
 )
+
+// paged is the operation a download reads page by page.
+func paged(op Operation) Operation {
+	op.Export = true
+	return op
+}
 
 // parkedOps are the operations of the decisions on a parked entry, by
 // verb, each hidden by its x-permission: its post, which only people make
@@ -207,18 +231,28 @@ var Screens = func() map[string][]Operation {
 		"GET /close/revaluation":                    opRevaluation,
 		"POST /close/revaluation/preview": append(append([]Operation{{ID: "previewRevaluation", HiddenBy: permReadEntries}}, opRevaluation...),
 			opAccounts),
-		"POST /close/revaluation/post":       append([]Operation{{ID: "postRevaluationRun", HiddenBy: permPostEntries, HumanOnly: true}}, opRevaluation...),
-		"GET /close/revaluation/{id}":        opRevaluationRun,
-		"GET /journal":                       opParkedList,
-		"GET /journal/new":                   opEntryForm,
-		"POST /journal/new":                  append(append([]Operation{{ID: "parkJournalEntry", HiddenBy: permParkEntries}}, opEntryForm...), opLookups...),
-		"GET /journal/parked/{id}":           opParkedEntry,
-		"GET /journal/parked/{id}/edit":      opChangeForm,
-		"POST /journal/parked/{id}/edit":     append(append([]Operation{opUpdateParked}, opChangeForm...), opLookups...),
-		"POST /journal/parked/{id}/lines":    append(append([]Operation{opUpdateParked}, opParkedEntry...), opLookups...),
-		"GET /journal/entries":               opJournal,
-		"GET /journal/entries/{id}":          opEntry,
-		"POST /journal/entries/{id}/reverse": append([]Operation{{ID: "reverseJournalEntry", HiddenBy: permPostEntries, HumanOnly: true}}, opEntry...),
+		"POST /close/revaluation/post":               append([]Operation{{ID: "postRevaluationRun", HiddenBy: permPostEntries, HumanOnly: true}}, opRevaluation...),
+		"GET /close/revaluation/{id}":                opRevaluationRun,
+		"GET /journal":                               opParkedList,
+		"GET /journal/new":                           opEntryForm,
+		"POST /journal/new":                          append(append([]Operation{{ID: "parkJournalEntry", HiddenBy: permParkEntries}}, opEntryForm...), opLookups...),
+		"GET /journal/parked/{id}":                   opParkedEntry,
+		"GET /journal/parked/{id}/edit":              opChangeForm,
+		"POST /journal/parked/{id}/edit":             append(append([]Operation{opUpdateParked}, opChangeForm...), opLookups...),
+		"POST /journal/parked/{id}/lines":            append(append([]Operation{opUpdateParked}, opParkedEntry...), opLookups...),
+		"GET /journal/entries":                       opJournal,
+		"GET /journal/entries/{id}":                  opEntry,
+		"POST /journal/entries/{id}/reverse":         append([]Operation{{ID: "reverseJournalEntry", HiddenBy: permPostEntries, HumanOnly: true}}, opEntry...),
+		"GET /reports":                               {opMe, opHouseBanks, opCompanies},
+		"GET /reports/trial-balance":                 opBalances,
+		"GET /reports/trial-balance.csv":             {opMe, opAccounts, paged(opListBalances)},
+		"GET /reports/open-items":                    opOpenItems,
+		"GET /reports/open-items.csv":                {opMe, opCompanies, opAccounts, opSupplier, paged(opListItems)},
+		"GET /reports/gr-ir":                         opGRIR,
+		"GET /reports/gr-ir.csv":                     {opMe, paged(opListGRIR)},
+		"GET /reports/ledger-reconciliation":         opReconcile,
+		"GET /reports/ledger-reconciliation/entries": opReconEntries,
+		"GET /reports/audit":                         {opMe, {ID: "listAuditEvents", HiddenBy: permReadAudit}, opNames},
 	}
 	for verb, op := range actionOps {
 		screens["POST /invoices/{id}/"+verb] = append([]Operation{op}, opInvoice...)

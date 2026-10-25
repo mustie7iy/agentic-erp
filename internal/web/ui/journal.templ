@@ -241,6 +241,7 @@ templ entryContent(ep EntryPage) {
 	<div hx-disable>
 		@SummaryList(entryRows(ep.Header))
 	</div>
+	@AuditLinkView(ep.Audit)
 	@EntryLinks(ep.Header)
 	<h2>
 		@T(i18n.EntryLinesTitle)
@@ -415,6 +416,7 @@ templ parkedEntryContent(pp ParkedPage) {
 	<div hx-disable>
 		@SummaryList(parkedRows(pp.Header))
 	</div>
+	@AuditLinkView(pp.Audit)
 	if pp.Approval != "" {
 		<p>
 			<a { link(pp.Approval, "")... }>

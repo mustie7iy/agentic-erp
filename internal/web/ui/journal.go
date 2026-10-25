@@ -229,6 +229,7 @@ type EntryPage struct {
 	Done    i18n.Key
 	Refusal *Refusal
 	Back    string
+	Audit   string // its audit history; "" when the person may not read the audit trail
 }
 
 // ParkedHeader is a parked entry's summary.
@@ -364,6 +365,7 @@ type ParkedPage struct {
 	Done     i18n.Key
 	Refusal  *Refusal
 	Back     string
+	Audit    string // its audit history; "" when the person may not read the audit trail
 }
 
 // LineInput is one line of the entry form as the person typed it, with
