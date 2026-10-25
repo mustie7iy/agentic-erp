@@ -67,6 +67,14 @@ func (s *PurchaseOrderItem) setDefaults() {
 }
 
 // setDefaults set default value of fields.
+func (s *RegressionSuiteCreate) setDefaults() {
+	{
+		val := bool(false)
+		s.AllowEmpty.SetTo(val)
+	}
+}
+
+// setDefaults set default value of fields.
 func (s *RequisitionItem) setDefaults() {
 	{
 		val := int32(1)

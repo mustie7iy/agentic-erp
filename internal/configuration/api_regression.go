@@ -40,7 +40,8 @@ func shownSuite(ctx context.Context, s RegressionSuite) (RegressionSuite, error)
 
 // CreateRegressionSuite implements POST /v1/regression-suites.
 func (e *Endpoints) CreateRegressionSuite(ctx context.Context, req *gen.RegressionSuiteCreate, _ gen.CreateRegressionSuiteParams) (gen.CreateRegressionSuiteRes, error) {
-	s, err := CaptureRegressionSuite(ctx, e.Dependencies, NewRegressionSuite{Name: req.Name, MaxCases: int(req.MaxCases.Value), WindowDays: int(req.WindowDays.Value)})
+	s, err := CaptureRegressionSuite(ctx, e.Dependencies, NewRegressionSuite{Name: req.Name, MaxCases: int(req.MaxCases.Value), WindowDays: int(req.WindowDays.Value),
+		AllowEmpty: req.AllowEmpty.Value})
 	if err == nil {
 		s, err = shownSuite(ctx, s)
 	}

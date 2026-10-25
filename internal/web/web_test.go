@@ -362,6 +362,9 @@ func texts(n *html.Node, out *[]string) {
 		if v, _ := attr(n, "translate"); v == "no" || n.Data == "script" || n.Data == "style" {
 			return
 		}
+		if v, _ := attr(n, "type"); n.Data == "input" && v == "hidden" {
+			return // a form's own value (a token, an ETag), never shown
+		}
 		for _, key := range []string{"aria-label", "aria-description", "aria-roledescription", "aria-valuetext", "title", "alt", "placeholder", "label", "value"} {
 			if v, ok := attr(n, key); ok {
 				*out = append(*out, v)

@@ -10209,6 +10209,10 @@ type CompanyAccountSettings struct {
 	IsPostingBlocked bool `json:"is_posting_blocked"`
 	// Lines are managed as open items.
 	IsOpenItemManaged bool `json:"is_open_item_managed"`
+	// The account determination keys that name the account for automatic postings in this legal entity, in
+	// key order; empty when none does. Analytics tells sales from the income automatic postings book (cash
+	// discounts received, exchange gains) by them.
+	DeterminationKeys []string `json:"determination_keys"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -10226,6 +10230,11 @@ func (s *CompanyAccountSettings) GetIsOpenItemManaged() bool {
 	return s.IsOpenItemManaged
 }
 
+// GetDeterminationKeys returns the value of DeterminationKeys.
+func (s *CompanyAccountSettings) GetDeterminationKeys() []string {
+	return s.DeterminationKeys
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *CompanyAccountSettings) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -10239,6 +10248,11 @@ func (s *CompanyAccountSettings) SetIsPostingBlocked(val bool) {
 // SetIsOpenItemManaged sets the value of IsOpenItemManaged.
 func (s *CompanyAccountSettings) SetIsOpenItemManaged(val bool) {
 	s.IsOpenItemManaged = val
+}
+
+// SetDeterminationKeys sets the value of DeterminationKeys.
+func (s *CompanyAccountSettings) SetDeterminationKeys(val []string) {
+	s.DeterminationKeys = val
 }
 
 // An immutable, activated configuration version. Insert-only; `activated_*` play the role of
@@ -34805,6 +34819,12 @@ type RegressionSuiteCreate struct {
 	MaxCases OptInt32 `json:"max_cases"`
 	// Capture from the invoices of the last this many days (default 90).
 	WindowDays OptInt32 `json:"window_days"`
+	// Record a suite of no cases when the window has no invoices to capture, as a new tenant's has,
+	// instead of answering 422 `config.no_cases`. The regression evidence replaying it passes with
+	// `detail.no_cases` true and says that nothing was replayed, and each approver of the change request
+	// must acknowledge that in the comment of their approval (422 `workflow.acknowledgement_required`
+	// without one). Default false.
+	AllowEmpty OptBool `json:"allow_empty"`
 }
 
 // GetName returns the value of Name.
@@ -34822,6 +34842,11 @@ func (s *RegressionSuiteCreate) GetWindowDays() OptInt32 {
 	return s.WindowDays
 }
 
+// GetAllowEmpty returns the value of AllowEmpty.
+func (s *RegressionSuiteCreate) GetAllowEmpty() OptBool {
+	return s.AllowEmpty
+}
+
 // SetName sets the value of Name.
 func (s *RegressionSuiteCreate) SetName(val string) {
 	s.Name = val
@@ -34835,6 +34860,11 @@ func (s *RegressionSuiteCreate) SetMaxCases(val OptInt32) {
 // SetWindowDays sets the value of WindowDays.
 func (s *RegressionSuiteCreate) SetWindowDays(val OptInt32) {
 	s.WindowDays = val
+}
+
+// SetAllowEmpty sets the value of AllowEmpty.
+func (s *RegressionSuiteCreate) SetAllowEmpty(val OptBool) {
+	s.AllowEmpty = val
 }
 
 // RegressionSuiteHeaders wraps RegressionSuite with response headers.

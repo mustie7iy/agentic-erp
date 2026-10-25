@@ -45,6 +45,9 @@ type Shell struct {
 	// Person is the signed-in person's part of the page; nil before
 	// sign-in.
 	Person *Person
+	// Nav is the main navigation: the signed-in person's (SignedInNav),
+	// nil for Nav's, which everyone sees.
+	Nav []NavItem
 	// Continue, when set, is the same-site path the page goes on to at
 	// once (a continue page, ADR-0052 §5).
 	Continue string
@@ -70,9 +73,45 @@ type NavItem struct {
 	Label i18n.Key
 }
 
-// Nav is the main navigation. Each job's entry joins it with its screens
-// (T73d-T73j).
+// Nav is the main navigation everyone sees. Each job's entry joins a
+// signed-in person's navigation with its screens (T73d-T73j), shown to
+// those whose permissions let them use it (SignedInNav).
 var Nav = []NavItem{{Path: "/", Label: i18n.NavHome}, {Path: "/health", Label: i18n.NavStatus}}
+
+// ApprovalsPath is the approvals inbox's path.
+const ApprovalsPath = "/approvals"
+
+// NavJobs is which of the jobs' screens a signed-in person may read, by
+// getCurrentPrincipal (advisory, as the API decides each call).
+type NavJobs struct {
+	Approvals bool // approval requests
+	Invoices  bool // supplier invoices
+	Bank      bool // bank statements
+}
+
+// SignedInNav is a signed-in person's navigation: the screens of the jobs
+// they may read, between home and the service's status.
+func SignedInNav(jobs NavJobs) []NavItem {
+	nav := []NavItem{Nav[0]}
+	if jobs.Approvals {
+		nav = append(nav, NavItem{Path: ApprovalsPath, Label: i18n.JobApprovals})
+	}
+	if jobs.Invoices {
+		nav = append(nav, NavItem{Path: InvoicesPath, Label: i18n.NavInvoices})
+	}
+	if jobs.Bank {
+		nav = append(nav, NavItem{Path: BankPath, Label: i18n.NavBank})
+	}
+	return append(nav, Nav[1])
+}
+
+// navOf is the page's navigation.
+func navOf(s Shell) []NavItem {
+	if s.Nav == nil {
+		return Nav
+	}
+	return s.Nav
+}
 
 // T writes the message for k in the request's locale, escaped.
 func T(k i18n.Key, args ...any) templ.Component {

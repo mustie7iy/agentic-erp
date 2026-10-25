@@ -219,8 +219,12 @@ func (g *mockGen) company(cc string, taxPct int64, vendors []string, scenarios b
 		g.purchaseOrder(cc, i, taxPct, vendors, scenarios)
 	}
 
-	// Second-half revenue is generated after purchasing so the random stream
-	// for the scenarios above stays stable.
+	// Second-half revenue is generated after purchasing, so months 7 to 12
+	// draw nothing before the orders: a year through June or later (-through
+	// 6 and above) gets the same orders and scenarios. A year through an
+	// earlier month draws less first-half revenue before them, so its
+	// orders differ; extracts are reproducible per seed, year and -through,
+	// and the tests rely on that, not on orders that ignore -through.
 	for m := 7; m <= g.through; m++ {
 		g.revenue(cc, m)
 	}

@@ -2945,7 +2945,7 @@ paths:
       tags:
         - configuration
       summary: Capture a regression suite
-      description: "Captures a regression suite from the supplier invoices on purchase orders of the recent window under the active configuration version: a stratified sample (every decision, every match issue kind, invoices near the auto-post limit, then more) with the decision each case got. The simulation of a change request then replays the latest suite of its base version and records `regression` evidence: a case outside the companies the change touches that is decided differently fails it. The capture samples the invoices of every company; the suite returned shows the cases of the companies the caller may access alone. 422 `config.no_cases` when the window has no invoices to capture."
+      description: "Captures a regression suite from the supplier invoices on purchase orders of the recent window under the active configuration version: a stratified sample (every decision, every match issue kind, invoices near the auto-post limit, then more) with the decision each case got. The simulation of a change request then replays the latest suite of its base version and records `regression` evidence: a case outside the companies the change touches that is decided differently fails it. The capture samples the invoices of every company; the suite returned shows the cases of the companies the caller may access alone. 422 `config.no_cases` when the window has no invoices to capture, unless `allow_empty` asks for a suite of no cases: its regression evidence passes saying that nothing was replayed, and each approver acknowledges that in their approval's comment."
       x-permission: config.regression.manage
       x-problem-codes:
         - config.no_cases
@@ -11940,7 +11940,7 @@ paths:
       tags:
         - payments
       summary: Release a payment run
-      description: "The F110 release step, a direct human transition (not an approval request), as an operation (ADR-0012): the run moves to `releasing`, each payment is posted with the entry that clears its items (one transaction per payment, progress on the operation), and the bank file is produced; the run is `released` when the operation succeeds. Every supplier, and every item of a proposed run, is checked again before anything is posted (409 `payments.proposal_outdated`). A payment not posted yet whose item was reversed, or is no longer open, since the proposal can never post: the release drops it (the supplier is excluded with `item_reversed` or `item_not_open`, its items are freed, the run's total no longer counts it, `PaymentExcluded` is published) and goes on with the others; a release that drops every payment fails with `payments.nothing_to_pay` and returns the run to `proposed`, to be rejected. Human-only. Segregation of duties: the proposer can never release or reject the run (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a failed release operation, which resumes it. 409 `payments.discount_lapsed` when a payment takes a cash discount whose last day has passed (T36d): reject the run and propose again. 409 `ledger.withholding_changed` when an item would withhold another amount than its payment deducted (T46f); the payment is not posted."
+      description: "The F110 release step, a direct human transition (not an approval request), as an operation (ADR-0012): the run moves to `releasing`, each payment is posted with the entry that clears its items (one transaction per payment, progress on the operation), and the bank file is produced; the run is `released` when the operation succeeds. Every supplier, and every item of a proposed run, is checked again before anything is posted (409 `payments.proposal_outdated`). A payment not posted yet whose item was reversed, or is no longer open, since the proposal can never post: the release drops it (the supplier is excluded with `item_reversed` or `item_not_open`, its items are freed, the run's total no longer counts it, `PaymentExcluded` is published) and goes on with the others; a release that drops every payment fails with `payments.nothing_to_pay` and returns the run to `proposed`, to be rejected. Human-only. Segregation of duties: the proposer can never release or reject the run (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). The releaser holds the active configuration's `payments.release_role` today (403 `payments.release_role_missing`; 422 `workflow.unknown_role` when it names no active role). A configuration asking for more than one releaser (`payments.release_approvals` above 1, which validation now refuses) refuses the release with 422 `payments.release_approvals_unsupported` rather than letting one person release, the resumption of a failed release included, until a change request sets it to 1. Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a failed release operation, which resumes it. 409 `payments.discount_lapsed` when a payment takes a cash discount whose last day has passed (T36d): reject the run and propose again. 409 `ledger.withholding_changed` when an item would withhold another amount than its payment deducted (T46f); the payment is not posted."
       x-permission: payments.run.release
       x-agent: false
       x-problem-codes:
@@ -11949,8 +11949,11 @@ paths:
         - payments.invalid_status
         - payments.nothing_to_pay
         - payments.proposal_outdated
+        - payments.release_approvals_unsupported
         - payments.release_in_progress
+        - payments.release_role_missing
         - request.version_mismatch
+        - workflow.unknown_role
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -12006,13 +12009,17 @@ paths:
       tags:
         - payments
       summary: Reject a payment run
-      description: "Rejects a proposed run and frees its open items for later runs. A direct human transition like `:release`. Segregation of duties: the proposer can never reject the run (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). Sets `decided_by` and `decided_at`. Requires status `proposed`."
+      description: "Rejects a proposed run and frees its open items for later runs. A direct human transition like `:release`. Segregation of duties: the proposer can never reject the run (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). The decider holds the active configuration's `payments.release_role` today, as for `:release` (403 `payments.release_role_missing`, 422 `workflow.unknown_role`). Sets `decided_by` and `decided_at`. Requires status `proposed`."
       x-permission: payments.run.release
       x-agent: false
       x-problem-codes:
+        - config.not_bootstrapped
         - ledger.item_reserved
         - payments.invalid_status
+        - payments.release_approvals_unsupported
+        - payments.release_role_missing
         - request.version_mismatch
+        - workflow.unknown_role
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -14295,7 +14302,7 @@ paths:
       tags:
         - workflow
       summary: Approve an approval request
-      description: "Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`); the requester cannot approve; a person approves a request at most once. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The request is `approved` when the last step is complete, and the object moves on (a requisition becomes `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry is posted, a bank statement line is posted). A manual entry is checked again as it is posted: when that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the parked entry's), the approval is refused and the request stays pending; so is a bank statement line's posting (`bank_clearing`), and whoever matched the line by hand cannot approve its posting (403 `workflow.segregation_of_duties`)."
+      description: "Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`); the requester cannot approve; a person approves a request at most once. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The request is `approved` when the last step is complete, and the object moves on (a requisition becomes `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry is posted, a bank statement line is posted). A manual entry is checked again as it is posted: when that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the parked entry's), the approval is refused and the request stays pending; so is a bank statement line's posting (`bank_clearing`), and whoever matched the line by hand cannot approve its posting (403 `workflow.segregation_of_duties`). A change request whose latest regression evidence replayed no case (a suite captured with `allow_empty`) is approved only with a comment acknowledging that (422 `workflow.acknowledgement_required`)."
       x-permission: workflow.request.decide
       x-agent: false
       x-problem-codes:
@@ -14381,6 +14388,7 @@ paths:
         - request.invalid_amount
         - request.validation_failed
         - request.version_mismatch
+        - workflow.acknowledgement_required
         - workflow.already_approved
         - workflow.not_pending
         - workflow.own_request
@@ -20002,6 +20010,10 @@ components:
           description: Capture from the invoices of the last this many days (default 90).
           minimum: 1
           maximum: 366
+        allow_empty:
+          type: boolean
+          description: "Record a suite of no cases when the window has no invoices to capture, as a new tenant's has, instead of answering 422 `config.no_cases`. The regression evidence replaying it passes with `detail.no_cases` true and says that nothing was replayed, and each approver of the change request must acknowledge that in the comment of their approval (422 `workflow.acknowledgement_required` without one). Default false."
+          default: false
       examples:
         - name: Before the tax change
           max_cases: 50
@@ -21720,6 +21732,7 @@ components:
         - legal_entity_id
         - is_posting_blocked
         - is_open_item_managed
+        - determination_keys
       properties:
         legal_entity_id:
           type: string
@@ -21734,10 +21747,18 @@ components:
           type: boolean
           description: Lines are managed as open items.
           readOnly: true
+        determination_keys:
+          type: array
+          items:
+            type: string
+            description: "An account determination key (`companies[].account_determination` of the configuration, SAP T030), such as `cash_discount` or `fx_gain`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "The account determination keys that name the account for automatic postings in this legal entity, in key order; empty when none does. Analytics tells sales from the income automatic postings book (cash discounts received, exchange gains) by them."
+          readOnly: true
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
           is_posting_blocked: false
           is_open_item_managed: false
+          determination_keys: []
     Account:
       description: A general ledger account. Maintained through configuration change requests, so read-only here.
       allOf:
@@ -21822,6 +21843,7 @@ components:
             - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
               is_posting_blocked: false
               is_open_item_managed: false
+              determination_keys: []
     AccountPage:
       type: object
       description: One page of accounts.
@@ -21860,6 +21882,7 @@ components:
                 - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
                   is_posting_blocked: false
                   is_open_item_managed: false
+                  determination_keys: []
     CostCenterPeriod:
       type: object
       description: "An effective-dated period of a cost center: what postings dated in it read (ADR-0050 §3)."

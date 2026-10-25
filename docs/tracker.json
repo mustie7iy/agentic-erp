@@ -4565,15 +4565,33 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Approvals inbox: decidable by me, my requests, all I can see; detail per object type with summary, steps and decisions; approve and reject with reason, cancel own; SoD and permission refusals shown by code; requester and deciders by name and kind; usable at 390 px; walked through by a pilot approver",
-        "r": "T73d",
+        "s": "D",
+        "t": "Approvals inbox: the requests decidable by me (pages read on while the API thins them), a request's page with summary, steps and decisions, approve with a comment and reject with a reason as forms with If-Match and a fresh idempotency key; SoD and permission refusals shown by code (barred permissions from /v1/me); requester and deciders by name and kind (names cached per session), agents' text inert; navigation and actions from /v1/me; amounts per currency and locale; EN and FR; usable at 390 px; scenarios as approver, requester and a person without the role",
+        "r": "internal/web approvals.go · me.go · refusal.go · operations.go · ui/approvals.templ · i18n Money, Problems · TestInboxPage · TestDecide · TestDecideRefusals · TestSegregationOfDuties · TestScreensAgainstTheContract · TestApprovalsInTheBrowser · ADR-0052 Built in T73d · T73d",
         "c": []
        },
        {
         "s": "T",
-        "t": "Invoices and the AP exception queue: queue by status and exception, invoice detail with the sandboxed document beside it, match results, hold, release, post, cancel and reverse with ETags and idempotency keys, capture by upload through the API's signed path, the agent's recommendation with decide, agent text escaped and inert; walked through by a pilot AP clerk",
-        "r": "T73e",
+        "t": "The approvals inbox explains workflow.acknowledgement_required (en, fr-CA) in i18n.Problems: a configuration change with no-case regression evidence is refused an approval without a comment, which the inbox now shows by the API's English title (found in batch 8 integration)",
+        "r": "batch 8 review · internal/web/i18n problems.go · internal/web approvals.go · approvals.Acknowledger (T72l) · T73d2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Approvals beyond the inbox: my requests and all I can see (listApprovalRequests by status and object type), the object's own summary per type (getRequisition, getPartnerChange, getSupplierInvoice, …) on the request's page, cancel own with a comment; a signed-in person's 404 and refused-form pages with their navigation; a decision's text kept across a step-up sign-in; walked through by a pilot approver",
+        "r": "T73d2 (split from T73d, 2026-10-22)",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Invoices and the AP exception queue: the queue by status (on hold: the exceptions) with the API's filters (company, supplier, document number, invoice dates) and cursor pages, an agent's capture badged; an invoice's page with its summary, lines and tax codes, the latest match and its issues, the exception's approval request, its order and goods receipts (a section htmx loads), the captured document beside it served sandboxed, the agents' recommendations as inert text with decide; match, post, hold, release, cancel and reverse as forms with If-Match and a fresh idempotency key, refusals explained by code (payables.match_required, payables.tax_mismatch, workflow.request_pending, …) with what was typed kept; EN and FR; axe at zero at 1280 and 390 px; scenarios: clean post, price variance released by hand and matched again, exception approved by someone else, stale version, planted text in a recommendation shown inert, a person who may only read",
+        "r": "internal/web invoices.go · invoice.go · invoice_actions.go · operations.go · ui/invoices.templ · i18n InvoiceProblems · fixture payables.go · TestInvoiceQueue · TestInvoicePage · TestCleanPost · TestExceptionDecidedElsewhere · TestVarianceReleasedByHand · TestInvoiceRefusals · TestDecideRecommendation · TestInvoicesAsOthers · TestInvoiceDocument · TestInvoicesInTheBrowser · TestInvoiceJobsInTheBrowser · ADR-0052 Built in T73e · T73e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Invoices beyond the queue: capture by upload through the API's signed path (createUpload, the bytes relayed by erp-web, captureSupplierInvoice's 202 polled to the new invoice), editing a parked invoice (updateSupplierInvoice), clearing down payments; tax per code on the invoice's page once the API gives it (the representation has none: only a refused post's detail names each code's tax); a refusal's figures as structured fields of the problem (coordinator D3, contract change: payables.tax_mismatch's tax per code, payables.match_outdated's changes); walked through by a pilot AP clerk",
+        "r": "T73e2 (split from T73e, 2026-10-22)",
         "c": []
        },
        {
@@ -4583,9 +4601,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Bank statements and reconciliation: import by upload, statements by status and house bank with gaps flagged, a statement's lines with their matches (rules', people's, the agent's proposals inert), agent proposals accepted or rejected, manual match to the rules' candidate payments, a posting rule or the incoming account, exclude, post (another date with its reason) with the clearing approval (the matcher refused as approver in the inbox), reconciliation report per house bank (statement against the ledger, explained and unexplained), masked accounts; EN and FR; axe at zero at 1280 and 390 px. Coordinator D4 (PDFs downloaded) applied, D3 planned in T73e2",
+        "r": "internal/web bank.go · statement.go · statement_actions.go · reconciliation.go · ui/bank.templ · i18n BankProblems · fixture bank.go · TestStatementList · TestStatementPage · TestLineDecisions · TestLineRefusals · TestStatementUpload · TestReconciliationReport · TestBankAsOthers · TestBankStubbed · TestBankInTheBrowser · TestBankJobsInTheBrowser · ADR-0052 Built in T73g · T73g",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Bank statements and reconciliation: import by upload, statements and lines by status, agent proposals accepted or rejected, manual match from open items and payments, exclude, post with the clearing approval (the matcher refused as approver), reconciliation report per house bank, masked accounts",
-        "r": "T73g",
+        "t": "Bank statements beyond T73g: matching a line by hand to a payment or open item the rules did not find (needs an API search of a house bank's payments and open items: listPayments is per run), running the matching rules again from the statement's page (matchBankStatement), downloading a statement's file (getBankStatementFile); walked through by a pilot treasury user",
+        "r": "T73g2 (split from T73g, 2026-10-22)",
         "c": []
        },
        {
@@ -7047,6 +7071,30 @@
       "s": "T",
       "t": "Company time zone: business dates (statement staleness, value dates, 'today' in cash, close calendars) in the company's time zone, not UTC (found in T53c)",
       "r": "found in T53c (ADR-0051 as built: the cash position's read date is the clock's date in UTC; a Canadian or UAE company's evening is the next UTC day) · T72l",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "Defects the pilot walkthrough found (2026-10-22): payments.release_role enforced on :release and :reject and release_approvals above 1 refused, not ignored; a fresh tenant's tier 3-4 change activated on explicit no-case regression evidence that every approver acknowledges; revenue without cash discounts received and exchange gains (income keeps them); query rows in value order (months as numbers); multipart file parts accepted; erp call sends multipart and prints non-JSON answers; README periods and FX revaluation",
+      "r": "walkthrough (5b8846ae) · payments decider · configuration noCases, Approvals.Acknowledgement · approvals.Acknowledger · analytics semantic.yaml revenue/income, accounts.determination · httpapi.fileParts · apitools.Multipart · cmd/erp call -file -out · 07-transition T72l decisions · T72l",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A payment run released by more than one person (payments.release_approvals above 1): validation refuses it until it is built; the product owner decides how the releasers sign (an approval request before :release, or signatures on the run), since 04 §4.3 makes the release a single human step",
+      "r": "walkthrough 2026-10-22 · internal/payments decider · internal/config validate.go · 04-api-design §4.3 · T72l",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "The mock SAP extract has a Canadian company (CAD, LAND1 CA, Canadian vendors and house banks), so the walkthrough migrates the Canadian pilot company from SAP instead of the mock's US and German companies",
+      "r": "walkthrough 2026-10-22 · internal/sap mock.go (companies 1000 US, 2000 DE) · T72d",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Simulation evidence replays the invoices of a fixed 90-day window whatever window the regression suite was captured with: take the window from the base version's latest suite (or the change request) so both kinds of evidence cover the same invoices",
+      "r": "walkthrough 2026-10-22 · internal/payables simulate.go Simulation.Window · configuration regression suites window_days",
       "c": []
      }
     ]

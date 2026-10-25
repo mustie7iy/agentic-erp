@@ -406,6 +406,15 @@ other reader without its cases. The reader's company access is read once
 per request, however many change requests and pieces of evidence it
 returns.
 
+A suite captured with `allow_empty` on a window without invoices (a new
+tenant's) holds no case of any company (`case_count` 0, strata `[]`). Its
+regression evidence passes with `detail.no_cases` true, the suite's number
+and no counts, and is shown as it is: it holds no case of anyone. Each
+approval of a change request whose latest regression evidence is such
+needs a comment acknowledging it (`approvals.Acknowledger`, 422
+`workflow.acknowledgement_required`), so the approvers decide knowing
+that nothing was replayed (T72l).
+
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
 in the currency of the requisition's company), the order release

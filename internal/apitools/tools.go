@@ -30,6 +30,7 @@ type operation struct {
 	id, method, path string
 	params           []param
 	ifMatch, body    bool
+	multipart        bool // the body is a multipart form (Multipart)
 }
 
 // Tool is one API operation as an agent tool. It implements
@@ -133,11 +134,51 @@ func (t *Tool) call(ctx context.Context, input map[string]any) (Response, error)
 		return Response{}, fmt.Errorf("missing path parameter in %s", path)
 	}
 	ifMatch, _ := input["if_match"].(string)
-	var body any
-	if b, ok := input["body"]; ok && t.op.body {
-		body = b
+	body, err := t.body(input)
+	if err != nil {
+		return Response{}, err
 	}
 	return t.client.Do(ctx, t.op.method, path, query, body, ifMatch)
+}
+
+// body is the input's body as the operation takes it: a multipart
+// operation's as its form (formOf), any other as it is; none when the
+// operation has none.
+func (t *Tool) body(input map[string]any) (any, error) {
+	b, ok := input["body"]
+	switch {
+	case !ok || !t.op.body:
+		return nil, nil
+	case t.op.multipart:
+		return formOf(b)
+	}
+	return b, nil
+}
+
+// formOf is a multipart operation's body as its form: a field of text is
+// sent as it is, any other value as its JSON.
+func formOf(body any) (Multipart, error) {
+	fields, ok := body.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("the body of a multipart operation is an object of its fields, not %T", body)
+	}
+	form := Multipart{}
+	for k, v := range fields {
+		if s, isText := v.(string); isText {
+			form[k] = s
+			continue
+		}
+		b, _ := json.Marshal(v) // decoded from JSON, so it encodes again
+		form[k] = string(b)
+	}
+	return form, nil
+}
+
+// Call calls the operation with the input as Execute takes it and returns
+// the answer as it came, whatever its media type and size, without
+// recording it in a session: the command line's erp call.
+func (t *Tool) Call(ctx context.Context, input map[string]any) (Response, error) {
+	return t.call(ctx, input)
 }
 
 // Tools builds the tools for the named operations, calling the API with
@@ -450,6 +491,7 @@ func (c contract) requestBody(t *Tool, op map[string]any, at string, props map[s
 		}
 		props["body"] = s
 		t.op.body = true
+		t.op.multipart = mediaType == "multipart/form-data"
 	}
 	return rb["required"] == true, nil
 }

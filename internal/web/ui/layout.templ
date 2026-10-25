@@ -34,7 +34,7 @@ templ Layout(s Shell, content templ.Component) {
 					</a>
 					<nav class="navigation" { label(ctx, i18n.NavLabel)... }>
 						<ul class="navigation__list">
-							for _, item := range Nav {
+							for _, item := range navOf(s) {
 								<li>
 									<a class="navigation__link" { link(item.Path, s.Current)... }>
 										@T(item.Label)

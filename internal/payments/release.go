@@ -52,7 +52,7 @@ func (e *Endpoints) StartRelease(ctx context.Context, id uuid.UUID, ifMatch func
 	if err := releasable(ctx, tx, r); err != nil {
 		return operations.Operation{}, err
 	}
-	if err := decider(r, p); err != nil {
+	if err := e.decider(ctx, r, p, true); err != nil {
 		return operations.Operation{}, err
 	}
 	pays, err := paymentsOf(ctx, tx, r.ID)
@@ -480,7 +480,7 @@ func (e *Endpoints) RejectRun(ctx context.Context, id uuid.UUID, ifMatch func(in
 	if err := requireProposed(r, "rejected"); err != nil {
 		return Run{}, err
 	}
-	if err := decider(r, p); err != nil {
+	if err := e.decider(ctx, r, p, false); err != nil {
 		return Run{}, err
 	}
 	tag, err := tx.Exec(ctx, `UPDATE payments.payment_item i SET is_active = false FROM payments.payment p

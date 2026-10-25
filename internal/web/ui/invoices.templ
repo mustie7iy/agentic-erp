@@ -1,0 +1,712 @@
+package ui
+
+import (
+	"strconv"
+	"time"
+
+	"github.com/mustie7iy/agentic-erp/internal/web/i18n"
+)
+
+// Invoices is the supplier invoice queue (ADR-0052 §2, T73e): the
+// invoices by status (on hold: the AP exceptions), filtered by the API's
+// own filters, each linked to its page.
+templ Invoices(s Shell, l InvoiceList) {
+	@Layout(s, invoicesContent(l))
+}
+
+templ invoicesContent(l InvoiceList) {
+	<h1>
+		@T(i18n.InvoicesTitle)
+	</h1>
+	@Paragraph(i18n.InvoicesLead)
+	@StatusTabs(l.Tabs)
+	@FilterForm(l.Filters, l.Companies)
+	if l.Invalid {
+		@Notice("invoices-invalid", i18n.InvoicesRefusedTitle, Paragraph(i18n.FilterInvalid))
+	} else if l.Refusal != nil {
+		@RefusalNotice(*l.Refusal)
+	} else if len(l.Rows) == 0 {
+		@Paragraph(i18n.InvoicesEmpty)
+	} else {
+		<ul class="cards" { label(ctx, i18n.InvoicesListLabel)... }>
+			for _, r := range l.Rows {
+				@InvoiceCard(r)
+			}
+		</ul>
+		if l.More != "" {
+			@ButtonLink(l.More, i18n.InvoicesMore)
+		}
+	}
+}
+
+// StatusTabs are the queue's statuses, each a link keeping the filters.
+templ StatusTabs(tabs []StatusTab) {
+	<nav class="tabs" { label(ctx, i18n.InvoicesStatusNav)... }>
+		<ul class="tabs__list">
+			for _, t := range tabs {
+				<li class="tabs__item">
+					<a { tab(t)... }>
+						@T(t.Label)
+					</a>
+				</li>
+			}
+		</ul>
+	</nav>
+}
+
+// FilterForm is the queue's filters: a plain GET form, so a filtered
+// queue is an address to keep or share; the status and the supplier
+// travel as they are.
+templ FilterForm(f InvoiceFilters, companies []Option) {
+	<form class="filters" { get(InvoicesPath)... }>
+		<h2 class="filters__title">
+			@T(i18n.InvoicesFilters)
+		</h2>
+		<input { hidden("status", f.Status)... }/>
+		if f.Supplier.ID != "" {
+			<input { hidden("supplier_id", f.Supplier.ID)... }/>
+			<p class="filters__supplier">
+				@T(i18n.FilterSupplier)
+				@SupplierName(f.Supplier)
+				<a { link(f.SupplierClear, "")... }>
+					@T(i18n.FilterSupplierClear)
+				</a>
+			</p>
+		}
+		<div class="filters__fields">
+			if companies != nil {
+				<div class="field">
+					<label class="field__label" for="filter-company">
+						@T(i18n.FilterCompany)
+					</label>
+					<select class="select" id="filter-company" name="legal_entity_id">
+						<option value="">
+							@T(i18n.FilterCompanyAll)
+						</option>
+						for _, o := range companies {
+							<option translate="no" { option(o)... }>
+								@Value(o.Text)
+							</option>
+						}
+					</select>
+				</div>
+			}
+			@InputField("filter-number", "document_number", "text", i18n.FilterNumber, i18n.FilterNumberHint, f.Number, "")
+			@InputField("filter-from", "invoice_date_from", "date", i18n.FilterFrom, i18n.FilterDateHint, f.From, f.FromError)
+			@InputField("filter-to", "invoice_date_to", "date", i18n.FilterTo, i18n.FilterDateHint, f.To, f.ToError)
+		</div>
+		<div class="filters__buttons">
+			<button class="button" type="submit">
+				@T(i18n.FilterApply)
+			</button>
+			<a class="button button--secondary" draggable="false" { link(QueuePath(statusOnly(f.Status)), "")... }>
+				@T(i18n.FilterClear)
+			</a>
+		</div>
+	</form>
+}
+
+// InputField is a labelled input with its hint and error; its value is
+// data the person typed, never translated.
+templ InputField(id, name, kind string, labelKey, hint i18n.Key, value string, err i18n.Key) {
+	<div { fieldClass(err)... }>
+		<label class="field__label" { forAttr(id)... }>
+			@T(labelKey)
+		</label>
+		<p class="field__hint" { idAttr(id + "-hint")... }>
+			@T(hint)
+		</p>
+		if err != "" {
+			<p class="field__error" { idAttr(id + "-error")... }>
+				@T(err)
+			</p>
+		}
+		<input class="input" translate="no" { inputAttrs(id, name, kind, value, err)... }/>
+	</div>
+}
+
+// InvoiceCard is one invoice of the queue. Its texts are data, inside
+// hx-disable (ADR-0052 §7); the supplier's name filters the queue by it.
+templ InvoiceCard(r InvoiceRow) {
+	<li class="card" hx-disable>
+		<h2 class="card__title">
+			<a translate="no" { link(r.Path, "")... }>
+				@Value(r.Number)
+			</a>
+		</h2>
+		<dl class="facts">
+			@Fact(i18n.InvoiceStatus, InvoiceStatusTag(r.Status))
+			@Fact(i18n.InvoiceSupplier, supplierFilter(r))
+			@Fact(i18n.InvoiceReference, Data(r.Reference))
+			if r.Company != "" {
+				@Fact(i18n.InvoiceCompany, Data(r.Company))
+			}
+			@Fact(i18n.InvoiceDate, Day(r.Date))
+			@Fact(i18n.InvoiceGross, Amount(r.Gross))
+			if r.Kind.Raw != "invoice" {
+				@Fact(i18n.InvoiceKind, labelText(r.Kind))
+			}
+			if r.HoldReason != "" {
+				@Fact(i18n.InvoiceHold, Data(r.HoldReason))
+			}
+			if r.Agent != nil {
+				@Fact(i18n.InvoiceEnteredBy, Principal(*r.Agent))
+			}
+		</dl>
+	</li>
+}
+
+// supplierFilter is a card's supplier, linked to the queue of its
+// invoices alone.
+templ supplierFilter(r InvoiceRow) {
+	<a { link(r.FilterPath, "")... }>
+		@SupplierName(r.Supplier)
+	</a>
+}
+
+// SupplierName is a supplier by name and number, as data.
+templ SupplierName(s Supplier) {
+	<bdi class="untrusted" translate="no">
+		@Value(supplierText(s))
+	</bdi>
+}
+
+// Data is a value from outside the workspace's catalog (a supplier's
+// reference, a reason someone wrote): escaped, never translated.
+templ Data(s string) {
+	<bdi class="untrusted" translate="no">
+		@Value(s)
+	</bdi>
+}
+
+// Day is a business date, machine-readable in its datetime.
+templ Day(t time.Time) {
+	<time translate="no" { dayAttr(t)... }>
+		@isoDay(t)
+	</time>
+}
+
+// Number is a count or item number.
+templ Number(n int32) {
+	<bdi translate="no">
+		@Value(strconv.Itoa(int(n)))
+	</bdi>
+}
+
+// Quantity is a quantity in the locale's digits with its unit.
+templ Quantity(value, unit string) {
+	<bdi class="amount" translate="no">
+		@quantity(value, unit)
+	</bdi>
+}
+
+// InvoiceStatusTag is an invoice's status.
+templ InvoiceStatusTag(l Label) {
+	<strong { tagClass(invoiceStatusKind(l))... }>
+		@labelText(l)
+	</strong>
+}
+
+// Invoice is one supplier invoice (ADR-0052 §2, T73e): its summary and
+// lines, the latest three-way match, its purchase order and receipts, the
+// agents' recommendations and what the person may do, beside the
+// document it was captured from.
+templ Invoice(s Shell, ip InvoicePage) {
+	@Layout(s, invoiceContent(ip))
+}
+
+templ invoiceContent(ip InvoicePage) {
+	<p>
+		<a { link(InvoicesPath, "")... }>
+			@T(i18n.InvoiceBack)
+		</a>
+	</p>
+	<p class="caption">
+		@T(i18n.InvoiceTitle)
+	</p>
+	<h1 translate="no">
+		@Value(ip.Number)
+	</h1>
+	if ip.AgentMade {
+		<p class="hint">
+			@T(i18n.InvoiceAgentMade)
+		</p>
+	}
+	if ip.Done != "" {
+		@Notice("invoice-done", i18n.InvoiceDoneTitle, Paragraph(ip.Done))
+	}
+	if ip.Refusal != nil {
+		@RefusalNotice(*ip.Refusal)
+	}
+	<div class="invoice">
+		<div class="invoice__main">
+			<div hx-disable>
+				@SummaryList(invoiceRows(ip.Header))
+			</div>
+			<h2>
+				@T(i18n.LinesTitle)
+			</h2>
+			@LinesTable(ip.Lines)
+			<h2>
+				@T(i18n.MatchTitle)
+			</h2>
+			@MatchSection(ip)
+			if ip.Order != "" {
+				@OrderLink(ip.Order)
+			}
+			if ip.RecsShown {
+				<h2>
+					@T(i18n.RecsTitle)
+				</h2>
+				@RecsSection(ip)
+			}
+			<h2>
+				@T(i18n.ActionsTitle)
+			</h2>
+			@ActionsSection(ip)
+		</div>
+		@DocumentPanel(ip.Document)
+	</div>
+}
+
+// DocumentPanel is the document beside the invoice (ADR-0052 §7), in a
+// sandboxed frame served with its own sandboxing policy, and a link to it
+// alone; an invoice not captured from a document says it has none.
+templ DocumentPanel(path string) {
+	<aside class="invoice__document" { labelledBy("document-title")... }>
+		<h2 { idAttr("document-title")... }>
+			@T(i18n.DocumentTitle)
+		</h2>
+		if path == "" {
+			@Paragraph(i18n.DocumentNone)
+		} else {
+			<iframe class="document" { frame(ctx, path)... }></iframe>
+			<p>
+				<a { link(path, "")... }>
+					@T(i18n.DocumentOpen)
+				</a>
+			</p>
+		}
+	</aside>
+}
+
+// LinesTable is the invoice's lines, in a region that scrolls sideways
+// on its own on a phone, never the page.
+templ LinesTable(lines []Line) {
+	<div class="table-wrap" role="region" tabindex="0" { labelledBy("lines-caption")... }>
+		<table class="table" hx-disable>
+			<caption class="visually-hidden" { idAttr("lines-caption")... }>
+				@T(i18n.LinesLabel)
+			</caption>
+			<thead>
+				<tr>
+					@HeaderCell(i18n.LineNo)
+					@HeaderCell(i18n.LineOrderItem)
+					@HeaderCell(i18n.LineDescription)
+					@HeaderCell(i18n.LineQuantity)
+					@HeaderCell(i18n.LineAmount)
+					@HeaderCell(i18n.LineTaxCode)
+				</tr>
+			</thead>
+			<tbody>
+				for _, l := range lines {
+					@LineRow(l)
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+// HeaderCell is a column's heading.
+templ HeaderCell(k i18n.Key) {
+	<th scope="col">
+		@T(k)
+	</th>
+}
+
+// LineRow is one line.
+templ LineRow(l Line) {
+	<tr>
+		<td>
+			@Number(l.No)
+		</td>
+		<td>
+			if l.OrderItem != 0 {
+				@Number(l.OrderItem)
+			} else {
+				@T(i18n.LineNone)
+			}
+		</td>
+		<td>
+			@Data(l.Description)
+		</td>
+		<td>
+			@Quantity(l.Quantity, l.Unit)
+		</td>
+		<td>
+			@Amount(l.Amount)
+		</td>
+		<td>
+			if l.TaxCode != "" {
+				@Code(l.TaxCode)
+			} else {
+				@T(i18n.LineNone)
+			}
+		</td>
+	</tr>
+}
+
+// MatchSection is the invoice's latest three-way match, or why there is
+// none.
+templ MatchSection(ip InvoicePage) {
+	if !ip.HasOrder {
+		@Paragraph(i18n.MatchNoOrder)
+	} else if ip.MatchError != nil {
+		@RefusalNotice(*ip.MatchError)
+	} else if ip.Match == nil {
+		@Paragraph(i18n.MatchNone)
+	} else {
+		@MatchResult(*ip.Match)
+	}
+}
+
+// MatchResult is one match: when, by whom and with which tolerances, and
+// its issues, whose explanations are the API's.
+templ MatchResult(m MatchView) {
+	<dl class="facts">
+		@Fact(i18n.MatchWhen, Date(m.When))
+		@Fact(i18n.MatchBy, Principal(m.By))
+		@Fact(i18n.MatchConfig, Number(m.Config))
+	</dl>
+	if m.Clean {
+		@Paragraph(i18n.MatchClean)
+	} else {
+		@Paragraph(i18n.MatchIssues, len(m.Issues))
+		<ul class="list" hx-disable>
+			for _, is := range m.Issues {
+				@IssueItem(is)
+			}
+		</ul>
+	}
+}
+
+// IssueItem is one issue of a match.
+templ IssueItem(is Issue) {
+	<li class="issue">
+		<strong class="issue__label">
+			@labelText(is.Label)
+		</strong>
+		if is.Line != 0 {
+			<span class="issue__line">
+				@T(i18n.MatchItem, is.Line)
+			</span>
+		}
+		<p class="untrusted issue__message" translate="no">
+			@Value(is.Message)
+		</p>
+	</li>
+}
+
+// OrderLink is where the purchase order and its receipts are shown: a
+// link, which htmx replaces with the section itself once the page loaded.
+templ OrderLink(path string) {
+	<div class="order" { lazy(path)... }>
+		<p>
+			<a { link(path, "")... }>
+				@T(i18n.OrderShow)
+			</a>
+		</p>
+	</div>
+}
+
+// OrderPage is an invoice's purchase order and receipts as a page of its
+// own, for a browser without htmx.
+templ OrderPage(s Shell, o OrderView) {
+	@Layout(s, orderPageContent(o))
+}
+
+templ orderPageContent(o OrderView) {
+	<p>
+		<a { link(o.Back, "")... }>
+			@T(i18n.OrderBack)
+		</a>
+	</p>
+	<h1>
+		@T(i18n.OrderTitle)
+	</h1>
+	@orderBody(o)
+}
+
+// OrderSection is the purchase order and receipts in the invoice's page.
+templ OrderSection(o OrderView) {
+	<section class="order" { labelledBy("order-title")... }>
+		<h2 { idAttr("order-title")... }>
+			@T(i18n.OrderTitle)
+		</h2>
+		@orderBody(o)
+	</section>
+}
+
+templ orderBody(o OrderView) {
+	if o.Refusal != nil {
+		@RefusalNotice(*o.Refusal)
+	} else {
+		<div hx-disable>
+			@SummaryList(orderRows(o.Header))
+		</div>
+		<h3>
+			@T(i18n.OrderItems)
+		</h3>
+		@OrderItemsTable(o.Items)
+		<h3>
+			@T(i18n.ReceiptsTitle)
+		</h3>
+		if len(o.Receipts) == 0 {
+			@Paragraph(i18n.ReceiptsNone)
+		} else {
+			@ReceiptsTable(o.Receipts)
+		}
+	}
+}
+
+// OrderItemsTable is the order's items: ordered, price, received.
+templ OrderItemsTable(items []OrderItemView) {
+	<div class="table-wrap" role="region" tabindex="0" { labelledBy("order-items-caption")... }>
+		<table class="table" hx-disable>
+			<caption class="visually-hidden" { idAttr("order-items-caption")... }>
+				@T(i18n.OrderItems)
+			</caption>
+			<thead>
+				<tr>
+					@HeaderCell(i18n.OrderItem)
+					@HeaderCell(i18n.LineDescription)
+					@HeaderCell(i18n.OrderOrdered)
+					@HeaderCell(i18n.OrderPrice)
+					@HeaderCell(i18n.OrderReceived)
+					@HeaderCell(i18n.LineTaxCode)
+				</tr>
+			</thead>
+			<tbody>
+				for _, it := range items {
+					@OrderItemRow(it)
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+// OrderItemRow is one order item.
+templ OrderItemRow(it OrderItemView) {
+	<tr>
+		<td>
+			@Number(it.No)
+		</td>
+		<td>
+			@Data(it.Description)
+		</td>
+		<td>
+			@Quantity(it.Ordered, it.Unit)
+		</td>
+		<td>
+			@Amount(it.Price)
+		</td>
+		<td>
+			@Quantity(it.Received, it.Unit)
+		</td>
+		<td>
+			if it.TaxCode != "" {
+				@Code(it.TaxCode)
+			} else {
+				@T(i18n.LineNone)
+			}
+		</td>
+	</tr>
+}
+
+// ReceiptsTable is the order's goods receipts, one row per receipt item.
+templ ReceiptsTable(receipts []ReceiptView) {
+	<div class="table-wrap" role="region" tabindex="0" { labelledBy("receipts-caption")... }>
+		<table class="table" hx-disable>
+			<caption class="visually-hidden" { idAttr("receipts-caption")... }>
+				@T(i18n.ReceiptsLabel)
+			</caption>
+			<thead>
+				<tr>
+					@HeaderCell(i18n.ReceiptNumber)
+					@HeaderCell(i18n.ReceiptDate)
+					@HeaderCell(i18n.OrderItem)
+					@HeaderCell(i18n.LineQuantity)
+				</tr>
+			</thead>
+			<tbody>
+				for _, rc := range receipts {
+					@ReceiptRow(rc)
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+// ReceiptRow is one receipt item.
+templ ReceiptRow(rc ReceiptView) {
+	<tr>
+		<td>
+			@Code(rc.Number)
+		</td>
+		<td>
+			@Day(rc.Date)
+		</td>
+		<td>
+			@Number(rc.OrderItem)
+		</td>
+		<td>
+			@Quantity(rc.Quantity, rc.Unit)
+		</td>
+	</tr>
+}
+
+// RecsSection is the agents' recommendations on the invoice: each shown,
+// never applied (ADR-0052 §7), with the decision form while it is open.
+templ RecsSection(ip InvoicePage) {
+	if ip.RecsError != nil {
+		@RefusalNotice(*ip.RecsError)
+	} else if len(ip.Recs) == 0 {
+		@Paragraph(i18n.RecsNone)
+	} else {
+		@Paragraph(i18n.RecsHint)
+		if ip.RecsWhy != "" {
+			@Paragraph(ip.RecsWhy)
+		}
+		<ul class="list">
+			for _, r := range ip.Recs {
+				@RecItem(r)
+			}
+		</ul>
+	}
+}
+
+// RecItem is one recommendation: what the agent recommends, its text as
+// plain data inside hx-disable, and what people decided.
+templ RecItem(r RecommendationView) {
+	<li class="recommendation">
+		<h3 class="recommendation__title">
+			@labelText(r.Kind)
+		</h3>
+		<p class="hint">
+			@T(i18n.AgentText)
+		</p>
+		<dl class="facts">
+			@Fact(i18n.RecBy, Principal(r.Agent))
+			@Fact(i18n.RecAt, Date(r.At))
+			@Fact(i18n.RecOutcome, OutcomeTag(r.Outcome))
+			if r.DecidedBy != nil {
+				@Fact(i18n.RecDecidedBy, Principal(*r.DecidedBy))
+			}
+		</dl>
+		<div class="untrusted recommendation__content" translate="no" hx-disable>
+			@Value(r.Content)
+		</div>
+		if r.Decide != nil {
+			@RecForm(*r.Decide)
+		}
+	</li>
+}
+
+// OutcomeTag is a recommendation's outcome.
+templ OutcomeTag(l Label) {
+	<strong { tagClass(outcomeTag(l))... }>
+		@labelText(l)
+	</strong>
+}
+
+// RecForm records what the person did with a recommendation
+// (decideRecommendation, human-only): one choice, an optional comment.
+templ RecForm(f RecommendationForm) {
+	<form class="decide" { post(f.Action)... }>
+		@decideHidden(f.CSRF, f.ETag, f.Key)
+		<div { fieldClass(f.OutcomeError)... }>
+			<fieldset class="fieldset" { fieldsetAttrs(f)... }>
+				<legend class="field__label">
+					@T(i18n.RecDecideLegend)
+				</legend>
+				if f.OutcomeError != "" {
+					<p class="field__error" { idAttr(f.ID + "-outcome-error")... }>
+						@T(f.OutcomeError)
+					</p>
+				}
+				for _, o := range RecommendationOutcomes {
+					@OutcomeChoice(f, o.Value)
+				}
+			</fieldset>
+		</div>
+		@CommentField(f.ID+"-comment", i18n.ActionReleaseComment, i18n.ActionCommentHint, f.Comment, f.CommentError)
+		<button class="button" type="submit">
+			@T(i18n.RecDecideSubmit)
+		</button>
+	</form>
+}
+
+// OutcomeChoice is one outcome to choose.
+templ OutcomeChoice(f RecommendationForm, value string) {
+	<div class="radio">
+		<input class="radio__input" translate="no" { radio(f.ID+"-"+value, value, f.Outcome)... }/>
+		<label class="radio__label" { forAttr(f.ID + "-" + value)... }>
+			@T(outcomeText[value])
+		</label>
+	</div>
+}
+
+// ActionsSection is what the person may do with the invoice in its
+// status, or why there is nothing.
+templ ActionsSection(ip InvoicePage) {
+	if ip.Pending {
+		@Paragraph(i18n.ActionsPending)
+	}
+	if len(ip.Actions) == 0 {
+		@Paragraph(ip.Why)
+	} else {
+		for _, a := range ip.Actions {
+			@ActionFormView(a)
+		}
+	}
+}
+
+// ActionFormView is one action: a real form posting the CSRF token, the
+// invoice's ETag as If-Match and the form's own idempotency key, with its
+// reason or comment and its date where it takes them.
+templ ActionFormView(a ActionForm) {
+	<form class="decide" { post(a.Action)... }>
+		@decideHidden(a.CSRF, a.ETag, a.Key)
+		if actionSpecs[a.Verb].Hint != "" {
+			<p class="hint">
+				@T(actionSpecs[a.Verb].Hint)
+			</p>
+		}
+		if actionSpecs[a.Verb].Text != "" {
+			@CommentField("act-"+a.Verb+"-text", actionSpecs[a.Verb].Text, actionSpecs[a.Verb].TextHint, a.Text, a.TextError)
+		}
+		if actionSpecs[a.Verb].Date != "" {
+			@InputField("act-"+a.Verb+"-date", FieldDate, "date", actionSpecs[a.Verb].Date, actionSpecs[a.Verb].DateHint, a.Date, a.DateError)
+		}
+		<button { buttonClass(a.Verb)... }>
+			@T(actionSpecs[a.Verb].Button)
+		</button>
+	</form>
+}
+
+// RefusalPage is a page of the API's refusal alone, with the way back.
+templ RefusalPage(s Shell, heading i18n.Key, back string, backText i18n.Key, r Refusal) {
+	@Layout(s, refusalPageContent(heading, back, backText, r))
+}
+
+templ refusalPageContent(heading i18n.Key, back string, backText i18n.Key, r Refusal) {
+	<p>
+		<a { link(back, "")... }>
+			@T(backText)
+		</a>
+	</p>
+	<h1>
+		@T(heading)
+	</h1>
+	@RefusalNotice(r)
+}

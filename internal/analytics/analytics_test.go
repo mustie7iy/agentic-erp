@@ -83,7 +83,7 @@ func twoYears(t *testing.T) *Facts {
 				amt, _ := money.ParseDecimal(l.HSL, 2)
 				acct := sap.Alpha(l.RACCT)
 				add("gl_lines", l.RBUKRS+"/"+l.GJAHR+"/"+l.BELNR, l.RBUKRS, l.BUDAT, currency[l.RBUKRS], amt, map[string]string{
-					"account": acct, "account_name": accounts[acct], "account_type": types(acct), "document_type": l.BLART,
+					"account": acct, "account_name": accounts[acct], "account_type": types(acct), "determination": "none", "document_type": l.BLART,
 					"vendor": sap.Alpha(l.LIFNR), "vendor_name": names[sap.Alpha(l.LIFNR)], "vendor_recon": strconv.FormatBool(recon[acct]),
 					"cleared": strconv.FormatBool(recon[acct] && l.AUGBL != "")})
 				if l.RBUKRS == "1000" && acct == "400000" {
@@ -596,4 +596,28 @@ func containsStr(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// TestGroupsInValueOrder: rows come in the order of their dimension
+// values, numbers compared as numbers: months 1 to 12, never 1, 10, 11,
+// 12, 2 (walkthrough, 2026-10-22). Values that compare equal ("01" and
+// "1") keep an order all the same.
+func TestGroupsInValueOrder(t *testing.T) {
+	r, err := session(t, us).Run(context.Background(), Query{Measures: []string{"revenue"}, By: []string{"fiscal_year", "fiscal_month"},
+		Where: []Filter{{Dim: "fiscal_year", Op: "in", Values: []string{"2025"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Rows) != 12 {
+		t.Fatalf("rows: got %d, want 12: %v", len(r.Rows), r.Rows)
+	}
+	for i, row := range r.Rows {
+		if want := strconv.Itoa(i + 1); row[1] != want {
+			t.Errorf("row %d: got month %v, want %s", i, row[1], want)
+		}
+	}
+	agg := &aggregation{groups: map[string][]string{"a": {"01"}, "b": {"1"}}}
+	if got := agg.byValues("a", "b"); got >= 0 {
+		t.Errorf("equal values: got %d comparing their keys, want a before b", got)
+	}
 }

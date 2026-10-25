@@ -84,10 +84,16 @@ type NewRegressionSuite struct {
 	Name       string
 	MaxCases   int // default 50
 	WindowDays int // default 90
+	// AllowEmpty records a suite of no cases when the window has no
+	// invoices, as a fresh tenant's has: the evidence replaying it says
+	// so and every approver acknowledges it (T72l). Without it such a
+	// capture is refused, so nobody records an empty suite by mistake.
+	AllowEmpty bool
 }
 
 // CaptureRegressionSuite captures a suite under the active configuration
-// version. A window without invoices is 422 config.no_cases.
+// version. A window without invoices is 422 config.no_cases unless the
+// capture allows an empty suite.
 func CaptureRegressionSuite(ctx context.Context, deps Dependencies, in NewRegressionSuite) (RegressionSuite, error) {
 	tx, actor, err := reqctx.Request(ctx)
 	if err != nil {
@@ -111,15 +117,16 @@ func CaptureRegressionSuite(ctx context.Context, deps Dependencies, in NewRegres
 	if err != nil {
 		return RegressionSuite{}, err
 	}
-	if len(cases) == 0 {
-		return RegressionSuite{}, problem.Unprocessable("config.no_cases", fmt.Sprintf("No supplier invoices on purchase orders in the last %d days to capture.", in.WindowDays))
+	if len(cases) == 0 && !in.AllowEmpty {
+		return RegressionSuite{}, problem.Unprocessable("config.no_cases", fmt.Sprintf(
+			"No supplier invoices on purchase orders in the last %d days to capture; capture with allow_empty to record that there is nothing to replay.", in.WindowDays))
 	}
 	var n int
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM config.regression_suite`).Scan(&n); err != nil {
 		return RegressionSuite{}, fmt.Errorf("configuration: count regression suites: %w", err)
 	}
 	id := uuid.Must(uuid.NewV7())
-	strata, _ := json.Marshal(strataOf(cases)) // a string slice always encodes
+	strata, _ := json.Marshal(append([]string{}, strataOf(cases)...)) // a string slice always encodes; an empty suite's is []
 	if _, err := tx.Exec(ctx, `INSERT INTO config.regression_suite (tenant_id, id, number, name, config_version, window_days, case_count, strata, created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`, actor.TenantID, id, fmt.Sprintf("RS-%04d", n+1), in.Name, number, in.WindowDays, len(cases), strata, actor.ID); err != nil {
 		return RegressionSuite{}, fmt.Errorf("configuration: insert regression suite %s: %w", id, err)
@@ -140,7 +147,7 @@ func CaptureRegressionSuite(ctx context.Context, deps Dependencies, in NewRegres
 	// audit trail reaches readers of fewer (the suite shows each reader the
 	// cases of their own, suiteShown).
 	return s, audit.Add(ctx, audit.Entry{Action: "config.regression_suite.capture", ObjectType: "config.regression_suite", ObjectID: id, Outcome: "succeeded",
-		Detail: map[string]any{"number": s.Number, "config_version": number, "window_days": in.WindowDays}})
+		Detail: map[string]any{"number": s.Number, "config_version": number, "window_days": in.WindowDays, "empty": len(cases) == 0}})
 }
 
 // strataOf lists why cases were selected, in order of first use.
@@ -232,6 +239,9 @@ func regression(ctx context.Context, tx pgx.Tx, deps Dependencies, c ChangeReque
 		return Simulation{Passed: false, Summary: fmt.Sprintf("No regression suite captured on version %d; capture one (createRegressionSuite) and simulate again.", c.BaseVersion),
 			Detail: map[string]any{"config_version": c.BaseVersion}}, nil
 	}
+	if suite.CaseCount == 0 {
+		return noCases(suite, c.BaseVersion), nil
+	}
 	rec := newRegressionRecord(suite, c.BaseVersion)
 	inScope := touched(c)
 	stale, err := deps.Regressor.Replay(ctx, base, suite.Cases)
@@ -261,6 +271,23 @@ func regression(ctx context.Context, tx pgx.Tx, deps Dependencies, c ChangeReque
 	}
 	return rec.result(passed, keys(inScope)), nil
 }
+
+// noCases is the evidence of a suite captured with no cases: it passes,
+// since nothing could regress, and says plainly that nothing was replayed,
+// so the approvers decide knowing it; each acknowledges it in the comment
+// of their approval (Approvals.Acknowledgement). The suite holds no case of
+// any company, so the summary tells a reader of fewer companies nothing of
+// others' cases.
+func noCases(suite RegressionSuite, version int32) Simulation {
+	return Simulation{Passed: true,
+		Summary: fmt.Sprintf("Suite %s holds no cases: there were no supplier invoices on purchase orders in the %d days before it was captured on %s, so nothing was replayed. Each approver acknowledges this in the comment of their approval.",
+			suite.Number, suite.WindowDays, suite.CapturedAt.UTC().Format(time.DateOnly)),
+		Detail: map[string]any{"suite_id": suite.ID, "number": suite.Number, "config_version": version, "window_days": suite.WindowDays,
+			"captured_at": suite.CapturedAt, noCasesKey: true}}
+}
+
+// noCasesKey marks the regression evidence of a suite of no cases.
+const noCasesKey = "no_cases"
 
 func keys(m map[string]bool) []string {
 	out := make([]string, 0, len(m))

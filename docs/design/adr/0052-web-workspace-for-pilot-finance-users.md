@@ -1243,6 +1243,316 @@ What the API gaps settled, and where they depart from §3:
 - **Migrations.** T73b's web client is 000148 on main (batch 6); this
   step's migration is 000151 (batch 7).
 
+## Built in T73d (2026-10-22)
+The approvals inbox, the first screen on the API. What it settled, and
+where it departs from the step as first written:
+- **Scope split.** T73d built the inbox of what the person may decide now
+  (`listApprovalRequests?decidable_by=me`), a request's page with its
+  summary, steps and decisions, and approve and reject. "My requests",
+  "all I can see", the object's own summary per type (`getRequisition`,
+  `getPartnerChange`, …), cancelling one's own request and the pilot
+  approver's walk-through are T73d2. A request's page names its object by
+  type and id; the per-type summaries come with T73d2 and with each
+  object's screen (T73e-T73k).
+- **Pages.** `GET /approvals` (cards, one per request, usable at 390 px,
+  P8), `GET /approvals/{id}`, and `POST /approvals/{id}/approve` and
+  `/reject`, each `signedIn(csrf(…))`. A decision is a real form: the
+  request's ETag (the `getApprovalRequest` answer's) travels as
+  `if_match` and is sent as If-Match, and each rendered form carries a
+  fresh `idempotency_key`, so a resubmit replays the first answer. Done,
+  the person goes back to the inbox (`?done=approved|rejected`, a notice
+  from a closed set); refused, the request's page is rendered again,
+  fresh from the API, with the refusal and what they typed. A reason is
+  required to reject and a comment has at most 2,000 characters, checked
+  before the call so the text stays on the page. No htmx is needed: the
+  pages are plain forms and links.
+- **Paging.** An inbox page shows 25 requests and reads at most three of
+  the API's pages to fill them, since a page of `decidable_by=me` may hold
+  fewer than asked while it has a next one (T73c); the next page's link
+  carries the API's token. With `getCurrentPrincipal` and
+  `listPrincipalNames` a page makes at most five calls (§10: six).
+- **Names (G3).** One `listPrincipalNames` call per page for the ids the
+  session's cache does not hold (per session, five minutes from its first
+  names, at most 10,000 sessions per replica); an id the API does not name
+  is remembered as unknown, and a failed call shows names as unknown
+  rather than refusing the page. An agent requester or decider is badged
+  "Agent".
+- **Navigation and hidden actions (G2).** Every signed-in page reads
+  `getCurrentPrincipal`: the inbox joins the navigation for a person
+  holding `workflow.request.read`; the forms are offered only for a
+  pending request that is not the person's own, that they have not
+  approved yet (a person approves a request once), and for which they hold
+  `workflow.request.decide` and the object type's approval permission;
+  otherwise the page says why. All of it is advisory: a person without
+  the permission who opens `/approvals` sees the API's 403 explained.
+- **Refusals (G7).** A problem is shown by its code from the catalog
+  (`i18n.Problems`: the workflow codes, the version mismatch, missing
+  permission, segregation of duties, not found, an invalid body, a reused
+  idempotency key and a period not open for a manual entry), else by the
+  API's English title (the fallback §8 names), always with the code and
+  the trace id. A segregation-of-duties refusal (`identity.sod_conflict`,
+  `workflow.segregation_of_duties`) lists the person's
+  `barred_permissions`, and an inbox whose decide permission is barred
+  says so. A 401 signs in again; after a decision it comes back to the
+  request's page, so a step-up (RFC 9470) returns to the request, not the
+  home page. The tenant's multi-factor rule is the API's, on every call;
+  the ADR asks no further step-up for amounts, so none is added.
+- **Agents' text.** A request's title and the decisions' comments are
+  data: escaped, line breaks kept, inside `hx-disable`, `translate="no"`,
+  no link made of them. An agent's request carries the badge and says the
+  text is an agent's. Tested with planted markup, a markdown link and a
+  `javascript:` URL, in the handlers and in the browser.
+- **Money and dates.** An amount is the API's decimal string in the
+  locale's digits, grouping and decimal sign (CLDR through `x/text`),
+  with its ISO 4217 code in the locale's order (`EUR 12,000.00`,
+  `12 000,00 EUR`), never through a float: the whole part is an integer
+  and the fraction keeps the API's digits. Dates stay ISO 8601 until T73l
+  formats them per locale. A negative amount takes an ASCII minus; the
+  locale's own minus sign (U+2212, Arabic's marks) is T73l's, as no
+  negative amount reaches an approval.
+- **Contract drift.** `internal/web/operations.go` is the inventory of the
+  operations each route calls, with the permission it hides by and a
+  human-only mark; `TestScreensAgainstTheContract` holds it to the
+  contract (operation, `x-permission`, `x-agent: false` on human-only
+  routes, `x-object-permissions`) and every code the catalog explains to
+  the operations' `x-problem-codes`. It found `endCurrentSession` is
+  `x-agent: false`, so sign-out is marked human-only.
+- **Tests.** Handlers against the real API and PostgreSQL (a configured
+  tenant: a requisition of EUR 12,000 in two steps, partner changes, an
+  agent's request) as approver, requester, a person without the role and
+  under a segregation-of-duties rule; CSRF, a stale If-Match (412, input
+  kept), a replayed idempotency key, a missing reason, an unknown page
+  token. **Departs from §10 ("never a mocked API"):** the API's rarer
+  answers (a page the owning context thinned, a server error, a rate
+  limit, an aborted call, a 401 challenge) come from an `httptest` stub
+  behind the real sign-in, as T73b's tests already did for the home page;
+  the thinned page needs a bank line matched by the approver to reach for
+  real. Everything else runs against the real API; the browser suite runs axe on the
+  inbox and two requests in English, French and both pseudo-locales at
+  1280 and 390 px, and walks the decisions at both widths.
+
+## Built in T73e (2026-10-22)
+Supplier invoices and the AP exception queue. What it settled, and where
+it departs from the step as first written:
+- **Scope split.** T73e built the queue, an invoice's page and the
+  actions on it. Capture by upload (createUpload, the bytes relayed by
+  erp-web, the 202 polled to the new invoice), editing a parked invoice,
+  clearing down payments and the pilot AP clerk's walk-through are T73e2.
+- **Pages.** `GET /invoices` (cards, one per invoice, usable at 390 px):
+  status tabs (on hold is the exception queue: a match with issues holds
+  the invoice and opens its approval request), and the API's own filters
+  as a plain GET form (company, document number, invoice dates); a
+  supplier is chosen from an invoice's card, since the API filters by id
+  and there is no picker of suppliers yet. 25 invoices a page, latest
+  invoice date first, the API's token in the next page's link. A date
+  that is no date is said so before any call, an id in the address that
+  is no id refuses the filters. `GET /invoices/{id}`: the summary, the
+  lines with their tax codes, the latest match (`listMatchResults`, one
+  result) with each issue's code in words and the API's explanation as
+  data, the exception's approval request linked to its page in the
+  inbox, the agents' recommendations (`listRecommendations` on the
+  invoice), the actions its status offers, and the document beside it.
+- **Calls.** The queue makes at most four calls (`getCurrentPrincipal`,
+  `listLegalEntities` for the companies' names and the company filter,
+  `listSupplierInvoices` with the supplier expanded, `listPrincipalNames`
+  for the creators), an invoice's page six (with `getSupplierInvoice`,
+  `listMatchResults`, `listRecommendations`). The order and its receipts
+  (`getPurchaseOrder`, `listGoodsReceipts`; offered to a person holding
+  both read permissions) are a section of their own,
+  `GET /invoices/{id}/order`, which htmx loads into the page once it is
+  there (`hx-trigger="load"`) and which is a page of its own without
+  htmx, so no page's reads pass six. **Departs from §10** ("at most 6
+  API calls per page render"): a refused action re-renders the invoice's
+  page, which is the write and the page's six reads, seven calls.
+  `TestScreensAgainstTheContract` now holds every route to six reads.
+- **Actions.** Match, post (optional posting date), hold (reason),
+  release (optional comment), cancel (reason) and reverse (reason,
+  optional posting date), each a form with the invoice's ETag and a
+  fresh idempotency key, offered by status and by the operation's
+  `x-permission` (advisory: match only on an order). Done, the invoice's
+  page says so (`?done=…`); refused, it is rendered again with the
+  refusal and what was typed. The API releases an invoice whose
+  exception waits by withdrawing the request, and posting it then needs a
+  new match (`payables.match_required`): the page says both, where it
+  was first thought the release was refused. The request's id stays on
+  an invoice after its exception is approved (and through a later hold
+  by hand), so the page words the waiting request conditionally rather
+  than reading its status (a seventh call).
+- **Refusals.** `i18n.InvoiceProblems` explains the payables codes the
+  scenarios meet (`match_outdated`, `match_required`, `tax_mismatch`,
+  `invalid_status`, `amounts_mismatch`, `supplier_not_usable`,
+  `no_purchase_order`, `invoice_cleared`, `invoice_in_payment_run`,
+  `agents.already_decided`) and the general ones in an invoice's words,
+  before `i18n.Problems`; any other code shows the API's title. The
+  contract test holds these codes to the operations' `x-problem-codes`
+  too. As §8 says, a refusal's `detail` is not shown: for
+  `payables.tax_mismatch` it names each tax code's calculated tax, which
+  the page cannot show otherwise (decision D3 below; §8 unchanged).
+- **Agents' work.** An invoice an agent entered is badged in the queue
+  and says on its page that it is a proposal to check against the
+  document. A recommendation (the AP exceptions agent's kinds named,
+  others as they are) is escaped text inside `hx-disable` with the
+  agent's badge; while open, a person holding
+  `agents.recommendation.decide` records what they did with it
+  (accepted, overridden, ignored, with a comment): one form per
+  recommendation, its own ETag and key. The decision changes nothing on
+  the invoice; the page says to take the action, or decide the
+  exception's request, first (§7).
+- **The document.** `GET /invoices/{id}/document` relays
+  `getSupplierInvoiceDocument` with `Content-Security-Policy: sandbox;
+  default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline';
+  frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`, `nosniff` and
+  `no-store`, in a `sandbox` iframe beside the invoice. **Departs from
+  §7:** the API answers `application/octet-stream`, not the stored type,
+  so erp-web detects the type as capture did (`http.DetectContentType`):
+  a PDF, PNG or JPEG inline as itself, XML (an e-invoice) inline as plain
+  text, anything else as a download. Not verified from a primary source,
+  to check with the pilot's browsers: whether Chrome's and Edge's PDF
+  viewers render a PDF under a sandboxing CSP and in a sandboxed frame
+  (from memory, they may not); the link "open the document on its own"
+  is there either way (decision D4 below).
+- **Layout.** `body` breaks words longer than a line (`overflow-wrap`),
+  found by the en-XA scenario at 390 px; tables scroll sideways in a
+  focusable region of their own, never the page; the invoice and its
+  document sit side by side from 64 rem.
+- **Tests.** Handlers against the real API and PostgreSQL with
+  object storage (`fixture` gained `Order`, `Receive`, `SupplierInvoice`,
+  `Recommend`, `Captured`): the queue and its filters, an invoice's page
+  per state, a clean match and post replayed on resubmit, a variance
+  approved by a second approver in the inbox and posted, a variance
+  released by hand and refused posting until matched again, a stale
+  ETag, a tax that disagrees with its codes, a recommendation decided
+  and an old form refused, a person who may only read and one who may
+  not; the rarer answers from the stub as in T73d. The browser suite
+  runs axe on the queue, an exception, an invoice beside its document and
+  an order's page in English, French and both pseudo-locales at 1280 and
+  390 px, and walks a recommendation's decision, a clean match and post,
+  and a refused post.
+
+Decisions for the product owner (T73e):
+- **D3:** whether a refusal's English `detail` may be shown beside its
+  translated message for codes whose figures the page has no other way
+  to show (`payables.tax_mismatch`: each code's calculated tax;
+  `payables.match_outdated`: what changed), or whether the API should
+  carry those figures as fields (a contract change); §8 as it stands
+  shows a `detail` only as the fallback for a code without a message.
+- **D4:** if the pilot's browsers do not render a sandboxed PDF, either
+  serve PDFs as downloads (no preview), or loosen the sandbox for PDFs
+  (`sandbox allow-scripts` without `allow-same-origin`, an opaque origin),
+  an amendment of §7.
+
+Decided (coordinator, 2026-10-22, recorded in T73g):
+- **D4:** PDFs are served as downloads until a pilot browser is shown to
+  render one under the sandbox: `GET /invoices/{id}/document` answers a
+  PDF with `Content-Disposition: attachment`, and the invoice's frame,
+  which asks for it with `Sec-Fetch-Dest: iframe`, gets a line of plain
+  text in the person's language saying to download it with the link
+  below the frame (`Vary: Sec-Fetch-Dest`). PNG, JPEG and XML stay
+  inline. §7's sandbox is unchanged.
+- **D3:** the figures of a refusal (`payables.tax_mismatch`'s tax per
+  code, `payables.match_outdated`'s changes) are to be carried by the
+  API as structured fields of the problem, a contract change planned in
+  T73e2; until then §8 stands and no `detail` is shown.
+
+## Built in T73g (2026-10-22)
+Bank statements and their reconciliation (ADR-0047). What it settled,
+and where it departs from the step as first written:
+- **Pages.** `GET /bank`: the house banks (code, account by its last
+  four characters, currency, company, links to their statements and
+  report), the statements by status (imported, gap, reconciled) and
+  house bank, 25 a page, latest closing first, a statement in `gap`
+  flagged with what it means (nothing posts for the bank until the
+  missing statement is imported), and the upload form for a person
+  holding `payments.statement.import`. `GET /bank/statements/{id}`: the
+  summary (the previous statement linked, the gap explained, reconciled
+  on and by), and each line as a card: the bank's booking as data, its
+  status, its live match (a rule's with its rule, a person's, or the
+  reconciliation agent's proposal, badged, its reason inert inside
+  `hx-disable` with the agent hint), what it clears (payments, an open
+  match's candidates by number, a posting rule with its description, the
+  incoming payments clearing account), its posting (date, reason,
+  journal entry) and, while it waits, a link to the `bank_clearing`
+  request in the inbox; the outcome of the agent's last decided
+  proposal. `GET /bank/house-banks/{id}/reconciliation`: the period's
+  and each statement's closing balance against the ledger's, what
+  explains the difference (excluded, not posted yet, posted after the
+  date) and what is left unexplained (flagged "to investigate", or
+  "nothing unexplained"), the lines' counts by status and the lines;
+  the period and a line status as a plain GET form. Accounts are never
+  shown whole: the API gives people the IBAN, the page its last four.
+- **Decisions.** Match by hand (one choice: a candidate's payments, a
+  posting rule of the company, or, for a credit that reverses nothing,
+  the incoming payments clearing account; with a reason), exclude
+  (reason), post (optional other date with its reason, both or
+  neither), accept the agent's proposal (optional comment) and reject it
+  (reason): each `signedIn(csrf(…))`, `POST /bank/statements/{id}/{verb}`
+  with the line in the form (so the step-up's return is the statement),
+  the statement's ETag as If-Match and a fresh idempotency key, offered
+  by the line's status and the operation's `x-permission`, inside a
+  `<details>` that a refusal opens with what was typed. All five are
+  `x-agent: false` and marked human-only. An excluded line may be
+  matched by hand again until the statement is reconciled, as the API
+  allows; a matched line of a statement in `gap` is not offered its
+  posting (the API refuses it, the gap notice says why). Done, the page says so with a
+  link to the line (no fragment: a fragment would scroll the notice out
+  of view and move the tab order); a posting that waits says it waits
+  for its approval. Segregation of duties is the API's: whoever matched
+  a line by hand is refused as approver of its `bank_clearing` request
+  (`workflow.segregation_of_duties`), shown in the inbox.
+- **Upload.** `POST /bank/statements`, a multipart form read in memory up
+  to the API's 4 MB (`csrfUpload` checks the token as `csrf` does; a
+  larger body changes nothing and says so); the file is sent as the
+  `file` form field `importBankStatements` takes on main today (the
+  walkthrough's file-part support, branch fix-walkthrough, is not
+  merged; the ogen client sends a field either way). One statement goes
+  to its page, several to the bank's statements; the same file again
+  says it was imported before. A refused import keeps the bank and
+  format, and asks for the file again (a browser never refills a file). A
+  body larger than that is answered at once with a page of its own and
+  no API call, before the token is checked. An upload is held three
+  times in memory (the form's buffer, the read, the client's string),
+  some 12 MB at most each, with no limit on uploads at once: enough for
+  the pilot, to bound before load tests.
+- **Calls.** The list makes four (`getCurrentPrincipal`,
+  `listHouseBanks`, `listLegalEntities`, `listBankStatements`), a
+  statement six (`getBankStatement`, `listBankStatementMatches`,
+  `getBankStatementRules`, `listHouseBanks` of its company,
+  `listPrincipalNames`), the report three (`getBankReconciliation`). The
+  rules and the banks are no reason to refuse a page: unreadable, they
+  are logged, and the page offers no posting rule (or no bank).
+- **Refusals.** `i18n.BankProblems` explains the `payments.statement_*`
+  codes of the import and the decisions, the version mismatch, a
+  validation failure and a closed period in a statement's words; the
+  contract test holds them to the operations' `x-problem-codes`.
+- **Departs from the tracker row.** Manual match "from open items and
+  payments" offers the payments the rules found as candidates, the
+  company's posting rules and the incoming account; the API has no
+  search of a house bank's payments or open items to choose others from
+  (listPayments is per payment run), so a payment the rules did not find
+  cannot be chosen yet: tracker item. Running the matching rules again
+  (`matchBankStatement`) and downloading the statement's file
+  (`getBankStatementFile`) are not on the pages: tracker items.
+- **Tests.** Handlers against the real API and PostgreSQL with object
+  storage (`fixture` gained `StatementPermissions`, `Reconciles`,
+  `HouseBank`, `MT940`, `ImportStatement`, `Propose`,
+  `OpeningBalance`): the list and its filters and a gap uploaded through
+  the page; a statement's page per line state; a reconciler's whole job
+  to a reconciled statement (incoming matched and posted, an exclusion,
+  a proposal rejected and its line posted on another date, a proposal
+  accepted, posted by a second person, refused to its matcher in the
+  inbox and approved by a third); refusals before and from the API, a
+  stale ETag with the text kept, a replayed form; uploads (replayed,
+  unreadable, conflicting, too large, incomplete); the report and its
+  filters; a person who may only read and one who may not. The rare
+  answers (a rule's open candidates of payments, which need released
+  payment runs the web suite does not build, values the workspace does
+  not know, unreadable banks, rules and names, a bank without a main
+  account, a difference unexplained) come from the stub, as in T73d. The
+  browser suite runs axe on the list, a statement with the agent's
+  proposals and the report in English, French and both pseudo-locales at
+  1280 and 390 px, and walks a rejection refused then made, an
+  acceptance and a posting that waits for its approval.
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF
