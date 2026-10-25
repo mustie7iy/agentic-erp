@@ -260,9 +260,12 @@ func TestAssignmentRefused(t *testing.T) {
 // the ledger's problems.
 func TestAssignmentConstraints(t *testing.T) {
 	for constraint, code := range map[string]string{
-		"journal_line_cost_center_fkey":   "ledger.cost_center_invalid",
-		"journal_line_profit_center_fkey": "ledger.profit_center_invalid",
-		"journal_line_segment_fkey":       "ledger.segment_mismatch",
+		"journal_line_cost_center_fkey":        "ledger.cost_center_invalid",
+		"journal_line_profit_center_fkey":      "ledger.profit_center_invalid",
+		"journal_line_segment_fkey":            "ledger.segment_mismatch",
+		"parked_entry_line_cost_center_fkey":   "ledger.cost_center_invalid",
+		"parked_entry_line_profit_center_fkey": "ledger.profit_center_invalid",
+		"parked_entry_line_segment_fkey":       "ledger.segment_mismatch",
 	} {
 		t.Run(constraint, func(t *testing.T) {
 			if got := problem.From(&pgconn.PgError{Code: "23514", ConstraintName: constraint}); got.Code != code || got.Status != 422 {

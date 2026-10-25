@@ -214,7 +214,11 @@ As built in T56a (migration 000128):
   asks for the first line on the center within them
   (`journal_line_cost_center` index). A profit center's segment move is
   refused once any line carries the profit center (409
-  `ledger.segment_in_use`). Both are planned at the request and again at
+  `ledger.segment_in_use`). Both locks are compared on every posted line,
+  whatever its kind, so unlocking costs over dates with only revenue lines
+  is refused too, and a reversal dated after the end counts as a posting:
+  the stricter reading of "what posted lines read", for the product owner
+  to relax if wanted (review of T56d2). Both are planned at the request and again at
   the approval, with the center held for update: a posting under way holds
   it for key share, so the change waits for it and then sees its lines.
 

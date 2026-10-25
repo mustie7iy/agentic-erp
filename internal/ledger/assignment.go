@@ -43,6 +43,17 @@ func init() {
 			problem.FieldError{Field: "lines.profit_center_id", Code: reasonNotInCompany, Message: "a profit center assigned to the legal entity"})
 	})
 	problem.RegisterConstraint("journal_line_segment_fkey", segmentMismatch)
+	// A parked line's centers are the tenant's (000159); parking checks the
+	// rest, except on a date in no fiscal year (parkable).
+	problem.RegisterConstraint("parked_entry_line_cost_center_fkey", func() *problem.Problem {
+		return problem.Unprocessable("ledger.cost_center_invalid", "A line's cost center is not known.",
+			problem.FieldError{Field: "lines.cost_center_id", Code: reasonUnknown, Message: "a cost center of the legal entity"})
+	})
+	problem.RegisterConstraint("parked_entry_line_profit_center_fkey", func() *problem.Problem {
+		return problem.Unprocessable("ledger.profit_center_invalid", "A line's profit center is not known.",
+			problem.FieldError{Field: "lines.profit_center_id", Code: reasonUnknown, Message: "a profit center assigned to the legal entity"})
+	})
+	problem.RegisterConstraint("parked_entry_line_segment_fkey", segmentMismatch)
 }
 
 func segmentMismatch() *problem.Problem {

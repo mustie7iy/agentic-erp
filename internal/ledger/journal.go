@@ -472,7 +472,10 @@ func addCenters(line map[string]any, l Line) {
 		code *string
 	}{{"cost_center", l.CostCenterID, l.CostCenterCode}, {"profit_center", l.ProfitCenterID, l.ProfitCenterCode}, {"segment", l.SegmentID, l.SegmentCode}} {
 		if c.id != nil {
-			line[c.name+"_id"], line[c.name+"_code"] = *c.id, *c.code
+			line[c.name+"_id"] = *c.id
+		}
+		if c.code != nil {
+			line[c.name+"_code"] = *c.code
 		}
 	}
 }
