@@ -129,7 +129,8 @@ func (e *Endpoints) RequestProfitCenterChange(ctx context.Context, id uuid.UUID,
 }
 
 // planProfitCenter computes the profit center's periods after the change
-// and checks it; it refuses a change that changes nothing.
+// and checks it, against the lines posted on it too (profitCenterInUse);
+// it refuses a change that changes nothing.
 func planProfitCenter(ctx context.Context, tx pgx.Tx, c ProfitCenter, kind string, p profitCenterPayload, today time.Time) ([]span[ProfitCenterAttrs], error) {
 	from, to := parseDate(p.ValidFrom), parseDate(p.ValidTo)
 	switch kind {
@@ -161,6 +162,9 @@ func planProfitCenter(ctx context.Context, tx pgx.Tx, c ProfitCenter, kind strin
 	}
 	if _, _, differ := diffSpans(c.Periods, spans); !differ {
 		return nil, nothingToChange()
+	}
+	if err := profitCenterInUse(ctx, tx, c, spans); err != nil {
+		return nil, err
 	}
 	return spans, keepsDefaultProfitCenter(ctx, tx, c.ID, spans, today)
 }

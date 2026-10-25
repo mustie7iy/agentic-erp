@@ -96,3 +96,43 @@ func TestDiffSpans(t *testing.T) {
 		t.Error("the same spans: got a difference, want none")
 	}
 }
+
+// TestChangedRanges: the ranges of a change say which lines read what
+// differs, and neighbouring ranges join only when they name the same lines
+// (T56d4): a cost lock range next to a revenue lock range stays two. The
+// dates before the first period count as its own (a default's postings).
+func TestChangedRanges(t *testing.T) {
+	attrs := func(cost, revenue bool) CostCenterAttrs {
+		return CostCenterAttrs{Category: "ADMIN", LockCost: cost, LockRevenue: revenue}
+	}
+	sp := func(from, to string, a CostCenterAttrs) span[CostCenterAttrs] {
+		return span[CostCenterAttrs]{From: d(from), To: d(to), Attr: a}
+	}
+	old := []span[CostCenterAttrs]{sp("2026-01-01", "2026-02-01", attrs(false, false)), sp("2026-02-01", "", attrs(true, true))}
+	show := func(rs []dateRange) string {
+		out := ""
+		for _, r := range rs {
+			out += fmt.Sprintf("%s..%s=%d ", dateText(r.From), dateText(r.To), r.Lines)
+		}
+		return out
+	}
+	for name, c := range map[string]struct {
+		after []span[CostCenterAttrs]
+		want  string
+	}{
+		"a cost lock next to a revenue unlock": {[]span[CostCenterAttrs]{sp("2026-01-01", "2026-03-01", attrs(true, false)), sp("2026-03-01", "", attrs(true, true))},
+			fmt.Sprintf("..2026-02-01=%d 2026-02-01..2026-03-01=%d ", costLines, revenueLines)},
+		"a revenue unlock to the end": {[]span[CostCenterAttrs]{sp("2026-01-01", "2026-03-01", attrs(true, false)), sp("2026-03-01", "", attrs(true, false))},
+			fmt.Sprintf("..2026-02-01=%d 2026-02-01..=%d ", costLines, revenueLines)},
+		"a later start and a plan lock": {[]span[CostCenterAttrs]{sp("2026-01-15", "2026-02-01", attrs(false, false)), sp("2026-02-01", "", CostCenterAttrs{Category: "ADMIN",
+			LockCost: true, LockRevenue: true, LockPlan: true})}, fmt.Sprintf("2026-01-01..2026-01-15=%d ", everyLine)},
+		"another category": {[]span[CostCenterAttrs]{sp("2026-01-01", "2026-02-01", attrs(false, false)), sp("2026-02-01", "", CostCenterAttrs{Category: "SALES",
+			LockCost: true, LockRevenue: true})}, fmt.Sprintf("2026-02-01..=%d ", everyLine)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := show(changedRanges(old, c.after, costCenterReaders)); got != c.want {
+				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}

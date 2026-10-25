@@ -1668,9 +1668,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Profit center changes against posted lines (gap found in T56d2): a profit center's redate ending on or before a line carrying it, or a lock over a date with such lines, is checked only against the cost center periods naming it (ledger.profit_center_in_use), not the lines; the PO decides whether these are refused as the cost center's are (ledger.cost_center_posted_after / cost_center_period_in_use) before the step is built",
-        "r": "T56d4 (gap, ADR-0050 §5 as built: Not covered)",
+        "s": "D",
+        "t": "Profit center changes against posted lines and the same-kind lock check (gap found in T56d2; product owner 2026-10-25): a cost center's actual cost lock change is compared with its posted cost lines only (lines on expense accounts, the only ones whose cost_element can be primary_cost), its revenue lock with its revenue lines (revenue accounts), category, profit center and validity with every line; a reversal dated after a new end counts in the posted-after check (as built); a profit center's redate ending on or before a line carrying it is refused (409 ledger.profit_center_posted_after), a lock or later start over a date with such lines (409 ledger.profit_center_period_in_use; its one lock is read by every line), at the request and again at the approval; additive problem codes (x-problem-codes); no migration",
+        "r": "internal/ledger centeruse.go, profitcenters.go · api/openapi.yaml · ADR-0050 §3, §5 · 04 §4.6 · T56d4",
         "c": []
        },
        {
