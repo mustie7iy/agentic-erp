@@ -71,7 +71,7 @@ func (s *Server) showProgress(w http.ResponseWriter, r *http.Request, p *person,
 	case r.Header.Get("HX-Request") != "true":
 		s.render(w, r, status, ui.ProgressPage(s.page(i18n.ProgressPageTitle, ui.PaymentsPath, p, m), v))
 	case r.URL.Query().Get("part") == "status":
-		if op == nil || !running(*op) {
+		if op == nil || !v.Running {
 			// The section asked while the operation ran: it has stopped,
 			// so the run's page is read again to show what it left, without
 			// the notice of what was asked for then.
@@ -101,7 +101,11 @@ func (s *Server) progressView(w http.ResponseWriter, r *http.Request, p *person,
 		return v, nil, ok
 	}
 	op := got.Response
-	v.Kind, v.Status, v.Done, v.Running = labelOf(operationKinds, op.Kind), labelOf(operationStatuses, op.Status), op.Progress.Done, running(op)
+	// A proposal cancelled leaves its run being proposed until the worker
+	// fails it: the section asks again until then, so the page shows the
+	// run as it ends.
+	v.Kind, v.Status, v.Done = labelOf(operationKinds, op.Kind), labelOf(operationStatuses, op.Status), op.Progress.Done
+	v.Running = running(op) || run.Status == "proposing"
 	if total, ok := op.Progress.Total.Get(); ok {
 		v.Total = &total
 	}
@@ -109,7 +113,7 @@ func (s *Server) progressView(w http.ResponseWriter, r *http.Request, p *person,
 		v.Error = explainIn(i18n.PaymentProblems, i18n.ProgressErrorTitle, prob, m)
 		v.Error.ID = "progress-error"
 	}
-	if v.Running && m.may(permCancelOperations) {
+	if running(op) && m.may(permCancelOperations) {
 		v.Cancel = &ui.CancelForm{Action: runPath(run.ID) + "/cancel", CSRF: p.CSRF, Key: uuid.NewString(), Operation: op.ID.String()}
 	}
 	v.Resume = resumeForm(run, op, m, p, tag)
@@ -117,10 +121,10 @@ func (s *Server) progressView(w http.ResponseWriter, r *http.Request, p *person,
 }
 
 // resumeForm is the resumption of a release that stopped (failed or
-// cancelled), offered as the release itself is (decider): to a releaser
-// who neither proposed the run nor approved its release; nil otherwise.
+// cancelled), offered as the release itself is: to a releaser who
+// neither proposed the run nor approved its release; nil otherwise.
 func resumeForm(run gen.PaymentRun, op gen.Operation, m me, p *person, tag string) *ui.RunForm {
-	if run.Status != "releasing" || op.Kind != "payments.release" || running(op) || decider(run, m) != "" {
+	if run.Status != "releasing" || op.Kind != "payments.release" || running(op) || decider(run, m) != "" || approver(run, m) {
 		return nil
 	}
 	return &ui.RunForm{Verb: ui.RunRelease, ID: "resume", Action: runPath(run.ID) + "/" + ui.RunRelease, CSRF: p.CSRF, ETag: tag, Key: uuid.NewString()}

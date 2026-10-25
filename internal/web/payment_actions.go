@@ -59,7 +59,7 @@ func (s *Server) decideRun(verb string) func(http.ResponseWriter, *http.Request,
 			return
 		}
 		if prob, show := s.refusal(w, r, p, runOps[verb].ID, res, err); show {
-			t.askApproval = prob.Code == "payments.release_approval_required"
+			t.askApproval = prob.Code == "payments.release_approval_required" || prob.Code == "payments.release_approval_outdated"
 			s.showRun(w, r, p, m, id, int(prob.Status), t, explainIn(i18n.PaymentProblems, i18n.RunRefusedTitle, prob, m))
 		}
 	}

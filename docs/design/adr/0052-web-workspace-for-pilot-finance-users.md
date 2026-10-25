@@ -1581,7 +1581,10 @@ and where it departs from the step as first written:
   never takes the focus from it. Once the operation has stopped, that
   answer has the browser load the run's page again (`HX-Redirect`, the
   page without the notice of what was asked), which shows what the
-  operation left: the proposal's payments, the release's files.
+  operation left: the proposal's payments, the release's files. A
+  proposal cancelled leaves its run being proposed until the worker fails
+  it, so the section asks again until then; a failed run shows its
+  progress too, with why the proposal stopped.
 - **Cancel and resume.** While an operation is queued or running, a
   person holding `platform.operation.cancel` cancels it
   (`POST /payments/{id}/cancel`, the operation named in the form, its
@@ -1602,16 +1605,18 @@ and where it departs from the step as first written:
   the file's ETag. All but the transmission are `x-agent: false` and
   marked human-only. Done, the run's page says so (`?done=…`); refused, it
   is rendered again with the refusal and what was typed. Segregation of
-  duties is the API's: the forms are not offered to the run's proposer,
-  nor to the approver of its release, and the page says why; one sent
-  anyway is refused (`identity.sod_conflict`) and explained by its code.
+  duties is the API's: no form is offered to the run's proposer, and the
+  approver of its release is offered its rejection but not its release
+  (ADR-0038: the approver never releases); the page says why, and a form
+  sent anyway is refused (`identity.sod_conflict`) and explained by its
+  code.
 - **Two-person release** (ADR-0038 as amended by T72m, product owner
   2026-10-22, in the API before this step). The page cannot know whether
   a run is above its company's `release_dual_limit` (configuration and
   rates), so the release is offered as usual; when it answers
-  `payments.release_approval_required`, the page says why and offers to
-  ask for the second approval (`submitPaymentRun`), as it does after a
-  request was withdrawn. The run's page shows the request's state
+  `payments.release_approval_required` (or `_outdated`), the page says
+  why and offers to ask for the second approval (`submitPaymentRun`), as
+  it does after a request was withdrawn. The run's page shows the request's state
   (waiting, approved with by whom and when, rejected, withdrawn), the
   total asked for and a link to the request; while it waits, the run may
   be rejected but not released. The approval is decided in the approvals
@@ -1625,7 +1630,7 @@ and where it departs from the step as first written:
   proposal's choice, `listPaymentRuns`, `listPrincipalNames`), a run six
   (`getPaymentRun`, `listPayments`, `listPaymentExclusions`,
   `listBankFiles` once released or being released, names), the progress
-  three (`getPaymentRun`, `getOperation`). A run's payments, exclusions,
+  three (`getCurrentPrincipal`, `getPaymentRun`, `getOperation`). A run's payments, exclusions,
   files and operation that the API refuses are said in their place.
 - **Departs from the tracker row.** A payment and an exclusion name their
   supplier by id: the API gives no supplier's name on them and

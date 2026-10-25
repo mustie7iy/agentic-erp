@@ -97,7 +97,8 @@ func (s *Server) showRun(w http.ResponseWriter, r *http.Request, p *person, m me
 	q := r.URL.Query()
 	rp := ui.RunPage{Number: run.DocumentNumber, Done: runDone[q.Get("done")], Refusal: refused, Building: run.Status == "proposing",
 		FilesShown: run.Status == "released" || run.Status == "releasing"}
-	if (run.Status == "proposing" || run.Status == "releasing") && m.may(permReadOperations) {
+	// A failed run's progress says why its proposal stopped.
+	if (run.Status == "proposing" || run.Status == "releasing" || run.Status == "failed") && m.may(permReadOperations) {
 		rp.Progress = runPath(id) + "/progress"
 	}
 	if !rp.Building && !s.runLists(w, r, p, m, id, q, &rp) {
@@ -258,31 +259,35 @@ func releaseApproval(run gen.PaymentRun, names map[uuid.UUID]ui.Name) *ui.Releas
 	return v
 }
 
-// decider is why the person may not release or reject the run, "" when
-// they may (advisory, ADR-0052 §7): they lack the permission, or
-// segregation of duties keeps them out, as its proposer or the approver
-// of its release (ADR-0038).
+// decider is why the person may not decide the run, "" when they may
+// (advisory, ADR-0052 §7): they lack the permission, or segregation of
+// duties keeps its proposer from releasing or rejecting it (ADR-0038).
 func decider(run gen.PaymentRun, m me) i18n.Key {
-	a, asked := run.ReleaseApproval.Get()
 	switch {
 	case !m.may(permReleaseRuns):
 		return i18n.RunNotYours
 	case run.ProposedBy == m.ID:
 		return i18n.RunOwn
-	case asked && a.ApprovedBy.Or(uuid.Nil) == m.ID:
-		return i18n.RunApprover
 	}
 	return ""
+}
+
+// approver reports whether the person approved the run's release, which
+// keeps them from releasing it, not from rejecting it (ADR-0038 as
+// amended by T72m).
+func approver(run gen.PaymentRun, m me) bool {
+	a, asked := run.ReleaseApproval.Get()
+	return asked && a.ApprovedBy.Or(uuid.Nil) == m.ID
 }
 
 // runForms are the person's decisions on a proposed run (advisory,
 // ADR-0052 §7: the API decides each call), each a form with the run's
 // ETag and a fresh idempotency key, the one they sent holding what they
-// typed; without any, why. Its proposer, and the approver of its
-// release, decide nothing (segregation of duties); while the second
-// approval waits, the run may be rejected but not released; the second
-// approval is asked for once the release answered that it needs one, or
-// after a request was withdrawn.
+// typed; without any, why. Its proposer decides nothing and the
+// approver of its release may only reject it (segregation of duties);
+// while the second approval waits, the run may be rejected but not
+// released; the second approval is asked for once the release answered
+// that it needs one (or a new one), or after a request was withdrawn.
 func runForms(run gen.PaymentRun, m me, p *person, tag string, t runTyped) ([]ui.RunForm, i18n.Key) {
 	if run.Status != "proposed" {
 		return nil, ""
@@ -292,7 +297,11 @@ func runForms(run gen.PaymentRun, m me, p *person, tag string, t runTyped) ([]ui
 	}
 	a, asked := run.ReleaseApproval.Get()
 	var verbs []string
-	if !asked || a.Status != "pending" {
+	why := i18n.Key("")
+	switch {
+	case approver(run, m):
+		why = i18n.RunApprover
+	case !asked || a.Status != "pending":
 		verbs = append(verbs, ui.RunRelease)
 	}
 	if t.askApproval || (asked && a.Status == "withdrawn") {
@@ -307,5 +316,5 @@ func runForms(run gen.PaymentRun, m me, p *person, tag string, t runTyped) ([]ui
 		}
 		out = append(out, f)
 	}
-	return out, ""
+	return out, why
 }

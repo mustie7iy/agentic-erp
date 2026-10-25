@@ -126,6 +126,16 @@ func runTag(t *testing.T, run uuid.UUID) string {
 	return fmt.Sprintf(`"%d"`, version)
 }
 
+// offers checks which of the verbs' forms the run's page offers.
+func offers(t *testing.T, what string, p page, run uuid.UUID, want map[string]bool) {
+	t.Helper()
+	for verb, offered := range want {
+		if got := runForm(p, run, verb) != nil; got != offered {
+			t.Errorf("%s, %s: offered %v, want %v", what, verb, got, offered)
+		}
+	}
+}
+
 // runStatus is a run's status, from the database.
 func runStatus(t *testing.T, run uuid.UUID) string {
 	t.Helper()
@@ -181,14 +191,15 @@ func TestPropose(t *testing.T) {
 	holds(t, "the run proposed", built.mainText(), "Status Proposed", "Total EUR 119.00", "Proposed by proposer",
 		"You proposed this run, so another person releases or rejects it.", d.f.Supplier.String()+" EUR 119.00 None None None 1",
 		"Not yet", d.f.Vendor.String()+" The supplier has no bank account valid on the payment date EUR 59.50 None")
-	if strings.Contains(built.mainText(), "Show the progress") || len(built.all("form", "decide")) != 0 {
-		t.Error("the proposer's built run: offers its progress or a decision")
+	if strings.Contains(built.mainText(), "Show the progress") {
+		t.Error("the proposer's built run: offers its progress")
 	}
+	offers(t, "the proposer's built run", built, run, map[string]bool{"release": false, "reject": false, "submit": false})
 	refused := b.do(http.MethodPost, runPath(run)+"/release", url.Values{"csrf_token": {b.csrf()}, "if_match": {runTag(t, run)},
 		"idempotency_key": {uuid.NewString()}})
 	status(t, "the proposer releases anyway", refused, http.StatusForbidden)
 	holds(t, "the proposer releases anyway", refused.page(t).mainText(), "The run was not changed",
-		"Segregation of duties: whoever proposed a run, or approved its release, may not release or reject it.", "identity.sod_conflict")
+		"Segregation of duties: whoever proposed a run may neither release nor reject it", "identity.sod_conflict")
 	if got := runStatus(t, run); got != "proposed" {
 		t.Errorf("run: got %s, want proposed", got)
 	}
@@ -314,9 +325,7 @@ func TestReleaseAndTransmit(t *testing.T) {
 	run := proposed(s.as(d.proposer), d)
 	b := s.as(s.f.Approver)
 	p := b.get(runPath(run)).page(t)
-	if runForm(p, run, "release") == nil || runForm(p, run, "reject") == nil || runForm(p, run, "submit") != nil {
-		t.Fatal("the proposed run: want its release and rejection offered, no second approval")
-	}
+	offers(t, "the proposed run", p, run, map[string]bool{"release": true, "reject": true, "submit": false})
 	r := decideRunAs(b, run, "release", url.Values{"comment": {"Within the cash plan."}})
 	if r.status != http.StatusSeeOther || r.location() != runPath(run)+"?done=releasing" {
 		t.Fatalf("release: got %d to %q: %s", r.status, r.location(), r.body)
@@ -330,9 +339,10 @@ func TestReleaseAndTransmit(t *testing.T) {
 	released := b.get(runPath(run)).page(t)
 	holds(t, "the run released", released.mainText(), "Status Released", "Released or rejected by approver1", "Released or rejected on",
 		"2000-PR", "Yes", "Status Written, not sent", "Format pain.001", "Send to the bank")
-	if strings.Contains(released.mainText(), "Show the progress") || runForm(released, run, "release") != nil {
-		t.Error("the released run: offers its progress or its release")
+	if strings.Contains(released.mainText(), "Show the progress") {
+		t.Error("the released run: offers its progress")
 	}
+	offers(t, "the released run", released, run, map[string]bool{"release": false, "reject": false})
 	sent := decideRunAs(b, run, "transmit", nil)
 	if sent.status != http.StatusSeeOther || sent.location() != runPath(run)+"?done=transmitting" {
 		t.Fatalf("transmit: got %d to %q: %s", sent.status, sent.location(), sent.body)
@@ -408,12 +418,20 @@ func TestCancelAndResume(t *testing.T) {
 	if r.status != http.StatusSeeOther || r.location() != runPath(first)+"?done=cancelled" {
 		t.Fatalf("cancel: got %d to %q: %s", r.status, r.location(), r.body)
 	}
-	holds(t, "cancelled", b.get(r.location()).page(t).mainText(), "The operation is cancelled.")
+	holds(t, "cancelled", b.get(r.location()).page(t).mainText(), "The operation is cancelled.", "Status Being proposed")
+	waits := b.get(progressPath(first)+"?part=status", "HX-Request", "true")
+	if got := waits.header.Get("HX-Redirect"); got != "" {
+		t.Errorf("a cancelled proposal's run still being proposed: HX-Redirect %q, want none until the worker fails it", got)
+	}
+	holds(t, "a cancelled proposal waits", text(waits.page(t).doc), "Cancelled")
 	fixture.RunProposals(t)
 	if got := runStatus(t, first); got != "failed" {
 		t.Errorf("the run of a proposal cancelled: got %s, want failed", got)
 	}
-	holds(t, "the cancelled proposal", b.get(runPath(first)).page(t).mainText(), "Status Failed")
+	holds(t, "the cancelled proposal", b.get(runPath(first)).page(t).mainText(), "Status Failed", "Show the progress")
+	if got := b.get(progressPath(first)+"?part=status", "HX-Request", "true").header.Get("HX-Redirect"); got != runPath(first) {
+		t.Errorf("the failed run's status: HX-Redirect %q, want the run's page", got)
+	}
 	late := postForm(b, form, runPath(first)+"/cancel", url.Values{"idempotency_key": {uuid.NewString()}})
 	status(t, "cancelled once finished", late, http.StatusConflict)
 	holds(t, "cancelled once finished", late.page(t).mainText(), "The operation was not cancelled", "The operation has already finished",
@@ -478,9 +496,7 @@ func TestTwoPersonRelease(t *testing.T) {
 	waiting := b.get(r.location()).page(t)
 	holds(t, "waiting", waiting.mainText(), "The second approval is asked for.", "Second approval of the release", "State of the request Waiting for approval",
 		"Asked for a total of EUR 119.00", "The release waits for the second approval", "Open the approval request")
-	if runForm(waiting, run, "release") != nil || runForm(waiting, run, "reject") == nil {
-		t.Error("waiting: want the rejection offered and the release not")
-	}
+	offers(t, "waiting", waiting, run, map[string]bool{"release": false, "reject": true})
 	request := approvalRequestOf(t, waiting)
 	second := s.as(d.f.Approver2)
 	inbox := second.get("/approvals").page(t).mainText()
@@ -490,7 +506,9 @@ func TestTwoPersonRelease(t *testing.T) {
 		t.Fatalf("the approval: got %d %s", a.status, a.page(t).mainText())
 	}
 	holds(t, "approved", b.get(runPath(run)).page(t).mainText(), "State of the request Approved", "Approved by approver2", "Approved on", "Release the run")
-	holds(t, "the approver's page", second.get(runPath(run)).page(t).mainText(), "You approved this run's release, so another person releases it.")
+	approvers := second.get(runPath(run)).page(t)
+	holds(t, "the approver's page", approvers.mainText(), "You approved this run's release, so another person releases it. You may still reject it.")
+	offers(t, "the approver's page", approvers, run, map[string]bool{"release": false, "reject": true, "submit": false})
 	if r := decideRunAs(b, run, "release", nil); r.status != http.StatusSeeOther {
 		t.Fatalf("released once approved: got %d %s", r.status, r.page(t).mainText())
 	}
