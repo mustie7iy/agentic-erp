@@ -1016,4 +1016,5 @@ const (
 	EntryTooManyCodes           Key = "entry.codes.many"
 	EntryLookupRefused          Key = "entry.lookup.refused"
 	CSVExtraFields              Key = "csv.fields.extra"
+	CSVTooFewRows               Key = "csv.rows.few"
 )

@@ -81,9 +81,14 @@ func TestLookupsBounded(t *testing.T) {
 	known := uuid.New()
 	got := lk.lookUp([]string{"A", "B", "A", "C", "K", known.String(), ""}, book{ids: map[string]uuid.UUID{"K": known}, more: true},
 		i18n.EntryPartnerUnknown, find)
-	if calls != 2 || got["A"].err != i18n.EntryPartnerUnknown || got["C"].err != i18n.EntryTooManyCodes || got["K"].id != known ||
-		got[known.String()].id != known {
-		t.Errorf("bounded: %d calls, got %+v", calls, got)
+	if calls != 2 {
+		t.Errorf("calls: got %d, want 2", calls)
+	}
+	for code, want := range map[string]found{"A": {err: i18n.EntryPartnerUnknown}, "B": {err: i18n.EntryPartnerUnknown},
+		"C": {err: i18n.EntryTooManyCodes}, "K": {id: known}, known.String(): {id: known}} {
+		if got[code] != want {
+			t.Errorf("code %s: got %+v, want %+v", code, got[code], want)
+		}
 	}
 	if got := lk.lookUp([]string{"Z"}, book{}, i18n.EntryPartnerUnknown, find); got["Z"].err != i18n.EntryPartnerUnknown || calls != 2 {
 		t.Errorf("a whole book: %d calls, got %+v", calls, got)

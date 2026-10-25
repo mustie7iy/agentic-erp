@@ -580,7 +580,7 @@ func TestUploadLines(t *testing.T) {
 		"wrong rows":    {[]byte("account,amount,tax_code\n999999,1.00,\n520000,x,VVVVV\n"), []string{"Rows of the file to correct", "Row 3, amount: Enter the amount", "Row 3, tax_code: A tax code has"}},
 		"unknown codes": {[]byte("account,amount,partner\n999999,1.00,\n100000,-1.00,BP0\n"), []string{"Row 2, account: No account of the company's chart has this number.", "Row 3, partner: There is no partner with this number."}},
 		"extra fields":  {[]byte("account,amount\n520000,1.00,x\n100000,-1.00\n"), []string{"has more fields than its first row names columns"}},
-		"one line":      {[]byte("account,amount\n520000,1.00\n"), []string{"An entry has at least two lines."}},
+		"one line":      {[]byte("account,amount\n520000,1.00\n"), []string{"The file has one line under its first row"}},
 		"refused by the API": {[]byte("account,amount,cost_center\n520000,1.00,\n100000,-1.00,CC100\n"), []string{"The lines were not replaced",
 			"ledger.cost_center_invalid", "Row 3, cost_center: refused by the ERP (not_allowed)."}},
 		"unbalanced": {[]byte("account,amount\n520000,1.00\n100000,-2.00\n"), []string{"The lines do not balance", "ledger.unbalanced"}},

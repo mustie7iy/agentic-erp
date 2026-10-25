@@ -80,7 +80,7 @@ func csvLines(data []byte) ([]entryLine, i18n.Key) {
 	case 0:
 		return nil, i18n.CSVNoRows
 	case 1:
-		return nil, i18n.EntryLinesTooFew
+		return nil, i18n.CSVTooFewRows
 	}
 	return lines, ""
 }

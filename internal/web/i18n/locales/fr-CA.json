@@ -994,5 +994,6 @@
   "problem.config.no_number_range": "La société n'a pas de tranche de numéros pour ce type de pièce cette année. Adressez-vous à l'administrateur de l'ERP.",
   "entry.codes.many": "L'écriture nomme plus de partenaires, ou de comptes et de centres au-delà des 500 premiers de la société, qu'il n'en est vérifié à la fois. Nommez-les par leur identifiant, ou téléversez moins de lignes à la fois.",
   "entry.lookup.refused": "Vous ne pouvez pas vérifier cette valeur : il faut une autorisation que vous n'avez pas.",
-  "csv.fields.extra": "Une ligne du fichier compte plus de champs que sa première ligne ne nomme de colonnes."
+  "csv.fields.extra": "Une ligne du fichier compte plus de champs que sa première ligne ne nomme de colonnes.",
+  "csv.rows.few": "Le fichier n'a qu'une ligne sous sa première ligne : une écriture en compte au moins deux."
 }

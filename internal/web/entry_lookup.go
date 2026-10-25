@@ -289,7 +289,9 @@ func (s *Server) segments(ctx context.Context) (book, finder) {
 	return codesOf(s, ctx, "segment", func(code string) (any, error) {
 		size, c := filtered(code)
 		return s.API.ListSegments(ctx, gen.ListSegmentsParams{PageSize: size, Code: c})
-	}, func(p *gen.SegmentPageHeaders) ([]gen.Segment, bool) { return p.Response.Items, p.Response.NextPageToken.Set },
+	}, func(p *gen.SegmentPageHeaders) ([]gen.Segment, bool) {
+		return p.Response.Items, p.Response.NextPageToken.Set
+	},
 		func(c gen.Segment) string { return c.Code }, func(c gen.Segment) uuid.UUID { return c.ID })
 }
 

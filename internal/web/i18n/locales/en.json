@@ -994,5 +994,6 @@
   "problem.config.no_number_range": "The company has no number range for this document type in this year. Ask the ERP administrator.",
   "entry.codes.many": "The entry names more partners, or accounts and centers beyond the company's first 500, than are looked up at once. Name them by their ids, or upload fewer lines at a time.",
   "entry.lookup.refused": "You may not look this up: it needs a permission you do not have.",
-  "csv.fields.extra": "A row of the file has more fields than its first row names columns."
+  "csv.fields.extra": "A row of the file has more fields than its first row names columns.",
+  "csv.rows.few": "The file has one line under its first row: an entry has at least two."
 }
