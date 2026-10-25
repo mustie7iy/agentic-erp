@@ -76,6 +76,8 @@ owner 2026-10-22, ADR-0038): a releaser first `:submit`s it, which opens a
 `payment_run_release` approval request that a second person, neither the
 proposer nor the releaser, approves; the approval moves nothing on, and
 `:release` stays the release step, refused until the approval is there.
+A rejected request rejects the run and frees its items (product owner
+2026-10-25), so a new run is proposed; a withdrawn one leaves it proposed.
 The requester, human or agent, may
 `:cancel` its own pending request with a reason.
 

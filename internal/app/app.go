@@ -196,7 +196,7 @@ func New(cfg Config) (http.Handler, error) {
 			approvals.OrderChange:       procurement.OrderChanges{Endpoints: procurementEndpoints(cfg)},
 			approvals.BankClearing:      payments.BankClearings{Endpoints: Payments(cfg)},
 			approvals.CenterChange:      ledger.CenterChanges{},
-			approvals.PaymentRunRelease: payments.ReleaseApprovals{},
+			approvals.PaymentRunRelease: payments.ReleaseApprovals{Endpoints: Payments(cfg)},
 		}}},
 		procurementAPI: procurementEndpoints(cfg),
 		payablesAPI:    payablesEndpoints(cfg, upload),

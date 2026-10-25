@@ -491,23 +491,30 @@ func (e *Endpoints) RejectRun(ctx context.Context, id uuid.UUID, ifMatch func(in
 			return Run{}, err
 		}
 	}
+	return e.reject(ctx, tx, p, r.ID, reason)
+}
+
+// reject rejects the locked proposed run and frees its items for later
+// runs, here and in the ledger; its event names the release request that
+// ended with it (withdrawn by :reject, or rejected by its approver).
+func (e *Endpoints) reject(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run uuid.UUID, reason string) (Run, error) {
 	tag, err := tx.Exec(ctx, `UPDATE payments.payment_item i SET is_active = false FROM payments.payment p
-		WHERE p.tenant_id = i.tenant_id AND p.id = i.payment_id AND p.payment_run_id = $1 AND i.is_active`, r.ID)
+		WHERE p.tenant_id = i.tenant_id AND p.id = i.payment_id AND p.payment_run_id = $1 AND i.is_active`, run)
 	if err != nil {
-		return Run{}, fmt.Errorf("payments: free the items of run %s: %w", r.ID, err)
+		return Run{}, fmt.Errorf("payments: free the items of run %s: %w", run, err)
 	}
-	if err := e.Postings.Release(ctx, r.ID, nil); err != nil {
+	if err := e.Postings.Release(ctx, run, nil); err != nil {
 		return Run{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payments.payment_run SET status = 'rejected', decided_by = $2, decided_at = now(), version = version + 1,
-		updated_by = $2 WHERE id = $1`, r.ID, p.ID); err != nil {
-		return Run{}, fmt.Errorf("payments: reject run %s: %w", r.ID, err)
+		updated_by = $2 WHERE id = $1`, run, p.ID); err != nil {
+		return Run{}, fmt.Errorf("payments: reject run %s: %w", run, err)
 	}
-	rejected, err := load(ctx, tx, r.ID, false)
+	rejected, err := load(ctx, tx, run, false)
 	if err != nil {
 		return Run{}, err
 	}
-	return rejected, record(ctx, "payments.payment_run.reject", r.ID, map[string]any{"reason": reason, "released_items": tag.RowsAffected()},
+	return rejected, record(ctx, "payments.payment_run.reject", run, map[string]any{"reason": reason, "released_items": tag.RowsAffected()},
 		runEvent(rejected, "payment_run_rejected", map[string]any{"workflow_request_id": requestOf(rejected, ReleaseWithdrawn, ReleaseRejected), "released_item_count": tag.RowsAffected()}))
 }
 

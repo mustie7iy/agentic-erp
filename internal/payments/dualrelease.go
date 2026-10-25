@@ -205,8 +205,11 @@ func requestOf(r Run, outcomes ...string) *uuid.UUID {
 // ReleaseApprovals records the outcome of a run's release request on the
 // run (approvals.Handler for approvals.PaymentRunRelease), in the deciding
 // transaction. The approval does not release the run: the release stays
-// its own human step.
-type ReleaseApprovals struct{}
+// its own human step. A rejection rejects the run (product owner
+// 2026-10-25), which needs the endpoints that free its items.
+type ReleaseApprovals struct {
+	Endpoints *Endpoints
+}
 
 // Approved records the second person's approval. Only a proposed run
 // waiting for this request is changed (the run is locked, the update
@@ -232,18 +235,37 @@ func (ReleaseApprovals) Approved(ctx context.Context, run, request uuid.UUID) er
 	return record(ctx, "payments.payment_run.release_approved", run, map[string]any{"approval_request_id": request})
 }
 
-// Rejected records the refusal: the run stays proposed, to be asked for
-// again or rejected.
-func (ReleaseApprovals) Rejected(ctx context.Context, run, request uuid.UUID, comment string) error {
-	return decided(ctx, run, request, ReleaseRejected, comment)
+// Rejected records the refusal and rejects the run, freeing its items, so
+// a new run is proposed rather than the same one put to approver after
+// approver (product owner 2026-10-25). Only a proposed run that waits for
+// this request is changed: a callback run again after its commit finds
+// the run rejected and changes nothing, and a request the run no longer
+// waits for (it was withdrawn, or another asked for) fails the decision.
+func (h ReleaseApprovals) Rejected(ctx context.Context, run, request uuid.UUID, comment string) error {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return err
+	}
+	r, err := load(ctx, tx, run, true)
+	if err != nil {
+		return err
+	}
+	if r.Status == Rejected && r.Release != nil && r.Release.Status == ReleaseRejected && r.Release.RequestID == request {
+		return nil // this rejection was recorded already
+	}
+	if err := requireProposed(r, "rejected"); err != nil {
+		return err
+	}
+	if err := endRelease(ctx, tx, p, run, request, ReleaseRejected, comment); err != nil {
+		return err
+	}
+	_, err = h.Endpoints.reject(ctx, tx, p, run, "its release was rejected (approval request "+request.String()+"): "+comment)
+	return err
 }
 
-// Cancelled records that the requester withdrew the request.
+// Cancelled records that the requester withdrew the request: the run
+// stays proposed, to be asked for again or rejected.
 func (ReleaseApprovals) Cancelled(ctx context.Context, run, request uuid.UUID, comment string) error {
-	return decided(ctx, run, request, ReleaseWithdrawn, comment)
-}
-
-func decided(ctx context.Context, run, request uuid.UUID, outcome, comment string) error {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return err
@@ -251,7 +273,7 @@ func decided(ctx context.Context, run, request uuid.UUID, outcome, comment strin
 	if _, err := load(ctx, tx, run, true); err != nil {
 		return err
 	}
-	return endRelease(ctx, tx, p, run, request, outcome, comment)
+	return endRelease(ctx, tx, p, run, request, ReleaseWithdrawn, comment)
 }
 
 // Barred bars the run's proposer from approving its release (segregation

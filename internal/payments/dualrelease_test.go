@@ -231,9 +231,10 @@ func wantAudits(t *testing.T, e env, run map[string]any, actions ...string) {
 	}
 }
 
-// TestDualReleaseRefused: a rejected or withdrawn approval leaves the run
-// proposed, its release refused until it is asked for again; rejecting
-// the run withdraws a pending request.
+// TestDualReleaseRefused: a withdrawn approval leaves the run proposed,
+// its release refused until it is asked for again; rejecting the run
+// withdraws a pending request. A rejected approval rejects the run
+// (TestDualReleaseRejected).
 func TestDualReleaseRefused(t *testing.T) {
 	e := dualSetup(t, "500.00")
 	run := e.proposedBy(t, e.Tenant.Human, "INV-NO", "600.00")
@@ -242,12 +243,6 @@ func TestDualReleaseRefused(t *testing.T) {
 		got := e.act(t, e.Approver, 200, run, "submit", "")
 		return got["release_approval"].(map[string]any)["request_id"].(string)
 	}
-	t.Run("rejected", func(t *testing.T) {
-		request := ask(t)
-		e.decideRequest(t, e.Approver2, 200, request, "reject", `{"comment": "Not this week"}`)
-		wantField(t, e.approval(t, run), "status", "rejected")
-		e.refused(t, e.Approver, 409, "payments.release_approval_required", run, "release", "")
-	})
 	t.Run("withdrawn by the requester", func(t *testing.T) {
 		request := ask(t)
 		_, tag := e.As(e.Approver).Must(200, "GET", "/v1/approval-requests/"+request, "", "")
@@ -267,8 +262,58 @@ func TestDualReleaseRefused(t *testing.T) {
 			t.Fatalf("payment_run_rejected events: got %d, want 1", len(events))
 		}
 		wantField(t, events[0], "workflow_request_id", request)
+		cb := payments.ReleaseApprovals{Endpoints: endpoints(nil)}
+		if err := apitest.InRequest(t, e.Tenant, e.Approver2, func(ctx context.Context) error {
+			return cb.Rejected(ctx, uuidOf(id(run)), uuidOf(request), "late")
+		}); err == nil {
+			t.Error("rejection callback for the withdrawn request of a rejected run: got nil error, want a refusal")
+		}
 	})
-	wantAudits(t, e, run, "payments.payment_run.release_rejected", "payments.payment_run.release_withdrawn")
+	wantAudits(t, e, run, "payments.payment_run.release_withdrawn")
+}
+
+// TestDualReleaseRejected: a rejected release approval rejects the run and
+// frees its items, so a new run is proposed rather than the same one put
+// to approver after approver; the callback run again changes nothing.
+func TestDualReleaseRejected(t *testing.T) {
+	e := dualSetup(t, "500.00")
+	run := e.proposedBy(t, e.Tenant.Human, "INV-RJ", "600.00")
+	got := e.act(t, e.Approver, 200, run, "submit", "")
+	request := obj(got, "release_approval")["request_id"].(string)
+	e.decideRequest(t, e.Approver2, 200, request, "reject", `{"comment": "Not this week"}`)
+	after, _ := e.Must(200, "GET", runPath(run), "", "")
+	wantField(t, after, "status", "rejected")
+	wantField(t, after, "decided_by", e.Approver2.ID)
+	wantField(t, obj(after, "release_approval"), "status", "rejected")
+	var held int
+	pgtest.Scan(t, `SELECT count(*) FROM ledger.item_reservation WHERE owner_id = $1 AND released_at IS NULL`, []any{uuidOf(id(run))}, &held)
+	if held != 0 {
+		t.Errorf("items the rejected run still holds: got %d, want 0", held)
+	}
+	events := apitest.Published(t, e.Tenant, outbox.Event{Context: "payments", Name: "payment_run_rejected"})
+	if len(events) != 1 {
+		t.Fatalf("payment_run_rejected events: got %d, want 1", len(events))
+	}
+	wantField(t, events[0], "workflow_request_id", request)
+	wantField(t, events[0], "released_item_count", float64(1))
+	wantAudits(t, e, run, "payments.payment_run.release_rejected", "payments.payment_run.reject")
+	t.Run("the callback run again", func(t *testing.T) {
+		cb := payments.ReleaseApprovals{Endpoints: endpoints(nil)}
+		if err := apitest.InRequest(t, e.Tenant, e.Approver2, func(ctx context.Context) error {
+			return cb.Rejected(ctx, uuidOf(id(run)), uuidOf(request), "again")
+		}); err != nil {
+			t.Fatalf("second rejection callback: got %v, want nil", err)
+		}
+		again, _ := e.Must(200, "GET", runPath(run), "", "")
+		wantField(t, again, "version", after["version"])
+		if n := len(apitest.Published(t, e.Tenant, outbox.Event{Context: "payments", Name: "payment_run_rejected"})); n != 1 {
+			t.Errorf("payment_run_rejected events after the second callback: got %d, want 1", n)
+		}
+	})
+	t.Run("a new run pays the freed item", func(t *testing.T) {
+		again := e.proposedBy(t, e.Tenant.Human, "INV-RJ2", "100.00")
+		wantField(t, again, "total_amount", map[string]any{"amount": "700.00", "currency": "EUR"})
+	})
 }
 
 // TestDualReleaseOutdated: an approval holds for the total it was asked
@@ -359,8 +404,8 @@ func TestDualReleaseForeignCurrency(t *testing.T) {
 }
 
 // TestReleaseApprovalsUnwaited: the approval callbacks change only a run
-// waiting for the request; another request, or a run that does not exist,
-// fails the decision.
+// waiting for the request; another request, a run no longer proposed, or a
+// run that does not exist, fails the decision.
 func TestReleaseApprovalsUnwaited(t *testing.T) {
 	e := dualSetup(t, "500.00")
 	run := e.proposedBy(t, e.Tenant.Human, "INV-CB", "600.00")
@@ -397,7 +442,7 @@ func TestDualReleaseDatabaseFailures(t *testing.T) {
 	request := ask(pending)
 	fresh := e.proposedBy(t, e.Tenant.Human, "INV-F3", "800.00")
 	anyVersion := func(int32) error { return nil }
-	cb := payments.ReleaseApprovals{}
+	cb := payments.ReleaseApprovals{Endpoints: h}
 	calls := map[string]func(ctx context.Context) error{
 		"submit": func(ctx context.Context) error {
 			_, err := h.SubmitRelease(ctx, uuidOf(id(fresh)), anyVersion)

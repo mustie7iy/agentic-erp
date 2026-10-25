@@ -379,10 +379,17 @@ suffices, as before. `:reject` needs the release role too (T72l).
   after a rejected or withdrawn one, 409 `payments.release_approval_pending`
   while it waits, 409 `payments.release_approval_outdated` when the run's
   total is now above the total approved, and 403 `identity.sod_conflict`
-  for the approver. A rejection leaves the run proposed: it is asked for
-  again or rejected (whether a rejection should end the run is a product
-  owner question). Rejecting the run, or releasing it once it no longer
-  needs the approval (the limit raised), withdraws a pending request, so
+  for the approver. A rejection of the request rejects the run (product
+  owner 2026-10-25): the callback locks the run `FOR UPDATE` and, only
+  while it is proposed and waits for that request, records the rejection
+  and rejects the run as `:reject` does (its items freed here and in the
+  ledger, `payments.payment_run.reject` audited, `payment_run_rejected`
+  naming the request), so a new run is proposed rather than the same one
+  put to approver after approver. The callback run again finds the run
+  rejected by that request and changes nothing. A request withdrawn by
+  its requester leaves the run proposed, to be asked for again or
+  rejected. Rejecting the run, or releasing it once it no longer needs
+  the approval (the limit raised), withdraws a pending request, so
   nothing is approved after the run is decided.
 - **A resumed release is not measured again.** A release whose operation
   failed or was cancelled leaves the run `releasing`, some payments
@@ -414,4 +421,5 @@ suffices, as before. `:reject` needs the release role too (T72l).
   and `approval_completed` for the request, and `payment_run_released` and
   `payment_run_rejected` name it in `workflow_request_id`. The callbacks
   change the run only while it waits for that request, guarded in the
-  update, so a decision is recorded once.
+  update, so a decision is recorded once (a repeated rejection is a
+  no-op, see above).
