@@ -211,11 +211,17 @@ func planCostCenter(ctx context.Context, tx pgx.Tx, c CostCenter, kind string, p
 }
 
 // checkCostCenterSpans checks the cost center's periods after a change:
-// that they change something, that a default cost center stays usable
+// that they change something, that its posted lines do not contradict
+// them (costCenterInUse), that a default cost center stays usable
 // (keepsDefaultCostCenter) and their profit centers.
 func checkCostCenterSpans(ctx context.Context, tx pgx.Tx, c CostCenter, kind string, spans []span[CostCenterAttrs], today time.Time) error {
 	if _, _, differ := diffSpans(c.Periods, spans); !differ {
 		return nothingToChange()
+	}
+	if kind != KindCreate {
+		if err := costCenterInUse(ctx, tx, c, spans); err != nil {
+			return err
+		}
 	}
 	if kind == KindRedate || kind == KindLock {
 		if err := keepsDefaultCostCenter(ctx, tx, c.ID, spans, today); err != nil {

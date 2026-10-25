@@ -4292,6 +4292,8 @@ paths:
         - ledger.center_change_pending
         - ledger.cost_center_category_invalid
         - ledger.cost_center_exists
+        - ledger.cost_center_period_in_use
+        - ledger.cost_center_posted_after
         - ledger.default_center_in_use
         - ledger.hierarchy_change_invalid
         - ledger.invalid_validity
@@ -4492,13 +4494,15 @@ paths:
       tags:
         - ledger
       summary: Request a new validity of a cost center
-      description: "Extends or ends the cost center's validity: the first period starts at `valid_from`, the last ends at `valid_to` (exclusive; `null` open-ended). A cost center that is a company's default cost center for accounts (the configuration's `default_assignments`, ADR-0050 §4) must stay valid from today with no end and unlocked for actual costs, so automatic postings can use it (409 `ledger.default_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
+      description: "Extends or ends the cost center's validity: the first period starts at `valid_from`, the last ends at `valid_to` (exclusive; `null` open-ended). A validity ending on or before the posting date of a line on the cost center is refused (409 `ledger.cost_center_posted_after`), as is a later start once lines are posted before it (409 `ledger.cost_center_period_in_use`), both checked at the request and again at the approval (ADR-0050 §3). A cost center that is a company's default cost center for accounts (the configuration's `default_assignments`, ADR-0050 §4) must stay valid from today with no end and unlocked for actual costs, so automatic postings can use it (409 `ledger.default_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
       x-permission: ledger.cost_center.change
       x-autonomy: propose
       x-problem-codes:
         - config.not_bootstrapped
         - ledger.center_change_pending
         - ledger.cost_center_category_invalid
+        - ledger.cost_center_period_in_use
+        - ledger.cost_center_posted_after
         - ledger.default_center_in_use
         - ledger.invalid_center_status
         - ledger.invalid_validity
@@ -4564,13 +4568,15 @@ paths:
       tags:
         - ledger
       summary: Request to lock or unlock a cost center
-      description: "Sets or clears the cost center's locks for actual primary costs, actual revenue and plan from `valid_from` to `valid_to` (exclusive; absent: to the end of its validity), within its validity (422 `ledger.invalid_validity`). Locking and unlocking are people's decisions: agents may not request them. A cost center that is a company's default cost center for accounts (the configuration's `default_assignments`, ADR-0050 §4) must stay valid from today with no end and unlocked for actual costs, so automatic postings can use it (409 `ledger.default_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
+      description: "Sets or clears the cost center's locks for actual primary costs, actual revenue and plan from `valid_from` to `valid_to` (exclusive; absent: to the end of its validity), within its validity (422 `ledger.invalid_validity`). Lines already posted on the cost center keep what they read: a change of its category, profit center or actual-cost or revenue locks in force on a date it has lines posted on is refused (409 `ledger.cost_center_period_in_use`; the change is made from a later date instead), checked at the request and again at the approval (ADR-0050 §3). Locking and unlocking are people's decisions: agents may not request them. A cost center that is a company's default cost center for accounts (the configuration's `default_assignments`, ADR-0050 §4) must stay valid from today with no end and unlocked for actual costs, so automatic postings can use it (409 `ledger.default_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
       x-permission: ledger.cost_center.change
       x-agent: false
       x-problem-codes:
         - config.not_bootstrapped
         - ledger.center_change_pending
         - ledger.cost_center_category_invalid
+        - ledger.cost_center_period_in_use
+        - ledger.cost_center_posted_after
         - ledger.default_center_in_use
         - ledger.invalid_center_status
         - ledger.invalid_validity
@@ -4636,13 +4642,15 @@ paths:
       tags:
         - ledger
       summary: Request to move a cost center
-      description: "Assigns the cost center to another profit center (`null`: none, so its lines take the company's default) or category from `valid_from` to the end of its validity, as a new period (ADR-0050 §3). The profit center must be active, assigned to the cost center's legal entity and valid from `valid_from` to the end of the cost center's validity (422 `ledger.profit_center_invalid`). The category must be one of the configuration's active `controlling.cost_center_categories` (422 `ledger.cost_center_category_invalid`). Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
+      description: "Assigns the cost center to another profit center (`null`: none, so its lines take the company's default) or category from `valid_from` to the end of its validity, as a new period (ADR-0050 §3). The profit center must be active, assigned to the cost center's legal entity and valid from `valid_from` to the end of the cost center's validity (422 `ledger.profit_center_invalid`). The category must be one of the configuration's active `controlling.cost_center_categories` (422 `ledger.cost_center_category_invalid`). Lines already posted on the cost center keep what they read: a change of its category, profit center or actual-cost or revenue locks in force on a date it has lines posted on is refused (409 `ledger.cost_center_period_in_use`; the change is made from a later date instead), checked at the request and again at the approval (ADR-0050 §3). Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
       x-permission: ledger.cost_center.change
       x-autonomy: propose
       x-problem-codes:
         - config.not_bootstrapped
         - ledger.center_change_pending
         - ledger.cost_center_category_invalid
+        - ledger.cost_center_period_in_use
+        - ledger.cost_center_posted_after
         - ledger.default_center_in_use
         - ledger.invalid_center_status
         - ledger.invalid_validity
@@ -4954,6 +4962,7 @@ paths:
         - ledger.no_exchange_rate
         - ledger.nothing_to_change
         - ledger.profit_center_in_use
+        - ledger.segment_in_use
         - request.version_mismatch
         - workflow.no_policy
         - workflow.request_pending
@@ -5026,6 +5035,7 @@ paths:
         - ledger.no_exchange_rate
         - ledger.nothing_to_change
         - ledger.profit_center_in_use
+        - ledger.segment_in_use
         - request.version_mismatch
         - workflow.no_policy
         - workflow.request_pending
@@ -5085,7 +5095,7 @@ paths:
       tags:
         - ledger
       summary: Request to move a profit center to another segment
-      description: "Assigns the profit center to another segment (`null`: none). Once lines carry the profit center (T56d), its segment is fixed: a segment move is then a reorganisation (ADR-0050 §3). Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
+      description: "Assigns the profit center to another segment (`null`: none). Once lines carry the profit center, its segment is fixed: a segment move is then a reorganisation with reposting, refused at the request and again at the approval (409 `ledger.segment_in_use`, ADR-0050 §3). Opens a pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied when the request is approved. One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`)."
       x-permission: ledger.cost_center.change
       x-autonomy: propose
       x-problem-codes:
@@ -5098,6 +5108,7 @@ paths:
         - ledger.no_exchange_rate
         - ledger.nothing_to_change
         - ledger.profit_center_in_use
+        - ledger.segment_in_use
         - request.version_mismatch
         - workflow.no_policy
         - workflow.request_pending
@@ -5212,6 +5223,7 @@ paths:
         - ledger.no_exchange_rate
         - ledger.nothing_to_change
         - ledger.profit_center_in_use
+        - ledger.segment_in_use
         - request.version_mismatch
         - workflow.no_policy
         - workflow.request_pending
@@ -6485,6 +6497,20 @@ paths:
           in: query
           required: false
           description: "Only entries of this ledger (`GET /v1/ledgers`); defaults to the leading ledger."
+          schema:
+            type: string
+            format: uuid
+        - name: cost_center_id
+          in: query
+          required: false
+          description: "Only entries with a line on this cost center (ADR-0050 §5); each entry is listed with all its lines."
+          schema:
+            type: string
+            format: uuid
+        - name: profit_center_id
+          in: query
+          required: false
+          description: "Only entries with a line on this profit center (ADR-0050 §5); each entry is listed with all its lines."
           schema:
             type: string
             format: uuid
@@ -14469,6 +14495,8 @@ paths:
         - ledger.clearing_not_balanced
         - ledger.cost_center_category_invalid
         - ledger.cost_center_invalid
+        - ledger.cost_center_period_in_use
+        - ledger.cost_center_posted_after
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.default_center_in_use
@@ -14500,6 +14528,7 @@ paths:
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.rate_not_recordable
+        - ledger.segment_in_use
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -23764,6 +23793,33 @@ components:
           $ref: "#/components/schemas/Money"
           description: "The declared base in local currency, converted with the entry's rate; set with `tax_base`."
           readOnly: true
+        cost_center_id:
+          type: string
+          format: uuid
+          description: "The line's cost center (ADR-0050 §5): as entered or derived (the account's default cost center); absent when it has none."
+          readOnly: true
+        cost_center_code:
+          type: string
+          description: "Code of the cost center, set with `cost_center_id`."
+          readOnly: true
+        profit_center_id:
+          type: string
+          format: uuid
+          description: "The line's profit center: as entered, its cost center's on the posting date, or the company's default profit center on a P&L line with profit center accounting; absent when it has none."
+          readOnly: true
+        profit_center_code:
+          type: string
+          description: "Code of the profit center, set with `profit_center_id`."
+          readOnly: true
+        segment_id:
+          type: string
+          format: uuid
+          description: "The line's segment: always its profit center's; absent when it has none."
+          readOnly: true
+        segment_code:
+          type: string
+          description: "Code of the segment, set with `segment_id`."
+          readOnly: true
         line_text:
           type: string
           description: Line text.
@@ -24022,6 +24078,18 @@ components:
         quantity:
           $ref: "#/components/schemas/Quantity"
           description: Quantity.
+        cost_center_id:
+          type: string
+          format: uuid
+          description: "Cost center of the line (ADR-0050 §5): one of the entry's legal entity, active, valid on the posting date and not locked for the line's kind (422 `ledger.cost_center_invalid` with the reason as the field error's code). Only on a primary cost or revenue account (revenue: a category that allows it). Without one, a primary cost line takes the account's default cost center while cost center accounting applies, or is refused (422 `ledger.cost_center_required`)."
+        profit_center_id:
+          type: string
+          format: uuid
+          description: "Profit center of the line: assigned to the legal entity, active, valid and unlocked on the posting date (422 `ledger.profit_center_invalid`). A line with a cost center takes its cost center's, and another one given is refused (422 `ledger.profit_center_mismatch`); without either, a P&L line takes the company's default profit center while profit center accounting applies."
+        segment_id:
+          type: string
+          format: uuid
+          description: "Segment of the line: derived from the profit center, so one given must be its profit center's (422 `ledger.segment_mismatch`)."
         line_text:
           type: string
           description: Line text.
@@ -24226,6 +24294,33 @@ components:
         quantity:
           $ref: "#/components/schemas/Quantity"
           description: Quantity, where relevant.
+          readOnly: true
+        cost_center_id:
+          type: string
+          format: uuid
+          description: "The cost center entered on the line (JournalLineInput `cost_center_id`), absent when none was: the rest is derived when the entry is posted, and checked when it is parked."
+          readOnly: true
+        cost_center_code:
+          type: string
+          description: "Code of the cost center, set with `cost_center_id`."
+          readOnly: true
+        profit_center_id:
+          type: string
+          format: uuid
+          description: "The profit center entered on the line, absent when none was."
+          readOnly: true
+        profit_center_code:
+          type: string
+          description: "Code of the profit center, set with `profit_center_id`."
+          readOnly: true
+        segment_id:
+          type: string
+          format: uuid
+          description: "The segment entered on the line, absent when none was."
+          readOnly: true
+        segment_code:
+          type: string
+          description: "Code of the segment, set with `segment_id`."
           readOnly: true
         line_text:
           type: string

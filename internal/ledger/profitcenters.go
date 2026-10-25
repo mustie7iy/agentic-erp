@@ -142,7 +142,7 @@ func planProfitCenter(ctx context.Context, tx pgx.Tx, c ProfitCenter, kind strin
 		if equalIDs(p.Segment.ID, c.SegmentID) {
 			return nil, nothingToChange()
 		}
-		return c.Periods, nil
+		return c.Periods, segmentInUse(ctx, tx, c)
 	case KindAssign:
 		if len(newCompanies(c, p.LegalEntityIDs)) == 0 {
 			return nil, nothingToChange()

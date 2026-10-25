@@ -30632,6 +30632,42 @@ func (s *JournalLine) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.CostCenterID.Set {
+			e.FieldStart("cost_center_id")
+			s.CostCenterID.Encode(e)
+		}
+	}
+	{
+		if s.CostCenterCode.Set {
+			e.FieldStart("cost_center_code")
+			s.CostCenterCode.Encode(e)
+		}
+	}
+	{
+		if s.ProfitCenterID.Set {
+			e.FieldStart("profit_center_id")
+			s.ProfitCenterID.Encode(e)
+		}
+	}
+	{
+		if s.ProfitCenterCode.Set {
+			e.FieldStart("profit_center_code")
+			s.ProfitCenterCode.Encode(e)
+		}
+	}
+	{
+		if s.SegmentID.Set {
+			e.FieldStart("segment_id")
+			s.SegmentID.Encode(e)
+		}
+	}
+	{
+		if s.SegmentCode.Set {
+			e.FieldStart("segment_code")
+			s.SegmentCode.Encode(e)
+		}
+	}
+	{
 		if s.LineText.Set {
 			e.FieldStart("line_text")
 			s.LineText.Encode(e)
@@ -30639,7 +30675,7 @@ func (s *JournalLine) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfJournalLine = [15]string{
+var jsonFieldsNameOfJournalLine = [21]string{
 	0:  "line_no",
 	1:  "account_id",
 	2:  "amount",
@@ -30654,7 +30690,13 @@ var jsonFieldsNameOfJournalLine = [15]string{
 	11: "special_gl",
 	12: "tax_base",
 	13: "tax_base_lc",
-	14: "line_text",
+	14: "cost_center_id",
+	15: "cost_center_code",
+	16: "profit_center_id",
+	17: "profit_center_code",
+	18: "segment_id",
+	19: "segment_code",
+	20: "line_text",
 }
 
 // Decode decodes JournalLine from json.
@@ -30662,7 +30704,7 @@ func (s *JournalLine) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode JournalLine to nil")
 	}
-	var requiredBitSet [2]uint8
+	var requiredBitSet [3]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -30810,6 +30852,66 @@ func (s *JournalLine) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tax_base_lc\"")
 			}
+		case "cost_center_id":
+			if err := func() error {
+				s.CostCenterID.Reset()
+				if err := s.CostCenterID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cost_center_id\"")
+			}
+		case "cost_center_code":
+			if err := func() error {
+				s.CostCenterCode.Reset()
+				if err := s.CostCenterCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cost_center_code\"")
+			}
+		case "profit_center_id":
+			if err := func() error {
+				s.ProfitCenterID.Reset()
+				if err := s.ProfitCenterID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"profit_center_id\"")
+			}
+		case "profit_center_code":
+			if err := func() error {
+				s.ProfitCenterCode.Reset()
+				if err := s.ProfitCenterCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"profit_center_code\"")
+			}
+		case "segment_id":
+			if err := func() error {
+				s.SegmentID.Reset()
+				if err := s.SegmentID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"segment_id\"")
+			}
+		case "segment_code":
+			if err := func() error {
+				s.SegmentCode.Reset()
+				if err := s.SegmentCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"segment_code\"")
+			}
 		case "line_text":
 			if err := func() error {
 				s.LineText.Reset()
@@ -30829,8 +30931,9 @@ func (s *JournalLine) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [2]uint8{
+	for i, mask := range [3]uint8{
 		0b00011111,
+		0b00000000,
 		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
@@ -30925,6 +31028,24 @@ func (s *JournalLineInput) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.CostCenterID.Set {
+			e.FieldStart("cost_center_id")
+			s.CostCenterID.Encode(e)
+		}
+	}
+	{
+		if s.ProfitCenterID.Set {
+			e.FieldStart("profit_center_id")
+			s.ProfitCenterID.Encode(e)
+		}
+	}
+	{
+		if s.SegmentID.Set {
+			e.FieldStart("segment_id")
+			s.SegmentID.Encode(e)
+		}
+	}
+	{
 		if s.LineText.Set {
 			e.FieldStart("line_text")
 			s.LineText.Encode(e)
@@ -30932,15 +31053,18 @@ func (s *JournalLineInput) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfJournalLineInput = [8]string{
-	0: "account_id",
-	1: "amount",
-	2: "partner_id",
-	3: "tax_code",
-	4: "tax_jurisdiction",
-	5: "tax_base",
-	6: "quantity",
-	7: "line_text",
+var jsonFieldsNameOfJournalLineInput = [11]string{
+	0:  "account_id",
+	1:  "amount",
+	2:  "partner_id",
+	3:  "tax_code",
+	4:  "tax_jurisdiction",
+	5:  "tax_base",
+	6:  "quantity",
+	7:  "cost_center_id",
+	8:  "profit_center_id",
+	9:  "segment_id",
+	10: "line_text",
 }
 
 // Decode decodes JournalLineInput from json.
@@ -30948,7 +31072,7 @@ func (s *JournalLineInput) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode JournalLineInput to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -31024,6 +31148,36 @@ func (s *JournalLineInput) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"quantity\"")
 			}
+		case "cost_center_id":
+			if err := func() error {
+				s.CostCenterID.Reset()
+				if err := s.CostCenterID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cost_center_id\"")
+			}
+		case "profit_center_id":
+			if err := func() error {
+				s.ProfitCenterID.Reset()
+				if err := s.ProfitCenterID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"profit_center_id\"")
+			}
+		case "segment_id":
+			if err := func() error {
+				s.SegmentID.Reset()
+				if err := s.SegmentID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"segment_id\"")
+			}
 		case "line_text":
 			if err := func() error {
 				s.LineText.Reset()
@@ -31043,8 +31197,9 @@ func (s *JournalLineInput) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
+	for i, mask := range [2]uint8{
 		0b00000011,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -41950,6 +42105,42 @@ func (s *ParkedJournalLine) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.CostCenterID.Set {
+			e.FieldStart("cost_center_id")
+			s.CostCenterID.Encode(e)
+		}
+	}
+	{
+		if s.CostCenterCode.Set {
+			e.FieldStart("cost_center_code")
+			s.CostCenterCode.Encode(e)
+		}
+	}
+	{
+		if s.ProfitCenterID.Set {
+			e.FieldStart("profit_center_id")
+			s.ProfitCenterID.Encode(e)
+		}
+	}
+	{
+		if s.ProfitCenterCode.Set {
+			e.FieldStart("profit_center_code")
+			s.ProfitCenterCode.Encode(e)
+		}
+	}
+	{
+		if s.SegmentID.Set {
+			e.FieldStart("segment_id")
+			s.SegmentID.Encode(e)
+		}
+	}
+	{
+		if s.SegmentCode.Set {
+			e.FieldStart("segment_code")
+			s.SegmentCode.Encode(e)
+		}
+	}
+	{
 		if s.LineText.Set {
 			e.FieldStart("line_text")
 			s.LineText.Encode(e)
@@ -41957,16 +42148,22 @@ func (s *ParkedJournalLine) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfParkedJournalLine = [9]string{
-	0: "line_no",
-	1: "account_id",
-	2: "amount",
-	3: "partner_id",
-	4: "tax_code",
-	5: "tax_jurisdiction",
-	6: "tax_base",
-	7: "quantity",
-	8: "line_text",
+var jsonFieldsNameOfParkedJournalLine = [15]string{
+	0:  "line_no",
+	1:  "account_id",
+	2:  "amount",
+	3:  "partner_id",
+	4:  "tax_code",
+	5:  "tax_jurisdiction",
+	6:  "tax_base",
+	7:  "quantity",
+	8:  "cost_center_id",
+	9:  "cost_center_code",
+	10: "profit_center_id",
+	11: "profit_center_code",
+	12: "segment_id",
+	13: "segment_code",
+	14: "line_text",
 }
 
 // Decode decodes ParkedJournalLine from json.
@@ -42061,6 +42258,66 @@ func (s *ParkedJournalLine) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"quantity\"")
+			}
+		case "cost_center_id":
+			if err := func() error {
+				s.CostCenterID.Reset()
+				if err := s.CostCenterID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cost_center_id\"")
+			}
+		case "cost_center_code":
+			if err := func() error {
+				s.CostCenterCode.Reset()
+				if err := s.CostCenterCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cost_center_code\"")
+			}
+		case "profit_center_id":
+			if err := func() error {
+				s.ProfitCenterID.Reset()
+				if err := s.ProfitCenterID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"profit_center_id\"")
+			}
+		case "profit_center_code":
+			if err := func() error {
+				s.ProfitCenterCode.Reset()
+				if err := s.ProfitCenterCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"profit_center_code\"")
+			}
+		case "segment_id":
+			if err := func() error {
+				s.SegmentID.Reset()
+				if err := s.SegmentID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"segment_id\"")
+			}
+		case "segment_code":
+			if err := func() error {
+				s.SegmentCode.Reset()
+				if err := s.SegmentCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"segment_code\"")
 			}
 		case "line_text":
 			if err := func() error {

@@ -31,7 +31,9 @@ func parkedToAPI(pe ParkedEntry) gen.ParkedJournalEntry {
 	for i, l := range pe.Lines {
 		line := gen.ParkedJournalLine{LineNo: l.LineNo, AccountID: l.AccountID, Amount: apitypes.Money(l.TC, pe.Currency, pe.Exp),
 			PartnerID: apitypes.OptUUID(l.PartnerID), TaxCode: apitypes.OptString(l.TaxCode), LineText: apitypes.OptString(l.Text),
-			TaxJurisdiction: apitypes.OptString(l.TaxJurisdiction)}
+			TaxJurisdiction: apitypes.OptString(l.TaxJurisdiction), CostCenterID: apitypes.OptUUID(l.CostCenterID),
+			CostCenterCode: apitypes.OptString(l.CostCenterCode), ProfitCenterID: apitypes.OptUUID(l.ProfitCenterID),
+			ProfitCenterCode: apitypes.OptString(l.ProfitCenterCode), SegmentID: apitypes.OptUUID(l.SegmentID), SegmentCode: apitypes.OptString(l.SegmentCode)}
 		if l.Quantity != nil {
 			line.Quantity.SetTo(gen.Quantity{Value: *l.Quantity, Unit: *l.Unit})
 		}

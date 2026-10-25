@@ -27877,6 +27877,12 @@ type ListJournalEntriesParams struct {
 	SourceDocumentID OptUUID `json:",omitempty,omitzero"`
 	// Only entries of this ledger (`GET /v1/ledgers`); defaults to the leading ledger.
 	LedgerID OptUUID `json:",omitempty,omitzero"`
+	// Only entries with a line on this cost center (ADR-0050 §5); each entry is listed with all its
+	// lines.
+	CostCenterID OptUUID `json:",omitempty,omitzero"`
+	// Only entries with a line on this profit center (ADR-0050 §5); each entry is listed with all its
+	// lines.
+	ProfitCenterID OptUUID `json:",omitempty,omitzero"`
 	// Maximum number of items to return. Defaults to 50, maximum 500.
 	PageSize OptInt32 `json:",omitempty,omitzero"`
 	// Opaque cursor from `next_page_token` of the previous page. Tokens are signed and encode the sort
@@ -27961,6 +27967,24 @@ func unpackListJournalEntriesParams(packed middleware.Parameters) (params ListJo
 		}
 		if v, ok := packed[key]; ok {
 			params.LedgerID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "cost_center_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.CostCenterID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "profit_center_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.ProfitCenterID = v.(OptUUID)
 		}
 	}
 	{
@@ -28380,6 +28404,88 @@ func decodeListJournalEntriesParams(args [0]string, argsEscaped bool, r *http.Re
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "ledger_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: cost_center_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "cost_center_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotCostCenterIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotCostCenterIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.CostCenterID.SetTo(paramsDotCostCenterIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "cost_center_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: profit_center_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "profit_center_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotProfitCenterIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotProfitCenterIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.ProfitCenterID.SetTo(paramsDotProfitCenterIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "profit_center_id",
 			In:   "query",
 			Err:  err,
 		}

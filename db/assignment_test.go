@@ -106,3 +106,42 @@ func TestJournalLineAssignment(t *testing.T) {
 		}
 	})
 }
+
+// TestParkedLineAssignment: a parked line's entered centers are the
+// tenant's (T56d2, migrations 000159-000160); posting checks the rest.
+func TestParkedLineAssignment(t *testing.T) {
+	need(t)
+	f := newCenters(t)
+	unknown := id()
+	for name, c := range map[string]struct {
+		column string
+		center uuid.UUID
+		want   string
+	}{
+		"an unknown cost center":     {"cost_center_id", unknown, "parked_entry_line_cost_center_fkey"},
+		"an unknown profit center":   {"profit_center_id", unknown, "parked_entry_line_profit_center_fkey"},
+		"an unknown segment":         {"segment_id", unknown, "parked_entry_line_segment_fkey"},
+		"the tenant's cost center":   {"cost_center_id", f.cc, ""},
+		"the tenant's profit center": {"profit_center_id", f.pc, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			pe := f.park(t, "human")
+			err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+				return exec(tx, `UPDATE ledger.parked_entry_line SET `+pgx.Identifier{c.column}.Sanitize()+` = $2 WHERE parked_entry_id = $1 AND line_no = 1`,
+					pe, c.center)
+			})
+			expect(t, err, c.want)
+		})
+	}
+	t.Run("the keys are validated", func(t *testing.T) {
+		var valid int
+		if err := testDB.QueryRow(t.Context(), `SELECT count(*) FROM pg_constraint WHERE conrelid = 'ledger.parked_entry_line'::regclass
+			AND conname IN ('parked_entry_line_cost_center_fkey', 'parked_entry_line_profit_center_fkey', 'parked_entry_line_segment_fkey')
+			AND convalidated`).Scan(&valid); err != nil {
+			t.Fatal(err)
+		}
+		if valid != 3 {
+			t.Errorf("validated keys: got %d, want 3", valid)
+		}
+	})
+}

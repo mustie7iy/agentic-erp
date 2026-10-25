@@ -178,11 +178,11 @@ func TestAssignmentDerived(t *testing.T) {
 		if err != nil {
 			t.Fatalf("post: %v", err)
 		}
-		a.in(t).lock(t, "/v1/cost-centers/"+a.cc2000.String(), `{"valid_from": "2026-05-01", "valid_to": "2026-06-01", "lock_actual_cost": true, "reason": "r"}`)
+		a.in(t).lock(t, "/v1/cost-centers/"+a.cc2000.String(), `{"valid_from": "2026-05-11", "valid_to": "2026-06-01", "lock_actual_cost": true, "reason": "r"}`)
 		var rev ledger.Entry
 		if err := apitest.Committed(t, a.ten, a.ten.Human, func(ctx context.Context) error {
 			var err error
-			rev, err = postings().Reverse(ctx, posted.ID, nil, nil)
+			rev, err = postings().Reverse(ctx, posted.ID, new(date("2026-05-20")), nil)
 			return err
 		}); err != nil {
 			t.Fatalf("reverse: %v", err)
@@ -295,15 +295,19 @@ func TestAssignmentDatabaseFailures(t *testing.T) {
 // TestAssignmentAndCenterLockSerialize: a posting and the approval of a
 // lock of its cost center queue on the center: a posting waits for a lock
 // being approved and is then refused for it, and the approval waits for a
-// posting under way, so no line lands on a center whose lock committed
-// first.
+// posting under way and is then refused for its line (T56d2), so no line
+// lands on a center whose lock committed first and no lock covers a line
+// that committed first.
 func TestAssignmentAndCenterLockSerialize(t *testing.T) {
 	a := setupAssigned(t)
 	path := "/v1/cost-centers/" + a.cc2000.String()
+	next := map[string]string{"10": "11", "11": "12"}
 	request := func(t *testing.T, month string) func(ctx context.Context) error {
 		t.Helper()
 		_, tag := a.in(t).Must(200, "GET", path, "", "")
-		ch, _ := a.in(t).Must(200, "POST", path+":lock", fmt.Sprintf(`{"valid_from": "2026-%s-01", "lock_actual_cost": true, "reason": "r"}`, month), tag)
+		// A month's lock: the second subtest posts after the first's.
+		ch, _ := a.in(t).Must(200, "POST", path+":lock", fmt.Sprintf(`{"valid_from": "2026-%s-01", "valid_to": "2026-%s-01", "lock_actual_cost": true,
+			"reason": "r"}`, month, next[month]), tag)
 		return func(ctx context.Context) error {
 			return ledger.CenterChanges{}.Approved(ctx, uuid.MustParse(ch["id"].(string)), uuid.MustParse(ch["workflow_request_id"].(string)))
 		}
@@ -316,15 +320,8 @@ func TestAssignmentAndCenterLockSerialize(t *testing.T) {
 			return err
 		}
 	}
-	t.Run("posting first", func(t *testing.T) {
-		first, second := serializeOn(t, a.ten, "the cost center", rowLockWaits(t), post("2026-11-10"), request(t, "11"))
-		if first != nil {
-			t.Fatalf("posting: got %v, want it committed", first)
-		}
-		if second != nil {
-			t.Errorf("lock after the posting: got %v, want it applied once the posting committed", second)
-		}
-	})
+	// The lock first: the refused approval of the second leaves its change
+	// pending.
 	t.Run("lock first", func(t *testing.T) {
 		first, second := serializeOn(t, a.ten, "the cost center", rowLockWaits(t), request(t, "10"), post("2026-10-10"))
 		if first != nil {
@@ -332,6 +329,15 @@ func TestAssignmentAndCenterLockSerialize(t *testing.T) {
 		}
 		if p := problem.From(second); p.Code != "ledger.cost_center_invalid" || len(p.Errors) != 1 || p.Errors[0].Code != "locked_for_costs" {
 			t.Errorf("posting after the lock: got %v, want ledger.cost_center_invalid, locked_for_costs", second)
+		}
+	})
+	t.Run("posting first", func(t *testing.T) {
+		first, second := serializeOn(t, a.ten, "the cost center", rowLockWaits(t), post("2026-11-10"), request(t, "11"))
+		if first != nil {
+			t.Fatalf("posting: got %v, want it committed", first)
+		}
+		if got := problem.From(second).Code; got != "ledger.cost_center_period_in_use" {
+			t.Errorf("lock after the posting: got %v, want ledger.cost_center_period_in_use once the posting committed", second)
 		}
 	})
 }

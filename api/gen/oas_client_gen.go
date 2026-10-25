@@ -1545,14 +1545,18 @@ type Invoker interface {
 	//
 	// Sets or clears the cost center's locks for actual primary costs, actual revenue and plan from
 	// `valid_from` to `valid_to` (exclusive; absent: to the end of its validity), within its validity (422
-	// `ledger.invalid_validity`). Locking and unlocking are people's decisions: agents may not request
-	// them. A cost center that is a company's default cost center for accounts (the configuration's
-	// `default_assignments`, ADR-0050 §4) must stay valid from today with no end and unlocked for actual
-	// costs, so automatic postings can use it (409 `ledger.default_center_in_use`). Opens a pending center
-	// change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller
-	// holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is
-	// applied when the request is approved. One pending change per center (409
-	// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
+	// `ledger.invalid_validity`). Lines already posted on the cost center keep what they read: a change of
+	// its category, profit center or actual-cost or revenue locks in force on a date it has lines posted
+	// on is refused (409 `ledger.cost_center_period_in_use`; the change is made from a later date
+	// instead), checked at the request and again at the approval (ADR-0050 §3). Locking and unlocking are
+	// people's decisions: agents may not request them. A cost center that is a company's default cost
+	// center for accounts (the configuration's `default_assignments`, ADR-0050 §4) must stay valid from
+	// today with no end and unlocked for actual costs, so automatic postings can use it (409
+	// `ledger.default_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
+	// its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
+	// decides, never its requester and never an agent; the change is applied when the request is approved.
+	// One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409
+	// `ledger.invalid_center_status`).
 	//
 	// POST /v1/cost-centers/{id}:lock
 	LockCostCenter(ctx context.Context, request *CostCenterLock, params LockCostCenterParams) (LockCostCenterRes, error)
@@ -1631,11 +1635,14 @@ type Invoker interface {
 	// The profit center must be active, assigned to the cost center's legal entity and valid from
 	// `valid_from` to the end of the cost center's validity (422 `ledger.profit_center_invalid`). The
 	// category must be one of the configuration's active `controlling.cost_center_categories` (422
-	// `ledger.cost_center_category_invalid`). Opens a pending center change
-	// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
-	// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
-	// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
-	// The center must be `active` (409 `ledger.invalid_center_status`).
+	// `ledger.cost_center_category_invalid`). Lines already posted on the cost center keep what they read:
+	// a change of its category, profit center or actual-cost or revenue locks in force on a date it has
+	// lines posted on is refused (409 `ledger.cost_center_period_in_use`; the change is made from a later
+	// date instead), checked at the request and again at the approval (ADR-0050 §3). Opens a pending
+	// center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a
+	// controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the
+	// change is applied when the request is approved. One pending change per center (409
+	// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
 	//
 	// POST /v1/cost-centers/{id}:move
 	MoveCostCenter(ctx context.Context, request *CostCenterMove, params MoveCostCenterParams) (MoveCostCenterRes, error)
@@ -1653,12 +1660,13 @@ type Invoker interface {
 	MoveHierarchyNode(ctx context.Context, request *HierarchyNodeMove, params MoveHierarchyNodeParams) (MoveHierarchyNodeRes, error)
 	// MoveProfitCenter invokes moveProfitCenter operation.
 	//
-	// Assigns the profit center to another segment (`null`: none). Once lines carry the profit center
-	// (T56d), its segment is fixed: a segment move is then a reorganisation (ADR-0050 §3). Opens a
-	// pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request,
-	// which a controller holding `ledger.cost_center.approve` decides, never its requester and never an
-	// agent; the change is applied when the request is approved. One pending change per center (409
-	// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
+	// Assigns the profit center to another segment (`null`: none). Once lines carry the profit center, its
+	// segment is fixed: a segment move is then a reorganisation with reposting, refused at the request and
+	// again at the approval (409 `ledger.segment_in_use`, ADR-0050 §3). Opens a pending center change
+	// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+	// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
+	// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
+	// The center must be `active` (409 `ledger.invalid_center_status`).
 	//
 	// POST /v1/profit-centers/{id}:move
 	MoveProfitCenter(ctx context.Context, request *ProfitCenterMove, params MoveProfitCenterParams) (MoveProfitCenterRes, error)
@@ -1932,9 +1940,12 @@ type Invoker interface {
 	// RedateCostCenter invokes redateCostCenter operation.
 	//
 	// Extends or ends the cost center's validity: the first period starts at `valid_from`, the last ends
-	// at `valid_to` (exclusive; `null` open-ended). A cost center that is a company's default cost center
-	// for accounts (the configuration's `default_assignments`, ADR-0050 §4) must stay valid from today
-	// with no end and unlocked for actual costs, so automatic postings can use it (409
+	// at `valid_to` (exclusive; `null` open-ended). A validity ending on or before the posting date of a
+	// line on the cost center is refused (409 `ledger.cost_center_posted_after`), as is a later start once
+	// lines are posted before it (409 `ledger.cost_center_period_in_use`), both checked at the request and
+	// again at the approval (ADR-0050 §3). A cost center that is a company's default cost center for
+	// accounts (the configuration's `default_assignments`, ADR-0050 §4) must stay valid from today with
+	// no end and unlocked for actual costs, so automatic postings can use it (409
 	// `ledger.default_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
 	// its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
 	// decides, never its requester and never an agent; the change is applied when the request is approved.
@@ -28009,6 +28020,40 @@ func (c *Client) sendListJournalEntries(ctx context.Context, params ListJournalE
 		}
 	}
 	{
+		// Encode "cost_center_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "cost_center_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CostCenterID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "profit_center_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "profit_center_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.ProfitCenterID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
 		// Encode "page_size" parameter.
 		cfg := uri.QueryParameterEncodingConfig{
 			Name:    "page_size",
@@ -36037,14 +36082,18 @@ func (c *Client) sendListWebhookSubscriptions(ctx context.Context, params ListWe
 //
 // Sets or clears the cost center's locks for actual primary costs, actual revenue and plan from
 // `valid_from` to `valid_to` (exclusive; absent: to the end of its validity), within its validity (422
-// `ledger.invalid_validity`). Locking and unlocking are people's decisions: agents may not request
-// them. A cost center that is a company's default cost center for accounts (the configuration's
-// `default_assignments`, ADR-0050 §4) must stay valid from today with no end and unlocked for actual
-// costs, so automatic postings can use it (409 `ledger.default_center_in_use`). Opens a pending center
-// change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller
-// holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is
-// applied when the request is approved. One pending change per center (409
-// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
+// `ledger.invalid_validity`). Lines already posted on the cost center keep what they read: a change of
+// its category, profit center or actual-cost or revenue locks in force on a date it has lines posted
+// on is refused (409 `ledger.cost_center_period_in_use`; the change is made from a later date
+// instead), checked at the request and again at the approval (ADR-0050 §3). Locking and unlocking are
+// people's decisions: agents may not request them. A cost center that is a company's default cost
+// center for accounts (the configuration's `default_assignments`, ADR-0050 §4) must stay valid from
+// today with no end and unlocked for actual costs, so automatic postings can use it (409
+// `ledger.default_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
+// its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
+// decides, never its requester and never an agent; the change is applied when the request is approved.
+// One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409
+// `ledger.invalid_center_status`).
 //
 // POST /v1/cost-centers/{id}:lock
 func (c *Client) LockCostCenter(ctx context.Context, request *CostCenterLock, params LockCostCenterParams) (LockCostCenterRes, error) {
@@ -37057,11 +37106,14 @@ func (c *Client) sendMatchSupplierInvoice(ctx context.Context, params MatchSuppl
 // The profit center must be active, assigned to the cost center's legal entity and valid from
 // `valid_from` to the end of the cost center's validity (422 `ledger.profit_center_invalid`). The
 // category must be one of the configuration's active `controlling.cost_center_categories` (422
-// `ledger.cost_center_category_invalid`). Opens a pending center change
-// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
-// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
-// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
-// The center must be `active` (409 `ledger.invalid_center_status`).
+// `ledger.cost_center_category_invalid`). Lines already posted on the cost center keep what they read:
+// a change of its category, profit center or actual-cost or revenue locks in force on a date it has
+// lines posted on is refused (409 `ledger.cost_center_period_in_use`; the change is made from a later
+// date instead), checked at the request and again at the approval (ADR-0050 §3). Opens a pending
+// center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a
+// controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the
+// change is applied when the request is approved. One pending change per center (409
+// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
 //
 // POST /v1/cost-centers/{id}:move
 func (c *Client) MoveCostCenter(ctx context.Context, request *CostCenterMove, params MoveCostCenterParams) (MoveCostCenterRes, error) {
@@ -37406,12 +37458,13 @@ func (c *Client) sendMoveHierarchyNode(ctx context.Context, request *HierarchyNo
 
 // MoveProfitCenter invokes moveProfitCenter operation.
 //
-// Assigns the profit center to another segment (`null`: none). Once lines carry the profit center
-// (T56d), its segment is fixed: a segment move is then a reorganisation (ADR-0050 §3). Opens a
-// pending center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request,
-// which a controller holding `ledger.cost_center.approve` decides, never its requester and never an
-// agent; the change is applied when the request is approved. One pending change per center (409
-// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
+// Assigns the profit center to another segment (`null`: none). Once lines carry the profit center, its
+// segment is fixed: a segment move is then a reorganisation with reposting, refused at the request and
+// again at the approval (409 `ledger.segment_in_use`, ADR-0050 §3). Opens a pending center change
+// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
+// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
+// The center must be `active` (409 `ledger.invalid_center_status`).
 //
 // POST /v1/profit-centers/{id}:move
 func (c *Client) MoveProfitCenter(ctx context.Context, request *ProfitCenterMove, params MoveProfitCenterParams) (MoveProfitCenterRes, error) {
@@ -40413,9 +40466,12 @@ func (c *Client) sendRecordAgentToolCall(ctx context.Context, request *AgentTool
 // RedateCostCenter invokes redateCostCenter operation.
 //
 // Extends or ends the cost center's validity: the first period starts at `valid_from`, the last ends
-// at `valid_to` (exclusive; `null` open-ended). A cost center that is a company's default cost center
-// for accounts (the configuration's `default_assignments`, ADR-0050 §4) must stay valid from today
-// with no end and unlocked for actual costs, so automatic postings can use it (409
+// at `valid_to` (exclusive; `null` open-ended). A validity ending on or before the posting date of a
+// line on the cost center is refused (409 `ledger.cost_center_posted_after`), as is a later start once
+// lines are posted before it (409 `ledger.cost_center_period_in_use`), both checked at the request and
+// again at the approval (ADR-0050 §3). A cost center that is a company's default cost center for
+// accounts (the configuration's `default_assignments`, ADR-0050 §4) must stay valid from today with
+// no end and unlocked for actual costs, so automatic postings can use it (409
 // `ledger.default_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
 // its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
 // decides, never its requester and never an agent; the change is applied when the request is approved.

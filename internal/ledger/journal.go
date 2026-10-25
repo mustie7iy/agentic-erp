@@ -123,6 +123,10 @@ type Line struct {
 	CostCenterID   *uuid.UUID `json:"cost_center_id"`
 	ProfitCenterID *uuid.UUID `json:"profit_center_id"`
 	SegmentID      *uuid.UUID `json:"segment_id"`
+	// Their codes, as read (the journal API and JournalEntryPosted, T56d2).
+	CostCenterCode   *string `json:"cost_center_code"`
+	ProfitCenterCode *string `json:"profit_center_code"`
+	SegmentCode      *string `json:"segment_code"`
 	// keptLC is a local amount the posting keeps rather than converts
 	// (PostingLine.LC).
 	keptLC *money.Minor
@@ -143,14 +147,22 @@ const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id,
 			'gc', l.amount_gc, 'partner_id', l.partner_id, 'tax_code', l.tax_code, 'quantity', trim_scale(l.quantity)::text,
 			'unit', l.uom_code, 'text', l.line_text, 'purchase_order_id', l.purchase_order_id, 'po_item_no', l.po_item_no,
 			'special_gl', l.special_gl, 'tax_base_tc', l.tax_base_tc, 'tax_base_lc', l.tax_base_lc, 'tax_jurisdiction', l.tax_jurisdiction,
-			'cost_center_id', l.cost_center_id, 'profit_center_id', l.profit_center_id, 'segment_id', l.segment_id)
+			'cost_center_id', l.cost_center_id, 'profit_center_id', l.profit_center_id, 'segment_id', l.segment_id,
+			'cost_center_code', cc.code, 'profit_center_code', pc.code, 'segment_code', sg.code)
 			ORDER BY l.line_no)
-		 FROM ledger.journal_line l WHERE l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year AND l.journal_entry_id = e.id)
+		 FROM ledger.journal_line l` + centerJoins + ` WHERE l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year AND l.journal_entry_id = e.id)
 	FROM ledger.journal_entry e
 	JOIN ref.currency ctc ON ctc.code = e.currency_tc
 	JOIN ref.currency clc ON clc.code = e.currency_lc
 	JOIN ref.currency cgc ON cgc.code = e.currency_gc
 	LEFT JOIN ledger.reversal r ON r.tenant_id = e.tenant_id AND r.original_entry_id = e.id`
+
+// centerJoins joins a line l's cost center cc, profit center pc and
+// segment sg, for their codes.
+const centerJoins = `
+		LEFT JOIN ledger.cost_center cc ON cc.tenant_id = l.tenant_id AND cc.id = l.cost_center_id
+		LEFT JOIN ledger.profit_center pc ON pc.tenant_id = l.tenant_id AND pc.id = l.profit_center_id
+		LEFT JOIN ledger.segment sg ON sg.tenant_id = l.tenant_id AND sg.id = l.segment_id`
 
 func scanEntry(row pgx.Row) (Entry, error) {
 	var e Entry
@@ -451,6 +463,20 @@ func insertEntry(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d draft, c 
 	return posted, nil
 }
 
+// addCenters adds the line's assignment to its event line: each id with
+// its code, absent when the line has none (T56d2).
+func addCenters(line map[string]any, l Line) {
+	for _, c := range []struct {
+		name string
+		id   *uuid.UUID
+		code *string
+	}{{"cost_center", l.CostCenterID, l.CostCenterCode}, {"profit_center", l.ProfitCenterID, l.ProfitCenterCode}, {"segment", l.SegmentID, l.SegmentCode}} {
+		if c.id != nil {
+			line[c.name+"_id"], line[c.name+"_code"] = *c.id, *c.code
+		}
+	}
+}
+
 func postedEvent(e Entry) outbox.Event {
 	lines := make([]map[string]any, len(e.Lines))
 	for i, l := range e.Lines {
@@ -466,6 +492,7 @@ func postedEvent(e Entry) outbox.Event {
 		if l.SpecialGL != nil {
 			line["special_gl"] = *l.SpecialGL
 		}
+		addCenters(line, l)
 		lines[i] = line
 	}
 	return outbox.Event{Context: "ledger", Name: "journal_entry_posted", AggregateType: "ledger.journal_entry", AggregateID: e.ID,
