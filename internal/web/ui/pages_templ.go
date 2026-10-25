@@ -12,10 +12,10 @@ import "github.com/mustie7iy/agentic-erp/internal/web/i18n"
 
 // Jobs are the pilot's jobs (ADR-0052 §2, P6) still to become a screen;
 // the approvals inbox (T73d), the supplier invoices (T73e), the bank
-// statements (T73g) and the payment runs (T73f) are screens, in the
-// navigation.
+// statements (T73g), the payment runs (T73f) and the period close (T73i)
+// are screens, in the navigation.
 var Jobs = []i18n.Key{
-	i18n.JobJournal, i18n.JobClose, i18n.JobReports,
+	i18n.JobJournal, i18n.JobReports,
 }
 
 // Home is the signed-in person's home until the jobs' screens

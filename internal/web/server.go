@@ -197,6 +197,7 @@ func (s *Server) mux() *http.ServeMux {
 	for verb := range runOps {
 		route("POST "+ui.PaymentsPath+"/{id}/"+verb, s.signedIn(s.csrf(s.decideRun(verb))))
 	}
+	s.closeRoutes(route)
 	route("GET /signed-out", s.signedOut)
 	route("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		st := ui.Status{Version: s.Build.Version, Revision: s.Build.Revision}
@@ -205,6 +206,20 @@ func (s *Server) mux() *http.ServeMux {
 	route("GET /static/", s.Assets.ServeHTTP)
 	route("/", s.notFound)
 	return mux
+}
+
+// closeRoutes routes the period close's pages (T73i).
+func (s *Server) closeRoutes(route func(string, http.HandlerFunc)) {
+	route("GET "+ui.ClosePath, s.signedIn(s.periods))
+	route("GET "+ui.PeriodsBase+"/{id}", s.signedIn(s.period))
+	for verb := range periodOps {
+		route("POST "+ui.PeriodsBase+"/{id}/"+verb, s.signedIn(s.csrf(s.decidePeriod(verb))))
+	}
+	route("GET "+ui.ChecksPath, s.signedIn(s.checks))
+	route("GET "+ui.RevaluationPath, s.signedIn(s.revaluation))
+	route("POST "+ui.PreviewPath, s.signedIn(s.csrf(s.previewRevaluation)))
+	route("POST "+ui.RevaluePostPath, s.signedIn(s.csrf(s.postRevaluation)))
+	route("GET "+ui.RevaluationPath+"/{id}", s.signedIn(s.revaluationRun))
 }
 
 func (s *Server) shell(title i18n.Key, current string) ui.Shell {

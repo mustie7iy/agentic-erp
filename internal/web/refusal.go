@@ -57,3 +57,17 @@ func explain(title i18n.Key, prob gen.Problem, m me) *ui.Refusal {
 	}
 	return r
 }
+
+// inPlace is the refusal of one of a page's reads, explained in the
+// screen's words and shown in the read's place under its own id. ok is
+// false when the answer was written instead (apiFailed).
+func (s *Server) inPlace(w http.ResponseWriter, r *http.Request, p *person, m me, screen map[string]i18n.Key, operation string, res any, err error,
+	title i18n.Key, id string) (*ui.Refusal, bool) {
+	prob, show := s.refusal(w, r, p, operation, res, err)
+	if !show {
+		return nil, false
+	}
+	refused := explainIn(screen, title, prob, m)
+	refused.ID = id
+	return refused, true
+}

@@ -1668,9 +1668,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Profit center changes against posted lines (gap found in T56d2): a profit center's redate ending on or before a line carrying it, or a lock over a date with such lines, is checked only against the cost center periods naming it (ledger.profit_center_in_use), not the lines; the PO decides whether these are refused as the cost center's are (ledger.cost_center_posted_after / cost_center_period_in_use) before the step is built",
-        "r": "T56d4 (gap, ADR-0050 §5 as built: Not covered)",
+        "s": "D",
+        "t": "Profit center changes against posted lines and the same-kind lock check (gap found in T56d2; product owner 2026-10-25): a cost center's actual cost lock change is compared with its posted cost lines only (lines on expense accounts, the only ones whose cost_element can be primary_cost), its revenue lock with its revenue lines (revenue accounts), category, profit center and validity with every line; a reversal dated after a new end counts in the posted-after check (as built); a profit center's redate ending on or before a line carrying it is refused (409 ledger.profit_center_posted_after), a lock or later start over a date with such lines (409 ledger.profit_center_period_in_use; its one lock is read by every line), at the request and again at the approval; additive problem codes (x-problem-codes); no migration",
+        "r": "internal/ledger centeruse.go, profitcenters.go · api/openapi.yaml · ADR-0050 §3, §5 · 04 §4.6 · T56d4",
         "c": []
        },
        {
@@ -4643,9 +4643,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Period close screens: periods per company and ledger by fiscal year, close, open and lock with ETags and idempotency keys, the unlock request with its reason and its approval decided by the controller in the approvals inbox (T73d; the requester refused as approver by workflow.own_request, shown by the code), revaluation preview (key date from the period's end) and post with the run's page and the company's runs, pre-close checks loaded into the period's page (GR/IR positions still open, the period's ledger reconciled with another the company keeps, statements imported and after a gap): the statements link to their pages, their bank's reconciliation report and the lists by status (T73g); GR/IR and ledger reconciliation show their results in place without a link, their reports being T73j's; scenarios as accountant and as controller; EN and FR; axe at zero at 1280 and 390 px",
+        "r": "internal/web close.go · period.go · close_checks.go · revaluation.go · ui/close.templ · i18n PeriodProblems · RevaluationProblems · fixture close.go · TestPeriodList · TestCloseLockAndUnlock · TestPeriodRefusals · TestPreCloseChecks · TestRevaluation · TestCloseAsOthers · TestCloseStubbed · TestChecksStubbed · TestCloseUnavailable · TestPostRefusedBeforeTheAPI · TestCloseInTheBrowser · TestCloseJobsInTheBrowser · ADR-0052 Built in T73i · T73i",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Period close screens: periods per company and ledger, open, close and lock, unlock request and its approval, revaluation preview and post, pre-close checks (GR/IR, ledger reconciliation, statements not reconciled) linked to their reports",
-        "r": "T73i",
+        "t": "Period close beyond T73i: cancelling a revaluation run (cancelRevaluationRun, in ADR-0052 §2's list but not T73i's criteria); purchase orders, partners, journal entries and the ledger reconciliation's accounts named on the checks and the revaluation's items (shown by id: a contract change, or more calls than a page's six); the checks as at the period's end rather than now (listGrIrBalances takes a key date for one order only); the workspace's statements list (/bank) filtered by company, so the check's links by status are not tenant-wide (listBankStatements takes legal_entity_id; the screen offers no such filter); the entries behind a ledger difference (listLedgerReconciliationEntries, in ADR-0052 §2's list), as a drill-down beside T73j's report; the checks linked to T73j's GR/IR and ledger reconciliation reports once they exist; walked through by a pilot GL accountant and controller; the cause found of a mouse click at 390 px that did not submit a close form in TestCloseJobsInTheBrowser (T73i pressed those buttons by keyboard; check the other screens at phone width too)",
+        "r": "T73i2 (split from T73i, 2026-10-25)",
         "c": []
        },
        {

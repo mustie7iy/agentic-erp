@@ -185,8 +185,11 @@ the ones entered; `GET /v1/journal-entries` filters by `cost_center_id`
 and `profit_center_id`. A center change that contradicts posted lines is
 409: `ledger.cost_center_posted_after` (its validity would end on or before
 a line's posting date), `ledger.cost_center_period_in_use` (the attributes
-in force on a posted date would differ) and `ledger.segment_in_use` (a
-posted profit center's segment), at the request and again at the approval.
+in force on a posted date would differ; a lock is compared with the lines
+of its kind only), `ledger.profit_center_posted_after` and
+`ledger.profit_center_period_in_use` (the same for a profit center and the
+lines carrying it, T56d4) and `ledger.segment_in_use` (a posted profit
+center's segment), at the request and again at the approval.
 
 ## 4.7 Concurrency and idempotency
 

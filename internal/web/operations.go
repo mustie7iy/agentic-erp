@@ -33,6 +33,12 @@ const (
 	permTransmitFiles         = "payments.file.transmit"
 	permReadOperations        = "platform.operation.read"
 	permCancelOperations      = "platform.operation.cancel"
+	permReadPeriods           = "ledger.period.read"
+	permManagePeriods         = "ledger.period.manage"
+	permLockPeriods           = "ledger.period.lock"
+	permReadAccounts          = "ledger.account.read"
+	permReadEntries           = "ledger.entry.read"
+	permPostEntries           = "ledger.entry.post"
 )
 
 // objectApprovers are the decisions' x-object-permissions: the permission
@@ -79,7 +85,33 @@ var (
 	opRun    = []Operation{opMe, opGetRun, {ID: "listPayments", HiddenBy: permReadRuns}, {ID: "listPaymentExclusions", HiddenBy: permReadRuns},
 		{ID: "listBankFiles", HiddenBy: permReadRuns}, opNames}
 	opProgress = []Operation{opMe, opGetRun, {ID: "getOperation", HiddenBy: permReadOperations}}
+	// opPeriods are the reads of the periods' list (close.go), opPeriod
+	// those of a period's page (period.go) and opChecks those of the
+	// pre-close checks (close_checks.go), where the statements not
+	// reconciled are read once per status.
+	opLedgers    = Operation{ID: "listLedgers", HiddenBy: permReadAccounts}
+	opPeriods    = []Operation{opMe, opCompanies, opLedgers, {ID: "listFiscalPeriods", HiddenBy: permReadPeriods}, opNames}
+	opPeriod     = []Operation{opMe, {ID: "getFiscalPeriod", HiddenBy: permReadPeriods}, opCompanies, opLedgers, opNames}
+	opStatements = Operation{ID: "listBankStatements", HiddenBy: permReadStatements}
+	opChecks     = []Operation{opMe, opLedgers, {ID: "listGrIrBalances", HiddenBy: permReadEntries},
+		{ID: "listLedgerReconciliation", HiddenBy: permReadEntries}, opStatements, opStatements}
+	// opRevaluation are the reads of the revaluation's page (revaluation.go),
+	// opRevaluationRun those of a run's page; a preview's page names the
+	// accounts besides.
+	opAccounts       = Operation{ID: "listAccounts", HiddenBy: permReadAccounts}
+	opRevaluation    = []Operation{opMe, opCompanies, opLedgers, {ID: "listRevaluationRuns", HiddenBy: permReadEntries}, opNames}
+	opRevaluationRun = []Operation{opMe, {ID: "getRevaluationRun", HiddenBy: permReadEntries}, opCompanies, opLedgers, opAccounts, opNames}
 )
+
+// periodOps are the operations of the decisions on a period, by verb,
+// each hidden by its x-permission: opening and closing it, and its lock
+// and the request of its unlock, which are people's alone (T32).
+var periodOps = map[string]Operation{
+	ui.PeriodOpen:   {ID: "openFiscalPeriod", HiddenBy: permManagePeriods},
+	ui.PeriodClose:  {ID: "closeFiscalPeriod", HiddenBy: permManagePeriods},
+	ui.PeriodLock:   {ID: "lockFiscalPeriod", HiddenBy: permLockPeriods, HumanOnly: true},
+	ui.PeriodUnlock: {ID: "unlockFiscalPeriod", HiddenBy: permLockPeriods, HumanOnly: true},
+}
 
 // runOps are the operations of the decisions on a payment run, by verb,
 // each hidden by its x-permission: its release (and the resumption of a
@@ -138,6 +170,14 @@ var Screens = func() map[string][]Operation {
 		"GET /payments/{id}":                        opRun,
 		"GET /payments/{id}/progress":               opProgress,
 		"POST /payments/{id}/cancel":                append([]Operation{{ID: "cancelOperation", HiddenBy: permCancelOperations}}, opProgress...),
+		"GET /close":                                opPeriods,
+		"GET /close/periods/{id}":                   opPeriod,
+		"GET /close/checks":                         opChecks,
+		"GET /close/revaluation":                    opRevaluation,
+		"POST /close/revaluation/preview": append(append([]Operation{{ID: "previewRevaluation", HiddenBy: permReadEntries}}, opRevaluation...),
+			opAccounts),
+		"POST /close/revaluation/post": append([]Operation{{ID: "postRevaluationRun", HiddenBy: permPostEntries, HumanOnly: true}}, opRevaluation...),
+		"GET /close/revaluation/{id}":  opRevaluationRun,
 	}
 	for verb, op := range actionOps {
 		screens["POST /invoices/{id}/"+verb] = append([]Operation{op}, opInvoice...)
@@ -147,6 +187,9 @@ var Screens = func() map[string][]Operation {
 	}
 	for verb, op := range runOps {
 		screens["POST /payments/{id}/"+verb] = append([]Operation{op}, opRun...)
+	}
+	for verb, op := range periodOps {
+		screens["POST /close/periods/{id}/"+verb] = append([]Operation{op}, opPeriod...)
 	}
 	return screens
 }()

@@ -99,3 +99,29 @@ var PaymentProblems = map[string]Key{
 	"ledger.item_reserved":                   ProblemItemReserved,
 	"platform.operation_not_cancellable":     ProblemNotCancellable,
 }
+
+// PeriodProblems are the codes the period close screens (T73i) explain in
+// their own words, looked up before Problems: the ledger codes of a
+// period's opening, closing, lock and unlock request, the workflow codes
+// of the unlock's approval, and the general ones in a period's words.
+var PeriodProblems = map[string]Key{
+	"request.version_mismatch":     ProblemPeriodVersion,
+	"ledger.invalid_period_status": ProblemPeriodStatus,
+	"ledger.unlock_pending":        ProblemUnlockPending,
+	"workflow.request_pending":     ProblemUnlockPending,
+	"workflow.no_policy":           ProblemUnlockNoPolicy,
+	"workflow.unknown_role":        ProblemUnlockRole,
+}
+
+// RevaluationProblems are the codes the revaluation screens (T73i)
+// explain in their own words, looked up before Problems: the ledger codes
+// of a revaluation's preview and post.
+var RevaluationProblems = map[string]Key{
+	"ledger.key_date_not_period_end":     ProblemKeyDate,
+	"ledger.ledger_not_kept":             ProblemLedgerNotKept,
+	"ledger.no_exchange_rate":            ProblemRevaluationRate,
+	"ledger.rate_stale":                  ProblemRateStale,
+	"ledger.revaluation_account_missing": ProblemValuationAccount,
+	"ledger.revaluation_exists":          ProblemRevaluationExists,
+	"ledger.period_not_open":             ProblemRevaluationPeriod,
+}

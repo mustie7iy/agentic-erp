@@ -435,11 +435,5 @@ func isoDay(t time.Time) templ.Component { return Value(t.Format(time.DateOnly))
 // quantity is a quantity in the request's locale with its unit; outside a
 // request with a locale, as the API gives it.
 func quantity(value, unit string) templ.Component {
-	return Text(func(ctx context.Context) string {
-		v := value
-		if l, ok := i18n.From(ctx); ok {
-			v = l.Decimal(value)
-		}
-		return v + " " + unit
-	})
+	return Text(func(ctx context.Context) string { return decimal(ctx, value) + " " + unit })
 }
