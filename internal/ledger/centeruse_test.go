@@ -142,6 +142,39 @@ func TestCenterChangesInUseAtApproval(t *testing.T) {
 	}
 }
 
+// TestCenterChangesInUseOfReversals: a reversal dated after a center's
+// new end counts as a posting on it (product owner 2026-10-25), for a cost
+// center and for a profit center alike.
+func TestCenterChangesInUseOfReversals(t *testing.T) {
+	a := setupAssigned(t)
+	for name, c := range map[string]struct {
+		path, posted, reversed, end, want string
+		line                              ledger.PostingLine
+	}{
+		"a cost center": {"/v1/cost-centers/" + a.cc3000.String(), "2026-06-10", "2026-07-15", "2026-07-01", "ledger.cost_center_posted_after",
+			centered(a.it, 100, &a.cc3000, nil, nil)},
+		"a profit center": {"/v1/profit-centers/" + a.pcOld.String(), "2026-03-02", "2026-03-20", "2026-03-15", "ledger.profit_center_posted_after",
+			centered(a.revenue, -100, nil, &a.pcOld, nil)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := a.in(t)
+			posted, err := a.post(t, c.posted, c.line, ledger.PostingLine{AccountID: a.bank, Amount: -c.line.Amount})
+			if err != nil {
+				t.Fatalf("post: %v", err)
+			}
+			if err := apitest.Committed(t, a.ten, a.ten.Human, func(ctx context.Context) error {
+				_, err := postings().Reverse(ctx, posted.ID, new(date(c.reversed)), nil)
+				return err
+			}); err != nil {
+				t.Fatalf("reverse: %v", err)
+			}
+			if got := a.requestChange(t, c.path, "redate", fmt.Sprintf(`{"valid_to": %q, "reason": "r"}`, c.end)); got != c.want {
+				t.Errorf("an end between the posting and its reversal: got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
 // TestCenterInUseDatabaseFailures fails each statement of changes whose
 // in-use checks read posted lines.
 func TestCenterInUseDatabaseFailures(t *testing.T) {

@@ -47,11 +47,16 @@ type dateRange struct {
 }
 
 // costCenterReaders are the lines that read, on a date, what differs
-// between the cost center's attributes was and now: every line reads its
-// category and profit center, a cost line the actual cost lock, a revenue
-// line the revenue lock; no actual posting reads the plan lock.
+// between the cost center's attributes was and now: a cost line the actual
+// cost lock, a revenue line the revenue lock, no actual posting the plan
+// lock, and every line all the rest (its category and profit center, and
+// any attribute added later, so a new one is checked until it is placed).
 func costCenterReaders(was, now CostCenterAttrs) lineKinds {
-	if was.Category != now.Category || was.ProfitCenterID != now.ProfitCenterID {
+	unlocked := func(a CostCenterAttrs) CostCenterAttrs {
+		a.LockCost, a.LockRevenue, a.LockPlan = false, false, false
+		return a
+	}
+	if unlocked(was) != unlocked(now) {
 		return everyLine
 	}
 	var k lineKinds
