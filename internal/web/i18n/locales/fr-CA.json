@@ -991,5 +991,8 @@
   "problem.ledger.entry_is_copy": "Ceci est la copie d'un grand livre parallèle : contrepassez la première écriture de sa comptabilisation.",
   "problem.ledger.entry_cleared": "Les postes ouverts de l'écriture sont lettrés : annulez d'abord le lettrage.",
   "problem.ledger.legal_entity_not_active": "La société n'est pas active.",
-  "problem.config.no_number_range": "La société n'a pas de tranche de numéros pour ce type de pièce cette année. Adressez-vous à l'administrateur de l'ERP."
+  "problem.config.no_number_range": "La société n'a pas de tranche de numéros pour ce type de pièce cette année. Adressez-vous à l'administrateur de l'ERP.",
+  "entry.codes.many": "L'écriture nomme plus de partenaires, ou de comptes et de centres au-delà des 500 premiers de la société, qu'il n'en est vérifié à la fois. Nommez-les par leur identifiant, ou téléversez moins de lignes à la fois.",
+  "entry.lookup.refused": "Vous ne pouvez pas vérifier cette valeur : il faut une autorisation que vous n'avez pas.",
+  "csv.fields.extra": "Une ligne du fichier compte plus de champs que sa première ligne ne nomme de colonnes."
 }

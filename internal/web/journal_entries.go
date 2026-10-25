@@ -201,7 +201,8 @@ func (s *Server) showEntry(w http.ResponseWriter, r *http.Request, p *person, m 
 		Done: entryDone[r.URL.Query().Get("done")], Refusal: refused,
 		Back: ui.EntriesFor(url.Values{ui.FieldCompany: {e.LegalEntityID.String()}, ui.FieldLedger: {e.LedgerID.String()}})}
 	switch {
-	case e.ReversedByID.Set, e.ReversalOfID.Set:
+	case e.ReversedByID.Set, e.ReversalOfID.Set, !got.ETag.Set:
+		// Reversed, a reversal, or no version to send the reversal at.
 	case m.may(permPostEntries):
 		ep.Reverse = &ui.ReverseForm{Action: entryPath(id) + "/reverse", CSRF: p.CSRF, ETag: got.ETag.Value, Key: uuid.NewString(),
 			Date: t.date, Text: t.text, DateError: t.dateErr, TextError: t.textErr}

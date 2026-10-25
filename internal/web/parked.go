@@ -32,11 +32,19 @@ import (
 
 // parkedTyped is what the person sent in a parked entry's form that the
 // API refused or that was not valid: the verb, its reason and its error,
-// and a file's rows that were wrong.
+// and a file's rows that were wrong; and what the form's handler read
+// already, so the page is not read twice: the entry with its ETag, its
+// company's chart, and the approval request it waits for (or that it
+// could not be read).
 type parkedTyped struct {
 	verb, text string
 	textErr    i18n.Key
 	upload     *ui.LinesUpload
+	entry      *gen.ParkedJournalEntry
+	tag        string
+	chart      *chart
+	request    *gen.ApprovalRequestHeaders
+	noRequest  bool
 }
 
 // parkedEntry is a parked entry's page.
@@ -69,12 +77,21 @@ func (s *Server) readParked(w http.ResponseWriter, r *http.Request, p *person, m
 // forms fresh holding what the person typed, and the API's refusal of
 // what they asked.
 func (s *Server) showParked(w http.ResponseWriter, r *http.Request, p *person, m me, id uuid.UUID, status int, t parkedTyped, refused *ui.Refusal) {
-	pe, tag, ok := s.readParked(w, r, p, m, id)
-	if !ok {
-		return
+	pe, tag := gen.ParkedJournalEntry{}, t.tag
+	if t.entry != nil {
+		pe = *t.entry
+	} else {
+		var ok bool
+		if pe, tag, ok = s.readParked(w, r, p, m, id); !ok {
+			return
+		}
 	}
 	ctx := r.Context()
-	pp := ui.ParkedPage{Header: s.parkedHeader(ctx, p, m, pe), Lines: parkedLines(pe.Lines, s.chartOf(ctx, m, pe.LegalEntityID).names()),
+	if t.chart == nil {
+		ch := s.chartOf(ctx, m, pe.LegalEntityID)
+		t.chart = &ch
+	}
+	pp := ui.ParkedPage{Header: s.parkedHeader(ctx, p, m, pe), Lines: parkedLines(pe.Lines, t.chart.names()),
 		Done: parkedDone[r.URL.Query().Get("done")], Refusal: refused, Back: ui.JournalPath}
 	if req, ok := pe.ApprovalRequestID.Get(); ok {
 		pp.Approval = ui.ApprovalsPath + "/" + req.String()
@@ -172,14 +189,16 @@ func parkedForm(id uuid.UUID, verb string, p *person, tag string, t parkedTyped)
 func (s *Server) withdrawForm(ctx context.Context, pp *ui.ParkedPage, pe gen.ParkedJournalEntry, m me, p *person, t parkedTyped) {
 	pp.Why = i18n.ParkedWaits
 	request, ok := pe.ApprovalRequestID.Get()
-	if owner, owned := pe.OwnerID.Get(); !ok || !owned || owner != m.ID || !m.may(permCancelRequests) {
+	if owner, owned := pe.OwnerID.Get(); !ok || !owned || owner != m.ID || !m.may(permCancelRequests) || t.noRequest {
 		return
 	}
-	res, err := s.API.GetApprovalRequest(ctx, gen.GetApprovalRequestParams{ID: request})
-	got, ok := res.(*gen.ApprovalRequestHeaders)
-	if !ok {
-		s.Log.WarnContext(ctx, "web: a parked entry's approval request could not be read", "answer", res, "error", err)
-		return
+	got := t.request
+	if got == nil || got.Response.ID != request {
+		res, err := s.API.GetApprovalRequest(ctx, gen.GetApprovalRequestParams{ID: request})
+		if got, ok = res.(*gen.ApprovalRequestHeaders); !ok {
+			s.Log.WarnContext(ctx, "web: a parked entry's approval request could not be read", "answer", res, "error", err)
+			return
+		}
 	}
 	if got.Response.Status != "pending" {
 		return
@@ -211,7 +230,7 @@ func (s *Server) decideParked(verb string) func(http.ResponseWriter, *http.Reque
 			s.showParked(w, r, p, m, id, http.StatusUnprocessableEntity, t, nil)
 			return
 		}
-		res, written, err := s.sendParked(w, r, p, m, verb, id, ifMatch, key, t)
+		res, written, err := s.sendParked(w, r, p, m, verb, id, ifMatch, key, &t)
 		if written {
 			return
 		}
@@ -234,7 +253,7 @@ func (s *Server) decideParked(verb string) func(http.ResponseWriter, *http.Reque
 // entry's. written is true when the answer is written instead: the
 // request could not be read, or is not this entry's.
 func (s *Server) sendParked(w http.ResponseWriter, r *http.Request, p *person, m me, verb string, id uuid.UUID, ifMatch, key string,
-	t parkedTyped) (any, bool, error) {
+	t *parkedTyped) (any, bool, error) {
 	ctx := r.Context()
 	switch verb {
 	case ui.ParkedPost:
@@ -254,7 +273,8 @@ func (s *Server) sendParked(w http.ResponseWriter, r *http.Request, p *person, m
 	got, ok := res.(*gen.ApprovalRequestHeaders)
 	if !ok {
 		if refused, show := s.inPlace(w, r, p, m, i18n.EntryProblems, "getApprovalRequest", res, err, i18n.ParkedDecisionRefusedTitle, ""); show {
-			s.showParked(w, r, p, m, id, refusedStatus(res), t, refused)
+			t.noRequest = true // read once: the page offers no withdrawal
+			s.showParked(w, r, p, m, id, refusedStatus(res), *t, refused)
 		}
 		return nil, true, nil
 	}
@@ -262,6 +282,9 @@ func (s *Server) sendParked(w http.ResponseWriter, r *http.Request, p *person, m
 		s.notFound(w, r) // not this entry's request
 		return nil, true, nil
 	}
+	// Read just before the call: on a refusal the page offers the
+	// withdrawal again at this version, without reading it once more.
+	t.request = got
 	cres, err := s.API.CancelApprovalRequest(ctx, &gen.CommentRequiredInput{Comment: t.text}, gen.CancelApprovalRequestParams{ID: request,
 		IfMatch: ifMatch, IdempotencyKey: key})
 	return cres, false, err
@@ -298,29 +321,25 @@ func (s *Server) uploadLines(w http.ResponseWriter, r *http.Request, p *person) 
 	if !ok {
 		return
 	}
-	pe, _, ok := s.readParked(w, r, p, m, id)
+	pe, tag, ok := s.readParked(w, r, p, m, id)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
 	up := &ui.LinesUpload{}
-	data, fileErr := formFile(r, i18n.CSVFileNeeded, i18n.CSVTooLarge)
-	var lines []entryLine
-	if fileErr == "" {
-		lines, fileErr = csvLines(data)
-	}
+	read := parkedTyped{upload: up, entry: &pe, tag: tag}
+	lines, fileErr := uploadedLines(r, pe.Currency)
 	if up.FileError = fileErr; fileErr != "" {
-		s.showParked(w, r, p, m, id, http.StatusUnprocessableEntity, parkedTyped{upload: up}, nil)
+		s.showParked(w, r, p, m, id, http.StatusUnprocessableEntity, read, nil)
 		return
 	}
-	loc, _ := i18n.From(ctx) // every request has its locale (localized)
 	sent := make([]gen.JournalLineInput, 0, len(lines))
-	for i := range lines {
-		lines[i].check(loc, pe.Currency)
-	}
-	if !s.resolve(ctx, pe.LegalEntityID, s.chartOf(ctx, m, pe.LegalEntityID), lines) {
+	ch := s.chartOf(ctx, m, pe.LegalEntityID)
+	read.chart = &ch
+	// The codes are looked up once every row's shapes are right.
+	if !shaped(lines) || !s.resolve(ctx, pe.LegalEntityID, ch, lines) {
 		up.Rows, up.More = rowErrors(lines)
-		s.showParked(w, r, p, m, id, http.StatusUnprocessableEntity, parkedTyped{upload: up}, nil)
+		s.showParked(w, r, p, m, id, http.StatusUnprocessableEntity, read, nil)
 		return
 	}
 	for _, l := range lines {
@@ -335,6 +354,24 @@ func (s *Server) uploadLines(w http.ResponseWriter, r *http.Request, p *person) 
 	if prob, show := s.refusal(w, r, p, "updateParkedJournalEntry", res, err); show {
 		markRefused(prob, lines)
 		up.Rows, up.More = rowErrors(lines)
-		s.showParked(w, r, p, m, id, int(prob.Status), parkedTyped{upload: up}, explainIn(i18n.EntryProblems, i18n.UploadLinesRefusedTitle, prob, m))
+		// The entry read again, for its version now; its chart as read.
+		read.entry = nil
+		s.showParked(w, r, p, m, id, int(prob.Status), read, explainIn(i18n.EntryProblems, i18n.UploadLinesRefusedTitle, prob, m))
 	}
+}
+
+// uploadedLines are the upload's file's lines, each checked in the
+// person's locale and the entry's currency, or what is wrong with the
+// file.
+func uploadedLines(r *http.Request, currency string) ([]entryLine, i18n.Key) {
+	data, err := formFile(r, i18n.CSVFileNeeded, i18n.CSVTooLarge)
+	if err != "" {
+		return nil, err
+	}
+	lines, err := csvLines(data)
+	loc, _ := i18n.From(r.Context()) // every request has its locale (localized)
+	for i := range lines {
+		lines[i].check(loc, currency)
+	}
+	return lines, err
 }

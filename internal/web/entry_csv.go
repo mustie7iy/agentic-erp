@@ -62,11 +62,12 @@ func csvLines(data []byte) ([]entryLine, i18n.Key) {
 		if err != nil {
 			return nil, i18n.CSVUnreadable
 		}
+		if len(rec) > len(columns) {
+			return nil, i18n.CSVExtraFields
+		}
 		l := entryLine{no: row}
 		for i, v := range rec {
-			if i < len(columns) {
-				setField(&l, columns[i], v)
-			}
+			setField(&l, columns[i], v)
 		}
 		if l.blank() {
 			continue
@@ -75,8 +76,11 @@ func csvLines(data []byte) ([]entryLine, i18n.Key) {
 			return nil, i18n.CSVTooManyRows
 		}
 	}
-	if len(lines) == 0 {
+	switch len(lines) {
+	case 0:
 		return nil, i18n.CSVNoRows
+	case 1:
+		return nil, i18n.EntryLinesTooFew
 	}
 	return lines, ""
 }
@@ -131,29 +135,25 @@ func setField(l *entryLine, field, v string) {
 	}
 }
 
-// rowErrors are the file's wrong rows as the page lists them, the first
-// maxRowErrors, and how many more there are.
+// rowErrors are the file's wrong rows as the page lists them: the first
+// maxRowErrors errors, and how many rows have errors not listed.
 func rowErrors(lines []entryLine) ([]ui.RowError, int) {
 	var out []ui.RowError
 	more := 0
 	for _, l := range lines {
+		var row []ui.RowError
 		for _, f := range csvOrder {
-			k := l.errs[f.field]
-			if k == "" {
-				continue
+			if k := l.errs[f.field]; k != "" {
+				row = append(row, ui.RowError{Row: l.no, Column: f.column, Error: k})
 			}
-			if len(out) == maxRowErrors {
-				more++
-				continue
-			}
-			out = append(out, ui.RowError{Row: l.no, Column: f.column, Error: k})
 		}
 		for _, rf := range l.refused {
-			if len(out) == maxRowErrors {
-				more++
-				continue
-			}
-			out = append(out, ui.RowError{Row: l.no, Column: apiColumns[rf.api], Error: i18n.EntryFieldRefused, Reason: rf.reason})
+			row = append(row, ui.RowError{Row: l.no, Column: apiColumns[rf.api], Error: i18n.EntryFieldRefused, Reason: rf.reason})
+		}
+		listed := min(len(row), maxRowErrors-len(out))
+		out = append(out, row[:listed]...)
+		if listed < len(row) {
+			more++
 		}
 	}
 	return out, more

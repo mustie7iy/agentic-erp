@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/web/i18n"
 	"github.com/mustie7iy/agentic-erp/internal/web/ui"
@@ -65,5 +67,25 @@ func TestCSVLimits(t *testing.T) {
 	}
 	if ui.LineFieldLabel(marked[1].refused[0].api) != i18n.EntryLineAmount {
 		t.Error("markRefused: the amount's field is not named")
+	}
+}
+
+// TestLookupsBounded: a send looks at most maxCodeLookups codes up one by
+// one; the codes past it are refused before any call, a code a book
+// holds or that is an id needs none, and a book that holds all its
+// kind's codes says the others are not known.
+func TestLookupsBounded(t *testing.T) {
+	calls := 0
+	find := func(string) (uuid.UUID, bool, i18n.Key) { calls++; return uuid.Nil, false, "" }
+	lk := &lookups{left: 2}
+	known := uuid.New()
+	got := lk.lookUp([]string{"A", "B", "A", "C", "K", known.String(), ""}, book{ids: map[string]uuid.UUID{"K": known}, more: true},
+		i18n.EntryPartnerUnknown, find)
+	if calls != 2 || got["A"].err != i18n.EntryPartnerUnknown || got["C"].err != i18n.EntryTooManyCodes || got["K"].id != known ||
+		got[known.String()].id != known {
+		t.Errorf("bounded: %d calls, got %+v", calls, got)
+	}
+	if got := lk.lookUp([]string{"Z"}, book{}, i18n.EntryPartnerUnknown, find); got["Z"].err != i18n.EntryPartnerUnknown || calls != 2 {
+		t.Errorf("a whole book: %d calls, got %+v", calls, got)
 	}
 }

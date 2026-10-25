@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"net/http"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -120,41 +121,66 @@ func textError(text string, max int) i18n.Key {
 }
 
 // found is what a lookup says of a code: its id, or why it has none (not
-// known, or the lookup failed).
+// known, the lookup refused or failed, too many codes to look up).
 type found struct {
 	id  uuid.UUID
 	err i18n.Key
 }
 
-// finder looks one code up: found false when the API knows none, ok false
-// when the call failed (logged).
-type finder func(code string) (id uuid.UUID, known, ok bool)
+// maxCodeLookups is the most codes one send looks up one by one: the
+// partners, and the accounts, centers and segments a page of their list
+// does not hold. With a page's six reads and the three pages of codes a
+// send reads, it stays well within the API's 50 calls a second for each
+// principal (04 §4.11); a send naming more is refused on the lines past
+// the limit, before any call, rather than by the API's rate limit.
+const maxCodeLookups = 20
 
-// lookUp looks each distinct code up once, those not known already.
-func lookUp(codes []string, known map[string]uuid.UUID, unknown i18n.Key, find finder) map[string]found {
+// finder looks one code up: known false when the API knows none, err
+// what went wrong when the call did (refused, or failed: logged).
+type finder func(code string) (id uuid.UUID, known bool, err i18n.Key)
+
+// book is one kind's codes as a page of its list holds them, and whether
+// there may be more (a longer list, or a page that could not be read):
+// then a code the page does not hold is looked up by itself.
+type book struct {
+	ids  map[string]uuid.UUID
+	more bool
+}
+
+// lookups are the codes one send may still look up one by one.
+type lookups struct{ left int }
+
+// lookUp says what each distinct code is: its id from the book, the id
+// itself when a code is one (a parked line names its partner, and an
+// account its chart's page does not hold, by id), else found by itself
+// while the book may hold more and the send may still look codes up.
+func (lk *lookups) lookUp(codes []string, known book, unknown i18n.Key, find finder) map[string]found {
 	out := map[string]found{}
 	for _, code := range codes {
 		if _, done := out[code]; done || code == "" {
 			continue
 		}
-		if id, ok := known[code]; ok {
+		if id, ok := known.ids[code]; ok {
 			out[code] = found{id: id}
 			continue
 		}
-		// A line as the API gave it names a partner, or an account its
-		// chart's page does not hold, by its id.
 		if id, err := uuid.Parse(code); err == nil {
 			out[code] = found{id: id}
 			continue
 		}
-		if find == nil {
+		switch {
+		case !known.more:
 			out[code] = found{err: unknown}
 			continue
+		case lk.left == 0:
+			out[code] = found{err: i18n.EntryTooManyCodes}
+			continue
 		}
-		id, isKnown, ok := find(code)
+		lk.left--
+		id, isKnown, err := find(code)
 		switch {
-		case !ok:
-			out[code] = found{err: i18n.EntryLookupFailed}
+		case err != "":
+			out[code] = found{err: err}
 		case !isKnown:
 			out[code] = found{err: unknown}
 		default:
@@ -164,99 +190,179 @@ func lookUp(codes []string, known map[string]uuid.UUID, unknown i18n.Key, find f
 	return out
 }
 
-// finderOf is a finder by one of the API's lists filtered by the code:
-// call lists, items reads its page's items and id an item's id.
-func finderOf[P any, I any](s *Server, ctx context.Context, what string, call func(string) (any, error), items func(P) []I, id func(I) uuid.UUID) finder {
-	return func(code string) (uuid.UUID, bool, bool) {
-		res, err := call(code)
+// lookupError is what a lookup's or a page's answer that is no page
+// says: refused (a permission the person lacks), else failed, logged.
+func (s *Server) lookupError(ctx context.Context, what string, res any, err error) i18n.Key {
+	if prob, ok := problemOf(res); ok && prob.Status == http.StatusForbidden {
+		return i18n.EntryLookupRefused
+	}
+	s.Log.WarnContext(ctx, "web: a line's code could not be looked up", "what", what, "answer", res, "error", err)
+	return i18n.EntryLookupFailed
+}
+
+// finderOf is a finder by one of the API's lists filtered by the code
+// (list), items reading its page's items and id an item's id.
+func finderOf[P any, I any](s *Server, ctx context.Context, what string, list func(code string) (any, error), items func(P) ([]I, bool),
+	id func(I) uuid.UUID) finder {
+	return func(code string) (uuid.UUID, bool, i18n.Key) {
+		res, err := list(code)
 		page, ok := res.(P)
 		if !ok {
-			s.Log.WarnContext(ctx, "web: a line's code could not be looked up", "what", what, "answer", res, "error", err)
-			return uuid.Nil, false, false
+			return uuid.Nil, false, s.lookupError(ctx, what, res, err)
 		}
-		if all := items(page); len(all) > 0 {
-			return id(all[0]), true, true
+		if all, _ := items(page); len(all) > 0 {
+			return id(all[0]), true, ""
 		}
-		return uuid.Nil, false, true
+		return uuid.Nil, false, ""
 	}
 }
 
-// The finders of a company's codes: an account by number, a cost or
-// profit center and a segment by code, a partner by number.
+// codesOf are a kind's book, from the first page of its list (list with
+// no code), and its finder by code; a page that could not be read leaves
+// every code to be looked up by itself.
+func codesOf[P any, I any](s *Server, ctx context.Context, what string, list func(code string) (any, error), items func(P) ([]I, bool),
+	code func(I) string, id func(I) uuid.UUID) (book, finder) {
+	find := finderOf(s, ctx, what, list, items, id)
+	res, err := list("")
+	page, ok := res.(P)
+	if !ok {
+		s.lookupError(ctx, what, res, err)
+		return book{more: true}, find
+	}
+	all, more := items(page)
+	b := book{ids: make(map[string]uuid.UUID, len(all)), more: more}
+	for _, it := range all {
+		b.ids[code(it)] = id(it)
+	}
+	return b, find
+}
+
+// The codes a line names: an account by number (its book the chart), a
+// cost or profit center of the company and a segment by code, a partner
+// by number (no book: one call a partner). Each list with no code is its
+// first page, else filtered by the code.
 func (s *Server) accountFinder(ctx context.Context, company uuid.UUID) finder {
 	return finderOf(s, ctx, "account", func(number string) (any, error) {
 		return s.API.ListAccounts(ctx, gen.ListAccountsParams{LegalEntityID: gen.NewOptUUID(company), Number: gen.NewOptString(number)})
-	}, func(p *gen.AccountPageHeaders) []gen.Account { return p.Response.Items }, func(a gen.Account) uuid.UUID { return a.ID })
+	}, func(p *gen.AccountPageHeaders) ([]gen.Account, bool) { return p.Response.Items, false }, func(a gen.Account) uuid.UUID { return a.ID })
 }
 
-func (s *Server) costCenterFinder(ctx context.Context, company uuid.UUID) finder {
-	return finderOf(s, ctx, "cost center", func(code string) (any, error) {
-		return s.API.ListCostCenters(ctx, gen.ListCostCentersParams{LegalEntityID: gen.NewOptUUID(company), Code: gen.NewOptString(code)})
-	}, func(p *gen.CostCenterPageHeaders) []gen.CostCenter { return p.Response.Items }, func(c gen.CostCenter) uuid.UUID { return c.ID })
+// filtered is a list's page size and filter: the first page with no
+// code, else the code's.
+func filtered(code string) (gen.OptInt32, gen.OptString) {
+	if code == "" {
+		return gen.NewOptInt32(maxCenters), gen.OptString{}
+	}
+	return gen.OptInt32{}, gen.NewOptString(code)
 }
 
-func (s *Server) profitCenterFinder(ctx context.Context, company uuid.UUID) finder {
-	return finderOf(s, ctx, "profit center", func(code string) (any, error) {
-		return s.API.ListProfitCenters(ctx, gen.ListProfitCentersParams{LegalEntityID: gen.NewOptUUID(company), Code: gen.NewOptString(code)})
-	}, func(p *gen.ProfitCenterPageHeaders) []gen.ProfitCenter { return p.Response.Items }, func(c gen.ProfitCenter) uuid.UUID { return c.ID })
+func (s *Server) costCenters(ctx context.Context, company uuid.UUID) (book, finder) {
+	list := func(code string) (any, error) {
+		size, c := filtered(code)
+		return s.API.ListCostCenters(ctx, gen.ListCostCentersParams{LegalEntityID: gen.NewOptUUID(company), PageSize: size, Code: c})
+	}
+	return codesOf(s, ctx, "cost center", list, costCenterItems, func(c gen.CostCenter) string { return c.Code },
+		func(c gen.CostCenter) uuid.UUID { return c.ID })
 }
 
-func (s *Server) segmentFinder(ctx context.Context) finder {
-	return finderOf(s, ctx, "segment", func(code string) (any, error) {
-		return s.API.ListSegments(ctx, gen.ListSegmentsParams{Code: gen.NewOptString(code)})
-	}, func(p *gen.SegmentPageHeaders) []gen.Segment { return p.Response.Items }, func(c gen.Segment) uuid.UUID { return c.ID })
+func costCenterItems(p *gen.CostCenterPageHeaders) ([]gen.CostCenter, bool) {
+	return p.Response.Items, p.Response.NextPageToken.Set
+}
+
+func (s *Server) profitCenters(ctx context.Context, company uuid.UUID) (book, finder) {
+	list := func(code string) (any, error) {
+		size, c := filtered(code)
+		return s.API.ListProfitCenters(ctx, gen.ListProfitCentersParams{LegalEntityID: gen.NewOptUUID(company), PageSize: size, Code: c})
+	}
+	return codesOf(s, ctx, "profit center", list, profitCenterItems, profitCenterCode, profitCenterID)
+}
+
+func profitCenterItems(p *gen.ProfitCenterPageHeaders) ([]gen.ProfitCenter, bool) {
+	return p.Response.Items, p.Response.NextPageToken.Set
+}
+
+func profitCenterCode(c gen.ProfitCenter) string { return c.Code }
+
+func profitCenterID(c gen.ProfitCenter) uuid.UUID { return c.ID }
+
+func (s *Server) segments(ctx context.Context) (book, finder) {
+	return codesOf(s, ctx, "segment", func(code string) (any, error) {
+		size, c := filtered(code)
+		return s.API.ListSegments(ctx, gen.ListSegmentsParams{PageSize: size, Code: c})
+	}, func(p *gen.SegmentPageHeaders) ([]gen.Segment, bool) { return p.Response.Items, p.Response.NextPageToken.Set },
+		func(c gen.Segment) string { return c.Code }, func(c gen.Segment) uuid.UUID { return c.ID })
 }
 
 func (s *Server) partnerFinder(ctx context.Context) finder {
 	return finderOf(s, ctx, "partner", func(number string) (any, error) {
 		return s.API.ListBusinessPartners(ctx, gen.ListBusinessPartnersParams{Number: gen.NewOptString(number)})
-	}, func(p *gen.BusinessPartnerPageHeaders) []gen.BusinessPartner { return p.Response.Items }, func(b gen.BusinessPartner) uuid.UUID { return b.ID })
+	}, func(p *gen.BusinessPartnerPageHeaders) ([]gen.BusinessPartner, bool) { return p.Response.Items, false },
+		func(b gen.BusinessPartner) uuid.UUID { return b.ID })
+}
+
+// lineKind is one kind of code a line names: its field, how the lines'
+// codes of it are found, the line's code of it and where its id goes.
+type lineKind struct {
+	field string
+	find  func([]string) map[string]found
+	code  func(entryLine) string
+	set   func(*gen.JournalLineInput, uuid.UUID)
+}
+
+// named are the codes of the kind the lines name.
+func named(lines []entryLine, code func(entryLine) string) []string {
+	var out []string
+	for _, l := range lines {
+		if c := code(l); c != "" {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // resolve looks up the codes the lines name, in the company and its
-// chart, and sets each line's ids, or says on it what is not known. It
-// reports whether every line can be sent.
+// chart (a kind's page read only when a line names one), and sets each
+// line's ids, or says on it what is not known. It reports whether every
+// line can be sent.
 func (s *Server) resolve(ctx context.Context, company uuid.UUID, ch chart, lines []entryLine) bool {
-	var accounts, costs, profits, segments, partners []string
-	for _, l := range lines {
-		accounts, costs, profits = append(accounts, l.account), append(costs, l.costCenter), append(profits, l.profitCenter)
-		segments, partners = append(segments, l.segment), append(partners, l.partner)
+	lk := &lookups{left: maxCodeLookups}
+	paged := func(read func() (book, finder), unknown i18n.Key) func([]string) map[string]found {
+		return func(codes []string) map[string]found {
+			if len(codes) == 0 {
+				return nil
+			}
+			b, f := read()
+			return lk.lookUp(codes, b, unknown, f)
+		}
 	}
-	var accountFind finder
-	if ch.more {
-		accountFind = s.accountFinder(ctx, company)
-	}
-	looked := []struct {
-		field string
-		found map[string]found
-		code  func(entryLine) string
-		set   func(*gen.JournalLineInput, uuid.UUID)
-	}{
-		{ui.FieldLineAccount, lookUp(accounts, ch.byNumber, i18n.EntryAccountUnknown, accountFind), func(l entryLine) string { return l.account },
-			func(in *gen.JournalLineInput, id uuid.UUID) { in.AccountID = id }},
-		{ui.FieldLineCostCenter, lookUp(costs, nil, i18n.EntryCostCenterUnknown, s.costCenterFinder(ctx, company)),
+	kinds := []lineKind{
+		{ui.FieldLineAccount, func(codes []string) map[string]found {
+			return lk.lookUp(codes, book{ids: ch.byNumber, more: ch.more}, i18n.EntryAccountUnknown, s.accountFinder(ctx, company))
+		}, func(l entryLine) string { return l.account }, func(in *gen.JournalLineInput, id uuid.UUID) { in.AccountID = id }},
+		{ui.FieldLineCostCenter, paged(func() (book, finder) { return s.costCenters(ctx, company) }, i18n.EntryCostCenterUnknown),
 			func(l entryLine) string { return l.costCenter }, func(in *gen.JournalLineInput, id uuid.UUID) { in.CostCenterID = gen.NewOptUUID(id) }},
-		{ui.FieldLineProfit, lookUp(profits, nil, i18n.EntryProfitCenterUnknown, s.profitCenterFinder(ctx, company)),
+		{ui.FieldLineProfit, paged(func() (book, finder) { return s.profitCenters(ctx, company) }, i18n.EntryProfitCenterUnknown),
 			func(l entryLine) string { return l.profitCenter }, func(in *gen.JournalLineInput, id uuid.UUID) { in.ProfitCenterID = gen.NewOptUUID(id) }},
-		{ui.FieldLineSegment, lookUp(segments, nil, i18n.EntrySegmentUnknown, s.segmentFinder(ctx)),
+		{ui.FieldLineSegment, paged(func() (book, finder) { return s.segments(ctx) }, i18n.EntrySegmentUnknown),
 			func(l entryLine) string { return l.segment }, func(in *gen.JournalLineInput, id uuid.UUID) { in.SegmentID = gen.NewOptUUID(id) }},
-		{ui.FieldLinePartner, lookUp(partners, nil, i18n.EntryPartnerUnknown, s.partnerFinder(ctx)),
-			func(l entryLine) string { return l.partner }, func(in *gen.JournalLineInput, id uuid.UUID) { in.PartnerID = gen.NewOptUUID(id) }},
+		{ui.FieldLinePartner, func(codes []string) map[string]found {
+			return lk.lookUp(codes, book{more: true}, i18n.EntryPartnerUnknown, s.partnerFinder(ctx))
+		}, func(l entryLine) string { return l.partner }, func(in *gen.JournalLineInput, id uuid.UUID) { in.PartnerID = gen.NewOptUUID(id) }},
 	}
 	ok := true
-	for i := range lines {
-		l := &lines[i]
-		for _, k := range looked {
-			code := k.code(*l)
-			if code == "" || l.errs[k.field] != "" {
-				continue
-			}
-			if f := k.found[code]; f.err != "" {
-				l.fail(k.field, f.err)
-			} else {
-				k.set(&l.sent, f.id)
+	for _, k := range kinds {
+		got := k.find(named(lines, k.code))
+		for i := range lines {
+			if code := k.code(lines[i]); code != "" {
+				if f := got[code]; f.err != "" {
+					lines[i].fail(k.field, f.err)
+				} else {
+					k.set(&lines[i].sent, f.id)
+				}
 			}
 		}
+	}
+	for _, l := range lines {
 		ok = ok && len(l.errs) == 0
 	}
 	return ok

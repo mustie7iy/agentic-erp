@@ -991,5 +991,8 @@
   "problem.ledger.entry_is_copy": "This is a parallel ledger's copy: reverse the first entry of its posting.",
   "problem.ledger.entry_cleared": "The entry's open items are cleared: reset the clearing first.",
   "problem.ledger.legal_entity_not_active": "The company is not active.",
-  "problem.config.no_number_range": "The company has no number range for this document type in this year. Ask the ERP administrator."
+  "problem.config.no_number_range": "The company has no number range for this document type in this year. Ask the ERP administrator.",
+  "entry.codes.many": "The entry names more partners, or accounts and centers beyond the company's first 500, than are looked up at once. Name them by their ids, or upload fewer lines at a time.",
+  "entry.lookup.refused": "You may not look this up: it needs a permission you do not have.",
+  "csv.fields.extra": "A row of the file has more fields than its first row names columns."
 }

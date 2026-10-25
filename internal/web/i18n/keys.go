@@ -1013,4 +1013,7 @@ const (
 	ProblemEntryCleared         Key = "problem.ledger.entry_cleared"
 	ProblemEntryCompany         Key = "problem.ledger.legal_entity_not_active"
 	ProblemNoNumberRange        Key = "problem.config.no_number_range"
+	EntryTooManyCodes           Key = "entry.codes.many"
+	EntryLookupRefused          Key = "entry.lookup.refused"
+	CSVExtraFields              Key = "csv.fields.extra"
 )

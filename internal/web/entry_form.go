@@ -164,11 +164,23 @@ func (s *Server) check(ctx context.Context, t *entryTyped, company uuid.UUID, ch
 	if len(lines) < blankLines {
 		t.linesErr = i18n.EntryLinesTooFew
 	}
-	ok := lookup && s.resolve(ctx, company, ch, t.lines) && len(t.errs) == 0 && t.linesErr == ""
+	// The codes are looked up once everything else is right: a send
+	// that cannot go makes no call.
+	ok := lookup && len(t.errs) == 0 && t.linesErr == "" && shaped(t.lines) && s.resolve(ctx, company, ch, t.lines)
 	for _, l := range t.lines {
 		sent.lines = append(sent.lines, l.sent)
 	}
 	return sent, ok
+}
+
+// shaped reports whether no line has anything wrong with its shapes.
+func shaped(lines []entryLine) bool {
+	for _, l := range lines {
+		if len(l.errs) > 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // view is the form as the page shows it, the lines' errors and refusals
@@ -262,15 +274,16 @@ func (s *Server) renderForm(w http.ResponseWriter, r *http.Request, p *person, m
 	s.render(w, r, status, ui.EntryFormPage(s.page(title, ui.JournalPath, p, m), f))
 }
 
-// formKey is a posted entry form's idempotency key; ok is false, the
-// answer written, when the form is not the page's.
-func (s *Server) formKey(w http.ResponseWriter, r *http.Request, back string) (string, bool) {
+// formKey is a posted form's idempotency key; ok is false, the answer
+// written (with the way back to the page), when the form is not the
+// page's.
+func (s *Server) formKey(w http.ResponseWriter, r *http.Request, back string, backText i18n.Key) (string, bool) {
 	// csrf parsed the form unless htmx sent the token as a header; a body
 	// that does not parse leaves the fields empty, refused below.
 	_ = r.ParseForm()
 	key := r.PostForm.Get(ui.FieldIdempotency)
 	if _, err := uuid.Parse(key); err != nil {
-		s.render(w, r, http.StatusBadRequest, ui.Problem(s.shell(i18n.RefusedTitle, ""), i18n.RefusedTitle, i18n.ProblemInvoiceBody, back, i18n.ParkedBack))
+		s.render(w, r, http.StatusBadRequest, ui.Problem(s.shell(i18n.RefusedTitle, ""), i18n.RefusedTitle, i18n.ProblemInvoiceBody, back, backText))
 		return "", false
 	}
 	return key, true
@@ -281,7 +294,7 @@ func (s *Server) formKey(w http.ResponseWriter, r *http.Request, back string) (s
 // to the entry's page; refused, the form says why and keeps what was
 // typed.
 func (s *Server) parkEntry(w http.ResponseWriter, r *http.Request, p *person) {
-	key, ok := s.formKey(w, r, ui.NewEntryPath)
+	key, ok := s.formKey(w, r, ui.NewEntryPath, i18n.ParkedBack)
 	if !ok {
 		return
 	}
@@ -389,7 +402,7 @@ func (s *Server) saveEntry(w http.ResponseWriter, r *http.Request, p *person) {
 		s.notFound(w, r)
 		return
 	}
-	key, ok := s.formKey(w, r, parkedPath(id))
+	key, ok := s.formKey(w, r, parkedPath(id), i18n.ParkedBack)
 	if !ok {
 		return
 	}

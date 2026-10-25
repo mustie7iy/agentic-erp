@@ -78,8 +78,15 @@ func TestScreensAgainstTheContract(t *testing.T) {
 				reads = calls[1:]
 			}
 			// Nor are the lookups that turn a form's codes into the
-			// write's ids (T73h).
+			// write's ids (T73h): a page of each list, and at most
+			// maxCodeLookups codes one by one, so a send with its page's
+			// reads stays well within the API's 50 calls a second for a
+			// principal (04 §4.11).
+			lookups := slices.DeleteFunc(slices.Clone(reads), func(op Operation) bool { return !op.Lookup })
 			reads = slices.DeleteFunc(slices.Clone(reads), func(op Operation) bool { return op.Lookup })
+			if n := len(reads) + len(lookups) + maxCodeLookups; len(lookups) > 0 && n > 40 {
+				t.Errorf("%d calls at most for a send with its lookups, want at most 40 of the API's 50 a second", n)
+			}
 			if len(reads) > 6 {
 				t.Errorf("%d calls to render the page, want at most six", len(reads))
 			}

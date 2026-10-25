@@ -577,7 +577,10 @@ func TestUploadLines(t *testing.T) {
 		"no rows":       {[]byte("account,amount\n,\n"), []string{"The file has no line under its first row."}},
 		"quotes":        {[]byte("account,amount\n\"520000,1\n"), []string{"A row of the file could not be read"}},
 		"only a header": {[]byte("\n"), []string{"The file has no first row naming its columns."}},
-		"wrong rows":    {[]byte("account,amount,tax_code\n999999,1.00,\n520000,x,VVVVV\n"), []string{"Rows of the file to correct", "Row 2, account: No account of the company's chart has this number.", "Row 3, amount: Enter the amount", "Row 3, tax_code: A tax code has"}},
+		"wrong rows":    {[]byte("account,amount,tax_code\n999999,1.00,\n520000,x,VVVVV\n"), []string{"Rows of the file to correct", "Row 3, amount: Enter the amount", "Row 3, tax_code: A tax code has"}},
+		"unknown codes": {[]byte("account,amount,partner\n999999,1.00,\n100000,-1.00,BP0\n"), []string{"Row 2, account: No account of the company's chart has this number.", "Row 3, partner: There is no partner with this number."}},
+		"extra fields":  {[]byte("account,amount\n520000,1.00,x\n100000,-1.00\n"), []string{"has more fields than its first row names columns"}},
+		"one line":      {[]byte("account,amount\n520000,1.00\n"), []string{"An entry has at least two lines."}},
 		"refused by the API": {[]byte("account,amount,cost_center\n520000,1.00,\n100000,-1.00,CC100\n"), []string{"The lines were not replaced",
 			"ledger.cost_center_invalid", "Row 3, cost_center: refused by the ERP (not_allowed)."}},
 		"unbalanced": {[]byte("account,amount\n520000,1.00\n100000,-2.00\n"), []string{"The lines do not balance", "ledger.unbalanced"}},
@@ -597,6 +600,13 @@ func TestUploadLines(t *testing.T) {
 	}
 	r = uploadLinesAs(b, id, []byte(many.String()), nil)
 	holds(t, "many wrong rows", r.page(t).mainText(), "5 more rows are to be corrected.")
+	var partners strings.Builder
+	partners.WriteString("account,amount,partner\n100000,-21.00,\n")
+	for i := 0; i < maxCodeLookups+1; i++ {
+		fmt.Fprintf(&partners, "211000,1.00,BP%d\n", i)
+	}
+	r = uploadLinesAs(b, id, []byte(partners.String()), nil)
+	holds(t, "more partners than are looked up", r.page(t).mainText(), "Row 22, partner: There is no partner", "1 more row is to be corrected.")
 	status(t, "a form that is not the page's", uploadLinesAs(b, id, []byte(french), map[string]string{"idempotency_key": "x"}), http.StatusBadRequest)
 }
 

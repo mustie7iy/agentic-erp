@@ -41,7 +41,6 @@ const (
 	permPostEntries           = "ledger.entry.post"
 	permParkEntries           = "ledger.entry.park"
 	permReadCenters           = "ledger.cost_center.read"
-	permReadPartners          = "partner.supplier.read"
 	permCancelRequests        = "workflow.request.cancel"
 )
 

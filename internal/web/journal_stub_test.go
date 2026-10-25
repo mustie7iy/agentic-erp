@@ -131,9 +131,10 @@ func TestEntryLookups(t *testing.T) {
 				"chart_id":%q,"number":"700000","name":"Far","account_type":"expense","is_balance_sheet":false,"reconciliation_kind":"none","status":"active",
 				"company_settings":[]}]}`, account, uuid.New(), uuid.New()))(w, r)
 		},
-		"GET /v1/cost-centers":   answer(503, problemJSON(503, "platform.unavailable")),
-		"GET /v1/segments":       answer(200, `{"items":[]}`),
-		"GET /v1/profit-centers": answer(200, `{"items":[]}`),
+		"GET /v1/cost-centers":      answer(503, problemJSON(503, "platform.unavailable")),
+		"GET /v1/business-partners": answer(403, problemJSON(403, "identity.permission_missing")),
+		"GET /v1/segments":          answer(200, `{"items":[]}`),
+		"GET /v1/profit-centers":    answer(200, `{"items":[]}`),
 		"POST /v1/parked-journal-entries": func(w http.ResponseWriter, r *http.Request) {
 			parked = r.URL.Path
 			answer(201, parkedJSON(uuid.New(), company, "parked", ""))(w, r)
@@ -146,6 +147,9 @@ func TestEntryLookups(t *testing.T) {
 		typedLine{account: "700000", amount: "-1.00"}))
 	status(t, "a lookup that fails", failed, http.StatusUnprocessableEntity)
 	holds(t, "a lookup that fails", failed.page(t).mainText(), "This could not be looked up just now.")
+	refused := b.do(http.MethodPost, "/journal/new", withLines(v, typedLine{account: "700000", amount: "1.00", partner: "BP1"},
+		typedLine{account: "700000", amount: "-1.00"}))
+	holds(t, "a lookup refused", refused.page(t).mainText(), "You may not look this up")
 	if parked != "" {
 		t.Error("a lookup that fails: the entry was sent")
 	}
@@ -154,7 +158,7 @@ func TestEntryLookups(t *testing.T) {
 	if ok.status != http.StatusSeeOther || parked == "" {
 		t.Errorf("an account by its number, a partner by its id: got %d %s", ok.status, ok.body)
 	}
-	if got := len(st.queriesWith("number", "700000")); got != 2 {
+	if got := len(st.queriesWith("number", "700000")); got != 3 {
 		t.Errorf("the account looked up by its number: %d calls, want one a send", got)
 	}
 	none := &stubbed{routes: map[string]http.HandlerFunc{"GET /v1/me": answer(200, meJSON(permParkEntries))}}

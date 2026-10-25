@@ -1807,17 +1807,23 @@ as first written:
   cannot check them: the API's `request.invalid_amount` says so. Digits
   are ASCII until T73l formats and reads them per locale.
 - **Codes become ids before the call.** The API takes ids; a person types
-  numbers and codes, as in SAP. erp-web looks each up once a send: an
-  account in the company's chart (the page of 500 the form suggests from,
-  then by `number` when the chart is longer), each center and segment by
-  the API's `code` filter, a partner by `number`. An id is taken as it is
-  (a parked line names its partner by id, the API naming no partner's
-  number on a line). A code the API does not know, or a lookup that
-  fails (logged), is said on its line and nothing is sent. **Departs from
-  §10:** these lookups are part of the write, not the page's reads: the
-  inventory marks them (`Operation.Lookup`) and
-  `TestScreensAgainstTheContract` leaves them out of the six, one call
-  per distinct code a send names.
+  numbers and codes, as in SAP. Once everything else on the form is right
+  (a send that cannot go makes no call), erp-web reads the codes a send
+  names: the company's chart (the page of 500 the form suggests from), and,
+  when a line names one, a page of 500 of the company's cost centers, its
+  profit centers and the tenant's segments; a code a page does not hold is
+  looked up by itself (`code` or `number` filter) only while its list has
+  more, and each partner by its `number`. At most 20 codes a send
+  (`maxCodeLookups`) are looked up one by one; the lines past them are
+  refused before any call, saying to name them by id. An id is taken as it
+  is (a parked line names its partner by id, the API naming no partner's
+  number on a line). A code the API does not know, a lookup refused (a
+  permission the person lacks, said so) or failed (logged) is said on its
+  line and nothing is sent. **Departs from §10:** these lookups are part of
+  the write, not the page's reads: the inventory marks them
+  (`Operation.Lookup`), and `TestScreensAgainstTheContract` holds a send
+  with its page's reads, a page of each list and the 20 codes to at most
+  40 calls, within the API's 50 a second for a principal (04 §4.11).
 - **Decisions** (T35, ADR-0036). The owner posts a parked entry
   (`postParkedJournalEntry`, human-only), which within the company's
   `manual_entry_approval_limit` posts it at once (the page links the
@@ -1838,12 +1844,14 @@ as first written:
   UTF-8 (a byte order mark allowed), comma- or semicolon-separated, a
   header naming `account` and `amount` and optionally `cost_center`,
   `profit_center`, `segment`, `partner`, `tax_code`, `line_text` in any
-  order, at most 4 MB and 10,000 lines; every row checked and looked up
-  as a typed line is, the wrong ones listed by row and column (the first
-  20, the rest counted), the API's field errors by row too.
+  order, no row with more fields than the header names, at least two and
+  at most 10,000 lines, at most 4 MB; every row checked and looked up as a
+  typed line is, the wrong ones listed by row and column (the first 20
+  errors, the rows with more counted), the API's field errors by row too.
 - **Reversal.** `reverseJournalEntry` (human-only) with an optional
   posting date and header text, at the entry's ETag; offered for an entry
-  neither reversed nor itself a reversal, to a person who may post. The
+  neither reversed nor itself a reversal, answered with its ETag, to a
+  person who may post. The
   API refuses an entry another context owns (`ledger.entry_owned_elsewhere`)
   and a parallel ledger's copy (`ledger.entry_is_copy`), explained by
   their codes; done, the reversal's page.
@@ -1853,7 +1861,9 @@ as first written:
   company's accounts, names, and `getApprovalRequest` while it waits), the
   new entry's form three, a change's four, the journal six (the company's
   cost and profit centers for its filters besides the companies and
-  ledgers), a posted entry's page six. Companies, ledgers, accounts,
+  ledgers), a posted entry's page six; a form sent and refused re-renders
+  from what its handler read, not reading the entry, its chart or its
+  approval request twice. Companies, ledgers, accounts,
   centers and names that cannot be read are no reason to refuse a page:
   they are logged, and shown by id or not offered.
 - **Refusals.** `i18n.EntryProblems` explains the ledger codes of a park,
