@@ -184,7 +184,7 @@ func New(cfg Config) (http.Handler, error) {
 		partnerAPI: &partner.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys, Schemas: configuration.Settings{}, Rules: configuration.Settings{},
 			PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, PlanningGroups: cash.PlanningGroups{}, Approvals: opener()},
 		ledgerAPI: &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
-			Numbers: configuration.Numbers{}, Approvals: opener()},
+			Numbers: configuration.Numbers{}, Approvals: opener(), Now: cfg.Now},
 		workflowAPI: &approvals.Endpoints{Pages: cfg.Pages, Decider: approvals.Decider{Roles: identity.Directory{}, AgentKind: identity.AgentKind, Metrics: cfg.Metrics, Handlers: map[string]approvals.Handler{
 			approvals.Requisition:       procurement.Approvals{},
 			approvals.PartnerChange:     partner.Approvals{Schemas: configuration.Settings{}},
@@ -195,7 +195,7 @@ func New(cfg Config) (http.Handler, error) {
 			approvals.PurchaseOrder:     procurement.OrderReleases{Endpoints: procurementEndpoints(cfg)},
 			approvals.OrderChange:       procurement.OrderChanges{Endpoints: procurementEndpoints(cfg)},
 			approvals.BankClearing:      payments.BankClearings{Endpoints: Payments(cfg)},
-			approvals.CenterChange:      ledger.CenterChanges{},
+			approvals.CenterChange:      ledger.CenterChanges{Now: cfg.Now},
 			approvals.PaymentRunRelease: payments.ReleaseApprovals{Endpoints: Payments(cfg)},
 		}}},
 		procurementAPI: procurementEndpoints(cfg),

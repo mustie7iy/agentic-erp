@@ -24,11 +24,11 @@ import (
 // changes (an account's cost element, a default cost center, center
 // accounting, the default profit center) and lists, per company and
 // account, how lines would be assigned before and after, and which would
-// now be refused for a missing cost center. Until journal lines carry
-// centers (T56d) no line has one entered, so every line on an account that
-// needs a cost center without a default is counted as refused. It reads
-// committed lines of the leading ledger in the request's transaction and
-// writes nothing.
+// now be refused for a missing cost center. A line whose cost center is
+// not the account's current default was given it by its document (T56d),
+// which the rules do not decide, so it is left out; lines without one, and
+// those with the default, count. It reads committed lines of the leading
+// ledger in the request's transaction and writes nothing.
 type AssignmentSimulation struct {
 	LegalEntities LegalEntities
 	Window        time.Duration // how far back lines are replayed; default 90 days
@@ -153,7 +153,10 @@ func (s AssignmentSimulation) Simulate(ctx context.Context, base, proposed *conf
 }
 
 // replay counts the company's lines since the date on the changed
-// accounts, by account.
+// accounts, by account, but those with a cost center entered: one other
+// than the account's active default (the column does not say whether a
+// line's center was entered or derived; a default derived is the
+// default's, an entered one equal to it is assigned alike).
 func (s AssignmentSimulation) replay(ctx context.Context, tx pgx.Tx, company string, since time.Time, changed map[string][2]string) (CompanyAssignments, error) {
 	// A company without a legal entity (Check reports it) has no lines:
 	// the query finds none for the nil id.
@@ -174,6 +177,8 @@ func (s AssignmentSimulation) replay(ctx context.Context, tx pgx.Tx, company str
 		JOIN ledger.chart_of_accounts c ON c.tenant_id = g.tenant_id AND c.id = g.chart_id AND c.code = $2
 		JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
 		WHERE l.legal_entity_id = $1 AND l.posting_date >= $3 AND g.number = ANY($4)
+			AND (l.cost_center_id IS NULL OR l.cost_center_id IN (SELECT d.cost_center_id FROM ledger.default_assignment d
+				WHERE d.tenant_id = l.tenant_id AND d.legal_entity_id = l.legal_entity_id AND d.account_id = l.account_id AND d.is_active))
 		GROUP BY 1 ORDER BY 1`, le.ID, company, since, numbers)
 	var r AccountReplay
 	_, err = pgx.ForEachRow(rows, []any{&r.Account, &r.Lines, &r.Entries, &r.Examples}, func() error {

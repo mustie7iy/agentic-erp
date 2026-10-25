@@ -97,7 +97,7 @@ func (e *Endpoints) RequestCostCenter(ctx context.Context, in NewCostCenter) (Co
 	payload := costCenterPayload{ValidFrom: dateText(in.ValidFrom), ValidTo: dateText(in.ValidTo), Category: in.Category, ProfitCenterID: in.ProfitCenterID,
 		StandardNodeID: in.StandardNodeID}
 	c := CostCenter{LegalEntityID: le.ID}
-	if _, err := planCostCenter(ctx, tx, c, KindCreate, payload); err != nil {
+	if _, err := planCostCenter(ctx, tx, c, KindCreate, payload, e.today()); err != nil {
 		return CostCenter{}, err
 	}
 	if _, err := requestChange(ctx, tx, e.Approvals, costCenterRef(le, id, in.Code), KindCreate, payload, in.Reason); err != nil {
@@ -142,7 +142,7 @@ func (e *Endpoints) RequestCostCenterChange(ctx context.Context, id uuid.UUID, i
 	}
 	from, to, _ := validity(c.Periods)
 	payload := build(from, to)
-	if _, err := planCostCenter(ctx, tx, c, kind, payload); err != nil {
+	if _, err := planCostCenter(ctx, tx, c, kind, payload, e.today()); err != nil {
 		return CenterChange{}, err
 	}
 	le, _, err := e.LegalEntities.Entity(ctx, c.LegalEntityID)
@@ -165,8 +165,8 @@ func changeable(h centerHead, ifMatch func(int32) error) error {
 }
 
 // planCostCenter computes the cost center's periods after the change and
-// checks them; it refuses a change that changes nothing.
-func planCostCenter(ctx context.Context, tx pgx.Tx, c CostCenter, kind string, p costCenterPayload) ([]span[CostCenterAttrs], error) {
+// checks them as of today; it refuses a change that changes nothing.
+func planCostCenter(ctx context.Context, tx pgx.Tx, c CostCenter, kind string, p costCenterPayload, today time.Time) ([]span[CostCenterAttrs], error) {
 	from, to := parseDate(p.ValidFrom), parseDate(p.ValidTo)
 	cat, err := costCenterCategory(ctx, tx, p.Category)
 	if err != nil {
@@ -207,18 +207,18 @@ func planCostCenter(ctx context.Context, tx pgx.Tx, c CostCenter, kind string, p
 		}
 		spans = setFrom(c.Periods, from, time.Time{}, func(a CostCenterAttrs) CostCenterAttrs { return moved(a, p) })
 	}
-	return spans, checkCostCenterSpans(ctx, tx, c, kind, spans)
+	return spans, checkCostCenterSpans(ctx, tx, c, kind, spans, today)
 }
 
 // checkCostCenterSpans checks the cost center's periods after a change:
 // that they change something, that a default cost center stays usable
 // (keepsDefaultCostCenter) and their profit centers.
-func checkCostCenterSpans(ctx context.Context, tx pgx.Tx, c CostCenter, kind string, spans []span[CostCenterAttrs]) error {
+func checkCostCenterSpans(ctx context.Context, tx pgx.Tx, c CostCenter, kind string, spans []span[CostCenterAttrs], today time.Time) error {
 	if _, _, differ := diffSpans(c.Periods, spans); !differ {
 		return nothingToChange()
 	}
 	if kind == KindRedate || kind == KindLock {
-		if err := keepsDefaultCostCenter(ctx, tx, c.ID, spans); err != nil {
+		if err := keepsDefaultCostCenter(ctx, tx, c.ID, spans, today); err != nil {
 			return err
 		}
 	}
@@ -296,15 +296,16 @@ func checkProfitCenters(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, s
 	return nil
 }
 
-// applyCostCenterChange applies an approved change of a cost center.
-func applyCostCenterChange(ctx context.Context, tx pgx.Tx, ch CenterChange) error {
+// applyCostCenterChange applies an approved change of a cost center, as of
+// today.
+func applyCostCenterChange(ctx context.Context, tx pgx.Tx, ch CenterChange, today time.Time) error {
 	c, err := getCostCenter(ctx, tx, authz.Access{All: true}, *ch.CostCenterID, true)
 	if err != nil {
 		return err
 	}
 	var p costCenterPayload
 	decode(ch.Payload, &p)
-	spans, err := planCostCenter(ctx, tx, c, ch.Kind, p)
+	spans, err := planCostCenter(ctx, tx, c, ch.Kind, p, today)
 	if err != nil {
 		return err
 	}

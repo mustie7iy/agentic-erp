@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -228,11 +229,14 @@ func decided(ctx context.Context, tx pgx.Tx, id, request uuid.UUID) (CenterChang
 // CenterChanges moves center changes on when their approval requests
 // complete (approvals.Handler), in the deciding transaction. The decider
 // may not see the cost center's company: the request is what authorises
-// the change, so the center is read without the company filter.
-type CenterChanges struct{}
+// the change, so the center is read without the company filter. Now is the
+// clock the change is applied by (Endpoints.Now); nil: the wall clock.
+type CenterChanges struct {
+	Now func() time.Time
+}
 
 // Approved applies the change.
-func (CenterChanges) Approved(ctx context.Context, change, request uuid.UUID) error {
+func (h CenterChanges) Approved(ctx context.Context, change, request uuid.UUID) error {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return err
@@ -245,9 +249,9 @@ func (CenterChanges) Approved(ctx context.Context, change, request uuid.UUID) er
 	case c.HierarchyID != nil:
 		err = applyHierarchyChange(ctx, tx, c)
 	case c.CostCenterID != nil:
-		err = applyCostCenterChange(ctx, tx, c)
+		err = applyCostCenterChange(ctx, tx, c, day(clock.Now(h.Now)))
 	default:
-		err = applyProfitCenterChange(ctx, tx, c)
+		err = applyProfitCenterChange(ctx, tx, c, day(clock.Now(h.Now)))
 	}
 	if err != nil {
 		return err

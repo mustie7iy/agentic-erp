@@ -36,9 +36,11 @@ package ledger
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -71,4 +73,11 @@ type Endpoints struct {
 	Partners      Partners
 	Numbers       Numbers
 	Approvals     Opener // opens the unlock requests of locked periods
+	// Now is the clock center changes read today by, as the controlling
+	// rules' setup does (Setup.Now): a default center stays usable from
+	// today on (keepsDefaultCostCenter). nil: the wall clock.
+	Now func() time.Time
 }
+
+// today is the date of the endpoints' clock.
+func (e *Endpoints) today() time.Time { return day(clock.Now(e.Now)) }
