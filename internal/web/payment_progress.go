@@ -97,7 +97,7 @@ func (s *Server) progressView(w http.ResponseWriter, r *http.Request, p *person,
 	res, err := s.API.GetOperation(r.Context(), gen.GetOperationParams{ID: opID})
 	got, ok := res.(*gen.GetOperationOKHeaders)
 	if !ok {
-		v.Refusal, ok = s.inPlace(w, r, p, m, "getOperation", res, err, i18n.ProgressRefusedTitle, "progress-refusal")
+		v.Refusal, ok = s.inPlace(w, r, p, m, i18n.PaymentProblems, "getOperation", res, err, i18n.ProgressRefusedTitle, "progress-refusal")
 		return v, nil, ok
 	}
 	op := got.Response
@@ -154,7 +154,7 @@ func (s *Server) cancelRunOperation(w http.ResponseWriter, r *http.Request, p *p
 	res, err := s.API.GetOperation(r.Context(), gen.GetOperationParams{ID: operation})
 	got, ok := res.(*gen.GetOperationOKHeaders)
 	if !ok {
-		if refused, show := s.inPlace(w, r, p, m, "getOperation", res, err, i18n.CancelRefusedTitle, ""); show {
+		if refused, show := s.inPlace(w, r, p, m, i18n.PaymentProblems, "getOperation", res, err, i18n.CancelRefusedTitle, ""); show {
 			s.showProgress(w, r, p, m, id, refusedStatus(res), refused)
 		}
 		return
@@ -169,7 +169,7 @@ func (s *Server) cancelRunOperation(w http.ResponseWriter, r *http.Request, p *p
 		http.Redirect(w, r, runPath(id)+"?done=cancelled", http.StatusSeeOther)
 		return
 	}
-	if refused, show := s.inPlace(w, r, p, m, "cancelOperation", cres, err, i18n.CancelRefusedTitle, ""); show {
+	if refused, show := s.inPlace(w, r, p, m, i18n.PaymentProblems, "cancelOperation", cres, err, i18n.CancelRefusedTitle, ""); show {
 		s.showProgress(w, r, p, m, id, refusedStatus(cres), refused)
 	}
 }

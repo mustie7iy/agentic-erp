@@ -88,6 +88,7 @@ type NavJobs struct {
 	Invoices  bool // supplier invoices
 	Bank      bool // bank statements
 	Payments  bool // payment runs
+	Close     bool // posting periods
 }
 
 // SignedInNav is a signed-in person's navigation: the screens of the jobs
@@ -105,6 +106,9 @@ func SignedInNav(jobs NavJobs) []NavItem {
 	}
 	if jobs.Payments {
 		nav = append(nav, NavItem{Path: PaymentsPath, Label: i18n.JobPayments})
+	}
+	if jobs.Close {
+		nav = append(nav, NavItem{Path: ClosePath, Label: i18n.JobClose})
 	}
 	return append(nav, Nav[1])
 }

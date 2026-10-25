@@ -1,0 +1,838 @@
+package ui
+
+import "github.com/mustie7iy/agentic-erp/internal/web/i18n"
+
+// Periods is the posting periods of a company and ledger in a fiscal
+// year (ADR-0052 §2, T73i), each linked to its page, and the way to the
+// company's revaluation.
+templ Periods(s Shell, l PeriodList) {
+	@Layout(s, periodsContent(l))
+}
+
+templ periodsContent(l PeriodList) {
+	<h1>
+		@T(i18n.CloseTitle)
+	</h1>
+	@Paragraph(i18n.CloseLead)
+	@PeriodFilterForm(l.Filters)
+	if l.Revalue != "" {
+		<p>
+			<a { link(l.Revalue, "")... }>
+				@T(i18n.CloseRevalue)
+			</a>
+		</p>
+	}
+	if l.Invalid {
+		@Notice("periods-invalid", i18n.PeriodsRefusedTitle, Paragraph(i18n.FilterInvalid))
+	} else if l.Refusal != nil {
+		@RefusalNotice(*l.Refusal)
+	} else if len(l.Rows) == 0 {
+		@Paragraph(i18n.PeriodsEmpty)
+	} else {
+		@PeriodsTable(l.Rows)
+		if l.More != "" {
+			@ButtonLink(l.More, i18n.PeriodsMore)
+		}
+	}
+}
+
+// PeriodFilterForm is the list's choice of company, ledger and year: a
+// plain GET form, so a year's periods are an address to keep or share.
+templ PeriodFilterForm(f PeriodFilters) {
+	<form class="filters" { get(ClosePath)... }>
+		<h2 class="filters__title">
+			@T(i18n.PeriodsFilters)
+		</h2>
+		<div class="filters__fields">
+			if f.Companies != nil {
+				@optionSelect("periods-company", FieldCompany, i18n.FilterCompany, f.Companies)
+			}
+			if f.Ledgers != nil {
+				@optionSelect("periods-ledger", FieldLedger, i18n.PeriodLedger, f.Ledgers)
+			}
+			@InputField("periods-year", FieldYear, "text", i18n.PeriodYear, i18n.PeriodYearHint, f.Year, f.YearError)
+		</div>
+		<div class="filters__buttons">
+			<button class="button" type="submit">
+				@T(i18n.FilterApply)
+			</button>
+		</div>
+	</form>
+}
+
+// optionSelect is a labelled select of the options, one of them chosen.
+templ optionSelect(id, name string, labelKey i18n.Key, options []Option) {
+	<div class="field">
+		<label class="field__label" { forAttr(id)... }>
+			@T(labelKey)
+		</label>
+		<select class="select" { uploadSelect(id, name, "")... }>
+			for _, o := range options {
+				<option translate="no" { option(o)... }>
+					@Value(o.Text)
+				</option>
+			}
+		</select>
+	</div>
+}
+
+// PeriodsTable is a year's periods, in a region that scrolls sideways on
+// its own on a phone.
+templ PeriodsTable(rows []PeriodRow) {
+	<div class="table-wrap" role="region" tabindex="0" { labelledBy("periods-caption")... }>
+		<table class="table">
+			<caption class="visually-hidden" { idAttr("periods-caption")... }>
+				@T(i18n.PeriodsCaption)
+			</caption>
+			<thead>
+				<tr>
+					@HeaderCell(i18n.PeriodNumber)
+					@HeaderCell(i18n.PeriodStart)
+					@HeaderCell(i18n.PeriodEnd)
+					@HeaderCell(i18n.PeriodStatus)
+					@HeaderCell(i18n.PeriodUpdatedBy)
+					@HeaderCell(i18n.PeriodUpdatedAt)
+				</tr>
+			</thead>
+			<tbody>
+				for _, r := range rows {
+					@PeriodRowView(r)
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+// PeriodRowView is one period of the year.
+templ PeriodRowView(r PeriodRow) {
+	<tr>
+		<td>
+			<a { link(r.Path, "")... }>
+				@T(i18n.PeriodHeading, r.Period, yearText(r.Year))
+			</a>
+			if r.Special {
+				@space()
+				@Tag(i18n.PeriodSpecial, "")
+			}
+		</td>
+		<td>
+			@Day(r.Start)
+		</td>
+		<td>
+			@Day(r.End)
+		</td>
+		<td>
+			@PeriodStatusTag(r.Status)
+			if r.UnlockPending {
+				@space()
+				@Tag(i18n.PeriodUnlockPendingTag, "warning")
+			}
+		</td>
+		<td hx-disable>
+			@Principal(r.UpdatedBy)
+		</td>
+		<td>
+			@Date(r.UpdatedAt)
+		</td>
+	</tr>
+}
+
+// PeriodStatusTag is a period's status.
+templ PeriodStatusTag(l Label) {
+	<strong { tagClass(periodStatusKind(l))... }>
+		@labelText(l)
+	</strong>
+}
+
+// Period is one posting period (ADR-0052 §2, T73i): its summary, its
+// pending unlock request, the person's decisions on it, the pre-close
+// checks and the revaluation at its end.
+templ Period(s Shell, pp PeriodPage) {
+	@Layout(s, periodContent(pp))
+}
+
+templ periodContent(pp PeriodPage) {
+	<p>
+		<a { link(pp.Back, "")... }>
+			@T(i18n.PeriodBack)
+		</a>
+	</p>
+	<p class="caption">
+		@T(i18n.PeriodTitle)
+	</p>
+	<h1>
+		@T(i18n.PeriodHeading, pp.Period, yearText(pp.Year))
+	</h1>
+	if pp.Done != "" {
+		@Notice("period-done", i18n.InvoiceDoneTitle, Paragraph(pp.Done))
+	}
+	if pp.Refusal != nil {
+		@RefusalNotice(*pp.Refusal)
+	}
+	<div hx-disable>
+		@SummaryList(periodRows(pp.Header))
+	</div>
+	if pp.Unlock != "" {
+		@UnlockBlock(pp.Unlock)
+	}
+	if pp.Why != "" || len(pp.Actions) > 0 {
+		<h2>
+			@T(i18n.PeriodActionsTitle)
+		</h2>
+		if pp.Why != "" {
+			@Paragraph(pp.Why)
+		}
+		for _, f := range pp.Actions {
+			@PeriodFormView(f)
+		}
+	}
+	if pp.Revalue != "" {
+		<h2>
+			@T(i18n.RevaluationTitle)
+		</h2>
+		@Paragraph(i18n.PeriodRevalueLead)
+		@ButtonLink(pp.Revalue, i18n.PeriodRevalue)
+	}
+	if pp.Checks != "" {
+		@ChecksLink(pp.Checks)
+	}
+}
+
+// UnlockBlock is the period's pending unlock request: it waits for the
+// controller's approval in the approvals inbox, where it is decided.
+templ UnlockBlock(request string) {
+	<section class="match" { labelledBy("unlock-title")... }>
+		<h2 class="match__title" { idAttr("unlock-title")... }>
+			@T(i18n.PeriodUnlockTitle)
+		</h2>
+		@Paragraph(i18n.PeriodUnlockWaits)
+		@ButtonLink(request, i18n.MatchApprovalOpen)
+	</section>
+}
+
+// PeriodFormView is one decision on a period: a real form posting the
+// CSRF token, the period's ETag as If-Match and the form's own
+// idempotency key, with the unlock's reason.
+templ PeriodFormView(f PeriodForm) {
+	<form class="decide" { post(f.Action)... }>
+		@decideHidden(f.CSRF, f.ETag, f.Key)
+		<p class="hint">
+			@T(periodSpecs[f.Verb].Hint)
+		</p>
+		if periodSpecs[f.Verb].Text != "" {
+			@CommentField("period-"+f.Verb+"-text", periodSpecs[f.Verb].Text, periodSpecs[f.Verb].TextHint, f.Text, f.TextError)
+		}
+		<button { periodButton(f)... }>
+			@T(periodSpecs[f.Verb].Button)
+		</button>
+	</form>
+}
+
+// ChecksLink is where the pre-close checks are shown: a link, which htmx
+// replaces with the checks themselves once the page loaded.
+templ ChecksLink(path string) {
+	<div class="order" { lazy(path)... }>
+		<p>
+			<a { link(path, "")... }>
+				@T(i18n.ChecksShow)
+			</a>
+		</p>
+	</div>
+}
+
+// ChecksSection is the pre-close checks in the period's page.
+templ ChecksSection(v ChecksView) {
+	<section class="order" { labelledBy("checks-title")... }>
+		<h2 { idAttr("checks-title")... }>
+			@T(i18n.ChecksTitle)
+		</h2>
+		@checksBody(v)
+	</section>
+}
+
+templ checksBody(v ChecksView) {
+	@Paragraph(i18n.ChecksLead)
+	if v.Invalid {
+		@Paragraph(i18n.FilterInvalid)
+	} else {
+		@GRIRCheckView(v.GRIR)
+		@LedgerCheckView(v.Ledgers)
+		@StatementCheckView(v.Statements)
+	}
+}
+
+// ChecksPage is the pre-close checks as a page of their own, for a
+// browser without htmx.
+templ ChecksPage(s Shell, v ChecksView) {
+	@Layout(s, checksPageContent(v))
+}
+
+templ checksPageContent(v ChecksView) {
+	if v.Period != "" {
+		<p>
+			<a { link(v.Period, "")... }>
+				@T(i18n.ChecksBack)
+			</a>
+		</p>
+	}
+	<h1 { idAttr("checks-title")... }>
+		@T(i18n.ChecksTitle)
+	</h1>
+	@checksBody(v)
+}
+
+// GRIRCheckView is the GR/IR positions still open: received and not
+// invoiced, or invoiced and not received.
+templ GRIRCheckView(c GRIRCheck) {
+	<h3>
+		@T(i18n.CheckGRIRTitle)
+	</h3>
+	@Paragraph(i18n.CheckGRIRLead)
+	if c.Refusal != nil {
+		@RefusalNotice(*c.Refusal)
+	} else {
+		<p>
+			@checked(len(c.Positions) == 0)
+		</p>
+		if len(c.Positions) == 0 {
+			@Paragraph(i18n.CheckGRIRNone)
+		} else {
+			@GRIRTable(c.Positions)
+			if c.More {
+				@Paragraph(i18n.CheckMore)
+			}
+		}
+	}
+}
+
+// GRIRTable is the open GR/IR positions.
+templ GRIRTable(positions []GRIRPosition) {
+	<div class="table-wrap" role="region" tabindex="0" { labelledBy("grir-caption")... }>
+		<table class="table">
+			<caption class="visually-hidden" { idAttr("grir-caption")... }>
+				@T(i18n.CheckGRIRTitle)
+			</caption>
+			<thead>
+				<tr>
+					@HeaderCell(i18n.GRIROrder)
+					@HeaderCell(i18n.GRIRItem)
+					@HeaderCell(i18n.GRIRReceived)
+					@HeaderCell(i18n.GRIRInvoiced)
+					@HeaderCell(i18n.GRIRBalance)
+					@HeaderCell(i18n.GRIRLast)
+				</tr>
+			</thead>
+			<tbody>
+				for _, p := range positions {
+					@GRIRRow(p)
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+// GRIRRow is one open position.
+templ GRIRRow(p GRIRPosition) {
+	<tr>
+		<td>
+			@Code(p.Order)
+		</td>
+		<td>
+			@Number(p.Item)
+		</td>
+		<td>
+			@Quantity(p.Received, p.Unit)
+		</td>
+		<td>
+			@Quantity(p.Invoiced, p.Unit)
+		</td>
+		<td>
+			@Amount(p.Balance)
+		</td>
+		<td>
+			@Day(p.Last)
+		</td>
+	</tr>
+}
+
+// LedgerCheckView is the ledger's reconciliation with another ledger the
+// company keeps: each ledger's trial balance and the accounts that
+// differ.
+templ LedgerCheckView(c LedgerCheck) {
+	<h3>
+		@T(i18n.CheckLedgerTitle)
+	</h3>
+	if c.Unknown {
+		@Paragraph(i18n.CheckLedgerUnknown)
+	} else if c.Single {
+		@Paragraph(i18n.CheckLedgerSingle)
+	} else if c.Refusal != nil {
+		@RefusalNotice(*c.Refusal)
+	} else {
+		@Paragraph(i18n.CheckLedgerLead, c.Ledger, c.Compare)
+		<p>
+			@checked(len(c.Differences) == 0 && balanced(c.Trials))
+		</p>
+		<ul class="list">
+			for _, tb := range c.Trials {
+				@TrialItem(tb)
+			}
+		</ul>
+		if len(c.Differences) == 0 {
+			@Paragraph(i18n.CheckLedgerNone)
+		} else {
+			@DifferencesTable(c.Differences)
+			if c.More {
+				@Paragraph(i18n.CheckMore)
+			}
+		}
+	}
+}
+
+// TrialItem is one ledger's trial balance check.
+templ TrialItem(tb TrialView) {
+	<li class="list__item">
+		<dl class="facts">
+			@Fact(i18n.CheckTrialLedger, Code(tb.Ledger))
+			@Fact(i18n.CheckTrialDebits, Amount(tb.Debit))
+			@Fact(i18n.CheckTrialCredits, Amount(tb.Credit))
+			@Fact(i18n.CheckTrialResult, trialResult(tb.Balanced))
+		</dl>
+	</li>
+}
+
+// DifferencesTable is the accounts whose balances differ between the
+// ledgers.
+templ DifferencesTable(differences []DifferenceView) {
+	<div class="table-wrap" role="region" tabindex="0" { labelledBy("differences-caption")... }>
+		<table class="table">
+			<caption class="visually-hidden" { idAttr("differences-caption")... }>
+				@T(i18n.CheckLedgerTitle)
+			</caption>
+			<thead>
+				<tr>
+					@HeaderCell(i18n.DifferenceAccount)
+					@HeaderCell(i18n.DifferenceCurrency)
+					@HeaderCell(i18n.DifferenceBalance)
+					@HeaderCell(i18n.DifferenceCompare)
+					@HeaderCell(i18n.DifferenceAmount)
+				</tr>
+			</thead>
+			<tbody>
+				for _, d := range differences {
+					@DifferenceRow(d)
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+// DifferenceRow is one account and currency that differs.
+templ DifferenceRow(d DifferenceView) {
+	<tr>
+		<td>
+			@Code(d.Account)
+		</td>
+		<td>
+			@Code(d.Currency)
+		</td>
+		<td>
+			@Amount(d.Balance)
+		</td>
+		<td>
+			@Amount(d.Compare)
+		</td>
+		<td>
+			@Amount(d.Difference)
+		</td>
+	</tr>
+}
+
+// StatementCheckView is the company's bank statements not reconciled,
+// each linked to its page and its bank's reconciliation report.
+templ StatementCheckView(c StatementCheck) {
+	<h3>
+		@T(i18n.CheckStatementsTitle)
+	</h3>
+	if c.Refusal != nil {
+		@RefusalNotice(*c.Refusal)
+	} else {
+		<p>
+			@checked(len(c.Rows) == 0)
+		</p>
+		if len(c.Rows) == 0 {
+			@Paragraph(i18n.CheckStatementsNone)
+		} else {
+			<ul class="cards" { label(ctx, i18n.CheckStatementsTitle)... }>
+				for _, r := range c.Rows {
+					@StatementCard(r)
+				}
+			</ul>
+			if c.More {
+				@Paragraph(i18n.CheckMore)
+			}
+		}
+		<p>
+			<a { link(c.Imported, "")... }>
+				@T(i18n.CheckStatementsImported)
+			</a>
+			@space()
+			<a { link(c.Gap, "")... }>
+				@T(i18n.CheckStatementsGap)
+			</a>
+		</p>
+	}
+}
+
+// Revaluation is a company's foreign-currency revaluation (ADR-0052 §2,
+// ADR-0042, T73i): the preview at a key date, the post of its run, and
+// the company's runs.
+templ Revaluation(s Shell, rp RevaluationPage) {
+	@Layout(s, revaluationContent(rp))
+}
+
+templ revaluationContent(rp RevaluationPage) {
+	<p>
+		<a { link(ClosePath, "")... }>
+			@T(i18n.RevaluationBack)
+		</a>
+	</p>
+	<h1>
+		@T(i18n.RevaluationTitle)
+	</h1>
+	@Paragraph(i18n.RevaluationLead)
+	if rp.Refusal != nil {
+		@RefusalNotice(*rp.Refusal)
+	}
+	if rp.Form != nil {
+		@RevaluationFormView(*rp.Form)
+	}
+	if rp.Preview != nil {
+		@PreviewSection(*rp.Preview)
+	}
+	<h2>
+		@T(i18n.RevaluationRunsTitle)
+	</h2>
+	if rp.RunsError != nil {
+		@RefusalNotice(*rp.RunsError)
+	} else if len(rp.Runs) == 0 {
+		@Paragraph(i18n.RevaluationRunsNone)
+	} else {
+		<ul class="cards" { label(ctx, i18n.RevaluationRunsTitle)... }>
+			for _, r := range rp.Runs {
+				@RevaluationCard(r)
+			}
+		</ul>
+		if rp.RunsMore != "" {
+			@ButtonLink(rp.RunsMore, i18n.RevaluationRunsMore)
+		}
+	}
+}
+
+// RevaluationFormView previews a revaluation: the company, the ledger and
+// the key date, posted with the CSRF token and a fresh idempotency key.
+templ RevaluationFormView(f RevaluationForm) {
+	<form class="filters" { post(PreviewPath)... }>
+		<h2 class="filters__title">
+			@T(i18n.PreviewTitle)
+		</h2>
+		<input { csrfInput(f.CSRF)... }/>
+		<input { hidden(FieldIdempotency, f.Key)... }/>
+		<div class="filters__fields">
+			<div { fieldClass(f.CompanyError)... }>
+				<label class="field__label" for="revalue-company">
+					@T(i18n.ProposeCompany)
+				</label>
+				if f.CompanyError != "" {
+					<p class="field__error" id="revalue-company-error">
+						@T(f.CompanyError)
+					</p>
+				}
+				<select class="select" { uploadSelect("revalue-company", FieldCompany, f.CompanyError)... }>
+					for _, o := range f.Companies {
+						<option translate="no" { option(o)... }>
+							@Value(o.Text)
+						</option>
+					}
+				</select>
+			</div>
+			if f.Ledgers != nil {
+				@optionSelect("revalue-ledger", FieldLedger, i18n.PeriodLedger, f.Ledgers)
+			}
+			@InputField("revalue-keydate", FieldKeyDate, "date", i18n.RevaluationKeyDate, i18n.RevaluationKeyDateHint, f.KeyDate, f.KeyDateError)
+		</div>
+		<div class="filters__buttons">
+			<button class="button" type="submit" id="preview-button">
+				@T(i18n.PreviewSubmit)
+			</button>
+		</div>
+	</form>
+}
+
+// PreviewSection is what a revaluation at the key date would value, and
+// the post of its run.
+templ PreviewSection(v PreviewView) {
+	<section class="order" { labelledBy("preview-title")... }>
+		<h2 { idAttr("preview-title")... }>
+			@T(i18n.PreviewResultTitle)
+		</h2>
+		<dl class="facts">
+			@Fact(i18n.RevaluationKeyDate, Day(v.KeyDate))
+			@Fact(i18n.PeriodNumber, T(i18n.PeriodHeading, v.Period, yearText(v.Year)))
+			@Fact(i18n.RevaluationRateType, labelText(v.RateType))
+		</dl>
+		@valuedLists(v.Totals, v.Items)
+		if v.Post != nil {
+			@PostFormView(*v.Post)
+		}
+	</section>
+}
+
+// valuedLists are a revaluation's totals and items, or that nothing is
+// valued.
+templ valuedLists(totals []TotalView, items []ItemView) {
+	if len(items) == 0 {
+		@Paragraph(i18n.PreviewNothing)
+	} else {
+		<h3>
+			@T(i18n.RevaluationTotalsTitle)
+		</h3>
+		if len(totals) == 0 {
+			@Paragraph(i18n.RevaluationNoDifference)
+		} else {
+			@TotalsTable(totals)
+		}
+		<h3>
+			@T(i18n.RevaluationItemsTitle)
+		</h3>
+		@ItemsTable(items)
+	}
+}
+
+// PostFormView posts the previewed run: the preview's company, ledger and
+// key date, with the CSRF token and a fresh idempotency key.
+templ PostFormView(f PostForm) {
+	<form class="decide" { post(RevaluePostPath)... }>
+		<input { csrfInput(f.CSRF)... }/>
+		<input { hidden(FieldIdempotency, f.Key)... }/>
+		<input { hidden(FieldCompany, f.Company)... }/>
+		<input { hidden(FieldLedger, f.Ledger)... }/>
+		<input { hidden(FieldKeyDate, f.KeyDate)... }/>
+		<p class="hint">
+			@T(i18n.RevaluationPostHint)
+		</p>
+		<button class="button" type="submit" id="revaluation-post-button">
+			@T(i18n.RevaluationPostButton)
+		</button>
+	</form>
+}
+
+// TotalsTable is a revaluation's totals per account, currency and
+// direction.
+templ TotalsTable(totals []TotalView) {
+	<div class="table-wrap" role="region" tabindex="0" { labelledBy("totals-caption")... }>
+		<table class="table">
+			<caption class="visually-hidden" { idAttr("totals-caption")... }>
+				@T(i18n.RevaluationTotalsTitle)
+			</caption>
+			<thead>
+				<tr>
+					@HeaderCell(i18n.DifferenceAccount)
+					@HeaderCell(i18n.DifferenceCurrency)
+					@HeaderCell(i18n.RevaluationDirection)
+					@HeaderCell(i18n.RevaluationItemCount)
+					@HeaderCell(i18n.RevaluationAmount)
+					@HeaderCell(i18n.RevaluationBooked)
+					@HeaderCell(i18n.RevaluationValued)
+					@HeaderCell(i18n.RevaluationDifference)
+					@HeaderCell(i18n.RevaluationDifferenceGC)
+				</tr>
+			</thead>
+			<tbody>
+				for _, tv := range totals {
+					@TotalRow(tv)
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+// TotalRow is one total.
+templ TotalRow(tv TotalView) {
+	<tr>
+		<td>
+			@Code(tv.Account)
+		</td>
+		<td>
+			@Code(tv.Currency)
+		</td>
+		<td>
+			@DirectionTag(tv.Direction)
+		</td>
+		<td>
+			@Number(tv.Items)
+		</td>
+		<td>
+			@Amount(tv.Amount)
+		</td>
+		<td>
+			@Amount(tv.Booked)
+		</td>
+		<td>
+			@Amount(tv.Valued)
+		</td>
+		<td>
+			@Amount(tv.Difference)
+		</td>
+		<td>
+			@Amount(tv.DifferenceGC)
+		</td>
+	</tr>
+}
+
+// ItemsTable is every valued item, with or without a difference.
+templ ItemsTable(items []ItemView) {
+	<div class="table-wrap" role="region" tabindex="0" { labelledBy("items-caption")... }>
+		<table class="table">
+			<caption class="visually-hidden" { idAttr("items-caption")... }>
+				@T(i18n.RevaluationItemsTitle)
+			</caption>
+			<thead>
+				<tr>
+					@HeaderCell(i18n.DifferenceAccount)
+					@HeaderCell(i18n.RevaluationItem)
+					@HeaderCell(i18n.RevaluationAmount)
+					@HeaderCell(i18n.RevaluationBooked)
+					@HeaderCell(i18n.RevaluationRate)
+					@HeaderCell(i18n.RevaluationValued)
+					@HeaderCell(i18n.RevaluationDifference)
+					@HeaderCell(i18n.RevaluationDifferenceGC)
+					@HeaderCell(i18n.RevaluationDirection)
+				</tr>
+			</thead>
+			<tbody>
+				for _, it := range items {
+					@ItemRow(it)
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+// ItemRow is one valued item: an open item by its entry, line and
+// partner, or an account's balance.
+templ ItemRow(it ItemView) {
+	<tr>
+		<td>
+			@Code(it.Account)
+		</td>
+		<td>
+			if it.Entry != "" {
+				@Code(it.Entry)
+				@space()
+				@T(i18n.RevaluationLine, it.Line)
+				@space()
+				@Code(it.Partner)
+			} else {
+				@T(i18n.RevaluationBalance)
+			}
+		</td>
+		<td>
+			@Amount(it.Amount)
+		</td>
+		<td>
+			@Amount(it.Booked)
+		</td>
+		<td>
+			if it.Rate != "" {
+				<bdi class="amount" translate="no">
+					@rate(it.Rate)
+				</bdi>
+			} else {
+				@T(i18n.LineNone)
+			}
+		</td>
+		<td>
+			@Amount(it.Valued)
+		</td>
+		<td>
+			@Amount(it.Difference)
+		</td>
+		<td>
+			@Amount(it.DifferenceGC)
+		</td>
+		<td>
+			@DirectionTag(it.Direction)
+		</td>
+	</tr>
+}
+
+// DirectionTag is an item's or a total's direction: gain, loss or none.
+templ DirectionTag(l Label) {
+	<strong { tagClass(directionKind(l))... }>
+		@labelText(l)
+	</strong>
+}
+
+// RevaluationCard is one of the company's runs.
+templ RevaluationCard(r RevaluationRow) {
+	<li class="card">
+		<h3 class="card__title">
+			<a { link(r.Path, "")... }>
+				@Day(r.KeyDate)
+			</a>
+		</h3>
+		<dl class="facts" hx-disable>
+			@Fact(i18n.RevaluationStatus, RevaluationStatusTag(r.Status))
+			@Fact(i18n.PeriodLedger, Data(r.Ledger))
+			@Fact(i18n.RevaluationItemCount, Number(r.Items))
+			@Fact(i18n.RevaluationPostedBy, Principal(r.CreatedBy))
+			@Fact(i18n.RevaluationPostedAt, Date(r.CreatedAt))
+		</dl>
+	</li>
+}
+
+// RevaluationStatusTag is a run's status.
+templ RevaluationStatusTag(l Label) {
+	<strong { tagClass(revaluationStatusKind(l))... }>
+		@labelText(l)
+	</strong>
+}
+
+// RevaluationRun is one revaluation run: its summary, its entries, its
+// totals and items.
+templ RevaluationRun(s Shell, rp RevaluationRunPage) {
+	@Layout(s, revaluationRunContent(rp))
+}
+
+templ revaluationRunContent(rp RevaluationRunPage) {
+	<p>
+		<a { link(rp.Back, "")... }>
+			@T(i18n.RevaluationRunBack)
+		</a>
+	</p>
+	<p class="caption">
+		@T(i18n.RevaluationRunTitle)
+	</p>
+	<h1>
+		@Day(rp.Header.KeyDate)
+	</h1>
+	if rp.Done != "" {
+		@Notice("revaluation-done", i18n.InvoiceDoneTitle, Paragraph(rp.Done))
+	}
+	<div hx-disable>
+		@SummaryList(revaluationRows(rp.Header))
+	</div>
+	<h2>
+		@T(i18n.RevaluationEntriesTitle)
+	</h2>
+	if rp.Valuation != "" {
+		<dl class="facts">
+			@Fact(i18n.RevaluationValuationEntry, Code(rp.Valuation))
+			@Fact(i18n.RevaluationResetEntry, Code(rp.Reset))
+		</dl>
+	} else {
+		@Paragraph(i18n.RevaluationNoEntries)
+	}
+	@valuedLists(rp.Totals, rp.Items)
+}

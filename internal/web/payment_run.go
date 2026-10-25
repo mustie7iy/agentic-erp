@@ -113,19 +113,6 @@ func (s *Server) showRun(w http.ResponseWriter, r *http.Request, p *person, m me
 	s.render(w, r, status, ui.Run(s.page(i18n.RunTitle, ui.PaymentsPath, p, m), rp))
 }
 
-// inPlace is the refusal of one of a page's reads, shown in the read's
-// place under its own id. ok is false when the answer was written
-// instead (apiFailed).
-func (s *Server) inPlace(w http.ResponseWriter, r *http.Request, p *person, m me, operation string, res any, err error, title i18n.Key, id string) (*ui.Refusal, bool) {
-	prob, show := s.refusal(w, r, p, operation, res, err)
-	if !show {
-		return nil, false
-	}
-	refused := explainIn(i18n.PaymentProblems, title, prob, m)
-	refused.ID = id
-	return refused, true
-}
-
 // runLists reads a page of the run's payments and one of its exclusions,
 // each at its own token. ok is false when the answer is already written;
 // a refusal is shown in the list's place.
@@ -140,7 +127,7 @@ func (s *Server) runLists(w http.ResponseWriter, r *http.Request, p *person, m m
 		if next := page.Response.NextPageToken.Or(""); next != "" {
 			rp.PaymentsMore = runPath(id) + "?" + with(without(q, "done"), "payments_page", next).Encode()
 		}
-	} else if rp.PaymentsError, ok = s.inPlace(w, r, p, m, "listPayments", res, err, i18n.PaymentsRefusedTitle, "payments-refusal"); !ok {
+	} else if rp.PaymentsError, ok = s.inPlace(w, r, p, m, i18n.PaymentProblems, "listPayments", res, err, i18n.PaymentsRefusedTitle, "payments-refusal"); !ok {
 		return false
 	}
 	ep := gen.ListPaymentExclusionsParams{ID: id, PageSize: gen.NewOptInt32(runListSize)}
@@ -156,7 +143,7 @@ func (s *Server) runLists(w http.ResponseWriter, r *http.Request, p *person, m m
 		return true
 	}
 	var ok bool
-	rp.ExclusionsError, ok = s.inPlace(w, r, p, m, "listPaymentExclusions", eres, err, i18n.PaymentsRefusedTitle, "exclusions-refusal")
+	rp.ExclusionsError, ok = s.inPlace(w, r, p, m, i18n.PaymentProblems, "listPaymentExclusions", eres, err, i18n.PaymentsRefusedTitle, "exclusions-refusal")
 	return ok
 }
 
@@ -168,7 +155,7 @@ func (s *Server) runFiles(w http.ResponseWriter, r *http.Request, p *person, m m
 		OrderBy: gen.NewOptString("created_at")})
 	page, ok := res.(*gen.BankFilePageHeaders)
 	if !ok {
-		rp.FilesError, ok = s.inPlace(w, r, p, m, "listBankFiles", res, err, i18n.PaymentsRefusedTitle, "files-refusal")
+		rp.FilesError, ok = s.inPlace(w, r, p, m, i18n.PaymentProblems, "listBankFiles", res, err, i18n.PaymentsRefusedTitle, "files-refusal")
 		return ok
 	}
 	for _, f := range page.Response.Items {

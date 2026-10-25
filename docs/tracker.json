@@ -4625,9 +4625,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Period close screens: periods per company and ledger by fiscal year, close, open and lock with ETags and idempotency keys, the unlock request with its reason and its approval decided by the controller in the approvals inbox (T73d; the requester refused as approver by workflow.own_request, shown by the code), revaluation preview (key date from the period's end) and post with the run's page and the company's runs, pre-close checks loaded into the period's page (GR/IR positions still open, the period's ledger reconciled with another the company keeps, statements imported and after a gap): the statements link to their pages, their bank's reconciliation report and the lists by status (T73g); GR/IR and ledger reconciliation show their results in place without a link, their reports being T73j's; scenarios as accountant and as controller; EN and FR; axe at zero at 1280 and 390 px",
+        "r": "internal/web close.go · period.go · close_checks.go · revaluation.go · ui/close.templ · i18n PeriodProblems · RevaluationProblems · fixture close.go · TestPeriodList · TestCloseLockAndUnlock · TestPeriodRefusals · TestPreCloseChecks · TestRevaluation · TestCloseAsOthers · TestCloseStubbed · TestChecksStubbed · TestCloseUnavailable · TestPostRefusedBeforeTheAPI · TestCloseInTheBrowser · TestCloseJobsInTheBrowser · ADR-0052 Built in T73i · T73i",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Period close screens: periods per company and ledger, open, close and lock, unlock request and its approval, revaluation preview and post, pre-close checks (GR/IR, ledger reconciliation, statements not reconciled) linked to their reports",
-        "r": "T73i",
+        "t": "Period close beyond T73i: cancelling a revaluation run (cancelRevaluationRun, in ADR-0052 §2's list but not T73i's criteria); purchase orders, partners, journal entries and the ledger reconciliation's accounts named on the checks and the revaluation's items (shown by id: a contract change, or more calls than a page's six); the checks as at the period's end rather than now (listGrIrBalances takes a key date for one order only); the statements not reconciled listed per company (the statements' list has no company filter); the checks linked to T73j's GR/IR and ledger reconciliation reports once they exist; walked through by a pilot GL accountant and controller",
+        "r": "T73i2 (split from T73i, 2026-10-25)",
         "c": []
        },
        {
