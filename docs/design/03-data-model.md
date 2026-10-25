@@ -614,7 +614,10 @@ erDiagram
     uuid partner_id
     text tax_code
     uuid purchase_order_id "GR/IR lines"
-    int po_item_no }
+    int po_item_no
+    uuid cost_center_id "T56d"
+    uuid profit_center_id
+    uuid segment_id }
   clearing { uuid id PK
     uuid legal_entity_id
     date clearing_date
@@ -1066,6 +1069,27 @@ the cost center lines on an account take when none is given (SAP OKB9),
 per legal entity and account set up there, a cost center of that legal
 entity (`default_assignment_cost_center_company`), deactivated when the
 configuration drops it.
+
+Account assignment on the journal line (T56d, ADR-0050 §5, migrations
+000155-000158). `journal_line` carries `cost_center_id`, `profit_center_id`
+and `segment_id`, nullable, NULL on lines posted before. The cost center is
+one of the line's legal entity (`journal_line_cost_center_fkey` to
+`cost_center (tenant_id, id, legal_entity_id)`), the profit center one
+assigned to it (`journal_line_profit_center_fkey` to
+`profit_center_company`), the segment a segment
+(`journal_line_segment_fkey`); added `NOT VALID` per partition and
+validated per partition before the parent took them over. Partial indexes
+`journal_line_cost_center` and `journal_line_profit_center` (company,
+center, year, period). At commit (`check_line_assignment`, deferred), for
+fiscal years from `company_controlling`'s switches: a `primary_cost` line
+has a cost center (`journal_line_cost_center_required`), a `none` line none
+(`journal_line_cost_center_not_allowed`), a `revenue` line's cost center
+is of a category allowing revenue on the posting date
+(`journal_line_cost_center_revenue`), and with profit center accounting
+every P&L line has a profit center (`journal_line_profit_center_required`);
+always, the segment is the profit center's or none
+(`journal_line_segment_of_profit_center`). Reversals are exempt: they copy
+their original's lines.
 
 ## 3.8 Procurement (`procurement`)
 

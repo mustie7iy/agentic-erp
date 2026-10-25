@@ -173,6 +173,14 @@ timeouts, the database's generic codes). Both are derived from the code
 and checked to match it (`api`'s `TestProblemCodes`, ADR-0052 G7); `go
 test ./api -run TestProblemCodes -update` rewrites them.
 
+Every operation that posts can answer the account assignment refusals
+(ADR-0050 §5, T56d): 422 `ledger.cost_center_required`,
+`ledger.cost_center_invalid` and `ledger.profit_center_invalid` (the
+reason is the field error's `code`, on `lines[i].cost_center_id` or
+`lines[i].profit_center_id`), `ledger.profit_center_mismatch`,
+`ledger.segment_mismatch`, and `ledger.profit_center_required` from the
+database's check.
+
 ## 4.7 Concurrency and idempotency
 
 Per ADR-0008:

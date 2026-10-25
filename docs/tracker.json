@@ -1650,9 +1650,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Assignment on the journal (part 1): cost_center_id, profit_center_id, segment_id on journal_line, FKs NOT VALID per partition then validated per partition and taken over by the parent (cost center of the line's company, profit center assigned to it), partial indexes per partition; commit-time check of ADR-0050 §5's table from the switches' fiscal years, segment always the profit center's, reversals exempt; derivation and validation once per posting group in postAll (every posting path, Postings, parked entries checked at parking, T52 copies alike, reversals copy), reading cost_element, company_controlling per posting fiscal year, active default_assignment and revenue_allowed; 422 cost_center_required/cost_center_invalid/profit_center_invalid/profit_center_mismatch/segment_mismatch with reasons and constraint mappings; centers FOR KEY SHARE and periods FOR SHARE with a race test against a lock; a default may precede its validity (first period); keepsDefault* by Endpoints.Now/CenterChanges.Now; AssignmentSimulation leaves out lines with a cost center other than the default",
+        "r": "migrations 000155-000158 · internal/ledger assignment.go, journal.go, parked.go, ports.go, controlling.go, assignsim.go · api/openapi.yaml (x-problem-codes) · ADR-0050 §5 · T56d",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Assignment on the journal: the in-use refusals T56a leaves out (ledger.cost_center_period_in_use, ledger.cost_center_posted_after, ledger.segment_in_use); expand migration (cost_center_id, profit_center_id, segment_id; FKs NOT VALID then validated per partition, partial indexes concurrently); derivation and validation in every posting path incl. parked and Postings; commit-time check of ADR-0050 §5's table; reversals copy; T52 copies carry the same; journal API, list filters and event fields (additive); FOR SHARE on center periods with a race test against a lock; from T56c: read gl_account.cost_element, company_controlling's from-years per posting fiscal year, active default_assignment rows and the category's revenue_allowed; keepsDefault* (ledger/controlling.go) take today from current_date while Setup uses Setup.Now: use one clock; automatic postings dated before today (revaluation at a past period end) may precede a default's validity; exclude lines with an entered cost center from AssignmentSimulation. After T52's posting steps are in main",
-        "r": "T56d",
+        "t": "Assignment in the journal API and the in-use refusals, split from T56d for size: ledger.cost_center_period_in_use (a change whose attributes in force on a posted date differ), ledger.cost_center_posted_after (validity ended before a posting), ledger.segment_in_use (a posted profit center's segment); journal API lines with the three ids and codes, entered on manual and parked entries (stored on parked lines), list filters cost_center_id/profit_center_id, JournalEntryPosted fields (additive: openapi, asyncapi, make generate). Until then the API takes no entered center",
+        "r": "T56d2",
         "c": []
        },
        {
