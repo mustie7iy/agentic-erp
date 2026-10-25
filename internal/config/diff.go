@@ -80,7 +80,7 @@ var tierRules = []struct {
 	{rx(`^companies\[\*\]\.withholding_tax_codes`), TierPostingRelated},
 	// Every other tax code setting, a dated rate included, decides what
 	// postings and returns carry: tier 3 (ADR-0049 §3), as rates were.
-	{rx(`^companies\[\*\]\.(account_determination|tax_codes|auto_post_limit|manual_entry_approval_limit|house_bank)`), TierPostingRelated},
+	{rx(`^companies\[\*\]\.(account_determination|tax_codes|auto_post_limit|manual_entry_approval_limit|release_dual_limit|house_bank)`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.(invoice_tolerance|gr_over_delivery_percent)`), TierOperational},
 	{rx(`^(ledgers|ledger_groups)\[\*\]\.name$`), TierCosmetic},
 	{rx(`^ledgers`), TierStructural},

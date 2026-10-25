@@ -3569,6 +3569,7 @@ func (*BadRequestHeaders) simulateChangeRequestRes()            {}
 func (*BadRequestHeaders) startAgentSessionRes()                {}
 func (*BadRequestHeaders) startMigrationRunRes()                {}
 func (*BadRequestHeaders) submitChangeRequestRes()              {}
+func (*BadRequestHeaders) submitPaymentRunRes()                 {}
 func (*BadRequestHeaders) submitPurchaseOrderChangeRes()        {}
 func (*BadRequestHeaders) submitRequisitionRes()                {}
 func (*BadRequestHeaders) terminateContractRes()                {}
@@ -10720,6 +10721,7 @@ func (*ConflictHeaders) simulateChangeRequestRes()            {}
 func (*ConflictHeaders) startAgentSessionRes()                {}
 func (*ConflictHeaders) startMigrationRunRes()                {}
 func (*ConflictHeaders) submitChangeRequestRes()              {}
+func (*ConflictHeaders) submitPaymentRunRes()                 {}
 func (*ConflictHeaders) submitPurchaseOrderChangeRes()        {}
 func (*ConflictHeaders) submitRequisitionRes()                {}
 func (*ConflictHeaders) terminateContractRes()                {}
@@ -15736,6 +15738,7 @@ func (*ForbiddenHeaders) simulateChangeRequestRes()            {}
 func (*ForbiddenHeaders) startAgentSessionRes()                {}
 func (*ForbiddenHeaders) startMigrationRunRes()                {}
 func (*ForbiddenHeaders) submitChangeRequestRes()              {}
+func (*ForbiddenHeaders) submitPaymentRunRes()                 {}
 func (*ForbiddenHeaders) submitPurchaseOrderChangeRes()        {}
 func (*ForbiddenHeaders) submitRequisitionRes()                {}
 func (*ForbiddenHeaders) terminateContractRes()                {}
@@ -25077,6 +25080,7 @@ func (*NotFoundHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*NotFoundHeaders) simulateChangeRequestRes()            {}
 func (*NotFoundHeaders) startMigrationRunRes()                {}
 func (*NotFoundHeaders) submitChangeRequestRes()              {}
+func (*NotFoundHeaders) submitPaymentRunRes()                 {}
 func (*NotFoundHeaders) submitPurchaseOrderChangeRes()        {}
 func (*NotFoundHeaders) submitRequisitionRes()                {}
 func (*NotFoundHeaders) terminateContractRes()                {}
@@ -27910,6 +27914,52 @@ func (o OptPartnerSummary) Or(d PartnerSummary) PartnerSummary {
 	return d
 }
 
+// NewOptPaymentRunReleaseApproval returns new OptPaymentRunReleaseApproval with value set to v.
+func NewOptPaymentRunReleaseApproval(v PaymentRunReleaseApproval) OptPaymentRunReleaseApproval {
+	return OptPaymentRunReleaseApproval{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptPaymentRunReleaseApproval is optional PaymentRunReleaseApproval.
+type OptPaymentRunReleaseApproval struct {
+	Value PaymentRunReleaseApproval
+	Set   bool
+}
+
+// IsSet returns true if OptPaymentRunReleaseApproval was set.
+func (o OptPaymentRunReleaseApproval) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptPaymentRunReleaseApproval) Reset() {
+	var v PaymentRunReleaseApproval
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptPaymentRunReleaseApproval) SetTo(v PaymentRunReleaseApproval) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptPaymentRunReleaseApproval) Get() (v PaymentRunReleaseApproval, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptPaymentRunReleaseApproval) Or(d PaymentRunReleaseApproval) PaymentRunReleaseApproval {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptProblem returns new OptProblem with value set to v.
 func NewOptProblem(v Problem) OptProblem {
 	return OptProblem{
@@ -30525,6 +30575,9 @@ type PaymentRun struct {
 	// The latest release operation (ADR-0012), once a release was asked for: its status says whether the
 	// release is under way, done or failed; a failed one is resumed by `:release` again.
 	ReleaseOperationID OptUUID `json:"release_operation_id"`
+	// The latest request for a second person's approval of the release (two-person release above the
+	// company's `release_dual_limit`, ADR-0038); absent when none was asked for.
+	ReleaseApproval OptPaymentRunReleaseApproval `json:"release_approval"`
 }
 
 // GetID returns the value of ID.
@@ -30617,6 +30670,11 @@ func (s *PaymentRun) GetReleaseOperationID() OptUUID {
 	return s.ReleaseOperationID
 }
 
+// GetReleaseApproval returns the value of ReleaseApproval.
+func (s *PaymentRun) GetReleaseApproval() OptPaymentRunReleaseApproval {
+	return s.ReleaseApproval
+}
+
 // SetID sets the value of ID.
 func (s *PaymentRun) SetID(val uuid.UUID) {
 	s.ID = val
@@ -30705,6 +30763,11 @@ func (s *PaymentRun) SetOperationID(val OptUUID) {
 // SetReleaseOperationID sets the value of ReleaseOperationID.
 func (s *PaymentRun) SetReleaseOperationID(val OptUUID) {
 	s.ReleaseOperationID = val
+}
+
+// SetReleaseApproval sets the value of ReleaseApproval.
+func (s *PaymentRun) SetReleaseApproval(val OptPaymentRunReleaseApproval) {
+	s.ReleaseApproval = val
 }
 
 // PaymentRunHeaders wraps PaymentRun with response headers.
@@ -30929,6 +30992,74 @@ func (s *PaymentRunPropose) SetDueBy(val time.Time) {
 	s.DueBy = val
 }
 
+// A second person's approval of a payment run's release, as the run records it (ADR-0038). The request
+// itself is an approval request of object type `payment_run_release`.
+// Ref: #/components/schemas/PaymentRunReleaseApproval
+type PaymentRunReleaseApproval struct {
+	// The approval request.
+	RequestID uuid.UUID `json:"request_id"`
+	// Its outcome. Open enumeration: clients must accept and preserve values not listed here; values may
+	// be added within /v1.
+	Status string `json:"status"`
+	// The run's total when the approval was asked for; a release whose run's total is now above it is
+	// refused.
+	RequestedTotal Money `json:"requested_total"`
+	// The second person, once approved: never the proposer or the releaser.
+	ApprovedBy OptUUID `json:"approved_by"`
+	// When the release was approved.
+	ApprovedAt OptDateTime `json:"approved_at"`
+}
+
+// GetRequestID returns the value of RequestID.
+func (s *PaymentRunReleaseApproval) GetRequestID() uuid.UUID {
+	return s.RequestID
+}
+
+// GetStatus returns the value of Status.
+func (s *PaymentRunReleaseApproval) GetStatus() string {
+	return s.Status
+}
+
+// GetRequestedTotal returns the value of RequestedTotal.
+func (s *PaymentRunReleaseApproval) GetRequestedTotal() Money {
+	return s.RequestedTotal
+}
+
+// GetApprovedBy returns the value of ApprovedBy.
+func (s *PaymentRunReleaseApproval) GetApprovedBy() OptUUID {
+	return s.ApprovedBy
+}
+
+// GetApprovedAt returns the value of ApprovedAt.
+func (s *PaymentRunReleaseApproval) GetApprovedAt() OptDateTime {
+	return s.ApprovedAt
+}
+
+// SetRequestID sets the value of RequestID.
+func (s *PaymentRunReleaseApproval) SetRequestID(val uuid.UUID) {
+	s.RequestID = val
+}
+
+// SetStatus sets the value of Status.
+func (s *PaymentRunReleaseApproval) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetRequestedTotal sets the value of RequestedTotal.
+func (s *PaymentRunReleaseApproval) SetRequestedTotal(val Money) {
+	s.RequestedTotal = val
+}
+
+// SetApprovedBy sets the value of ApprovedBy.
+func (s *PaymentRunReleaseApproval) SetApprovedBy(val OptUUID) {
+	s.ApprovedBy = val
+}
+
+// SetApprovedAt sets the value of ApprovedAt.
+func (s *PaymentRunReleaseApproval) SetApprovedAt(val OptDateTime) {
+	s.ApprovedAt = val
+}
+
 // PreconditionFailedHeaders wraps Problem with response headers.
 type PreconditionFailedHeaders struct {
 	RateLimitLimit     OptInt32
@@ -31060,6 +31191,7 @@ func (*PreconditionFailedHeaders) rotateWebhookSubscriptionSecretRes()  {}
 func (*PreconditionFailedHeaders) simulateChangeRequestRes()            {}
 func (*PreconditionFailedHeaders) startMigrationRunRes()                {}
 func (*PreconditionFailedHeaders) submitChangeRequestRes()              {}
+func (*PreconditionFailedHeaders) submitPaymentRunRes()                 {}
 func (*PreconditionFailedHeaders) submitPurchaseOrderChangeRes()        {}
 func (*PreconditionFailedHeaders) submitRequisitionRes()                {}
 func (*PreconditionFailedHeaders) terminateContractRes()                {}
@@ -31261,6 +31393,7 @@ func (*PreconditionRequiredHeaders) simulateChangeRequestRes()            {}
 func (*PreconditionRequiredHeaders) startAgentSessionRes()                {}
 func (*PreconditionRequiredHeaders) startMigrationRunRes()                {}
 func (*PreconditionRequiredHeaders) submitChangeRequestRes()              {}
+func (*PreconditionRequiredHeaders) submitPaymentRunRes()                 {}
 func (*PreconditionRequiredHeaders) submitPurchaseOrderChangeRes()        {}
 func (*PreconditionRequiredHeaders) submitRequisitionRes()                {}
 func (*PreconditionRequiredHeaders) terminateContractRes()                {}
@@ -35100,6 +35233,7 @@ func (s *RejectPaymentRunOKHeaders) SetResponse(val PaymentRun) {
 }
 
 func (*RejectPaymentRunOKHeaders) rejectPaymentRunRes() {}
+func (*RejectPaymentRunOKHeaders) submitPaymentRunRes() {}
 
 // ReportBankFileStatusOKHeaders wraps BankFile with response headers.
 type ReportBankFileStatusOKHeaders struct {
@@ -38560,6 +38694,7 @@ func (*ServiceUnavailableHeaders) simulateChangeRequestRes()            {}
 func (*ServiceUnavailableHeaders) startAgentSessionRes()                {}
 func (*ServiceUnavailableHeaders) startMigrationRunRes()                {}
 func (*ServiceUnavailableHeaders) submitChangeRequestRes()              {}
+func (*ServiceUnavailableHeaders) submitPaymentRunRes()                 {}
 func (*ServiceUnavailableHeaders) submitPurchaseOrderChangeRes()        {}
 func (*ServiceUnavailableHeaders) submitRequisitionRes()                {}
 func (*ServiceUnavailableHeaders) terminateContractRes()                {}
@@ -41308,6 +41443,7 @@ func (*TooManyRequestsHeaders) simulateChangeRequestRes()            {}
 func (*TooManyRequestsHeaders) startAgentSessionRes()                {}
 func (*TooManyRequestsHeaders) startMigrationRunRes()                {}
 func (*TooManyRequestsHeaders) submitChangeRequestRes()              {}
+func (*TooManyRequestsHeaders) submitPaymentRunRes()                 {}
 func (*TooManyRequestsHeaders) submitPurchaseOrderChangeRes()        {}
 func (*TooManyRequestsHeaders) submitRequisitionRes()                {}
 func (*TooManyRequestsHeaders) terminateContractRes()                {}
@@ -41647,6 +41783,7 @@ func (*UnauthorizedHeaders) simulateChangeRequestRes()            {}
 func (*UnauthorizedHeaders) startAgentSessionRes()                {}
 func (*UnauthorizedHeaders) startMigrationRunRes()                {}
 func (*UnauthorizedHeaders) submitChangeRequestRes()              {}
+func (*UnauthorizedHeaders) submitPaymentRunRes()                 {}
 func (*UnauthorizedHeaders) submitPurchaseOrderChangeRes()        {}
 func (*UnauthorizedHeaders) submitRequisitionRes()                {}
 func (*UnauthorizedHeaders) terminateContractRes()                {}
@@ -41854,6 +41991,7 @@ func (*UnprocessableHeaders) simulateChangeRequestRes()            {}
 func (*UnprocessableHeaders) startAgentSessionRes()                {}
 func (*UnprocessableHeaders) startMigrationRunRes()                {}
 func (*UnprocessableHeaders) submitChangeRequestRes()              {}
+func (*UnprocessableHeaders) submitPaymentRunRes()                 {}
 func (*UnprocessableHeaders) submitPurchaseOrderChangeRes()        {}
 func (*UnprocessableHeaders) submitRequisitionRes()                {}
 func (*UnprocessableHeaders) terminateContractRes()                {}

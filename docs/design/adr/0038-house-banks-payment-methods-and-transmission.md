@@ -319,3 +319,110 @@ decided (ADR-0051, P2) that a house bank may hold another currency.
   USD run, its file, the USD statement imported, matched, posted with the
   realised loss, reconciled, and the bank account revalued at the month's
   end (`TestForeignCurrencyHouseBankEndToEnd`).
+
+## Amendment: two-person release of large payment runs (T72m, product owner 2026-10-22)
+
+The walkthrough found `payments.release_approvals` validated but never
+enforced; T72l made validation refuse it above 1 until the product owner
+decided how several people sign. Decision (2026-10-22): a payment run
+above a per-company amount needs an approval request, decided by a second
+person who is neither the proposer nor the releaser, **before** `:release`
+is allowed; at or below the amount one releaser who is not the proposer
+suffices, as before. `:reject` needs the release role too (T72l).
+
+- **Configuration.** `companies[].release_dual_limit`, an amount in the
+  company's currency, validated with its digits, posting-related (tier 3)
+  like the other payment controls and `manual_entry_approval_limit`.
+  Optional: a company without one releases every run with one person, so
+  runs of documents from before are unaffected and no rate is needed for
+  them. `payments.release_approvals` stays, exactly 1, so documents
+  activated earlier still parse; its removal is the contract step of
+  expand-migrate-contract, tracked.
+- **Rollout.** The previous version reads the active document tolerantly
+  (`config.ParseActive`, 06 §6.4): it ignores `release_dual_limit`, logging
+  it, and its `:release` has no approval check, so on an old replica one
+  person would release a run above the limit; the database cannot refuse
+  it, since the limit is configuration. A change request that sets or
+  lowers a limit is therefore activated only after the upgrade completes,
+  as 06 §6.4 has configuration changes wait (an old replica already refuses
+  to assess or store a change based on a document with the key, 503
+  `config.unknown_keys`, but the first activation is the new replica's).
+  06 §6.4 lists the rule; the cell has no switch that refuses
+  activation while replicas of two versions run, which would be a
+  platform item of its own.
+- **The amount measured.** The run's total, in its currency, converted
+  exactly (unrounded, F13) into the company's currency at the average rate
+  valid on the **run date** (`ledger.Rates.ExactToCompany`, as manual
+  entries and requisitions are measured). The run date is the posting date
+  of every payment the release posts, at that same rate (T53a), so the
+  amount compared is what the ledger books; the proposal's or the
+  invoices' dates would measure another amount than the one paid. A
+  company with a limit and no rate on the run date is refused
+  (`ledger.no_exchange_rate`), as its release would be. A total above the
+  limit (strictly) needs the second person.
+- **The request.** A new approvals object type, `payment_run_release`,
+  through the existing mechanism: `POST /v1/payment-runs/{id}:submit`
+  (human-only, `payments.run.release`) opens it; the caller is checked as
+  a releaser (not the proposer, holding the release role) and is its
+  requester. One step, one approval by a holder of `payments.release_role`
+  with `payments.run.release` (its `x-object-permissions` entry); the
+  mechanism keeps the requester and agents from deciding it, and the
+  payments context bars the proposer (`Barrer`). Tiers (more approvers for
+  larger runs) are not built: one second person is what was decided.
+- **The approval does not release the run.** The callback records the
+  approval on the run (`release_approval` approved, `release_approved_by`,
+  `release_approved_at`) and nothing else: 04 §4.3 keeps the release a
+  direct human step, and posting from the approver's transaction would make
+  the approver the releaser, which the decision forbids. `:release` then
+  reads the run it locks `FOR UPDATE` and refuses, for a run above the
+  limit: 409 `payments.release_approval_required` without a request or
+  after a rejected or withdrawn one, 409 `payments.release_approval_pending`
+  while it waits, 409 `payments.release_approval_outdated` when the run's
+  total is now above the total approved, and 403 `identity.sod_conflict`
+  for the approver. A rejection of the request rejects the run (product
+  owner 2026-10-25): the callback locks the run `FOR UPDATE` and, only
+  while it is proposed and waits for that request, records the rejection
+  and rejects the run as `:reject` does (its items freed here and in the
+  ledger, `payments.payment_run.reject` audited, `payment_run_rejected`
+  naming the request), so a new run is proposed rather than the same one
+  put to approver after approver. The approver holds
+  `payments.release_role` (the request's step), as `:reject` requires; the
+  run's proposer, whom the workflow context does not bar from rejecting,
+  is refused (403 `identity.sod_conflict`), as on `:reject`. The callback
+  run again finds the run rejected by that request and changes nothing. A request withdrawn by
+  its requester leaves the run proposed, to be asked for again or
+  rejected. Rejecting the run, or releasing it once it no longer needs
+  the approval (the limit raised), withdraws a pending request, so
+  nothing is approved after the run is decided.
+- **A resumed release is not measured again.** A release whose operation
+  failed or was cancelled leaves the run `releasing`, some payments
+  posted; `:release` resumes it. The release was decided when it started,
+  with the approval it needed then, so the resumption checks only that
+  its approver is not the one resuming it: measured again, a limit set or
+  lowered since, or a moved rate, would strand a half-posted run that
+  `:submit` and `:reject` (proposed runs only) cannot reach.
+- **Lock order.** `:reject`, and `:release` of a run that no longer needs
+  its pending request, lock the run and then the request (withdrawing
+  it); a decision locks the request and then the run (its callback).
+  Both at once may deadlock: PostgreSQL ends one and it is answered with
+  the retryable 503, as for other contexts' withdrawals; nothing is left
+  half done.
+- **A proposed run's total never grows**: the release only drops payments
+  whose items can no longer be paid. The approval is held to the total it
+  was asked for anyway (`release_request_total`), so a run that changed
+  upward by any path needs a new approval, and one that fell keeps it.
+- **Schema (000153, validated by 000154).** `payments.payment_run` takes
+  `release_request_id`, `release_approval` (`pending`, `approved`,
+  `rejected`, `withdrawn`), `release_request_total`, `release_approved_by`
+  and `release_approved_at`, nullable without a default and checked
+  `NOT VALID` then validated (06 §6.4): the request's fields are set
+  together, an approver exactly when approved, and the approver is never
+  the proposer nor, once the run is releasing or released, the releaser
+  (`payment_run_release_sod`). Every change is audited
+  (`payments.payment_run.submit`, `release_approved`, `release_rejected`,
+  `release_withdrawn`); the workflow context publishes `approval_requested`
+  and `approval_completed` for the request, and `payment_run_released` and
+  `payment_run_rejected` name it in `workflow_request_id`. The callbacks
+  change the run only while it waits for that request, guarded in the
+  update, so a decision is recorded once (a repeated rejection is a
+  no-op, see above).

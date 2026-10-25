@@ -810,7 +810,27 @@ func TestPaymentItemsAreReservedOnce(t *testing.T) {
 	}
 	failsWith(t, release(f.actor), "payment_run_sod")
 	failsWith(t, release(nil), "payment_run_check")
-	if err := release(id()); err != nil {
+	releaser := id()
+	if err := release(releaser); err != nil {
+		t.Fatal(err)
+	}
+	// A large run's release is approved by a second person, neither its
+	// proposer nor its releaser, and the run records the request whole
+	// (ADR-0038, 000153).
+	approval := func(state any, total any, by any) error {
+		return asApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE payments.payment_run SET release_request_id = $3, release_approval = $4, release_request_total = $5,
+				release_approved_by = $6, release_approved_at = CASE WHEN $6::uuid IS NULL THEN NULL ELSE now() END, version = version + 1
+				WHERE tenant_id = $1 AND id = $2`, f.tenant, run2, id(), state, total, by)
+		})
+	}
+	failsWith(t, approval("approved", 300, f.actor), "payment_run_release_sod")
+	failsWith(t, approval("approved", 300, releaser), "payment_run_release_sod")
+	failsWith(t, approval("approved", 300, nil), "payment_run_release_approved")
+	failsWith(t, approval("pending", 300, id()), "payment_run_release_approved")
+	failsWith(t, approval("pending", nil, nil), "payment_run_release_request")
+	failsWith(t, approval("maybe", 300, nil), "payment_run_release_approval_check")
+	if err := approval("approved", 300, id()); err != nil {
 		t.Fatal(err)
 	}
 	// A credit memo is settled at a negative amount, never at zero.

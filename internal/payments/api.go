@@ -30,6 +30,13 @@ func runToAPI(r Run) gen.PaymentRun {
 	if r.DecidedAt != nil {
 		out.DecidedAt.SetTo(*r.DecidedAt)
 	}
+	if a := r.Release; a != nil {
+		out.ReleaseApproval.SetTo(gen.PaymentRunReleaseApproval{RequestID: a.RequestID, Status: a.Status,
+			RequestedTotal: apitypes.Money(a.Total, r.Currency, r.Exponent), ApprovedBy: apitypes.OptUUID(a.ApprovedBy)})
+		if a.ApprovedAt != nil {
+			out.ReleaseApproval.Value.ApprovedAt.SetTo(*a.ApprovedAt)
+		}
+	}
 	return out
 }
 
@@ -134,6 +141,15 @@ func (e *Endpoints) ReleasePaymentRun(ctx context.Context, req gen.OptDecisionIn
 		return nil, err
 	}
 	return &gen.OperationHeaders{Location: gen.NewOptString("/v1/operations/" + op.ID.String()), Response: operations.ToAPI(op)}, nil
+}
+
+// SubmitPaymentRun implements POST /v1/payment-runs/{id}:submit.
+func (e *Endpoints) SubmitPaymentRun(ctx context.Context, params gen.SubmitPaymentRunParams) (gen.SubmitPaymentRunRes, error) {
+	r, err := e.SubmitRelease(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	if err != nil {
+		return nil, err
+	}
+	return runOK(r), nil
 }
 
 // RejectPaymentRun implements POST /v1/payment-runs/{id}:reject.

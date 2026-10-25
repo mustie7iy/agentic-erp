@@ -22,7 +22,10 @@
 // (purchasing.order_release_approval, T47), and the posting of a matched
 // bank statement line by its company's bank_statements.approval_tiers, or
 // by DefaultBankClearingRole until the company has tiers (ADR-0047, T49f),
-// and center changes by DefaultCenterChangeRole (T56a).
+// and center changes by DefaultCenterChangeRole (T56a), and the release
+// of a payment run whose total, in its company's currency at the run
+// date's rate, is above the company's release_dual_limit by one holder of
+// payments.release_role (ADR-0038, product owner 2026-10-22).
 // Roles are the identity context's roles with the document's role names as
 // codes.
 package approvals
@@ -62,6 +65,9 @@ const (
 	OrderChange      = "order_change"   // a change that raises a released order's total (T47)
 	BankClearing     = "bank_clearing"  // the posting of a matched bank statement line (ADR-0047, T49f)
 	CenterChange     = "center_change"  // a change of a cost or profit center that needs a controller (T56a)
+	// PaymentRunRelease is a second person's approval of a large payment
+	// run's release, before the releaser releases it (ADR-0038).
+	PaymentRunRelease = "payment_run_release"
 )
 
 // Request statuses.
@@ -107,6 +113,9 @@ var ObjectPermissions = map[string]string{
 	PurchaseOrder: "procurement.order.approve", OrderChange: "procurement.order.approve",
 	BankClearing: "payments.statement.clearing.approve",
 	CenterChange: "ledger.cost_center.approve",
+	// The second person is a releaser too: the approval is half of the
+	// release step.
+	PaymentRunRelease: "payments.run.release",
 }
 
 func init() {
@@ -280,15 +289,16 @@ type NewRequest struct {
 	Currency   *string      // with Amount
 	Tier       int          // configuration change tier
 	// LegalEntityID and Date place a requisition or manual entry (its
-	// posting date): its amount is converted into the legal entity's
-	// currency at the rate valid on the date before it is compared with the
-	// thresholds or the limit.
+	// posting date), or a payment run (its run date): its amount is
+	// converted into the legal entity's currency at the rate valid on the
+	// date before it is compared with the thresholds or the limit.
 	LegalEntityID uuid.UUID
 	Date          time.Time
 	// Company is the configuration's code of LegalEntityID (its tenancy
 	// code), whose manual_entry_approval_limit a manual entry is measured
-	// against, and whose bank_statements.approval_tiers route a bank
-	// clearing; the owner passes both from the one legal entity it posts in.
+	// against, whose bank_statements.approval_tiers route a bank clearing,
+	// and whose release_dual_limit a payment run's release is measured
+	// against; the owner passes both from the one legal entity it posts in.
 	Company string
 }
 
@@ -384,6 +394,31 @@ func bankClearingSteps(ctx context.Context, rates Rates, doc *config.Config, in 
 	return tierSteps(ctx, rates, co.BankStatements.ApprovalTiers, in)
 }
 
+// releaseSteps are none when the run's total, converted exactly into its
+// company's currency at the run date's rate (the rate its release posts
+// at), is within the company's release_dual_limit, and one approval by a
+// holder of payments.release_role otherwise. A company without a limit, or
+// one the configuration lacks, releases every run with one person, as
+// before the limit existed; no rate is then needed.
+func releaseSteps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) ([]policyStep, error) {
+	co := doc.Company(in.Company)
+	if co == nil || co.ReleaseDualLimit == "" {
+		return nil, nil
+	}
+	limit, err := money.ParseDecimalRat(co.ReleaseDualLimit)
+	if err != nil {
+		return nil, fmt.Errorf("approvals: policy steps: release dual limit of company %s: %w", in.Company, err)
+	}
+	amount, err := rates.ExactToCompany(ctx, in.LegalEntityID, *in.Currency, in.Date, *in.Amount)
+	if err != nil {
+		return nil, fmt.Errorf("approvals: policy steps: %w", err)
+	}
+	if amount.Cmp(limit) <= 0 {
+		return nil, nil
+	}
+	return []policyStep{{doc.Payments.ReleaseRole, 1}}, nil
+}
+
 // steps resolves the steps the active configuration requires.
 func steps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) ([]policyStep, error) {
 	var out []policyStep
@@ -408,6 +443,8 @@ func steps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) 
 		return orderSteps(ctx, rates, doc, in)
 	case BankClearing:
 		return bankClearingSteps(ctx, rates, doc, in)
+	case PaymentRunRelease:
+		return releaseSteps(ctx, rates, doc, in)
 	default:
 		return nil, fmt.Errorf("approvals: unknown object type %q", in.ObjectType)
 	}

@@ -426,7 +426,10 @@ currency per tax code, T61d), the auto-post limit
 (`auto_post_limit`) and the manual entry approval limit
 (`manual_entry_approval_limit`, T35: the largest manual journal entry, by
 its debits, that people post without approval; posting-relevant, so a
-change is approved as one). The amounts are read with the digits of the
+change is approved as one) and the release dual limit
+(`release_dual_limit`, optional, ADR-0038: the largest payment run, by its
+total at the run date's rate, that one releaser releases; above it a second
+person approves the release first; posting-relevant too). The amounts are read with the digits of the
 document's `companies[].currency`, and documents are converted into the
 legal entity's `local_currency`; the two are one currency because a
 configuration whose company currency differs from its legal entity's local
@@ -1615,6 +1618,10 @@ erDiagram
     uuid proposed_by
     uuid decided_by "released/rejected by; never proposed_by"
     uuid release_operation_id "the latest release operation"
+    uuid release_request_id "the latest approval request of its release (ADR-0038)"
+    text release_approval "pending | approved | rejected | withdrawn"
+    bigint release_request_total "the total it was asked for"
+    uuid release_approved_by "the second person; never proposed_by or the releaser"
     int version }
   payment { uuid id PK
     uuid payment_run_id

@@ -1001,6 +1001,10 @@ type SubmitChangeRequestRes interface {
 	submitChangeRequestRes()
 }
 
+type SubmitPaymentRunRes interface {
+	submitPaymentRunRes()
+}
+
 type SubmitPurchaseOrderChangeRes interface {
 	submitPurchaseOrderChangeRes()
 }

@@ -351,3 +351,80 @@ func TestBankClearingSteps(t *testing.T) {
 		t.Errorf("permission: got %q, want %q", got, want)
 	}
 }
+
+// TestReleaseSteps: a payment run whose total, converted exactly into its
+// company's currency on the run date, is within the company's
+// release_dual_limit is released by one person; above it one holder of
+// payments.release_role approves the release first (ADR-0038). A company
+// without a limit needs no second person and no rate.
+func TestReleaseSteps(t *testing.T) {
+	doc := &config.Config{Companies: []config.Company{{Code: "1000", ReleaseDualLimit: "10000.00"}, {Code: "2000"}, {Code: "3000", ReleaseDualLimit: "lots"}}}
+	doc.Payments.ReleaseRole = "Z_TREASURY_MGR"
+	second := []policyStep{{"Z_TREASURY_MGR", 1}}
+	le, runDate := uuid.New(), time.Date(2026, 5, 4, 0, 0, 0, 0, time.UTC)
+	missing := errors.New("no rate")
+	for _, c := range []struct {
+		name    string
+		company string
+		amount  money.Minor // EUR cents
+		rates   Rates
+		want    []policyStep
+	}{
+		{"within the limit", "1000", 400000, scaled{big.NewRat(2, 1), new(NewRequest)}, nil},
+		{"at the limit", "1000", 500000, scaled{big.NewRat(2, 1), new(NewRequest)}, nil},
+		{"above the limit", "1000", 500001, scaled{big.NewRat(2, 1), new(NewRequest)}, second},
+		// 10000.00333...: within the limit only if rounded to cents first
+		{"above the limit by less than a cent", "1000", 3000001, scaled{big.NewRat(1, 3), new(NewRequest)}, second},
+		{"a company without a limit", "2000", 1 << 40, noRate{missing}, nil},
+		{"a company the configuration lacks", "9999", 1 << 40, noRate{missing}, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			eur := "EUR"
+			got, err := steps(context.Background(), c.rates, doc, NewRequest{ObjectType: PaymentRunRelease, Company: c.company,
+				LegalEntityID: le, Date: runDate, Amount: &c.amount, Currency: &eur})
+			if err != nil {
+				t.Fatalf("steps: %v", err)
+			}
+			if fmt.Sprint(got) != fmt.Sprint(c.want) {
+				t.Errorf("steps: got %v, want %v", got, c.want)
+			}
+		})
+	}
+	t.Run("converted on the run date", func(t *testing.T) {
+		var asked NewRequest
+		amount, usd := money.Minor(1), "USD"
+		if _, err := steps(context.Background(), scaled{big.NewRat(1, 1), &asked}, doc, NewRequest{ObjectType: PaymentRunRelease, Company: "1000",
+			LegalEntityID: le, Date: runDate, Amount: &amount, Currency: &usd}); err != nil {
+			t.Fatalf("steps: %v", err)
+		}
+		if asked.LegalEntityID != le {
+			t.Errorf("converted for: got %v, want %v", asked.LegalEntityID, le)
+		}
+		if !asked.Date.Equal(runDate) {
+			t.Errorf("converted on: got %v, want %v", asked.Date, runDate)
+		}
+		if *asked.Currency != usd {
+			t.Errorf("converted from: got %s, want %s", *asked.Currency, usd)
+		}
+		if *asked.Amount != amount {
+			t.Errorf("converted amount: got %d, want %d", *asked.Amount, amount)
+		}
+	})
+	t.Run("without a rate", func(t *testing.T) {
+		amount, usd := money.Minor(1), "USD"
+		if _, err := steps(context.Background(), noRate{missing}, doc, NewRequest{ObjectType: PaymentRunRelease, Company: "1000",
+			Amount: &amount, Currency: &usd}); !errors.Is(err, missing) {
+			t.Errorf("steps: got %v, want %v", err, missing)
+		}
+	})
+	t.Run("a limit that is no amount", func(t *testing.T) {
+		amount, eur := money.Minor(1), "EUR"
+		if _, err := steps(context.Background(), noRate{missing}, doc, NewRequest{ObjectType: PaymentRunRelease, Company: "3000",
+			Amount: &amount, Currency: &eur}); err == nil || errors.Is(err, missing) {
+			t.Errorf("steps: got %v, want the limit's parse error", err)
+		}
+	})
+	if got, want := ObjectPermissions[PaymentRunRelease], "payments.run.release"; got != want {
+		t.Errorf("permission: got %q, want %q", got, want)
+	}
+}
