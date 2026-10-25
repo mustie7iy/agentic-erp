@@ -508,7 +508,7 @@ func (s *Server) csrf(next func(http.ResponseWriter, *http.Request, *person)) fu
 			_ = r.ParseForm() // a body that does not parse carries no token, which is refused
 			token = r.PostForm.Get(ui.CSRFField)
 		}
-		if p.CSRF == "" || subtle.ConstantTimeCompare([]byte(token), []byte(p.CSRF)) != 1 {
+		if !tokenOK(token, p) {
 			s.Log.WarnContext(r.Context(), "web: a request without the session's CSRF token was refused", "path", r.URL.Path)
 			s.refused(w, r)
 			return

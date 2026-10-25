@@ -319,10 +319,20 @@ func TestInvoiceDocument(t *testing.T) {
 		t.Errorf("body: got %q, want the document", r.body)
 	}
 	for k, want := range map[string]string{"Content-Type": "application/pdf", "Content-Security-Policy": documentCSP, "X-Frame-Options": "SAMEORIGIN",
-		"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store", "Content-Disposition": `inline; filename="` + d.captured.String() + `"`} {
+		"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store", "Content-Disposition": `attachment; filename="` + d.captured.String() + `"`} {
 		if got := r.header.Get(k); got != want {
 			t.Errorf("%s: got %q, want %q", k, got, want)
 		}
+	}
+	// A PDF is downloaded (D4): the frame that asks for it says so.
+	framed := b.get(invoicePath(d.captured)+"/document", "Sec-Fetch-Dest", "iframe")
+	status(t, "the document in its frame", framed, http.StatusOK)
+	if got, want := framed.header.Get("Content-Type"), "text/plain; charset=utf-8"; got != want {
+		t.Errorf("in its frame: type %q, want %q", got, want)
+	}
+	holds(t, "in its frame", framed.body, "This document is not shown here")
+	if got := framed.header.Get("Content-Disposition"); got != "" {
+		t.Errorf("in its frame: disposition %q, want none", got)
 	}
 	none := b.get(invoicePath(d.account) + "/document")
 	status(t, "no document", none, http.StatusNotFound)
@@ -335,11 +345,11 @@ func TestInvoiceDocument(t *testing.T) {
 	holds(t, "refused", refused.body, "You do not have the permission this needs.")
 }
 
-// TestDocumentType: only PDFs and images are shown as themselves, XML as
-// plain text, anything else is downloaded.
+// TestDocumentType: only images are shown as themselves, XML as plain
+// text, anything else is downloaded, a PDF too (D4).
 func TestDocumentType(t *testing.T) {
 	for name, tc := range map[string]struct{ head, ctype, disposition string }{
-		"PDF":   {pdf, "application/pdf", "inline"},
+		"PDF":   {pdf, "application/pdf", "attachment"},
 		"PNG":   {"\x89PNG\r\n\x1a\n", "image/png", "inline"},
 		"JPEG":  {"\xff\xd8\xff", "image/jpeg", "inline"},
 		"XML":   {`<?xml version="1.0"?><Invoice/>`, "text/plain; charset=utf-8", "inline"},

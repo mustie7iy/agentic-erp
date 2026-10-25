@@ -26,15 +26,16 @@ var invoiceDoneOf = map[string]string{ui.ActMatch: "matched", ui.ActPost: "poste
 	ui.ActCancel: "cancelled", ui.ActReverse: "reversed"}
 
 // formFields are a posted form's If-Match and idempotency key; ok is
-// false, the answer written, when the form is not the page's.
-func (s *Server) formFields(w http.ResponseWriter, r *http.Request, back string) (ifMatch, key string, ok bool) {
+// false, the answer written (with the way back to the page), when the
+// form is not the page's.
+func (s *Server) formFields(w http.ResponseWriter, r *http.Request, back string, backText i18n.Key) (ifMatch, key string, ok bool) {
 	// csrf parsed the form unless htmx sent the token as a header; a body
 	// that does not parse leaves the fields empty, refused below.
 	_ = r.ParseForm()
 	ifMatch, key = r.PostForm.Get(ui.FieldIfMatch), r.PostForm.Get(ui.FieldIdempotency)
 	if _, err := uuid.Parse(key); err != nil || ifMatch == "" {
 		// Not the page's form: nothing to keep or explain.
-		s.render(w, r, http.StatusBadRequest, ui.Problem(s.shell(i18n.RefusedTitle, ""), i18n.RefusedTitle, i18n.ProblemInvoiceBody, back, i18n.OrderBack))
+		s.render(w, r, http.StatusBadRequest, ui.Problem(s.shell(i18n.RefusedTitle, ""), i18n.RefusedTitle, i18n.ProblemInvoiceBody, back, backText))
 		return "", "", false
 	}
 	return ifMatch, key, true
@@ -48,7 +49,7 @@ func (s *Server) act(verb string) func(http.ResponseWriter, *http.Request, *pers
 			s.notFound(w, r)
 			return
 		}
-		ifMatch, key, ok := s.formFields(w, r, invoicePath(id))
+		ifMatch, key, ok := s.formFields(w, r, invoicePath(id), i18n.OrderBack)
 		if !ok {
 			return
 		}
@@ -132,7 +133,7 @@ func (s *Server) decideRecommendation(w http.ResponseWriter, r *http.Request, p 
 		s.notFound(w, r)
 		return
 	}
-	ifMatch, key, ok := s.formFields(w, r, invoicePath(id))
+	ifMatch, key, ok := s.formFields(w, r, invoicePath(id), i18n.OrderBack)
 	if !ok {
 		return
 	}
@@ -278,14 +279,18 @@ const documentCSP = "sandbox; default-src 'none'; img-src 'self' data:; style-sr
 
 // document is the document an invoice was captured from
 // (getSupplierInvoiceDocument), untrusted bytes served sandboxed: inline
-// as itself only when it is a PDF, PNG or JPEG, an XML document as plain
-// text, anything else as a download. The API answers application/
-// octet-stream, so the type is detected here as capture detected it
-// (http.DetectContentType).
+// as itself only when it is a PNG or JPEG, an XML document as plain
+// text, anything else as a download, a PDF too until the pilot's
+// browsers are shown to render one under the sandbox (ADR-0052, decision
+// D4 of T73e). The API answers application/octet-stream, so the type is
+// detected here as capture detected it (http.DetectContentType). Asked
+// for by the invoice's frame, a download says so there instead: a frame
+// shows nothing of one.
 func (s *Server) document(w http.ResponseWriter, r *http.Request, p *person) {
 	h := w.Header()
 	h.Set("Content-Security-Policy", documentCSP)
 	h.Set("X-Frame-Options", "SAMEORIGIN")
+	h.Add("Vary", "Sec-Fetch-Dest")
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		s.notFound(w, r)
@@ -308,18 +313,25 @@ func (s *Server) document(w http.ResponseWriter, r *http.Request, p *person) {
 	body := bufio.NewReaderSize(doc.Response.Data, 512)
 	head, _ := body.Peek(512) // fewer bytes for a shorter document; the client holds it in memory, so reading cannot fail
 	ctype, disposition := documentType(head)
+	h.Set("Cache-Control", "no-store")
+	if disposition == "attachment" && r.Header.Get("Sec-Fetch-Dest") == "iframe" {
+		h.Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = io.WriteString(w, i18n.T(r.Context(), i18n.DocumentDownloadOnly)) // the headers are sent: a failed write is the browser gone
+		return
+	}
 	h.Set("Content-Type", ctype)
 	h.Set("Content-Disposition", disposition+`; filename="`+id.String()+`"`)
-	h.Set("Cache-Control", "no-store")
 	_, _ = io.Copy(w, body) // the headers are sent: a failed write is the browser gone, with no one left to tell
 }
 
 // documentType is how a document is served: its type, and inline or as
-// a download.
+// a download. A PDF is downloaded (D4).
 func documentType(head []byte) (string, string) {
 	switch ct := http.DetectContentType(head); {
-	case ct == "application/pdf", ct == "image/png", ct == "image/jpeg":
+	case ct == "image/png", ct == "image/jpeg":
 		return ct, "inline"
+	case ct == "application/pdf":
+		return ct, "attachment"
 	case strings.HasPrefix(ct, "text/xml"), strings.HasPrefix(ct, "text/plain"):
 		return "text/plain; charset=utf-8", "inline"
 	default:

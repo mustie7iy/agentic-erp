@@ -47,3 +47,26 @@ var InvoiceProblems = map[string]Key{
 	"payables.invoice_in_payment_run": ProblemInPaymentRun,
 	"agents.already_decided":          ProblemAlreadyDecided,
 }
+
+// BankProblems are the codes the bank statement screens (T73g) explain
+// in their own words, looked up before Problems: the payments codes of a
+// statement's import and of its lines' decisions, and the general ones
+// in a statement's words.
+var BankProblems = map[string]Key{
+	"request.version_mismatch":             ProblemStatementVersion,
+	"request.validation_failed":            ProblemBankValidation,
+	"ledger.period_not_open":               ProblemBankPeriod,
+	"payments.statement_conflict":          ProblemStatementConflict,
+	"payments.statement_unreadable":        ProblemStatementUnreadable,
+	"payments.statement_not_of_bank":       ProblemStatementNotOfBank,
+	"payments.statement_gap":               ProblemStatementGap,
+	"payments.statement_bank_not_posting":  ProblemBankNotPosting,
+	"payments.statement_amount_differs":    ProblemAmountDiffers,
+	"payments.statement_posting_rule_gone": ProblemRuleGone,
+	"payments.statement_incoming_gone":     ProblemIncomingGone,
+	"payments.statement_line_posting":      ProblemLinePosting,
+	"payments.statement_match_target":      ProblemMatchTarget,
+	"payments.statement_reconciled":        ProblemStatementReconciled,
+	"payments.statement_line_not_matched":  ProblemLineNotMatched,
+	"payments.statement_line_no_proposal":  ProblemNoProposal,
+}

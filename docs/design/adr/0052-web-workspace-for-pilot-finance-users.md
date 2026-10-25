@@ -1441,6 +1441,118 @@ Decisions for the product owner (T73e):
   (`sandbox allow-scripts` without `allow-same-origin`, an opaque origin),
   an amendment of §7.
 
+Decided (coordinator, 2026-10-22, recorded in T73g):
+- **D4:** PDFs are served as downloads until a pilot browser is shown to
+  render one under the sandbox: `GET /invoices/{id}/document` answers a
+  PDF with `Content-Disposition: attachment`, and the invoice's frame,
+  which asks for it with `Sec-Fetch-Dest: iframe`, gets a line of plain
+  text in the person's language saying to download it with the link
+  below the frame (`Vary: Sec-Fetch-Dest`). PNG, JPEG and XML stay
+  inline. §7's sandbox is unchanged.
+- **D3:** the figures of a refusal (`payables.tax_mismatch`'s tax per
+  code, `payables.match_outdated`'s changes) are to be carried by the
+  API as structured fields of the problem, a contract change planned in
+  T73e2; until then §8 stands and no `detail` is shown.
+
+## Built in T73g (2026-10-22)
+Bank statements and their reconciliation (ADR-0047). What it settled,
+and where it departs from the step as first written:
+- **Pages.** `GET /bank`: the house banks (code, account by its last
+  four characters, currency, company, links to their statements and
+  report), the statements by status (imported, gap, reconciled) and
+  house bank, 25 a page, latest closing first, a statement in `gap`
+  flagged with what it means (nothing posts for the bank until the
+  missing statement is imported), and the upload form for a person
+  holding `payments.statement.import`. `GET /bank/statements/{id}`: the
+  summary (the previous statement linked, the gap explained, reconciled
+  on and by), and each line as a card: the bank's booking as data, its
+  status, its live match (a rule's with its rule, a person's, or the
+  reconciliation agent's proposal, badged, its reason inert inside
+  `hx-disable` with the agent hint), what it clears (payments, an open
+  match's candidates by number, a posting rule with its description, the
+  incoming payments clearing account), its posting (date, reason,
+  journal entry) and, while it waits, a link to the `bank_clearing`
+  request in the inbox; the outcome of the agent's last decided
+  proposal. `GET /bank/house-banks/{id}/reconciliation`: the period's
+  and each statement's closing balance against the ledger's, what
+  explains the difference (excluded, not posted yet, posted after the
+  date) and what is left unexplained (flagged "to investigate", or
+  "nothing unexplained"), the lines' counts by status and the lines;
+  the period and a line status as a plain GET form. Accounts are never
+  shown whole: the API gives people the IBAN, the page its last four.
+- **Decisions.** Match by hand (one choice: a candidate's payments, a
+  posting rule of the company, or, for a credit that reverses nothing,
+  the incoming payments clearing account; with a reason), exclude
+  (reason), post (optional other date with its reason, both or
+  neither), accept the agent's proposal (optional comment) and reject it
+  (reason): each `signedIn(csrf(…))`, `POST /bank/statements/{id}/{verb}`
+  with the line in the form (so the step-up's return is the statement),
+  the statement's ETag as If-Match and a fresh idempotency key, offered
+  by the line's status and the operation's `x-permission`, inside a
+  `<details>` that a refusal opens with what was typed. All five are
+  `x-agent: false` and marked human-only. An excluded line may be
+  matched by hand again until the statement is reconciled, as the API
+  allows; a matched line of a statement in `gap` is not offered its
+  posting (the API refuses it, the gap notice says why). Done, the page says so with a
+  link to the line (no fragment: a fragment would scroll the notice out
+  of view and move the tab order); a posting that waits says it waits
+  for its approval. Segregation of duties is the API's: whoever matched
+  a line by hand is refused as approver of its `bank_clearing` request
+  (`workflow.segregation_of_duties`), shown in the inbox.
+- **Upload.** `POST /bank/statements`, a multipart form read in memory up
+  to the API's 4 MB (`csrfUpload` checks the token as `csrf` does; a
+  larger body changes nothing and says so); the file is sent as the
+  `file` form field `importBankStatements` takes on main today (the
+  walkthrough's file-part support, branch fix-walkthrough, is not
+  merged; the ogen client sends a field either way). One statement goes
+  to its page, several to the bank's statements; the same file again
+  says it was imported before. A refused import keeps the bank and
+  format, and asks for the file again (a browser never refills a file). A
+  body larger than that is answered at once with a page of its own and
+  no API call, before the token is checked. An upload is held three
+  times in memory (the form's buffer, the read, the client's string),
+  some 12 MB at most each, with no limit on uploads at once: enough for
+  the pilot, to bound before load tests.
+- **Calls.** The list makes four (`getCurrentPrincipal`,
+  `listHouseBanks`, `listLegalEntities`, `listBankStatements`), a
+  statement six (`getBankStatement`, `listBankStatementMatches`,
+  `getBankStatementRules`, `listHouseBanks` of its company,
+  `listPrincipalNames`), the report three (`getBankReconciliation`). The
+  rules and the banks are no reason to refuse a page: unreadable, they
+  are logged, and the page offers no posting rule (or no bank).
+- **Refusals.** `i18n.BankProblems` explains the `payments.statement_*`
+  codes of the import and the decisions, the version mismatch, a
+  validation failure and a closed period in a statement's words; the
+  contract test holds them to the operations' `x-problem-codes`.
+- **Departs from the tracker row.** Manual match "from open items and
+  payments" offers the payments the rules found as candidates, the
+  company's posting rules and the incoming account; the API has no
+  search of a house bank's payments or open items to choose others from
+  (listPayments is per payment run), so a payment the rules did not find
+  cannot be chosen yet: tracker item. Running the matching rules again
+  (`matchBankStatement`) and downloading the statement's file
+  (`getBankStatementFile`) are not on the pages: tracker items.
+- **Tests.** Handlers against the real API and PostgreSQL with object
+  storage (`fixture` gained `StatementPermissions`, `Reconciles`,
+  `HouseBank`, `MT940`, `ImportStatement`, `Propose`,
+  `OpeningBalance`): the list and its filters and a gap uploaded through
+  the page; a statement's page per line state; a reconciler's whole job
+  to a reconciled statement (incoming matched and posted, an exclusion,
+  a proposal rejected and its line posted on another date, a proposal
+  accepted, posted by a second person, refused to its matcher in the
+  inbox and approved by a third); refusals before and from the API, a
+  stale ETag with the text kept, a replayed form; uploads (replayed,
+  unreadable, conflicting, too large, incomplete); the report and its
+  filters; a person who may only read and one who may not. The rare
+  answers (a rule's open candidates of payments, which need released
+  payment runs the web suite does not build, values the workspace does
+  not know, unreadable banks, rules and names, a bank without a main
+  account, a difference unexplained) come from the stub, as in T73d. The
+  browser suite runs axe on the list, a statement with the agent's
+  proposals and the report in English, French and both pseudo-locales at
+  1280 and 390 px, and walks a rejection refused then made, an
+  acceptance and a posting that waits for its approval.
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF
