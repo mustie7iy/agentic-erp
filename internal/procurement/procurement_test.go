@@ -66,7 +66,7 @@ func (e env) act(t *testing.T, path, action, body string) map[string]any {
 func TestRequisitionLifecycle(t *testing.T) {
 	e := setup(t)
 	r := e.requisition(t, items(item(e.office, "10", "EA", "50.00", "EUR", ""), item(e.expense, "2.5", "KG", "4.00", "EUR", `, "price_unit": 2`)),
-		fmt.Sprintf(`, "supplier_id": %q, "needed_by": "2026-11-01", "extensions": {"cost_center": "MKT"}`, e.Supplier))
+		fmt.Sprintf(`, "supplier_id": %q, "needed_by": "2026-11-01", "extensions": {"region": "MKT"}`, e.Supplier))
 	path := "/v1/requisitions/" + id(r)
 	if r["document_number"] != "PR100000" {
 		t.Errorf("created document number: got %v, want PR100000", r["document_number"])
@@ -93,7 +93,7 @@ func TestRequisitionLifecycle(t *testing.T) {
 	// Items are replaced as a whole; a new currency needs new prices.
 	e.Problem(422, "procurement.currency_mismatch", "PATCH", path, `{"currency": "USD"}`, tag)
 	upd, tag := e.Must(200, "PATCH", path, `{"items": `+items(item(e.office, "3", "EA", "10.00", "EUR", `, "item_no": 1`))+`, "needed_by": null,
-		"extensions": {"cost_center": null, "project": "P1"}}`, tag)
+		"extensions": {"region": null, "project": "P1"}}`, tag)
 	if n := len(upd["items"].([]any)); n != 1 {
 		t.Errorf("updated items: got %d, want 1", n)
 	}

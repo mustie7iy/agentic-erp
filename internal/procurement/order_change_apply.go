@@ -29,8 +29,8 @@ func init() {
 
 // invalidChange is the problem of a change that no longer fits its order.
 func invalidChange() *problem.Problem {
-	return problem.Unprocessable("procurement.invalid_change", "The order change no longer fits the order: an item keeps its account, unit, "+
-		"material and contract item, and stays at or above what was received.",
+	return problem.Unprocessable("procurement.invalid_change", "The order change no longer fits the order: an item keeps its account, assignment, "+
+		"unit, material and contract item, and stays at or above what was received.",
 		problem.FieldError{Field: "items", Code: "invalid", Message: "items that keep what the order's items keep"})
 }
 
@@ -60,6 +60,11 @@ func (e *Endpoints) submitChange(ctx context.Context, order, id uuid.UUID, ifMat
 	// draft), and which is frozen from submission on
 	// (purchase_order_change_frozen).
 	if _, _, err := e.proposal(ctx, tx, o, ch.Proposed, ChangeInput{Items: proposedItems(ch)}); err != nil {
+		return PurchaseOrderChange{}, err
+	}
+	// The items it adds are released by it: checked before approval is
+	// asked, and again as it is approved (OrderChanges).
+	if err := e.checkAssignments(ctx, o.LegalEntityID, ch.Proposed.OrderDate, assignments(ch.Proposed.Items, len(o.Items))); err != nil {
 		return PurchaseOrderChange{}, err
 	}
 	delta, err := changeDelta(o, ch)
@@ -235,6 +240,9 @@ func (h OrderChanges) Approved(ctx context.Context, change, request uuid.UUID) e
 		return err
 	}
 	if err := h.Endpoints.supplier(ctx, o.SupplierID, o.LegalEntityID); err != nil {
+		return err
+	}
+	if err := h.Endpoints.checkAssignments(ctx, o.LegalEntityID, ch.Proposed.OrderDate, assignments(ch.Proposed.Items, len(o.Items))); err != nil {
 		return err
 	}
 	delta, err := changeDelta(o, ch)

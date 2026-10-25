@@ -162,7 +162,7 @@ func TestOrderChangeEdges(t *testing.T) {
 		})
 	}
 	// Header fields alone keep the items.
-	ch, tag := e.Must(201, "POST", path+"/changes", `{"reason": "Later", "order_date": "2026-03-20", "extensions": {"cost_center": "MKT"}}`, "")
+	ch, tag := e.Must(201, "POST", path+"/changes", `{"reason": "Later", "order_date": "2026-03-20", "extensions": {"region": "MKT"}}`, "")
 	want(t, "header change", ch, map[string]any{"order_date": "2026-03-20"})
 	if n := len(ch["items"].([]any)); n != 1 {
 		t.Errorf("items kept: got %d, want 1", n)

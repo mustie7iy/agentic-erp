@@ -81,6 +81,18 @@ same order within the deadlock timeout, and the retry is safe. Taking
 the order's lock before the request's in the Decider would remove it, at
 the cost of the approvals context knowing each object type's row.
 
+**Account assignment (T56e, ADR-0050 §6).** An order item carries its
+`account_assignment` (`none` or `cost_center`) and cost center. They are
+checked against the ledger when the order is released, on its order date,
+before approval is asked and again as the release is approved, and the
+items an order change adds as it is submitted and approved; an order a
+migration run loads is released unchecked. A released item keeps its
+assignment as it keeps its account (`purchase_order_item_identity`, 422
+`procurement.invalid_change`), so its receipts, their reversals, returns
+and the invoice's price difference post to one cost center: the same
+reasoning as the valuation price, which must not let a later change split
+what one item posted.
+
 **Configuration keys are added before they are required.** The new keys
 (`purchasing.order_release_approval`, `purchasing.contract_expiry_notice_days`)
 are required by validation from their first release. That is safe during a

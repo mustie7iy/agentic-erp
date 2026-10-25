@@ -96,6 +96,9 @@ type assignRules struct {
 	costOn, profitOn bool
 	defaultPC        *uuid.UUID
 	accounts         map[uuid.UUID]controlledAccount
+	// ownCostCenter: a primary cost line takes no default; an order item
+	// names its own (CheckAssignments).
+	ownCostCenter bool
 }
 
 type controlledAccount struct {
@@ -121,6 +124,12 @@ func assign(ctx context.Context, tx pgx.Tx, le uuid.UUID, year int16, date time.
 	if err != nil || r.accounts == nil {
 		return err
 	}
+	return r.apply(ctx, tx, le, date, lines, lock)
+}
+
+// apply derives and validates the lines' assignment under the rules, as
+// assign says.
+func (r assignRules) apply(ctx context.Context, tx pgx.Tx, le uuid.UUID, date time.Time, lines []Line, lock bool) error {
 	found := make([]lineCenters, len(lines))
 	if err := r.deriveCostCenters(lines, found); err != nil {
 		return err
@@ -176,9 +185,13 @@ func (r assignRules) deriveCostCenters(lines []Line, found []lineCenters) error 
 		case l.CostCenterID != nil && a.element == config.CostElementNone:
 			return centerRefused("ledger.cost_center_invalid", i, "cost_center_id", "The cost center", reasonNotAllowed)
 		case l.CostCenterID != nil || a.element != config.CostElementPrimaryCost || !r.costOn:
-		case a.defaultCC == nil:
+		case r.ownCostCenter || a.defaultCC == nil:
+			why := "the account has no default cost center in the legal entity"
+			if r.ownCostCenter {
+				why = "while cost center accounting applies, an order item names its own"
+			}
 			return problem.Unprocessable("ledger.cost_center_required", fmt.Sprintf("Line %d posts to a primary cost account and needs a cost center; "+
-				"the account has no default cost center in the legal entity.", i+1),
+				"%s.", i+1, why),
 				problem.FieldError{Field: fmt.Sprintf("lines[%d].cost_center_id", i), Code: "required", Message: "a cost center of the legal entity"})
 		default:
 			l.CostCenterID, found[i].ccDefault = a.defaultCC, true

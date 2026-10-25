@@ -146,13 +146,13 @@ func TestCaptureHeldByRule(t *testing.T) {
 	}{
 		"rule":              {wantPrefix: byRule, wantRule: true},
 		"unsure extraction": {unsure: true, wantPrefix: "Low extraction confidence", wantRule: true},
-		"missing field":     {required: true, wantPrefix: "Required custom fields are missing: cost_center."},
+		"missing field":     {required: true, wantPrefix: "Required custom fields are missing: region."},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := setup(t)
 			e.order(t, e.Supplier, "PO-1")
 			if c.required {
-				pgtest.Unguarded(t, `UPDATE config.config_version SET document = jsonb_set(document, '{extensions,supplier_invoice,required}', '["cost_center"]')
+				pgtest.Unguarded(t, `UPDATE config.config_version SET document = jsonb_set(document, '{extensions,supplier_invoice,required}', '["region"]')
 					WHERE tenant_id = $1`, e.Tenant.ID)
 			}
 			version := fixture.ActivateRules(t, e.Tenant.ID, "supplier_invoice", map[string]rules.Rule{"gross_limit": captureLimit(c.required)})
@@ -220,7 +220,7 @@ func captureLimit(required bool) rules.Rule {
 	r.Cases[0].Row["gross_amount"] = map[string]any{"amount": "100.00", "currency": "EUR"}
 	if required {
 		for i := range r.Cases {
-			r.Cases[i].Extensions = map[string]any{"cost_center": "CC1"}
+			r.Cases[i].Extensions = map[string]any{"region": "CC1"}
 		}
 	}
 	return r

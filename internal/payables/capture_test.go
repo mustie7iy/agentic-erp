@@ -73,7 +73,7 @@ func extraction() *capture.Extraction {
 func TestCaptureMissingRequiredField(t *testing.T) {
 	e := setup(t)
 	e.order(t, e.Supplier, "PO-1")
-	pgtest.Unguarded(t, `UPDATE config.config_version SET document = jsonb_set(document, '{extensions,supplier_invoice,required}', '["cost_center"]')
+	pgtest.Unguarded(t, `UPDATE config.config_version SET document = jsonb_set(document, '{extensions,supplier_invoice,required}', '["region"]')
 		WHERE tenant_id = $1`, e.Tenant.ID)
 	var res gen.CaptureSupplierInvoiceRes
 	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
@@ -88,8 +88,8 @@ func TestCaptureMissingRequiredField(t *testing.T) {
 	if held["status"] != "on_hold" {
 		t.Errorf("status: got %v, want on_hold", held["status"])
 	}
-	if r, _ := held["hold_reason"].(string); !strings.Contains(r, "cost_center") {
-		t.Errorf("hold reason: got %q, want it to name cost_center", r)
+	if r, _ := held["hold_reason"].(string); !strings.Contains(r, "region") {
+		t.Errorf("hold reason: got %q, want it to name region", r)
 	}
 	var schema *int
 	pgtest.Scan(t, `SELECT extensions_schema FROM payables.supplier_invoice WHERE id = $1`, []any{path[len("/v1/supplier-invoices/"):]}, &schema)
@@ -102,7 +102,7 @@ func TestCaptureMissingRequiredField(t *testing.T) {
 	if released["status"] != "parked" {
 		t.Errorf("released status: got %v, want parked", released["status"])
 	}
-	e.Must(200, "PATCH", path, `{"extensions": {"cost_center": "CC1"}}`, tag)
+	e.Must(200, "PATCH", path, `{"extensions": {"region": "CC1"}}`, tag)
 }
 
 func TestCapture(t *testing.T) {

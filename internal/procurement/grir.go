@@ -15,8 +15,8 @@ import (
 const WEDocumentType = "WE"
 
 // postMovement posts a goods movement's WE entry (T33): for each item of
-// an order valued through GR/IR, Dr the order item's account / Cr GR/IR at
-// the item's valuation price, which the ledger books as the item's GR/IR
+// an order valued through GR/IR, Dr the order item's account (with its
+// cost center, T56e) / Cr GR/IR at the item's valuation price, which the ledger books as the item's GR/IR
 // position moves (ledger.GRIRItem). The GR/IR line's quantity is the
 // movement's negated: a receipt (101) and a return's reversal (123) credit
 // GR/IR, a receipt's reversal (102) and a return (122) debit it. A movement
@@ -36,7 +36,7 @@ func (e *Endpoints) postMovement(ctx context.Context, id uuid.UUID, number strin
 		}
 		currency = oi.currency
 		items = append(items, ledger.GRIRItem{PurchaseOrderID: it.PurchaseOrderID, POItemNo: it.POItemNo, Quantity: negated(it.Quantity), Unit: it.Unit,
-			UnitPrice: oi.valuationPrice, PriceUnit: oi.valuationPriceUnit, OffsetAccountID: &current[i].account})
+			UnitPrice: oi.valuationPrice, PriceUnit: oi.valuationPriceUnit, OffsetAccountID: &current[i].account, CostCenterID: oi.costCenter})
 	}
 	if len(items) == 0 {
 		return nil, nil, nil

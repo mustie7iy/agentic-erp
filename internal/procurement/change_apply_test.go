@@ -227,7 +227,9 @@ func TestOrderChangeDecisionFailures(t *testing.T) {
 	path := "/v1/purchase-orders/" + e.big(t, "90.00")
 	e.act(t, path, "release", "")
 	order := uuid.MustParse(path[len("/v1/purchase-orders/"):])
-	cpath, _ := e.draftChange(t, path, items(item(e.office, "10", "EA", "150.00", "EUR", ""))) // 1500.00: above the first tier
+	// 1501.00, above the first tier; the item it adds is checked against
+	// the ledger as it is submitted and approved.
+	cpath, _ := e.draftChange(t, path, items(item(e.office, "10", "EA", "150.00", "EUR", ""), item(e.office, "1", "EA", "1.00", "EUR", "")))
 	change := uuid.MustParse(cpath[len(path+"/changes/"):])
 	submit := func(ctx context.Context) (uuid.UUID, error) {
 		got, err := h.SubmitPurchaseOrderChange(ctx, gen.SubmitPurchaseOrderChangeParams{ID: order, ChangeID: change, IfMatch: "*"})

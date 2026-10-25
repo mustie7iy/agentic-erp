@@ -21,9 +21,20 @@ func requisitionInputs(items []gen.RequisitionItem) []ItemInput {
 	out := make([]ItemInput, len(items))
 	for i, it := range items {
 		out[i] = ItemInput{No: apitypes.Ptr[int32](it.ItemNo), MaterialID: apitypes.Ptr[uuid.UUID](it.MaterialID), Description: it.Description, Quantity: it.Quantity.Value,
-			Unit: it.Quantity.Unit, Price: it.UnitPrice.Amount, Currency: it.UnitPrice.Currency, PriceUnit: it.PriceUnit.Value, AccountID: it.AccountID}
+			Unit: it.Quantity.Unit, Price: it.UnitPrice.Amount, Currency: it.UnitPrice.Currency, PriceUnit: it.PriceUnit.Value, AccountID: it.AccountID,
+			AccountAssignment: assignmentInput(it.AccountAssignment.Get()), CostCenterID: apitypes.Ptr[uuid.UUID](it.CostCenterID)}
 	}
 	return out
+}
+
+// assignmentInput is an enum the API sent as the assignment it names, nil
+// when it was left out.
+func assignmentInput[T ~string](v T, ok bool) *string {
+	if !ok {
+		return nil
+	}
+	s := string(v)
+	return &s
 }
 
 func orderInputs(items []gen.PurchaseOrderItem) []ItemInput {
@@ -31,7 +42,8 @@ func orderInputs(items []gen.PurchaseOrderItem) []ItemInput {
 	for i, it := range items {
 		in := ItemInput{No: apitypes.Ptr[int32](it.ItemNo), MaterialID: apitypes.Ptr[uuid.UUID](it.MaterialID), Description: it.Description, Quantity: it.Quantity.Value,
 			Unit: it.Quantity.Unit, Price: it.UnitPrice.Amount, Currency: it.UnitPrice.Currency, PriceUnit: it.PriceUnit.Value, AccountID: it.AccountID,
-			TaxCode: apitypes.Ptr[string](it.TaxCode), ContractItemNo: apitypes.Ptr[int32](it.ContractItemNo)}
+			TaxCode: apitypes.Ptr[string](it.TaxCode), ContractItemNo: apitypes.Ptr[int32](it.ContractItemNo),
+			AccountAssignment: assignmentInput(it.AccountAssignment.Get()), CostCenterID: apitypes.Ptr[uuid.UUID](it.CostCenterID)}
 		if d, ok := it.OverDeliveryPct.Get(); ok {
 			s := string(d)
 			in.OverDelivery = &s
@@ -75,7 +87,9 @@ func requisitionToAPI(r Requisition) gen.Requisition {
 	for i, it := range r.Items {
 		out.Items[i] = gen.RequisitionItem{ItemNo: gen.NewOptInt32(it.No), MaterialID: apitypes.OptUUID(it.MaterialID), Description: it.Description,
 			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, UnitPrice: apitypes.Money(it.UnitPrice, r.Currency, r.Exponent),
-			PriceUnit: gen.NewOptInt32(it.PriceUnit), AccountID: it.AccountID}
+			PriceUnit: gen.NewOptInt32(it.PriceUnit), AccountID: it.AccountID,
+			AccountAssignment: gen.NewOptRequisitionItemAccountAssignment(gen.RequisitionItemAccountAssignment(it.assignment())),
+			CostCenterID:      apitypes.OptUUID(it.CostCenterID)}
 	}
 	return out
 }
@@ -104,7 +118,9 @@ func orderItemToAPI(it Item, currency string, exp int) gen.PurchaseOrderItem {
 	return gen.PurchaseOrderItem{ItemNo: gen.NewOptInt32(it.No), MaterialID: apitypes.OptUUID(it.MaterialID), Description: it.Description,
 		Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, UnitPrice: apitypes.Money(it.UnitPrice, currency, exp),
 		PriceUnit: gen.NewOptInt32(it.PriceUnit), AccountID: it.AccountID, OverDeliveryPct: gen.NewOptDecimal(gen.Decimal(it.OverDelivery)),
-		TaxCode: apitypes.OptString(it.TaxCode), ContractItemNo: apitypes.OptInt32(it.ContractItemNo)}
+		TaxCode: apitypes.OptString(it.TaxCode), ContractItemNo: apitypes.OptInt32(it.ContractItemNo),
+		AccountAssignment: gen.NewOptPurchaseOrderItemAccountAssignment(gen.PurchaseOrderItemAccountAssignment(it.assignment())),
+		CostCenterID:      apitypes.OptUUID(it.CostCenterID)}
 }
 
 func changeToAPI(ch PurchaseOrderChange) gen.PurchaseOrderChange {

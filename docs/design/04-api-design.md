@@ -191,6 +191,21 @@ of its kind only), `ledger.profit_center_posted_after` and
 lines carrying it, T56d4) and `ledger.segment_in_use` (a posted profit
 center's segment), at the request and again at the approval.
 
+Requisition and purchase order items take `account_assignment` (`none` or
+`cost_center`; left out: `cost_center` when a `cost_center_id` is given)
+and `cost_center_id` (T56e): 422 `procurement.invalid_account_assignment`
+when they disagree. Submitting a requisition, releasing an order (and
+approving its release), and submitting or approving an order change that
+adds items check them as their postings will, naming `items[i]`: on a
+primary cost account the item names a cost center while cost center
+accounting applies (422 `ledger.cost_center_required`, no default taken),
+and the center is valid and unlocked (`ledger.cost_center_invalid`,
+`ledger.profit_center_invalid`). A released item keeps its assignment (422
+`procurement.invalid_change`). Supplier invoice items without an order take
+`cost_center_id` and `profit_center_id`, checked at entry with the
+account's default; an item on an order takes its order item's (422
+`payables.assignment_from_order` for one of its own).
+
 ## 4.7 Concurrency and idempotency
 
 Per ADR-0008:

@@ -206,6 +206,12 @@ type GRIRItem struct {
 	// difference lines are the code's base (ADR-0049 §5).
 	TaxCode *string
 	Text    *string
+	// CostCenterID is the order item's cost center (ADR-0050 §6, T56e): a
+	// goods movement's counter line and an invoice's price difference line
+	// carry it, as SAP charges a non-valuated receipt's price difference to
+	// the item's assignment; the GR/IR line, a balance sheet line, none.
+	// nil: the ledger derives them (§5).
+	CostCenterID *uuid.UUID
 }
 
 // Post posts the entry in the leading ledger; one with GR/IR items books

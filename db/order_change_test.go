@@ -111,6 +111,7 @@ func TestOrderChangeApplication(t *testing.T) {
 		{"an item's unit changed", true, item("uom_code = 'KG'"), "keeps its account"},
 		{"an item's material changed", true, item("material_id = gen_random_uuid()"), "keeps its account"},
 		{"an item's contract item changed", true, item("contract_item_no = 1"), "keeps its account"},
+		{"an item's assignment changed", true, item("account_assignment = 'cost_center', cost_center_id = gen_random_uuid()"), "keeps its account, assignment"},
 		{"an item's valuation price changed", true, item("valuation_price = 300"), "valued at the price it was released at"},
 	} {
 		t.Run(c.name, func(t *testing.T) {

@@ -21,7 +21,7 @@ func TestEventsMaskCustomFields(t *testing.T) {
 	secret := uuid.NewString()
 	inv, _ := e.Must(201, "POST", "/v1/supplier-invoices", strings.Replace(e.invoice(e.Supplier, "INV-X", "157.80", "22.80",
 		poItem(po, 1, "10", "EA", "120.00"), poItem(po, 2, "5", "KG", "15.00")),
-		`"items"`, `"extensions": {"cost_center": "CC9", "channel": "`+secret+`"}, "items"`, 1), "")
+		`"items"`, `"extensions": {"region": "CC9", "channel": "`+secret+`"}, "items"`, 1), "")
 	e.posted(t, inv)
 	for _, name := range []string{"supplier_invoice_captured", "supplier_invoice_posted"} {
 		t.Run(name, func(t *testing.T) {
@@ -30,8 +30,8 @@ func TestEventsMaskCustomFields(t *testing.T) {
 				t.Fatalf("got %d events, want 1", len(got))
 			}
 			ext, _ := got[0]["extensions"].(map[string]any)
-			if ext["cost_center"] != "CC9" {
-				t.Errorf("cost_center: got %v, want CC9", ext["cost_center"])
+			if ext["region"] != "CC9" {
+				t.Errorf("region: got %v, want CC9", ext["region"])
 			}
 			if ext["channel"] != extensions.Masked {
 				t.Errorf("channel: got %v, want %s", ext["channel"], extensions.Masked)

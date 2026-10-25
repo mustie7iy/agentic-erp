@@ -166,7 +166,7 @@ func TestEntryAndEdits(t *testing.T) {
 
 	// Edits replace the items as a whole; removed items come back as new ones.
 	upd, _ := e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(inv), fmt.Sprintf(`{"supplier_reference": "INV-1A", "posting_date": "2026-03-12",
-		"gross_amount": {"amount": "142.80", "currency": "EUR"}, "items": [%s], "extensions": {"cost_center": "CC1"}}`, poItem(po, 1, "10", "EA", "120.00")), tag)
+		"gross_amount": {"amount": "142.80", "currency": "EUR"}, "items": [%s], "extensions": {"region": "CC1"}}`, poItem(po, 1, "10", "EA", "120.00")), tag)
 	if got := len(upd["items"].([]any)); got != 1 {
 		t.Errorf("updated items: got %d, want 1", got)
 	}
@@ -176,11 +176,11 @@ func TestEntryAndEdits(t *testing.T) {
 	if upd["posting_date"] != "2026-03-12" {
 		t.Errorf("updated posting date: got %v, want 2026-03-12", upd["posting_date"])
 	}
-	if got := upd["extensions"].(map[string]any)["cost_center"]; got != "CC1" {
+	if got := upd["extensions"].(map[string]any)["region"]; got != "CC1" {
 		t.Errorf("updated cost center: got %v, want CC1", got)
 	}
 	back, _ := e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(inv), fmt.Sprintf(`{"posting_date": null, "purchase_order_id": null, "invoice_date": "2026-03-11",
-		"tax_amount": {"amount": "22.80", "currency": "EUR"}, "items": [%s, %s], "extensions": {"cost_center": null}}`,
+		"tax_amount": {"amount": "22.80", "currency": "EUR"}, "items": [%s, %s], "extensions": {"region": null}}`,
 		poItem(po, 1, "10", "EA", "120.00"), poItem(po, 2, "5", "KG", "17.85")), `"2"`)
 	if got := len(back["items"].([]any)); got != 2 {
 		t.Errorf("items back: got %d, want 2", got)

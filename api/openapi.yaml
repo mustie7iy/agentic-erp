@@ -8450,6 +8450,7 @@ paths:
         - procurement.account_not_postable
         - procurement.amount_too_large
         - procurement.currency_mismatch
+        - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_contract
         - procurement.invalid_item_no
@@ -8555,6 +8556,7 @@ paths:
         - procurement.account_not_postable
         - procurement.amount_too_large
         - procurement.currency_mismatch
+        - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_contract
         - procurement.invalid_item_no
@@ -8626,7 +8628,13 @@ paths:
       x-autonomy: propose
       x-problem-codes:
         - config.not_bootstrapped
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
         - procurement.amount_too_large
         - procurement.invalid_status
         - procurement.not_requester
@@ -8816,6 +8824,7 @@ paths:
         - procurement.account_not_postable
         - procurement.amount_too_large
         - procurement.currency_mismatch
+        - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
         - procurement.invalid_contract
@@ -8933,6 +8942,7 @@ paths:
         - procurement.account_not_postable
         - procurement.amount_too_large
         - procurement.currency_mismatch
+        - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
         - procurement.invalid_contract
@@ -9013,7 +9023,13 @@ paths:
       x-permission: procurement.order.release
       x-problem-codes:
         - config.not_bootstrapped
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
         - procurement.amount_too_large
         - procurement.contract_exceeded
         - procurement.invalid_contract
@@ -9235,6 +9251,7 @@ paths:
         - procurement.amount_too_large
         - procurement.change_open
         - procurement.currency_mismatch
+        - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
         - procurement.invalid_contract
@@ -9352,6 +9369,7 @@ paths:
         - procurement.amount_too_large
         - procurement.change_open
         - procurement.currency_mismatch
+        - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
         - procurement.invalid_contract
@@ -9486,12 +9504,19 @@ paths:
       x-permission: procurement.order.create
       x-problem-codes:
         - config.not_bootstrapped
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
         - procurement.account_not_postable
         - procurement.amount_too_large
         - procurement.change_open
         - procurement.contract_exceeded
         - procurement.currency_mismatch
+        - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
         - procurement.invalid_contract
@@ -10445,10 +10470,16 @@ paths:
       x-problem-codes:
         - config.no_number_range
         - config.number_range_exhausted
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.no_fiscal_period
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
         - payables.account_not_postable
         - payables.account_required
         - payables.already_captured
+        - payables.assignment_from_order
         - payables.currency_mismatch
         - payables.duplicate_invoice
         - payables.invalid_purchase_order
@@ -10591,12 +10622,18 @@ paths:
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.no_exchange_rate
         - ledger.no_fiscal_period
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
         - payables.account_not_postable
         - payables.account_required
         - payables.already_captured
         - payables.amount_too_large
+        - payables.assignment_from_order
         - payables.capture_needs_document
         - payables.capture_needs_order
         - payables.currency_mismatch
@@ -10852,9 +10889,16 @@ paths:
       x-permission: payables.invoice.capture
       x-autonomy: propose
       x-problem-codes:
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.no_fiscal_period
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
         - payables.account_not_postable
         - payables.account_required
         - payables.already_captured
+        - payables.assignment_from_order
         - payables.currency_mismatch
         - payables.duplicate_invoice
         - payables.invalid_purchase_order
@@ -14573,6 +14617,7 @@ paths:
         - procurement.amount_too_large
         - procurement.change_open
         - procurement.contract_exceeded
+        - procurement.invalid_account_assignment
         - procurement.invalid_change
         - procurement.invalid_contract
         - procurement.invalid_status
@@ -16345,6 +16390,7 @@ paths:
         - payables.account_not_postable
         - payables.account_required
         - payables.already_captured
+        - payables.assignment_from_order
         - payables.currency_mismatch
         - payables.duplicate_invoice
         - payables.invalid_purchase_order
@@ -16370,6 +16416,7 @@ paths:
         - procurement.amount_too_large
         - procurement.contract_exceeded
         - procurement.currency_mismatch
+        - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
         - procurement.invalid_contract
@@ -16550,6 +16597,7 @@ paths:
         - payables.account_not_postable
         - payables.account_required
         - payables.already_captured
+        - payables.assignment_from_order
         - payables.currency_mismatch
         - payables.duplicate_invoice
         - payables.invalid_purchase_order
@@ -16575,6 +16623,7 @@ paths:
         - procurement.amount_too_large
         - procurement.contract_exceeded
         - procurement.currency_mismatch
+        - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
         - procurement.invalid_contract
@@ -25978,6 +26027,14 @@ components:
           type: string
           format: uuid
           description: General ledger account to charge.
+        account_assignment:
+          type: string
+          enum: [none, cost_center]
+          description: "Account assignment (ADR-0050 §6, SAP's account assignment category): `cost_center` with `cost_center_id`, or `none` without (422 `procurement.invalid_account_assignment`). Absent: `cost_center` when a cost center is given, else `none`. Checked against the ledger when the requisition is submitted, on that day, as its postings will be: on a primary cost account the item names a cost center while cost center accounting applies (422 `ledger.cost_center_required`; the account's default is not taken), and the cost center is one of the legal entity, active, valid on the day and not locked for costs (422 `ledger.cost_center_invalid` with the reason)."
+        cost_center_id:
+          type: string
+          format: uuid
+          description: "Cost center the item is charged to, with `account_assignment` `cost_center`."
       examples:
         - description: Office chairs, ergonomic
           quantity:
@@ -26268,6 +26325,14 @@ components:
           type: string
           format: uuid
           description: General ledger account.
+        account_assignment:
+          type: string
+          enum: [none, cost_center]
+          description: "Account assignment (ADR-0050 §6, SAP's account assignment category): `cost_center` with `cost_center_id`, or `none` without (422 `procurement.invalid_account_assignment`). Absent: `cost_center` when a cost center is given, else `none`. Checked against the ledger on the order date when the order is released and again when its release is approved, and for the items an order change adds when it is submitted and approved, as the item's postings will be: on a primary cost account the item names a cost center while cost center accounting applies (422 `ledger.cost_center_required`; the account's default is not taken), and the cost center is one of the legal entity, active, valid on the order date and not locked for costs (422 `ledger.cost_center_invalid` with the reason; its profit center: `ledger.profit_center_invalid`). Goods receipts post the item's account with its cost center, and an invoice's price difference on the item too when the price difference account is a primary cost account. A released order's item keeps its assignment, as its account (422 `procurement.invalid_change`)."
+        cost_center_id:
+          type: string
+          format: uuid
+          description: "Cost center the item is charged to, with `account_assignment` `cost_center`."
         over_delivery_pct:
           $ref: "#/components/schemas/Decimal"
           description: Over-delivery tolerance in percent (0-100).
@@ -27372,6 +27437,14 @@ components:
           type: string
           format: uuid
           description: "General ledger account; required when the item is not PO-based."
+        cost_center_id:
+          type: string
+          format: uuid
+          description: "Cost center of an item that is not PO-based (ADR-0050 §6), posted on its line: checked when the invoice is entered or changed, on its posting date (else its invoice date), as the posting will check it (422 `ledger.cost_center_invalid` with the reason). Without one, an item on a primary cost account takes the account's default cost center while cost center accounting applies, or is refused (422 `ledger.cost_center_required`). A PO-based item takes its order item's cost center; another one given is refused (422 `payables.assignment_from_order`)."
+        profit_center_id:
+          type: string
+          format: uuid
+          description: "Profit center of an item that is not PO-based, for a P&L account without a cost center (422 `ledger.profit_center_invalid`); with a cost center it must be the cost center's (422 `ledger.profit_center_mismatch`). Without either, a P&L item takes the company's default profit center while profit center accounting applies. A PO-based item takes none of its own (422 `payables.assignment_from_order`)."
       examples:
         - quantity:
             value: "12.5"
