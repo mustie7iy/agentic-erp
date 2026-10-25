@@ -238,9 +238,10 @@ func (ReleaseApprovals) Approved(ctx context.Context, run, request uuid.UUID) er
 // Rejected records the refusal and rejects the run, freeing its items, so
 // a new run is proposed rather than the same one put to approver after
 // approver (product owner 2026-10-25). Only a proposed run that waits for
-// this request is changed: a callback run again after its commit finds
-// the run rejected and changes nothing, and a request the run no longer
-// waits for (it was withdrawn, or another asked for) fails the decision.
+// this request is changed. Unlike Approved, a callback run again after its
+// commit returns nil: it finds the run rejected by this very request, the
+// state the first call left. A request the run no longer waits for (it was
+// withdrawn, or another asked for) fails the decision.
 func (h ReleaseApprovals) Rejected(ctx context.Context, run, request uuid.UUID, comment string) error {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -256,10 +257,19 @@ func (h ReleaseApprovals) Rejected(ctx context.Context, run, request uuid.UUID, 
 	if err := requireProposed(r, "rejected"); err != nil {
 		return err
 	}
+	// The workflow context bars the proposer from approving only; rejecting
+	// now decides the run, which its proposer never does (payment_run_sod).
+	if r.ProposedBy == p.ID {
+		return problem.Forbidden("identity.sod_conflict", "Segregation of duties: whoever proposed a payment run can never reject it.")
+	}
 	if err := endRelease(ctx, tx, p, run, request, ReleaseRejected, comment); err != nil {
 		return err
 	}
-	_, err = h.Endpoints.reject(ctx, tx, p, run, "its release was rejected (approval request "+request.String()+"): "+comment)
+	reason := "its release was rejected (approval request " + request.String() + ")"
+	if comment != "" {
+		reason += ": " + comment
+	}
+	_, err = h.Endpoints.reject(ctx, tx, p, run, reason)
 	return err
 }
 

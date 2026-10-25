@@ -277,9 +277,11 @@ func TestDualReleaseRefused(t *testing.T) {
 // to approver after approver; the callback run again changes nothing.
 func TestDualReleaseRejected(t *testing.T) {
 	e := dualSetup(t, "500.00")
-	run := e.proposedBy(t, e.Tenant.Human, "INV-RJ", "600.00")
+	proposer := e.Person(t, "proposer") // holds the release role, as the approvers do
+	run := e.proposedBy(t, proposer, "INV-RJ", "600.00")
 	got := e.act(t, e.Approver, 200, run, "submit", "")
 	request := obj(got, "release_approval")["request_id"].(string)
+	e.requestRefused(t, proposer, 403, "identity.sod_conflict", request, "reject", `{"comment": "Mine"}`)
 	e.decideRequest(t, e.Approver2, 200, request, "reject", `{"comment": "Not this week"}`)
 	after, _ := e.Must(200, "GET", runPath(run), "", "")
 	wantField(t, after, "status", "rejected")
