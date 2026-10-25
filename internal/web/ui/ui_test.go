@@ -150,7 +150,201 @@ func components() map[string]templ.Component {
 	for name, c := range bankComponents() {
 		out[name] = c
 	}
+	for name, c := range paymentComponents() {
+		out[name] = c
+	}
 	return out
+}
+
+// paymentComponents are the payment run screens' components (T73f), with
+// the variants their branches need.
+func paymentComponents() map[string]templ.Component {
+	r := refusal()
+	return map[string]templ.Component{
+		"Runs":                Runs(signedIn(), runList(true)),
+		"runs plain":          runsContent(runList(false)),
+		"runs invalid":        runsContent(RunList{Invalid: true}),
+		"runs refused":        runsContent(RunList{Refusal: &r}),
+		"runs empty":          runsContent(RunList{}),
+		"RunFilterForm":       RunFilterForm(RunFilters{Status: "proposed", Number: "PR1", Companies: []Option{{Value: "c1", Text: "Acme", Selected: true}}}),
+		"RunCard":             RunCard(runRow(true)),
+		"run card plain":      RunCard(runRow(false)),
+		"RunStatusTag":        RunStatusTag(Label{Key: i18n.RunStatusReleased}),
+		"run status raw":      RunStatusTag(Label{Raw: "on_hold"}),
+		"ProposeFormView":     ProposeFormView(proposeForm(true)),
+		"propose plain":       ProposeFormView(proposeForm(false)),
+		"Run":                 Run(signedIn(), runPage(true)),
+		"run plain":           runContent(runPage(false)),
+		"run building":        runContent(RunPage{Number: "PR1", Building: true, Progress: "/payments/1/progress"}),
+		"run refused lists":   runContent(RunPage{Number: "PR1", PaymentsError: &r, ExclusionsError: &r, FilesShown: true, FilesError: &r}),
+		"run empty lists":     runContent(RunPage{Number: "PR1", FilesShown: true}),
+		"runLists":            runLists(runPage(true)),
+		"RunActions":          RunActions(RunPage{Why: i18n.RunOwn}),
+		"RunFormView":         RunFormView(RunForm{Verb: RunReject, ID: "run-reject", Action: "/x", Text: "t", TextError: i18n.ActionReasonNeeded}),
+		"run form transmit":   RunFormView(RunForm{Verb: RunTransmit, ID: "file-1", Action: "/x", File: "f1"}),
+		"ApprovalBlock":       ApprovalBlock(approvalBlock(true)),
+		"approval plain":      ApprovalBlock(approvalBlock(false)),
+		"ApprovalStatusTag":   ApprovalStatusTag(Label{Key: i18n.ReleaseApprovalApproved}),
+		"PaymentsTable":       PaymentsTable([]PaymentView{paymentView(true), paymentView(false)}),
+		"PaymentRow":          PaymentRow(paymentView(true)),
+		"optionalAmount":      optionalAmount(nil),
+		"ExclusionsTable":     ExclusionsTable([]ExclusionView{exclusionView(true), exclusionView(false)}),
+		"ExclusionRow":        ExclusionRow(exclusionView(false)),
+		"FilesSection":        FilesSection(RunPage{Files: []BankFileView{fileView(true), fileView(false)}}),
+		"FileItem":            FileItem(fileView(true)),
+		"FileStatusTag":       FileStatusTag(Label{Key: i18n.FileStatusFailed}),
+		"ProgressLink":        ProgressLink("/payments/1/progress"),
+		"ProgressSection":     ProgressSection(progressView(true)),
+		"progress plain":      ProgressSection(progressView(false)),
+		"progressBody":        progressBody(progressView(false)),
+		"ProgressStatus":      ProgressStatus(progressView(true)),
+		"CancelFormView":      CancelFormView(CancelForm{Action: "/x", CSRF: "c", Key: "k", Operation: "o1"}),
+		"ProgressPage":        ProgressPage(signedIn(), progressView(true)),
+		"progressPageContent": progressPageContent(progressView(false)),
+		"OperationStatusTag":  OperationStatusTag(Label{Key: i18n.OperationRunning}),
+	}
+}
+
+// runRow is a run of the list: of a named company and house bank, or a
+// plain one whose suppliers' payment methods choose the bank.
+func runRow(full bool) RunRow {
+	r := RunRow{Path: "/payments/1", Number: "PR100001", Status: Label{Key: i18n.RunStatusProposed}, RunDate: day, DueBy: day,
+		Total: Money{Amount: "119.00", Currency: "EUR"}, ProposedBy: Name{Text: "Avery"}}
+	if full {
+		r.Company, r.Bank = "Acme GmbH", "MAIN"
+	}
+	return r
+}
+
+// runList is the list: everything, or a page of one run.
+func runList(full bool) RunList {
+	if !full {
+		return RunList{Rows: []RunRow{runRow(false)}}
+	}
+	r := refusal()
+	return RunList{Tabs: []StatusTab{{Label: i18n.InvoicesStatusAll, Path: "/payments", Current: true}},
+		Filters: RunFilters{Companies: []Option{{Value: "c1", Text: "Acme"}}}, Rows: []RunRow{runRow(true), runRow(false)}, More: "/payments?page=t",
+		Propose: new(proposeForm(true)), ProposeRefusal: &r}
+}
+
+// proposeForm is the propose form, with every error and the banks when
+// failed, plain otherwise.
+func proposeForm(failed bool) ProposeForm {
+	f := ProposeForm{CSRF: "c", Key: "k", Companies: []Option{{Value: "c1", Text: "Acme", Selected: true}}, RunDate: "2026-04-15", DueBy: "2026-04-15"}
+	if failed {
+		f.Banks = []Option{{Value: "b1", Text: "MAIN", Selected: true}}
+		f.Currency, f.CompanyError, f.CurrencyError, f.RunDateError, f.DueByError = "euro", i18n.ProposeCompanyNeeded, i18n.ProposeCurrencyInvalid,
+			i18n.ActionDateInvalid, i18n.ActionDateInvalid
+	}
+	return f
+}
+
+// runPage is a run: with everything, or plain.
+func runPage(full bool) RunPage {
+	h := RunHeader{Status: Label{Key: i18n.RunStatusProposed}, RunDate: day, DueBy: day, Total: Money{Amount: "119.00", Currency: "EUR"}, ProposedBy: Name{Text: "Avery"}}
+	if !full {
+		return RunPage{Number: "PR1", Header: h, Payments: []PaymentView{paymentView(false)}, Exclusions: []ExclusionView{exclusionView(false)}}
+	}
+	r := refusal()
+	h.DecidedBy, h.DecidedAt = &Name{Text: "Blake"}, &day
+	return RunPage{Number: "PR1", Header: h, Approval: new(approvalBlock(true)), Progress: "/payments/1/progress", Payments: []PaymentView{paymentView(true)},
+		PaymentsMore: "/payments/1?payments_page=p", Exclusions: []ExclusionView{exclusionView(true)}, ExclusionsMore: "/payments/1?exclusions_page=e",
+		FilesShown: true, Files: []BankFileView{fileView(true)}, Actions: []RunForm{{Verb: RunRelease, ID: "run-release", Action: "/x"}},
+		Why: i18n.RunApprovalWaits, Done: i18n.RunDoneSubmitted, Refusal: &r}
+}
+
+// approvalBlock is a release's approval: approved, or pending.
+func approvalBlock(approved bool) ReleaseApproval {
+	a := ReleaseApproval{Status: Label{Key: i18n.ReleaseApprovalPending}, Requested: Money{Amount: "119.00", Currency: "EUR"}, Request: "/approvals/1",
+		Pending: true}
+	if approved {
+		a.Status, a.Pending, a.ApprovedBy, a.ApprovedAt = Label{Key: i18n.ReleaseApprovalApproved}, false, &Name{Text: "Casey"}, &day
+	}
+	return a
+}
+
+// paymentView is a payment: a down payment with everything, or plain.
+func paymentView(full bool) PaymentView {
+	p := PaymentView{Supplier: "s1", Amount: Money{Amount: "119.00", Currency: "EUR"}, EndToEnd: "E2E", Items: 1}
+	if full {
+		p.Discount, p.Withholding, p.Method, p.DownPayment, p.Posted = &Money{Amount: "1.00", Currency: "EUR"}, &Money{Amount: "2.00", Currency: "EUR"}, "T", true, true
+	}
+	return p
+}
+
+// exclusionView is an exclusion: of a down payment request, or of a
+// supplier's items.
+func exclusionView(request bool) ExclusionView {
+	ex := ExclusionView{Supplier: "s1", Reason: Label{Key: i18n.ExclusionNoBankAccount}, Amount: Money{Amount: "59.50", Currency: "EUR"}}
+	if request {
+		ex.DownPayment, ex.Reason = "d1", Label{Raw: "sanctions_hit"}
+	}
+	return ex
+}
+
+// fileView is a bank file: one to send with its method, or plain.
+func fileView(open bool) BankFileView {
+	f := BankFileView{Format: "pain.001.001.03", Status: Label{Key: i18n.FileStatusTransmitted}, Created: day}
+	if open {
+		f.Method, f.Status, f.Transmit = "T", Label{Key: i18n.FileStatusCreated}, &RunForm{Verb: RunTransmit, ID: "file-1", Action: "/x", File: "f1"}
+	}
+	return f
+}
+
+// progressView is an operation: running with everything, or stopped with
+// its total unknown.
+func progressView(full bool) ProgressView {
+	v := ProgressView{Run: "/payments/1", Self: "/payments/1/progress", Kind: Label{Raw: "payments.other"}, Status: Label{Key: i18n.OperationFailed}, Done: 4}
+	if !full {
+		v.Resume = &RunForm{Verb: RunRelease, ID: "resume", Action: "/x"}
+		return v
+	}
+	r, total := refusal(), int64(10)
+	v.Kind, v.Status, v.Total, v.Running = Label{Key: i18n.OperationRelease}, Label{Key: i18n.OperationRunning}, &total, true
+	v.Error, v.Refusal, v.Cancel = &r, &r, &CancelForm{Action: "/x", Operation: "o1"}
+	return v
+}
+
+// TestPaymentHelpers: each status has its colour, a rejection needs its
+// reason, and the list's path drops empty filters.
+func TestPaymentHelpers(t *testing.T) {
+	for name, tc := range map[string]struct {
+		kind func(Label) string
+		l    Label
+		want string
+	}{
+		"run released":       {runStatusKind, Label{Key: i18n.RunStatusReleased}, "success"},
+		"run releasing":      {runStatusKind, Label{Key: i18n.RunStatusReleasing}, "warning"},
+		"run failed":         {runStatusKind, Label{Key: i18n.RunStatusFailed}, "inactive"},
+		"run raw":            {runStatusKind, Label{Raw: "x"}, ""},
+		"file sent":          {fileStatusKind, Label{Key: i18n.FileStatusAcknowledged}, "success"},
+		"file queued":        {fileStatusKind, Label{Key: i18n.FileStatusToSend}, "warning"},
+		"file refused":       {fileStatusKind, Label{Key: i18n.FileStatusRejected}, "inactive"},
+		"file raw":           {fileStatusKind, Label{Raw: "x"}, ""},
+		"approval approved":  {approvalKind, Label{Key: i18n.ReleaseApprovalApproved}, "success"},
+		"approval pending":   {approvalKind, Label{Key: i18n.ReleaseApprovalPending}, "warning"},
+		"approval withdrawn": {approvalKind, Label{Key: i18n.ReleaseApprovalWithdrawn}, "inactive"},
+		"approval raw":       {approvalKind, Label{Raw: "x"}, ""},
+		"operation done":     {operationKind, Label{Key: i18n.OperationSucceeded}, "success"},
+		"operation queued":   {operationKind, Label{Key: i18n.OperationQueued}, "warning"},
+		"operation cancel":   {operationKind, Label{Key: i18n.OperationCancelled}, "inactive"},
+		"operation raw":      {operationKind, Label{Raw: "x"}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.kind(tc.l); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+	if !RunRequires(RunReject) || RunRequires(RunRelease) {
+		t.Error("RunRequires: a rejection needs its reason, a release none")
+	}
+	if got := RunsPath(url.Values{"status": {""}, "legal_entity_id": {"c1"}}); got != "/payments?legal_entity_id=c1" {
+		t.Errorf("RunsPath: got %q", got)
+	}
+	if got := RunsPath(url.Values{"status": {""}}); got != PaymentsPath {
+		t.Errorf("RunsPath, nothing chosen: got %q", got)
+	}
 }
 
 // bankComponents are the bank statement screens' components (T73g), with
@@ -697,7 +891,8 @@ func TestSignedInNav(t *testing.T) {
 		"approvals": {NavJobs{Approvals: true}, "/ /approvals /health"},
 		"invoices":  {NavJobs{Invoices: true}, "/ /invoices /health"},
 		"bank":      {NavJobs{Bank: true}, "/ /bank /health"},
-		"all":       {NavJobs{Approvals: true, Invoices: true, Bank: true}, "/ /approvals /invoices /bank /health"},
+		"payments":  {NavJobs{Payments: true}, "/ /payments /health"},
+		"all":       {NavJobs{Approvals: true, Invoices: true, Bank: true, Payments: true}, "/ /approvals /invoices /bank /payments /health"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := paths(SignedInNav(tc.jobs)); got != tc.want {

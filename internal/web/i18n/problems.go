@@ -70,3 +70,32 @@ var BankProblems = map[string]Key{
 	"payments.statement_line_not_matched":  ProblemLineNotMatched,
 	"payments.statement_line_no_proposal":  ProblemNoProposal,
 }
+
+// PaymentProblems are the codes the payment run screens (T73f) explain
+// in their own words, looked up before Problems: the payments codes of a
+// run's proposal, release, rejection, second approval and bank files, a
+// cancelled operation's, and the general ones in a run's words.
+var PaymentProblems = map[string]Key{
+	"request.version_mismatch":               ProblemRunVersion,
+	"request.validation_failed":              ProblemRunValidation,
+	"identity.sod_conflict":                  ProblemRunSoD,
+	"payments.currency_mismatch":             ProblemCurrencyMismatch,
+	"payments.currency_required":             ProblemCurrencyRequired,
+	"payments.house_bank_inactive":           ProblemHouseBankInactive,
+	"payments.legal_entity_not_active":       ProblemCompanyInactive,
+	"ledger.no_fiscal_period":                ProblemNoFiscalPeriod,
+	"payments.invalid_status":                ProblemRunStatus,
+	"payments.nothing_to_pay":                ProblemNothingToPay,
+	"payments.proposal_outdated":             ProblemProposalOutdated,
+	"payments.discount_lapsed":               ProblemDiscountLapsed,
+	"payments.release_approval_required":     ProblemApprovalRequired,
+	"payments.release_approval_pending":      ProblemApprovalPending,
+	"payments.release_approval_outdated":     ProblemApprovalOutdated,
+	"payments.release_already_approved":      ProblemAlreadyApprovedRun,
+	"payments.release_approval_not_required": ProblemApprovalNotRequired,
+	"payments.release_in_progress":           ProblemReleaseInProgress,
+	"payments.release_role_missing":          ProblemReleaseRole,
+	"ledger.no_exchange_rate":                ProblemNoExchangeRate,
+	"ledger.item_reserved":                   ProblemItemReserved,
+	"platform.operation_not_cancellable":     ProblemNotCancellable,
+}

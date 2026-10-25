@@ -894,3 +894,19 @@ p,
     transition: none !important;
   }
 }
+
+/* A payment run's operation (T73f): its progress, as far as its total is known. */
+.progress {
+  display: block;
+  inline-size: 100%;
+  max-inline-size: 30rem;
+  block-size: 1rem;
+  margin-block: 0.5rem 1rem;
+}
+
+/* A payment run's bank file. */
+.file {
+  margin-block-end: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+}

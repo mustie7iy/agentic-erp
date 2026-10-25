@@ -27,6 +27,12 @@ const (
 	permImportStatements      = "payments.statement.import"
 	permMatchLines            = "payments.statement.match"
 	permPostLines             = "payments.statement.post"
+	permReadRuns              = "payments.run.read"
+	permProposeRuns           = "payments.run.propose"
+	permReleaseRuns           = "payments.run.release"
+	permTransmitFiles         = "payments.file.transmit"
+	permReadOperations        = "platform.operation.read"
+	permCancelOperations      = "platform.operation.cancel"
 )
 
 // objectApprovers are the decisions' x-object-permissions: the permission
@@ -38,6 +44,7 @@ var objectApprovers = map[string]string{
 	"period_unlock": "ledger.period.unlock.approve", "manual_entry": "ledger.entry.approve",
 	"purchase_order": "procurement.order.approve", "order_change": "procurement.order.approve",
 	"bank_clearing": "payments.statement.clearing.approve", "center_change": "ledger.cost_center.approve",
+	"payment_run_release": permReleaseRuns,
 }
 
 // Operation is one API operation a route calls: its operationId, the
@@ -64,7 +71,26 @@ var (
 	opStatementList = []Operation{opMe, opHouseBanks, opCompanies, {ID: "listBankStatements", HiddenBy: permReadStatements}}
 	opStatement     = []Operation{opMe, {ID: "getBankStatement", HiddenBy: permReadStatements},
 		{ID: "listBankStatementMatches", HiddenBy: permReadStatements}, {ID: "getBankStatementRules", HiddenBy: permReadStatements}, opHouseBanks, opNames}
+	// opRuns are the reads of the payment runs' list (payments.go), opRun
+	// those of a run's page (payment_run.go) and opProgress those of its
+	// operation's progress (payment_progress.go).
+	opRuns   = []Operation{opMe, opCompanies, opHouseBanks, {ID: "listPaymentRuns", HiddenBy: permReadRuns}, opNames}
+	opGetRun = Operation{ID: "getPaymentRun", HiddenBy: permReadRuns}
+	opRun    = []Operation{opMe, opGetRun, {ID: "listPayments", HiddenBy: permReadRuns}, {ID: "listPaymentExclusions", HiddenBy: permReadRuns},
+		{ID: "listBankFiles", HiddenBy: permReadRuns}, opNames}
+	opProgress = []Operation{opMe, opGetRun, {ID: "getOperation", HiddenBy: permReadOperations}}
 )
+
+// runOps are the operations of the decisions on a payment run, by verb,
+// each hidden by its x-permission: its release (and the resumption of a
+// release that stopped), its rejection and the request for a second
+// approval are people's alone, a bank file's transmission is not.
+var runOps = map[string]Operation{
+	ui.RunRelease:  {ID: "releasePaymentRun", HiddenBy: permReleaseRuns, HumanOnly: true},
+	ui.RunReject:   {ID: "rejectPaymentRun", HiddenBy: permReleaseRuns, HumanOnly: true},
+	ui.RunSubmit:   {ID: "submitPaymentRun", HiddenBy: permReleaseRuns, HumanOnly: true},
+	ui.RunTransmit: {ID: "transmitBankFile", HiddenBy: permTransmitFiles},
+}
 
 // lineOps are the operations of the decisions on a statement's lines, by
 // verb, each hidden by its x-permission; all are people's alone.
@@ -107,12 +133,20 @@ var Screens = func() map[string][]Operation {
 		"POST /bank/statements":                     append([]Operation{{ID: "importBankStatements", HiddenBy: permImportStatements}}, opStatementList...),
 		"GET /bank/statements/{id}":                 opStatement,
 		"GET /bank/house-banks/{id}/reconciliation": {opMe, opHouseBanks, {ID: "getBankReconciliation", HiddenBy: permReadStatements}},
+		"GET /payments":                             opRuns,
+		"POST /payments/propose":                    append([]Operation{{ID: "proposePaymentRun", HiddenBy: permProposeRuns}}, opRuns...),
+		"GET /payments/{id}":                        opRun,
+		"GET /payments/{id}/progress":               opProgress,
+		"POST /payments/{id}/cancel":                append([]Operation{{ID: "cancelOperation", HiddenBy: permCancelOperations}}, opProgress...),
 	}
 	for verb, op := range actionOps {
 		screens["POST /invoices/{id}/"+verb] = append([]Operation{op}, opInvoice...)
 	}
 	for verb, op := range lineOps {
 		screens["POST /bank/statements/{id}/"+verb] = append([]Operation{op}, opStatement...)
+	}
+	for verb, op := range runOps {
+		screens["POST /payments/{id}/"+verb] = append([]Operation{op}, opRun...)
 	}
 	return screens
 }()

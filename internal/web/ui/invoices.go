@@ -87,17 +87,7 @@ type InvoiceList struct {
 }
 
 // QueuePath is the queue's path with the query, "" values left out.
-func QueuePath(q url.Values) string {
-	for k, v := range q {
-		if len(v) == 0 || v[0] == "" {
-			delete(q, k)
-		}
-	}
-	if len(q) == 0 {
-		return InvoicesPath
-	}
-	return InvoicesPath + "?" + q.Encode()
-}
+func QueuePath(q url.Values) string { return listPath(InvoicesPath, q) }
 
 // InvoiceHeader is an invoice's summary.
 type InvoiceHeader struct {

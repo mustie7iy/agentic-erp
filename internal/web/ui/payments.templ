@@ -1,0 +1,598 @@
+package ui
+
+import "github.com/mustie7iy/agentic-erp/internal/web/i18n"
+
+// Runs is the payment runs' list (ADR-0052 §2, T73f): the runs by status,
+// filtered by company and number, each linked to its page, and the
+// proposal of a run for a person who may propose.
+templ Runs(s Shell, l RunList) {
+	@Layout(s, runsContent(l))
+}
+
+templ runsContent(l RunList) {
+	<h1>
+		@T(i18n.PaymentsTitle)
+	</h1>
+	@Paragraph(i18n.PaymentsLead)
+	if l.ProposeRefusal != nil {
+		@RefusalNotice(*l.ProposeRefusal)
+	}
+	if l.Propose != nil {
+		@ProposeFormView(*l.Propose)
+	}
+	<h2>
+		@T(i18n.PaymentsListLabel)
+	</h2>
+	@StatusTabs(l.Tabs)
+	@RunFilterForm(l.Filters)
+	if l.Invalid {
+		@Notice("runs-invalid", i18n.PaymentsRefusedTitle, Paragraph(i18n.FilterInvalid))
+	} else if l.Refusal != nil {
+		@RefusalNotice(*l.Refusal)
+	} else if len(l.Rows) == 0 {
+		@Paragraph(i18n.PaymentsEmpty)
+	} else {
+		<ul class="cards" { label(ctx, i18n.PaymentsListLabel)... }>
+			for _, r := range l.Rows {
+				@RunCard(r)
+			}
+		</ul>
+		if l.More != "" {
+			@ButtonLink(l.More, i18n.PaymentsMore)
+		}
+	}
+}
+
+// RunFilterForm is the list's filters, a plain GET form keeping the
+// status, so a filtered list is an address to keep or share.
+templ RunFilterForm(f RunFilters) {
+	<form class="filters" { get(PaymentsPath)... }>
+		<h2 class="filters__title">
+			@T(i18n.PaymentsFilters)
+		</h2>
+		<input { hidden("status", f.Status)... }/>
+		<div class="filters__fields">
+			if f.Companies != nil {
+				<div class="field">
+					<label class="field__label" for="filter-company">
+						@T(i18n.FilterCompany)
+					</label>
+					<select class="select" id="filter-company" name="legal_entity_id">
+						<option value="">
+							@T(i18n.FilterCompanyAll)
+						</option>
+						for _, o := range f.Companies {
+							<option translate="no" { option(o)... }>
+								@Value(o.Text)
+							</option>
+						}
+					</select>
+				</div>
+			}
+			@InputField("filter-number", "document_number", "text", i18n.FilterNumber, i18n.PaymentsNumberHint, f.Number, "")
+		</div>
+		<div class="filters__buttons">
+			<button class="button" type="submit">
+				@T(i18n.FilterApply)
+			</button>
+			<a class="button button--secondary" draggable="false" { link(RunsPath(statusOnly(f.Status)), "")... }>
+				@T(i18n.FilterClear)
+			</a>
+		</div>
+	</form>
+}
+
+// RunCard is one run of the list.
+templ RunCard(r RunRow) {
+	<li class="card" hx-disable>
+		<h3 class="card__title">
+			<a translate="no" { link(r.Path, "")... }>
+				@Value(r.Number)
+			</a>
+		</h3>
+		<dl class="facts">
+			@Fact(i18n.RunStatus, RunStatusTag(r.Status))
+			if r.Company != "" {
+				@Fact(i18n.InvoiceCompany, Data(r.Company))
+			}
+			if r.Bank != "" {
+				@Fact(i18n.RunBank, Code(r.Bank))
+			} else {
+				@Fact(i18n.RunBank, T(i18n.RunBankByMethod))
+			}
+			@Fact(i18n.RunDate, Day(r.RunDate))
+			@Fact(i18n.RunDueBy, Day(r.DueBy))
+			@Fact(i18n.RunTotal, Amount(r.Total))
+			@Fact(i18n.RunProposedBy, Principal(r.ProposedBy))
+		</dl>
+	</li>
+}
+
+// RunStatusTag is a run's status.
+templ RunStatusTag(l Label) {
+	<strong { tagClass(runStatusKind(l))... }>
+		@labelText(l)
+	</strong>
+}
+
+// ProposeFormView proposes a run: the company, a house bank or none, the
+// run's currency, the payment date and the due date, posted with the
+// CSRF token and a fresh idempotency key.
+templ ProposeFormView(f ProposeForm) {
+	<form class="filters" { post(ProposePath)... }>
+		<h2 class="filters__title">
+			@T(i18n.ProposeTitle)
+		</h2>
+		@Paragraph(i18n.ProposeLead)
+		<input { csrfInput(f.CSRF)... }/>
+		<input { hidden(FieldIdempotency, f.Key)... }/>
+		<div class="filters__fields">
+			<div { fieldClass(f.CompanyError)... }>
+				<label class="field__label" for="propose-company">
+					@T(i18n.ProposeCompany)
+				</label>
+				if f.CompanyError != "" {
+					<p class="field__error" id="propose-company-error">
+						@T(f.CompanyError)
+					</p>
+				}
+				<select class="select" { uploadSelect("propose-company", FieldCompany, f.CompanyError)... }>
+					for _, o := range f.Companies {
+						<option translate="no" { option(o)... }>
+							@Value(o.Text)
+						</option>
+					}
+				</select>
+			</div>
+			if f.Banks != nil {
+				<div class="field">
+					<label class="field__label" for="propose-bank">
+						@T(i18n.ProposeBank)
+					</label>
+					<select class="select" id="propose-bank" name="house_bank_id">
+						<option value="">
+							@T(i18n.ProposeBankAny)
+						</option>
+						for _, o := range f.Banks {
+							<option translate="no" { option(o)... }>
+								@Value(o.Text)
+							</option>
+						}
+					</select>
+				</div>
+			}
+			@InputField("propose-currency", FieldCurrency, "text", i18n.ProposeCurrency, i18n.ProposeCurrencyHint, f.Currency, f.CurrencyError)
+			@InputField("propose-rundate", FieldRunDate, "date", i18n.ProposeRunDate, i18n.FilterDateHint, f.RunDate, f.RunDateError)
+			@InputField("propose-dueby", FieldDueBy, "date", i18n.ProposeDueBy, i18n.FilterDateHint, f.DueBy, f.DueByError)
+		</div>
+		<div class="filters__buttons">
+			<button class="button" type="submit">
+				@T(i18n.ProposeSubmit)
+			</button>
+		</div>
+	</form>
+}
+
+// Run is one payment run (ADR-0052 §2, T73f): its summary, its release's
+// second approval, its operation's progress, its payments, what it left
+// out and its bank files, and the person's decisions on it.
+templ Run(s Shell, rp RunPage) {
+	@Layout(s, runContent(rp))
+}
+
+templ runContent(rp RunPage) {
+	<p>
+		<a { link(PaymentsPath, "")... }>
+			@T(i18n.RunBack)
+		</a>
+	</p>
+	<p class="caption">
+		@T(i18n.RunTitle)
+	</p>
+	<h1 translate="no">
+		@Value(rp.Number)
+	</h1>
+	if rp.Done != "" {
+		@Notice("run-done", i18n.InvoiceDoneTitle, Paragraph(rp.Done))
+	}
+	if rp.Refusal != nil {
+		@RefusalNotice(*rp.Refusal)
+	}
+	<div hx-disable>
+		@SummaryList(runRows(rp.Header))
+	</div>
+	if rp.Progress != "" {
+		@ProgressLink(rp.Progress)
+	}
+	if rp.Approval != nil {
+		@ApprovalBlock(*rp.Approval)
+	}
+	if rp.Why != "" || len(rp.Actions) > 0 {
+		<h2>
+			@T(i18n.RunActionsTitle)
+		</h2>
+		@RunActions(rp)
+	}
+	<h2>
+		@T(i18n.RunPaymentsTitle)
+	</h2>
+	if rp.Building {
+		@Paragraph(i18n.RunPaymentsBuilding)
+	} else {
+		@runLists(rp)
+	}
+	if rp.FilesShown {
+		<h2>
+			@T(i18n.RunFilesTitle)
+		</h2>
+		@FilesSection(rp)
+	}
+}
+
+// runLists are a built run's payments and what it left out.
+templ runLists(rp RunPage) {
+	if rp.PaymentsError != nil {
+		@RefusalNotice(*rp.PaymentsError)
+	} else if len(rp.Payments) == 0 {
+		@Paragraph(i18n.RunPaymentsNone)
+	} else {
+		@PaymentsTable(rp.Payments)
+		if rp.PaymentsMore != "" {
+			@ButtonLink(rp.PaymentsMore, i18n.RunPaymentsMore)
+		}
+	}
+	<h2>
+		@T(i18n.RunExclusionsTitle)
+	</h2>
+	if rp.ExclusionsError != nil {
+		@RefusalNotice(*rp.ExclusionsError)
+	} else if len(rp.Exclusions) == 0 {
+		@Paragraph(i18n.RunExclusionsNone)
+	} else {
+		@ExclusionsTable(rp.Exclusions)
+		if rp.ExclusionsMore != "" {
+			@ButtonLink(rp.ExclusionsMore, i18n.RunExclusionsMore)
+		}
+	}
+}
+
+// RunActions are the person's decisions on the run in its status, or
+// why there are none.
+templ RunActions(rp RunPage) {
+	if rp.Why != "" {
+		@Paragraph(rp.Why)
+	}
+	for _, f := range rp.Actions {
+		@RunFormView(f)
+	}
+}
+
+// RunFormView is one decision on a run: a real form posting the CSRF
+// token, the run's (or the bank file's) ETag as If-Match and the form's
+// own idempotency key, with its reason or comment where it takes one.
+templ RunFormView(f RunForm) {
+	<form class="decide" { post(f.Action)... }>
+		@decideHidden(f.CSRF, f.ETag, f.Key)
+		if f.File != "" {
+			<input { hidden(FieldBankFile, f.File)... }/>
+		}
+		<p class="hint">
+			@T(runSpecs[f.Verb].Hint)
+		</p>
+		if runSpecs[f.Verb].Text != "" {
+			@CommentField(f.ID+"-text", runSpecs[f.Verb].Text, runSpecs[f.Verb].TextHint, f.Text, f.TextError)
+		}
+		<button { runButton(f)... }>
+			@T(runSpecs[f.Verb].Button)
+		</button>
+	</form>
+}
+
+// ApprovalBlock is the run's request for a second person's approval of
+// its release: its state, the total it was asked for, who approved it
+// and when, and the request in the inbox, where it is decided.
+templ ApprovalBlock(a ReleaseApproval) {
+	<section class="match" { labelledBy("approval-title")... }>
+		<h2 class="match__title" { idAttr("approval-title")... }>
+			@T(i18n.RunApprovalTitle)
+		</h2>
+		@Paragraph(i18n.RunApprovalLead)
+		<dl class="facts" hx-disable>
+			for _, r := range approvalFacts(a) {
+				@Fact(r.Key, r.Value)
+			}
+		</dl>
+		if a.Pending {
+			@Paragraph(i18n.RunApprovalWaits)
+		}
+		@ButtonLink(a.Request, i18n.MatchApprovalOpen)
+	</section>
+}
+
+// ApprovalStatusTag is the state of a release's approval.
+templ ApprovalStatusTag(l Label) {
+	<strong { tagClass(approvalKind(l))... }>
+		@labelText(l)
+	</strong>
+}
+
+// PaymentsTable is the run's payments, in a region that scrolls sideways
+// on its own on a phone.
+templ PaymentsTable(payments []PaymentView) {
+	<div class="table-wrap" role="region" tabindex="0" { labelledBy("payments-caption")... }>
+		<table class="table" hx-disable>
+			<caption class="visually-hidden" { idAttr("payments-caption")... }>
+				@T(i18n.RunPaymentsTitle)
+			</caption>
+			<thead>
+				<tr>
+					@HeaderCell(i18n.PaySupplier)
+					@HeaderCell(i18n.PayAmount)
+					@HeaderCell(i18n.PayDiscount)
+					@HeaderCell(i18n.PayWithholding)
+					@HeaderCell(i18n.PayMethod)
+					@HeaderCell(i18n.PayItems)
+					@HeaderCell(i18n.PayEndToEnd)
+					@HeaderCell(i18n.PayPosted)
+				</tr>
+			</thead>
+			<tbody>
+				for _, pv := range payments {
+					@PaymentRow(pv)
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+// PaymentRow is one payment.
+templ PaymentRow(pv PaymentView) {
+	<tr>
+		<td>
+			@Code(pv.Supplier)
+			if pv.DownPayment {
+				@space()
+				@Tag(i18n.PayDownPayment, "")
+			}
+		</td>
+		<td>
+			@Amount(pv.Amount)
+		</td>
+		<td>
+			@optionalAmount(pv.Discount)
+		</td>
+		<td>
+			@optionalAmount(pv.Withholding)
+		</td>
+		<td>
+			if pv.Method != "" {
+				@Code(pv.Method)
+			} else {
+				@T(i18n.LineNone)
+			}
+		</td>
+		<td>
+			@Number(pv.Items)
+		</td>
+		<td>
+			@Code(pv.EndToEnd)
+		</td>
+		<td>
+			if pv.Posted {
+				@T(i18n.PayPostedYes)
+			} else {
+				@T(i18n.PayPostedNo)
+			}
+		</td>
+	</tr>
+}
+
+// optionalAmount is an amount, or none.
+templ optionalAmount(m *Money) {
+	if m != nil {
+		@Amount(*m)
+	} else {
+		@T(i18n.LineNone)
+	}
+}
+
+// ExclusionsTable is what the run left out and why.
+templ ExclusionsTable(exclusions []ExclusionView) {
+	<div class="table-wrap" role="region" tabindex="0" { labelledBy("exclusions-caption")... }>
+		<table class="table" hx-disable>
+			<caption class="visually-hidden" { idAttr("exclusions-caption")... }>
+				@T(i18n.RunExclusionsTitle)
+			</caption>
+			<thead>
+				<tr>
+					@HeaderCell(i18n.PaySupplier)
+					@HeaderCell(i18n.ExclusionReason)
+					@HeaderCell(i18n.ExclusionAmount)
+					@HeaderCell(i18n.ExclusionRequest)
+				</tr>
+			</thead>
+			<tbody>
+				for _, ex := range exclusions {
+					@ExclusionRow(ex)
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+// ExclusionRow is one supplier, or down payment request, left out.
+templ ExclusionRow(ex ExclusionView) {
+	<tr>
+		<td>
+			@Code(ex.Supplier)
+		</td>
+		<td>
+			@labelText(ex.Reason)
+		</td>
+		<td>
+			@Amount(ex.Amount)
+		</td>
+		<td>
+			if ex.DownPayment != "" {
+				@Code(ex.DownPayment)
+			} else {
+				@T(i18n.LineNone)
+			}
+		</td>
+	</tr>
+}
+
+// FilesSection is the run's bank files, each with its transmission while
+// it may be sent, or why there are none.
+templ FilesSection(rp RunPage) {
+	if rp.FilesError != nil {
+		@RefusalNotice(*rp.FilesError)
+	} else if len(rp.Files) == 0 {
+		@Paragraph(i18n.RunFilesNone)
+	} else {
+		<ul class="list">
+			for _, f := range rp.Files {
+				@FileItem(f)
+			}
+		</ul>
+	}
+}
+
+// FileItem is one bank file.
+templ FileItem(f BankFileView) {
+	<li class="file">
+		<dl class="facts">
+			@Fact(i18n.FileStatus, FileStatusTag(f.Status))
+			@Fact(i18n.FileFormat, Code(f.Format))
+			if f.Method != "" {
+				@Fact(i18n.FileMethod, Code(f.Method))
+			}
+			@Fact(i18n.FileCreated, Date(f.Created))
+		</dl>
+		if f.Transmit != nil {
+			@RunFormView(*f.Transmit)
+		}
+	</li>
+}
+
+// FileStatusTag is a bank file's status.
+templ FileStatusTag(l Label) {
+	<strong { tagClass(fileStatusKind(l))... }>
+		@labelText(l)
+	</strong>
+}
+
+// ProgressLink is where the run's operation is shown: a link, which htmx
+// replaces with the progress section itself once the page loaded.
+templ ProgressLink(path string) {
+	<div class="order" { lazy(path)... }>
+		<p>
+			<a { link(path, "")... }>
+				@T(i18n.ProgressShow)
+			</a>
+		</p>
+	</div>
+}
+
+// ProgressSection is the run's operation in the run's page: its state
+// in a status region htmx asks again every two seconds while it runs,
+// its cancellation, and the resumption of a release that stopped.
+templ ProgressSection(v ProgressView) {
+	<section class="order" { labelledBy("progress-title")... }>
+		<h2 { idAttr("progress-title")... }>
+			@T(i18n.ProgressTitle)
+		</h2>
+		@progressBody(v)
+	</section>
+}
+
+templ progressBody(v ProgressView) {
+	if v.Refusal != nil {
+		@RefusalNotice(*v.Refusal)
+	}
+	if v.Running {
+		<div role="status" { poll(v.Self)... }>
+			@ProgressStatus(v)
+		</div>
+		<p class="hint">
+			@T(i18n.ProgressAuto)
+		</p>
+	} else {
+		<div role="status">
+			@ProgressStatus(v)
+		</div>
+	}
+	if v.Cancel != nil {
+		@CancelFormView(*v.Cancel)
+	}
+	if v.Resume != nil {
+		@Paragraph(i18n.ResumeHint)
+		@RunFormView(*v.Resume)
+	}
+}
+
+// ProgressStatus is the operation's state: what it does, how far it is,
+// and why it stopped.
+templ ProgressStatus(v ProgressView) {
+	<dl class="facts">
+		@Fact(i18n.ProgressKind, labelText(v.Kind))
+		@Fact(i18n.ProgressState, OperationStatusTag(v.Status))
+	</dl>
+	if v.Total != nil {
+		<p>
+			@T(i18n.ProgressCount, v.Done, *v.Total)
+		</p>
+		<progress class="progress" { progressBar(v)... }></progress>
+	} else {
+		@Paragraph(i18n.ProgressCountOnly, v.Done)
+	}
+	if v.Error != nil {
+		@RefusalNotice(*v.Error)
+	}
+}
+
+// CancelFormView cancels the running operation: the operation by id, the
+// CSRF token and a fresh idempotency key.
+templ CancelFormView(f CancelForm) {
+	<form class="decide" { post(f.Action)... }>
+		<input { csrfInput(f.CSRF)... }/>
+		<input { hidden(FieldIdempotency, f.Key)... }/>
+		<input { hidden(FieldOperation, f.Operation)... }/>
+		<p class="hint">
+			@T(i18n.CancelHint)
+		</p>
+		<button class="button button--warning" type="submit" id="cancel-operation">
+			@T(i18n.CancelButton)
+		</button>
+	</form>
+}
+
+// ProgressPage is a run's operation as a page of its own, for a browser
+// without htmx: refreshed by a link.
+templ ProgressPage(s Shell, v ProgressView) {
+	@Layout(s, progressPageContent(v))
+}
+
+templ progressPageContent(v ProgressView) {
+	<p>
+		<a { link(v.Run, "")... }>
+			@T(i18n.ProgressBack)
+		</a>
+	</p>
+	<h1 { idAttr("progress-title")... }>
+		@T(i18n.ProgressPageTitle)
+	</h1>
+	@progressBody(v)
+	<p>
+		<a { link(v.Self, "")... }>
+			@T(i18n.ProgressRefresh)
+		</a>
+	</p>
+}
+
+// OperationStatusTag is an operation's state.
+templ OperationStatusTag(l Label) {
+	<strong { tagClass(operationKind(l))... }>
+		@labelText(l)
+	</strong>
+}
