@@ -25743,11 +25743,96 @@ func (s *OpenItem) SetSpecialGl(val OptString) {
 	s.SpecialGl = val
 }
 
+// The open items of one aging bucket in one local currency (ADR-0052 G4): their number and their open
+// amount in local currency, signed (a supplier's credit negative).
+// Ref: #/components/schemas/OpenItemAging
+type OpenItemAging struct {
+	// `not_due`: due on the key date or later; `overdue`: from `days_from` to `days_to` days past the net
+	// due date (the last bucket without `days_to`); `no_due_date`: posted without payment terms. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Bucket string `json:"bucket"`
+	// An overdue bucket's first day past the net due date.
+	DaysFrom OptInt32 `json:"days_from"`
+	// An overdue bucket's last day past the net due date; absent on the last bucket.
+	DaysTo OptInt32 `json:"days_to"`
+	// The local currency the amounts are in.
+	Currency string `json:"currency"`
+	// How many items the bucket holds.
+	ItemCount int64 `json:"item_count"`
+	// The items' open amount in local currency, signed.
+	AmountLc Money `json:"amount_lc"`
+}
+
+// GetBucket returns the value of Bucket.
+func (s *OpenItemAging) GetBucket() string {
+	return s.Bucket
+}
+
+// GetDaysFrom returns the value of DaysFrom.
+func (s *OpenItemAging) GetDaysFrom() OptInt32 {
+	return s.DaysFrom
+}
+
+// GetDaysTo returns the value of DaysTo.
+func (s *OpenItemAging) GetDaysTo() OptInt32 {
+	return s.DaysTo
+}
+
+// GetCurrency returns the value of Currency.
+func (s *OpenItemAging) GetCurrency() string {
+	return s.Currency
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *OpenItemAging) GetItemCount() int64 {
+	return s.ItemCount
+}
+
+// GetAmountLc returns the value of AmountLc.
+func (s *OpenItemAging) GetAmountLc() Money {
+	return s.AmountLc
+}
+
+// SetBucket sets the value of Bucket.
+func (s *OpenItemAging) SetBucket(val string) {
+	s.Bucket = val
+}
+
+// SetDaysFrom sets the value of DaysFrom.
+func (s *OpenItemAging) SetDaysFrom(val OptInt32) {
+	s.DaysFrom = val
+}
+
+// SetDaysTo sets the value of DaysTo.
+func (s *OpenItemAging) SetDaysTo(val OptInt32) {
+	s.DaysTo = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *OpenItemAging) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *OpenItemAging) SetItemCount(val int64) {
+	s.ItemCount = val
+}
+
+// SetAmountLc sets the value of AmountLc.
+func (s *OpenItemAging) SetAmountLc(val Money) {
+	s.AmountLc = val
+}
+
 // One page of open items.
 // Ref: #/components/schemas/OpenItemPage
 type OpenItemPage struct {
 	// The open items on this page.
 	Items []OpenItem `json:"items"`
+	// On the first page with `aging_key_date`: the items the filters select, every page's, per local
+	// currency and bucket, buckets in the order not due, each overdue bucket by its days, without a due
+	// date; a bucket without items is left out.
+	Aging []OpenItemAging `json:"aging"`
 	// Opaque cursor for the next page; absent on the last page.
 	NextPageToken OptString `json:"next_page_token"`
 	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
@@ -25758,6 +25843,11 @@ type OpenItemPage struct {
 // GetItems returns the value of Items.
 func (s *OpenItemPage) GetItems() []OpenItem {
 	return s.Items
+}
+
+// GetAging returns the value of Aging.
+func (s *OpenItemPage) GetAging() []OpenItemAging {
+	return s.Aging
 }
 
 // GetNextPageToken returns the value of NextPageToken.
@@ -25773,6 +25863,11 @@ func (s *OpenItemPage) GetTotalEstimate() OptInt64 {
 // SetItems sets the value of Items.
 func (s *OpenItemPage) SetItems(val []OpenItem) {
 	s.Items = val
+}
+
+// SetAging sets the value of Aging.
+func (s *OpenItemPage) SetAging(val []OpenItemAging) {
+	s.Aging = val
 }
 
 // SetNextPageToken sets the value of NextPageToken.

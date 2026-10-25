@@ -1352,7 +1352,12 @@ type Handler interface {
 	ListNumberRanges(ctx context.Context, params ListNumberRangesParams) (ListNumberRangesRes, error)
 	// ListOpenItems implements listOpenItems operation.
 	//
-	// Uncleared lines on supplier and customer reconciliation accounts. Sortable by: `posting_date`.
+	// Uncleared lines on supplier and customer reconciliation accounts. An item posted with payment terms
+	// (T36b) is due on their `net_due_date`, and earns a discount until each tier's `until`; an item
+	// without terms (posted before T36, manually, migrated, a customer's) has no due date the ledger
+	// keeps. With `aging_key_date` the first page also carries `aging`: every item the filters select, not
+	// only the page's, summed per local currency by how many days past its net due date it is on the key
+	// date (ADR-0052 G4). Sortable by: `posting_date`.
 	//
 	// GET /v1/open-items
 	ListOpenItems(ctx context.Context, params ListOpenItemsParams) (ListOpenItemsRes, error)

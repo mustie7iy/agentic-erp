@@ -32833,6 +32833,16 @@ type ListOpenItemsParams struct {
 	AccountID OptUUID `json:",omitempty,omitzero"`
 	// Only documents with a posting date on or before this date.
 	PostingDateTo OptDate `json:",omitempty,omitzero"`
+	// Only items due on or before this date by the payment terms they were posted with
+	// (`payment_terms.net_due_date`); an item without terms has no due date and is left out.
+	DueDateTo OptDate `json:",omitempty,omitzero"`
+	// The date the items are aged on: the first page carries `aging`, the selected items summed in the
+	// buckets of `aging_days`.
+	AgingKeyDate OptDate `json:",omitempty,omitzero"`
+	// The aging buckets' last days past the net due date, ascending, comma-separated: `30,60,90` (the
+	// default) ages the items not yet due, 1 to 30, 31 to 60 and 61 to 90 days overdue, and more than 90.
+	// Only with `aging_key_date`: without it, 400 `request.invalid_parameter`, as for days not ascending.
+	AgingDays []int32 `json:",omitempty"`
 	// Maximum number of items to return. Defaults to 50, maximum 500.
 	PageSize OptInt32 `json:",omitempty,omitzero"`
 	// Opaque cursor from `next_page_token` of the previous page. Tokens are signed and encode the sort
@@ -32881,6 +32891,33 @@ func unpackListOpenItemsParams(packed middleware.Parameters) (params ListOpenIte
 		}
 		if v, ok := packed[key]; ok {
 			params.PostingDateTo = v.(OptDate)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "due_date_to",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.DueDateTo = v.(OptDate)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "aging_key_date",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.AgingKeyDate = v.(OptDate)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "aging_days",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.AgingDays = v.([]int32)
 		}
 	}
 	{
@@ -33084,6 +33121,175 @@ func decodeListOpenItemsParams(args [0]string, argsEscaped bool, r *http.Request
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "posting_date_to",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: due_date_to.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "due_date_to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotDueDateToVal time.Time
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToDate(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotDueDateToVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.DueDateTo.SetTo(paramsDotDueDateToVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "due_date_to",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: aging_key_date.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "aging_key_date",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotAgingKeyDateVal time.Time
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToDate(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotAgingKeyDateVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.AgingKeyDate.SetTo(paramsDotAgingKeyDateVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "aging_key_date",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: aging_days.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "aging_days",
+			Style:   uri.QueryStyleForm,
+			Explode: false,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				params.AgingDays = nil
+				return d.DecodeArray(func(d uri.Decoder) error {
+					var paramsDotAgingDaysVal int32
+					if err := func() error {
+						val, err := d.DecodeValue()
+						if err != nil {
+							return err
+						}
+
+						c, err := conv.ToInt32(val)
+						if err != nil {
+							return err
+						}
+
+						paramsDotAgingDaysVal = c
+						return nil
+					}(); err != nil {
+						return err
+					}
+					params.AgingDays = append(params.AgingDays, paramsDotAgingDaysVal)
+					return nil
+				})
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if params.AgingDays == nil {
+					return nil // optional
+				}
+				if err := (validate.Array{
+					MinLength:    1,
+					MinLengthSet: true,
+					MaxLength:    6,
+					MaxLengthSet: true,
+				}).ValidateLength(len(params.AgingDays)); err != nil {
+					return errors.Wrap(err, "array")
+				}
+				var failures []validate.FieldError
+				for i, elem := range params.AgingDays {
+					if err := func() error {
+						if err := (validate.Int{
+							MinSet:        true,
+							Min:           1,
+							MaxSet:        true,
+							Max:           3650,
+							MinExclusive:  false,
+							MaxExclusive:  false,
+							MultipleOfSet: false,
+							MultipleOf:    0,
+							Pattern:       nil,
+						}).Validate(int64(elem)); err != nil {
+							return errors.Wrap(err, "int")
+						}
+						return nil
+					}(); err != nil {
+						failures = append(failures, validate.FieldError{
+							Name:  fmt.Sprintf("[%d]", i),
+							Error: err,
+						})
+					}
+				}
+				if len(failures) > 0 {
+					return &validate.Error{Fields: failures}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "aging_days",
 			In:   "query",
 			Err:  err,
 		}

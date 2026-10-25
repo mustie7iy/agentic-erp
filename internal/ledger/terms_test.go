@@ -94,3 +94,73 @@ func TestTermsFrozenOnOpenItems(t *testing.T) {
 		return err
 	})
 }
+
+// TestOpenItemsAging: open items aged on a key date by their net due
+// dates (ADR-0052 G4): one not yet due (due on the key date counts as not
+// due), one 30 days past in the first bucket, one past every bucket and
+// one without terms apart, each with its number and its amount in local
+// currency, on the first page alone; due_date_to keeps the items due by a
+// date, leaving out those without terms; buckets without a key date or
+// not ascending are refused.
+func TestOpenItemsAging(t *testing.T) {
+	e := setup(t)
+	terms := func(baseline string, days int) *ledger.ItemTerms {
+		return &ledger.ItemTerms{PaymentTermCode: "NT", BaselineDate: date(baseline), NetDays: days}
+	}
+	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+		for _, p := range []ledger.Posting{termsPosting(t, e, terms("2026-03-01", 45), &e.supplier), termsPosting(t, e, terms("2026-03-01", 0), &e.supplier),
+			termsPosting(t, e, terms("2026-01-01", 10), &e.supplier), termsPosting(t, e, nil, &e.vendor)} {
+			if _, err := postings().Post(ctx, p); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	base := "/v1/open-items?legal_entity_id=" + e.de.String()
+	for name, c := range map[string]struct {
+		query string
+		want  string
+	}{
+		"the default buckets, due on the key date": {"&aging_key_date=2026-04-15", "[map[amount_lc:map[amount:-100.00 currency:EUR] bucket:not_due currency:EUR item_count:1] " +
+			"map[amount_lc:map[amount:-100.00 currency:EUR] bucket:overdue currency:EUR days_from:31 days_to:60 item_count:1] " +
+			"map[amount_lc:map[amount:-100.00 currency:EUR] bucket:overdue currency:EUR days_from:91 item_count:1] " +
+			"map[amount_lc:map[amount:-100.00 currency:EUR] bucket:no_due_date currency:EUR item_count:1]]"},
+		"one bucket of 30 days": {"&aging_key_date=2026-03-31&aging_days=30", "[map[amount_lc:map[amount:-100.00 currency:EUR] bucket:not_due currency:EUR item_count:1] " +
+			"map[amount_lc:map[amount:-100.00 currency:EUR] bucket:overdue currency:EUR days_from:1 days_to:30 item_count:1] " +
+			"map[amount_lc:map[amount:-100.00 currency:EUR] bucket:overdue currency:EUR days_from:31 item_count:1] " +
+			"map[amount_lc:map[amount:-100.00 currency:EUR] bucket:no_due_date currency:EUR item_count:1]]"},
+		"due by a date": {"&due_date_to=2026-03-01&aging_key_date=2026-03-01&aging_days=5,10", "[map[amount_lc:map[amount:-100.00 currency:EUR] bucket:not_due currency:EUR item_count:1] " +
+			"map[amount_lc:map[amount:-100.00 currency:EUR] bucket:overdue currency:EUR days_from:11 item_count:1]]"},
+		"no aging asked for": {"", "<nil>"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			page, _ := e.in(t).Must(200, "GET", base+c.query, "", "")
+			if got := fmt.Sprint(page["aging"]); got != c.want {
+				t.Errorf("aging: got %s, want %s", got, c.want)
+			}
+		})
+	}
+	due, _ := e.Must(200, "GET", base+"&due_date_to=2026-03-01", "", "")
+	if got := len(due["items"].([]any)); got != 2 {
+		t.Errorf("items due by 1 March: got %d, want 2", got)
+	}
+	first, _ := e.Must(200, "GET", base+"&page_size=1&aging_key_date=2026-04-15", "", "")
+	if first["aging"] == nil || first["next_page_token"] == nil {
+		t.Fatalf("the first page: got %v, want the aging and a next page", first)
+	}
+	next, _ := e.Must(200, "GET", base+"&page_size=1&aging_key_date=2026-04-15&page_token="+first["next_page_token"].(string), "", "")
+	if next["aging"] != nil {
+		t.Errorf("the next page: got aging %v, want none", next["aging"])
+	}
+	for name, query := range map[string]string{
+		"buckets without a key date": "&aging_days=30",
+		"buckets not ascending":      "&aging_key_date=2026-04-15&aging_days=60,30",
+		"a bucket of no days":        "&aging_key_date=2026-04-15&aging_days=0",
+	} {
+		t.Run(name, func(t *testing.T) {
+			e.in(t).Problem(400, "request.invalid_parameter", "GET", base+query, "", "")
+		})
+	}
+}

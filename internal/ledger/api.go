@@ -351,9 +351,12 @@ func (e *Endpoints) ListOpenItems(ctx context.Context, params gen.ListOpenItemsP
 	if err != nil {
 		return nil, err
 	}
-	to := apitypes.Ptr[time.Time](params.PostingDateTo)
-	scope := fmt.Sprintf("listOpenItems|%s|%s|%s|%v", apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.PartnerID),
-		apitypes.Ptr[uuid.UUID](params.AccountID), to)
+	days, err := agingDays(params)
+	if err != nil {
+		return nil, err
+	}
+	// The Opt values, not the pointers: a pointer prints its address.
+	scope := fmt.Sprintf("listOpenItems|%v|%v|%v|%v|%v", params.LegalEntityID, params.PartnerID, params.AccountID, params.PostingDateTo, params.DueDateTo)
 	ks, err := e.Pages.Keyset(openItemSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
@@ -362,9 +365,9 @@ func (e *Endpoints) ListOpenItems(ctx context.Context, params gen.ListOpenItemsP
 	if err != nil {
 		return nil, err
 	}
-	q, args := ks.SQL(openItemSelect+` AND ($3::uuid IS NULL OR l.legal_entity_id = $3) AND ($4::uuid IS NULL OR l.partner_id = $4)
-		AND ($5::uuid IS NULL OR l.account_id = $5) AND ($6::date IS NULL OR l.posting_date <= $6)) o WHERE true`,
-		[]any{access.All, access.IDs, apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.PartnerID), apitypes.Ptr[uuid.UUID](params.AccountID), to})
+	filters := []any{access.All, access.IDs, apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.PartnerID),
+		apitypes.Ptr[uuid.UUID](params.AccountID), apitypes.Ptr[time.Time](params.PostingDateTo), apitypes.Ptr[time.Time](params.DueDateTo)}
+	q, args := ks.SQL(openItemSelect+openItemFilters+`) o WHERE true`, filters)
 	rows, _ := tx.Query(ctx, q, args...)
 	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (OpenItem, error) { return scanOpenItem(r) })
 	if err != nil {
@@ -384,8 +387,23 @@ func (e *Endpoints) ListOpenItems(ctx context.Context, params gen.ListOpenItemsP
 	if next != "" {
 		page.NextPageToken.SetTo(next)
 	}
+	// The aging reads every item the filters select: the first page
+	// carries it, the next ones need not.
+	if key, ok := params.AgingKeyDate.Get(); ok && !params.PageToken.Set {
+		if page.Aging, err = aging(ctx, tx, filters, key, days); err != nil {
+			return nil, err
+		}
+	}
 	return &gen.OpenItemPageHeaders{Response: page}, nil
 }
+
+// openItemFilters are listOpenItems' filters on openItemSelect's inner
+// query: $3 the legal entity, $4 the partner, $5 the account, $6 the last
+// posting date and $7 the last net due date, which an item without terms
+// has none of.
+const openItemFilters = ` AND ($3::uuid IS NULL OR l.legal_entity_id = $3) AND ($4::uuid IS NULL OR l.partner_id = $4)
+		AND ($5::uuid IS NULL OR l.account_id = $5) AND ($6::date IS NULL OR l.posting_date <= $6)
+		AND ($7::date IS NULL OR t.baseline_date + t.net_days <= $7)`
 
 // TermsToAPI is payment terms as the API shows them: the net due date
 // and each discount's last day.

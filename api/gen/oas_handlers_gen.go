@@ -34058,7 +34058,12 @@ func (s *Server) handleListNumberRangesRequest(args [0]string, argsEscaped bool,
 
 // handleListOpenItemsRequest handles listOpenItems operation.
 //
-// Uncleared lines on supplier and customer reconciliation accounts. Sortable by: `posting_date`.
+// Uncleared lines on supplier and customer reconciliation accounts. An item posted with payment terms
+// (T36b) is due on their `net_due_date`, and earns a discount until each tier's `until`; an item
+// without terms (posted before T36, manually, migrated, a customer's) has no due date the ledger
+// keeps. With `aging_key_date` the first page also carries `aging`: every item the filters select, not
+// only the page's, summed per local currency by how many days past its net due date it is on the key
+// date (ADR-0052 G4). Sortable by: `posting_date`.
 //
 // GET /v1/open-items
 func (s *Server) handleListOpenItemsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -34215,6 +34220,18 @@ func (s *Server) handleListOpenItemsRequest(args [0]string, argsEscaped bool, w 
 					Name: "posting_date_to",
 					In:   "query",
 				}: params.PostingDateTo,
+				{
+					Name: "due_date_to",
+					In:   "query",
+				}: params.DueDateTo,
+				{
+					Name: "aging_key_date",
+					In:   "query",
+				}: params.AgingKeyDate,
+				{
+					Name: "aging_days",
+					In:   "query",
+				}: params.AgingDays,
 				{
 					Name: "page_size",
 					In:   "query",
