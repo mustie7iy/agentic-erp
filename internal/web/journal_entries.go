@@ -66,7 +66,7 @@ func (s *Server) journalEntries(w http.ResponseWriter, r *http.Request, p *perso
 		status = http.StatusUnprocessableEntity
 	default:
 		res, err := s.API.ListJournalEntries(ctx, params)
-		page, isPage := res.(*gen.JournalEntryPageHeaders)
+		page, isPage := res.(*gen.JournalEntryPage)
 		if !isPage {
 			prob, show := s.refusal(w, r, p, "listJournalEntries", res, err)
 			if !show {
@@ -75,8 +75,8 @@ func (s *Server) journalEntries(w http.ResponseWriter, r *http.Request, p *perso
 			l.Refusal, status = explainIn(i18n.EntryProblems, i18n.EntriesRefusedTitle, prob, m), int(prob.Status)
 			break
 		}
-		l.Rows = entryRows(page.Response.Items)
-		if next := page.Response.NextPageToken.Or(""); next != "" {
+		l.Rows = entryRows(page.Items)
+		if next := page.NextPageToken.Or(""); next != "" {
 			l.More = ui.EntriesFor(with(q, "page", next))
 		}
 	}
@@ -141,9 +141,9 @@ func (s *Server) centerOptions(ctx context.Context, m me, company uuid.UUID, cos
 	var costs, profits []ui.Option
 	res, err := s.API.ListCostCenters(ctx, gen.ListCostCentersParams{LegalEntityID: gen.NewOptUUID(company), PageSize: gen.NewOptInt32(maxCenters),
 		OrderBy: gen.NewOptString("code")})
-	if page, ok := res.(*gen.CostCenterPageHeaders); ok {
+	if page, ok := res.(*gen.CostCenterPage); ok {
 		costs = []ui.Option{}
-		for _, c := range page.Response.Items {
+		for _, c := range page.Items {
 			costs = append(costs, ui.Option{Value: c.ID.String(), Text: c.Code + " " + c.Name, Selected: c.ID.String() == cost})
 		}
 	} else {
@@ -151,9 +151,9 @@ func (s *Server) centerOptions(ctx context.Context, m me, company uuid.UUID, cos
 	}
 	pres, err := s.API.ListProfitCenters(ctx, gen.ListProfitCentersParams{LegalEntityID: gen.NewOptUUID(company), PageSize: gen.NewOptInt32(maxCenters),
 		OrderBy: gen.NewOptString("code")})
-	if page, ok := pres.(*gen.ProfitCenterPageHeaders); ok {
+	if page, ok := pres.(*gen.ProfitCenterPage); ok {
 		profits = []ui.Option{}
-		for _, c := range page.Response.Items {
+		for _, c := range page.Items {
 			profits = append(profits, ui.Option{Value: c.ID.String(), Text: c.Code + " " + c.Name, Selected: c.ID.String() == profit})
 		}
 	} else {

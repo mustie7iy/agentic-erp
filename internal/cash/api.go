@@ -25,7 +25,7 @@ func (e *Endpoints) GetCashPosition(ctx context.Context, params gen.GetCashPosit
 		amount := amounts(c.Currency, c.Exponent)
 		out.Currencies[i] = gen.CashPositionCurrency{Currency: c.Currency, CreditLine: optAmount(c.CreditLine, amount), Days: daysToAPI(c.Days, amount)}
 	}
-	return &gen.CashPositionHeaders{Response: out}, nil
+	return &out, nil
 }
 
 // amounts shows minor units of a currency.

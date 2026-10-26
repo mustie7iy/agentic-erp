@@ -71,7 +71,7 @@ func (s *Server) invoices(w http.ResponseWriter, r *http.Request, p *person) {
 		status = http.StatusUnprocessableEntity
 	default:
 		res, err := s.API.ListSupplierInvoices(r.Context(), params)
-		page, ok := res.(*gen.SupplierInvoicePageHeaders)
+		page, ok := res.(*gen.SupplierInvoicePage)
 		if !ok {
 			prob, show := s.refusal(w, r, p, "listSupplierInvoices", res, err)
 			if !show {
@@ -80,7 +80,7 @@ func (s *Server) invoices(w http.ResponseWriter, r *http.Request, p *person) {
 			l.Refusal, status = explainIn(i18n.InvoiceProblems, i18n.InvoicesRefusedTitle, prob, m), int(prob.Status)
 			break
 		}
-		s.queueRows(r.Context(), p, q, &l, page.Response, companies)
+		s.queueRows(r.Context(), p, q, &l, *page, companies)
 	}
 	s.render(w, r, status, ui.Invoices(s.page(i18n.InvoicesTitle, ui.InvoicesPath, p, m), l))
 }
@@ -207,13 +207,13 @@ func (s *Server) entities(ctx context.Context, m me) map[uuid.UUID]gen.LegalEnti
 		return nil
 	}
 	res, err := s.API.ListLegalEntities(ctx, gen.ListLegalEntitiesParams{PageSize: gen.NewOptInt32(maxCompanies)})
-	page, ok := res.(*gen.LegalEntityPageHeaders)
+	page, ok := res.(*gen.LegalEntityPage)
 	if !ok {
 		s.Log.WarnContext(ctx, "web: the companies could not be read", "answer", res, "error", err)
 		return nil
 	}
-	out := make(map[uuid.UUID]gen.LegalEntity, len(page.Response.Items))
-	for _, e := range page.Response.Items {
+	out := make(map[uuid.UUID]gen.LegalEntity, len(page.Items))
+	for _, e := range page.Items {
 		out[e.ID] = e
 	}
 	return out

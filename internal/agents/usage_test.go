@@ -96,7 +96,7 @@ func TestAIUsageDefaultsToThisMonth(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if u := res.(*gen.AiUsageHeaders).Response; u.Calls != 1 {
+	if u := res.(*gen.AiUsage); u.Calls != 1 {
 		t.Errorf("calls this month: got %d, want 1", u.Calls)
 	}
 }

@@ -104,7 +104,7 @@ func (e *Endpoints) GetAnalyticsModel(ctx context.Context, params gen.GetAnalyti
 	b, _ := json.Marshal(m.Analytics)
 	var model gen.AnalyticsModelModel
 	_ = json.Unmarshal(b, &model)
-	return &gen.AnalyticsModelHeaders{Response: gen.AnalyticsModel{ConfigVersion: version, Model: model}}, nil
+	return &gen.AnalyticsModel{ConfigVersion: version, Model: model}, nil
 }
 
 // invalid is a query the semantic layer refuses: 422.

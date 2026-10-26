@@ -93,21 +93,21 @@ func (s *Server) revaluationRuns(w http.ResponseWriter, r *http.Request, p *pers
 		params.PageToken = gen.NewOptString(v)
 	}
 	res, err := s.API.ListRevaluationRuns(r.Context(), params)
-	page, ok := res.(*gen.RevaluationRunPageHeaders)
+	page, ok := res.(*gen.RevaluationRunPage)
 	if !ok {
 		rp.RunsError, ok = s.inPlace(w, r, p, m, i18n.RevaluationProblems, "listRevaluationRuns", res, err, i18n.RevaluationRunsRefusedTitle, "runs-refusal")
 		return ok
 	}
-	ids := make([]uuid.UUID, 0, len(page.Response.Items))
-	for _, run := range page.Response.Items {
+	ids := make([]uuid.UUID, 0, len(page.Items))
+	for _, run := range page.Items {
 		ids = append(ids, run.CreatedBy)
 	}
 	names := s.names(r.Context(), p, ids)
-	for _, run := range page.Response.Items {
+	for _, run := range page.Items {
 		rp.Runs = append(rp.Runs, ui.RevaluationRow{Path: revaluationRunPath(run.ID), KeyDate: run.KeyDate, Ledger: ledgerName(ledgers, run.LedgerID),
 			Status: labelOf(revaluations, run.Status), Items: run.ItemCount, CreatedBy: names[run.CreatedBy], CreatedAt: run.CreatedAt})
 	}
-	if next := page.Response.NextPageToken.Or(""); next != "" {
+	if next := page.NextPageToken.Or(""); next != "" {
 		rp.RunsMore = ui.RevaluationFor(url.Values{ui.FieldCompany: {company}, "page": {next}})
 	}
 	return true

@@ -78,7 +78,7 @@ func (s *Server) showRuns(w http.ResponseWriter, r *http.Request, p *person, m m
 		l.Invalid, status = true, http.StatusBadRequest
 	} else {
 		res, err := s.API.ListPaymentRuns(r.Context(), params)
-		page, ok := res.(*gen.PaymentRunPageHeaders)
+		page, ok := res.(*gen.PaymentRunPage)
 		if !ok {
 			prob, show := s.refusal(w, r, p, "listPaymentRuns", res, err)
 			if !show {
@@ -89,8 +89,8 @@ func (s *Server) showRuns(w http.ResponseWriter, r *http.Request, p *person, m m
 				status = int(prob.Status)
 			}
 		} else {
-			l.Rows = s.runRows(r, p, page.Response, companies, banks)
-			if next := page.Response.NextPageToken.Or(""); next != "" {
+			l.Rows = s.runRows(r, p, *page, companies, banks)
+			if next := page.NextPageToken.Or(""); next != "" {
 				l.More = ui.RunsPath(with(q, "page", next))
 			}
 		}

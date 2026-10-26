@@ -245,12 +245,12 @@ func TestAPIClientAgainstTheAPI(t *testing.T) {
 	}
 	if res, err := call(allowed); err != nil {
 		t.Errorf("allowed: %v", err)
-	} else if _, ok := res.(*gen.LegalEntityPageHeaders); !ok {
+	} else if _, ok := res.(*gen.LegalEntityPage); !ok {
 		t.Errorf("allowed: got %T, want a page of legal entities", res)
 	}
 	if res, err := call(refused); err != nil {
 		t.Errorf("refused: %v", err)
-	} else if _, ok := res.(*gen.ForbiddenHeaders); !ok {
+	} else if _, ok := res.(*gen.ListLegalEntitiesForbidden); !ok {
 		t.Errorf("refused: got %T, want the API's 403", res)
 	}
 	if _, err := client.ListLegalEntities(t.Context(), gen.ListLegalEntitiesParams{}); err == nil || !strings.Contains(err.Error(), web.ErrNoSession.Error()) {

@@ -224,7 +224,7 @@ func (e *Endpoints) ListMemoRecords(ctx context.Context, params gen.ListMemoReco
 		}
 		return m.ValueDate.Format(time.DateOnly), m.ID
 	}, func(m MemoRecord) gen.MemoRecord { return memoToAPI(m, read) })
-	return &gen.MemoRecordPageHeaders{Response: gen.MemoRecordPage{Items: items, NextPageToken: next}}, nil
+	return &gen.MemoRecordPage{Items: items, NextPageToken: next}, nil
 }
 
 // UploadMemoRecords implements POST /v1/memo-record-uploads.
