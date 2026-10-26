@@ -335,7 +335,15 @@ once the pilot partner consumes `/v1`, only operations marked
 | Lines per document | 10,000 (larger loads use import operations) |
 | `page_size` | 500 |
 
-Responses carry `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`.
+Every response to an authenticated request carries `RateLimit-Limit`,
+`RateLimit-Remaining` and `RateLimit-Reset` (set by `internal/platform/ratelimit`).
+The contract states them once, in `info.description`, and declares them on no
+response: declared on each response of every operation, they made the generated
+client parse them everywhere, about 430,000 of `api/gen`'s lines, and doubled
+the memory of a race build (product owner, 2026-10-26). `api/spec_test.go`
+holds the single statement and `internal/app` holds that every response,
+success, problem or 429, carries them. `Retry-After` stays declared on the
+responses that set it.
 
 ## 4.12 Events
 

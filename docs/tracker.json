@@ -7318,6 +7318,13 @@
      },
      {
       "s": "D",
+      "t": "The rate-limit headers are declared once (PO 2026-10-26): RateLimit-Limit, RateLimit-Remaining and RateLimit-Reset are stated in the contract's info.description instead of on each of its responses, which made api/gen 1,129,193 lines (about 430,000 of them parsing those headers) and a race build of it peak at 6.6 GB while main's race suite on GitHub was stopped by its runner (since 2026-10-21); api/gen is now 611,245 lines and its race build peaks at 3.1 GB. The middleware still sends them on every response to an authenticated request, held by a test of a success, a problem and the 429, and a contract test holds that no response declares them; Retry-After stays declared on the responses that set it",
+      "r": "api/openapi.yaml · api/spec_test.go · internal/app/app_test.go · internal/web/refusal.go · 04 §4.11",
+      "src": "po:2026-10-26 · ci:batch15",
+      "c": []
+     },
+     {
+      "s": "D",
       "t": "Nightly: long load, resilience, two-hour soak, five minutes of fuzzing per target",
       "r": ".github/workflows/nightly.yml",
       "c": []
