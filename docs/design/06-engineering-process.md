@@ -237,7 +237,11 @@ to repeating the slow gates on each pull request:
   the `Makefile` or a workflow that uses them change, and weekly.
 - The tools run at pinned versions (`scripts/ci-tools.sh`), built once in
   the job that uses them and cached until that file or the Go version
-  changes. The `changes` job builds nothing: it gates every other job and
+  changes. They are saved to the cache right after they are built
+  (`actions/cache/restore` and `actions/cache/save`), not in the action's
+  post step, which runs only when the whole job succeeds: from 2026-10-21
+  to 2026-10-26 no run of `main` finished, so each one rebuilt them, about
+  14 minutes. The `changes` job builds nothing: it gates every other job and
   stays within a few minutes, with gitleaks as its released binary checked
   by hash.
 

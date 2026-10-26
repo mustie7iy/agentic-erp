@@ -7325,6 +7325,13 @@
      },
      {
       "s": "D",
+      "t": "Main's full run given the time to finish (PO 2026-10-25, fix and verify; the verifying run on main is still to come): the CI tools are saved to the cache right after they are built (actions/cache/restore and actions/cache/save, same key), since actions/cache saves only in its post step, which a failed or cancelled job skips, and the test job's limit is 180 minutes. Run 40334507190 (2026-10-26; 2 CPUs, 7938 MiB) was cancelled at 120 minutes with 109 of 116 packages passed and none failed: 32 minutes before the race step (14 of them the tools, a cache miss on every run since 2026-10-21, and 6 a cold vet), then 89 minutes of race tests, the slowest payments 1324 s, ledger 1043 s, payables 642 s",
+      "r": ".github/workflows/ci.yml · 06 §6.5",
+      "src": "ci:batch15 · po:2026-10-25",
+      "c": []
+     },
+     {
+      "s": "D",
       "t": "Nightly: long load, resilience, two-hour soak, five minutes of fuzzing per target",
       "r": ".github/workflows/nightly.yml",
       "c": []
