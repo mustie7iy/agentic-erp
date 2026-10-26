@@ -332,7 +332,7 @@ jobs:
         # holds the race build and later the instrumented coverage build.
         # From 2026-10-21 on, main's runs were stopped by the runner (exit 143,
         # "received a shutdown signal") about 8 minutes into this step, with
-        # no test failing. The generated API (api/gen, ~650k lines) is the
+        # no test failing. The generated API (api/gen, ~610k lines) is the
         # package that needs the most memory to compile, here as in a local
         # 8 GB Docker build, which it exhausted: build it alone first, then
         # test two packages at a time. Memory and disk are logged every 30 s,
