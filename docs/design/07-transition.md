@@ -1657,19 +1657,21 @@ reviewer finding in a step (`review:T73j`), a failed or measured check
 (`ci:batch6`, `ci:T73j`), the pilot walkthrough (`walkthrough:2026-10-22`), a
 split of an approved step (`split:T73j`) or a design section (`design:01
 §1.4`); several are joined by ` · `. A decision of the coordinator alone is not
-a source: it goes to the product owner first. 958 of the 966 items of
+a source: it goes to the product owner first. 955 of the 966 items of
 2026-10-25 carry `baseline`, their sources being in their references, ADRs and
-history (the eight whose references name their split or finding carry it).
-`TestTrackerItemsNameTheirSource` (docs/tracker_test.go) refuses an item
-without a known source, a source naming an ADR that is not accepted (one
-superseded later refuses the items citing it, which then name its successor), a
-design section or date that does not exist, a step that no leaf with another
-source names (only a leaf whose own source cites no step vouches for one), and
-any change in the number of baseline items, so removing one lowers the count in
-the test. It cannot tell an item deleted and another added as `baseline` in the
-same change; review does, with the added items and their sources listed at each
-batch. It runs in ci-local and, because a change to the tracker alone skips
-GitHub's suite, in ci.yml's `tracker` job on every event.
+history (the eight whose references name their split or finding carry it, and
+the three that rested on the coordinator's decision alone carry the product
+owner's confirmation of that day). `TestTrackerItemsNameTheirSource`
+(docs/tracker_test.go) refuses an item without a known source, a source naming
+an ADR that is not accepted (one superseded later refuses the items citing it,
+which then name its successor), a design section or date that does not exist, a
+step that no leaf with another source names (only a leaf whose own source cites
+no step vouches for one), and any change in the number of baseline items, so
+removing one lowers the count in the test. It cannot tell an item deleted and
+another added as `baseline` in the same change; review does, with the added
+items and their sources listed at each batch. It runs in ci-local and, because
+a change to the tracker alone skips GitHub's suite, in ci.yml's `tracker` job
+on every event.
 
 ## 7.6 After the transition: completing Phase 1 (T30–T47)
 

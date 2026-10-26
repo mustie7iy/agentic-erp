@@ -700,12 +700,16 @@ As built in T56e (migrations 000161-000162; the capture agent's proposals are T5
   is approved, on the changed order date. An order a migration run releases
   (`ReleaseLoadedOrder`) is not checked: it is valued directly, and its
   invoices' lines are derived and checked when they post; migrated account
-  assignments (EKKN) are for T56h if the pilot needs them.
+  assignments (EKKN) are for T56h if the pilot needs them. Confirmed by
+  the product owner on 2026-10-25: migrated orders are checked as their
+  invoices post, not when they are loaded.
 - **A released item keeps its assignment**, as its account (000161 extends
   `purchase_order_item_identity`; 422 `procurement.invalid_change`): its
   receipts, their reversals (102), returns (122) and the invoice's price
   difference all post to one center. An item added back under a removed
-  number keeps the removed one's.
+  number keeps the removed one's. Confirmed by the product owner on 2026-10-25: a
+  changed center means cancelling the item and adding a new one by an order
+  change.
 - **Postings.** A goods movement's WE entry posts the item's account with
   the item's cost center (`GRIRItem.CostCenterID`); the GR/IR line, a
   balance sheet line, carries none. An invoice's price difference carries

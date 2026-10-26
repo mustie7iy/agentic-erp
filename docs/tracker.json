@@ -1059,7 +1059,7 @@
         "s": "T",
         "t": "ISO-8859-1 statement files, only if a pilot bank cannot send UTF-8 (coordinator 2026-10-20)",
         "r": "T49",
-        "src": "baseline",
+        "src": "po:2026-10-25",
         "c": []
        },
        {
@@ -6758,7 +6758,7 @@
       "s": "T",
       "t": "Count modified-then-approved agent proposals: an owning context whose objects a person may change while their approval waits implements approvals.Modifier (stays opt-in per owning context, coordinator decision on T54c)",
       "r": "T54",
-      "src": "baseline",
+      "src": "po:2026-10-25",
       "c": []
      },
      {
@@ -6772,7 +6772,7 @@
       "s": "T",
       "t": "Worker-side decisions (uow.Act) get an OnCommit hook so their agent proposal decisions are counted (coordinator decision on T54c)",
       "r": "T54 · uow.Act · reqctx.OnCommit",
-      "src": "baseline",
+      "src": "po:2026-10-25",
       "c": []
      }
     ]
@@ -8279,6 +8279,13 @@
       "t": "Every tracker item names its source (PO 2026-10-25, against scope creep and invented items): src is an ADR, a product owner decision, a review finding, a failed or measured check, the pilot walkthrough, a split of an approved step or a design section; 958 of the 966 items of 2026-10-25 carry baseline, a count that may only fall; the eight whose references name their split or finding carry it",
       "r": "docs/tracker_test.go · TestTrackerItemsNameTheirSource · 07-transition §7.5",
       "src": "po:2026-10-25",
+      "c": []
+     },
+     {
+      "s": "P",
+      "t": "Main's full suite on GitHub, stopped by the runner (exit 143, \"received a shutdown signal\") about 8 minutes into the race step on every push from 2026-10-21 with no test failing: the generated API built alone first, then the packages tested two at a time, memory and disk logged every 30 s; workflow_dispatch runs the full jobs on any branch (PO 2026-10-25); verified by main's first run after it merges",
+      "r": ".github/workflows/ci.yml test job",
+      "src": "ci:batch15 · po:2026-10-25",
       "c": []
      }
     ]
