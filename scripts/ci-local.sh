@@ -162,7 +162,7 @@ step tracker go test -count=1 ./docs
 # ledger and payments packages took over 30 minutes for their three runs on
 # a loaded machine, so the limit, which only guards against a hang, is 60.
 step race go test -race -shuffle=on -count=3 -timeout 60m ./...
-step budgets bash -c 'go test -count=1 -run Budget ./internal/ledger && go test -count=1 -run Perf ./internal/nfr'
+step budgets ./scripts/budgets.sh
 step coverage ./scripts/coverage.sh
 step fuzz make fuzz FUZZTIME=30s
 step build make build

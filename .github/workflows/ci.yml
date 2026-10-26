@@ -349,9 +349,8 @@ jobs:
         # budgets still catch a regression (ERP_BUDGET_SCALE, docs/testing.md).
         env:
           ERP_BUDGET_SCALE: 2
-        run: |
-          go test -count=1 -run Budget -v ./internal/ledger
-          go test -count=1 -run Perf -v ./internal/nfr
+        # Every package's budget tests (scripts/budgets.sh finds them).
+        run: ./scripts/budgets.sh -v
       - name: Coverage gate
         # The race build above and the instrumented build here share nothing,
         # so the race cache is dropped first; the runner's disk ran out once.

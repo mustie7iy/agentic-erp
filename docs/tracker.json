@@ -8287,6 +8287,13 @@
       "r": ".github/workflows/ci.yml test job",
       "src": "ci:batch15 · po:2026-10-25",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "Every budget test runs in a gate: TestGoodsReceiptBudget had failed since T47d (2026-10-16, a release above the first tier waits for approval; the test never approved it) unseen, as the gates ran only ledger's and nfr's budgets and the budget tests skip under -race; scripts/budgets.sh finds every package's Test…Budget and Test…Perf and runs them one package at a time in ci-local, CI and make perf (eight packages, about 2.5 minutes at scale 2)",
+      "r": "scripts/budgets.sh · internal/procurement/grir_test.go TestGoodsReceiptBudget · T47d",
+      "src": "ci:batch15",
+      "c": []
      }
     ]
    },

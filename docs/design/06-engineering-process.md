@@ -129,7 +129,7 @@ Every change passes, before it is merged:
 | Contract lint and breaking-change check | `vacuum` (Go), `oasdiff` (Go) |
 | Schema tests on PostgreSQL 17 | `go test ./db` against a CI service container |
 | Unit, functional and non-functional tests with the race detector | `go test -race ./...` (locally three times in random order) |
-| Performance budgets | `-run Budget`, `-run Perf` |
+| Performance budgets | `scripts/budgets.sh`: every package's `Test…Budget` and `Test…Perf`, found rather than listed, one package at a time |
 | Coverage gate | `scripts/coverage.sh`, 100% of production statements |
 | Fuzz targets | Every target's seed corpus with the tests on PRs; `make fuzz` 30 s per target on `main`, 5 minutes weekly |
 | Image signing round trip | `make signing-roundtrip` against a registry service: push, sign and attest (SBOM, provenance) with a key pair made for the job, verify, and the refusals (another key, another commit, a tag, no signature, attestations without a signature, uncommitted changes) (ADR-0032). When signing or image inputs change, and weekly |

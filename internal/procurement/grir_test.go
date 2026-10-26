@@ -221,7 +221,11 @@ func TestGoodsReceiptBudget(t *testing.T) {
 	}
 	o, _ := e.Must(201, "POST", "/v1/purchase-orders", fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "currency": "EUR", "order_date": "2026-03-10",
 		"items": %s}`, e.DE, e.Supplier, items(lines...)), "")
-	order := id(e.act(t, "/v1/purchase-orders/"+id(o), "release", ""))
+	order := id(o)
+	// 625,000.00 EUR is above the first release tier: since T47d the order
+	// waits for a second person's approval before goods can be received.
+	e.act(t, "/v1/purchase-orders/"+order, "release", "")
+	e.Approve(t, order)
 	receive := []string{"1:1:EA", "2:1:EA", "3:1:EA", "4:1:EA", "5:1:EA"}
 	for range 200 {
 		if code, m := e.receipt(t, order, receive...); code != 201 {
