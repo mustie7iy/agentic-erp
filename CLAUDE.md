@@ -20,7 +20,7 @@ make ci-local                 # every gate CI has, locally, before a PR is merge
 make generate                 # regenerate api/gen after editing api/openapi.yaml
 ```
 
-Never edit `api/gen/` by hand: it is ~610k lines generated from `api/openapi.yaml`. Change the
+Never edit `api/gen/` by hand: it is ~620k lines generated from `api/openapi.yaml`. Change the
 spec, run `make generate`, and commit both.
 
 ## How quality is kept: four layers
