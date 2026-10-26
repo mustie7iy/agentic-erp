@@ -131,7 +131,7 @@ func (e *Endpoints) ListPaymentRuns(ctx context.Context, params gen.ListPaymentR
 		}
 		return r.RunDate.Format(time.DateOnly), r.ID
 	}, runToAPI)
-	return &gen.PaymentRunPageHeaders{Response: gen.PaymentRunPage{Items: items, NextPageToken: next}}, nil
+	return &gen.PaymentRunPage{Items: items, NextPageToken: next}, nil
 }
 
 // ReleasePaymentRun implements POST /v1/payment-runs/{id}:release.
@@ -191,7 +191,7 @@ func (e *Endpoints) ListPayments(ctx context.Context, params gen.ListPaymentsPar
 	}
 	items, next := apitypes.PageOf(ks, pays, idKey(func(p Payment) uuid.UUID { return p.ID }),
 		func(p Payment) gen.Payment { return paymentToAPI(p, r) })
-	return &gen.PaymentPageHeaders{Response: gen.PaymentPage{Items: items, NextPageToken: next}}, nil
+	return &gen.PaymentPage{Items: items, NextPageToken: next}, nil
 }
 
 // ListPaymentExclusions implements GET /v1/payment-runs/{id}/exclusions.
@@ -228,7 +228,7 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 			return gen.PaymentExclusion{SupplierID: x.SupplierID, DownPaymentRequestID: apitypes.OptUUID(x.RequestID), ReasonCode: x.Reason,
 				Amount: apitypes.Money(x.Amount, r.Currency, r.Exponent)}
 		})
-	return &gen.PaymentExclusionPageHeaders{Response: gen.PaymentExclusionPage{Items: items, NextPageToken: next}}, nil
+	return &gen.PaymentExclusionPage{Items: items, NextPageToken: next}, nil
 }
 
 // GetBankFile implements GET /v1/bank-files/{id}.
@@ -267,7 +267,7 @@ func (e *Endpoints) ListBankFiles(ctx context.Context, params gen.ListBankFilesP
 	items, next := apitypes.PageOf(ks, files, func(f BankFile) (string, uuid.UUID) {
 		return f.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), f.ID
 	}, fileToAPI)
-	return &gen.BankFilePageHeaders{Response: gen.BankFilePage{Items: items, NextPageToken: next}}, nil
+	return &gen.BankFilePage{Items: items, NextPageToken: next}, nil
 }
 
 // GetBankFileContent implements GET /v1/bank-files/{id}/content.
@@ -276,7 +276,7 @@ func (e *Endpoints) GetBankFileContent(ctx context.Context, params gen.GetBankFi
 	if err != nil {
 		return nil, err
 	}
-	return &gen.GetBankFileContentOKHeaders{Response: gen.GetBankFileContentOK{Data: bytes.NewReader(content)}}, nil
+	return &gen.GetBankFileContentOK{Data: bytes.NewReader(content)}, nil
 }
 
 // ReportBankFileStatus implements POST /v1/bank-files/{id}:report.
@@ -392,7 +392,7 @@ func (e *Endpoints) GetBankStatementFile(ctx context.Context, params gen.GetBank
 	if err != nil {
 		return nil, err
 	}
-	return &gen.GetBankStatementFileOKHeaders{Response: gen.GetBankStatementFileOK{Data: bytes.NewReader(content)}}, nil
+	return &gen.GetBankStatementFileOK{Data: bytes.NewReader(content)}, nil
 }
 
 var statementSort = pagination.Sort{Default: "closing_date", Fields: []pagination.Field{{Name: "closing_date", Column: "s.closing_date", Type: "date"}}}
@@ -423,7 +423,7 @@ func (e *Endpoints) ListBankStatements(ctx context.Context, params gen.ListBankS
 	masked := statementsMasked(ctx)
 	items, next := apitypes.PageOf(ks, statements, func(s Statement) (string, uuid.UUID) { return s.ClosingDate.Format(time.DateOnly), s.ID },
 		func(s Statement) gen.BankStatement { return statementToAPI(s, masked) })
-	return &gen.BankStatementPageHeaders{Response: gen.BankStatementPage{Items: items, NextPageToken: next}}, nil
+	return &gen.BankStatementPage{Items: items, NextPageToken: next}, nil
 }
 
 // MatchBankStatement implements POST /v1/bank-statements/{id}:match.
@@ -472,7 +472,7 @@ func (e *Endpoints) ListBankStatementMatches(ctx context.Context, params gen.Lis
 	for i, m := range matches {
 		out.Items[i] = matchToAPI(m)
 	}
-	return &gen.StatementMatchListHeaders{Response: out}, nil
+	return &out, nil
 }
 
 // MatchBankStatementLine implements POST /v1/bank-statements/{id}/lines/{line_no}:match.
@@ -566,7 +566,7 @@ func (e *Endpoints) ListHouseBanks(ctx context.Context, params gen.ListHouseBank
 		return nil, fmt.Errorf("payments: list house banks: %w", err)
 	}
 	items, next := apitypes.PageOf(ks, banks, func(b gen.HouseBank) (string, uuid.UUID) { return b.Code, b.ID }, func(b gen.HouseBank) gen.HouseBank { return b })
-	return &gen.HouseBankPageHeaders{Response: gen.HouseBankPage{Items: items, NextPageToken: next}}, nil
+	return &gen.HouseBankPage{Items: items, NextPageToken: next}, nil
 }
 
 // GetBankStatementRules implements GET /v1/bank-statements/{id}/rules: the
@@ -582,7 +582,7 @@ func (e *Endpoints) GetBankStatementRules(ctx context.Context, params gen.GetBan
 	}
 	out := gen.BankStatementRules{PostingRules: []gen.BankStatementRulesPostingRulesItem{}, MatchingRules: []gen.BankStatementRulesMatchingRulesItem{}}
 	if co == nil {
-		return &gen.BankStatementRulesHeaders{Response: out}, nil
+		return &out, nil
 	}
 	for _, r := range co.BankStatements.PostingRules {
 		out.PostingRules = append(out.PostingRules, gen.BankStatementRulesPostingRulesItem{TransactionCode: r.TransactionCode, Description: r.Description, Account: r.Account})
@@ -594,7 +594,7 @@ func (e *Endpoints) GetBankStatementRules(ctx context.Context, params gen.GetBan
 		}
 		out.MatchingRules = append(out.MatchingRules, m)
 	}
-	return &gen.BankStatementRulesHeaders{Response: out}, nil
+	return &out, nil
 }
 
 // GetBankReconciliation implements GET /v1/house-banks/{id}/reconciliation:
@@ -632,7 +632,7 @@ func (e *Endpoints) GetBankReconciliation(ctx context.Context, params gen.GetBan
 	if r.NextPageToken != "" {
 		out.NextPageToken.SetTo(r.NextPageToken)
 	}
-	return &gen.BankReconciliationHeaders{Response: out}, nil
+	return &out, nil
 }
 
 func figuresToAPI(f Figures, amount func(money.Minor) gen.Money) gen.BankReconciliationFigures {

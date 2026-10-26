@@ -596,7 +596,7 @@ func (e *Endpoints) ListMigrationRuns(ctx context.Context, params gen.ListMigrat
 	items, next := apitypes.PageOf(ks, runs, func(r Run) (string, uuid.UUID) {
 		return r.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), r.ID
 	}, runToAPI)
-	return &gen.MigrationRunPageHeaders{Response: gen.MigrationRunPage{Items: items, NextPageToken: next}}, nil
+	return &gen.MigrationRunPage{Items: items, NextPageToken: next}, nil
 }
 
 func operationOK(op operations.Operation) *gen.OperationHeaders {

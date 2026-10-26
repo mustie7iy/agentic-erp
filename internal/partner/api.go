@@ -209,7 +209,7 @@ func (e *Endpoints) ListBusinessPartners(ctx context.Context, params gen.ListBus
 		}
 		return p.Number, p.ID
 	}, func(p Partner) gen.BusinessPartner { return partnerToAPI(visible(p, access)) })
-	return &gen.BusinessPartnerPageHeaders{Response: gen.BusinessPartnerPage{Items: items, NextPageToken: next}}, nil
+	return &gen.BusinessPartnerPage{Items: items, NextPageToken: next}, nil
 }
 
 // BlockBusinessPartner implements POST /v1/business-partners/{id}:block.
@@ -290,7 +290,7 @@ func (e *Endpoints) ListPartnerChanges(ctx context.Context, params gen.ListPartn
 		return nil, fmt.Errorf("partner: list partner changes: %w", err)
 	}
 	items, next := apitypes.PageOf(ks, cs, func(c Change) (string, uuid.UUID) { return c.CreatedAt.Format(time.RFC3339Nano), c.ID }, changeToAPI)
-	return &gen.PartnerChangePageHeaders{Response: gen.PartnerChangePage{Items: items, NextPageToken: next}}, nil
+	return &gen.PartnerChangePage{Items: items, NextPageToken: next}, nil
 }
 
 // RequestBankAccountChange implements POST /v1/business-partners/{id}/bank-accounts.
@@ -366,5 +366,5 @@ func (e *Endpoints) ListBankAccounts(ctx context.Context, params gen.ListBankAcc
 		return nil, fmt.Errorf("partner: list bank accounts of business partner %s: %w", params.ID, err)
 	}
 	items, next := apitypes.PageOf(ks, bs, func(b BankAccount) (string, uuid.UUID) { return b.ValidFrom.Format(time.DateOnly), b.ID }, bankToAPI)
-	return &gen.BankAccountPageHeaders{Response: gen.BankAccountPage{Items: items, NextPageToken: next}}, nil
+	return &gen.BankAccountPage{Items: items, NextPageToken: next}, nil
 }

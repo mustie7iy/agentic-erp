@@ -25,11 +25,11 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request, p *person) {
 	res, err := s.API.ListLegalEntities(r.Context(), gen.ListLegalEntitiesParams{})
 	var h ui.HomePage
 	switch res := res.(type) {
-	case *gen.LegalEntityPageHeaders:
-		for _, e := range res.Response.Items {
+	case *gen.LegalEntityPage:
+		for _, e := range res.Items {
 			h.Companies = append(h.Companies, e.Name)
 		}
-	case *gen.ForbiddenHeaders:
+	case *gen.ListLegalEntitiesForbidden:
 		// No permission to list companies: none to show (§12).
 	default:
 		s.apiFailed(w, r, p, "listLegalEntities", res, err)

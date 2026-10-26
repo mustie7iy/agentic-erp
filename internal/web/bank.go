@@ -94,7 +94,7 @@ func (s *Server) showStatements(w http.ResponseWriter, r *http.Request, p *perso
 		l.Invalid, status = true, http.StatusBadRequest
 	} else {
 		res, err := s.API.ListBankStatements(r.Context(), params)
-		page, ok := res.(*gen.BankStatementPageHeaders)
+		page, ok := res.(*gen.BankStatementPage)
 		if !ok {
 			prob, show := s.refusal(w, r, p, "listBankStatements", res, err)
 			if !show {
@@ -105,7 +105,7 @@ func (s *Server) showStatements(w http.ResponseWriter, r *http.Request, p *perso
 				status = int(prob.Status)
 			}
 		} else {
-			l.Rows, l.More = statementRows(page.Response, banks, companies), nextStatements(q, page.Response.NextPageToken)
+			l.Rows, l.More = statementRows(*page, banks, companies), nextStatements(q, page.NextPageToken)
 		}
 	}
 	s.render(w, r, status, ui.Statements(s.page(i18n.BankTitle, ui.BankPath, p, m), l))
@@ -183,13 +183,13 @@ func (s *Server) houseBanks(ctx context.Context, m me, legalEntity uuid.UUID) ma
 		params.LegalEntityID = gen.NewOptUUID(legalEntity)
 	}
 	res, err := s.API.ListHouseBanks(ctx, params)
-	page, ok := res.(*gen.HouseBankPageHeaders)
+	page, ok := res.(*gen.HouseBankPage)
 	if !ok {
 		s.Log.WarnContext(ctx, "web: the house banks could not be read", "answer", res, "error", err)
 		return nil
 	}
-	out := make(map[uuid.UUID]gen.HouseBank, len(page.Response.Items))
-	for _, b := range page.Response.Items {
+	out := make(map[uuid.UUID]gen.HouseBank, len(page.Items))
+	for _, b := range page.Items {
 		out[b.ID] = b
 	}
 	return out

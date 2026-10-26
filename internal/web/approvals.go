@@ -70,7 +70,7 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request, p *person) {
 			params.PageToken = gen.NewOptString(token)
 		}
 		res, err := s.API.ListApprovalRequests(r.Context(), params)
-		page, ok := res.(*gen.ApprovalRequestPageHeaders)
+		page, ok := res.(*gen.ApprovalRequestPage)
 		if !ok {
 			prob, show := s.refusal(w, r, p, "listApprovalRequests", res, err)
 			if !show {
@@ -79,8 +79,8 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request, p *person) {
 			in.Refusal, status, token = explain(i18n.InboxRefusedTitle, prob, m), int(prob.Status), ""
 			break
 		}
-		reqs = append(reqs, page.Response.Items...)
-		if token = page.Response.NextPageToken.Or(""); token == "" || len(reqs) >= inboxPageSize {
+		reqs = append(reqs, page.Items...)
+		if token = page.NextPageToken.Or(""); token == "" || len(reqs) >= inboxPageSize {
 			break
 		}
 	}

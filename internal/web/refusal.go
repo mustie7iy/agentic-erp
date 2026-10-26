@@ -10,13 +10,20 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/web/ui"
 )
 
-// problemOf is the problem an API answer carries: every refusal of the
-// typed client (BadRequestHeaders, ForbiddenHeaders, ConflictHeaders, …)
-// holds it as its Response.
+// problemType is the body of every refusal of the typed client.
+var problemType = reflect.TypeFor[gen.Problem]()
+
+// problemOf is the problem an API answer carries. A refusal the contract
+// declares response headers on (UnauthorizedHeaders, ConflictHeaders,
+// TooManyRequestsHeaders, …) holds it as its Response; any other refusal
+// is a Problem under its operation's name (ListLegalEntitiesForbidden, …).
 func problemOf(res any) (gen.Problem, bool) {
 	v := reflect.Indirect(reflect.ValueOf(res))
 	if v.Kind() != reflect.Struct {
 		return gen.Problem{}, false
+	}
+	if v.Type().ConvertibleTo(problemType) {
+		return v.Convert(problemType).Interface().(gen.Problem), true
 	}
 	f := v.FieldByName("Response")
 	if !f.IsValid() {

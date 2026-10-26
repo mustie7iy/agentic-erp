@@ -441,7 +441,7 @@ func (e *Endpoints) ListAgentSessions(ctx context.Context, params gen.ListAgentS
 		return nil, fmt.Errorf("agents: list sessions: %w", err)
 	}
 	items, next := apitypes.PageOf(ks, sessions, func(s Session) (string, uuid.UUID) { return instant(s.StartedAt), s.ID }, sessionToAPI)
-	return &gen.AgentSessionPageHeaders{Response: gen.AgentSessionPage{Items: items, NextPageToken: next}}, nil
+	return &gen.AgentSessionPage{Items: items, NextPageToken: next}, nil
 }
 
 // EndAgentSession implements POST /v1/agent-sessions/{id}:end.
@@ -494,7 +494,7 @@ func (e *Endpoints) ListAgentToolCalls(ctx context.Context, params gen.ListAgent
 	for _, c := range calls {
 		page.Items = append(page.Items, toolCallToAPI(c))
 	}
-	return &gen.AgentToolCallPageHeaders{Response: page}, nil
+	return &page, nil
 }
 
 // RecordAgentToolCall implements POST /v1/agent-sessions/{id}/tool-calls.
@@ -560,7 +560,7 @@ func (e *Endpoints) ListRecommendations(ctx context.Context, params gen.ListReco
 		return nil, fmt.Errorf("agents: list recommendations: %w", err)
 	}
 	items, next := apitypes.PageOf(ks, recs, func(r Recommendation) (string, uuid.UUID) { return instant(r.CreatedAt), r.ID }, recommendationToAPI)
-	return &gen.RecommendationPageHeaders{Response: gen.RecommendationPage{Items: items, NextPageToken: next}}, nil
+	return &gen.RecommendationPage{Items: items, NextPageToken: next}, nil
 }
 
 // DecideRecommendation implements POST /v1/recommendations/{id}:decide.

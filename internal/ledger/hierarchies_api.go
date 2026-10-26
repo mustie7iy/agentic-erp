@@ -91,7 +91,7 @@ func (e *Endpoints) ListHierarchies(ctx context.Context, params gen.ListHierarch
 		return nil, fmt.Errorf("ledger: list hierarchies: %w", err)
 	}
 	items, next := apitypes.PageOf(ks, hs, func(h Hierarchy) (string, uuid.UUID) { return h.Code, h.ID }, hierarchyToAPI)
-	return &gen.HierarchyPageHeaders{Response: gen.HierarchyPage{Items: items, NextPageToken: next}}, nil
+	return &gen.HierarchyPage{Items: items, NextPageToken: next}, nil
 }
 
 // GetHierarchy implements GET /v1/hierarchies/{id}.
@@ -171,7 +171,7 @@ type centerPath struct {
 
 // centerPaths lists a page of where a center sits, each path from the
 // root to the center's leaf.
-func (e *Endpoints) centerPaths(ctx context.Context, tx pgx.Tx, kind string, center uuid.UUID, page pagination.Request) (*gen.CenterPathPageHeaders, error) {
+func (e *Endpoints) centerPaths(ctx context.Context, tx pgx.Tx, kind string, center uuid.UUID, page pagination.Request) (*gen.CenterPathPage, error) {
 	ks, err := e.Pages.Keyset(pathSort, "centerPaths|"+kind+"|"+center.String(), page)
 	if err != nil {
 		return nil, err
@@ -205,7 +205,7 @@ func (e *Endpoints) centerPaths(ctx context.Context, tx pgx.Tx, kind string, cen
 	items, next := apitypes.PageOf(ks, ps, func(p centerPath) (string, uuid.UUID) { return p.Code, p.HierarchyID }, func(p centerPath) gen.CenterPath {
 		return gen.CenterPath{HierarchyID: p.HierarchyID, HierarchyCode: p.Code, IsStandard: p.IsStandard, Nodes: paths[p.NodeID]}
 	})
-	return &gen.CenterPathPageHeaders{Response: gen.CenterPathPage{Items: items, NextPageToken: next}}, nil
+	return &gen.CenterPathPage{Items: items, NextPageToken: next}, nil
 }
 
 // ListCostCenterPaths implements GET /v1/cost-centers/{id}/hierarchy-paths.

@@ -71,7 +71,7 @@ func (s *Server) parkedEntries(w http.ResponseWriter, r *http.Request, p *person
 		l.Invalid, status = true, http.StatusBadRequest
 	} else {
 		res, err := s.API.ListParkedJournalEntries(r.Context(), params)
-		page, isPage := res.(*gen.ParkedJournalEntryPageHeaders)
+		page, isPage := res.(*gen.ParkedJournalEntryPage)
 		if !isPage {
 			prob, show := s.refusal(w, r, p, "listParkedJournalEntries", res, err)
 			if !show {
@@ -79,8 +79,8 @@ func (s *Server) parkedEntries(w http.ResponseWriter, r *http.Request, p *person
 			}
 			l.Refusal, status = explainIn(i18n.EntryProblems, i18n.ParkedRefusedTitle, prob, m), int(prob.Status)
 		} else {
-			l.Rows = s.parkedRows(r.Context(), p, m, page.Response.Items)
-			if next := page.Response.NextPageToken.Or(""); next != "" {
+			l.Rows = s.parkedRows(r.Context(), p, m, page.Items)
+			if next := page.NextPageToken.Or(""); next != "" {
 				l.More = ui.JournalFor(with(q, "page", next))
 			}
 		}

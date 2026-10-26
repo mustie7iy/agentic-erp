@@ -95,7 +95,7 @@ func (e *Endpoints) ListWebhookSubscriptions(ctx context.Context, params gen.Lis
 	items, next := apitypes.PageOf(ks, ss, func(s Subscription) (string, uuid.UUID) {
 		return s.CreatedAt.UTC().Format(time.RFC3339Nano), s.ID
 	}, subscriptionToAPI)
-	return &gen.WebhookSubscriptionPageHeaders{Response: gen.WebhookSubscriptionPage{Items: items, NextPageToken: next}}, nil
+	return &gen.WebhookSubscriptionPage{Items: items, NextPageToken: next}, nil
 }
 
 // UpdateWebhookSubscription implements PATCH /v1/webhook-subscriptions/{id}.
@@ -203,7 +203,7 @@ func (e *Endpoints) ListWebhookDeliveries(ctx context.Context, params gen.ListWe
 	items, next := apitypes.PageOf(ks, ds, func(d Delivery) (string, uuid.UUID) {
 		return d.CreatedAt.UTC().Format(time.RFC3339Nano), d.ID
 	}, deliveryToAPI)
-	return &gen.WebhookDeliveryPageHeaders{Response: gen.WebhookDeliveryPage{Items: items, NextPageToken: next}}, nil
+	return &gen.WebhookDeliveryPage{Items: items, NextPageToken: next}, nil
 }
 
 // GetWebhookDelivery implements GET

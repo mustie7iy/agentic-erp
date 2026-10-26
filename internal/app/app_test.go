@@ -15,6 +15,8 @@ import (
 	"go.opentelemetry.io/otel/metric/noop"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 
+	"github.com/google/uuid"
+
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
@@ -33,24 +35,8 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 // but the check runs here because it needs a real operation behind the
 // unit of work (the database answering the deadline).
 func TestQuotasAndDeadlines(t *testing.T) {
-	is := authntest.New(t)
-	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ten := pgtest.NewTenant(t, "platform.operation.read")
-	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	legacy, _ := fieldcrypt.New([]byte(strings.Repeat("f", 32)))
-	keys := &fieldcrypt.Keyring{Legacy: legacy}
-	base := Config{Pool: pgtest.Pool(t), AppRole: "erp_app", Verifier: v, Pages: pages, FieldKeys: keys, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Metrics: telemetry.NewMetrics(), Tracer: tracenoop.NewTracerProvider(), Meter: noop.NewMeterProvider(), Now: time.Now}
-	get := func(h http.Handler) *httptest.ResponseRecorder {
-		req := httptest.NewRequest("GET", "/v1/operations", nil)
-		req.Header.Set("Authorization", "Bearer "+is.Token(t, ten.ID, ten.Human.Subject, nil))
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-		return rec
-	}
+	base, getPath := pipeline(t)
+	get := func(h http.Handler) *httptest.ResponseRecorder { return getPath(h, "/v1/operations") }
 	limited := base
 	limited.Limits = &ratelimit.Limiter{Principal: ratelimit.Quota{Rate: 0.001, Burst: 1}}
 	h, err := New(limited)
@@ -88,6 +74,69 @@ func TestQuotasAndDeadlines(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "platform.unavailable") {
 		t.Errorf("expired body: got %s, want platform.unavailable", rec.Body)
+	}
+}
+
+// pipeline is the API's configuration over the test database and a GET of
+// a path through a handler, as a principal allowed to read operations.
+func pipeline(t *testing.T) (Config, func(h http.Handler, path string) *httptest.ResponseRecorder) {
+	t.Helper()
+	is := authntest.New(t)
+	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ten := pgtest.NewTenant(t, "platform.operation.read")
+	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
+	legacy, _ := fieldcrypt.New([]byte(strings.Repeat("f", 32)))
+	keys := &fieldcrypt.Keyring{Legacy: legacy}
+	base := Config{Pool: pgtest.Pool(t), AppRole: "erp_app", Verifier: v, Pages: pages, FieldKeys: keys, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Metrics: telemetry.NewMetrics(), Tracer: tracenoop.NewTracerProvider(), Meter: noop.NewMeterProvider(), Now: time.Now}
+	get := func(h http.Handler, path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", path, nil)
+		req.Header.Set("Authorization", "Bearer "+is.Token(t, ten.ID, ten.Human.Subject, nil))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	return base, get
+}
+
+// TestEveryResponseCarriesRateLimitHeaders holds what the contract states
+// once, in its info.description, rather than on each response: every
+// response to an authenticated request, a success, a problem or the 429
+// itself, carries RateLimit-Limit, RateLimit-Remaining and RateLimit-Reset.
+func TestEveryResponseCarriesRateLimitHeaders(t *testing.T) {
+	base, get := pipeline(t)
+	limited := base
+	limited.Limits = &ratelimit.Limiter{Principal: ratelimit.Quota{Rate: 0.001, Burst: 3}}
+	h, err := New(limited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// In order: the bucket of three is spent by the first three, so the fourth is refused.
+	for _, step := range []struct {
+		name, path string
+		status     int
+		remaining  string
+	}{
+		{"a success", "/v1/operations", http.StatusOK, "2"},
+		{"a problem from the operation", "/v1/operations/" + uuid.NewString(), http.StatusNotFound, "1"},
+		{"a problem from validation", "/v1/operations?page_size=0", http.StatusBadRequest, "0"},
+		{"the refusal", "/v1/operations", http.StatusTooManyRequests, "0"},
+	} {
+		rec := get(h, step.path)
+		if rec.Code != step.status {
+			t.Fatalf("%s: status got %d, want %d (%s)", step.name, rec.Code, step.status, rec.Body)
+		}
+		for name, want := range map[string]string{"RateLimit-Limit": "3", "RateLimit-Remaining": step.remaining} {
+			if got := rec.Header().Get(name); got != want {
+				t.Errorf("%s: %s got %q, want %q", step.name, name, got, want)
+			}
+		}
+		if got := rec.Header().Get("RateLimit-Reset"); got == "" {
+			t.Errorf("%s: RateLimit-Reset got none, want the seconds until the window resets", step.name)
+		}
 	}
 }
 

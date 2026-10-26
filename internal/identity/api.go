@@ -196,7 +196,7 @@ func (e *Endpoints) ListPrincipals(ctx context.Context, params gen.ListPrincipal
 	if err != nil {
 		return nil, err
 	}
-	return &gen.PrincipalPageHeaders{Response: gen.PrincipalPage{Items: items, NextPageToken: next}}, nil
+	return &gen.PrincipalPage{Items: items, NextPageToken: next}, nil
 }
 
 // UpdatePrincipal implements PATCH /v1/principals/{id}.
@@ -274,7 +274,7 @@ func (e *Endpoints) ListRoles(ctx context.Context, params gen.ListRolesParams) (
 	if err != nil {
 		return nil, err
 	}
-	return &gen.RolePageHeaders{Response: gen.RolePage{Items: items, NextPageToken: next}}, nil
+	return &gen.RolePage{Items: items, NextPageToken: next}, nil
 }
 
 // UpdateRole implements PATCH /v1/roles/{id}.
@@ -335,7 +335,7 @@ func (e *Endpoints) ListRolePermissions(ctx context.Context, params gen.ListRole
 	if err != nil {
 		return nil, err
 	}
-	return &gen.RolePermissionPageHeaders{Response: gen.RolePermissionPage{Items: items, NextPageToken: next}}, nil
+	return &gen.RolePermissionPage{Items: items, NextPageToken: next}, nil
 }
 
 // EndRolePermission implements POST /v1/roles/{id}/permissions/{permission_id}:end.
@@ -382,7 +382,7 @@ func (e *Endpoints) ListRoleAssignments(ctx context.Context, params gen.ListRole
 	if err != nil {
 		return nil, err
 	}
-	return &gen.RoleAssignmentPageHeaders{Response: gen.RoleAssignmentPage{Items: items, NextPageToken: next}}, nil
+	return &gen.RoleAssignmentPage{Items: items, NextPageToken: next}, nil
 }
 
 // EndRoleAssignment implements POST /v1/role-assignments/{id}:end.
@@ -429,7 +429,7 @@ func (e *Endpoints) ListCompanyAccess(ctx context.Context, params gen.ListCompan
 	if err != nil {
 		return nil, err
 	}
-	return &gen.CompanyAccessPageHeaders{Response: gen.CompanyAccessPage{Items: items, NextPageToken: next}}, nil
+	return &gen.CompanyAccessPage{Items: items, NextPageToken: next}, nil
 }
 
 // grantList describes a list of grants filtered by principal, by one other
@@ -511,7 +511,7 @@ func (e *Endpoints) ListSodRules(ctx context.Context, params gen.ListSodRulesPar
 	if err != nil {
 		return nil, err
 	}
-	return &gen.SodRulePageHeaders{Response: gen.SodRulePage{Items: items, NextPageToken: next}}, nil
+	return &gen.SodRulePage{Items: items, NextPageToken: next}, nil
 }
 
 // EndSodRule implements POST /v1/sod-rules/{id}:end.

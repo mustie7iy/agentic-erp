@@ -1,9 +1,10 @@
 // Package ratelimit enforces the API's request quotas (04-api-design §4.11)
 // so that one hot tenant or principal cannot starve the others in a cell
 // (05-scalability §5.7). Each tenant and each principal has a token bucket;
-// every response reports the caller's quota as RateLimit-Limit,
-// RateLimit-Remaining and RateLimit-Reset, and a request over quota is
-// refused with 429 and Retry-After before it reaches the database.
+// every response to an authenticated request reports the caller's quota as
+// RateLimit-Limit, RateLimit-Remaining and RateLimit-Reset (stated once in
+// the contract's info.description), and a request over quota is refused
+// with 429 and Retry-After before it reaches the database.
 package ratelimit
 
 import (

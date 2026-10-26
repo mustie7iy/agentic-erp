@@ -7318,6 +7318,27 @@
      },
      {
       "s": "D",
+      "t": "The rate-limit headers are declared once (PO 2026-10-26): RateLimit-Limit, RateLimit-Remaining and RateLimit-Reset are stated in the contract's info.description instead of on each of its responses, which made api/gen 1,129,193 lines (about 430,000 of them parsing those headers) and a race build of it peak at 6.6 GB while main's race suite on GitHub was stopped by its runner (since 2026-10-21); api/gen is now 611,245 lines and its race build peaks at 3.1 GB. The middleware still sends them on every response to an authenticated request, held by a test of a success, a problem and the 429, and a contract test holds that no response declares them; Retry-After stays declared on the responses that set it",
+      "r": "api/openapi.yaml · api/spec_test.go · internal/app/app_test.go · internal/web/refusal.go · 04 §4.11",
+      "src": "po:2026-10-26 · ci:batch15",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "Main's full run given the time to finish (PO 2026-10-25, fix and verify; the verifying run on main is still to come): the CI tools are saved to the cache right after they are built (actions/cache/restore and actions/cache/save, same key), since actions/cache saves only in its post step, which a failed or cancelled job skips, and the test job's limit is 180 minutes. Run 40334507190 (2026-10-26; 2 CPUs, 7938 MiB) was cancelled at 120 minutes with 109 of 116 packages passed and none failed: 32 minutes before the race step (14 of them the tools, a cache miss on every run since 2026-10-21, and 6 a cold vet), then 89 minutes of race tests, the slowest payments 1324 s, ledger 1043 s, payables 642 s",
+      "r": ".github/workflows/ci.yml · 06 §6.5",
+      "src": "ci:batch15 · po:2026-10-25",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "Main's full suite nightly and on demand instead of on every push (PO 2026-10-26): ci.yml's test job runs on schedule (06:00 UTC) and workflow_dispatch only, with a 240-minute limit, as it takes about three hours on the private repository's 2-CPU, 7.9 GB runner (run 40334507190 cancelled at 120 minutes, none failed); a push to main still runs fuzz, signing and release-scripts as before and its ci-ok passes with test skipped, a nightly or manual run's ci-ok is red when test fails, and pull requests are unchanged. Each merge still needs make ci-local and the pull request's short check (merge-pr.sh); the red-main rule applies to the latest nightly or manual full run: while it is red nothing merges but the fix forward",
+      "r": ".github/workflows/ci.yml · scripts/ci-changes.sh · scripts/test-ci-changes.sh · scripts/ci-local.sh · CLAUDE.md · docs/testing.md · 06 §6.5",
+      "src": "po:2026-10-26",
+      "c": []
+     },
+     {
+      "s": "D",
       "t": "Nightly: long load, resilience, two-hour soak, five minutes of fuzzing per target",
       "r": ".github/workflows/nightly.yml",
       "c": []

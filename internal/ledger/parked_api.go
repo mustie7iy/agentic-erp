@@ -99,7 +99,7 @@ func (e *Endpoints) ListParkedJournalEntries(ctx context.Context, params gen.Lis
 	items, next := apitypes.PageOf(ks, entries, func(pe ParkedEntry) (string, uuid.UUID) {
 		return pe.CreatedAt.UTC().Format(time.RFC3339Nano), pe.ID
 	}, parkedToAPI)
-	return &gen.ParkedJournalEntryPageHeaders{Response: gen.ParkedJournalEntryPage{Items: items, NextPageToken: next}}, nil
+	return &gen.ParkedJournalEntryPage{Items: items, NextPageToken: next}, nil
 }
 
 // UpdateParkedJournalEntry implements PATCH /v1/parked-journal-entries/{id}.

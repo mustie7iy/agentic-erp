@@ -559,8 +559,9 @@ Decisions taken while building it:
   keyed by tenant, issuer and subject (F7), so another trusted issuer
   minting the same subject cannot spend its quota. The principal's bucket is
   checked first, so a hot principal's refusals do not count against its
-  tenant. Every response carries `RateLimit-Limit`, `RateLimit-Remaining`
-  and `RateLimit-Reset` for the tighter quota; a refusal is 429
+  tenant. Every response to an authenticated request carries `RateLimit-Limit`,
+  `RateLimit-Remaining` and `RateLimit-Reset` for the tighter quota (stated
+  once in the contract's `info.description`, PO 2026-10-26); a refusal is 429
   `request.rate_limited` with `Retry-After`, answered before the unit of
   work opens a transaction. With n replicas a caller gets up to n times the
   quota until limits move to the gateway.

@@ -85,7 +85,7 @@ func (e *Endpoints) ListApprovalRequests(ctx context.Context, params gen.ListApp
 		return nil, err
 	}
 	if in.none {
-		return &gen.ApprovalRequestPageHeaders{Response: gen.ApprovalRequestPage{Items: []gen.ApprovalRequest{}}}, nil
+		return &gen.ApprovalRequestPage{Items: []gen.ApprovalRequest{}}, nil
 	}
 	q, args := ks.SQL(requestSelect+` WHERE ($1 = '' OR r.status = $1) AND ($2 = '' OR r.object_type = $2) AND ($3::uuid IS NULL OR r.object_id = $3)`+in.where,
 		append([]any{params.Status.Value, params.ObjectType.Value, object}, in.args...))
@@ -111,7 +111,7 @@ func (e *Endpoints) ListApprovalRequests(ctx context.Context, params gen.ListApp
 	if next != "" {
 		out.NextPageToken.SetTo(next)
 	}
-	return &gen.ApprovalRequestPageHeaders{Response: out}, nil
+	return &out, nil
 }
 
 // ApproveApprovalRequest implements POST /v1/approval-requests/{id}:approve.

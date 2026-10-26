@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # The full gates on this machine, before a pull request's light GitHub check
-# (06 §6.5): every check GitHub runs on a push to main, plus the shuffled
-# race runs of 07 §7.7, at the versions CI pins (scripts/ci-tools.sh,
-# scripts/ci-local-tools.sh). The path-conditional ones (the images, the
-# signing round trip, the release scripts, the deploy workflow, the
-# promotion self-test) run on the classes scripts/ci-changes.sh gives
-# GitHub, so a change skips here exactly what main's run skips; a skipped
-# step is listed as skip with its reason. Every step runs even after one
-# fails, so one run shows every failure; each step's output is kept in its
-# own log.
+# (06 §6.5): every check GitHub runs on main (on a push and nightly),
+# plus the shuffled race runs of 07 §7.7, at the versions CI pins
+# (scripts/ci-tools.sh, scripts/ci-local-tools.sh). The path-conditional
+# ones (the images, the signing round trip, the release scripts, the
+# deploy workflow, the promotion self-test) run on the classes
+# scripts/ci-changes.sh gives GitHub, so a change skips here exactly what
+# main's push run skips (the image reproducibility gate, which only the
+# nightly and manual runs hold, on the same classes); a skipped step is
+# listed as skip with its reason.
+# Every step runs even after one fails, so one run shows every failure;
+# each step's output is kept in its own log.
 #
 # What only a Linux runner does differently is recorded in 06 §6.5: the
 # images are built for linux/amd64 alone, as pull requests always built

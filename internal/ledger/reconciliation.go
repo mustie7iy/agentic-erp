@@ -131,7 +131,7 @@ func (e *Endpoints) ListLedgerReconciliation(ctx context.Context, params gen.Lis
 	r, ok, err := e.reconcile(ctx, tx, params.LegalEntityID, apitypes.Ptr[uuid.UUID](params.LedgerID), params.CompareLedgerID)
 	page := gen.LedgerReconciliationPage{LedgerID: r.ledger, CompareLedgerID: r.compare, TrialBalances: []gen.LedgerTrialBalance{}, Items: []gen.LedgerDifference{}}
 	if err != nil || !ok {
-		return &gen.LedgerReconciliationPageHeaders{Response: page}, err
+		return &page, err
 	}
 	ledgers := []uuid.UUID{r.ledger, r.compare}
 	// The trial balances read every balance of both ledgers again: the
@@ -157,7 +157,7 @@ func (e *Endpoints) ListLedgerReconciliation(ctx context.Context, params gen.Lis
 	if next != "" {
 		page.NextPageToken.SetTo(next)
 	}
-	return &gen.LedgerReconciliationPageHeaders{Response: page}, nil
+	return &page, nil
 }
 
 // ledgerTotals is one ledger's trial balance totals.
@@ -235,7 +235,7 @@ func (e *Endpoints) ListLedgerReconciliationEntries(ctx context.Context, params 
 	page := gen.LedgerReconciliationEntryPage{Items: []gen.LedgerReconciliationEntry{}}
 	r, ok, err := e.reconcile(ctx, tx, params.LegalEntityID, apitypes.Ptr[uuid.UUID](params.LedgerID), params.CompareLedgerID)
 	if err != nil || !ok {
-		return &gen.LedgerReconciliationEntryPageHeaders{Response: page}, err
+		return &page, err
 	}
 	q, args := ks.SQL(reconEntrySelect, []any{r.le.ID, r.ledger, r.compare, params.FiscalYear, period, params.AccountID, cur})
 	rows, _ := tx.Query(ctx, q, args...)
@@ -253,5 +253,5 @@ func (e *Endpoints) ListLedgerReconciliationEntries(ctx context.Context, params 
 	if next != "" {
 		page.NextPageToken.SetTo(next)
 	}
-	return &gen.LedgerReconciliationEntryPageHeaders{Response: page}, nil
+	return &page, nil
 }

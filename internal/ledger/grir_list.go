@@ -123,7 +123,7 @@ func (e *Endpoints) ListGrIrBalances(ctx context.Context, params gen.ListGrIrBal
 		}
 		return b.PurchaseOrderID.String(), b.ID
 	}, grirBalanceToAPI)
-	return &gen.GrIrBalancePageHeaders{Response: gen.GrIrBalancePage{Items: items, NextPageToken: next}}, nil
+	return &gen.GrIrBalancePage{Items: items, NextPageToken: next}, nil
 }
 
 func grirBalanceToAPI(b GRIRBalance) gen.GrIrBalance {
