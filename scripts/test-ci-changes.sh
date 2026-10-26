@@ -62,6 +62,9 @@ expect "a push with no green run on main" true EVENT=push HEAD="$code"
 expect "a push of documentation since the last green commit" false EVENT=push FAKE_GREEN="$code" HEAD="$tracker"
 expect "documentation after code whose run was cancelled" true EVENT=push FAKE_GREEN="$docs" HEAD="$tracker"
 expect "a last green commit that is not an ancestor" true EVENT=push FAKE_GREEN=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef HEAD="$tracker"
+# The nightly full run (ci.yml's schedule) has no base: everything runs,
+# documentation-only nights included.
+expect "a nightly run has no base" true EVENT=schedule HEAD="$tracker"
 
 # expect_out checks one more output line ($3=$4) for the change $2.
 expect_out() {

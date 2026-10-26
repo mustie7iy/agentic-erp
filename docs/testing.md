@@ -2,8 +2,10 @@
 
 Every Phase 1 requirement has functional tests, and the platform has
 dedicated non-functional suites. CI (`.github/workflows/ci.yml`) runs all of
-it on every push: formatting, `go vet`, every test under the race detector,
-the coverage gate, fuzzing and the build.
+it on `main` nightly and on demand: formatting, `go vet`, every test under
+the race detector, the coverage gate, fuzzing and the build; before a merge
+`make ci-local` runs the same locally (docs/design/06-engineering-process.md
+§6.5).
 
 ```sh
 make test        # functional + end-to-end + non-functional, race detector on
@@ -90,7 +92,7 @@ for two minutes, the resilience suite, a two-hour soak and five minutes of
 fuzzing per target. The runner is several times slower than a laptop (about
 110 requests/s with the database in a sidecar container), so its budgets are
 scaled by `ERP_BUDGET_SCALE` (4 weekly, 2 for the performance step of the
-push pipeline, 1 by default): the scaled budgets catch a regression, the
+nightly run, 1 by default): the scaled budgets catch a regression, the
 consistency checks still gate, and the budgets at scale 1 are for a
 cell-sized environment, which the largest tenant's peak needs anyway. Both
 workflows raise the service container's `max_connections` to 300 before

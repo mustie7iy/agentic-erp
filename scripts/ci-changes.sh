@@ -14,16 +14,17 @@
 # included, as those workflows' path filters count it. scripts/ci-local.sh
 # runs those checks on the same classes, before a merge.
 #
-# EVENT is pull_request, push or workflow_dispatch (which, with no base,
-# runs everything), BASE the commit to compare with (the pull
-# request's base), HEAD the commit under test (default HEAD). A push to
-# main is compared with the last commit whose run on main passed, not with
-# the commit before it: a newer push cancels a running one (ci.yml), so a
-# documentation merge right after a code merge would otherwise skip the
-# only full run the code would get. GH (default gh) and GITHUB_REPOSITORY
-# find that run; tests replace GH.
+# EVENT is pull_request, push, schedule or workflow_dispatch (the nightly
+# and manual runs, which, with no base, run everything), BASE the commit to
+# compare with (the pull request's base), HEAD the commit under test
+# (default HEAD). A push to main is compared with the last commit whose
+# push run on main passed, not with the commit before it: a newer push
+# cancels a running one (ci.yml), so a documentation merge right after a
+# code merge would otherwise skip the only push run (fuzzing, signing, the
+# release scripts) the code would get; the full suite runs nightly. GH
+# (default gh) and GITHUB_REPOSITORY find that run; tests replace GH.
 set -euo pipefail
-event="${EVENT:?EVENT: pull_request or push}"
+event="${EVENT:?EVENT: pull_request, push, schedule or workflow_dispatch}"
 head="${HEAD:-$(git rev-parse HEAD)}"
 base="${BASE:-}"
 GH="${GH:-gh}"

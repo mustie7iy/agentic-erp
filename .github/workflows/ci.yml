@@ -4,17 +4,22 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The full suite (the test job) runs nightly on main and on demand, not on
+  # every push (PO 2026-10-26): it takes about three hours on the private
+  # repository's 2-CPU runner. 06:00 UTC is the PO's night.
+  schedule:
+    - cron: "0 6 * * *"
   # The full jobs on demand, on any branch: a change to them is tried before
   # it reaches main (2026-10-25, main's suite stopped by the runner).
   workflow_dispatch:
 
-# A newer push makes a running check obsolete: on a pull request its
-# previous commit, on main the merges before it, whose changes the newer
-# run's tree contains. Cancel it, so merges in quick succession pay for one
-# full run (06 §6.5).
+# A newer run of the same event and ref makes a running one obsolete: on a
+# pull request its previous commit, on main the merges before it, or an
+# earlier dispatch, whose changes the newer run's tree contains. Cancel it,
+# so merges in quick succession pay for one run (06 §6.5).
 concurrency:
-  # The event is in the group, so a dispatch on main and a push to main do
-  # not cancel each other's runs.
+  # The event is in the group, so a push, a dispatch and the nightly run on
+  # main do not cancel each other's runs.
   group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
@@ -83,7 +88,8 @@ jobs:
     # job: images pushed, signed and attested (SBOM, provenance) with a key
     # pair made for the run, standing in for the release KMS key; verified;
     # and refused with another key, another commit, a tag or no signature.
-    # On main, when its inputs changed; the weekly run does it regardless.
+    # On a push to main, when its inputs changed; the nightly, manual and
+    # weekly runs, with no base to compare with, do it regardless.
     # A pull request's author ran it locally (scripts/ci-local.sh).
     needs: changes
     if: github.event_name != 'pull_request' && needs.changes.outputs.images != 'false'
@@ -115,8 +121,9 @@ jobs:
   release-scripts:
     # The version rules and the changelog of ADR-0032 on throwaway
     # repositories (scripts/test-release-scripts.sh), with the git-cliff the
-    # release workflow installs. On main, when those scripts changed; a
-    # pull request's author ran them locally (scripts/ci-local.sh).
+    # release workflow installs. On a push to main, when those scripts
+    # changed, and on every nightly or manual run; a pull request's author
+    # ran them locally (scripts/ci-local.sh).
     needs: changes
     if: github.event_name != 'pull_request' && needs.changes.outputs.release != 'false'
     runs-on: ubuntu-latest
@@ -144,7 +151,8 @@ jobs:
     # checks the cheap guards on a clean runner: format, vet, the whole
     # tree lint, the generated code, the contract lint and breaking-change
     # check, the build and the suite in short mode without the race
-    # detector, within ten minutes. main runs the full suite again (test).
+    # detector, within ten minutes. The nightly run on main runs the full
+    # suite again (test).
     needs: changes
     if: github.event_name == 'pull_request' && needs.changes.outputs.run != 'false'
     runs-on: ubuntu-latest
@@ -168,8 +176,10 @@ jobs:
         with:
           go-version-file: go.mod
       - name: CI tools (pinned, cached)
-        # The test job's cache on main, restored: a pull request builds them
-        # only when it changes scripts/ci-tools.sh.
+        # The nightly test job's cache on main, restored: a pull request
+        # builds them when it changes scripts/ci-tools.sh, and every pull
+        # request does after such a change merges until the next nightly
+        # (or a manual run on main) saves them again.
         id: tools
         uses: actions/cache/restore@v5.1.0
         with:
@@ -240,7 +250,11 @@ jobs:
 
   test:
     needs: changes
-    if: github.event_name != 'pull_request' && needs.changes.outputs.run != 'false'
+    # Nightly on main and on demand only (PO 2026-10-26): a push to main
+    # runs the other jobs, and its ci-ok passes with this one skipped; a
+    # nightly or manual run is red when this one fails, and while the latest
+    # one on main is red nothing merges but the fix forward (06 §6.5).
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.run != 'false'
     # The full suite on main (06 §6.5), the second line after the author's
     # local gates: the static checks, the race detector, the performance
     # budgets, the coverage gate and the images, on the tree main really
@@ -249,13 +263,15 @@ jobs:
     # A pull request runs the short job above instead.
     runs-on: ubuntu-latest
     # Above the race step's -timeout 60m plus the other steps, so a hung
-    # package is reported by go test before the runner stops the job. 180
-    # since run 40334507190 (2026-10-26, 2 CPUs, 7938 MiB): 32 minutes before
-    # the race step (14 of them the tools, a cache miss, and 6 a cold vet),
-    # then the race step itself ran 89 minutes, two packages at a time, with
-    # 109 of 116 packages passed and none failed when the 120-minute limit
-    # cancelled the job; the budgets, coverage and image steps follow it.
-    timeout-minutes: 180
+    # package is reported by go test before the runner stops the job. Run
+    # 40334507190 (2026-10-26, 2 CPUs, 7938 MiB) spent 32 minutes before the
+    # race step (14 of them the tools, a cache miss, and 6 a cold vet), then
+    # 89 minutes in it, two packages at a time, with 109 of 116 packages
+    # passed and none failed when its 120-minute limit cancelled the job;
+    # the budgets, the coverage gate's second instrumented run and the
+    # images follow, about three hours in all. 240 leaves an hour's margin
+    # for a nightly run nobody is waiting on.
+    timeout-minutes: 240
     services:
       postgres:
         image: postgres:17
@@ -407,8 +423,9 @@ jobs:
         # buildx builder of its own, and fails unless every digest matches:
         # an image that cannot be rebuilt bit for bit from its commit cannot
         # be checked against it. Nothing is pushed here; T39c's release
-        # workflow pushes and signs. Only when the image inputs changed (the
-        # weekly run does it regardless); otherwise one build for the scan.
+        # workflow pushes and signs. Only when the image inputs changed;
+        # otherwise one build for the scan. The nightly and manual runs have
+        # no base to compare with, so they always build twice.
         # Both platforms, as .ko.yaml lists them; a pull request's author
         # built linux/amd64 (scripts/ci-local.sh).
         env:
@@ -429,9 +446,10 @@ jobs:
           df -h / | tail -1
 
   fuzz:
-    # On main, whenever code changed. A pull request's tests already run
-    # every target's seed corpus, its author fuzzed 30 s per target locally
-    # (scripts/ci-local.sh), and the weekly run fuzzes 5 minutes per target.
+    # On a push to main whenever code changed, and nightly. A pull
+    # request's tests already run every target's seed corpus, its author
+    # fuzzed 30 s per target locally (scripts/ci-local.sh), and the weekly
+    # run fuzzes 5 minutes per target.
     needs: changes
     if: github.event_name != 'pull_request' && needs.changes.outputs.run != 'false'
     # No database: the fuzz targets are parsers (money, config, analytics,
@@ -453,7 +471,9 @@ jobs:
     # pass: this job fails unless `changes` succeeded and nothing it gates
     # failed or was cancelled.
     # On a pull request it aggregates the light jobs (changes, short), the
-    # others skipped; on main, the full ones.
+    # others skipped; on a push to main, fuzz, signing and release-scripts,
+    # test skipped (it runs nightly); on the nightly or a manual run, every
+    # job but short, so a failed test turns that run red.
     needs: [changes, short, test, fuzz, signing, release-scripts]
     if: always()
     runs-on: ubuntu-latest
