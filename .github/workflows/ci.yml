@@ -4,13 +4,18 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The full jobs on demand, on any branch: a change to them is tried before
+  # it reaches main (2026-10-25, main's suite stopped by the runner).
+  workflow_dispatch:
 
 # A newer push makes a running check obsolete: on a pull request its
 # previous commit, on main the merges before it, whose changes the newer
 # run's tree contains. Cancel it, so merges in quick succession pay for one
 # full run (06 §6.5).
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  # The event is in the group, so a dispatch on main and a push to main do
+  # not cancel each other's runs.
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -81,7 +86,7 @@ jobs:
     # On main, when its inputs changed; the weekly run does it regardless.
     # A pull request's author ran it locally (scripts/ci-local.sh).
     needs: changes
-    if: github.event_name == 'push' && needs.changes.outputs.images != 'false'
+    if: github.event_name != 'pull_request' && needs.changes.outputs.images != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 60 # two image builds, erp-analytics's compiling api/gen with cgo
     services:
@@ -113,7 +118,7 @@ jobs:
     # release workflow installs. On main, when those scripts changed; a
     # pull request's author ran them locally (scripts/ci-local.sh).
     needs: changes
-    if: github.event_name == 'push' && needs.changes.outputs.release != 'false'
+    if: github.event_name != 'pull_request' && needs.changes.outputs.release != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -227,7 +232,7 @@ jobs:
 
   test:
     needs: changes
-    if: github.event_name == 'push' && needs.changes.outputs.run != 'false'
+    if: github.event_name != 'pull_request' && needs.changes.outputs.run != 'false'
     # The full suite on main (06 §6.5), the second line after the author's
     # local gates: the static checks, the race detector, the performance
     # budgets, the coverage gate and the images, on the tree main really
@@ -236,8 +241,10 @@ jobs:
     # A pull request runs the short job above instead.
     runs-on: ubuntu-latest
     # Above the race step's -timeout 60m plus the other steps, so a hung
-    # package is reported by go test before the runner stops the job.
-    timeout-minutes: 100
+    # package is reported by go test before the runner stops the job; 120
+    # since the race step runs two packages at a time (2026-10-25) and a cold
+    # tools cache costs about 14 minutes before it.
+    timeout-minutes: 120
     services:
       postgres:
         image: postgres:17
@@ -323,18 +330,31 @@ jobs:
         # The race build shares nothing with the plain build cache above; drop
         # it first so the runner's disk (72 GB, most of it taken by the image)
         # holds the race build and later the instrumented coverage build.
+        # From 2026-10-21 on, main's runs were stopped by the runner (exit 143,
+        # "received a shutdown signal") about 8 minutes into this step, with
+        # no test failing. The generated API (api/gen, ~650k lines) is the
+        # package that needs the most memory to compile, here as in a local
+        # 8 GB Docker build, which it exhausted: build it alone first, then
+        # test two packages at a time. Memory and disk are logged every 30 s,
+        # so a runner stopped again shows why.
         run: |
           go clean -cache
           df -h / | tail -1
-          go test -race -count=1 -timeout 60m ./...
+          echo "cpus $(nproc)"; free -m
+          ( while sleep 30; do
+              echo "monitor $(date -u +%T) $(free -m | awk 'NR==2{print "memory used "$3" of "$2" MiB, available "$7}'), $(df -h / | awk 'NR==2{print "disk free "$4}')"
+            done ) &
+          monitor=$!
+          trap 'kill "$monitor" 2>/dev/null || true' EXIT
+          go build -race ./api/gen
+          go test -race -count=1 -timeout 60m -p 2 ./...
       - name: Performance budgets (without the race detector)
         # The runner is about twice as slow as a laptop on these; the scaled
         # budgets still catch a regression (ERP_BUDGET_SCALE, docs/testing.md).
         env:
           ERP_BUDGET_SCALE: 2
-        run: |
-          go test -count=1 -run Budget -v ./internal/ledger
-          go test -count=1 -run Perf -v ./internal/nfr
+        # Every package's budget tests (scripts/budgets.sh finds them).
+        run: ./scripts/budgets.sh -v
       - name: Coverage gate
         # The race build above and the instrumented build here share nothing,
         # so the race cache is dropped first; the runner's disk ran out once.
@@ -390,7 +410,7 @@ jobs:
     # every target's seed corpus, its author fuzzed 30 s per target locally
     # (scripts/ci-local.sh), and the weekly run fuzzes 5 minutes per target.
     needs: changes
-    if: github.event_name == 'push' && needs.changes.outputs.run != 'false'
+    if: github.event_name != 'pull_request' && needs.changes.outputs.run != 'false'
     # No database: the fuzz targets are parsers (money, config, analytics,
     # bankfile, sap), and a package's database tests skip without one.
     runs-on: ubuntu-latest

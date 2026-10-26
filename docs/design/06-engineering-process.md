@@ -129,7 +129,7 @@ Every change passes, before it is merged:
 | Contract lint and breaking-change check | `vacuum` (Go), `oasdiff` (Go) |
 | Schema tests on PostgreSQL 17 | `go test ./db` against a CI service container |
 | Unit, functional and non-functional tests with the race detector | `go test -race ./...` (locally three times in random order) |
-| Performance budgets | `-run Budget`, `-run Perf` |
+| Performance budgets | `scripts/budgets.sh`: every package's `Test…Budget` and `Test…Perf`, found rather than listed, one package at a time |
 | Coverage gate | `scripts/coverage.sh`, 100% of production statements |
 | Fuzz targets | Every target's seed corpus with the tests on PRs; `make fuzz` 30 s per target on `main`, 5 minutes weekly |
 | Image signing round trip | `make signing-roundtrip` against a registry service: push, sign and attest (SBOM, provenance) with a key pair made for the job, verify, and the refusals (another key, another commit, a tag, no signature, attestations without a signature, uncommitted changes) (ADR-0032). When signing or image inputs change, and weekly |
@@ -199,6 +199,11 @@ to repeating the slow gates on each pull request:
   deploy workflow when its paths changed, on the tree `main` really holds.
   A newer push cancels a running `ci` run, so merges in quick succession
   pay for one run; the deploy workflow's runs are not cancelled.
+  The same jobs run on demand on any branch (`workflow_dispatch`, with no
+  base to compare with, so everything runs): a change to them is tried
+  before it reaches `main`. Every merge's run on `main` is read after it
+  (coordinator/status.py), not only the pull request's light check: from
+  2026-10-21 to 2026-10-25 the runner stopped every run on `main`, unseen.
 - **A red `main`** (PO decision, 2026-10-21): the merge that turned it red
   is reverted at once, or fixed forward within the hour when the fix is
   clear and small; nothing else merges meanwhile, and a release is cut only
