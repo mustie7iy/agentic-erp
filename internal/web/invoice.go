@@ -111,7 +111,7 @@ func (s *Server) latestMatch(w http.ResponseWriter, r *http.Request, p *person, 
 		return nil, true
 	}
 	res, err := s.API.ListMatchResults(r.Context(), gen.ListMatchResultsParams{ID: inv.ID, PageSize: gen.NewOptInt32(1)})
-	page, ok := res.(*gen.MatchResultPageHeaders)
+	page, ok := res.(*gen.MatchResultPage)
 	if !ok {
 		prob, show := s.refusal(w, r, p, "listMatchResults", res, err)
 		if show {
@@ -120,10 +120,10 @@ func (s *Server) latestMatch(w http.ResponseWriter, r *http.Request, p *person, 
 		}
 		return nil, show
 	}
-	if len(page.Response.Items) == 0 {
+	if len(page.Items) == 0 {
 		return nil, true
 	}
-	return &page.Response.Items[0], true
+	return &page.Items[0], true
 }
 
 // recommendations reads the agents' recommendations on the invoice, for
@@ -136,7 +136,7 @@ func (s *Server) recommendations(w http.ResponseWriter, r *http.Request, p *pers
 	ip.RecsShown = true
 	res, err := s.API.ListRecommendations(r.Context(), gen.ListRecommendationsParams{ObjectType: gen.NewOptString("supplier_invoice"),
 		ObjectID: gen.NewOptUUID(id), PageSize: gen.NewOptInt32(maxRecommendations)})
-	page, ok := res.(*gen.RecommendationPageHeaders)
+	page, ok := res.(*gen.RecommendationPage)
 	if !ok {
 		prob, show := s.refusal(w, r, p, "listRecommendations", res, err)
 		if show {
@@ -145,7 +145,7 @@ func (s *Server) recommendations(w http.ResponseWriter, r *http.Request, p *pers
 		}
 		return nil, show
 	}
-	return page.Response.Items, true
+	return page.Items, true
 }
 
 // principalsOf are the principals an invoice's page names: who entered

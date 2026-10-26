@@ -63,21 +63,21 @@ func (s inboxEnv) inbox(t *testing.T, a pgtest.Actor, size int32) []uuid.UUID {
 	var ids []uuid.UUID
 	params := gen.ListApprovalRequestsParams{DecidableBy: gen.NewOptString("me"), PageSize: gen.NewOptInt32(size)}
 	for range 20 {
-		var page *gen.ApprovalRequestPageHeaders
+		var page *gen.ApprovalRequestPage
 		if err := apitest.InRequest(t, s.f.Tenant, a, func(ctx context.Context) error {
 			res, err := s.e.ListApprovalRequests(ctx, params)
-			page, _ = res.(*gen.ApprovalRequestPageHeaders) // nil with err
+			page, _ = res.(*gen.ApprovalRequestPage) // nil with err
 			return err
 		}); err != nil {
 			t.Fatalf("inbox: %v", err)
 		}
-		for _, r := range page.Response.Items {
+		for _, r := range page.Items {
 			ids = append(ids, r.ID)
 		}
-		if !page.Response.NextPageToken.Set {
+		if !page.NextPageToken.Set {
 			return ids
 		}
-		params.PageToken = page.Response.NextPageToken
+		params.PageToken = page.NextPageToken
 	}
 	t.Fatal("inbox: more than 20 pages")
 	return nil
@@ -243,7 +243,7 @@ func TestInboxReadsPendingRequestsOnly(t *testing.T) {
 		if got := pgtest.RowsRead(t, ctx, tx, "workflow", `approval\_request`) - before; got > 3 {
 			t.Errorf("requests read for an inbox of 3 among 2003: got %d, want at most 3", got)
 		}
-		if page, _ := res.(*gen.ApprovalRequestPageHeaders); page == nil || len(page.Response.Items) != 3 {
+		if page, _ := res.(*gen.ApprovalRequestPage); page == nil || len(page.Items) != 3 {
 			t.Errorf("inbox: got %v, want 3 requests", res)
 		}
 		return nil

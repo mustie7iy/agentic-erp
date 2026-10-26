@@ -244,7 +244,7 @@ func codesOf[P any, I any](s *Server, ctx context.Context, what string, list fun
 func (s *Server) accountFinder(ctx context.Context, company uuid.UUID) finder {
 	return finderOf(s, ctx, "account", func(number string) (any, error) {
 		return s.API.ListAccounts(ctx, gen.ListAccountsParams{LegalEntityID: gen.NewOptUUID(company), Number: gen.NewOptString(number)})
-	}, func(p *gen.AccountPageHeaders) ([]gen.Account, bool) { return p.Response.Items, false }, func(a gen.Account) uuid.UUID { return a.ID })
+	}, func(p *gen.AccountPage) ([]gen.Account, bool) { return p.Items, false }, func(a gen.Account) uuid.UUID { return a.ID })
 }
 
 // filtered is a list's page size and filter: the first page with no
@@ -265,8 +265,8 @@ func (s *Server) costCenters(ctx context.Context, company uuid.UUID) (book, find
 		func(c gen.CostCenter) uuid.UUID { return c.ID })
 }
 
-func costCenterItems(p *gen.CostCenterPageHeaders) ([]gen.CostCenter, bool) {
-	return p.Response.Items, p.Response.NextPageToken.Set
+func costCenterItems(p *gen.CostCenterPage) ([]gen.CostCenter, bool) {
+	return p.Items, p.NextPageToken.Set
 }
 
 func (s *Server) profitCenters(ctx context.Context, company uuid.UUID) (book, finder) {
@@ -277,8 +277,8 @@ func (s *Server) profitCenters(ctx context.Context, company uuid.UUID) (book, fi
 	return codesOf(s, ctx, "profit center", list, profitCenterItems, profitCenterCode, profitCenterID)
 }
 
-func profitCenterItems(p *gen.ProfitCenterPageHeaders) ([]gen.ProfitCenter, bool) {
-	return p.Response.Items, p.Response.NextPageToken.Set
+func profitCenterItems(p *gen.ProfitCenterPage) ([]gen.ProfitCenter, bool) {
+	return p.Items, p.NextPageToken.Set
 }
 
 func profitCenterCode(c gen.ProfitCenter) string { return c.Code }
@@ -289,8 +289,8 @@ func (s *Server) segments(ctx context.Context) (book, finder) {
 	return codesOf(s, ctx, "segment", func(code string) (any, error) {
 		size, c := filtered(code)
 		return s.API.ListSegments(ctx, gen.ListSegmentsParams{PageSize: size, Code: c})
-	}, func(p *gen.SegmentPageHeaders) ([]gen.Segment, bool) {
-		return p.Response.Items, p.Response.NextPageToken.Set
+	}, func(p *gen.SegmentPage) ([]gen.Segment, bool) {
+		return p.Items, p.NextPageToken.Set
 	},
 		func(c gen.Segment) string { return c.Code }, func(c gen.Segment) uuid.UUID { return c.ID })
 }
@@ -298,7 +298,7 @@ func (s *Server) segments(ctx context.Context) (book, finder) {
 func (s *Server) partnerFinder(ctx context.Context) finder {
 	return finderOf(s, ctx, "partner", func(number string) (any, error) {
 		return s.API.ListBusinessPartners(ctx, gen.ListBusinessPartnersParams{Number: gen.NewOptString(number)})
-	}, func(p *gen.BusinessPartnerPageHeaders) ([]gen.BusinessPartner, bool) { return p.Response.Items, false },
+	}, func(p *gen.BusinessPartnerPage) ([]gen.BusinessPartner, bool) { return p.Items, false },
 		func(b gen.BusinessPartner) uuid.UUID { return b.ID })
 }
 
@@ -388,16 +388,16 @@ func (s *Server) chartOf(ctx context.Context, m me, company uuid.UUID) chart {
 		return c
 	}
 	res, err := s.API.ListAccounts(ctx, gen.ListAccountsParams{LegalEntityID: gen.NewOptUUID(company), PageSize: gen.NewOptInt32(maxAccounts)})
-	page, ok := res.(*gen.AccountPageHeaders)
+	page, ok := res.(*gen.AccountPage)
 	if !ok {
 		s.Log.WarnContext(ctx, "web: the accounts could not be read", "answer", res, "error", err)
 		c.more = true
 		return c
 	}
-	for _, a := range page.Response.Items {
+	for _, a := range page.Items {
 		c.byID[a.ID], c.byNumber[a.Number] = a, a.ID
 	}
-	c.more = page.Response.NextPageToken.Set
+	c.more = page.NextPageToken.Set
 	return c
 }
 

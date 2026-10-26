@@ -44,7 +44,7 @@ func (s *Server) reconciliation(w http.ResponseWriter, r *http.Request, p *perso
 		status = http.StatusUnprocessableEntity
 	default:
 		res, err := s.API.GetBankReconciliation(r.Context(), params)
-		rec, ok := res.(*gen.BankReconciliationHeaders)
+		rec, ok := res.(*gen.BankReconciliation)
 		if !ok {
 			prob, show := s.refusal(w, r, p, "getBankReconciliation", res, err)
 			if !show {
@@ -57,7 +57,7 @@ func (s *Server) reconciliation(w http.ResponseWriter, r *http.Request, p *perso
 			rp.Refusal, status = explainIn(i18n.BankProblems, i18n.ReconRefusedTitle, prob, m), int(prob.Status)
 			break
 		}
-		fillReport(&rp, rec.Response, id, q)
+		fillReport(&rp, *rec, id, q)
 	}
 	s.render(w, r, status, ui.Reconciliation(s.page(i18n.ReconTitle, ui.BankPath, p, m), rp))
 }

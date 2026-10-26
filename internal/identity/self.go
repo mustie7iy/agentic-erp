@@ -52,7 +52,7 @@ func (e *Endpoints) GetCurrentPrincipal(ctx context.Context) (gen.GetCurrentPrin
 		}
 		out.AutonomyLevel.SetTo(int32(level))
 	}
-	return &gen.CurrentPrincipalHeaders{Response: out}, nil
+	return &out, nil
 }
 
 func nonNil(s []string) []string {
@@ -83,5 +83,5 @@ func (e *Endpoints) ListPrincipalNames(ctx context.Context, params gen.ListPrinc
 	if err != nil {
 		return nil, fmt.Errorf("identity: principal names: %w", err)
 	}
-	return &gen.PrincipalNamesHeaders{Response: gen.PrincipalNames{Items: items}}, nil
+	return &gen.PrincipalNames{Items: items}, nil
 }

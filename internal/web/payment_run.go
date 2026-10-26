@@ -122,9 +122,9 @@ func (s *Server) runLists(w http.ResponseWriter, r *http.Request, p *person, m m
 		pp.PageToken = gen.NewOptString(v)
 	}
 	res, err := s.API.ListPayments(r.Context(), pp)
-	if page, ok := res.(*gen.PaymentPageHeaders); ok {
-		rp.Payments = paymentViews(page.Response.Items)
-		if next := page.Response.NextPageToken.Or(""); next != "" {
+	if page, ok := res.(*gen.PaymentPage); ok {
+		rp.Payments = paymentViews(page.Items)
+		if next := page.NextPageToken.Or(""); next != "" {
 			rp.PaymentsMore = runPath(id) + "?" + with(without(q, "done"), "payments_page", next).Encode()
 		}
 	} else if rp.PaymentsError, ok = s.inPlace(w, r, p, m, i18n.PaymentProblems, "listPayments", res, err, i18n.PaymentsRefusedTitle, "payments-refusal"); !ok {
@@ -135,9 +135,9 @@ func (s *Server) runLists(w http.ResponseWriter, r *http.Request, p *person, m m
 		ep.PageToken = gen.NewOptString(v)
 	}
 	eres, err := s.API.ListPaymentExclusions(r.Context(), ep)
-	if page, ok := eres.(*gen.PaymentExclusionPageHeaders); ok {
-		rp.Exclusions = exclusionViews(page.Response.Items)
-		if next := page.Response.NextPageToken.Or(""); next != "" {
+	if page, ok := eres.(*gen.PaymentExclusionPage); ok {
+		rp.Exclusions = exclusionViews(page.Items)
+		if next := page.NextPageToken.Or(""); next != "" {
 			rp.ExclusionsMore = runPath(id) + "?" + with(without(q, "done"), "exclusions_page", next).Encode()
 		}
 		return true
@@ -153,12 +153,12 @@ func (s *Server) runLists(w http.ResponseWriter, r *http.Request, p *person, m m
 func (s *Server) runFiles(w http.ResponseWriter, r *http.Request, p *person, m me, run gen.PaymentRun, rp *ui.RunPage) bool {
 	res, err := s.API.ListBankFiles(r.Context(), gen.ListBankFilesParams{PaymentRunID: gen.NewOptUUID(run.ID), PageSize: gen.NewOptInt32(runListSize),
 		OrderBy: gen.NewOptString("created_at")})
-	page, ok := res.(*gen.BankFilePageHeaders)
+	page, ok := res.(*gen.BankFilePage)
 	if !ok {
 		rp.FilesError, ok = s.inPlace(w, r, p, m, i18n.PaymentProblems, "listBankFiles", res, err, i18n.PaymentsRefusedTitle, "files-refusal")
 		return ok
 	}
-	for _, f := range page.Response.Items {
+	for _, f := range page.Items {
 		v := ui.BankFileView{Format: f.Format, Method: f.PaymentMethod.Or(""), Status: labelOf(fileStatuses, f.Status), Created: f.CreatedAt}
 		if (f.Status == "created" || f.Status == "failed") && m.may(permTransmitFiles) {
 			v.Transmit = &ui.RunForm{Verb: ui.RunTransmit, ID: "file-" + f.ID.String(), Action: runPath(run.ID) + "/" + ui.RunTransmit, CSRF: p.CSRF,

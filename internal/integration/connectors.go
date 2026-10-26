@@ -404,7 +404,7 @@ func (e *Endpoints) ListConnectors(ctx context.Context, params gen.ListConnector
 		return nil, fmt.Errorf("integration: list connectors: %w", err)
 	}
 	items, next := apitypes.PageOf(ks, cs, func(c Connector) (string, uuid.UUID) { return c.Name, c.ID }, connectorToAPI)
-	return &gen.ConnectorPageHeaders{Response: gen.ConnectorPage{Items: items, NextPageToken: next}}, nil
+	return &gen.ConnectorPage{Items: items, NextPageToken: next}, nil
 }
 
 // UpdateConnector implements PATCH /v1/connectors/{id}.

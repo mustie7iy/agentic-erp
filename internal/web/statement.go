@@ -79,7 +79,7 @@ func (s *Server) showStatement(w http.ResponseWriter, r *http.Request, p *person
 		return
 	}
 	mres, err := s.API.ListBankStatementMatches(r.Context(), gen.ListBankStatementMatchesParams{ID: id})
-	matches, ok := mres.(*gen.StatementMatchListHeaders)
+	matches, ok := mres.(*gen.StatementMatchList)
 	if !ok {
 		s.statementRefused(w, r, p, m, "listBankStatementMatches", mres, err)
 		return
@@ -87,7 +87,7 @@ func (s *Server) showStatement(w http.ResponseWriter, r *http.Request, p *person
 	st := got.Response
 	rules := s.statementRules(r.Context(), id)
 	banks := s.houseBanks(r.Context(), m, st.LegalEntityID)
-	names := s.names(r.Context(), p, statementPrincipals(st, matches.Response.Items))
+	names := s.names(r.Context(), p, statementPrincipals(st, matches.Items))
 	sp := ui.StatementPage{Header: statementHeader(st, banks[st.HouseBankID].Code, names), Gap: st.Status == "gap",
 		Report: reportPath(st.HouseBankID), Done: lineDone[r.URL.Query().Get("done")], Refusal: refused}
 	if n, err := strconv.ParseInt(r.URL.Query().Get("line"), 10, 32); err == nil && sp.Done != "" {
@@ -95,7 +95,7 @@ func (s *Server) showStatement(w http.ResponseWriter, r *http.Request, p *person
 	}
 	c := lineContext{m: m, p: p, base: statementPath(id), tag: got.ETag.Or(etag.Format(st.Version)), rules: rules, names: names, sent: d,
 		open: st.Status != "reconciled", gap: st.Status == "gap"}
-	sp.Lines = lineViews(st.Lines, matches.Response.Items, c)
+	sp.Lines = lineViews(st.Lines, matches.Items, c)
 	sp.Why = linesWhy(st, sp.Lines, m)
 	s.render(w, r, status, ui.Statement(s.page(i18n.StatementTitle, ui.BankPath, p, m), sp))
 }
@@ -120,12 +120,12 @@ func (s *Server) statementRefused(w http.ResponseWriter, r *http.Request, p *per
 // account alone.
 func (s *Server) statementRules(ctx context.Context, id uuid.UUID) []gen.BankStatementRulesPostingRulesItem {
 	res, err := s.API.GetBankStatementRules(ctx, gen.GetBankStatementRulesParams{ID: id})
-	rules, ok := res.(*gen.BankStatementRulesHeaders)
+	rules, ok := res.(*gen.BankStatementRules)
 	if !ok {
 		s.Log.WarnContext(ctx, "web: a statement's rules could not be read", "answer", res, "error", err)
 		return nil
 	}
-	return rules.Response.PostingRules
+	return rules.PostingRules
 }
 
 // statementPrincipals are the principals a statement's page names: who

@@ -61,7 +61,7 @@ func (e *Endpoints) GetAiUsage(ctx context.Context, params gen.GetAiUsageParams)
 	if pol.MonthlyCap != nil {
 		out.MonthlyCap.SetTo(apitypes.Money(*pol.MonthlyCap, PriceCurrency, exp))
 	}
-	return &gen.AiUsageHeaders{Response: out}, nil
+	return &out, nil
 }
 
 // usageIn sums the month's calls per principal, the most costly first. A

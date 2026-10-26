@@ -226,19 +226,22 @@ func TestApprovalsUnavailable(t *testing.T) {
 	}
 }
 
-// TestProblemOf: only an answer holding a problem as its Response is one.
+// TestProblemOf: only an answer that is a problem, or holds one as its
+// Response, is one.
 func TestProblemOf(t *testing.T) {
 	for name, tc := range map[string]struct {
 		res  any
 		want bool
 	}{
-		"a refusal":           {&gen.ForbiddenHeaders{Response: gen.Problem{Code: "x.y"}}, true},
+		"a refusal":           {&gen.ListLegalEntitiesForbidden{Code: "x.y"}, true},
 		"a value":             {gen.ConflictHeaders{Response: gen.Problem{Code: "x.y"}}, true},
 		"nothing":             {nil, false},
 		"another response":    {&gen.ApprovalRequestHeaders{}, false},
 		"no response at all":  {&struct{ X int }{}, false},
 		"not a struct":        {"text", false},
-		"a refusal of a list": {&gen.BadRequestHeaders{Response: gen.Problem{Code: "x.y"}}, true},
+		"a refusal of a list": {&gen.ListApprovalRequestsBadRequest{Code: "x.y"}, true},
+		"a refusal by value":  {gen.ListApprovalRequestsBadRequest{Code: "x.y"}, true},
+		"with headers":        {&gen.TooManyRequestsHeaders{Response: gen.Problem{Code: "x.y"}}, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			p, ok := problemOf(tc.res)

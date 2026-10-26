@@ -34,13 +34,13 @@ func (m me) may(permission string) bool { return m.permissions[permission] }
 func (s *Server) whoami(w http.ResponseWriter, r *http.Request, p *person) (me, bool) {
 	res, err := s.API.GetCurrentPrincipal(r.Context())
 	switch res := res.(type) {
-	case *gen.CurrentPrincipalHeaders:
-		m := me{ID: res.Response.ID, permissions: map[string]bool{}, Barred: res.Response.BarredPermissions}
-		for _, perm := range res.Response.Permissions {
+	case *gen.CurrentPrincipal:
+		m := me{ID: res.ID, permissions: map[string]bool{}, Barred: res.BarredPermissions}
+		for _, perm := range res.Permissions {
 			m.permissions[perm] = true
 		}
 		return m, true
-	case *gen.ForbiddenHeaders:
+	case *gen.GetCurrentPrincipalForbidden:
 		// The contract lets every principal read itself; a refusal leaves
 		// nothing to offer, and each screen shows the API's own answer.
 		return me{}, true
@@ -152,7 +152,7 @@ func (s *Server) names(ctx context.Context, p *person, ids []uuid.UUID) map[uuid
 		batch := missing[:min(len(missing), namesPerCall)]
 		missing = missing[len(batch):]
 		res, err := s.API.ListPrincipalNames(ctx, gen.ListPrincipalNamesParams{Ids: batch})
-		page, ok := res.(*gen.PrincipalNamesHeaders)
+		page, ok := res.(*gen.PrincipalNames)
 		if !ok {
 			s.Log.WarnContext(ctx, "web: principals' names could not be read", "answer", res, "error", err)
 			return known
@@ -161,7 +161,7 @@ func (s *Server) names(ctx context.Context, p *person, ids []uuid.UUID) map[uuid
 		for _, id := range batch {
 			found[id] = ui.Name{}
 		}
-		for _, n := range page.Response.Items {
+		for _, n := range page.Items {
 			found[n.ID] = ui.Name{Text: n.DisplayName, Agent: n.Kind == "agent"}
 		}
 		s.nameCache.put(p.ID, now, found)
