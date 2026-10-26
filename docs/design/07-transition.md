@@ -1658,17 +1658,18 @@ reviewer finding in a step (`review:T73j`), a failed or measured check
 split of an approved step (`split:T73j`) or a design section (`design:01 §1.4`);
 several are joined by ` · `. A decision of the coordinator alone is not a
 source: it goes to the product owner first. 958 of the 966 items of 2026-10-25
-carry `baseline`, their sources being in their references, ADRs and history
-(the eight whose references name their split or finding carry it).
+carry `baseline`, their sources being in their references, ADRs and history (the
+eight whose references name their split or finding carry it).
 `TestTrackerItemsNameTheirSource` (docs/tracker_test.go) refuses an item without
 a known source, a source naming an ADR that is not accepted (one superseded
 later refuses the items citing it, which then name its successor), a design
-section or date that does not exist, a step no other item names, and any change in the number of baseline
-items, so removing one lowers the count in the test. It cannot tell an item
-deleted and another added as `baseline` in the same change; review does, with
-the added items and their sources listed at each batch. It runs in ci-local and,
-because a change to the tracker alone skips GitHub's suite, in ci.yml's
-`tracker` job on every event.
+section or date that does not exist, a step that no leaf with another source
+names (a group, or leaves citing each other, cannot vouch for one), and any
+change in the number of baseline items, so removing one lowers the count in the
+test. It cannot tell an item deleted and another added as `baseline` in the same
+change; review does, with the added items and their sources listed at each
+batch. It runs in ci-local and, because a change to the tracker alone skips
+GitHub's suite, in ci.yml's `tracker` job on every event.
 
 ## 7.6 After the transition: completing Phase 1 (T30–T47)
 

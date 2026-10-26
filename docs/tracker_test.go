@@ -49,31 +49,41 @@ type item struct {
 type leaf struct {
 	path   string
 	source string
-	names  map[string]bool // the steps the item names itself
 }
 
-// named gives the steps an item names in its title and reference.
-func named(it item) map[string]bool {
+// citedPattern finds the steps a source cites: review:, split: and ci: name one.
+var citedPattern = regexp.MustCompile(`(?:^| · )(?:review|split|ci):(T\d+[a-z0-9]*)`)
+
+// vouch counts, for each step a leaf names in its title or reference, one leaf
+// that names it without citing it as its own source: only such a leaf shows
+// the step exists. A group names steps without a source of its own, and leaves
+// citing a step cannot vouch for each other, so neither counts.
+func vouch(it item, steps map[string]int) {
+	cited := map[string]bool{}
+	for _, m := range citedPattern.FindAllStringSubmatch(it.Source, -1) {
+		cited[m[1]] = true
+	}
 	names := map[string]bool{}
 	for _, s := range stepPattern.FindAllString(it.Title+" "+it.Ref, -1) {
 		names[s] = true
 	}
-	return names
-}
-
-// walk collects the leaf items and, per step, how many items name it.
-func walk(items []item, path string, out []leaf, steps map[string]int) []leaf {
-	for _, it := range items {
-		names := named(it)
-		for s := range names {
+	for s := range names {
+		if !cited[s] {
 			steps[s]++
 		}
+	}
+}
+
+// walk collects the leaf items and, per step, the leaves that vouch for it.
+func walk(items []item, path string, out []leaf, steps map[string]int) []leaf {
+	for _, it := range items {
 		p := it.Title
 		if path != "" {
 			p = path + " / " + it.Title
 		}
 		if len(it.Children) == 0 {
-			out = append(out, leaf{path: p, source: it.Source, names: names})
+			vouch(it, steps)
+			out = append(out, leaf{path: p, source: it.Source})
 			continue
 		}
 		out = walk(it.Children, p, out, steps)
@@ -81,10 +91,8 @@ func walk(items []item, path string, out []leaf, steps map[string]int) []leaf {
 	return out
 }
 
-// sourceExists says why a well-formed source of l names nothing real, or "".
-// A step counts only when another item names it: an item cannot vouch for a
-// step it invents by naming it itself.
-func sourceExists(t *testing.T, l leaf, m []string, steps map[string]int) string {
+// sourceExists says why a well-formed source names nothing real, or "".
+func sourceExists(t *testing.T, m []string, steps map[string]int) string {
 	t.Helper()
 	switch {
 	case m[2] != "":
@@ -94,12 +102,8 @@ func sourceExists(t *testing.T, l leaf, m []string, steps map[string]int) string
 			return "is not a date"
 		}
 	case m[6] != "":
-		others := steps[m[6]]
-		if l.names[m[6]] {
-			others--
-		}
-		if others < 1 {
-			return "names a step no other tracker item names"
+		if steps[m[6]] < 1 {
+			return "names a step no leaf with another source names"
 		}
 	case m[7] != "":
 		return designSection(t, m[7], m[8])
@@ -163,7 +167,7 @@ func TestTrackerItemsNameTheirSource(t *testing.T) {
 			m := sourcePattern.FindStringSubmatch(s)
 			if m == nil {
 				t.Errorf("%s: src %q is not a known source; want %s", l.path, s, accepted)
-			} else if why := sourceExists(t, l, m, steps); why != "" {
+			} else if why := sourceExists(t, m, steps); why != "" {
 				t.Errorf("%s: src %q %s", l.path, s, why)
 			}
 		}
