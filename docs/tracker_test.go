@@ -101,7 +101,7 @@ func sourceExists(t *testing.T, m []string, steps map[string]int) string {
 		}
 	case m[6] != "":
 		if steps[m[6]] < 1 {
-			return "names a step that no leaf citing no step names"
+			return "names a step no independently sourced leaf names (one whose own src cites no step)"
 		}
 	case m[7] != "":
 		return designSection(t, m[7], m[8])
