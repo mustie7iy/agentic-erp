@@ -13,7 +13,9 @@ on:
 # run's tree contains. Cancel it, so merges in quick succession pay for one
 # full run (06 §6.5).
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  # The event is in the group, so a dispatch on main and a push to main do
+  # not cancel each other's runs.
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -239,8 +241,10 @@ jobs:
     # A pull request runs the short job above instead.
     runs-on: ubuntu-latest
     # Above the race step's -timeout 60m plus the other steps, so a hung
-    # package is reported by go test before the runner stops the job.
-    timeout-minutes: 100
+    # package is reported by go test before the runner stops the job; 120
+    # since the race step runs two packages at a time (2026-10-25) and a cold
+    # tools cache costs about 14 minutes before it.
+    timeout-minutes: 120
     services:
       postgres:
         image: postgres:17
@@ -341,7 +345,7 @@ jobs:
               echo "monitor $(date -u +%T) $(free -m | awk 'NR==2{print "memory used "$3" of "$2" MiB, available "$7}'), $(df -h / | awk 'NR==2{print "disk free "$4}')"
             done ) &
           monitor=$!
-          trap 'kill "$monitor"' EXIT
+          trap 'kill "$monitor" 2>/dev/null || true' EXIT
           go build -race ./api/gen
           go test -race -count=1 -timeout 60m -p 2 ./...
       - name: Performance budgets (without the race detector)

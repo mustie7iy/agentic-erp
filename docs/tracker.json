@@ -8276,7 +8276,7 @@
      },
      {
       "s": "D",
-      "t": "Every tracker item names its source (PO 2026-10-25, against scope creep and invented items): src is an ADR, a product owner decision, a review finding, a failed or measured check, the pilot walkthrough, a split of an approved step or a design section; 958 of the 966 items of 2026-10-25 carry baseline, a count that may only fall; the eight whose references name their split or finding carry it",
+      "t": "Every tracker item names its source (PO 2026-10-25, against scope creep and invented items): src is an ADR, a product owner decision, a review finding, a failed or measured check, the pilot walkthrough, a split of an approved step or a design section; 958 of the 966 items of 2026-10-25 carried baseline at first, 955 once the product owner confirmed three, a count that may only fall; the eight whose references name their split or finding carry it",
       "r": "docs/tracker_test.go · TestTrackerItemsNameTheirSource · 07-transition §7.5",
       "src": "po:2026-10-25",
       "c": []
@@ -8290,7 +8290,7 @@
      },
      {
       "s": "D",
-      "t": "Every budget test runs in a gate: TestGoodsReceiptBudget had failed since T47d (2026-10-16, a release above the first tier waits for approval; the test never approved it) unseen, as the gates ran only ledger's and nfr's budgets and the budget tests skip under -race; scripts/budgets.sh finds every package's Test…Budget and Test…Perf and runs them one package at a time in ci-local, CI and make perf (eight packages, about 2.5 minutes at scale 2)",
+      "t": "Every budget test runs in a gate: TestGoodsReceiptBudget had failed since T47d (2026-10-16, a release above the first tier waits for approval; the test never approved it) unseen, as the gates ran only ledger's and nfr's budgets and the budget tests skip under -race; scripts/budgets.sh finds every package's Test…Budget and Test…Perf and runs them one package at a time in ci-local, CI and make perf (eight packages, two of them, agents and identity, for the ADR-0036 spend budgets, which are functional tests; about 2.5 minutes at scale 2)",
       "r": "scripts/budgets.sh · internal/procurement/grir_test.go TestGoodsReceiptBudget · T47d",
       "src": "ci:batch15",
       "c": []

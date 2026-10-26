@@ -15,7 +15,8 @@
 # included, as those workflows' path filters count it. scripts/ci-local.sh
 # runs those checks on the same classes, before a merge.
 #
-# EVENT is pull_request or push, BASE the commit to compare with (the pull
+# EVENT is pull_request, push or workflow_dispatch (which, with no base,
+# runs everything), BASE the commit to compare with (the pull
 # request's base), HEAD the commit under test (default HEAD). A push to
 # main is compared with the last commit whose run on main passed, not with
 # the commit before it: a newer push cancels a running one (ci.yml), so a
