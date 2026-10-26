@@ -1661,8 +1661,9 @@ source: it goes to the product owner first. 958 of the 966 items of 2026-10-25
 carry `baseline`, their sources being in their references, ADRs and history
 (the eight whose references name their split or finding carry it).
 `TestTrackerItemsNameTheirSource` (docs/tracker_test.go) refuses an item without
-a known source, a source naming an ADR that is not accepted, a design section,
-step or date that does not exist, and any change in the number of baseline
+a known source, a source naming an ADR that is not accepted (one superseded
+later refuses the items citing it, which then name its successor), a design
+section or date that does not exist, a step no other item names, and any change in the number of baseline
 items, so removing one lowers the count in the test. It cannot tell an item
 deleted and another added as `baseline` in the same change; review does, with
 the added items and their sources listed at each batch. It runs in ci-local and,

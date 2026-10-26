@@ -49,20 +49,31 @@ type item struct {
 type leaf struct {
 	path   string
 	source string
+	names  map[string]bool // the steps the item names itself
 }
 
-// walk collects the leaf items and every step any item names.
-func walk(items []item, path string, out []leaf, steps map[string]bool) []leaf {
+// named gives the steps an item names in its title and reference.
+func named(it item) map[string]bool {
+	names := map[string]bool{}
+	for _, s := range stepPattern.FindAllString(it.Title+" "+it.Ref, -1) {
+		names[s] = true
+	}
+	return names
+}
+
+// walk collects the leaf items and, per step, how many items name it.
+func walk(items []item, path string, out []leaf, steps map[string]int) []leaf {
 	for _, it := range items {
-		for _, s := range stepPattern.FindAllString(it.Title+" "+it.Ref, -1) {
-			steps[s] = true
+		names := named(it)
+		for s := range names {
+			steps[s]++
 		}
 		p := it.Title
 		if path != "" {
 			p = path + " / " + it.Title
 		}
 		if len(it.Children) == 0 {
-			out = append(out, leaf{path: p, source: it.Source})
+			out = append(out, leaf{path: p, source: it.Source, names: names})
 			continue
 		}
 		out = walk(it.Children, p, out, steps)
@@ -70,8 +81,10 @@ func walk(items []item, path string, out []leaf, steps map[string]bool) []leaf {
 	return out
 }
 
-// sourceExists says why a well-formed source names nothing real, or "".
-func sourceExists(t *testing.T, m []string, steps map[string]bool) string {
+// sourceExists says why a well-formed source of l names nothing real, or "".
+// A step counts only when another item names it: an item cannot vouch for a
+// step it invents by naming it itself.
+func sourceExists(t *testing.T, l leaf, m []string, steps map[string]int) string {
 	t.Helper()
 	switch {
 	case m[2] != "":
@@ -81,8 +94,12 @@ func sourceExists(t *testing.T, m []string, steps map[string]bool) string {
 			return "is not a date"
 		}
 	case m[6] != "":
-		if !steps[m[6]] {
-			return "names a step no tracker item names"
+		others := steps[m[6]]
+		if l.names[m[6]] {
+			others--
+		}
+		if others < 1 {
+			return "names a step no other tracker item names"
 		}
 	case m[7] != "":
 		return designSection(t, m[7], m[8])
@@ -131,7 +148,7 @@ func TestTrackerItemsNameTheirSource(t *testing.T) {
 	if err := json.Unmarshal(raw, &items); err != nil {
 		t.Fatalf("parse tracker: %v", err)
 	}
-	steps := map[string]bool{}
+	steps := map[string]int{}
 	baseline := 0
 	for _, l := range walk(items, "", nil, steps) {
 		switch l.source {
@@ -146,7 +163,7 @@ func TestTrackerItemsNameTheirSource(t *testing.T) {
 			m := sourcePattern.FindStringSubmatch(s)
 			if m == nil {
 				t.Errorf("%s: src %q is not a known source; want %s", l.path, s, accepted)
-			} else if why := sourceExists(t, m, steps); why != "" {
+			} else if why := sourceExists(t, l, m, steps); why != "" {
 				t.Errorf("%s: src %q %s", l.path, s, why)
 			}
 		}
