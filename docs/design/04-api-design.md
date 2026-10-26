@@ -206,6 +206,21 @@ and the center is valid and unlocked (`ledger.cost_center_invalid`,
 account's default; an item on an order takes its order item's (422
 `payables.assignment_from_order` for one of its own).
 
+The actual reports by account assignment (ADR-0050 §7, T56f), `GET
+/v1/cost-center-balances` and `GET /v1/profit-center-balances`
+(`ledger.cost_center.read`, `x-slo-class: report`), give the period totals
+of one legal entity, ledger (the leading one by default) and fiscal year,
+per center, account, period and transaction currency, a profit center's
+rows with its segment; profit and loss accounts only. They filter by
+period range (`fiscal_period_from`, `fiscal_period_to`; a range ending
+before it starts is 400 `request.invalid_parameter`), center, hierarchy
+node (its centers and those below it under today's tree), segment and
+account, and page like the trial balance. The figures are exact at the
+read, as the trial balance's: projected balances plus the lines not yet
+projected. A row's lines are the entries `GET /v1/journal-entries` lists
+for its center (`cost_center_id`, `profit_center_id`) with the company,
+ledger and year; the reports add no journal filter.
+
 ## 4.7 Concurrency and idempotency
 
 Per ADR-0008:

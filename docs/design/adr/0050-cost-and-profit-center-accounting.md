@@ -778,6 +778,70 @@ As built in T56e (migrations 000161-000162; the capture agent's proposals are T5
   profit-center balances; segment assets and liabilities only with
   document splitting (P3).
 
+As built in T56f (migration 000163):
+- **The projection.** `ledger.assignment_balance` has the key above with
+  the centers nullable (`assignment_balance_assigned`: at least one), so
+  its primary key is a hash of the key, as `gr_ir_position`'s; only the
+  projection writes it. The projector's mechanism is reused rather than
+  copied: posting queues the entry in `balance_projection`, and the
+  projector's one statement that marks a batch projected and adds it to
+  `period_balance` fires the statement trigger
+  `balance_projection_assignment`, which adds the same entries' assigned
+  lines (first projection only, balances taken in key order). So both
+  balances count each entry exactly once in one transaction, however often
+  rounds fail or run side by side, and the previous release's projector,
+  which knows nothing of the table, keeps it during a rolling upgrade (06
+  §6.4). Tests: a schema test of the trigger (`db/assignment_balance_test.go`:
+  once, upserted by key, written by the projection only) and a run-twice
+  test (`TestAssignmentProjectionRunsOnce`: projectors side by side, then
+  again).
+- **Lines posted before.** The migration creates the trigger first, which
+  waits for projector rounds under way and holds new ones until it
+  commits, then adds every line already projected that carries a center,
+  as 000054 backfilled GR/IR positions; lines still queued are left to the
+  trigger. Postings wait while it runs. Lines carry centers only since
+  T56d and the switches turn on from a fiscal year with no postings yet,
+  so it adds at most the open year's assigned lines since T56d's release,
+  though it scans the projected lines of every year;
+  if that release has run long at volume before this one, the backfill
+  should instead be an operation in batches (06 §6.4): a question for the
+  product owner, not decided here.
+- **Reads.** `GET /v1/cost-center-balances` and `GET
+  /v1/profit-center-balances` (`ledger.cost_center.read`, `x-slo-class:
+  report`): one legal entity (the caller's company access, as the trial
+  balance), ledger (default leading) and fiscal year, period range
+  (`fiscal_period_from`/`_to`), optionally a center, a hierarchy node, a
+  segment and an account; one row per center (a profit center's with its
+  segment), account, period and transaction currency with debit and credit
+  in the three currencies, paged by center, account or period. Exact at
+  the read as the trial balance: the projected balances plus the lines of
+  entries still queued. A node filter takes the node's and its
+  descendants' centers from the tree as `GET
+  /v1/hierarchies/{id}/nodes/{node_id}` reads it (`loadTree`, decision
+  P7); a node's total is the sum of its centers' rows (the API returns the
+  rows, not a node subtotal). A node of the other kind, unknown or removed,
+  has no rows. Only profit and loss accounts: the profit center report
+  leaves out balance sheet lines with a profit center entered (P3); a
+  balance sheet line carries no cost center.
+- **P&L adds up.** `TestAssignmentBalancesAddUp` checks that per ledger,
+  company, account and period the profit center balances of the P&L
+  accounts equal `period_balance` with profit center accounting on. It is
+  in the ledger package's tests, not `db`'s, because `period_balance` is
+  kept by the projector's Go code, which the `db` package cannot import.
+- **Drill-down** is the journal list's `cost_center_id` and
+  `profit_center_id` filters with the company, ledger and year (T56d2),
+  narrowed to a period by its dates (`posting_date_from`/`_to`); no journal
+  filter is added, so the entries listed are all the center's, with all
+  their lines, not only the row's account.
+- **Budget.** Both reports, every page of one company and period, are
+  held to the trial balance's budget (01-requirements: p95 1 s) at its
+  volume (360,000 projected rows, 2,000 pending lines,
+  `TestCenterBalancesBudget`); the number of centers (100 of each) is the
+  test's, as no requirement names one. The rows are loaded period by
+  period, as the projector writes them.
+- **Not built:** the `ledger.AssignmentBalances` port (T56g's, with the
+  plan); node subtotals; cross-company totals.
+
 ### 8. Plan values (minimal, decision P5)
 `controlling.plan_category` (code, name, e.g. `PLAN`, `FORECAST`; locked or
 open) and `controlling.plan_line` (category, fiscal year, period, company,
@@ -944,7 +1008,7 @@ coverage 100%, reviewer). Lane F (ledger), after T52 for T56d.
 | T56d3 | **Commit-time check of §5's table** (contract step: the release after the one shipping T56d and T56d2) | Deferred constraint trigger on `journal_line` holding the table for fiscal years from the switches, the segment always the profit center's, reversals exempt; constraint names mapped to the §5 problems (`ledger.profit_center_required` for a P&L line without one); schema tests per rule |
 | T56e | **Procurement and payables** (built, see §6 as built; the capture agent's proposals split to T56e2) | `account_assignment` and `cost_center_id` on requisition and PO items (validated at release), GR and price-difference lines with the item's center; invoice items' `cost_center_id`/`profit_center_id`; capture agent proposals with eval cases; the free-text custom field in fixtures replaced; ADR-0034 note |
 | T56e2 | **Capture agent proposals** (split from T56e: capture enters only order items today, which take their order item's center, so proposals need captured items without an order first) | The capture agent proposes a cost center per item without an order from the supplier's posted history and the document text, confirmed by a clerk or the default; ADR-0039 eval cases (documents and expected proposals) in `evals/capture` |
-| T56f | **Actual reports** | `ledger.assignment_balance` maintained by the projector (exactly once, run-twice test); `GET /v1/cost-center-balances`, `/v1/profit-center-balances` (by center, node, segment, account, period; exact at the read); schema test that assignment balances add up to `period_balance` on P&L accounts; drill-down via journal filters |
+| T56f | **Actual reports** (built, see §7 as built) | `ledger.assignment_balance` maintained by the projector (exactly once, run-twice test); `GET /v1/cost-center-balances`, `/v1/profit-center-balances` (by center, node, segment, account, period; exact at the read); schema test that assignment balances add up to `period_balance` on P&L accounts; drill-down via journal filters |
 | T56g | **Plan and plan/actual** (P5) | `controlling` context and schema; plan categories with a human-only lock; plan lines by upload and API, idempotent by batch; `GET /v1/cost-center-plan-actual`; actuals through `ledger.AssignmentBalances` |
 | T56h | **SAP migration** | Extract and load of CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), CSKB categories, OKB9 defaults, sets 0101/0106 with ranges expanded; ACDOCA RCNTR/PRCTR/SEGMENT; quality-gate issues (center outside the standard hierarchy, range matching nothing, unknown profit center); mock generator extended; reconciliation of migrated center totals |
 | T56i | **Analytics** | Dataset contract change (journal columns, center and hierarchy snapshots); semantic dimensions and plan metrics; isolation tests unchanged and passing |

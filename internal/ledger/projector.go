@@ -17,7 +17,12 @@ import (
 // JournalEntryPosted event; a round claims a batch of queued entries, adds
 // their lines to the balances and marks them projected in one transaction,
 // so an entry is counted exactly once however often rounds fail or run
-// side by side (claimed rows are skipped by other replicas).
+// side by side (claimed rows are skipped by other replicas). Marking the
+// entries projected also adds their lines that carry a cost center, profit
+// center or segment to ledger.assignment_balance (ADR-0050 §7, T56f): a
+// trigger on the queue (migration 000163) does it in the same statement,
+// so the two projections are counted together, and by every release's
+// projector during a rolling upgrade.
 type Projector struct {
 	Pool     *database.Pool
 	Role     string        // erp_projector: reads the journal and maintains balances for every tenant

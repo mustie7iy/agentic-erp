@@ -7907,6 +7907,224 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/cost-center-balances:
+    get:
+      operationId: listCostCenterBalances
+      x-slo-class: report
+      tags:
+        - ledger
+      summary: List cost center balances
+      description: "Actual period totals per cost center, account and transaction currency of one legal entity, ledger and fiscal year (ADR-0050 §7), exact at the moment of the read: the balances the projector keeps by assignment (ADR-0006) plus the lines of entries it has not reached yet, as `GET /v1/balances`. Only profit and loss accounts: balance sheet lines carry no cost center, and a balance sheet by profit center or segment needs document splitting (ADR-0050 decision P3). A legal entity the caller cannot act in, or a ledger that does not exist, has none. The lines behind a row are the entries `GET /v1/journal-entries` lists with `legal_entity_id`, `ledger_id`, `fiscal_year` and `cost_center_id`. Sortable by: `cost_center_id`, `account_id`, `fiscal_period`."
+      x-permission: ledger.cost_center.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: ledger_id
+          in: query
+          required: false
+          description: "Only this ledger (`GET /v1/ledgers`); defaults to the leading ledger."
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: Fiscal year (required).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: fiscal_period_from
+          in: query
+          required: false
+          description: "Only periods from this one (default 1)."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: fiscal_period_to
+          in: query
+          required: false
+          description: "Only periods up to this one (default 16); before `fiscal_period_from`: 400 `request.invalid_parameter`."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: cost_center_id
+          in: query
+          required: false
+          description: "Only this cost center."
+          schema:
+            type: string
+            format: uuid
+        - name: hierarchy_node_id
+          in: query
+          required: false
+          description: "Only the cost centers at this node of a cost center hierarchy (`GET /v1/hierarchies/{id}`) or below it, under today's tree (ADR-0050 decision P7); a node's total is the sum of their rows. A node of another kind's hierarchy, or one that is unknown or removed, has none."
+          schema:
+            type: string
+            format: uuid
+        - name: segment_id
+          in: query
+          required: false
+          description: "Only lines of this segment."
+          schema:
+            type: string
+            format: uuid
+        - name: account_id
+          in: query
+          required: false
+          description: Only this account.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of cost center balances.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostCenterBalancePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/profit-center-balances:
+    get:
+      operationId: listProfitCenterBalances
+      x-slo-class: report
+      tags:
+        - ledger
+      summary: List profit center balances
+      description: "Actual period totals per profit center, its segment, account and transaction currency of one legal entity, ledger and fiscal year (ADR-0050 §7): the profit and loss statement by profit center and, summed by `segment_id`, by segment; exact at the moment of the read: the balances the projector keeps by assignment (ADR-0006) plus the lines of entries it has not reached yet, as `GET /v1/balances`. Only profit and loss accounts: balance sheet lines carry no cost center, and a balance sheet by profit center or segment needs document splitting (ADR-0050 decision P3). A legal entity the caller cannot act in, or a ledger that does not exist, has none. The lines behind a row are the entries `GET /v1/journal-entries` lists with `legal_entity_id`, `ledger_id`, `fiscal_year` and `profit_center_id`. Sortable by: `profit_center_id`, `account_id`, `fiscal_period`."
+      x-permission: ledger.cost_center.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: ledger_id
+          in: query
+          required: false
+          description: "Only this ledger (`GET /v1/ledgers`); defaults to the leading ledger."
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: Fiscal year (required).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: fiscal_period_from
+          in: query
+          required: false
+          description: "Only periods from this one (default 1)."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: fiscal_period_to
+          in: query
+          required: false
+          description: "Only periods up to this one (default 16); before `fiscal_period_from`: 400 `request.invalid_parameter`."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: profit_center_id
+          in: query
+          required: false
+          description: "Only this profit center."
+          schema:
+            type: string
+            format: uuid
+        - name: hierarchy_node_id
+          in: query
+          required: false
+          description: "Only the profit centers at this node of a profit center hierarchy (`GET /v1/hierarchies/{id}`) or below it, under today's tree (ADR-0050 decision P7); a node's total is the sum of their rows. A node of another kind's hierarchy, or one that is unknown or removed, has none."
+          schema:
+            type: string
+            format: uuid
+        - name: segment_id
+          in: query
+          required: false
+          description: "Only lines of this segment."
+          schema:
+            type: string
+            format: uuid
+        - name: account_id
+          in: query
+          required: false
+          description: Only this account.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of profit center balances.
+          headers:
+            RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+            RateLimit-Reset:
+              $ref: "#/components/headers/RateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfitCenterBalancePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/ledger-reconciliation:
     get:
       operationId: listLedgerReconciliation
@@ -25489,6 +25707,302 @@ components:
                 amount: "1080.00"
                 currency: EUR
               updated_at: "2026-10-09T14:03:11Z"
+    CostCenterBalance:
+      type: object
+      description: "Actual period totals of a cost center on one account in one transaction currency (ADR-0050 §7)."
+      required:
+        - ledger_id
+        - legal_entity_id
+        - cost_center_id
+        - cost_center_code
+        - account_id
+        - fiscal_year
+        - fiscal_period
+        - currency
+        - debit
+        - credit
+        - debit_lc
+        - credit_lc
+        - debit_gc
+        - credit_gc
+        - updated_at
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: Ledger.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity.
+          readOnly: true
+        cost_center_id:
+          type: string
+          format: uuid
+          description: Cost center.
+          readOnly: true
+        cost_center_code:
+          type: string
+          description: The cost center's code.
+          pattern: "^[0-9A-Z_-]{1,10}$"
+          readOnly: true
+        account_id:
+          type: string
+          format: uuid
+          description: Account.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year.
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+        fiscal_period:
+          type: integer
+          format: int32
+          description: Fiscal period.
+          minimum: 1
+          maximum: 16
+          readOnly: true
+        currency:
+          type: string
+          description: Transaction currency of the totals.
+          pattern: "^[A-Z]{3}$"
+          example: EUR
+          readOnly: true
+        debit:
+          $ref: "#/components/schemas/Money"
+          description: Debit total in transaction currency.
+          readOnly: true
+        credit:
+          $ref: "#/components/schemas/Money"
+          description: Credit total in transaction currency (positive).
+          readOnly: true
+        debit_lc:
+          $ref: "#/components/schemas/Money"
+          description: Debit total in local currency.
+          readOnly: true
+        credit_lc:
+          $ref: "#/components/schemas/Money"
+          description: Credit total in local currency (positive).
+          readOnly: true
+        debit_gc:
+          $ref: "#/components/schemas/Money"
+          description: Debit total in group currency.
+          readOnly: true
+        credit_gc:
+          $ref: "#/components/schemas/Money"
+          description: Credit total in group currency (positive).
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: "When the row's latest projected or pending line was added."
+          readOnly: true
+      examples:
+        - ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          cost_center_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc1"
+          cost_center_code: "1000"
+          account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+          fiscal_year: 2026
+          fiscal_period: 10
+          currency: CAD
+          debit:
+            amount: "1080.00"
+            currency: CAD
+          credit:
+            amount: "0.00"
+            currency: CAD
+          debit_lc:
+            amount: "1080.00"
+            currency: CAD
+          credit_lc:
+            amount: "0.00"
+            currency: CAD
+          debit_gc:
+            amount: "740.00"
+            currency: EUR
+          credit_gc:
+            amount: "0.00"
+            currency: EUR
+          updated_at: "2026-10-09T14:03:11Z"
+    CostCenterBalancePage:
+      type: object
+      description: One page of cost center balances.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CostCenterBalance"
+          description: The cost center balances on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+    ProfitCenterBalance:
+      type: object
+      description: "Actual period totals of a profit center and its segment on one profit and loss account in one transaction currency (ADR-0050 §7)."
+      required:
+        - ledger_id
+        - legal_entity_id
+        - profit_center_id
+        - profit_center_code
+        - account_id
+        - fiscal_year
+        - fiscal_period
+        - currency
+        - debit
+        - credit
+        - debit_lc
+        - credit_lc
+        - debit_gc
+        - credit_gc
+        - updated_at
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: Ledger.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity.
+          readOnly: true
+        profit_center_id:
+          type: string
+          format: uuid
+          description: Profit center.
+          readOnly: true
+        profit_center_code:
+          type: string
+          description: The profit center's code.
+          pattern: "^[0-9A-Z_-]{1,10}$"
+          readOnly: true
+        segment_id:
+          type: string
+          format: uuid
+          description: The segment of the lines, the profit center's (ADR-0050 §5); absent when they carry none.
+          readOnly: true
+        segment_code:
+          type: string
+          description: The segment's code; absent with `segment_id`.
+          pattern: "^[0-9A-Z_-]{1,10}$"
+          readOnly: true
+        account_id:
+          type: string
+          format: uuid
+          description: Account.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year.
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+        fiscal_period:
+          type: integer
+          format: int32
+          description: Fiscal period.
+          minimum: 1
+          maximum: 16
+          readOnly: true
+        currency:
+          type: string
+          description: Transaction currency of the totals.
+          pattern: "^[A-Z]{3}$"
+          example: EUR
+          readOnly: true
+        debit:
+          $ref: "#/components/schemas/Money"
+          description: Debit total in transaction currency.
+          readOnly: true
+        credit:
+          $ref: "#/components/schemas/Money"
+          description: Credit total in transaction currency (positive).
+          readOnly: true
+        debit_lc:
+          $ref: "#/components/schemas/Money"
+          description: Debit total in local currency.
+          readOnly: true
+        credit_lc:
+          $ref: "#/components/schemas/Money"
+          description: Credit total in local currency (positive).
+          readOnly: true
+        debit_gc:
+          $ref: "#/components/schemas/Money"
+          description: Debit total in group currency.
+          readOnly: true
+        credit_gc:
+          $ref: "#/components/schemas/Money"
+          description: Credit total in group currency (positive).
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: "When the row's latest projected or pending line was added."
+          readOnly: true
+      examples:
+        - ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          profit_center_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc2"
+          profit_center_code: "PC1"
+          segment_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc3"
+          segment_code: "RETAIL"
+          account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+          fiscal_year: 2026
+          fiscal_period: 10
+          currency: CAD
+          debit:
+            amount: "1080.00"
+            currency: CAD
+          credit:
+            amount: "0.00"
+            currency: CAD
+          debit_lc:
+            amount: "1080.00"
+            currency: CAD
+          credit_lc:
+            amount: "0.00"
+            currency: CAD
+          debit_gc:
+            amount: "740.00"
+            currency: EUR
+          credit_gc:
+            amount: "0.00"
+            currency: EUR
+          updated_at: "2026-10-09T14:03:11Z"
+    ProfitCenterBalancePage:
+      type: object
+      description: One page of profit center balances.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProfitCenterBalance"
+          description: The profit center balances on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
     LedgerDifference:
       type: object
       description: "One account and transaction currency whose balance differs between two ledgers; amounts are signed, debit positive."
