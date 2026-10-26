@@ -156,6 +156,25 @@ func TestMustOperations(t *testing.T) {
 	mustParse([]byte("paths: ["))
 }
 
+// TestOperationsAreCopies: the contract is parsed once, and each caller
+// gets its own copy of it: a caller that changes its operations, or an
+// operation's entity permissions, changes nobody else's.
+func TestOperationsAreCopies(t *testing.T) {
+	first := MustOperations()
+	first["getSchema"].EntityPermissions["x"] = "changed"
+	delete(first, "listOperations")
+	again := MustOperations()
+	if _, ok := again["getSchema"].EntityPermissions["x"]; ok {
+		t.Errorf("entity permissions: got the other caller's change %v", again["getSchema"].EntityPermissions)
+	}
+	if _, ok := again["listOperations"]; !ok {
+		t.Error("listOperations: got it deleted by another caller, want it")
+	}
+	if len(again["getSchema"].EntityPermissions) == 0 {
+		t.Error("getSchema entity permissions: got none, want the contract's")
+	}
+}
+
 func TestSpec(t *testing.T) {
 	if !strings.Contains(string(Spec()), "\nopenapi: \"3.1") {
 		t.Fatal("spec")

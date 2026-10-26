@@ -7033,10 +7033,26 @@
     "ph": 1,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Test suite duration: the ledger and payments packages exceed 30 minutes for ci-local's three race runs under load (batch 6, 2026-10-22); find the slow tests (schema migrate cycles, fixtures) and bring each package back under 10 minutes per run without dropping coverage",
       "r": "scripts/ci-local.sh race step · internal/ledger · internal/payments",
-      "c": []
+      "src": "ci:batch6",
+      "c": [
+       {
+        "s": "D",
+        "t": "Payments half: a test's setup built the API server twice (fixture and setupIn), each parsing the 1.2 MB embedded contract three times (about 4 s of a 5 s setup under -race and load); api.Operations now parses it once per process and gives each caller its own copy. internal/payments, one -race run on this machine: 644 s before, 237 s after at load 5 to 11 (808 s before at load 25 to 45); every test and assertion kept",
+        "r": "api/spec.go Operations · api/operations_test.go TestOperationsAreCopies · internal/payments",
+        "src": "ci:batch6",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Ledger half: internal/ledger still to profile and bring under 10 minutes per -race run (left to the lane changing the ledger at the time)",
+        "r": "internal/ledger",
+        "src": "ci:batch6",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",
