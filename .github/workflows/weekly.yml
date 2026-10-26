@@ -152,7 +152,12 @@ jobs:
       - name: Tests in a random order, three times
         # Three race runs triple each package binary's time; go test's default
         # 10 minutes per binary would stop the slowest (workflows, nfr) early.
-        run: go test -race -shuffle=on -count=3 -timeout 60m ./...
+        # The generated API built alone first and two packages at a time, as
+        # ci.yml's race step: the run of 2026-10-25 lost its runner ("starves
+        # it for CPU/Memory"), as main's did from 2026-10-21.
+        run: |
+          go build -race ./api/gen
+          go test -race -shuffle=on -count=3 -timeout 60m -p 2 ./...
 
   nfr:
     if: github.event_name == 'schedule' || inputs.jobs == 'all' || inputs.jobs == 'nfr'

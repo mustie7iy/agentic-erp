@@ -5,7 +5,7 @@ on:
     branches: [main]
   pull_request:
   # The full jobs on demand, on any branch: a change to them is tried before
-  # it reaches main (2026-10-26, main's suite stopped by the runner).
+  # it reaches main (2026-10-25, main's suite stopped by the runner).
   workflow_dispatch:
 
 # A newer push makes a running check obsolete: on a pull request its
@@ -13,7 +13,9 @@ on:
 # run's tree contains. Cancel it, so merges in quick succession pay for one
 # full run (06 §6.5).
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  # The event is in the group, so a dispatch on main and a push to main do
+  # not cancel each other's runs.
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -239,8 +241,10 @@ jobs:
     # A pull request runs the short job above instead.
     runs-on: ubuntu-latest
     # Above the race step's -timeout 60m plus the other steps, so a hung
-    # package is reported by go test before the runner stops the job.
-    timeout-minutes: 100
+    # package is reported by go test before the runner stops the job; 120
+    # since the race step runs two packages at a time (2026-10-25) and a cold
+    # tools cache costs about 14 minutes before it.
+    timeout-minutes: 120
     services:
       postgres:
         image: postgres:17
@@ -341,7 +345,7 @@ jobs:
               echo "monitor $(date -u +%T) $(free -m | awk 'NR==2{print "memory used "$3" of "$2" MiB, available "$7}'), $(df -h / | awk 'NR==2{print "disk free "$4}')"
             done ) &
           monitor=$!
-          trap 'kill "$monitor"' EXIT
+          trap 'kill "$monitor" 2>/dev/null || true' EXIT
           go build -race ./api/gen
           go test -race -count=1 -timeout 60m -p 2 ./...
       - name: Performance budgets (without the race detector)
@@ -349,9 +353,8 @@ jobs:
         # budgets still catch a regression (ERP_BUDGET_SCALE, docs/testing.md).
         env:
           ERP_BUDGET_SCALE: 2
-        run: |
-          go test -count=1 -run Budget -v ./internal/ledger
-          go test -count=1 -run Perf -v ./internal/nfr
+        # Every package's budget tests (scripts/budgets.sh finds them).
+        run: ./scripts/budgets.sh -v
       - name: Coverage gate
         # The race build above and the instrumented build here share nothing,
         # so the race cache is dropped first; the runner's disk ran out once.
