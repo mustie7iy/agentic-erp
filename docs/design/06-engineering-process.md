@@ -240,19 +240,20 @@ pull request:
     check. Layer: the merge queue, which should have read main's full run
     after each merge. Changed: `coordinator/status.py` prints main's runs,
     and the red-main rule above has been followed again since batch14.
-- Secret scanning runs on every event. Everything else is skipped when
-  `scripts/ci-changes.sh` finds that only documentation changed (`docs/`,
-  Markdown) since the base: a pull request's base, or for a push to `main`
-  the last commit whose run there passed, as a cancelled run proves
-  nothing. Whatever it cannot establish runs.
+- Secret scanning and the tracker check run on every event. Everything
+  else is skipped when `scripts/ci-changes.sh` finds that only
+  documentation changed (`docs/`, Markdown) since the base: a pull
+  request's base, or for a push to `main` the last commit whose run there
+  passed, as a cancelled run proves nothing. Whatever it cannot establish
+  runs.
 - `scripts/merge-pr.sh` requires one check, `ci-ok`: it fails unless the
-  `changes` job (the secret scan and the skip decision) succeeded and no
-  job failed or was cancelled; on a pull request that is `changes` and
-  `short`, the others skipped; on a push to `main`, `test` is skipped too
-  and the run passes without it; on a nightly or manual run every job but
-  `short` runs, so a failed `test` turns that run's `ci-ok` red. Jobs
-  skipped on purpose pass; requiring them directly would let a failed
-  `changes` skip them into a pass.
+  `changes` job (the secret scan and the skip decision) and the `tracker`
+  job succeeded and no job failed or was cancelled; on a pull request that
+  is `changes`, `tracker` and `short`, the others skipped; on a push to
+  `main`, `test` is skipped too and the run passes without it; on a
+  nightly or manual run every job but `short` runs, so a failed `test`
+  turns that run's `ci-ok` red. Jobs skipped on purpose pass; requiring
+  them directly would let a failed `changes` skip them into a pass.
 - A newer push cancels the running check of the same pull request or of
   `main`, and a newer manual run an older one on the same branch; the
   older commit then shows `ci-ok` failed, which is expected.
