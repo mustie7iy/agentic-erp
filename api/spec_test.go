@@ -476,6 +476,11 @@ func TestRateLimitHeadersDeclaredOnce(t *testing.T) {
 			t.Errorf("info.description: got no %s, want it stated with its meaning", h)
 		}
 	}
+	for _, name := range []string{"RateLimitLimit", "RateLimitRemaining", "RateLimitReset"} {
+		if _, ok := spec["components"].(node)["headers"].(node)[name]; ok {
+			t.Errorf("components/headers: got %s, want it removed with the declarations", name)
+		}
+	}
 	walk("#", spec, func(at string, n node) {
 		headers, _ := n["headers"].(node)
 		for name := range headers {
