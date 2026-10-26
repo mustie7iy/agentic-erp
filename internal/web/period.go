@@ -87,7 +87,7 @@ func (s *Server) showPeriod(w http.ResponseWriter, r *http.Request, p *person, m
 	}
 	ctx := r.Context()
 	pp := ui.PeriodPage{Year: fp.FiscalYear, Period: fp.Period, Back: periodsOf(fp.LegalEntityID, fp.LedgerID, fp.FiscalYear),
-		Header: s.periodHeader(ctx, p, m, fp), Done: periodDone[r.URL.Query().Get("done")], Refusal: refused}
+		Header: s.periodHeader(ctx, p, m, fp), Done: periodDone[r.URL.Query().Get("done")], Refusal: refused, Audit: auditLink(m, fp.ID)}
 	if req, ok := fp.UnlockRequestID.Get(); ok {
 		pp.Unlock = ui.ApprovalsPath + "/" + req.String()
 	}

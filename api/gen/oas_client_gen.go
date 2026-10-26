@@ -1373,7 +1373,12 @@ type Invoker interface {
 	ListNumberRanges(ctx context.Context, params ListNumberRangesParams) (ListNumberRangesRes, error)
 	// ListOpenItems invokes listOpenItems operation.
 	//
-	// Uncleared lines on supplier and customer reconciliation accounts. Sortable by: `posting_date`.
+	// Uncleared lines on supplier and customer reconciliation accounts. An item posted with payment terms
+	// (T36b) is due on their `net_due_date`, and earns a discount until each tier's `until`; an item
+	// without terms (posted before T36, manually, migrated, a customer's) has no due date the ledger
+	// keeps. With `aging_key_date` the first page also carries `aging`: every item the filters select, not
+	// only the page's, summed per local currency by how many days past its net due date it is on the key
+	// date (ADR-0052 G4). Sortable by: `posting_date`.
 	//
 	// GET /v1/open-items
 	ListOpenItems(ctx context.Context, params ListOpenItemsParams) (ListOpenItemsRes, error)
@@ -30252,7 +30257,12 @@ func (c *Client) sendListNumberRanges(ctx context.Context, params ListNumberRang
 
 // ListOpenItems invokes listOpenItems operation.
 //
-// Uncleared lines on supplier and customer reconciliation accounts. Sortable by: `posting_date`.
+// Uncleared lines on supplier and customer reconciliation accounts. An item posted with payment terms
+// (T36b) is due on their `net_due_date`, and earns a discount until each tier's `until`; an item
+// without terms (posted before T36, manually, migrated, a customer's) has no due date the ledger
+// keeps. With `aging_key_date` the first page also carries `aging`: every item the filters select, not
+// only the page's, summed per local currency by how many days past its net due date it is on the key
+// date (ADR-0052 G4). Sortable by: `posting_date`.
 //
 // GET /v1/open-items
 func (c *Client) ListOpenItems(ctx context.Context, params ListOpenItemsParams) (ListOpenItemsRes, error) {
@@ -30365,6 +30375,66 @@ func (c *Client) sendListOpenItems(ctx context.Context, params ListOpenItemsPara
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.PostingDateTo.Get(); ok {
 				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "due_date_to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "due_date_to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.DueDateTo.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "aging_key_date" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "aging_key_date",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.AgingKeyDate.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "aging_days" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "aging_days",
+			Style:   uri.QueryStyleForm,
+			Explode: false,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if params.AgingDays != nil {
+				return e.EncodeArray(func(e uri.Encoder) error {
+					for i, item := range params.AgingDays {
+						if err := func() error {
+							return e.EncodeValue(conv.Int32ToString(item))
+						}(); err != nil {
+							return errors.Wrapf(err, "[%d]", i)
+						}
+					}
+					return nil
+				})
 			}
 			return nil
 		}); err != nil {

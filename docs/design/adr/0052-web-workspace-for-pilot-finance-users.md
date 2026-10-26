@@ -1908,6 +1908,156 @@ as first written:
   withdrawal clicked with the mouse at a phone's, the approval in the
   inbox, and a reversal.
 
+## Built in T73j (2026-10-25)
+The reports (G4, G5), for every finance role, read with the person's own
+access. What it settled, and where it departs from the step as first
+written:
+- **Pages.** `GET /reports`: the reports the person may read
+  (`ledger.entry.read`: the trial balance, the supplier open items, the
+  GR/IR positions and the ledger reconciliation), each house bank's
+  reconciliation report (T73g's, `payments.statement.read`), and a
+  document's audit history by its id (`audit.event.read`); in the
+  navigation for a person who may read any of them. `GET
+  /reports/trial-balance`: a company's totals per account, period and
+  transaction currency in a ledger and fiscal year, a period or the whole
+  year (the first company by name, the leading ledger and this year until
+  chosen), the accounts named. `GET /reports/open-items`: a company's
+  supplier open items on one of its supplier reconciliation accounts
+  (the first by number until another is chosen; another company's, kept
+  by the form when the company changed, falls back to it), of a supplier
+  by number, posted or due by a date, with their aging on a key date
+  (today until chosen), each item's net due date, the last day of its
+  earliest discount still open and its days overdue. `GET /reports/gr-ir`:
+  a company's GR/IR positions, those still open or every one. A supplier
+  named to a person who may not look suppliers up is refused on its
+  field, never dropped from the filters. `GET
+  /reports/ledger-reconciliation`: two ledgers a company keeps compared
+  (the chosen ledger, the leading one until then, with the leading one,
+  or the leading one with the company's first parallel one, as T73i's
+  check compares them; ledgers the company does not keep, which the form
+  keeps when the company changed, are the company's own), each ledger's
+  trial balance check and the accounts that differ. `GET /reports/ledger-reconciliation/entries`:
+  the lines behind one account's difference
+  (`listLedgerReconciliationEntries`). `GET /reports/audit`: a document's
+  events newest first, who (by name and kind), what, the outcome, the
+  address a person acted from (the API shows it for people alone, T73c)
+  and the details as data. Pages of 100 rows (50 events), "more" by the
+  API's token.
+- **G4 as built, contract first.** `listOpenItems` gained `due_date_to`
+  (the net due date of the terms the item was posted with; an item without
+  terms has none and is left out), `aging_key_date` and `aging_days` (the
+  buckets' last days past the due date, ascending, 30, 60 and 90 by
+  default, at most six); with a key date, the first page carries `aging`:
+  every item the filters select, not only the page's, per local currency
+  in the buckets not due (due on the key date counts as not due), overdue
+  by days, and without a due date, each with its number of items and its
+  open amount in local currency, as `listLedgerReconciliation`'s first
+  page carries its trial balances. Days without a key date, or not
+  ascending, are `request.invalid_parameter`. **Departs from §3:** no
+  `net_due_date` and `discount_due_date` beside the item's terms: the
+  item has carried both since T36b (`payment_terms.net_due_date`,
+  `discounts[].until`), so the change adds the filter and the aging alone.
+  An item without terms (posted before T36, manually, migrated, a
+  customer's) has no due date the ledger keeps: its supplier's current
+  terms are the partner context's, which the payment proposal reads for
+  itself, and the ledger imports no partner. The due date is computed in
+  SQL as `ItemTerms.NetDueDate` computes it (the baseline date plus the
+  net days), not stored or indexed (ADR-0051 §1); T53e's shared due-date
+  helper is not built yet, and when it is, the aging reads it.
+- **G5, CSV up to 10,000 rows.** The trial balance, the open items and
+  the GR/IR positions download as CSV (`….csv`, the report's own
+  filters): the API's pages of 500 read with the person's token until the
+  last, at most 25 (short pages), all read before the first byte, so a
+  report over 10,000 rows is said on a page of its own with the way back
+  rather than cut short in a file that looks whole; above that is T63's
+  export. The first line holds the report's title and its filters as the
+  API names them, the second the columns in the person's language; the
+  amounts are the API's decimal strings, the dates ISO. The file is UTF-8
+  with a byte order mark (spreadsheet programs read a French company's
+  accents by it: from memory, below), and a text that begins as a formula
+  does (`=`, `+`, `-`, `@`, a tab or carriage return) is kept as text by a
+  leading apostrophe, numbers and dates as they are (CSV injection,
+  OWASP: below). **Departs from §10:** a download reads its report's
+  pages, more than a page's six calls: the inventory marks them
+  (`Operation.Export`), and `TestScreensAgainstTheContract` holds a
+  download's other reads and its 25 pages to 40 calls at most, within the
+  API's burst of a principal's (04 §4.11, 07: 100 at 50 a second).
+- **Drill-down.** An open item links to its journal entry's page (T73h);
+  a difference of the reconciliation, in the report and in T73i's
+  pre-close check, to the entries behind it, each linked to its entry's
+  page; a posted entry's, a parked entry's and a period's page to its
+  audit history, for a person who may read the audit trail. T73i's GR/IR
+  and ledger reconciliation checks link to these reports (T73i2's two
+  items that waited on T73j). **Not built:** a trial balance account's
+  entries: `listJournalEntries` filters by no account (a contract change,
+  T73j2).
+- **Calls.** The index makes three (`getCurrentPrincipal`,
+  `listHouseBanks`, `listLegalEntities`), the trial balance five
+  (`listLegalEntities`, `listLedgers`, `listAccounts`, `listBalances`),
+  the open items five (`listLegalEntities`, `listAccounts` for the
+  company's supplier accounts, `listBusinessPartners` for a supplier
+  named, `listOpenItems`), the GR/IR positions three, the reconciliation
+  five (`listLedgers`, `listAccounts`, `listLedgerReconciliation` besides
+  the companies), its entries four, the audit history three
+  (`listAuditEvents`, `listPrincipalNames`). Partners on items and orders
+  on positions are shown by id, as T73f2 and T73i2 say; the supplier a
+  filter names is named. Companies, ledgers, accounts and names that
+  cannot be read are no reason to refuse a report: they are logged, and
+  shown by id or not offered; ledgers that cannot be read leave the
+  reconciliation to the address's ledgers by id.
+- **Budgets (§10) and volumes.** The workspace's page is bounded by its
+  page size, not by the company's volume: at a full page (100 rows, a
+  chart of 500 accounts, five companies) against an API answering at once,
+  every report is under 62 KB of HTML (100 KB) and its p95 under 7 ms on a
+  laptop (30 ms), held by `TestReportBudgets` (`make perf`, without the
+  race detector); at most six calls a page by the contract test. **The
+  pilot's volumes are not known:** neither the tracker nor this ADR names
+  them (they are among the facts the pilot gives, §2), so they are an
+  open item, measured when known (T73j2). The API's reads have their own
+  budgets at the volumes 01 and 07 name: the trial balance at 10,000 rows
+  (07 §7.3, T3: 0.45 s against 1 s), the GR/IR positions at 20,000 (150 ms),
+  the ledger reconciliation of the largest tenant's company (1 s). **Found:**
+  `listOpenItems` does not meet 01's list budget (p95 150 ms) at the
+  100,000 open items 01 names for a payment proposal: a first page took
+  0.83 s and 1.3 s with its aging on a laptop (`TestOpenItemsAgingBudget`,
+  which holds the aging to at most the page's own read), the plan joining
+  every item of the account before its sort (tracker item T73j3: an index
+  or a read model, a migration of the ledger lane).
+- **Home.** With the reports a screen, the home's planned jobs are the
+  master data and change requests (T73k), which P6 lets follow in the
+  pilot's first month.
+- **Not built, tracker item T73j2:** a trial balance account's entries
+  (an `account_id` filter on `listJournalEntries`: a contract change);
+  the aging's buckets chosen on the page (the API takes `aging_days`; the
+  page asks 30, 60 and 90); downloads of the ledger reconciliation and the
+  audit history; suppliers named on the items (by id now: T73f2's contract
+  change); the budgets measured at the pilot's volumes once the pilot
+  gives them; walked through by a pilot GL accountant, AP clerk and
+  controller.
+- **Tests.** The API: the aging's buckets, the due-date filter, the
+  first page alone, the refusals (`TestOpenItemsAging`), every statement
+  failing (`TestDatabaseFailures`), the budget at 100,000 items. The
+  workspace against the real API and PostgreSQL (company 2000 keeping 0L
+  and 2L with a posting in 2L alone, a USD supplier item posted without
+  terms, the supplier's invoice due on 9 April, an open GR/IR position):
+  the index as accountant and as a person who may read nothing; the trial
+  balance, its filters and its download; the open items aged on 15 April
+  (the invoice six days overdue, the USD item apart), by supplier, due by
+  a date, another company's account, the download; the GR/IR positions;
+  the reconciliation from 0L and from 2L, its entries and their entry's
+  page, a company keeping one ledger; the pre-close checks' links; the
+  audit history from an entry's page, a person who may not read it; and
+  as others. The rarer answers come from the stub (pages more, buckets
+  and actor kinds the workspace does not know, unreadable companies,
+  ledgers, accounts and names, a supplier's lookup refused or failed,
+  downloads over 10,000 rows and over 25 pages, an unreachable API, a
+  download cut short). The browser suite runs axe on the index, every
+  report, the entries behind a difference and an audit history, in
+  English, French and both pseudo-locales at 1280 and 390 px, and walks,
+  with the mouse, the open items to an overdue invoice's entry and its
+  history at a desktop's width, and the reconciliation to the entry behind
+  its difference at a phone's.
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF
@@ -2010,6 +2160,11 @@ as first written:
 
 **From memory, to verify.** Each is an open item. The step named
 verifies it and records the source here, or corrects the text:
+- (T73j2) OWASP's CSV injection guidance (the leading apostrophe for a
+  cell beginning with `=`, `+`, `-`, `@`, a tab or a carriage return):
+  https://owasp.org/www-community/attacks/CSV_Injection ;
+- (T73j2, with the pilot's spreadsheet program) that a UTF-8 file without
+  a byte order mark loses its accents when opened directly;
 - (T73d-T73k, with the pilot) the SAP Fiori app names in "What SAP gives these users";
 - (T73l, with the pilot) English as the usual working language of UAE
   finance teams;

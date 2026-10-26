@@ -930,7 +930,12 @@ them with the entry (`ledger.Posting.Terms`; terms for an entry without a
 supplier open item are refused). The payable items and `GET
 /v1/open-items` show them, with the net due date and each discount's last
 day (`payment_terms`); an item posted without them (before T36, manual,
-migrated) has none and is due by its supplier's current terms.
+migrated) has none and is due by its supplier's current terms. The net
+due date is computed (baseline date plus net days), never stored or
+indexed: `GET /v1/open-items` filters by it (`due_date_to`, leaving out
+the items without terms) and ages the items it selects on a key date
+(`aging_key_date`, `aging_days`), summed per local currency on its first
+page (ADR-0052 G4, T73j).
 
 It keeps its supplier's withholding taxes too (`open_item_withholding`,
 migration 000088, T46f, ADR-0037; SAP WITH_ITEM), one row per code of the

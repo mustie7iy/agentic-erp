@@ -2,12 +2,14 @@ package ui
 
 import "github.com/mustie7iy/agentic-erp/internal/web/i18n"
 
-// Jobs are the pilot's jobs (ADR-0052 §2, P6) still to become a screen;
-// the approvals inbox (T73d), the supplier invoices (T73e), the bank
-// statements (T73g), the payment runs (T73f), the manual journal entries
-// (T73h) and the period close (T73i) are screens, in the navigation.
+// Jobs are the pilot's jobs (ADR-0052 §2, P6) still to become a screen:
+// the master data and change requests (T73k), which can follow in the
+// pilot's first month; the approvals inbox (T73d), the supplier invoices
+// (T73e), the bank statements (T73g), the payment runs (T73f), the manual
+// journal entries (T73h), the period close (T73i) and the reports (T73j)
+// are screens, in the navigation.
 var Jobs = []i18n.Key{
-	i18n.JobReports,
+	i18n.JobMasterData,
 }
 
 // Home is the signed-in person's home until the jobs' screens

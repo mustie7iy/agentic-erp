@@ -7370,7 +7370,7 @@ paths:
       tags:
         - ledger
       summary: List open items
-      description: "Uncleared lines on supplier and customer reconciliation accounts. Sortable by: `posting_date`."
+      description: "Uncleared lines on supplier and customer reconciliation accounts. An item posted with payment terms (T36b) is due on their `net_due_date`, and earns a discount until each tier's `until`; an item without terms (posted before T36, manually, migrated, a customer's) has no due date the ledger keeps. With `aging_key_date` the first page also carries `aging`: every item the filters select, not only the page's, summed per local currency by how many days past its net due date it is on the key date (ADR-0052 G4). Sortable by: `posting_date`."
       x-permission: ledger.entry.read
       x-problem-codes:
         - request.invalid_order_by
@@ -7387,6 +7387,39 @@ paths:
             type: string
             format: uuid
         - $ref: "#/components/parameters/PostingDateTo"
+        - name: due_date_to
+          in: query
+          required: false
+          description: "Only items due on or before this date by the payment terms they were posted with (`payment_terms.net_due_date`); an item without terms has no due date and is left out."
+          schema:
+            type: string
+            format: date
+        - name: aging_key_date
+          in: query
+          required: false
+          description: "The date the items are aged on: the first page carries `aging`, the selected items summed in the buckets of `aging_days`."
+          schema:
+            type: string
+            format: date
+        - name: aging_days
+          in: query
+          required: false
+          description: "The aging buckets' last days past the net due date, ascending, comma-separated: `30,60,90` (the default) ages the items not yet due, 1 to 30, 31 to 60 and 61 to 90 days overdue, and more than 90. Only with `aging_key_date`: without it, 400 `request.invalid_parameter`, as for days not ascending."
+          schema:
+            type: array
+            items:
+              type: integer
+              format: int32
+              minimum: 1
+              maximum: 3650
+            minItems: 1
+            maxItems: 6
+          style: form
+          explode: false
+          example:
+            - 30
+            - 60
+            - 90
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -25161,6 +25194,60 @@ components:
           $ref: "#/components/schemas/Money"
           description: Sum of their differences in group currency.
           readOnly: true
+    OpenItemAging:
+      type: object
+      description: "The open items of one aging bucket in one local currency (ADR-0052 G4): their number and their open amount in local currency, signed (a supplier's credit negative)."
+      required:
+        - bucket
+        - currency
+        - item_count
+        - amount_lc
+      properties:
+        bucket:
+          type: string
+          description: "`not_due`: due on the key date or later; `overdue`: from `days_from` to `days_to` days past the net due date (the last bucket without `days_to`); `no_due_date`: posted without payment terms. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - not_due
+            - overdue
+            - no_due_date
+          readOnly: true
+        days_from:
+          type: integer
+          format: int32
+          description: "An overdue bucket's first day past the net due date."
+          minimum: 1
+          readOnly: true
+        days_to:
+          type: integer
+          format: int32
+          description: "An overdue bucket's last day past the net due date; absent on the last bucket."
+          minimum: 1
+          readOnly: true
+        currency:
+          type: string
+          description: The local currency the amounts are in.
+          pattern: "^[A-Z]{3}$"
+          readOnly: true
+        item_count:
+          type: integer
+          format: int64
+          description: How many items the bucket holds.
+          minimum: 1
+          readOnly: true
+        amount_lc:
+          $ref: "#/components/schemas/Money"
+          description: The items' open amount in local currency, signed.
+          readOnly: true
+      additionalProperties: false
+      example:
+        bucket: overdue
+        days_from: 1
+        days_to: 30
+        currency: EUR
+        item_count: 3
+        amount_lc:
+          amount: "-1250.00"
+          currency: EUR
     OpenItemPage:
       type: object
       description: One page of open items.
@@ -25172,6 +25259,12 @@ components:
           items:
             $ref: "#/components/schemas/OpenItem"
           description: The open items on this page.
+        aging:
+          type: array
+          description: "On the first page with `aging_key_date`: the items the filters select, every page's, per local currency and bucket, buckets in the order not due, each overdue bucket by its days, without a due date; a bucket without items is left out."
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/OpenItemAging"
         next_page_token:
           type: string
           description: "Opaque cursor for the next page; absent on the last page."

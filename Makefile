@@ -139,7 +139,7 @@ fuzz:
 # Performance budgets and benchmarks.
 perf:
 	go test ./internal/nfr -run Perf -v
-	DATABASE_URL="$(DATABASE_URL)" go test -count=1 ./internal/ledger ./internal/payments -run Budget -v
+	DATABASE_URL="$(DATABASE_URL)" go test -count=1 ./internal/ledger ./internal/payments ./internal/web -run Budget -v
 	go test ./internal/nfr -run '^$$' -bench . -benchmem
 
 # Non-functional suites against the database (05-scalability §5.8). Each

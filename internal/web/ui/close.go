@@ -171,6 +171,7 @@ type PeriodPage struct {
 	Revalue      string // the revaluation at its end; "" when not offered
 	Done         i18n.Key
 	Refusal      *Refusal
+	Audit        string // its audit history; "" when the person may not read the audit trail
 }
 
 // ChecksView is the pre-close checks of a company's period (ADR-0052 §2):
@@ -192,6 +193,7 @@ type GRIRCheck struct {
 	Positions []GRIRPosition
 	More      bool
 	Refusal   *Refusal
+	Report    string // the company's GR/IR report (T73j)
 }
 
 // GRIRPosition is one purchase order item's open GR/IR position: the
@@ -219,6 +221,7 @@ type LedgerCheck struct {
 	Differences []DifferenceView
 	More        bool
 	Refusal     *Refusal
+	Report      string // the reconciliation's report (T73j)
 }
 
 // TrialView is one ledger's trial balance check in local currency.
@@ -230,14 +233,16 @@ type TrialView struct {
 }
 
 // DifferenceView is one account and currency whose balance differs
-// between the two ledgers: the account by id (the API names none on a
-// difference).
+// between the two ledgers: the account by number and name, by id when it
+// cannot be named (the API names none on a difference), linked to the
+// entries behind it.
 type DifferenceView struct {
 	Account    string
 	Currency   string
 	Balance    Money
 	Compare    Money
 	Difference Money
+	Entries    string // the entries behind the difference (T73j); "" when they cannot be named
 }
 
 // StatementCheck is the company's bank statements not reconciled: those
