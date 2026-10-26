@@ -206,9 +206,10 @@ func (o Operation) Level() int {
 
 // Operations returns every operation in the contract by operationId. The
 // contract is embedded and fixed at build time, so it is parsed once per
-// process: the API server is built three times over by each test's API
-// (apitest), and parsing the 1.2 MB contract was most of a test's setup.
-// Each caller gets its own copy, so none can change another's.
+// process: building the API server reads it three times (the authorizer,
+// the snapshot and the deprecation tables), servers are built for every
+// test, and parsing the 1.2 MB contract each time was most of a test's
+// setup. Each caller gets its own copy, so none can change another's.
 func Operations() (map[string]Operation, error) {
 	ops, err := contractOperations()
 	return cloneOperations(ops), err
