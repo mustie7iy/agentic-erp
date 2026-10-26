@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -35,7 +36,11 @@ type Operation struct {
 	// the permission by the operation's {entity} path parameter, for a
 	// resource whoever may read the entity may read (a custom field schema).
 	EntityPermissions map[string]string
-	AgentAllowed      bool // false when x-agent: false
+	// AlsoPermissions is x-also-permissions, beside x-permission: further
+	// permissions the caller must hold, as a report of ledger amounts by
+	// cost center needs the ledger's read permission too (ADR-0050).
+	AlsoPermissions []string
+	AgentAllowed    bool // false when x-agent: false
 	// Proposes is x-autonomy: propose: the operation only proposes, and an
 	// agent of autonomy level 1 may perform it (ADR-0036).
 	Proposes bool
@@ -75,6 +80,7 @@ type operationNode struct {
 	ID           string            `yaml:"operationId"`
 	Permission   string            `yaml:"x-permission"`
 	Entities     map[string]string `yaml:"x-entity-permissions"`
+	Also         []string          `yaml:"x-also-permissions"`
 	Agent        *bool             `yaml:"x-agent"`
 	Autonomy     string            `yaml:"x-autonomy"`
 	Deprecated   bool              `yaml:"deprecated"`
@@ -98,6 +104,9 @@ func decodeOperation(method, path string, node yaml.Node, permissioned bool) (Op
 	if op.ID == "" || (permissioned && (op.Permission == "") == (len(op.Entities) == 0)) {
 		return Operation{}, errors.New("operationId and one of x-permission and x-entity-permissions are required")
 	}
+	if len(op.Also) > 0 && op.Permission == "" {
+		return Operation{}, errors.New("x-also-permissions needs x-permission")
+	}
 	if op.Autonomy != "" && op.Autonomy != "propose" && op.Autonomy != "read" {
 		return Operation{}, errors.New("x-autonomy is propose, read or absent")
 	}
@@ -120,7 +129,7 @@ func decodeOperation(method, path string, node yaml.Node, permissioned bool) (Op
 		return Operation{}, errors.New("x-snapshot is for GET operations, which run read-only")
 	}
 	return Operation{
-		ID: op.ID, Method: strings.ToUpper(method), Path: path, Permission: op.Permission, EntityPermissions: op.Entities,
+		ID: op.ID, Method: strings.ToUpper(method), Path: path, Permission: op.Permission, EntityPermissions: op.Entities, AlsoPermissions: op.Also,
 		AgentAllowed: op.Agent == nil || *op.Agent, Proposes: op.Autonomy == "propose", Reads: op.Autonomy == "read",
 		Lifecycle: life, Stability: op.Stability, Class: cls, Snapshot: op.Snapshot,
 	}, nil
@@ -217,12 +226,13 @@ func Operations() (map[string]Operation, error) {
 
 var contractOperations = sync.OnceValues(func() (map[string]Operation, error) { return parseOperations(openapiYAML, true) })
 
-// cloneOperations copies ops down to each operation's entity permissions,
-// the one field that is itself a map.
+// cloneOperations copies ops down to each operation's entity and further
+// permissions, the fields that are themselves a map or a slice.
 func cloneOperations(ops map[string]Operation) map[string]Operation {
 	c := make(map[string]Operation, len(ops))
 	for id, op := range ops {
 		op.EntityPermissions = maps.Clone(op.EntityPermissions)
+		op.AlsoPermissions = slices.Clone(op.AlsoPermissions)
 		c[id] = op
 	}
 	return c

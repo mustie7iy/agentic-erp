@@ -314,7 +314,11 @@ at most one bank file.
   if a handler has no permission, and a test checks that every permission in
   the spec exists in `ref.permission`. An operation whose resource is read by
   whoever may read an entity (`GET /v1/schemas/{entity}`, ADR-0046) names a
-  read permission per entity in `x-entity-permissions` instead.
+  read permission per entity in `x-entity-permissions` instead. An operation
+  that needs further permissions beside its own lists them in
+  `x-also-permissions`, and the caller must hold each: the cost and profit
+  center balance reports show ledger amounts, so they need the trial
+  balance's `ledger.entry.read` beside `ledger.cost_center.read` (ADR-0050).
 - Company access is checked on every read and write; resources outside the
   caller's companies are 404, not 403, so ids cannot be probed. A resource
   of no company that holds values of several (a change request's simulation

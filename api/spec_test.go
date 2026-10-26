@@ -263,6 +263,7 @@ func TestOperations(t *testing.T) {
 		case !seeded:
 			t.Errorf("%s: x-permission %s is not seeded in ref.permission", o, perm)
 		}
+		checkAlsoPermissions(t, o, perm, perms)
 		agent, hasAgent := o.op["x-agent"]
 		if hasAgent && agent != false {
 			t.Errorf("%s: x-agent may only be false (omit it otherwise), got %v", o, agent)
@@ -412,6 +413,26 @@ func TestRepresentations(t *testing.T) {
 		}
 		if _, ok := r["content"].(node)["application/problem+json"]; !ok {
 			t.Errorf("component response %s must be application/problem+json", name)
+		}
+	}
+}
+
+// checkAlsoPermissions checks an operation's x-also-permissions: a list of
+// seeded permissions other than its x-permission, none an approval
+// permission (those are x-object-permissions, on approval decisions).
+func checkAlsoPermissions(t *testing.T, o operation, perm string, perms map[string]bool) {
+	t.Helper()
+	also, present := o.op["x-also-permissions"]
+	if !present {
+		return
+	}
+	codes, ok := also.([]any)
+	if !ok || len(codes) == 0 {
+		t.Errorf("%s: x-also-permissions must list permission codes, got %v", o, also)
+	}
+	for _, code := range codes {
+		if approval, seeded := perms[fmt.Sprint(code)]; !seeded || approval || code == perm {
+			t.Errorf("%s: x-also-permissions %v must be a seeded permission, not an approval one and not x-permission", o, code)
 		}
 	}
 }

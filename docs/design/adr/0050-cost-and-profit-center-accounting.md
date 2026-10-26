@@ -804,11 +804,12 @@ As built in T56f (migration 000163):
   so it adds at most the open year's assigned lines since T56d's release,
   though it scans the projected lines of every year;
   if that release has run long at volume before this one, the backfill
-  should instead be an operation in batches (06 §6.4): a question for the
-  product owner, not decided here.
+  should instead be an operation in batches (06 §6.4). Decided by the
+  product owner (2026-10-25): the backfill stays in the migration, as
+  nothing is in production yet; it is revisited before production if
+  volumes exist by then.
 - **Reads.** `GET /v1/cost-center-balances` and `GET
-  /v1/profit-center-balances` (`ledger.cost_center.read`, `x-slo-class:
-  report`): one legal entity (the caller's company access, as the trial
+  /v1/profit-center-balances` (`x-slo-class: report`): one legal entity (the caller's company access, as the trial
   balance), ledger (default leading) and fiscal year, period range
   (`fiscal_period_from`/`_to`), optionally a center, a hierarchy node, a
   segment and an account; one row per center (a profit center's with its
@@ -823,6 +824,15 @@ As built in T56f (migration 000163):
   has no rows. Only profit and loss accounts: the profit center report
   leaves out balance sheet lines with a profit center entered (P3); a
   balance sheet line carries no cost center.
+- **Permissions** (product owner, 2026-10-25): both reports need
+  `ledger.cost_center.read` and `ledger.entry.read`, the trial balance's,
+  so their amounts stay behind the permission of every other ledger
+  amount. The contract lists the second in `x-also-permissions`, which the
+  authorizer requires beside `x-permission` (04-api-design); either alone
+  is 403 `identity.permission_missing`
+  (`TestCenterBalancesNeedBothPermissions`).
+- **No node subtotals** (product owner, 2026-10-25): the API returns the
+  rows of a node's centers, and a client sums them for the node's total.
 - **P&L adds up.** `TestAssignmentBalancesAddUp` checks that per ledger,
   company, account and period the profit center balances of the P&L
   accounts equal `period_balance` with profit center accounting on. It is
@@ -831,8 +841,11 @@ As built in T56f (migration 000163):
 - **Drill-down** is the journal list's `cost_center_id` and
   `profit_center_id` filters with the company, ledger and year (T56d2),
   narrowed to a period by its dates (`posting_date_from`/`_to`); no journal
-  filter is added, so the entries listed are all the center's, with all
-  their lines, not only the row's account.
+  filter is added here, so the entries listed are all the center's, with
+  all their lines, not only the row's account. Drill-down by account
+  (product owner, 2026-10-25) comes through the journal list's
+  `account_id` filter, the contract change T73j2 makes for the trial
+  balance's accounts.
 - **Budget.** Both reports, every page of one company and period, are
   held to the trial balance's budget (01-requirements: p95 1 s) at its
   volume (360,000 projected rows, 2,000 pending lines,
@@ -840,7 +853,7 @@ As built in T56f (migration 000163):
   test's, as no requirement names one. The rows are loaded period by
   period, as the projector writes them.
 - **Not built:** the `ledger.AssignmentBalances` port (T56g's, with the
-  plan); node subtotals; cross-company totals.
+  plan); node subtotals (decided above); cross-company totals.
 
 ### 8. Plan values (minimal, decision P5)
 `controlling.plan_category` (code, name, e.g. `PLAN`, `FORECAST`; locked or
