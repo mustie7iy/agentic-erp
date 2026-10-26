@@ -208,8 +208,10 @@ pull request:
   trip and the release scripts, on the tree `main` really holds. It runs at
   06:00 UTC (`schedule`) and whenever started by hand
   (`workflow_dispatch`, on any branch: a change to the jobs is tried before
-  it reaches `main`); neither has a base to compare with, so everything
-  runs. It no longer runs on every push: run 40334507190 (2026-10-26, on
+  it reaches `main`); everything runs, except that a nightly run of a
+  `main` still at its last green full run's commit runs nothing
+  (`scripts/ci-changes.sh`): the Actions budget is small, and a quiet night
+  would otherwise cost three runner hours. It no longer runs on every push: run 40334507190 (2026-10-26, on
   the private repository's 2-CPU, 7.9 GB runner) was cancelled at its
   120-minute limit with no test failed and the race step unfinished, and
   the whole job takes about three hours, so its limit is 240 minutes. A

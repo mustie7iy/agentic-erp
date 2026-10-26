@@ -15,7 +15,8 @@
 # runs those checks on the same classes, before a merge.
 #
 # EVENT is pull_request, push, schedule or workflow_dispatch (the nightly
-# and manual runs, which, with no base, run everything), BASE the commit to
+# and manual runs, which run everything; a nightly is skipped when main is
+# still its last green full run's commit), BASE the commit to
 # compare with (the pull request's base), HEAD the commit under test
 # (default HEAD). A push to main is compared with the last commit whose
 # push run on main passed, not with the commit before it: a newer push
@@ -54,6 +55,20 @@ changed() {
   if grep -Eq "$1" <<<"${2-$files}"; then echo true; else echo false; fi
 }
 
+# A nightly run of a main that has not moved since the last green full run
+# (nightly or manual) runs nothing: the suite takes about three hours on the
+# runner and the Actions budget is small (PO 2026-10-26). Anything else that
+# finds no such run, or another commit, runs everything.
+if [ "$event" = schedule ]; then
+  full="$($GH run list --repo "${GITHUB_REPOSITORY:?}" --workflow ci.yml --branch main --status success \
+    --limit 20 --json headSha,event \
+    --jq 'first(.[] | select(.event == "schedule" or .event == "workflow_dispatch") | .headSha) // empty')" || full=""
+  if [ -n "$full" ] && [ "$full" = "$(git rev-parse "$head")" ]; then
+    decide false "main has not moved since its last green full run"
+  fi
+  [ -n "$full" ] || decide true "no green full run on main to compare with"
+  decide true "a nightly run of a main that has moved"
+fi
 if [ "$event" = push ]; then
   base="$($GH run list --repo "${GITHUB_REPOSITORY:?}" --workflow ci.yml --branch main --event push \
     --status success --limit 1 --json headSha --jq '.[0].headSha // empty')" || base=""
