@@ -91,6 +91,38 @@ func TestAuthorizeEntity(t *testing.T) {
 	})
 }
 
+// TestAlsoPermissions: an operation with x-also-permissions needs each of
+// them beside its x-permission, and a segregation-of-duties rule on one of
+// them bars it as on the x-permission.
+func TestAlsoPermissions(t *testing.T) {
+	a := authz.New(map[string]api.Operation{"x": {ID: "x", Method: "GET", Permission: "platform.operation.read",
+		AlsoPermissions: []string{"platform.operation.cancel"}, AgentAllowed: true}})
+	for name, c := range map[string]struct {
+		held []string
+		want string
+	}{
+		"x-permission alone":      {[]string{"platform.operation.read"}, "identity.permission_missing"},
+		"the other alone":         {[]string{"platform.operation.cancel"}, "identity.permission_missing"},
+		"both":                    {[]string{"platform.operation.read", "platform.operation.cancel"}, ""},
+		"both, one in a conflict": {[]string{"platform.operation.read", "platform.operation.cancel", "workflow.request.decide"}, "identity.sod_conflict"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ten := pgtest.NewTenant(t, c.held...)
+			pgtest.Exec(t, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by)
+				VALUES ($1, gen_random_uuid(), 'platform.operation.cancel', 'workflow.request.decide', 'd', current_date, $2)`, ten.ID, ten.Human.ID)
+			as(t, ten, ten.Human, func(ctx context.Context) {
+				got := ""
+				if err := a.Authorize(ctx, "x"); err != nil {
+					got = problem.From(err).Code
+				}
+				if got != c.want {
+					t.Errorf("got %q, want %q (empty: authorized)", got, c.want)
+				}
+			})
+		})
+	}
+}
+
 func TestOnlyCurrentGrantsCount(t *testing.T) {
 	ten := pgtest.NewTenant(t, "platform.operation.read", "platform.operation.cancel")
 	// End the cancel grant today, put a future-dated grant in place, and deactivate nothing else.

@@ -117,22 +117,29 @@ func New(h gen.Handler, p Pipeline) (http.Handler, error) {
 		mux.Handle(pattern, route)
 	}
 	op := api.MustModelOperations()["createModelMessage"]
-	mux.Handle(op.Method+" "+op.Path, modelRoute(p, unit, op.Permission))
+	mux.Handle(op.Method+" "+op.Path, modelRoute(p, unit, append([]string{op.Permission}, op.AlsoPermissions...)))
 	mux.Handle("/", chain)
 	return telemetry.Middleware(p.Log, p.Metrics, p.Tracer)(mux), nil
 }
 
 // modelRoute is the model gateway behind the token check, the quotas and
-// an authentication of its own, which needs the operation's permission;
-// without a gateway, 503. It has no request deadline: the provider's
+// an authentication of its own, which needs the operation's permissions
+// (x-permission and any x-also-permissions); without a gateway, 503. It has no request deadline: the provider's
 // client bounds a call.
-func modelRoute(p Pipeline, unit *uow.Middleware, permission string) http.Handler {
+func modelRoute(p Pipeline, unit *uow.Middleware, permissions []string) http.Handler {
 	if p.Model == nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			problem.Write(w, r, problem.Unavailable("No model provider is configured on this server (ERP_MODEL_API_KEY).", 0))
 		})
 	}
-	chain := unit.Authenticated(func(ctx context.Context) error { return authz.Require(ctx, permission) }, p.Model)
+	chain := unit.Authenticated(func(ctx context.Context) error {
+		for _, permission := range permissions {
+			if err := authz.Require(ctx, permission); err != nil {
+				return err
+			}
+		}
+		return nil
+	}, p.Model)
 	if p.Limits != nil {
 		chain = p.Limits.Middleware(chain)
 	}

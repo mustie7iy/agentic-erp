@@ -1227,7 +1227,9 @@ type Invoker interface {
 	// center or segment needs document splitting (ADR-0050 decision P3). A legal entity the caller cannot
 	// act in, or a ledger that does not exist, has none. The lines behind a row are the entries
 	// `GET /v1/journal-entries` lists with `legal_entity_id`, `ledger_id`, `fiscal_year` and
-	// `cost_center_id`. Sortable by: `cost_center_id`, `account_id`, `fiscal_period`.
+	// `cost_center_id`. Sortable by: `cost_center_id`, `account_id`, `fiscal_period`. The amounts are
+	// ledger amounts, so besides `ledger.cost_center.read` the caller needs `ledger.entry.read`, as for
+	// the trial balance (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
 	//
 	// GET /v1/cost-center-balances
 	ListCostCenterBalances(ctx context.Context, params ListCostCenterBalancesParams) (ListCostCenterBalancesRes, error)
@@ -1467,7 +1469,9 @@ type Invoker interface {
 	// balance sheet by profit center or segment needs document splitting (ADR-0050 decision P3). A legal
 	// entity the caller cannot act in, or a ledger that does not exist, has none. The lines behind a row
 	// are the entries `GET /v1/journal-entries` lists with `legal_entity_id`, `ledger_id`, `fiscal_year`
-	// and `profit_center_id`. Sortable by: `profit_center_id`, `account_id`, `fiscal_period`.
+	// and `profit_center_id`. Sortable by: `profit_center_id`, `account_id`, `fiscal_period`. The amounts
+	// are ledger amounts, so besides `ledger.cost_center.read` the caller needs `ledger.entry.read`, as
+	// for the trial balance (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
 	//
 	// GET /v1/profit-center-balances
 	ListProfitCenterBalances(ctx context.Context, params ListProfitCenterBalancesParams) (ListProfitCenterBalancesRes, error)
@@ -25575,7 +25579,9 @@ func (c *Client) sendListContracts(ctx context.Context, params ListContractsPara
 // center or segment needs document splitting (ADR-0050 decision P3). A legal entity the caller cannot
 // act in, or a ledger that does not exist, has none. The lines behind a row are the entries
 // `GET /v1/journal-entries` lists with `legal_entity_id`, `ledger_id`, `fiscal_year` and
-// `cost_center_id`. Sortable by: `cost_center_id`, `account_id`, `fiscal_period`.
+// `cost_center_id`. Sortable by: `cost_center_id`, `account_id`, `fiscal_period`. The amounts are
+// ledger amounts, so besides `ledger.cost_center.read` the caller needs `ledger.entry.read`, as for
+// the trial balance (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
 //
 // GET /v1/cost-center-balances
 func (c *Client) ListCostCenterBalances(ctx context.Context, params ListCostCenterBalancesParams) (ListCostCenterBalancesRes, error) {
@@ -32853,7 +32859,9 @@ func (c *Client) sendListPrincipals(ctx context.Context, params ListPrincipalsPa
 // balance sheet by profit center or segment needs document splitting (ADR-0050 decision P3). A legal
 // entity the caller cannot act in, or a ledger that does not exist, has none. The lines behind a row
 // are the entries `GET /v1/journal-entries` lists with `legal_entity_id`, `ledger_id`, `fiscal_year`
-// and `profit_center_id`. Sortable by: `profit_center_id`, `account_id`, `fiscal_period`.
+// and `profit_center_id`. Sortable by: `profit_center_id`, `account_id`, `fiscal_period`. The amounts
+// are ledger amounts, so besides `ledger.cost_center.read` the caller needs `ledger.entry.read`, as
+// for the trial balance (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
 //
 // GET /v1/profit-center-balances
 func (c *Client) ListProfitCenterBalances(ctx context.Context, params ListProfitCenterBalancesParams) (ListProfitCenterBalancesRes, error) {

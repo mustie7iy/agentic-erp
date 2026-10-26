@@ -248,6 +248,40 @@ func TestCenterBalancesDrillDown(t *testing.T) {
 	}
 }
 
+// TestCenterBalancesNeedBothPermissions (PO 2026-10-25): the reports'
+// amounts are ledger amounts, so a caller needs the trial balance's
+// ledger.entry.read beside ledger.cost_center.read; either alone is refused.
+func TestCenterBalancesNeedBothPermissions(t *testing.T) {
+	e := setup(t)
+	query := "?legal_entity_id=" + e.de.String() + "&fiscal_year=2026"
+	paths := []string{"/v1/cost-center-balances", "/v1/profit-center-balances"}
+	for _, path := range paths {
+		e.Must(200, "GET", path+query, "", "")
+	}
+	for _, held := range []string{"ledger.entry.read", "ledger.cost_center.read"} {
+		missing := "ledger.cost_center.read"
+		if held == missing {
+			missing = "ledger.entry.read"
+		}
+		pgtest.Exec(t, `UPDATE identity.role_permission SET valid_to = current_date, ended_by = created_by
+			WHERE tenant_id = $1 AND permission_code = $2 AND valid_to IS NULL`, e.ten.ID, missing)
+		for _, path := range paths {
+			t.Run(held+" alone "+path, func(t *testing.T) {
+				p := e.In(t).Problem(403, "identity.permission_missing", "GET", path+query, "", "")
+				if detail, _ := p["detail"].(string); !strings.Contains(detail, missing) {
+					t.Errorf("detail: got %q, want it to name %s", detail, missing)
+				}
+			})
+		}
+		pgtest.Exec(t, `INSERT INTO identity.role_permission (tenant_id, id, role_id, permission_code, valid_from, created_by)
+			SELECT tenant_id, gen_random_uuid(), id, $2, current_date, created_by FROM identity.role WHERE tenant_id = $1 AND code = 'all'`,
+			e.ten.ID, missing)
+	}
+	for _, path := range paths {
+		e.Must(200, "GET", path+query, "", "")
+	}
+}
+
 // TestAssignmentBalancesAddUp (ADR-0050 §7): with profit center accounting
 // on, every profit and loss line carries a profit center, so per ledger,
 // company, account and period the assignment balances of the P&L accounts
