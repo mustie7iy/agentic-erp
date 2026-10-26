@@ -335,7 +335,8 @@ once the pilot partner consumes `/v1`, only operations marked
 | Lines per document | 10,000 (larger loads use import operations) |
 | `page_size` | 500 |
 
-Every response to an authenticated request carries `RateLimit-Limit`,
+While quotas are on (the default), every response to an authenticated request
+carries `RateLimit-Limit`,
 `RateLimit-Remaining` and `RateLimit-Reset` (set by `internal/platform/ratelimit`).
 The contract states them once, in `info.description`, and declares them on no
 response: declared on each response of every operation, they made the generated
