@@ -23,7 +23,7 @@ info:
     - **Long-running work** returns 202 with an `Operation` (ADR-0012).
     - **Approvals.** Approval decisions are made only on approval requests (`:approve`, `:reject`), which require `workflow.request.decide` plus the approval permission of the object type, listed per operation in `x-object-permissions` (object type to permission code). Payment runs are released directly (`payment-runs/{id}:release`) by a person other than the proposer; a run above its company's `release_dual_limit` first needs a second person's approval, asked for with `payment-runs/{id}:submit` (object type `payment_run_release`).
     - **Agents** call the same operations. Operations marked `x-agent: false` (approval decisions, identity administration) are never exposed as agent tools and refuse agent tokens. An agent acts within its autonomy level (`agent_profile.autonomy_level`, ADR-0036): level 0 only reads; level 1 also performs the operations marked `x-autonomy: propose`, which only propose (its sessions, tool-call records and recommendations, change requests, drafts, down payment requests, bank statement line proposals); level 2 performs any write its permissions allow. Operations marked `x-autonomy: read` change no business data though they are not GET (a long-running verification), and every level performs them. Above its level an agent is refused with 403 `identity.autonomy_insufficient`. While the tenant's AI is off (`getAiPolicy`: switched off by its administrators or suspended by the platform's operators), every agent request is refused with 403 `agents.ai_disabled`.
-    - **Rate limits.** Every response carries `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`; 429 adds `Retry-After`.
+    - **Rate limits.** While request quotas are on (the default), every response to an authenticated request, success or problem, carries three headers, declared here once rather than on each response: `RateLimit-Limit` (the request quota of the current window for the caller, that of its principal's or its tenant's quota with fewer requests remaining, or of the one refusing a 429), `RateLimit-Remaining` (requests remaining in that window) and `RateLimit-Reset` (seconds until the window resets), each a non-negative integer. 429 adds `Retry-After`.
     - **Latency classes.** Each operation's latency objective (01-requirements §1.3) is that of its class: `read` (a GET of one resource), `list` (any other GET), `write` (any other method), unless `x-slo-class` names `approval` or `report` (ADR-0043).
   contact:
     name: Platform API team
@@ -137,13 +137,6 @@ paths:
       responses:
         "200":
           description: One page of legal entity results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -187,12 +180,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -230,12 +217,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -282,12 +263,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -338,12 +313,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -401,12 +370,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -457,12 +420,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -531,13 +488,6 @@ paths:
       responses:
         "200":
           description: One page of org unit results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -580,12 +530,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -623,12 +567,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -673,12 +611,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -727,12 +659,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -788,12 +714,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -842,12 +762,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -890,12 +804,6 @@ paths:
           headers:
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -922,13 +830,6 @@ paths:
       responses:
         "200":
           description: The caller.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -970,13 +871,6 @@ paths:
       responses:
         "200":
           description: The names of the principals found.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -1031,13 +925,6 @@ paths:
       responses:
         "200":
           description: One page of principal results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -1088,12 +975,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -1131,12 +1012,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -1187,12 +1062,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -1250,12 +1119,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -1310,13 +1173,6 @@ paths:
       responses:
         "200":
           description: One page of role results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -1358,12 +1214,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -1401,12 +1251,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -1451,12 +1295,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -1507,13 +1345,6 @@ paths:
       responses:
         "200":
           description: One page of role permission results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -1562,12 +1393,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -1608,12 +1433,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -1662,12 +1481,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -1733,13 +1546,6 @@ paths:
       responses:
         "200":
           description: One page of role assignment results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -1785,12 +1591,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -1828,12 +1628,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -1881,12 +1675,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -1946,13 +1734,6 @@ paths:
       responses:
         "200":
           description: One page of company access results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -1996,12 +1777,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -2039,12 +1814,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -2091,12 +1860,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -2148,13 +1911,6 @@ paths:
       responses:
         "200":
           description: One page of sod rule results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -2200,12 +1956,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -2243,12 +1993,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -2295,12 +2039,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -2362,13 +2100,6 @@ paths:
       responses:
         "200":
           description: One page of change request results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -2411,12 +2142,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -2454,12 +2179,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -2506,12 +2225,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -2569,12 +2282,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -2623,12 +2330,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -2687,12 +2388,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -2755,12 +2450,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -2809,13 +2498,6 @@ paths:
       responses:
         "200":
           description: One page of country pack results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -2865,12 +2547,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -2921,13 +2597,6 @@ paths:
       responses:
         "200":
           description: One page of regression suite results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -2973,12 +2642,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -3014,12 +2677,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -3068,13 +2725,6 @@ paths:
       responses:
         "200":
           description: One page of config version results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -3104,12 +2754,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -3155,12 +2799,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -3170,12 +2808,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -3215,13 +2847,6 @@ paths:
       responses:
         "200":
           description: One page of number range results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -3251,12 +2876,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -3328,13 +2947,6 @@ paths:
       responses:
         "200":
           description: One page of business partner results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -3413,12 +3025,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -3456,12 +3062,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -3507,12 +3107,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -3576,12 +3170,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -3632,13 +3220,6 @@ paths:
       responses:
         "200":
           description: One page of bank account results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -3703,12 +3284,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -3749,12 +3324,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -3810,12 +3379,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -3886,13 +3449,6 @@ paths:
       responses:
         "200":
           description: One page of partner change results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -3964,12 +3520,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -4007,12 +3557,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -4073,13 +3617,6 @@ paths:
       responses:
         "200":
           description: One page of account results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -4109,12 +3646,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -4156,13 +3687,6 @@ paths:
       responses:
         "200":
           description: One page of ledger results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -4202,13 +3726,6 @@ paths:
       responses:
         "200":
           description: One page of ledger group results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -4260,13 +3777,6 @@ paths:
       responses:
         "200":
           description: One page of cost center results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -4323,12 +3833,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -4366,12 +3870,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -4416,12 +3914,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -4467,13 +3959,6 @@ paths:
       responses:
         "200":
           description: One page of the hierarchy paths of a cost center.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -4532,12 +4017,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -4606,12 +4085,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -4680,12 +4153,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -4762,13 +4229,6 @@ paths:
       responses:
         "200":
           description: One page of profit center results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -4820,12 +4280,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -4863,12 +4317,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -4913,12 +4361,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -4988,12 +4430,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -5063,12 +4499,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -5138,12 +4568,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -5189,13 +4613,6 @@ paths:
       responses:
         "200":
           description: One page of the hierarchy paths of a profit center.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -5255,12 +4672,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -5312,13 +4723,6 @@ paths:
       responses:
         "200":
           description: One page of segment results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -5359,12 +4763,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -5402,12 +4800,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -5452,12 +4844,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -5535,13 +4921,6 @@ paths:
       responses:
         "200":
           description: One page of center change results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -5571,12 +4950,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -5634,13 +5007,6 @@ paths:
       responses:
         "200":
           description: One page of hierarchies.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -5683,12 +5049,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -5726,12 +5086,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -5786,12 +5140,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -5834,12 +5182,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -5895,12 +5237,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -5966,12 +5302,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -6037,12 +5367,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -6108,12 +5432,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -6178,13 +5496,6 @@ paths:
       responses:
         "200":
           description: One page of fiscal period results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -6214,12 +5525,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -6257,12 +5562,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -6310,12 +5609,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -6364,12 +5657,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -6431,12 +5718,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -6529,13 +5810,6 @@ paths:
       responses:
         "200":
           description: One page of journal entry results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -6640,12 +5914,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -6732,12 +6000,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -6814,12 +6076,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -6938,13 +6194,6 @@ paths:
       responses:
         "200":
           description: One page of parked journal entries.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -7042,12 +6291,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -7085,12 +6328,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -7171,12 +6408,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -7233,12 +6464,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -7334,12 +6559,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -7427,13 +6646,6 @@ paths:
       responses:
         "200":
           description: One page of open item results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -7466,13 +6678,6 @@ paths:
       responses:
         "200":
           description: One page of revaluation runs.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -7545,12 +6750,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -7589,12 +6788,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -7668,12 +6861,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -7736,12 +6923,6 @@ paths:
           headers:
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -7809,13 +6990,6 @@ paths:
       responses:
         "200":
           description: One page of GR/IR balances.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -7888,13 +7062,6 @@ paths:
       responses:
         "200":
           description: One page of balance results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -7999,13 +7166,6 @@ paths:
       responses:
         "200":
           description: One page of cost center balances.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -8110,13 +7270,6 @@ paths:
       responses:
         "200":
           description: One page of profit center balances.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -8194,13 +7347,6 @@ paths:
       responses:
         "200":
           description: One page of ledger differences.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -8285,13 +7431,6 @@ paths:
       responses:
         "200":
           description: One page of ledger-specific journal lines.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -8357,13 +7496,6 @@ paths:
       responses:
         "200":
           description: One page of exchange rate results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -8408,12 +7540,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -8451,12 +7577,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -8492,13 +7612,6 @@ paths:
       responses:
         "200":
           description: One page of clearing results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -8564,12 +7677,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -8607,12 +7714,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -8671,13 +7772,6 @@ paths:
       responses:
         "200":
           description: One page of requisition results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -8735,12 +7829,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -8779,12 +7867,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -8842,12 +7924,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -8907,12 +7983,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -8962,12 +8032,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -9043,13 +8107,6 @@ paths:
       responses:
         "200":
           description: One page of purchase order results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -9119,12 +8176,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -9163,12 +8214,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -9237,12 +8282,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -9305,12 +8344,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -9361,12 +8394,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -9420,12 +8447,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -9470,13 +8491,6 @@ paths:
       responses:
         "200":
           description: One page of order changes.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -9543,12 +8557,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -9589,12 +8597,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -9662,12 +8664,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -9717,12 +8713,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -9804,12 +8794,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -9876,13 +8860,6 @@ paths:
       responses:
         "200":
           description: One page of contract results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -9938,12 +8915,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -9981,12 +8952,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -10039,12 +9004,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -10094,12 +9053,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -10149,12 +9102,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -10211,12 +9158,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -10288,12 +9229,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -10349,13 +9284,6 @@ paths:
       responses:
         "200":
           description: One page of goods receipt results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -10453,12 +9381,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -10496,12 +9418,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -10597,12 +9513,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -10692,13 +9602,6 @@ paths:
       responses:
         "200":
           description: One page of supplier invoice results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -10800,12 +9703,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -10935,12 +9832,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -10976,13 +9867,6 @@ paths:
       responses:
         "200":
           description: The document.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/octet-stream:
               schema:
@@ -11031,12 +9915,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -11074,12 +9952,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -11112,12 +9984,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -11194,12 +10060,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -11258,12 +10118,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -11391,12 +10245,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -11492,12 +10340,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -11556,12 +10398,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -11652,12 +10488,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -11716,12 +10546,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -11811,12 +10635,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -11860,13 +10678,6 @@ paths:
       responses:
         "200":
           description: One page of match result results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -11898,12 +10709,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -11958,13 +10763,6 @@ paths:
       responses:
         "200":
           description: One page of down payment requests.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -12017,12 +10815,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -12058,12 +10850,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -12110,12 +10896,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -12189,13 +10969,6 @@ paths:
       responses:
         "200":
           description: One page of payment run results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -12249,12 +11022,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -12308,12 +11075,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -12373,12 +11134,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -12440,12 +11195,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -12504,12 +11253,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -12554,13 +11297,6 @@ paths:
       responses:
         "200":
           description: One page of payment results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -12594,13 +11330,6 @@ paths:
       responses:
         "200":
           description: One page of payment exclusion results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -12654,13 +11383,6 @@ paths:
       responses:
         "200":
           description: One page of bank file results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -12712,13 +11434,6 @@ paths:
       responses:
         "200":
           description: One page of bank statements.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -12795,12 +11510,6 @@ paths:
           headers:
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -12810,12 +11519,6 @@ paths:
           headers:
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -12853,12 +11556,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -12888,13 +11585,6 @@ paths:
       responses:
         "200":
           description: The statement file.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/octet-stream:
               schema:
@@ -12972,12 +11662,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -13024,13 +11708,6 @@ paths:
       responses:
         "200":
           description: The statement's matches.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -13060,13 +11737,6 @@ paths:
       responses:
         "200":
           description: The statement's rules.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -13124,12 +11794,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -13194,12 +11858,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -13302,12 +11960,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -13382,12 +12034,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -13399,12 +12045,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -13476,12 +12116,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -13547,12 +12181,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -13603,13 +12231,6 @@ paths:
       responses:
         "200":
           description: "One page of house banks."
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -13665,13 +12286,6 @@ paths:
       responses:
         "200":
           description: One page of the house bank's reconciliation report.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -13738,13 +12352,6 @@ paths:
       responses:
         "200":
           description: The cash position.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -13818,13 +12425,6 @@ paths:
       responses:
         "200":
           description: One page of memo records.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -13874,12 +12474,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -13944,12 +12538,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -14008,12 +12596,6 @@ paths:
           headers:
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -14055,12 +12637,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -14116,12 +12692,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -14184,12 +12754,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -14203,12 +12767,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -14271,12 +12829,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -14290,12 +12842,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -14359,12 +12905,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -14428,12 +12968,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -14475,12 +13009,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -14512,13 +13040,6 @@ paths:
       responses:
         "200":
           description: The bank file.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/xml:
               schema:
@@ -14560,12 +13081,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -14657,13 +13172,6 @@ paths:
       responses:
         "200":
           description: One page of approval request results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -14708,12 +13216,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -14755,12 +13257,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -14909,12 +13405,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -15033,12 +13523,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -15121,12 +13605,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -15199,13 +13677,6 @@ paths:
       responses:
         "200":
           description: One page of audit event results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -15247,12 +13718,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -15302,12 +13767,6 @@ paths:
           headers:
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -15351,13 +13810,6 @@ paths:
       responses:
         "200":
           description: The semantic model and the version it is of.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -15410,13 +13862,6 @@ paths:
       responses:
         "200":
           description: One page of connector results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -15460,12 +13905,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -15503,12 +13942,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -15553,12 +13986,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -15608,12 +14035,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -15669,12 +14090,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -15731,13 +14146,6 @@ paths:
       responses:
         "200":
           description: One page of webhook subscriptions.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -15781,12 +14189,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -15824,12 +14226,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -15876,12 +14272,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -15930,12 +14320,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -15984,12 +14368,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -16039,12 +14417,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -16094,12 +14466,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -16155,12 +14521,6 @@ paths:
           headers:
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -16209,12 +14569,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -16278,13 +14632,6 @@ paths:
       responses:
         "200":
           description: One page of webhook deliveries.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -16317,12 +14664,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -16363,12 +14704,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -16426,13 +14761,6 @@ paths:
       responses:
         "200":
           description: One page of migration run results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -16475,12 +14803,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -16518,12 +14840,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -16715,12 +15031,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -16922,12 +15232,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -16992,13 +15296,6 @@ paths:
       responses:
         "200":
           description: One page of operation results.
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -17028,12 +15325,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -17071,12 +15362,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -17140,13 +15425,6 @@ paths:
       responses:
         "200":
           description: "One page of agent session results."
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -17188,12 +15466,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -17231,12 +15503,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -17284,12 +15550,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -17332,13 +15592,6 @@ paths:
       responses:
         "200":
           description: "One page of tool call results."
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -17380,12 +15633,6 @@ paths:
           headers:
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -17460,13 +15707,6 @@ paths:
       responses:
         "200":
           description: "One page of recommendation results."
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -17509,12 +15749,6 @@ paths:
               $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -17552,12 +15786,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -17604,12 +15832,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -17650,12 +15872,6 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -17698,12 +15914,6 @@ paths:
               $ref: "#/components/headers/ETag"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -17748,13 +15958,6 @@ paths:
       responses:
         "200":
           description: "The month's usage."
-          headers:
-            RateLimit-Limit:
-              $ref: "#/components/headers/RateLimitLimit"
-            RateLimit-Remaining:
-              $ref: "#/components/headers/RateLimitRemaining"
-            RateLimit-Reset:
-              $ref: "#/components/headers/RateLimitReset"
           content:
             application/json:
               schema:
@@ -17986,24 +16189,6 @@ components:
       description: "`true` when this response is a stored replay of an earlier request with the same `Idempotency-Key`."
       schema:
         type: boolean
-    RateLimitLimit:
-      description: Request quota of the current window for the caller.
-      schema:
-        type: integer
-        format: int32
-        minimum: 0
-    RateLimitRemaining:
-      description: Requests remaining in the current window.
-      schema:
-        type: integer
-        format: int32
-        minimum: 0
-    RateLimitReset:
-      description: Seconds until the current window resets.
-      schema:
-        type: integer
-        format: int32
-        minimum: 0
     RetryAfter:
       description: Seconds to wait before retrying.
       schema:
@@ -31928,13 +30113,6 @@ components:
               - field: gross_amount.amount
                 code: precision
                 message: EUR amounts need exactly 2 decimals.
-      headers:
-        RateLimit-Limit:
-          $ref: "#/components/headers/RateLimitLimit"
-        RateLimit-Remaining:
-          $ref: "#/components/headers/RateLimitRemaining"
-        RateLimit-Reset:
-          $ref: "#/components/headers/RateLimitReset"
     Unauthorized:
       description: "Missing, expired or invalid bearer token (`authn.invalid_token`), or a person's token without the multi-factor authentication the tenant requires (`identity.mfa_required`, with the RFC 9470 challenge in `WWW-Authenticate`), or of a session that has ended (`identity.session_expired`, `identity.session_idle`, `identity.session_revoked`) or cannot be told (`identity.session_unknown`)."
       content:
@@ -31952,12 +30130,6 @@ components:
       headers:
         WWW-Authenticate:
           $ref: "#/components/headers/WwwAuthenticate"
-        RateLimit-Limit:
-          $ref: "#/components/headers/RateLimitLimit"
-        RateLimit-Remaining:
-          $ref: "#/components/headers/RateLimitRemaining"
-        RateLimit-Reset:
-          $ref: "#/components/headers/RateLimitReset"
     Forbidden:
       description: "No permission, no access to the legal entity, a segregation-of-duties conflict, or an agent attempting a human-only action. `code` says which (for example `identity.permission_missing`, `identity.sod_conflict`, `identity.agent_not_allowed`)."
       content:
@@ -31972,13 +30144,6 @@ components:
             detail: The user who proposed payment run 2600000017 cannot release it.
             instance: /v1/supplier-invoices
             trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
-      headers:
-        RateLimit-Limit:
-          $ref: "#/components/headers/RateLimitLimit"
-        RateLimit-Remaining:
-          $ref: "#/components/headers/RateLimitRemaining"
-        RateLimit-Reset:
-          $ref: "#/components/headers/RateLimitReset"
     NotFound:
       description: The resource does not exist, or exists in a legal entity the caller cannot see (ids cannot be probed).
       content:
@@ -31993,13 +30158,6 @@ components:
             detail: No supplier invoice with this id.
             instance: /v1/supplier-invoices
             trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
-      headers:
-        RateLimit-Limit:
-          $ref: "#/components/headers/RateLimitLimit"
-        RateLimit-Remaining:
-          $ref: "#/components/headers/RateLimitRemaining"
-        RateLimit-Reset:
-          $ref: "#/components/headers/RateLimitReset"
     Conflict:
       description: "Business rule conflict: wrong state for the transition, duplicate, closed period, or a request with the same `Idempotency-Key` is still running (then `Retry-After` is set)."
       content:
@@ -32021,12 +30179,6 @@ components:
       headers:
         Retry-After:
           $ref: "#/components/headers/RetryAfter"
-        RateLimit-Limit:
-          $ref: "#/components/headers/RateLimitLimit"
-        RateLimit-Remaining:
-          $ref: "#/components/headers/RateLimitRemaining"
-        RateLimit-Reset:
-          $ref: "#/components/headers/RateLimitReset"
     PreconditionFailed:
       description: "`If-Match` does not match the current version; nothing was changed. Re-read and retry."
       content:
@@ -32041,13 +30193,6 @@ components:
             detail: Expected version 3, current version is 4.
             instance: /v1/supplier-invoices
             trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
-      headers:
-        RateLimit-Limit:
-          $ref: "#/components/headers/RateLimitLimit"
-        RateLimit-Remaining:
-          $ref: "#/components/headers/RateLimitRemaining"
-        RateLimit-Reset:
-          $ref: "#/components/headers/RateLimitReset"
     Unprocessable:
       description: "Validation failed (`errors` lists the fields), or the `Idempotency-Key` was reused with a different body."
       content:
@@ -32069,13 +30214,6 @@ components:
               - field: invoice_date
                 code: required
                 message: invoice_date is required.
-      headers:
-        RateLimit-Limit:
-          $ref: "#/components/headers/RateLimitLimit"
-        RateLimit-Remaining:
-          $ref: "#/components/headers/RateLimitRemaining"
-        RateLimit-Reset:
-          $ref: "#/components/headers/RateLimitReset"
     PreconditionRequired:
       description: "`If-Match` or `Idempotency-Key` is missing where required."
       content:
@@ -32090,13 +30228,6 @@ components:
             detail: This operation requires an If-Match header.
             instance: /v1/supplier-invoices
             trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
-      headers:
-        RateLimit-Limit:
-          $ref: "#/components/headers/RateLimitLimit"
-        RateLimit-Remaining:
-          $ref: "#/components/headers/RateLimitRemaining"
-        RateLimit-Reset:
-          $ref: "#/components/headers/RateLimitReset"
     TooManyRequests:
       description: Rate limit exceeded for the tenant or principal.
       content:
@@ -32114,12 +30245,6 @@ components:
       headers:
         Retry-After:
           $ref: "#/components/headers/RetryAfter"
-        RateLimit-Limit:
-          $ref: "#/components/headers/RateLimitLimit"
-        RateLimit-Remaining:
-          $ref: "#/components/headers/RateLimitRemaining"
-        RateLimit-Reset:
-          $ref: "#/components/headers/RateLimitReset"
     ServiceUnavailable:
       description: "A dependency is unavailable. Safe to retry with the same `Idempotency-Key`."
       content:
@@ -32137,9 +30262,3 @@ components:
       headers:
         Retry-After:
           $ref: "#/components/headers/RetryAfter"
-        RateLimit-Limit:
-          $ref: "#/components/headers/RateLimitLimit"
-        RateLimit-Remaining:
-          $ref: "#/components/headers/RateLimitRemaining"
-        RateLimit-Reset:
-          $ref: "#/components/headers/RateLimitReset"

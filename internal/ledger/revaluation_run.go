@@ -413,7 +413,7 @@ func (e *Endpoints) ListRevaluationRuns(ctx context.Context, params gen.ListReva
 	if err != nil {
 		return nil, err
 	}
-	return &gen.RevaluationRunPageHeaders{Response: gen.RevaluationRunPage{Items: items, NextPageToken: next}}, nil
+	return &gen.RevaluationRunPage{Items: items, NextPageToken: next}, nil
 }
 
 // revaluationRunToAPI renders a run, with its items and totals when they

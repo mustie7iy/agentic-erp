@@ -107,7 +107,7 @@ func (s *Server) trialBalance(w http.ResponseWriter, r *http.Request, p *person)
 		status = http.StatusUnprocessableEntity
 	default:
 		res, err := s.API.ListBalances(ctx, balanceParams(lq, reportPageSize, q.Get("page")))
-		page, isPage := res.(*gen.BalancePageHeaders)
+		page, isPage := res.(*gen.BalancePage)
 		if !isPage {
 			prob, show := s.refusal(w, r, p, "listBalances", res, err)
 			if !show {
@@ -116,8 +116,8 @@ func (s *Server) trialBalance(w http.ResponseWriter, r *http.Request, p *person)
 			tp.Refusal, status = explain(i18n.ReportRefusedTitle, prob, m), int(prob.Status)
 			break
 		}
-		tp.Rows = balanceRows(page.Response.Items, s.accounts(ctx, m, lq.company))
-		if next := page.Response.NextPageToken.Or(""); next != "" {
+		tp.Rows = balanceRows(page.Items, s.accounts(ctx, m, lq.company))
+		if next := page.NextPageToken.Or(""); next != "" {
 			tp.More = ui.ReportFor(ui.TrialBalancePath, with(q, "page", next))
 		}
 		tp.CSV = ui.ReportFor(ui.TrialBalancePath+ui.CSVSuffix, lq.values())
@@ -236,7 +236,7 @@ func (s *Server) reconcileLedgers(w http.ResponseWriter, r *http.Request, p *per
 		params.PageToken = gen.NewOptString(v)
 	}
 	res, err := s.API.ListLedgerReconciliation(r.Context(), params)
-	page, ok := res.(*gen.LedgerReconciliationPageHeaders)
+	page, ok := res.(*gen.LedgerReconciliationPage)
 	if !ok {
 		prob, show := s.refusal(w, r, p, "listLedgerReconciliation", res, err)
 		if !show {
@@ -246,12 +246,12 @@ func (s *Server) reconcileLedgers(w http.ResponseWriter, r *http.Request, p *per
 		return int(prob.Status), true
 	}
 	lp.Ledger, lp.Compare = ledgerCode(kept, lq.ledger), ledgerCode(kept, lq.compare)
-	codes := map[uuid.UUID]string{page.Response.LedgerID: lp.Ledger, page.Response.CompareLedgerID: lp.Compare}
-	for _, tb := range page.Response.TrialBalances {
+	codes := map[uuid.UUID]string{page.LedgerID: lp.Ledger, page.CompareLedgerID: lp.Compare}
+	for _, tb := range page.TrialBalances {
 		lp.Trials = append(lp.Trials, ui.TrialView{Ledger: codes[tb.LedgerID], Debit: moneyOf(tb.DebitLc), Credit: moneyOf(tb.CreditLc), Balanced: tb.Balanced})
 	}
-	lp.Differences = differenceViews(page.Response.Items, s.accounts(r.Context(), m, lq.company), lq)
-	if next := page.Response.NextPageToken.Or(""); next != "" {
+	lp.Differences = differenceViews(page.Items, s.accounts(r.Context(), m, lq.company), lq)
+	if next := page.NextPageToken.Or(""); next != "" {
 		lp.More = ui.ReportFor(ui.LedgerReconPath, with(q, "page", next))
 	}
 	return http.StatusOK, true
@@ -306,12 +306,12 @@ func (s *Server) reconEntries(w http.ResponseWriter, r *http.Request, p *person)
 	}
 	status := http.StatusOK
 	res, err := s.API.ListLedgerReconciliationEntries(ctx, params)
-	if page, isPage := res.(*gen.LedgerReconciliationEntryPageHeaders); isPage {
-		for _, e := range page.Response.Items {
+	if page, isPage := res.(*gen.LedgerReconciliationEntryPage); isPage {
+		for _, e := range page.Items {
 			ep.Rows = append(ep.Rows, ui.ReconEntryRow{Ledger: ledgerCode(ledgers, e.LedgerID), Entry: entryPath(e.JournalEntryID), Number: e.DocumentNumber,
 				Line: e.LineNo, Posting: e.PostingDate, Period: e.FiscalPeriod, Amount: moneyOf(e.Amount), AmountLC: moneyOf(e.AmountLc)})
 		}
-		if next := page.Response.NextPageToken.Or(""); next != "" {
+		if next := page.NextPageToken.Or(""); next != "" {
 			ep.More = ui.ReportFor(ui.ReconEntriesPath, with(q, "page", next))
 		}
 	} else {

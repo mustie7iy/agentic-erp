@@ -80,8 +80,8 @@ func (s *Server) runChecks(w http.ResponseWriter, r *http.Request, p *person, m 
 	res, err := s.API.ListGrIrBalances(ctx, gen.ListGrIrBalancesParams{LegalEntityID: cq.company, OpenOnly: gen.NewOptBool(true),
 		PageSize: gen.NewOptInt32(checkSize), OrderBy: gen.NewOptString("last_posting_date")})
 	var ok bool
-	if page, isPage := res.(*gen.GrIrBalancePageHeaders); isPage {
-		v.GRIR = grirCheck(page.Response)
+	if page, isPage := res.(*gen.GrIrBalancePage); isPage {
+		v.GRIR = grirCheck(*page)
 		v.GRIR.Report = ui.ReportFor(ui.GRIRPath, grirValues(cq.company, false))
 	} else if v.GRIR.Refusal, ok = refused("listGrIrBalances", res, err, "grir-refusal"); !ok {
 		return false
@@ -92,13 +92,13 @@ func (s *Server) runChecks(w http.ResponseWriter, r *http.Request, p *person, m 
 	for _, st := range []string{"imported", "gap"} {
 		sres, err := s.API.ListBankStatements(ctx, gen.ListBankStatementsParams{LegalEntityID: gen.NewOptUUID(cq.company), Status: gen.NewOptString(st),
 			PageSize: gen.NewOptInt32(checkSize), OrderBy: gen.NewOptString("closing_date desc")})
-		page, isPage := sres.(*gen.BankStatementPageHeaders)
+		page, isPage := sres.(*gen.BankStatementPage)
 		if !isPage {
 			v.Statements.Refusal, ok = refused("listBankStatements", sres, err, "statements-refusal")
 			return ok
 		}
-		v.Statements.Rows = append(v.Statements.Rows, statementRows(page.Response, nil, nil)...)
-		v.Statements.More = v.Statements.More || page.Response.NextPageToken.Set
+		v.Statements.Rows = append(v.Statements.Rows, statementRows(*page, nil, nil)...)
+		v.Statements.More = v.Statements.More || page.NextPageToken.Set
 	}
 	v.Statements.Imported = ui.StatementsPath(url.Values{"status": {"imported"}})
 	v.Statements.Gap = ui.StatementsPath(url.Values{"status": {"gap"}})
@@ -134,19 +134,19 @@ func (s *Server) ledgerCheck(r *http.Request, cq checkQuery, ledgers []gen.Ledge
 	v.Ledgers.Ledger, v.Ledgers.Compare = ledger.Code, compare.Code
 	res, err := s.API.ListLedgerReconciliation(r.Context(), gen.ListLedgerReconciliationParams{LegalEntityID: cq.company, LedgerID: gen.NewOptUUID(ledger.ID),
 		CompareLedgerID: compare.ID, FiscalYear: cq.year, FiscalPeriod: gen.NewOptInt32(cq.period), PageSize: gen.NewOptInt32(checkSize)})
-	page, ok := res.(*gen.LedgerReconciliationPageHeaders)
+	page, ok := res.(*gen.LedgerReconciliationPage)
 	if !ok {
 		v.Ledgers.Refusal, ok = refused("listLedgerReconciliation", res, err, "ledgers-refusal")
 		return ok
 	}
 	codes := map[uuid.UUID]string{ledger.ID: ledger.Code, compare.ID: compare.Code}
-	for _, tb := range page.Response.TrialBalances {
+	for _, tb := range page.TrialBalances {
 		v.Ledgers.Trials = append(v.Ledgers.Trials, ui.TrialView{Ledger: codes[tb.LedgerID], Debit: moneyOf(tb.DebitLc), Credit: moneyOf(tb.CreditLc),
 			Balanced: tb.Balanced})
 	}
 	lq := ledgerQuery{company: cq.company, ledger: ledger.ID, compare: compare.ID, year: cq.year, period: gen.NewOptInt32(cq.period)}
-	v.Ledgers.Differences = differenceViews(page.Response.Items, nil, lq)
-	v.Ledgers.More = page.Response.NextPageToken.Set
+	v.Ledgers.Differences = differenceViews(page.Items, nil, lq)
+	v.Ledgers.More = page.NextPageToken.Set
 	v.Ledgers.Report = ui.ReportFor(ui.LedgerReconPath, lq.values())
 	return true
 }

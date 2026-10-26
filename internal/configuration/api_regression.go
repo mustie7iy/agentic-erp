@@ -93,5 +93,5 @@ func (e *Endpoints) ListRegressionSuites(ctx context.Context, params gen.ListReg
 		suites[i] = suiteShown(suites[i], access)
 	}
 	items, next := apitypes.PageOf(ks, suites, func(s RegressionSuite) (string, uuid.UUID) { return s.CapturedAt.UTC().Format(time.RFC3339Nano), s.ID }, suiteToAPI)
-	return &gen.RegressionSuitePageHeaders{Response: gen.RegressionSuitePage{Items: items, NextPageToken: next}}, nil
+	return &gen.RegressionSuitePage{Items: items, NextPageToken: next}, nil
 }

@@ -166,7 +166,7 @@ func (e *Endpoints) ListCostCenters(ctx context.Context, params gen.ListCostCent
 		cs[i].Periods = periods[cs[i].ID]
 	}
 	items, next := apitypes.PageOf(ks, cs, func(c CostCenter) (string, uuid.UUID) { return c.Code, c.ID }, costCenterToAPI)
-	return &gen.CostCenterPageHeaders{Response: gen.CostCenterPage{Items: items, NextPageToken: next}}, nil
+	return &gen.CostCenterPage{Items: items, NextPageToken: next}, nil
 }
 
 func ids[T any](rows []T, id func(T) uuid.UUID) []uuid.UUID {
@@ -277,7 +277,7 @@ func (e *Endpoints) ListProfitCenters(ctx context.Context, params gen.ListProfit
 		cs[i].Periods = periods[cs[i].ID]
 	}
 	items, next := apitypes.PageOf(ks, cs, func(c ProfitCenter) (string, uuid.UUID) { return c.Code, c.ID }, profitCenterToAPI)
-	return &gen.ProfitCenterPageHeaders{Response: gen.ProfitCenterPage{Items: items, NextPageToken: next}}, nil
+	return &gen.ProfitCenterPage{Items: items, NextPageToken: next}, nil
 }
 
 // UpdateProfitCenter implements PATCH /v1/profit-centers/{id}.
@@ -364,7 +364,7 @@ func (e *Endpoints) ListSegments(ctx context.Context, params gen.ListSegmentsPar
 		return nil, fmt.Errorf("ledger: list segments: %w", err)
 	}
 	items, next := apitypes.PageOf(ks, ss, func(s Segment) (string, uuid.UUID) { return s.Code, s.ID }, segmentToAPI)
-	return &gen.SegmentPageHeaders{Response: gen.SegmentPage{Items: items, NextPageToken: next}}, nil
+	return &gen.SegmentPage{Items: items, NextPageToken: next}, nil
 }
 
 // UpdateSegment implements PATCH /v1/segments/{id}.
@@ -422,5 +422,5 @@ func (e *Endpoints) ListCenterChanges(ctx context.Context, params gen.ListCenter
 		return nil, fmt.Errorf("ledger: list center changes: %w", err)
 	}
 	items, next := apitypes.PageOf(ks, cs, func(c CenterChange) (string, uuid.UUID) { return c.CreatedAt.Format(time.RFC3339Nano), c.ID }, changeToAPI)
-	return &gen.CenterChangePageHeaders{Response: gen.CenterChangePage{Items: items, NextPageToken: next}}, nil
+	return &gen.CenterChangePage{Items: items, NextPageToken: next}, nil
 }

@@ -119,7 +119,7 @@ func (e *Endpoints) ListAuditEvents(ctx context.Context, params gen.ListAuditEve
 	for _, v := range events {
 		page.Items = append(page.Items, auditEventItem(v, masked))
 	}
-	return &gen.AuditEventPageHeaders{Response: page}, nil
+	return &page, nil
 }
 
 // auditOrder is the comparison and direction that order_by asks for:

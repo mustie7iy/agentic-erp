@@ -90,7 +90,7 @@ func (e *Endpoints) ListDownPaymentRequests(ctx context.Context, params gen.List
 	if next != "" {
 		page.NextPageToken.SetTo(next)
 	}
-	return &gen.DownPaymentRequestPageHeaders{Response: page}, nil
+	return &page, nil
 }
 
 // ClearSupplierInvoiceDownPayments implements POST /v1/supplier-invoices/{id}:clearDownPayments.

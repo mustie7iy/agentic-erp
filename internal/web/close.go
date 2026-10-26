@@ -71,7 +71,7 @@ func (s *Server) periods(w http.ResponseWriter, r *http.Request, p *person) {
 		status = http.StatusUnprocessableEntity
 	default:
 		res, err := s.API.ListFiscalPeriods(r.Context(), params)
-		page, ok := res.(*gen.FiscalPeriodPageHeaders)
+		page, ok := res.(*gen.FiscalPeriodPage)
 		if !ok {
 			prob, show := s.refusal(w, r, p, "listFiscalPeriods", res, err)
 			if !show {
@@ -80,8 +80,8 @@ func (s *Server) periods(w http.ResponseWriter, r *http.Request, p *person) {
 			l.Refusal, status = explainIn(i18n.PeriodProblems, i18n.PeriodsRefusedTitle, prob, m), int(prob.Status)
 			break
 		}
-		l.Rows = s.periodRows(r.Context(), p, page.Response.Items)
-		if next := page.Response.NextPageToken.Or(""); next != "" {
+		l.Rows = s.periodRows(r.Context(), p, page.Items)
+		if next := page.NextPageToken.Or(""); next != "" {
 			l.More = ui.PeriodsPath(with(q, "page", next))
 		}
 	}
@@ -150,12 +150,12 @@ func (s *Server) ledgers(ctx context.Context, m me) []gen.Ledger {
 		return nil
 	}
 	res, err := s.API.ListLedgers(ctx, gen.ListLedgersParams{PageSize: gen.NewOptInt32(maxLedgers)})
-	page, ok := res.(*gen.LedgerPageHeaders)
+	page, ok := res.(*gen.LedgerPage)
 	if !ok {
 		s.Log.WarnContext(ctx, "web: the ledgers could not be read", "answer", res, "error", err)
 		return nil
 	}
-	out := page.Response.Items
+	out := page.Items
 	slices.SortFunc(out, func(a, b gen.Ledger) int {
 		if a.IsLeading != b.IsLeading {
 			if a.IsLeading {

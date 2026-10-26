@@ -113,7 +113,7 @@ func (s *Server) auditEvents(w http.ResponseWriter, r *http.Request, p *person, 
 		params.PageToken = gen.NewOptString(v)
 	}
 	res, err := s.API.ListAuditEvents(r.Context(), params)
-	page, ok := res.(*gen.AuditEventPageHeaders)
+	page, ok := res.(*gen.AuditEventPage)
 	if !ok {
 		prob, show := s.refusal(w, r, p, "listAuditEvents", res, err)
 		if !show {
@@ -122,15 +122,15 @@ func (s *Server) auditEvents(w http.ResponseWriter, r *http.Request, p *person, 
 		ap.Refusal = explain(i18n.ReportRefusedTitle, prob, m)
 		return int(prob.Status), true
 	}
-	ids := make([]uuid.UUID, 0, len(page.Response.Items))
-	for _, e := range page.Response.Items {
+	ids := make([]uuid.UUID, 0, len(page.Items))
+	for _, e := range page.Items {
 		ids = append(ids, e.ActorID)
 	}
 	names := s.names(r.Context(), p, ids)
-	for _, e := range page.Response.Items {
+	for _, e := range page.Items {
 		ap.Rows = append(ap.Rows, auditRow(e, names))
 	}
-	if next := page.Response.NextPageToken.Or(""); next != "" {
+	if next := page.NextPageToken.Or(""); next != "" {
 		ap.More = ui.ReportFor(ui.AuditPath, with(q, "page", next))
 	}
 	return http.StatusOK, true

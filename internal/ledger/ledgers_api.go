@@ -49,7 +49,7 @@ func (e *Endpoints) ListLedgers(ctx context.Context, params gen.ListLedgersParam
 	if next != "" {
 		page.NextPageToken.SetTo(next)
 	}
-	return &gen.LedgerPageHeaders{Response: page}, nil
+	return &page, nil
 }
 
 // ListLedgerGroups implements GET /v1/ledger-groups (ADR-0045).
@@ -77,5 +77,5 @@ func (e *Endpoints) ListLedgerGroups(ctx context.Context, params gen.ListLedgerG
 	if next != "" {
 		page.NextPageToken.SetTo(next)
 	}
-	return &gen.LedgerGroupPageHeaders{Response: page}, nil
+	return &page, nil
 }

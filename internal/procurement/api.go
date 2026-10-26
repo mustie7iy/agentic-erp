@@ -247,7 +247,7 @@ func (e *Endpoints) ListRequisitions(ctx context.Context, params gen.ListRequisi
 	if next != "" {
 		page.NextPageToken.SetTo(next)
 	}
-	return &gen.RequisitionPageHeaders{Response: page}, nil
+	return &page, nil
 }
 
 // UpdateRequisition implements PATCH /v1/requisitions/{id}.
@@ -353,7 +353,7 @@ func (e *Endpoints) ListContracts(ctx context.Context, params gen.ListContractsP
 		}
 		return c.ValidFrom.Format(time.DateOnly), c.ID
 	}, contractToAPI)
-	return &gen.ContractPageHeaders{Response: gen.ContractPage{Items: items, NextPageToken: next}}, nil
+	return &gen.ContractPage{Items: items, NextPageToken: next}, nil
 }
 
 // UpdateContract implements PATCH /v1/contracts/{id}.
@@ -493,7 +493,7 @@ func (e *Endpoints) ListPurchaseOrders(ctx context.Context, params gen.ListPurch
 	if next != "" {
 		page.NextPageToken.SetTo(next)
 	}
-	return &gen.PurchaseOrderPageHeaders{Response: page}, nil
+	return &page, nil
 }
 
 // UpdatePurchaseOrder implements PATCH /v1/purchase-orders/{id}.
@@ -602,7 +602,7 @@ func (e *Endpoints) ListPurchaseOrderChanges(ctx context.Context, params gen.Lis
 		return nil, fmt.Errorf("procurement: list changes of purchase order %s: %w", params.ID, err)
 	}
 	items, next := apitypes.PageOf(ks, list, func(ch PurchaseOrderChange) (string, uuid.UUID) { return timestamp(ch.CreatedAt), ch.ID }, changeToAPI)
-	return &gen.PurchaseOrderChangePageHeaders{Response: gen.PurchaseOrderChangePage{Items: items, NextPageToken: next}}, nil
+	return &gen.PurchaseOrderChangePage{Items: items, NextPageToken: next}, nil
 }
 
 // UpdatePurchaseOrderChange implements PATCH /v1/purchase-orders/{id}/changes/{change_id}.
@@ -697,7 +697,7 @@ func (e *Endpoints) ListGoodsReceipts(ctx context.Context, params gen.ListGoodsR
 		}
 		return g.PostingDate.Format(time.DateOnly), g.ID
 	}, receiptToAPI)
-	return &gen.GoodsReceiptPageHeaders{Response: gen.GoodsReceiptPage{Items: items, NextPageToken: next}}, nil
+	return &gen.GoodsReceiptPage{Items: items, NextPageToken: next}, nil
 }
 
 // ReverseGoodsReceipt implements POST /v1/goods-receipts/{id}:reverse.

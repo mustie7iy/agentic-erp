@@ -83,7 +83,7 @@ func (e *Endpoints) ListOperations(ctx context.Context, params gen.ListOperation
 	for _, o := range ops {
 		page.Items = append(page.Items, ToAPI(o))
 	}
-	return &gen.OperationPageHeaders{Response: page}, nil
+	return &page, nil
 }
 
 // CancelOperation implements POST /v1/operations/{id}:cancel.

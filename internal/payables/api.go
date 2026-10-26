@@ -154,7 +154,7 @@ func (e *Endpoints) GetSupplierInvoiceDocument(ctx context.Context, params gen.G
 	if err != nil {
 		return nil, err
 	}
-	return &gen.GetSupplierInvoiceDocumentOKHeaders{Response: gen.GetSupplierInvoiceDocumentOK{Data: bytes.NewReader(content)}}, nil
+	return &gen.GetSupplierInvoiceDocumentOK{Data: bytes.NewReader(content)}, nil
 }
 
 // GetSupplierInvoice implements GET /v1/supplier-invoices/{id}.
@@ -216,7 +216,7 @@ func (e *Endpoints) ListSupplierInvoices(ctx context.Context, params gen.ListSup
 	if next != "" {
 		page.NextPageToken.SetTo(next)
 	}
-	return &gen.SupplierInvoicePageHeaders{Response: page}, nil
+	return &page, nil
 }
 
 // UpdateSupplierInvoice implements PATCH /v1/supplier-invoices/{id}.
@@ -345,5 +345,5 @@ func (e *Endpoints) ListMatchResults(ctx context.Context, params gen.ListMatchRe
 	items, next := apitypes.PageOf(ks, matches, func(m Match) (string, uuid.UUID) {
 		return m.EvaluatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), m.ID
 	}, matchToAPI)
-	return &gen.MatchResultPageHeaders{Response: gen.MatchResultPage{Items: items, NextPageToken: next}}, nil
+	return &gen.MatchResultPage{Items: items, NextPageToken: next}, nil
 }

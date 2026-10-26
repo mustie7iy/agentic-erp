@@ -128,7 +128,7 @@ func (e *Endpoints) ListAccounts(ctx context.Context, params gen.ListAccountsPar
 	if next != "" {
 		page.NextPageToken.SetTo(next)
 	}
-	return &gen.AccountPageHeaders{Response: page}, nil
+	return &page, nil
 }
 
 // GetFiscalPeriod implements GET /v1/fiscal-periods/{id}.
@@ -181,7 +181,7 @@ func (e *Endpoints) ListFiscalPeriods(ctx context.Context, params gen.ListFiscal
 	if next != "" {
 		page.NextPageToken.SetTo(next)
 	}
-	return &gen.FiscalPeriodPageHeaders{Response: page}, nil
+	return &page, nil
 }
 
 // OpenFiscalPeriod implements POST /v1/fiscal-periods/{id}:open.
@@ -324,7 +324,7 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 	if next != "" {
 		page.NextPageToken.SetTo(next)
 	}
-	return &gen.JournalEntryPageHeaders{Response: page}, nil
+	return &page, nil
 }
 
 // ReverseJournalEntry implements POST /v1/journal-entries/{id}:reverse.
@@ -395,7 +395,7 @@ func (e *Endpoints) ListOpenItems(ctx context.Context, params gen.ListOpenItemsP
 			return nil, err
 		}
 	}
-	return &gen.OpenItemPageHeaders{Response: page}, nil
+	return &page, nil
 }
 
 // openItemFilters are listOpenItems' filters on openItemSelect's inner
@@ -434,7 +434,7 @@ func (e *Endpoints) ListBalances(ctx context.Context, params gen.ListBalancesPar
 	if err != nil {
 		return nil, err
 	}
-	empty := &gen.BalancePageHeaders{Response: gen.BalancePage{Items: []gen.Balance{}}}
+	empty := &gen.BalancePage{Items: []gen.Balance{}}
 	access, err := authz.Companies(ctx)
 	if err != nil {
 		return nil, err
@@ -474,7 +474,7 @@ func (e *Endpoints) ListBalances(ctx context.Context, params gen.ListBalancesPar
 	if next != "" {
 		page.NextPageToken.SetTo(next)
 	}
-	return &gen.BalancePageHeaders{Response: page}, nil
+	return &page, nil
 }
 
 // balancesToAPI renders balances of a ledger and fiscal year with their
@@ -548,7 +548,7 @@ func (e *Endpoints) ListExchangeRates(ctx context.Context, params gen.ListExchan
 	if next != "" {
 		page.NextPageToken.SetTo(next)
 	}
-	return &gen.ExchangeRatePageHeaders{Response: page}, nil
+	return &page, nil
 }
 
 // CreateClearing implements POST /v1/clearings.
@@ -588,7 +588,7 @@ func (e *Endpoints) ListClearings(ctx context.Context, params gen.ListClearingsP
 	if err != nil {
 		return nil, err
 	}
-	return &gen.ClearingPageHeaders{Response: page}, nil
+	return &page, nil
 }
 
 // entityList asks for one page of a list of legal entities' documents.

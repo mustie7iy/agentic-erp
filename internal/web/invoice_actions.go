@@ -225,12 +225,12 @@ func (s *Server) orderView(w http.ResponseWriter, r *http.Request, p *person, m 
 		return o, refused("getPurchaseOrder", pres, err)
 	}
 	gres, err := s.API.ListGoodsReceipts(r.Context(), gen.ListGoodsReceiptsParams{PurchaseOrderID: gen.NewOptUUID(poID), PageSize: gen.NewOptInt32(maxReceipts)})
-	grs, ok := gres.(*gen.GoodsReceiptPageHeaders)
+	grs, ok := gres.(*gen.GoodsReceiptPage)
 	if !ok {
 		return o, refused("listGoodsReceipts", gres, err)
 	}
 	o.Header, o.Items = orderHeader(po.Response), orderItems(po.Response)
-	o.Receipts = receiptsOf(grs.Response.Items, poID)
+	o.Receipts = receiptsOf(grs.Items, poID)
 	return o, true
 }
 
@@ -296,7 +296,7 @@ func (s *Server) document(w http.ResponseWriter, r *http.Request, p *person) {
 		return
 	}
 	res, err := s.API.GetSupplierInvoiceDocument(r.Context(), gen.GetSupplierInvoiceDocumentParams{ID: id})
-	doc, ok := res.(*gen.GetSupplierInvoiceDocumentOKHeaders)
+	doc, ok := res.(*gen.GetSupplierInvoiceDocumentOK)
 	if !ok {
 		prob, show := s.refusal(w, r, p, "getSupplierInvoiceDocument", res, err)
 		switch {
@@ -309,7 +309,7 @@ func (s *Server) document(w http.ResponseWriter, r *http.Request, p *person) {
 		}
 		return
 	}
-	body := bufio.NewReaderSize(doc.Response.Data, 512)
+	body := bufio.NewReaderSize(doc.Data, 512)
 	head, _ := body.Peek(512) // fewer bytes for a shorter document; the client holds it in memory, so reading cannot fail
 	ctype, disposition := documentType(head)
 	h.Set("Cache-Control", "no-store")

@@ -106,7 +106,7 @@ func (e *Endpoints) ListLegalEntities(ctx context.Context, params gen.ListLegalE
 		}
 		return l.Code, l.ID
 	}, leToAPI)
-	return &gen.LegalEntityPageHeaders{Response: gen.LegalEntityPage{Items: items, NextPageToken: next}}, nil
+	return &gen.LegalEntityPage{Items: items, NextPageToken: next}, nil
 }
 
 // UpdateLegalEntity implements PATCH /v1/legal-entities/{id}.
@@ -213,7 +213,7 @@ func (e *Endpoints) ListOrgUnits(ctx context.Context, params gen.ListOrgUnitsPar
 		}
 		return u.Code, u.ID
 	}, ouToAPI)
-	return &gen.OrgUnitPageHeaders{Response: gen.OrgUnitPage{Items: items, NextPageToken: next}}, nil
+	return &gen.OrgUnitPage{Items: items, NextPageToken: next}, nil
 }
 
 // UpdateOrgUnit implements PATCH /v1/org-units/{id}.

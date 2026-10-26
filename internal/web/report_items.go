@@ -90,7 +90,7 @@ func (s *Server) openItems(w http.ResponseWriter, r *http.Request, p *person) {
 		status = http.StatusUnprocessableEntity
 	default:
 		res, err := s.API.ListOpenItems(ctx, iq.params(reportPageSize, q.Get("page"), true))
-		page, isPage := res.(*gen.OpenItemPageHeaders)
+		page, isPage := res.(*gen.OpenItemPage)
 		if !isPage {
 			prob, show := s.refusal(w, r, p, "listOpenItems", res, err)
 			if !show {
@@ -99,9 +99,9 @@ func (s *Server) openItems(w http.ResponseWriter, r *http.Request, p *person) {
 			op.Refusal, status = explain(i18n.ReportRefusedTitle, prob, m), int(prob.Status)
 			break
 		}
-		op.Aging = agingRows(page.Response.Aging)
-		op.Rows = itemRows(page.Response.Items, iq, op.Supplier)
-		if next := page.Response.NextPageToken.Or(""); next != "" {
+		op.Aging = agingRows(page.Aging)
+		op.Rows = itemRows(page.Items, iq, op.Supplier)
+		if next := page.NextPageToken.Or(""); next != "" {
 			op.More = ui.ReportFor(ui.OpenItemsPath, with(q, "page", next))
 		}
 		op.CSV = ui.ReportFor(ui.OpenItemsPath+ui.CSVSuffix, iq.values(op.Filters))
@@ -183,10 +183,10 @@ func (s *Server) supplierAccounts(ctx context.Context, m me, company uuid.UUID, 
 // refused (a permission the person lacks) or failed (logged).
 func (s *Server) supplierOf(ctx context.Context, number string) (uuid.UUID, string, i18n.Key) {
 	res, err := s.API.ListBusinessPartners(ctx, gen.ListBusinessPartnersParams{Number: gen.NewOptString(number)})
-	page, ok := res.(*gen.BusinessPartnerPageHeaders)
+	page, ok := res.(*gen.BusinessPartnerPage)
 	switch {
-	case ok && len(page.Response.Items) > 0:
-		b := page.Response.Items[0]
+	case ok && len(page.Items) > 0:
+		b := page.Items[0]
 		return b.ID, b.Number + " " + b.Name, ""
 	case ok:
 		return uuid.Nil, "", i18n.OpenItemsSupplierUnknown
@@ -259,9 +259,9 @@ func (s *Server) grirReport(w http.ResponseWriter, r *http.Request, p *person) {
 		gp.Invalid, status = true, http.StatusBadRequest
 	} else {
 		res, err := s.API.ListGrIrBalances(ctx, grirParams(company, gp.All, reportPageSize, q.Get("page")))
-		if page, isPage := res.(*gen.GrIrBalancePageHeaders); isPage {
-			gp.Positions = grirCheck(page.Response).Positions
-			if next := page.Response.NextPageToken.Or(""); next != "" {
+		if page, isPage := res.(*gen.GrIrBalancePage); isPage {
+			gp.Positions = grirCheck(*page).Positions
+			if next := page.NextPageToken.Or(""); next != "" {
 				gp.More = ui.ReportFor(ui.GRIRPath, with(q, "page", next))
 			}
 			gp.CSV = ui.ReportFor(ui.GRIRPath+ui.CSVSuffix, grirValues(company, gp.All))

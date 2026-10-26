@@ -52,7 +52,7 @@ func (e *Endpoints) ListCountryPacks(ctx context.Context, params gen.ListCountry
 		}
 		page.Items = append(page.Items, packToAPI(e.Packs, p))
 	}
-	return &gen.CountryPackPageHeaders{Response: page}, nil
+	return &page, nil
 }
 
 func packToAPI(lib *countrypack.Library, p *countrypack.Pack) gen.CountryPack {

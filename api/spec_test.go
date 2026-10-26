@@ -478,3 +478,38 @@ func TestNoBinaryMultipartFields(t *testing.T) {
 		}
 	}
 }
+
+// rateLimitHeaders are sent on every response to an authenticated request
+// by internal/platform/ratelimit (internal/app's
+// TestEveryResponseCarriesRateLimitHeaders holds that).
+var rateLimitHeaders = []string{"RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset"}
+
+// TestRateLimitHeadersDeclaredOnce: the contract states the rate-limit
+// headers once, in info.description, and declares them on no response.
+// Declared on each response of every operation they made the generated
+// client parse them everywhere: about 430,000 of api/gen's lines, which
+// doubled the memory of a race build and broke CI (PO 2026-10-26).
+func TestRateLimitHeadersDeclaredOnce(t *testing.T) {
+	spec := loadSpec(t)
+	desc := fmt.Sprint(spec["info"].(node)["description"])
+	for _, h := range rateLimitHeaders {
+		if !strings.Contains(desc, "`"+h+"`") {
+			t.Errorf("info.description: got no %s, want it stated with its meaning", h)
+		}
+	}
+	for _, name := range []string{"RateLimitLimit", "RateLimitRemaining", "RateLimitReset"} {
+		if _, ok := spec["components"].(node)["headers"].(node)[name]; ok {
+			t.Errorf("components/headers: got %s, want it removed with the declarations", name)
+		}
+	}
+	walk("#", spec, func(at string, n node) {
+		headers, _ := n["headers"].(node)
+		for name := range headers {
+			for _, h := range rateLimitHeaders {
+				if strings.EqualFold(name, h) {
+					t.Errorf("%s: got %s declared, want it stated once in info.description", at, name)
+				}
+			}
+		}
+	})
+}

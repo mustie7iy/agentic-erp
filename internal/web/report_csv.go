@@ -155,16 +155,16 @@ func (s *Server) trialBalanceCSV(w http.ResponseWriter, r *http.Request, p *pers
 			i18n.BalanceDebitLC, i18n.BalanceCreditLC},
 		read: func(ctx context.Context, token string) ([][]string, string, *failure) {
 			res, err := s.API.ListBalances(ctx, balanceParams(lq, exportPageSize, token))
-			page, ok := res.(*gen.BalancePageHeaders)
+			page, ok := res.(*gen.BalancePage)
 			if !ok {
 				return nil, "", &failure{"listBalances", res, err}
 			}
 			var rows [][]string
-			for _, b := range page.Response.Items {
+			for _, b := range page.Items {
 				rows = append(rows, []string{accountText(accounts, b.AccountID), strconv.Itoa(int(b.FiscalPeriod)), b.Currency, b.Debit.Amount,
 					b.Credit.Amount, b.DebitLc.Amount, b.CreditLc.Amount})
 			}
-			return rows, page.Response.NextPageToken.Or(""), nil
+			return rows, page.NextPageToken.Or(""), nil
 		}})
 }
 
@@ -193,16 +193,16 @@ func (s *Server) openItemsCSV(w http.ResponseWriter, r *http.Request, p *person)
 			i18n.OpenItemDiscount, i18n.OpenItemOverdue, i18n.EntryLineAmount, i18n.BalanceCurrency, i18n.EntryLineAmountLC, i18n.BalanceCurrency},
 		read: func(ctx context.Context, token string) ([][]string, string, *failure) {
 			res, err := s.API.ListOpenItems(ctx, iq.params(exportPageSize, token, false))
-			page, ok := res.(*gen.OpenItemPageHeaders)
+			page, ok := res.(*gen.OpenItemPage)
 			if !ok {
 				return nil, "", &failure{"listOpenItems", res, err}
 			}
 			var rows [][]string
-			for _, it := range itemRows(page.Response.Items, iq, op.Supplier) {
+			for _, it := range itemRows(page.Items, iq, op.Supplier) {
 				rows = append(rows, []string{it.Number, it.Partner, it.Reference, isoDay(it.Posting), dayOrNone(it.Due), dayOrNone(it.Discount),
 					strconv.Itoa(it.Overdue), it.Amount.Amount, it.Amount.Currency, it.AmountLC.Amount, it.AmountLC.Currency})
 			}
-			return rows, page.Response.NextPageToken.Or(""), nil
+			return rows, page.NextPageToken.Or(""), nil
 		}})
 }
 
@@ -236,15 +236,15 @@ func (s *Server) grirCSV(w http.ResponseWriter, r *http.Request, p *person) {
 			i18n.GRIRLast},
 		read: func(ctx context.Context, token string) ([][]string, string, *failure) {
 			res, err := s.API.ListGrIrBalances(ctx, grirParams(company, all, exportPageSize, token))
-			page, ok := res.(*gen.GrIrBalancePageHeaders)
+			page, ok := res.(*gen.GrIrBalancePage)
 			if !ok {
 				return nil, "", &failure{"listGrIrBalances", res, err}
 			}
 			var rows [][]string
-			for _, b := range page.Response.Items {
+			for _, b := range page.Items {
 				rows = append(rows, []string{b.PurchaseOrderID.String(), strconv.Itoa(int(b.PoItemNo)), b.ReceivedQuantity.Value + " " + b.ReceivedQuantity.Unit,
 					b.InvoicedQuantity.Value + " " + b.InvoicedQuantity.Unit, b.Balance.Currency, b.Balance.Amount, isoDay(b.LastPostingDate)})
 			}
-			return rows, page.Response.NextPageToken.Or(""), nil
+			return rows, page.NextPageToken.Or(""), nil
 		}})
 }

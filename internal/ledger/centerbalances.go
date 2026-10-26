@@ -297,7 +297,7 @@ func (e *Endpoints) ListCostCenterBalances(ctx context.Context, params gen.ListC
 	if r.next != "" {
 		page.NextPageToken.SetTo(r.next)
 	}
-	return &gen.CostCenterBalancePageHeaders{Response: page}, nil
+	return &page, nil
 }
 
 // ListProfitCenterBalances implements GET /v1/profit-center-balances.
@@ -321,5 +321,5 @@ func (e *Endpoints) ListProfitCenterBalances(ctx context.Context, params gen.Lis
 	if r.next != "" {
 		page.NextPageToken.SetTo(r.next)
 	}
-	return &gen.ProfitCenterBalancePageHeaders{Response: page}, nil
+	return &page, nil
 }

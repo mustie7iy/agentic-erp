@@ -10,6 +10,54 @@ import (
 	"github.com/google/uuid"
 )
 
+type AcceptBankStatementLineProposalBadRequest Problem
+
+func (*AcceptBankStatementLineProposalBadRequest) acceptBankStatementLineProposalRes() {}
+
+type AcceptBankStatementLineProposalForbidden Problem
+
+func (*AcceptBankStatementLineProposalForbidden) acceptBankStatementLineProposalRes() {}
+
+type AcceptBankStatementLineProposalNotFound Problem
+
+func (*AcceptBankStatementLineProposalNotFound) acceptBankStatementLineProposalRes() {}
+
+type AcceptBankStatementLineProposalPreconditionFailed Problem
+
+func (*AcceptBankStatementLineProposalPreconditionFailed) acceptBankStatementLineProposalRes() {}
+
+type AcceptBankStatementLineProposalPreconditionRequired Problem
+
+func (*AcceptBankStatementLineProposalPreconditionRequired) acceptBankStatementLineProposalRes() {}
+
+type AcceptBankStatementLineProposalUnprocessableEntity Problem
+
+func (*AcceptBankStatementLineProposalUnprocessableEntity) acceptBankStatementLineProposalRes() {}
+
+type AcceptMemoRecordProposalBadRequest Problem
+
+func (*AcceptMemoRecordProposalBadRequest) acceptMemoRecordProposalRes() {}
+
+type AcceptMemoRecordProposalForbidden Problem
+
+func (*AcceptMemoRecordProposalForbidden) acceptMemoRecordProposalRes() {}
+
+type AcceptMemoRecordProposalNotFound Problem
+
+func (*AcceptMemoRecordProposalNotFound) acceptMemoRecordProposalRes() {}
+
+type AcceptMemoRecordProposalPreconditionFailed Problem
+
+func (*AcceptMemoRecordProposalPreconditionFailed) acceptMemoRecordProposalRes() {}
+
+type AcceptMemoRecordProposalPreconditionRequired Problem
+
+func (*AcceptMemoRecordProposalPreconditionRequired) acceptMemoRecordProposalRes() {}
+
+type AcceptMemoRecordProposalUnprocessableEntity Problem
+
+func (*AcceptMemoRecordProposalUnprocessableEntity) acceptMemoRecordProposalRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/Account
 type Account struct {
@@ -188,31 +236,13 @@ func (s *Account) SetCompanySettings(val []CompanyAccountSettings) {
 
 // AccountHeaders wraps Account with response headers.
 type AccountHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           Account
+	ETag     OptString
+	Response Account
 }
 
 // GetETag returns the value of ETag.
 func (s *AccountHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *AccountHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *AccountHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *AccountHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -223,21 +253,6 @@ func (s *AccountHeaders) GetResponse() Account {
 // SetETag sets the value of ETag.
 func (s *AccountHeaders) SetETag(val OptString) {
 	s.ETag = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *AccountHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *AccountHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *AccountHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -289,55 +304,103 @@ func (s *AccountPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// AccountPageHeaders wraps AccountPage with response headers.
-type AccountPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           AccountPage
-}
+func (*AccountPage) listAccountsRes() {}
 
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *AccountPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
+type ActivateChangeRequestBadRequest Problem
 
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *AccountPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
+func (*ActivateChangeRequestBadRequest) activateChangeRequestRes() {}
 
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *AccountPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
+type ActivateChangeRequestForbidden Problem
 
-// GetResponse returns the value of Response.
-func (s *AccountPageHeaders) GetResponse() AccountPage {
-	return s.Response
-}
+func (*ActivateChangeRequestForbidden) activateChangeRequestRes() {}
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *AccountPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
+type ActivateChangeRequestNotFound Problem
 
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *AccountPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
+func (*ActivateChangeRequestNotFound) activateChangeRequestRes() {}
 
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *AccountPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
+type ActivateChangeRequestPreconditionFailed Problem
 
-// SetResponse sets the value of Response.
-func (s *AccountPageHeaders) SetResponse(val AccountPage) {
-	s.Response = val
-}
+func (*ActivateChangeRequestPreconditionFailed) activateChangeRequestRes() {}
 
-func (*AccountPageHeaders) listAccountsRes() {}
+type ActivateChangeRequestPreconditionRequired Problem
+
+func (*ActivateChangeRequestPreconditionRequired) activateChangeRequestRes() {}
+
+type ActivateChangeRequestUnprocessableEntity Problem
+
+func (*ActivateChangeRequestUnprocessableEntity) activateChangeRequestRes() {}
+
+type ActivateLegalEntityBadRequest Problem
+
+func (*ActivateLegalEntityBadRequest) activateLegalEntityRes() {}
+
+type ActivateLegalEntityForbidden Problem
+
+func (*ActivateLegalEntityForbidden) activateLegalEntityRes() {}
+
+type ActivateLegalEntityNotFound Problem
+
+func (*ActivateLegalEntityNotFound) activateLegalEntityRes() {}
+
+type ActivateLegalEntityPreconditionFailed Problem
+
+func (*ActivateLegalEntityPreconditionFailed) activateLegalEntityRes() {}
+
+type ActivateLegalEntityPreconditionRequired Problem
+
+func (*ActivateLegalEntityPreconditionRequired) activateLegalEntityRes() {}
+
+type ActivateLegalEntityUnprocessableEntity Problem
+
+func (*ActivateLegalEntityUnprocessableEntity) activateLegalEntityRes() {}
+
+type ActivateOrgUnitBadRequest Problem
+
+func (*ActivateOrgUnitBadRequest) activateOrgUnitRes() {}
+
+type ActivateOrgUnitForbidden Problem
+
+func (*ActivateOrgUnitForbidden) activateOrgUnitRes() {}
+
+type ActivateOrgUnitNotFound Problem
+
+func (*ActivateOrgUnitNotFound) activateOrgUnitRes() {}
+
+type ActivateOrgUnitPreconditionFailed Problem
+
+func (*ActivateOrgUnitPreconditionFailed) activateOrgUnitRes() {}
+
+type ActivateOrgUnitPreconditionRequired Problem
+
+func (*ActivateOrgUnitPreconditionRequired) activateOrgUnitRes() {}
+
+type ActivateOrgUnitUnprocessableEntity Problem
+
+func (*ActivateOrgUnitUnprocessableEntity) activateOrgUnitRes() {}
+
+type AddHierarchyNodeBadRequest Problem
+
+func (*AddHierarchyNodeBadRequest) addHierarchyNodeRes() {}
+
+type AddHierarchyNodeForbidden Problem
+
+func (*AddHierarchyNodeForbidden) addHierarchyNodeRes() {}
+
+type AddHierarchyNodeNotFound Problem
+
+func (*AddHierarchyNodeNotFound) addHierarchyNodeRes() {}
+
+type AddHierarchyNodePreconditionFailed Problem
+
+func (*AddHierarchyNodePreconditionFailed) addHierarchyNodeRes() {}
+
+type AddHierarchyNodePreconditionRequired Problem
+
+func (*AddHierarchyNodePreconditionRequired) addHierarchyNodeRes() {}
+
+type AddHierarchyNodeUnprocessableEntity Problem
+
+func (*AddHierarchyNodeUnprocessableEntity) addHierarchyNodeRes() {}
 
 // An effective-dated address of a business partner.
 // Ref: #/components/schemas/Address
@@ -767,9 +830,6 @@ type AgentSessionHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           AgentSession
 }
 
@@ -786,21 +846,6 @@ func (s *AgentSessionHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *AgentSessionHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *AgentSessionHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *AgentSessionHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *AgentSessionHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -821,21 +866,6 @@ func (s *AgentSessionHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *AgentSessionHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *AgentSessionHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *AgentSessionHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *AgentSessionHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -874,55 +904,7 @@ func (s *AgentSessionPage) SetNextPageToken(val OptString) {
 	s.NextPageToken = val
 }
 
-// AgentSessionPageHeaders wraps AgentSessionPage with response headers.
-type AgentSessionPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           AgentSessionPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *AgentSessionPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *AgentSessionPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *AgentSessionPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *AgentSessionPageHeaders) GetResponse() AgentSessionPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *AgentSessionPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *AgentSessionPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *AgentSessionPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *AgentSessionPageHeaders) SetResponse(val AgentSessionPage) {
-	s.Response = val
-}
-
-func (*AgentSessionPageHeaders) listAgentSessionsRes() {}
+func (*AgentSessionPage) listAgentSessionsRes() {}
 
 // A session to start.
 // Ref: #/components/schemas/AgentSessionStart
@@ -1111,30 +1093,12 @@ func (s *AgentToolCallCreateInput) init() AgentToolCallCreateInput {
 // AgentToolCallHeaders wraps AgentToolCall with response headers.
 type AgentToolCallHeaders struct {
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           AgentToolCall
 }
 
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *AgentToolCallHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *AgentToolCallHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *AgentToolCallHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *AgentToolCallHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -1145,21 +1109,6 @@ func (s *AgentToolCallHeaders) GetResponse() AgentToolCall {
 // SetIdempotentReplayed sets the value of IdempotentReplayed.
 func (s *AgentToolCallHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *AgentToolCallHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *AgentToolCallHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *AgentToolCallHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -1210,55 +1159,7 @@ func (s *AgentToolCallPage) SetNextPageToken(val OptString) {
 	s.NextPageToken = val
 }
 
-// AgentToolCallPageHeaders wraps AgentToolCallPage with response headers.
-type AgentToolCallPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           AgentToolCallPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *AgentToolCallPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *AgentToolCallPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *AgentToolCallPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *AgentToolCallPageHeaders) GetResponse() AgentToolCallPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *AgentToolCallPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *AgentToolCallPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *AgentToolCallPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *AgentToolCallPageHeaders) SetResponse(val AgentToolCallPage) {
-	s.Response = val
-}
-
-func (*AgentToolCallPageHeaders) listAgentToolCallsRes() {}
+func (*AgentToolCallPage) listAgentToolCallsRes() {}
 
 // A tenant's AI policy (ADR-0036).
 // Ref: #/components/schemas/AiPolicy
@@ -1427,31 +1328,13 @@ func (s *AiPolicyEffectiveRoutes) init() AiPolicyEffectiveRoutes {
 
 // AiPolicyHeaders wraps AiPolicy with response headers.
 type AiPolicyHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           AiPolicy
+	ETag     OptString
+	Response AiPolicy
 }
 
 // GetETag returns the value of ETag.
 func (s *AiPolicyHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *AiPolicyHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *AiPolicyHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *AiPolicyHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -1462,21 +1345,6 @@ func (s *AiPolicyHeaders) GetResponse() AiPolicy {
 // SetETag sets the value of ETag.
 func (s *AiPolicyHeaders) SetETag(val OptString) {
 	s.ETag = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *AiPolicyHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *AiPolicyHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *AiPolicyHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -1670,55 +1538,7 @@ func (s *AiUsage) SetPrincipals(val []AiUsagePrincipal) {
 	s.Principals = val
 }
 
-// AiUsageHeaders wraps AiUsage with response headers.
-type AiUsageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           AiUsage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *AiUsageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *AiUsageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *AiUsageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *AiUsageHeaders) GetResponse() AiUsage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *AiUsageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *AiUsageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *AiUsageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *AiUsageHeaders) SetResponse(val AiUsage) {
-	s.Response = val
-}
-
-func (*AiUsageHeaders) getAiUsageRes() {}
+func (*AiUsage) getAiUsageRes() {}
 
 // One principal's model usage in the month.
 // Ref: #/components/schemas/AiUsagePrincipal
@@ -2106,55 +1926,7 @@ func (s *AnalyticsModel) SetModel(val AnalyticsModelModel) {
 	s.Model = val
 }
 
-// AnalyticsModelHeaders wraps AnalyticsModel with response headers.
-type AnalyticsModelHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           AnalyticsModel
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *AnalyticsModelHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *AnalyticsModelHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *AnalyticsModelHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *AnalyticsModelHeaders) GetResponse() AnalyticsModel {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *AnalyticsModelHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *AnalyticsModelHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *AnalyticsModelHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *AnalyticsModelHeaders) SetResponse(val AnalyticsModel) {
-	s.Response = val
-}
-
-func (*AnalyticsModelHeaders) getAnalyticsModelRes() {}
+func (*AnalyticsModel) getAnalyticsModelRes() {}
 
 // The model as the configuration document's `analytics` section holds it: `calendar`, `defaults`,
 // `dimensions` and `metrics` (each with its name, label, description, synonyms, type, dimensions and
@@ -2419,30 +2191,12 @@ func (s *AnalyticsResult) SetTruncated(val bool) {
 // AnalyticsResultHeaders wraps AnalyticsResult with response headers.
 type AnalyticsResultHeaders struct {
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           AnalyticsResult
 }
 
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *AnalyticsResultHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *AnalyticsResultHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *AnalyticsResultHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *AnalyticsResultHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -2455,27 +2209,32 @@ func (s *AnalyticsResultHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *AnalyticsResultHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *AnalyticsResultHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *AnalyticsResultHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *AnalyticsResultHeaders) SetResponse(val AnalyticsResult) {
 	s.Response = val
 }
 
 func (*AnalyticsResultHeaders) runAnalyticsQueryRes() {}
+
+type ApplyCountryPackBadRequest Problem
+
+func (*ApplyCountryPackBadRequest) applyCountryPackRes() {}
+
+type ApplyCountryPackForbidden Problem
+
+func (*ApplyCountryPackForbidden) applyCountryPackRes() {}
+
+type ApplyCountryPackNotFound Problem
+
+func (*ApplyCountryPackNotFound) applyCountryPackRes() {}
+
+type ApplyCountryPackPreconditionRequired Problem
+
+func (*ApplyCountryPackPreconditionRequired) applyCountryPackRes() {}
+
+type ApplyCountryPackUnprocessableEntity Problem
+
+func (*ApplyCountryPackUnprocessableEntity) applyCountryPackRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/ApprovalRequest
@@ -2715,31 +2474,13 @@ func (s *ApprovalRequest) SetDecisions(val []Decision) {
 
 // ApprovalRequestHeaders wraps ApprovalRequest with response headers.
 type ApprovalRequestHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           ApprovalRequest
+	ETag     OptString
+	Response ApprovalRequest
 }
 
 // GetETag returns the value of ETag.
 func (s *ApprovalRequestHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ApprovalRequestHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ApprovalRequestHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ApprovalRequestHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -2750,21 +2491,6 @@ func (s *ApprovalRequestHeaders) GetResponse() ApprovalRequest {
 // SetETag sets the value of ETag.
 func (s *ApprovalRequestHeaders) SetETag(val OptString) {
 	s.ETag = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ApprovalRequestHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ApprovalRequestHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ApprovalRequestHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -2816,55 +2542,7 @@ func (s *ApprovalRequestPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// ApprovalRequestPageHeaders wraps ApprovalRequestPage with response headers.
-type ApprovalRequestPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           ApprovalRequestPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ApprovalRequestPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ApprovalRequestPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ApprovalRequestPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *ApprovalRequestPageHeaders) GetResponse() ApprovalRequestPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ApprovalRequestPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ApprovalRequestPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ApprovalRequestPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *ApprovalRequestPageHeaders) SetResponse(val ApprovalRequestPage) {
-	s.Response = val
-}
-
-func (*ApprovalRequestPageHeaders) listApprovalRequestsRes() {}
+func (*ApprovalRequestPage) listApprovalRequestsRes() {}
 
 // One approval step.
 // Ref: #/components/schemas/ApprovalStep
@@ -2919,13 +2597,22 @@ func (s *ApprovalStep) SetApprovals(val int32) {
 	s.Approvals = val
 }
 
+type ApproveApprovalRequestBadRequest Problem
+
+func (*ApproveApprovalRequestBadRequest) approveApprovalRequestRes() {}
+
+type ApproveApprovalRequestForbidden Problem
+
+func (*ApproveApprovalRequestForbidden) approveApprovalRequestRes() {}
+
+type ApproveApprovalRequestNotFound Problem
+
+func (*ApproveApprovalRequestNotFound) approveApprovalRequestRes() {}
+
 // ApproveApprovalRequestOKHeaders wraps ApprovalRequest with response headers.
 type ApproveApprovalRequestOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           ApprovalRequest
 }
 
@@ -2937,21 +2624,6 @@ func (s *ApproveApprovalRequestOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *ApproveApprovalRequestOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ApproveApprovalRequestOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ApproveApprovalRequestOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ApproveApprovalRequestOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -2969,21 +2641,6 @@ func (s *ApproveApprovalRequestOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ApproveApprovalRequestOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ApproveApprovalRequestOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ApproveApprovalRequestOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *ApproveApprovalRequestOKHeaders) SetResponse(val ApprovalRequest) {
 	s.Response = val
@@ -2992,6 +2649,42 @@ func (s *ApproveApprovalRequestOKHeaders) SetResponse(val ApprovalRequest) {
 func (*ApproveApprovalRequestOKHeaders) approveApprovalRequestRes() {}
 func (*ApproveApprovalRequestOKHeaders) cancelApprovalRequestRes()  {}
 func (*ApproveApprovalRequestOKHeaders) rejectApprovalRequestRes()  {}
+
+type ApproveApprovalRequestPreconditionFailed Problem
+
+func (*ApproveApprovalRequestPreconditionFailed) approveApprovalRequestRes() {}
+
+type ApproveApprovalRequestPreconditionRequired Problem
+
+func (*ApproveApprovalRequestPreconditionRequired) approveApprovalRequestRes() {}
+
+type ApproveApprovalRequestUnprocessableEntity Problem
+
+func (*ApproveApprovalRequestUnprocessableEntity) approveApprovalRequestRes() {}
+
+type AssignProfitCenterBadRequest Problem
+
+func (*AssignProfitCenterBadRequest) assignProfitCenterRes() {}
+
+type AssignProfitCenterForbidden Problem
+
+func (*AssignProfitCenterForbidden) assignProfitCenterRes() {}
+
+type AssignProfitCenterNotFound Problem
+
+func (*AssignProfitCenterNotFound) assignProfitCenterRes() {}
+
+type AssignProfitCenterPreconditionFailed Problem
+
+func (*AssignProfitCenterPreconditionFailed) assignProfitCenterRes() {}
+
+type AssignProfitCenterPreconditionRequired Problem
+
+func (*AssignProfitCenterPreconditionRequired) assignProfitCenterRes() {}
+
+type AssignProfitCenterUnprocessableEntity Problem
+
+func (*AssignProfitCenterUnprocessableEntity) assignProfitCenterRes() {}
 
 // An entry in the tamper-evident audit trail. Insert-only; chain hashes are internal and not exposed.
 // Ref: #/components/schemas/AuditEvent
@@ -3190,55 +2883,7 @@ func (s *AuditEventPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// AuditEventPageHeaders wraps AuditEventPage with response headers.
-type AuditEventPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           AuditEventPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *AuditEventPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *AuditEventPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *AuditEventPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *AuditEventPageHeaders) GetResponse() AuditEventPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *AuditEventPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *AuditEventPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *AuditEventPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *AuditEventPageHeaders) SetResponse(val AuditEventPage) {
-	s.Response = val
-}
-
-func (*AuditEventPageHeaders) listAuditEventsRes() {}
+func (*AuditEventPage) listAuditEventsRes() {}
 
 // Range of the hash chain to verify. The Operation result reports `verified`, `last_seq`, `checked`,
 // `anchors_checked` (the write-once anchors in the range compared with the stored hashes and, when
@@ -3270,337 +2915,6 @@ func (s *AuditVerify) SetFromSeq(val OptInt64) {
 func (s *AuditVerify) SetToSeq(val OptInt64) {
 	s.ToSeq = val
 }
-
-// BadRequestHeaders wraps Problem with response headers.
-type BadRequestHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           Problem
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *BadRequestHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *BadRequestHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *BadRequestHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *BadRequestHeaders) GetResponse() Problem {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *BadRequestHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *BadRequestHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *BadRequestHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *BadRequestHeaders) SetResponse(val Problem) {
-	s.Response = val
-}
-
-func (*BadRequestHeaders) acceptBankStatementLineProposalRes()  {}
-func (*BadRequestHeaders) acceptMemoRecordProposalRes()         {}
-func (*BadRequestHeaders) activateChangeRequestRes()            {}
-func (*BadRequestHeaders) activateLegalEntityRes()              {}
-func (*BadRequestHeaders) activateOrgUnitRes()                  {}
-func (*BadRequestHeaders) addHierarchyNodeRes()                 {}
-func (*BadRequestHeaders) applyCountryPackRes()                 {}
-func (*BadRequestHeaders) approveApprovalRequestRes()           {}
-func (*BadRequestHeaders) assignProfitCenterRes()               {}
-func (*BadRequestHeaders) blockBusinessPartnerRes()             {}
-func (*BadRequestHeaders) blockLegalEntityRes()                 {}
-func (*BadRequestHeaders) blockOrgUnitRes()                     {}
-func (*BadRequestHeaders) blockPrincipalRes()                   {}
-func (*BadRequestHeaders) cancelApprovalRequestRes()            {}
-func (*BadRequestHeaders) cancelContractRes()                   {}
-func (*BadRequestHeaders) cancelDownPaymentRequestRes()         {}
-func (*BadRequestHeaders) cancelMemoRecordRes()                 {}
-func (*BadRequestHeaders) cancelOperationRes()                  {}
-func (*BadRequestHeaders) cancelParkedJournalEntryRes()         {}
-func (*BadRequestHeaders) cancelPurchaseOrderChangeRes()        {}
-func (*BadRequestHeaders) cancelPurchaseOrderRes()              {}
-func (*BadRequestHeaders) cancelRequisitionRes()                {}
-func (*BadRequestHeaders) cancelRevaluationRunRes()             {}
-func (*BadRequestHeaders) cancelSupplierInvoiceRes()            {}
-func (*BadRequestHeaders) captureSupplierInvoiceRes()           {}
-func (*BadRequestHeaders) clearSupplierInvoiceDownPaymentsRes() {}
-func (*BadRequestHeaders) closeFiscalPeriodRes()                {}
-func (*BadRequestHeaders) closePurchaseOrderRes()               {}
-func (*BadRequestHeaders) createBusinessPartnerRes()            {}
-func (*BadRequestHeaders) createChangeRequestRes()              {}
-func (*BadRequestHeaders) createClearingRes()                   {}
-func (*BadRequestHeaders) createCompanyAccessRes()              {}
-func (*BadRequestHeaders) createConnectorRes()                  {}
-func (*BadRequestHeaders) createContractRes()                   {}
-func (*BadRequestHeaders) createCostCenterRes()                 {}
-func (*BadRequestHeaders) createDownPaymentRequestRes()         {}
-func (*BadRequestHeaders) createExchangeRateRes()               {}
-func (*BadRequestHeaders) createHierarchyRes()                  {}
-func (*BadRequestHeaders) createLegalEntityRes()                {}
-func (*BadRequestHeaders) createMemoRecordRes()                 {}
-func (*BadRequestHeaders) createMigrationRunRes()               {}
-func (*BadRequestHeaders) createOrgUnitRes()                    {}
-func (*BadRequestHeaders) createPartnerChangeRes()              {}
-func (*BadRequestHeaders) createPrincipalRes()                  {}
-func (*BadRequestHeaders) createProfitCenterRes()               {}
-func (*BadRequestHeaders) createPurchaseOrderChangeRes()        {}
-func (*BadRequestHeaders) createPurchaseOrderRes()              {}
-func (*BadRequestHeaders) createRecommendationRes()             {}
-func (*BadRequestHeaders) createRegressionSuiteRes()            {}
-func (*BadRequestHeaders) createRequisitionRes()                {}
-func (*BadRequestHeaders) createRoleAssignmentRes()             {}
-func (*BadRequestHeaders) createRoleRes()                       {}
-func (*BadRequestHeaders) createSegmentRes()                    {}
-func (*BadRequestHeaders) createSodRuleRes()                    {}
-func (*BadRequestHeaders) createSupplierInvoiceRes()            {}
-func (*BadRequestHeaders) createUploadRes()                     {}
-func (*BadRequestHeaders) createWebhookSubscriptionRes()        {}
-func (*BadRequestHeaders) decideRecommendationRes()             {}
-func (*BadRequestHeaders) deleteWebhookSubscriptionRes()        {}
-func (*BadRequestHeaders) disableConnectorRes()                 {}
-func (*BadRequestHeaders) enableConnectorRes()                  {}
-func (*BadRequestHeaders) endAgentSessionRes()                  {}
-func (*BadRequestHeaders) endCompanyAccessRes()                 {}
-func (*BadRequestHeaders) endCurrentSessionRes()                {}
-func (*BadRequestHeaders) endRoleAssignmentRes()                {}
-func (*BadRequestHeaders) endRolePermissionRes()                {}
-func (*BadRequestHeaders) endSodRuleRes()                       {}
-func (*BadRequestHeaders) excludeBankStatementLineRes()         {}
-func (*BadRequestHeaders) getAccountRes()                       {}
-func (*BadRequestHeaders) getAgentSessionRes()                  {}
-func (*BadRequestHeaders) getAiPolicyRes()                      {}
-func (*BadRequestHeaders) getAiUsageRes()                       {}
-func (*BadRequestHeaders) getAnalyticsModelRes()                {}
-func (*BadRequestHeaders) getApprovalRequestRes()               {}
-func (*BadRequestHeaders) getBankAccountRes()                   {}
-func (*BadRequestHeaders) getBankFileContentRes()               {}
-func (*BadRequestHeaders) getBankFileRes()                      {}
-func (*BadRequestHeaders) getBankReconciliationRes()            {}
-func (*BadRequestHeaders) getBankStatementFileRes()             {}
-func (*BadRequestHeaders) getBankStatementRes()                 {}
-func (*BadRequestHeaders) getBankStatementRulesRes()            {}
-func (*BadRequestHeaders) getBusinessPartnerRes()               {}
-func (*BadRequestHeaders) getCashPositionRes()                  {}
-func (*BadRequestHeaders) getCenterChangeRes()                  {}
-func (*BadRequestHeaders) getChangeRequestRes()                 {}
-func (*BadRequestHeaders) getClearingRes()                      {}
-func (*BadRequestHeaders) getCompanyAccessRes()                 {}
-func (*BadRequestHeaders) getConfigVersionRes()                 {}
-func (*BadRequestHeaders) getConnectorRes()                     {}
-func (*BadRequestHeaders) getContractRes()                      {}
-func (*BadRequestHeaders) getCostCenterRes()                    {}
-func (*BadRequestHeaders) getCurrentPrincipalRes()              {}
-func (*BadRequestHeaders) getDownPaymentRequestRes()            {}
-func (*BadRequestHeaders) getExchangeRateRes()                  {}
-func (*BadRequestHeaders) getFiscalPeriodRes()                  {}
-func (*BadRequestHeaders) getGoodsReceiptRes()                  {}
-func (*BadRequestHeaders) getHierarchyNodeRes()                 {}
-func (*BadRequestHeaders) getHierarchyRes()                     {}
-func (*BadRequestHeaders) getJournalEntryRes()                  {}
-func (*BadRequestHeaders) getLegalEntityRes()                   {}
-func (*BadRequestHeaders) getMatchResultRes()                   {}
-func (*BadRequestHeaders) getMemoRecordRes()                    {}
-func (*BadRequestHeaders) getMigrationRunRes()                  {}
-func (*BadRequestHeaders) getNumberRangeRes()                   {}
-func (*BadRequestHeaders) getOperationRes()                     {}
-func (*BadRequestHeaders) getOrgUnitRes()                       {}
-func (*BadRequestHeaders) getParkedJournalEntryRes()            {}
-func (*BadRequestHeaders) getPartnerChangeRes()                 {}
-func (*BadRequestHeaders) getPaymentRunRes()                    {}
-func (*BadRequestHeaders) getPrincipalRes()                     {}
-func (*BadRequestHeaders) getProfitCenterRes()                  {}
-func (*BadRequestHeaders) getPurchaseOrderChangeRes()           {}
-func (*BadRequestHeaders) getPurchaseOrderRes()                 {}
-func (*BadRequestHeaders) getRecommendationRes()                {}
-func (*BadRequestHeaders) getRegressionSuiteRes()               {}
-func (*BadRequestHeaders) getRequisitionRes()                   {}
-func (*BadRequestHeaders) getRevaluationRunRes()                {}
-func (*BadRequestHeaders) getRoleAssignmentRes()                {}
-func (*BadRequestHeaders) getRolePermissionRes()                {}
-func (*BadRequestHeaders) getRoleRes()                          {}
-func (*BadRequestHeaders) getSchemaRes()                        {}
-func (*BadRequestHeaders) getSegmentRes()                       {}
-func (*BadRequestHeaders) getSodRuleRes()                       {}
-func (*BadRequestHeaders) getSupplierInvoiceDocumentRes()       {}
-func (*BadRequestHeaders) getSupplierInvoiceRes()               {}
-func (*BadRequestHeaders) getUploadRes()                        {}
-func (*BadRequestHeaders) getWebhookDeliveryRes()               {}
-func (*BadRequestHeaders) getWebhookSubscriptionRes()           {}
-func (*BadRequestHeaders) grantRolePermissionRes()              {}
-func (*BadRequestHeaders) holdSupplierInvoiceRes()              {}
-func (*BadRequestHeaders) importBankStatementsRes()             {}
-func (*BadRequestHeaders) listAccountsRes()                     {}
-func (*BadRequestHeaders) listAgentSessionsRes()                {}
-func (*BadRequestHeaders) listAgentToolCallsRes()               {}
-func (*BadRequestHeaders) listApprovalRequestsRes()             {}
-func (*BadRequestHeaders) listAuditEventsRes()                  {}
-func (*BadRequestHeaders) listBalancesRes()                     {}
-func (*BadRequestHeaders) listBankAccountsRes()                 {}
-func (*BadRequestHeaders) listBankFilesRes()                    {}
-func (*BadRequestHeaders) listBankStatementMatchesRes()         {}
-func (*BadRequestHeaders) listBankStatementsRes()               {}
-func (*BadRequestHeaders) listBusinessPartnersRes()             {}
-func (*BadRequestHeaders) listCenterChangesRes()                {}
-func (*BadRequestHeaders) listChangeRequestsRes()               {}
-func (*BadRequestHeaders) listClearingsRes()                    {}
-func (*BadRequestHeaders) listCompanyAccessRes()                {}
-func (*BadRequestHeaders) listConfigVersionsRes()               {}
-func (*BadRequestHeaders) listConnectorsRes()                   {}
-func (*BadRequestHeaders) listContractsRes()                    {}
-func (*BadRequestHeaders) listCostCenterBalancesRes()           {}
-func (*BadRequestHeaders) listCostCenterPathsRes()              {}
-func (*BadRequestHeaders) listCostCentersRes()                  {}
-func (*BadRequestHeaders) listCountryPacksRes()                 {}
-func (*BadRequestHeaders) listDownPaymentRequestsRes()          {}
-func (*BadRequestHeaders) listExchangeRatesRes()                {}
-func (*BadRequestHeaders) listFiscalPeriodsRes()                {}
-func (*BadRequestHeaders) listGoodsReceiptsRes()                {}
-func (*BadRequestHeaders) listGrIrBalancesRes()                 {}
-func (*BadRequestHeaders) listHierarchiesRes()                  {}
-func (*BadRequestHeaders) listHouseBanksRes()                   {}
-func (*BadRequestHeaders) listJournalEntriesRes()               {}
-func (*BadRequestHeaders) listLedgerGroupsRes()                 {}
-func (*BadRequestHeaders) listLedgerReconciliationEntriesRes()  {}
-func (*BadRequestHeaders) listLedgerReconciliationRes()         {}
-func (*BadRequestHeaders) listLedgersRes()                      {}
-func (*BadRequestHeaders) listLegalEntitiesRes()                {}
-func (*BadRequestHeaders) listMatchResultsRes()                 {}
-func (*BadRequestHeaders) listMemoRecordsRes()                  {}
-func (*BadRequestHeaders) listMigrationRunsRes()                {}
-func (*BadRequestHeaders) listNumberRangesRes()                 {}
-func (*BadRequestHeaders) listOpenItemsRes()                    {}
-func (*BadRequestHeaders) listOperationsRes()                   {}
-func (*BadRequestHeaders) listOrgUnitsRes()                     {}
-func (*BadRequestHeaders) listParkedJournalEntriesRes()         {}
-func (*BadRequestHeaders) listPartnerChangesRes()               {}
-func (*BadRequestHeaders) listPaymentExclusionsRes()            {}
-func (*BadRequestHeaders) listPaymentRunsRes()                  {}
-func (*BadRequestHeaders) listPaymentsRes()                     {}
-func (*BadRequestHeaders) listPrincipalNamesRes()               {}
-func (*BadRequestHeaders) listPrincipalsRes()                   {}
-func (*BadRequestHeaders) listProfitCenterBalancesRes()         {}
-func (*BadRequestHeaders) listProfitCenterPathsRes()            {}
-func (*BadRequestHeaders) listProfitCentersRes()                {}
-func (*BadRequestHeaders) listPurchaseOrderChangesRes()         {}
-func (*BadRequestHeaders) listPurchaseOrdersRes()               {}
-func (*BadRequestHeaders) listRecommendationsRes()              {}
-func (*BadRequestHeaders) listRegressionSuitesRes()             {}
-func (*BadRequestHeaders) listRequisitionsRes()                 {}
-func (*BadRequestHeaders) listRevaluationRunsRes()              {}
-func (*BadRequestHeaders) listRoleAssignmentsRes()              {}
-func (*BadRequestHeaders) listRolePermissionsRes()              {}
-func (*BadRequestHeaders) listRolesRes()                        {}
-func (*BadRequestHeaders) listSegmentsRes()                     {}
-func (*BadRequestHeaders) listSodRulesRes()                     {}
-func (*BadRequestHeaders) listSupplierInvoicesRes()             {}
-func (*BadRequestHeaders) listWebhookDeliveriesRes()            {}
-func (*BadRequestHeaders) listWebhookSubscriptionsRes()         {}
-func (*BadRequestHeaders) lockCostCenterRes()                   {}
-func (*BadRequestHeaders) lockFiscalPeriodRes()                 {}
-func (*BadRequestHeaders) lockProfitCenterRes()                 {}
-func (*BadRequestHeaders) matchBankStatementLineRes()           {}
-func (*BadRequestHeaders) matchBankStatementRes()               {}
-func (*BadRequestHeaders) matchSupplierInvoiceRes()             {}
-func (*BadRequestHeaders) moveCostCenterRes()                   {}
-func (*BadRequestHeaders) moveHierarchyNodeRes()                {}
-func (*BadRequestHeaders) moveProfitCenterRes()                 {}
-func (*BadRequestHeaders) openFiscalPeriodRes()                 {}
-func (*BadRequestHeaders) parkJournalEntryRes()                 {}
-func (*BadRequestHeaders) pauseWebhookSubscriptionRes()         {}
-func (*BadRequestHeaders) pingWebhookSubscriptionRes()          {}
-func (*BadRequestHeaders) placeInHierarchyRes()                 {}
-func (*BadRequestHeaders) postBankStatementLineRes()            {}
-func (*BadRequestHeaders) postGoodsReceiptRes()                 {}
-func (*BadRequestHeaders) postJournalEntryRes()                 {}
-func (*BadRequestHeaders) postParkedJournalEntryRes()           {}
-func (*BadRequestHeaders) postRevaluationRunRes()               {}
-func (*BadRequestHeaders) postSupplierInvoiceRes()              {}
-func (*BadRequestHeaders) previewRevaluationRes()               {}
-func (*BadRequestHeaders) proposeBankStatementLineRes()         {}
-func (*BadRequestHeaders) proposeMemoRecordRes()                {}
-func (*BadRequestHeaders) proposePaymentRunRes()                {}
-func (*BadRequestHeaders) realiseMemoRecordRes()                {}
-func (*BadRequestHeaders) reconcileMigrationRunRes()            {}
-func (*BadRequestHeaders) recordAgentToolCallRes()              {}
-func (*BadRequestHeaders) redateCostCenterRes()                 {}
-func (*BadRequestHeaders) redateProfitCenterRes()               {}
-func (*BadRequestHeaders) redeliverWebhookDeliveryRes()         {}
-func (*BadRequestHeaders) rejectApprovalRequestRes()            {}
-func (*BadRequestHeaders) rejectBankStatementLineProposalRes()  {}
-func (*BadRequestHeaders) rejectMemoRecordProposalRes()         {}
-func (*BadRequestHeaders) rejectPaymentRunRes()                 {}
-func (*BadRequestHeaders) releaseContractRes()                  {}
-func (*BadRequestHeaders) releasePaymentRunRes()                {}
-func (*BadRequestHeaders) releasePurchaseOrderRes()             {}
-func (*BadRequestHeaders) releaseSupplierInvoiceRes()           {}
-func (*BadRequestHeaders) removeHierarchyNodeRes()              {}
-func (*BadRequestHeaders) renameHierarchyNodeRes()              {}
-func (*BadRequestHeaders) renewContractRes()                    {}
-func (*BadRequestHeaders) replayWebhookDeliveriesRes()          {}
-func (*BadRequestHeaders) reportBankFileStatusRes()             {}
-func (*BadRequestHeaders) requestBankAccountChangeRes()         {}
-func (*BadRequestHeaders) requestBankAccountEndRes()            {}
-func (*BadRequestHeaders) resumeWebhookSubscriptionRes()        {}
-func (*BadRequestHeaders) reverseGoodsReceiptRes()              {}
-func (*BadRequestHeaders) reverseJournalEntryRes()              {}
-func (*BadRequestHeaders) reverseSupplierInvoiceRes()           {}
-func (*BadRequestHeaders) rotateWebhookSubscriptionSecretRes()  {}
-func (*BadRequestHeaders) runAnalyticsQueryRes()                {}
-func (*BadRequestHeaders) simulateChangeRequestRes()            {}
-func (*BadRequestHeaders) startAgentSessionRes()                {}
-func (*BadRequestHeaders) startMigrationRunRes()                {}
-func (*BadRequestHeaders) submitChangeRequestRes()              {}
-func (*BadRequestHeaders) submitPaymentRunRes()                 {}
-func (*BadRequestHeaders) submitPurchaseOrderChangeRes()        {}
-func (*BadRequestHeaders) submitRequisitionRes()                {}
-func (*BadRequestHeaders) terminateContractRes()                {}
-func (*BadRequestHeaders) transmitBankFileRes()                 {}
-func (*BadRequestHeaders) unblockBusinessPartnerRes()           {}
-func (*BadRequestHeaders) unblockLegalEntityRes()               {}
-func (*BadRequestHeaders) unblockOrgUnitRes()                   {}
-func (*BadRequestHeaders) unlockFiscalPeriodRes()               {}
-func (*BadRequestHeaders) updateAiPolicyRes()                   {}
-func (*BadRequestHeaders) updateChangeRequestRes()              {}
-func (*BadRequestHeaders) updateConnectorRes()                  {}
-func (*BadRequestHeaders) updateContractRes()                   {}
-func (*BadRequestHeaders) updateCostCenterRes()                 {}
-func (*BadRequestHeaders) updateLegalEntityRes()                {}
-func (*BadRequestHeaders) updateMemoRecordRes()                 {}
-func (*BadRequestHeaders) updateOrgUnitRes()                    {}
-func (*BadRequestHeaders) updateParkedJournalEntryRes()         {}
-func (*BadRequestHeaders) updatePrincipalRes()                  {}
-func (*BadRequestHeaders) updateProfitCenterRes()               {}
-func (*BadRequestHeaders) updatePurchaseOrderChangeRes()        {}
-func (*BadRequestHeaders) updatePurchaseOrderRes()              {}
-func (*BadRequestHeaders) updateRequisitionRes()                {}
-func (*BadRequestHeaders) updateRoleRes()                       {}
-func (*BadRequestHeaders) updateSegmentRes()                    {}
-func (*BadRequestHeaders) updateSupplierInvoiceRes()            {}
-func (*BadRequestHeaders) updateWebhookSubscriptionRes()        {}
-func (*BadRequestHeaders) uploadMemoRecordsRes()                {}
-func (*BadRequestHeaders) verifyAuditChainRes()                 {}
-func (*BadRequestHeaders) withdrawChangeRequestRes()            {}
 
 // Period totals per account and transaction currency, maintained by a projector from posted entries.
 // Ref: #/components/schemas/Balance
@@ -3805,55 +3119,7 @@ func (s *BalancePage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// BalancePageHeaders wraps BalancePage with response headers.
-type BalancePageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           BalancePage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *BalancePageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *BalancePageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *BalancePageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *BalancePageHeaders) GetResponse() BalancePage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *BalancePageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *BalancePageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *BalancePageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *BalancePageHeaders) SetResponse(val BalancePage) {
-	s.Response = val
-}
-
-func (*BalancePageHeaders) listBalancesRes() {}
+func (*BalancePage) listBalancesRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/BankAccount
@@ -4099,31 +3365,13 @@ func (s *BankAccountEnd) SetReason(val string) {
 
 // BankAccountHeaders wraps BankAccount with response headers.
 type BankAccountHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           BankAccount
+	ETag     OptString
+	Response BankAccount
 }
 
 // GetETag returns the value of ETag.
 func (s *BankAccountHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *BankAccountHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *BankAccountHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *BankAccountHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -4134,21 +3382,6 @@ func (s *BankAccountHeaders) GetResponse() BankAccount {
 // SetETag sets the value of ETag.
 func (s *BankAccountHeaders) SetETag(val OptString) {
 	s.ETag = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *BankAccountHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *BankAccountHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *BankAccountHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -4317,55 +3550,7 @@ func (s *BankAccountPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// BankAccountPageHeaders wraps BankAccountPage with response headers.
-type BankAccountPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           BankAccountPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *BankAccountPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *BankAccountPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *BankAccountPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *BankAccountPageHeaders) GetResponse() BankAccountPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *BankAccountPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *BankAccountPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *BankAccountPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *BankAccountPageHeaders) SetResponse(val BankAccountPage) {
-	s.Response = val
-}
-
-func (*BankAccountPageHeaders) listBankAccountsRes() {}
+func (*BankAccountPage) listBankAccountsRes() {}
 
 // Request new bank details for a partner, with the reason.
 // Ref: #/components/schemas/BankChangeCreate
@@ -4638,31 +3823,13 @@ func (s *BankFile) SetStatus(val string) {
 
 // BankFileHeaders wraps BankFile with response headers.
 type BankFileHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           BankFile
+	ETag     OptString
+	Response BankFile
 }
 
 // GetETag returns the value of ETag.
 func (s *BankFileHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *BankFileHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *BankFileHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *BankFileHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -4673,21 +3840,6 @@ func (s *BankFileHeaders) GetResponse() BankFile {
 // SetETag sets the value of ETag.
 func (s *BankFileHeaders) SetETag(val OptString) {
 	s.ETag = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *BankFileHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *BankFileHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *BankFileHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -4739,55 +3891,7 @@ func (s *BankFilePage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// BankFilePageHeaders wraps BankFilePage with response headers.
-type BankFilePageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           BankFilePage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *BankFilePageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *BankFilePageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *BankFilePageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *BankFilePageHeaders) GetResponse() BankFilePage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *BankFilePageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *BankFilePageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *BankFilePageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *BankFilePageHeaders) SetResponse(val BankFilePage) {
-	s.Response = val
-}
-
-func (*BankFilePageHeaders) listBankFilesRes() {}
+func (*BankFilePage) listBankFilesRes() {}
 
 // One page of a house bank's reconciliation report (ADR-0047, T49h): the period's figures, and its
 // statements on this page with their figures and lines. Amounts are signed: a credit to the account is
@@ -4891,6 +3995,8 @@ func (s *BankReconciliation) SetNextPageToken(val OptString) {
 	s.NextPageToken = val
 }
 
+func (*BankReconciliation) getBankReconciliationRes() {}
+
 // A closing balance compared with the ledger on its date (`as_of`): the ledger's balance of the main
 // bank account, what the lines of the bank's statements up to that date explain of the difference
 // (`excluded`, `in_transit`, `posted_later`), and what is left (`unexplained` = closing balance −
@@ -4977,56 +4083,6 @@ func (s *BankReconciliationFigures) SetPostedLater(val Money) {
 func (s *BankReconciliationFigures) SetUnexplained(val OptMoney) {
 	s.Unexplained = val
 }
-
-// BankReconciliationHeaders wraps BankReconciliation with response headers.
-type BankReconciliationHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           BankReconciliation
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *BankReconciliationHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *BankReconciliationHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *BankReconciliationHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *BankReconciliationHeaders) GetResponse() BankReconciliation {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *BankReconciliationHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *BankReconciliationHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *BankReconciliationHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *BankReconciliationHeaders) SetResponse(val BankReconciliation) {
-	s.Response = val
-}
-
-func (*BankReconciliationHeaders) getBankReconciliationRes() {}
 
 // A line of a statement in the report, with its live match and the outcome of the latest agent
 // proposal a person decided.
@@ -5798,31 +4854,13 @@ func (s *BankStatement) SetReconciledBy(val OptUUID) {
 
 // BankStatementHeaders wraps BankStatement with response headers.
 type BankStatementHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           BankStatement
+	ETag     OptString
+	Response BankStatement
 }
 
 // GetETag returns the value of ETag.
 func (s *BankStatementHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *BankStatementHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *BankStatementHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *BankStatementHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -5833,21 +4871,6 @@ func (s *BankStatementHeaders) GetResponse() BankStatement {
 // SetETag sets the value of ETag.
 func (s *BankStatementHeaders) SetETag(val OptString) {
 	s.ETag = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *BankStatementHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *BankStatementHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *BankStatementHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -5889,30 +4912,12 @@ func (s *BankStatementImport) SetStatements(val []BankStatement) {
 // BankStatementImportHeaders wraps BankStatementImport with response headers.
 type BankStatementImportHeaders struct {
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           BankStatementImport
 }
 
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *BankStatementImportHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *BankStatementImportHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *BankStatementImportHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *BankStatementImportHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -5923,21 +4928,6 @@ func (s *BankStatementImportHeaders) GetResponse() BankStatementImport {
 // SetIdempotentReplayed sets the value of IdempotentReplayed.
 func (s *BankStatementImportHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *BankStatementImportHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *BankStatementImportHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *BankStatementImportHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -6126,55 +5116,7 @@ func (s *BankStatementPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// BankStatementPageHeaders wraps BankStatementPage with response headers.
-type BankStatementPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           BankStatementPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *BankStatementPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *BankStatementPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *BankStatementPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *BankStatementPageHeaders) GetResponse() BankStatementPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *BankStatementPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *BankStatementPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *BankStatementPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *BankStatementPageHeaders) SetResponse(val BankStatementPage) {
-	s.Response = val
-}
-
-func (*BankStatementPageHeaders) listBankStatementsRes() {}
+func (*BankStatementPage) listBankStatementsRes() {}
 
 // The posting and matching rules of a bank statement's company (`companies[].bank_statements`).
 // Ref: #/components/schemas/BankStatementRules
@@ -6205,55 +5147,7 @@ func (s *BankStatementRules) SetMatchingRules(val []BankStatementRulesMatchingRu
 	s.MatchingRules = val
 }
 
-// BankStatementRulesHeaders wraps BankStatementRules with response headers.
-type BankStatementRulesHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           BankStatementRules
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *BankStatementRulesHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *BankStatementRulesHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *BankStatementRulesHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *BankStatementRulesHeaders) GetResponse() BankStatementRules {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *BankStatementRulesHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *BankStatementRulesHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *BankStatementRulesHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *BankStatementRulesHeaders) SetResponse(val BankStatementRules) {
-	s.Response = val
-}
-
-func (*BankStatementRulesHeaders) getBankStatementRulesRes() {}
+func (*BankStatementRules) getBankStatementRulesRes() {}
 
 // A matching rule.
 type BankStatementRulesMatchingRulesItem struct {
@@ -6581,6 +5475,102 @@ func (s *BankStatusReport) SetReference(val OptString) {
 func (s *BankStatusReport) SetReason(val OptString) {
 	s.Reason = val
 }
+
+type BlockBusinessPartnerBadRequest Problem
+
+func (*BlockBusinessPartnerBadRequest) blockBusinessPartnerRes() {}
+
+type BlockBusinessPartnerForbidden Problem
+
+func (*BlockBusinessPartnerForbidden) blockBusinessPartnerRes() {}
+
+type BlockBusinessPartnerNotFound Problem
+
+func (*BlockBusinessPartnerNotFound) blockBusinessPartnerRes() {}
+
+type BlockBusinessPartnerPreconditionFailed Problem
+
+func (*BlockBusinessPartnerPreconditionFailed) blockBusinessPartnerRes() {}
+
+type BlockBusinessPartnerPreconditionRequired Problem
+
+func (*BlockBusinessPartnerPreconditionRequired) blockBusinessPartnerRes() {}
+
+type BlockBusinessPartnerUnprocessableEntity Problem
+
+func (*BlockBusinessPartnerUnprocessableEntity) blockBusinessPartnerRes() {}
+
+type BlockLegalEntityBadRequest Problem
+
+func (*BlockLegalEntityBadRequest) blockLegalEntityRes() {}
+
+type BlockLegalEntityForbidden Problem
+
+func (*BlockLegalEntityForbidden) blockLegalEntityRes() {}
+
+type BlockLegalEntityNotFound Problem
+
+func (*BlockLegalEntityNotFound) blockLegalEntityRes() {}
+
+type BlockLegalEntityPreconditionFailed Problem
+
+func (*BlockLegalEntityPreconditionFailed) blockLegalEntityRes() {}
+
+type BlockLegalEntityPreconditionRequired Problem
+
+func (*BlockLegalEntityPreconditionRequired) blockLegalEntityRes() {}
+
+type BlockLegalEntityUnprocessableEntity Problem
+
+func (*BlockLegalEntityUnprocessableEntity) blockLegalEntityRes() {}
+
+type BlockOrgUnitBadRequest Problem
+
+func (*BlockOrgUnitBadRequest) blockOrgUnitRes() {}
+
+type BlockOrgUnitForbidden Problem
+
+func (*BlockOrgUnitForbidden) blockOrgUnitRes() {}
+
+type BlockOrgUnitNotFound Problem
+
+func (*BlockOrgUnitNotFound) blockOrgUnitRes() {}
+
+type BlockOrgUnitPreconditionFailed Problem
+
+func (*BlockOrgUnitPreconditionFailed) blockOrgUnitRes() {}
+
+type BlockOrgUnitPreconditionRequired Problem
+
+func (*BlockOrgUnitPreconditionRequired) blockOrgUnitRes() {}
+
+type BlockOrgUnitUnprocessableEntity Problem
+
+func (*BlockOrgUnitUnprocessableEntity) blockOrgUnitRes() {}
+
+type BlockPrincipalBadRequest Problem
+
+func (*BlockPrincipalBadRequest) blockPrincipalRes() {}
+
+type BlockPrincipalForbidden Problem
+
+func (*BlockPrincipalForbidden) blockPrincipalRes() {}
+
+type BlockPrincipalNotFound Problem
+
+func (*BlockPrincipalNotFound) blockPrincipalRes() {}
+
+type BlockPrincipalPreconditionFailed Problem
+
+func (*BlockPrincipalPreconditionFailed) blockPrincipalRes() {}
+
+type BlockPrincipalPreconditionRequired Problem
+
+func (*BlockPrincipalPreconditionRequired) blockPrincipalRes() {}
+
+type BlockPrincipalUnprocessableEntity Problem
+
+func (*BlockPrincipalUnprocessableEntity) blockPrincipalRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/BusinessPartner
@@ -7063,9 +6053,6 @@ type BusinessPartnerHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           BusinessPartner
 }
 
@@ -7082,21 +6069,6 @@ func (s *BusinessPartnerHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *BusinessPartnerHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *BusinessPartnerHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *BusinessPartnerHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *BusinessPartnerHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -7117,21 +6089,6 @@ func (s *BusinessPartnerHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *BusinessPartnerHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *BusinessPartnerHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *BusinessPartnerHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *BusinessPartnerHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -7183,63 +6140,72 @@ func (s *BusinessPartnerPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// BusinessPartnerPageHeaders wraps BusinessPartnerPage with response headers.
-type BusinessPartnerPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           BusinessPartnerPage
-}
+func (*BusinessPartnerPage) listBusinessPartnersRes() {}
 
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *BusinessPartnerPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
+type CancelApprovalRequestBadRequest Problem
 
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *BusinessPartnerPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
+func (*CancelApprovalRequestBadRequest) cancelApprovalRequestRes() {}
 
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *BusinessPartnerPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
+type CancelApprovalRequestForbidden Problem
 
-// GetResponse returns the value of Response.
-func (s *BusinessPartnerPageHeaders) GetResponse() BusinessPartnerPage {
-	return s.Response
-}
+func (*CancelApprovalRequestForbidden) cancelApprovalRequestRes() {}
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *BusinessPartnerPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
+type CancelApprovalRequestNotFound Problem
 
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *BusinessPartnerPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
+func (*CancelApprovalRequestNotFound) cancelApprovalRequestRes() {}
 
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *BusinessPartnerPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
+type CancelApprovalRequestPreconditionFailed Problem
 
-// SetResponse sets the value of Response.
-func (s *BusinessPartnerPageHeaders) SetResponse(val BusinessPartnerPage) {
-	s.Response = val
-}
+func (*CancelApprovalRequestPreconditionFailed) cancelApprovalRequestRes() {}
 
-func (*BusinessPartnerPageHeaders) listBusinessPartnersRes() {}
+type CancelApprovalRequestPreconditionRequired Problem
+
+func (*CancelApprovalRequestPreconditionRequired) cancelApprovalRequestRes() {}
+
+type CancelApprovalRequestUnprocessableEntity Problem
+
+func (*CancelApprovalRequestUnprocessableEntity) cancelApprovalRequestRes() {}
+
+type CancelContractBadRequest Problem
+
+func (*CancelContractBadRequest) cancelContractRes() {}
+
+type CancelContractForbidden Problem
+
+func (*CancelContractForbidden) cancelContractRes() {}
+
+type CancelContractNotFound Problem
+
+func (*CancelContractNotFound) cancelContractRes() {}
+
+type CancelContractPreconditionFailed Problem
+
+func (*CancelContractPreconditionFailed) cancelContractRes() {}
+
+type CancelContractPreconditionRequired Problem
+
+func (*CancelContractPreconditionRequired) cancelContractRes() {}
+
+type CancelContractUnprocessableEntity Problem
+
+func (*CancelContractUnprocessableEntity) cancelContractRes() {}
+
+type CancelDownPaymentRequestBadRequest Problem
+
+func (*CancelDownPaymentRequestBadRequest) cancelDownPaymentRequestRes() {}
+
+type CancelDownPaymentRequestForbidden Problem
+
+func (*CancelDownPaymentRequestForbidden) cancelDownPaymentRequestRes() {}
+
+type CancelDownPaymentRequestNotFound Problem
+
+func (*CancelDownPaymentRequestNotFound) cancelDownPaymentRequestRes() {}
 
 // CancelDownPaymentRequestOKHeaders wraps DownPaymentRequest with response headers.
 type CancelDownPaymentRequestOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           DownPaymentRequest
 }
 
@@ -7251,21 +6217,6 @@ func (s *CancelDownPaymentRequestOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *CancelDownPaymentRequestOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *CancelDownPaymentRequestOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *CancelDownPaymentRequestOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *CancelDownPaymentRequestOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -7283,21 +6234,6 @@ func (s *CancelDownPaymentRequestOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *CancelDownPaymentRequestOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *CancelDownPaymentRequestOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *CancelDownPaymentRequestOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *CancelDownPaymentRequestOKHeaders) SetResponse(val DownPaymentRequest) {
 	s.Response = val
@@ -7305,13 +6241,58 @@ func (s *CancelDownPaymentRequestOKHeaders) SetResponse(val DownPaymentRequest) 
 
 func (*CancelDownPaymentRequestOKHeaders) cancelDownPaymentRequestRes() {}
 
+type CancelDownPaymentRequestPreconditionFailed Problem
+
+func (*CancelDownPaymentRequestPreconditionFailed) cancelDownPaymentRequestRes() {}
+
+type CancelDownPaymentRequestPreconditionRequired Problem
+
+func (*CancelDownPaymentRequestPreconditionRequired) cancelDownPaymentRequestRes() {}
+
+type CancelDownPaymentRequestUnprocessableEntity Problem
+
+func (*CancelDownPaymentRequestUnprocessableEntity) cancelDownPaymentRequestRes() {}
+
+type CancelMemoRecordBadRequest Problem
+
+func (*CancelMemoRecordBadRequest) cancelMemoRecordRes() {}
+
+type CancelMemoRecordForbidden Problem
+
+func (*CancelMemoRecordForbidden) cancelMemoRecordRes() {}
+
+type CancelMemoRecordNotFound Problem
+
+func (*CancelMemoRecordNotFound) cancelMemoRecordRes() {}
+
+type CancelMemoRecordPreconditionFailed Problem
+
+func (*CancelMemoRecordPreconditionFailed) cancelMemoRecordRes() {}
+
+type CancelMemoRecordPreconditionRequired Problem
+
+func (*CancelMemoRecordPreconditionRequired) cancelMemoRecordRes() {}
+
+type CancelMemoRecordUnprocessableEntity Problem
+
+func (*CancelMemoRecordUnprocessableEntity) cancelMemoRecordRes() {}
+
+type CancelOperationBadRequest Problem
+
+func (*CancelOperationBadRequest) cancelOperationRes() {}
+
+type CancelOperationForbidden Problem
+
+func (*CancelOperationForbidden) cancelOperationRes() {}
+
+type CancelOperationNotFound Problem
+
+func (*CancelOperationNotFound) cancelOperationRes() {}
+
 // CancelOperationOKHeaders wraps Operation with response headers.
 type CancelOperationOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           Operation
 }
 
@@ -7323,21 +6304,6 @@ func (s *CancelOperationOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *CancelOperationOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *CancelOperationOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *CancelOperationOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *CancelOperationOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -7355,21 +6321,6 @@ func (s *CancelOperationOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *CancelOperationOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *CancelOperationOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *CancelOperationOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *CancelOperationOKHeaders) SetResponse(val Operation) {
 	s.Response = val
@@ -7377,13 +6328,130 @@ func (s *CancelOperationOKHeaders) SetResponse(val Operation) {
 
 func (*CancelOperationOKHeaders) cancelOperationRes() {}
 
+type CancelOperationPreconditionFailed Problem
+
+func (*CancelOperationPreconditionFailed) cancelOperationRes() {}
+
+type CancelOperationPreconditionRequired Problem
+
+func (*CancelOperationPreconditionRequired) cancelOperationRes() {}
+
+type CancelOperationUnprocessableEntity Problem
+
+func (*CancelOperationUnprocessableEntity) cancelOperationRes() {}
+
+type CancelParkedJournalEntryBadRequest Problem
+
+func (*CancelParkedJournalEntryBadRequest) cancelParkedJournalEntryRes() {}
+
+type CancelParkedJournalEntryForbidden Problem
+
+func (*CancelParkedJournalEntryForbidden) cancelParkedJournalEntryRes() {}
+
+type CancelParkedJournalEntryNotFound Problem
+
+func (*CancelParkedJournalEntryNotFound) cancelParkedJournalEntryRes() {}
+
+type CancelParkedJournalEntryPreconditionFailed Problem
+
+func (*CancelParkedJournalEntryPreconditionFailed) cancelParkedJournalEntryRes() {}
+
+type CancelParkedJournalEntryPreconditionRequired Problem
+
+func (*CancelParkedJournalEntryPreconditionRequired) cancelParkedJournalEntryRes() {}
+
+type CancelParkedJournalEntryUnprocessableEntity Problem
+
+func (*CancelParkedJournalEntryUnprocessableEntity) cancelParkedJournalEntryRes() {}
+
+type CancelPurchaseOrderBadRequest Problem
+
+func (*CancelPurchaseOrderBadRequest) cancelPurchaseOrderRes() {}
+
+type CancelPurchaseOrderChangeBadRequest Problem
+
+func (*CancelPurchaseOrderChangeBadRequest) cancelPurchaseOrderChangeRes() {}
+
+type CancelPurchaseOrderChangeForbidden Problem
+
+func (*CancelPurchaseOrderChangeForbidden) cancelPurchaseOrderChangeRes() {}
+
+type CancelPurchaseOrderChangeNotFound Problem
+
+func (*CancelPurchaseOrderChangeNotFound) cancelPurchaseOrderChangeRes() {}
+
+type CancelPurchaseOrderChangePreconditionFailed Problem
+
+func (*CancelPurchaseOrderChangePreconditionFailed) cancelPurchaseOrderChangeRes() {}
+
+type CancelPurchaseOrderChangePreconditionRequired Problem
+
+func (*CancelPurchaseOrderChangePreconditionRequired) cancelPurchaseOrderChangeRes() {}
+
+type CancelPurchaseOrderChangeUnprocessableEntity Problem
+
+func (*CancelPurchaseOrderChangeUnprocessableEntity) cancelPurchaseOrderChangeRes() {}
+
+type CancelPurchaseOrderForbidden Problem
+
+func (*CancelPurchaseOrderForbidden) cancelPurchaseOrderRes() {}
+
+type CancelPurchaseOrderNotFound Problem
+
+func (*CancelPurchaseOrderNotFound) cancelPurchaseOrderRes() {}
+
+type CancelPurchaseOrderPreconditionFailed Problem
+
+func (*CancelPurchaseOrderPreconditionFailed) cancelPurchaseOrderRes() {}
+
+type CancelPurchaseOrderPreconditionRequired Problem
+
+func (*CancelPurchaseOrderPreconditionRequired) cancelPurchaseOrderRes() {}
+
+type CancelPurchaseOrderUnprocessableEntity Problem
+
+func (*CancelPurchaseOrderUnprocessableEntity) cancelPurchaseOrderRes() {}
+
+type CancelRequisitionBadRequest Problem
+
+func (*CancelRequisitionBadRequest) cancelRequisitionRes() {}
+
+type CancelRequisitionForbidden Problem
+
+func (*CancelRequisitionForbidden) cancelRequisitionRes() {}
+
+type CancelRequisitionNotFound Problem
+
+func (*CancelRequisitionNotFound) cancelRequisitionRes() {}
+
+type CancelRequisitionPreconditionFailed Problem
+
+func (*CancelRequisitionPreconditionFailed) cancelRequisitionRes() {}
+
+type CancelRequisitionPreconditionRequired Problem
+
+func (*CancelRequisitionPreconditionRequired) cancelRequisitionRes() {}
+
+type CancelRequisitionUnprocessableEntity Problem
+
+func (*CancelRequisitionUnprocessableEntity) cancelRequisitionRes() {}
+
+type CancelRevaluationRunBadRequest Problem
+
+func (*CancelRevaluationRunBadRequest) cancelRevaluationRunRes() {}
+
+type CancelRevaluationRunForbidden Problem
+
+func (*CancelRevaluationRunForbidden) cancelRevaluationRunRes() {}
+
+type CancelRevaluationRunNotFound Problem
+
+func (*CancelRevaluationRunNotFound) cancelRevaluationRunRes() {}
+
 // CancelRevaluationRunOKHeaders wraps RevaluationRun with response headers.
 type CancelRevaluationRunOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           RevaluationRun
 }
 
@@ -7395,21 +6463,6 @@ func (s *CancelRevaluationRunOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *CancelRevaluationRunOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *CancelRevaluationRunOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *CancelRevaluationRunOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *CancelRevaluationRunOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -7427,27 +6480,64 @@ func (s *CancelRevaluationRunOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *CancelRevaluationRunOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *CancelRevaluationRunOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *CancelRevaluationRunOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *CancelRevaluationRunOKHeaders) SetResponse(val RevaluationRun) {
 	s.Response = val
 }
 
 func (*CancelRevaluationRunOKHeaders) cancelRevaluationRunRes() {}
+
+type CancelRevaluationRunPreconditionFailed Problem
+
+func (*CancelRevaluationRunPreconditionFailed) cancelRevaluationRunRes() {}
+
+type CancelRevaluationRunPreconditionRequired Problem
+
+func (*CancelRevaluationRunPreconditionRequired) cancelRevaluationRunRes() {}
+
+type CancelRevaluationRunUnprocessableEntity Problem
+
+func (*CancelRevaluationRunUnprocessableEntity) cancelRevaluationRunRes() {}
+
+type CancelSupplierInvoiceBadRequest Problem
+
+func (*CancelSupplierInvoiceBadRequest) cancelSupplierInvoiceRes() {}
+
+type CancelSupplierInvoiceForbidden Problem
+
+func (*CancelSupplierInvoiceForbidden) cancelSupplierInvoiceRes() {}
+
+type CancelSupplierInvoiceNotFound Problem
+
+func (*CancelSupplierInvoiceNotFound) cancelSupplierInvoiceRes() {}
+
+type CancelSupplierInvoicePreconditionFailed Problem
+
+func (*CancelSupplierInvoicePreconditionFailed) cancelSupplierInvoiceRes() {}
+
+type CancelSupplierInvoicePreconditionRequired Problem
+
+func (*CancelSupplierInvoicePreconditionRequired) cancelSupplierInvoiceRes() {}
+
+type CancelSupplierInvoiceUnprocessableEntity Problem
+
+func (*CancelSupplierInvoiceUnprocessableEntity) cancelSupplierInvoiceRes() {}
+
+type CaptureSupplierInvoiceBadRequest Problem
+
+func (*CaptureSupplierInvoiceBadRequest) captureSupplierInvoiceRes() {}
+
+type CaptureSupplierInvoiceForbidden Problem
+
+func (*CaptureSupplierInvoiceForbidden) captureSupplierInvoiceRes() {}
+
+type CaptureSupplierInvoicePreconditionRequired Problem
+
+func (*CaptureSupplierInvoicePreconditionRequired) captureSupplierInvoiceRes() {}
+
+type CaptureSupplierInvoiceUnprocessableEntity Problem
+
+func (*CaptureSupplierInvoiceUnprocessableEntity) captureSupplierInvoiceRes() {}
 
 // A cash discount for payment by a date.
 // Ref: #/components/schemas/CashDiscountTier
@@ -7633,6 +6723,8 @@ func (s *CashPosition) SetCurrencies(val []CashPositionCurrency) {
 func (s *CashPosition) SetConverted(val CashPositionConverted) {
 	s.Converted = val
 }
+
+func (*CashPosition) getCashPositionRes() {}
 
 // A house bank's position, in its own currency: never converted.
 // Ref: #/components/schemas/CashPositionBank
@@ -7919,56 +7011,6 @@ func (s *CashPositionDay) SetClosing(val Money) {
 func (s *CashPositionDay) SetAvailable(val Money) {
 	s.Available = val
 }
-
-// CashPositionHeaders wraps CashPosition with response headers.
-type CashPositionHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           CashPosition
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *CashPositionHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *CashPositionHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *CashPositionHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *CashPositionHeaders) GetResponse() CashPosition {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *CashPositionHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *CashPositionHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *CashPositionHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *CashPositionHeaders) SetResponse(val CashPosition) {
-	s.Response = val
-}
-
-func (*CashPositionHeaders) getCashPositionRes() {}
 
 // What the first day opens at: the latest statement closing before it, and whether it can be relied
 // on.
@@ -8342,31 +7384,13 @@ func (s *CenterChange) SetAppliedAt(val OptDateTime) {
 
 // CenterChangeHeaders wraps CenterChange with response headers.
 type CenterChangeHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           CenterChange
+	ETag     OptString
+	Response CenterChange
 }
 
 // GetETag returns the value of ETag.
 func (s *CenterChangeHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *CenterChangeHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *CenterChangeHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *CenterChangeHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -8377,21 +7401,6 @@ func (s *CenterChangeHeaders) GetResponse() CenterChange {
 // SetETag sets the value of ETag.
 func (s *CenterChangeHeaders) SetETag(val OptString) {
 	s.ETag = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *CenterChangeHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *CenterChangeHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *CenterChangeHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -8443,55 +7452,7 @@ func (s *CenterChangePage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// CenterChangePageHeaders wraps CenterChangePage with response headers.
-type CenterChangePageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           CenterChangePage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *CenterChangePageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *CenterChangePageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *CenterChangePageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *CenterChangePageHeaders) GetResponse() CenterChangePage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *CenterChangePageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *CenterChangePageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *CenterChangePageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *CenterChangePageHeaders) SetResponse(val CenterChangePage) {
-	s.Response = val
-}
-
-func (*CenterChangePageHeaders) listCenterChangesRes() {}
+func (*CenterChangePage) listCenterChangesRes() {}
 
 // The requested values, as requested.
 type CenterChangePayload map[string]jx.Raw
@@ -8641,56 +7602,8 @@ func (s *CenterPathPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// CenterPathPageHeaders wraps CenterPathPage with response headers.
-type CenterPathPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           CenterPathPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *CenterPathPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *CenterPathPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *CenterPathPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *CenterPathPageHeaders) GetResponse() CenterPathPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *CenterPathPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *CenterPathPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *CenterPathPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *CenterPathPageHeaders) SetResponse(val CenterPathPage) {
-	s.Response = val
-}
-
-func (*CenterPathPageHeaders) listCostCenterPathsRes()   {}
-func (*CenterPathPageHeaders) listProfitCenterPathsRes() {}
+func (*CenterPathPage) listCostCenterPathsRes()   {}
+func (*CenterPathPage) listProfitCenterPathsRes() {}
 
 // A center's new validity; at least one of the dates.
 // Ref: #/components/schemas/CenterRedate
@@ -9146,9 +8059,6 @@ type ChangeRequestHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           ChangeRequest
 }
 
@@ -9165,21 +8075,6 @@ func (s *ChangeRequestHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *ChangeRequestHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ChangeRequestHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ChangeRequestHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ChangeRequestHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -9200,21 +8095,6 @@ func (s *ChangeRequestHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *ChangeRequestHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ChangeRequestHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ChangeRequestHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ChangeRequestHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -9296,55 +8176,7 @@ func (s *ChangeRequestPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// ChangeRequestPageHeaders wraps ChangeRequestPage with response headers.
-type ChangeRequestPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           ChangeRequestPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ChangeRequestPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ChangeRequestPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ChangeRequestPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *ChangeRequestPageHeaders) GetResponse() ChangeRequestPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ChangeRequestPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ChangeRequestPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ChangeRequestPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *ChangeRequestPageHeaders) SetResponse(val ChangeRequestPage) {
-	s.Response = val
-}
-
-func (*ChangeRequestPageHeaders) listChangeRequestsRes() {}
+func (*ChangeRequestPage) listChangeRequestsRes() {}
 
 // The proposed configuration document.
 type ChangeRequestProposed map[string]jx.Raw
@@ -9422,6 +8254,30 @@ func (s *ChangeRequestUpdateProposed) init() ChangeRequestUpdateProposed {
 	}
 	return m
 }
+
+type ClearSupplierInvoiceDownPaymentsBadRequest Problem
+
+func (*ClearSupplierInvoiceDownPaymentsBadRequest) clearSupplierInvoiceDownPaymentsRes() {}
+
+type ClearSupplierInvoiceDownPaymentsForbidden Problem
+
+func (*ClearSupplierInvoiceDownPaymentsForbidden) clearSupplierInvoiceDownPaymentsRes() {}
+
+type ClearSupplierInvoiceDownPaymentsNotFound Problem
+
+func (*ClearSupplierInvoiceDownPaymentsNotFound) clearSupplierInvoiceDownPaymentsRes() {}
+
+type ClearSupplierInvoiceDownPaymentsPreconditionFailed Problem
+
+func (*ClearSupplierInvoiceDownPaymentsPreconditionFailed) clearSupplierInvoiceDownPaymentsRes() {}
+
+type ClearSupplierInvoiceDownPaymentsPreconditionRequired Problem
+
+func (*ClearSupplierInvoiceDownPaymentsPreconditionRequired) clearSupplierInvoiceDownPaymentsRes() {}
+
+type ClearSupplierInvoiceDownPaymentsUnprocessableEntity Problem
+
+func (*ClearSupplierInvoiceDownPaymentsUnprocessableEntity) clearSupplierInvoiceDownPaymentsRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/Clearing
@@ -9558,9 +8414,6 @@ type ClearingHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           Clearing
 }
 
@@ -9577,21 +8430,6 @@ func (s *ClearingHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *ClearingHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ClearingHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ClearingHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ClearingHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -9612,21 +8450,6 @@ func (s *ClearingHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *ClearingHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ClearingHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ClearingHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ClearingHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -9719,63 +8542,24 @@ func (s *ClearingPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// ClearingPageHeaders wraps ClearingPage with response headers.
-type ClearingPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           ClearingPage
-}
+func (*ClearingPage) listClearingsRes() {}
 
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ClearingPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
+type CloseFiscalPeriodBadRequest Problem
 
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ClearingPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
+func (*CloseFiscalPeriodBadRequest) closeFiscalPeriodRes() {}
 
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ClearingPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
+type CloseFiscalPeriodForbidden Problem
 
-// GetResponse returns the value of Response.
-func (s *ClearingPageHeaders) GetResponse() ClearingPage {
-	return s.Response
-}
+func (*CloseFiscalPeriodForbidden) closeFiscalPeriodRes() {}
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ClearingPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
+type CloseFiscalPeriodNotFound Problem
 
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ClearingPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ClearingPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *ClearingPageHeaders) SetResponse(val ClearingPage) {
-	s.Response = val
-}
-
-func (*ClearingPageHeaders) listClearingsRes() {}
+func (*CloseFiscalPeriodNotFound) closeFiscalPeriodRes() {}
 
 // CloseFiscalPeriodOKHeaders wraps FiscalPeriod with response headers.
 type CloseFiscalPeriodOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           FiscalPeriod
 }
 
@@ -9787,21 +8571,6 @@ func (s *CloseFiscalPeriodOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *CloseFiscalPeriodOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *CloseFiscalPeriodOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *CloseFiscalPeriodOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *CloseFiscalPeriodOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -9819,21 +8588,6 @@ func (s *CloseFiscalPeriodOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *CloseFiscalPeriodOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *CloseFiscalPeriodOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *CloseFiscalPeriodOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *CloseFiscalPeriodOKHeaders) SetResponse(val FiscalPeriod) {
 	s.Response = val
@@ -9843,6 +8597,42 @@ func (*CloseFiscalPeriodOKHeaders) closeFiscalPeriodRes()  {}
 func (*CloseFiscalPeriodOKHeaders) lockFiscalPeriodRes()   {}
 func (*CloseFiscalPeriodOKHeaders) openFiscalPeriodRes()   {}
 func (*CloseFiscalPeriodOKHeaders) unlockFiscalPeriodRes() {}
+
+type CloseFiscalPeriodPreconditionFailed Problem
+
+func (*CloseFiscalPeriodPreconditionFailed) closeFiscalPeriodRes() {}
+
+type CloseFiscalPeriodPreconditionRequired Problem
+
+func (*CloseFiscalPeriodPreconditionRequired) closeFiscalPeriodRes() {}
+
+type CloseFiscalPeriodUnprocessableEntity Problem
+
+func (*CloseFiscalPeriodUnprocessableEntity) closeFiscalPeriodRes() {}
+
+type ClosePurchaseOrderBadRequest Problem
+
+func (*ClosePurchaseOrderBadRequest) closePurchaseOrderRes() {}
+
+type ClosePurchaseOrderForbidden Problem
+
+func (*ClosePurchaseOrderForbidden) closePurchaseOrderRes() {}
+
+type ClosePurchaseOrderNotFound Problem
+
+func (*ClosePurchaseOrderNotFound) closePurchaseOrderRes() {}
+
+type ClosePurchaseOrderPreconditionFailed Problem
+
+func (*ClosePurchaseOrderPreconditionFailed) closePurchaseOrderRes() {}
+
+type ClosePurchaseOrderPreconditionRequired Problem
+
+func (*ClosePurchaseOrderPreconditionRequired) closePurchaseOrderRes() {}
+
+type ClosePurchaseOrderUnprocessableEntity Problem
+
+func (*ClosePurchaseOrderUnprocessableEntity) closePurchaseOrderRes() {}
 
 // Body of a rejection or cancellation decision.
 // Ref: #/components/schemas/CommentRequiredInput
@@ -10033,9 +8823,6 @@ type CompanyAccessHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           CompanyAccess
 }
 
@@ -10052,21 +8839,6 @@ func (s *CompanyAccessHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *CompanyAccessHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *CompanyAccessHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *CompanyAccessHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *CompanyAccessHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -10087,21 +8859,6 @@ func (s *CompanyAccessHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *CompanyAccessHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *CompanyAccessHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *CompanyAccessHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *CompanyAccessHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -10153,55 +8910,7 @@ func (s *CompanyAccessPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// CompanyAccessPageHeaders wraps CompanyAccessPage with response headers.
-type CompanyAccessPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           CompanyAccessPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *CompanyAccessPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *CompanyAccessPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *CompanyAccessPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *CompanyAccessPageHeaders) GetResponse() CompanyAccessPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *CompanyAccessPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *CompanyAccessPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *CompanyAccessPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *CompanyAccessPageHeaders) SetResponse(val CompanyAccessPage) {
-	s.Response = val
-}
-
-func (*CompanyAccessPageHeaders) listCompanyAccessRes() {}
+func (*CompanyAccessPage) listCompanyAccessRes() {}
 
 // Account settings in one legal entity; only accounts with settings can be posted there.
 // Ref: #/components/schemas/CompanyAccountSettings
@@ -10387,31 +9096,13 @@ func (s *ConfigVersionDocument) init() ConfigVersionDocument {
 
 // ConfigVersionHeaders wraps ConfigVersion with response headers.
 type ConfigVersionHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           ConfigVersion
+	ETag     OptString
+	Response ConfigVersion
 }
 
 // GetETag returns the value of ETag.
 func (s *ConfigVersionHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ConfigVersionHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ConfigVersionHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ConfigVersionHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -10422,21 +9113,6 @@ func (s *ConfigVersionHeaders) GetResponse() ConfigVersion {
 // SetETag sets the value of ETag.
 func (s *ConfigVersionHeaders) SetETag(val OptString) {
 	s.ETag = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ConfigVersionHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ConfigVersionHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ConfigVersionHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -10488,78 +9164,12 @@ func (s *ConfigVersionPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// ConfigVersionPageHeaders wraps ConfigVersionPage with response headers.
-type ConfigVersionPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           ConfigVersionPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ConfigVersionPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ConfigVersionPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ConfigVersionPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *ConfigVersionPageHeaders) GetResponse() ConfigVersionPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ConfigVersionPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ConfigVersionPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ConfigVersionPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *ConfigVersionPageHeaders) SetResponse(val ConfigVersionPage) {
-	s.Response = val
-}
-
-func (*ConfigVersionPageHeaders) listConfigVersionsRes() {}
+func (*ConfigVersionPage) listConfigVersionsRes() {}
 
 // ConflictHeaders wraps Problem with response headers.
 type ConflictHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	RetryAfter         OptInt32
-	Response           Problem
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ConflictHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ConflictHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ConflictHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
+	RetryAfter OptInt32
+	Response   Problem
 }
 
 // GetRetryAfter returns the value of RetryAfter.
@@ -10570,21 +9180,6 @@ func (s *ConflictHeaders) GetRetryAfter() OptInt32 {
 // GetResponse returns the value of Response.
 func (s *ConflictHeaders) GetResponse() Problem {
 	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ConflictHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ConflictHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ConflictHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetRetryAfter sets the value of RetryAfter.
@@ -10988,9 +9583,6 @@ type ConnectorHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           Connector
 }
 
@@ -11007,21 +9599,6 @@ func (s *ConnectorHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *ConnectorHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ConnectorHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ConnectorHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ConnectorHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -11042,21 +9619,6 @@ func (s *ConnectorHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *ConnectorHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ConnectorHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ConnectorHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ConnectorHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -11108,55 +9670,7 @@ func (s *ConnectorPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// ConnectorPageHeaders wraps ConnectorPage with response headers.
-type ConnectorPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           ConnectorPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ConnectorPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ConnectorPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ConnectorPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *ConnectorPageHeaders) GetResponse() ConnectorPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ConnectorPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ConnectorPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ConnectorPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *ConnectorPageHeaders) SetResponse(val ConnectorPage) {
-	s.Response = val
-}
-
-func (*ConnectorPageHeaders) listConnectorsRes() {}
+func (*ConnectorPage) listConnectorsRes() {}
 
 // Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port`
 // (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory`
@@ -11576,9 +10090,6 @@ type ContractHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           Contract
 }
 
@@ -11595,21 +10106,6 @@ func (s *ContractHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *ContractHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ContractHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ContractHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ContractHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -11630,21 +10126,6 @@ func (s *ContractHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *ContractHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ContractHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ContractHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ContractHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -11798,55 +10279,7 @@ func (s *ContractPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// ContractPageHeaders wraps ContractPage with response headers.
-type ContractPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           ContractPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ContractPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ContractPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ContractPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *ContractPageHeaders) GetResponse() ContractPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ContractPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ContractPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ContractPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *ContractPageHeaders) SetResponse(val ContractPage) {
-	s.Response = val
-}
-
-func (*ContractPageHeaders) listContractsRes() {}
+func (*ContractPage) listContractsRes() {}
 
 // The renewal of a contract.
 // Ref: #/components/schemas/ContractRenew
@@ -12357,55 +10790,7 @@ func (s *CostCenterBalancePage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// CostCenterBalancePageHeaders wraps CostCenterBalancePage with response headers.
-type CostCenterBalancePageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           CostCenterBalancePage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *CostCenterBalancePageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *CostCenterBalancePageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *CostCenterBalancePageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *CostCenterBalancePageHeaders) GetResponse() CostCenterBalancePage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *CostCenterBalancePageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *CostCenterBalancePageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *CostCenterBalancePageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *CostCenterBalancePageHeaders) SetResponse(val CostCenterBalancePage) {
-	s.Response = val
-}
-
-func (*CostCenterBalancePageHeaders) listCostCenterBalancesRes() {}
+func (*CostCenterBalancePage) listCostCenterBalancesRes() {}
 
 // A new cost center and its first period.
 // Ref: #/components/schemas/CostCenterCreate
@@ -12556,9 +10941,6 @@ type CostCenterHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           CostCenter
 }
 
@@ -12575,21 +10957,6 @@ func (s *CostCenterHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *CostCenterHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *CostCenterHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *CostCenterHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *CostCenterHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -12610,21 +10977,6 @@ func (s *CostCenterHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *CostCenterHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *CostCenterHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *CostCenterHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *CostCenterHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -12808,55 +11160,7 @@ func (s *CostCenterPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// CostCenterPageHeaders wraps CostCenterPage with response headers.
-type CostCenterPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           CostCenterPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *CostCenterPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *CostCenterPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *CostCenterPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *CostCenterPageHeaders) GetResponse() CostCenterPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *CostCenterPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *CostCenterPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *CostCenterPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *CostCenterPageHeaders) SetResponse(val CostCenterPage) {
-	s.Response = val
-}
-
-func (*CostCenterPageHeaders) listCostCentersRes() {}
+func (*CostCenterPage) listCostCentersRes() {}
 
 // An effective-dated period of a cost center: what postings dated in it read (ADR-0050 §3).
 // Ref: #/components/schemas/CostCenterPeriod
@@ -13251,55 +11555,7 @@ func (s *CountryPackPage) SetNextPageToken(val OptString) {
 	s.NextPageToken = val
 }
 
-// CountryPackPageHeaders wraps CountryPackPage with response headers.
-type CountryPackPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           CountryPackPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *CountryPackPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *CountryPackPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *CountryPackPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *CountryPackPageHeaders) GetResponse() CountryPackPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *CountryPackPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *CountryPackPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *CountryPackPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *CountryPackPageHeaders) SetResponse(val CountryPackPage) {
-	s.Response = val
-}
-
-func (*CountryPackPageHeaders) listCountryPacksRes() {}
+func (*CountryPackPage) listCountryPacksRes() {}
 
 // The tax specialist who reviewed a country pack, and when.
 // Ref: #/components/schemas/CountryPackSignOff
@@ -13371,14 +11627,455 @@ func (s *CountryPackSource) SetRetrieved(val string) {
 	s.Retrieved = val
 }
 
+type CreateBusinessPartnerBadRequest Problem
+
+func (*CreateBusinessPartnerBadRequest) createBusinessPartnerRes() {}
+
+type CreateBusinessPartnerForbidden Problem
+
+func (*CreateBusinessPartnerForbidden) createBusinessPartnerRes() {}
+
+type CreateBusinessPartnerPreconditionRequired Problem
+
+func (*CreateBusinessPartnerPreconditionRequired) createBusinessPartnerRes() {}
+
+type CreateBusinessPartnerUnprocessableEntity Problem
+
+func (*CreateBusinessPartnerUnprocessableEntity) createBusinessPartnerRes() {}
+
+type CreateChangeRequestBadRequest Problem
+
+func (*CreateChangeRequestBadRequest) createChangeRequestRes() {}
+
+type CreateChangeRequestForbidden Problem
+
+func (*CreateChangeRequestForbidden) createChangeRequestRes() {}
+
+type CreateChangeRequestPreconditionRequired Problem
+
+func (*CreateChangeRequestPreconditionRequired) createChangeRequestRes() {}
+
+type CreateChangeRequestUnprocessableEntity Problem
+
+func (*CreateChangeRequestUnprocessableEntity) createChangeRequestRes() {}
+
+type CreateClearingBadRequest Problem
+
+func (*CreateClearingBadRequest) createClearingRes() {}
+
+type CreateClearingForbidden Problem
+
+func (*CreateClearingForbidden) createClearingRes() {}
+
+type CreateClearingPreconditionRequired Problem
+
+func (*CreateClearingPreconditionRequired) createClearingRes() {}
+
+type CreateClearingUnprocessableEntity Problem
+
+func (*CreateClearingUnprocessableEntity) createClearingRes() {}
+
+type CreateCompanyAccessBadRequest Problem
+
+func (*CreateCompanyAccessBadRequest) createCompanyAccessRes() {}
+
+type CreateCompanyAccessForbidden Problem
+
+func (*CreateCompanyAccessForbidden) createCompanyAccessRes() {}
+
+type CreateCompanyAccessPreconditionRequired Problem
+
+func (*CreateCompanyAccessPreconditionRequired) createCompanyAccessRes() {}
+
+type CreateCompanyAccessUnprocessableEntity Problem
+
+func (*CreateCompanyAccessUnprocessableEntity) createCompanyAccessRes() {}
+
+type CreateConnectorBadRequest Problem
+
+func (*CreateConnectorBadRequest) createConnectorRes() {}
+
+type CreateConnectorForbidden Problem
+
+func (*CreateConnectorForbidden) createConnectorRes() {}
+
+type CreateConnectorPreconditionRequired Problem
+
+func (*CreateConnectorPreconditionRequired) createConnectorRes() {}
+
+type CreateConnectorUnprocessableEntity Problem
+
+func (*CreateConnectorUnprocessableEntity) createConnectorRes() {}
+
+type CreateContractBadRequest Problem
+
+func (*CreateContractBadRequest) createContractRes() {}
+
+type CreateContractForbidden Problem
+
+func (*CreateContractForbidden) createContractRes() {}
+
+type CreateContractPreconditionRequired Problem
+
+func (*CreateContractPreconditionRequired) createContractRes() {}
+
+type CreateContractUnprocessableEntity Problem
+
+func (*CreateContractUnprocessableEntity) createContractRes() {}
+
+type CreateCostCenterBadRequest Problem
+
+func (*CreateCostCenterBadRequest) createCostCenterRes() {}
+
+type CreateCostCenterForbidden Problem
+
+func (*CreateCostCenterForbidden) createCostCenterRes() {}
+
+type CreateCostCenterPreconditionRequired Problem
+
+func (*CreateCostCenterPreconditionRequired) createCostCenterRes() {}
+
+type CreateCostCenterUnprocessableEntity Problem
+
+func (*CreateCostCenterUnprocessableEntity) createCostCenterRes() {}
+
+type CreateDownPaymentRequestBadRequest Problem
+
+func (*CreateDownPaymentRequestBadRequest) createDownPaymentRequestRes() {}
+
+type CreateDownPaymentRequestForbidden Problem
+
+func (*CreateDownPaymentRequestForbidden) createDownPaymentRequestRes() {}
+
+type CreateDownPaymentRequestUnprocessableEntity Problem
+
+func (*CreateDownPaymentRequestUnprocessableEntity) createDownPaymentRequestRes() {}
+
+type CreateExchangeRateBadRequest Problem
+
+func (*CreateExchangeRateBadRequest) createExchangeRateRes() {}
+
+type CreateExchangeRateForbidden Problem
+
+func (*CreateExchangeRateForbidden) createExchangeRateRes() {}
+
+type CreateExchangeRatePreconditionRequired Problem
+
+func (*CreateExchangeRatePreconditionRequired) createExchangeRateRes() {}
+
+type CreateExchangeRateUnprocessableEntity Problem
+
+func (*CreateExchangeRateUnprocessableEntity) createExchangeRateRes() {}
+
+type CreateHierarchyBadRequest Problem
+
+func (*CreateHierarchyBadRequest) createHierarchyRes() {}
+
+type CreateHierarchyForbidden Problem
+
+func (*CreateHierarchyForbidden) createHierarchyRes() {}
+
+type CreateHierarchyPreconditionRequired Problem
+
+func (*CreateHierarchyPreconditionRequired) createHierarchyRes() {}
+
+type CreateHierarchyUnprocessableEntity Problem
+
+func (*CreateHierarchyUnprocessableEntity) createHierarchyRes() {}
+
+type CreateLegalEntityBadRequest Problem
+
+func (*CreateLegalEntityBadRequest) createLegalEntityRes() {}
+
+type CreateLegalEntityForbidden Problem
+
+func (*CreateLegalEntityForbidden) createLegalEntityRes() {}
+
+type CreateLegalEntityPreconditionRequired Problem
+
+func (*CreateLegalEntityPreconditionRequired) createLegalEntityRes() {}
+
+type CreateLegalEntityUnprocessableEntity Problem
+
+func (*CreateLegalEntityUnprocessableEntity) createLegalEntityRes() {}
+
+type CreateMemoRecordBadRequest Problem
+
+func (*CreateMemoRecordBadRequest) createMemoRecordRes() {}
+
+type CreateMemoRecordForbidden Problem
+
+func (*CreateMemoRecordForbidden) createMemoRecordRes() {}
+
+type CreateMemoRecordNotFound Problem
+
+func (*CreateMemoRecordNotFound) createMemoRecordRes() {}
+
+type CreateMemoRecordPreconditionFailed Problem
+
+func (*CreateMemoRecordPreconditionFailed) createMemoRecordRes() {}
+
+type CreateMemoRecordPreconditionRequired Problem
+
+func (*CreateMemoRecordPreconditionRequired) createMemoRecordRes() {}
+
+type CreateMemoRecordUnprocessableEntity Problem
+
+func (*CreateMemoRecordUnprocessableEntity) createMemoRecordRes() {}
+
+type CreateMigrationRunBadRequest Problem
+
+func (*CreateMigrationRunBadRequest) createMigrationRunRes() {}
+
+type CreateMigrationRunForbidden Problem
+
+func (*CreateMigrationRunForbidden) createMigrationRunRes() {}
+
+type CreateMigrationRunPreconditionRequired Problem
+
+func (*CreateMigrationRunPreconditionRequired) createMigrationRunRes() {}
+
+type CreateMigrationRunUnprocessableEntity Problem
+
+func (*CreateMigrationRunUnprocessableEntity) createMigrationRunRes() {}
+
+type CreateOrgUnitBadRequest Problem
+
+func (*CreateOrgUnitBadRequest) createOrgUnitRes() {}
+
+type CreateOrgUnitForbidden Problem
+
+func (*CreateOrgUnitForbidden) createOrgUnitRes() {}
+
+type CreateOrgUnitPreconditionRequired Problem
+
+func (*CreateOrgUnitPreconditionRequired) createOrgUnitRes() {}
+
+type CreateOrgUnitUnprocessableEntity Problem
+
+func (*CreateOrgUnitUnprocessableEntity) createOrgUnitRes() {}
+
+type CreatePartnerChangeBadRequest Problem
+
+func (*CreatePartnerChangeBadRequest) createPartnerChangeRes() {}
+
+type CreatePartnerChangeForbidden Problem
+
+func (*CreatePartnerChangeForbidden) createPartnerChangeRes() {}
+
+type CreatePartnerChangePreconditionRequired Problem
+
+func (*CreatePartnerChangePreconditionRequired) createPartnerChangeRes() {}
+
+type CreatePartnerChangeUnprocessableEntity Problem
+
+func (*CreatePartnerChangeUnprocessableEntity) createPartnerChangeRes() {}
+
+type CreatePrincipalBadRequest Problem
+
+func (*CreatePrincipalBadRequest) createPrincipalRes() {}
+
+type CreatePrincipalForbidden Problem
+
+func (*CreatePrincipalForbidden) createPrincipalRes() {}
+
+type CreatePrincipalPreconditionRequired Problem
+
+func (*CreatePrincipalPreconditionRequired) createPrincipalRes() {}
+
+type CreatePrincipalUnprocessableEntity Problem
+
+func (*CreatePrincipalUnprocessableEntity) createPrincipalRes() {}
+
+type CreateProfitCenterBadRequest Problem
+
+func (*CreateProfitCenterBadRequest) createProfitCenterRes() {}
+
+type CreateProfitCenterForbidden Problem
+
+func (*CreateProfitCenterForbidden) createProfitCenterRes() {}
+
+type CreateProfitCenterPreconditionRequired Problem
+
+func (*CreateProfitCenterPreconditionRequired) createProfitCenterRes() {}
+
+type CreateProfitCenterUnprocessableEntity Problem
+
+func (*CreateProfitCenterUnprocessableEntity) createProfitCenterRes() {}
+
+type CreatePurchaseOrderBadRequest Problem
+
+func (*CreatePurchaseOrderBadRequest) createPurchaseOrderRes() {}
+
+type CreatePurchaseOrderChangeBadRequest Problem
+
+func (*CreatePurchaseOrderChangeBadRequest) createPurchaseOrderChangeRes() {}
+
+type CreatePurchaseOrderChangeForbidden Problem
+
+func (*CreatePurchaseOrderChangeForbidden) createPurchaseOrderChangeRes() {}
+
+type CreatePurchaseOrderChangeNotFound Problem
+
+func (*CreatePurchaseOrderChangeNotFound) createPurchaseOrderChangeRes() {}
+
+type CreatePurchaseOrderChangePreconditionRequired Problem
+
+func (*CreatePurchaseOrderChangePreconditionRequired) createPurchaseOrderChangeRes() {}
+
+type CreatePurchaseOrderChangeUnprocessableEntity Problem
+
+func (*CreatePurchaseOrderChangeUnprocessableEntity) createPurchaseOrderChangeRes() {}
+
+type CreatePurchaseOrderForbidden Problem
+
+func (*CreatePurchaseOrderForbidden) createPurchaseOrderRes() {}
+
+type CreatePurchaseOrderPreconditionRequired Problem
+
+func (*CreatePurchaseOrderPreconditionRequired) createPurchaseOrderRes() {}
+
+type CreatePurchaseOrderUnprocessableEntity Problem
+
+func (*CreatePurchaseOrderUnprocessableEntity) createPurchaseOrderRes() {}
+
+type CreateRecommendationBadRequest Problem
+
+func (*CreateRecommendationBadRequest) createRecommendationRes() {}
+
+type CreateRecommendationForbidden Problem
+
+func (*CreateRecommendationForbidden) createRecommendationRes() {}
+
+type CreateRecommendationPreconditionRequired Problem
+
+func (*CreateRecommendationPreconditionRequired) createRecommendationRes() {}
+
+type CreateRecommendationUnprocessableEntity Problem
+
+func (*CreateRecommendationUnprocessableEntity) createRecommendationRes() {}
+
+type CreateRegressionSuiteBadRequest Problem
+
+func (*CreateRegressionSuiteBadRequest) createRegressionSuiteRes() {}
+
+type CreateRegressionSuiteForbidden Problem
+
+func (*CreateRegressionSuiteForbidden) createRegressionSuiteRes() {}
+
+type CreateRegressionSuitePreconditionRequired Problem
+
+func (*CreateRegressionSuitePreconditionRequired) createRegressionSuiteRes() {}
+
+type CreateRegressionSuiteUnprocessableEntity Problem
+
+func (*CreateRegressionSuiteUnprocessableEntity) createRegressionSuiteRes() {}
+
+type CreateRequisitionBadRequest Problem
+
+func (*CreateRequisitionBadRequest) createRequisitionRes() {}
+
+type CreateRequisitionForbidden Problem
+
+func (*CreateRequisitionForbidden) createRequisitionRes() {}
+
+type CreateRequisitionPreconditionRequired Problem
+
+func (*CreateRequisitionPreconditionRequired) createRequisitionRes() {}
+
+type CreateRequisitionUnprocessableEntity Problem
+
+func (*CreateRequisitionUnprocessableEntity) createRequisitionRes() {}
+
+type CreateRoleAssignmentBadRequest Problem
+
+func (*CreateRoleAssignmentBadRequest) createRoleAssignmentRes() {}
+
+type CreateRoleAssignmentForbidden Problem
+
+func (*CreateRoleAssignmentForbidden) createRoleAssignmentRes() {}
+
+type CreateRoleAssignmentPreconditionRequired Problem
+
+func (*CreateRoleAssignmentPreconditionRequired) createRoleAssignmentRes() {}
+
+type CreateRoleAssignmentUnprocessableEntity Problem
+
+func (*CreateRoleAssignmentUnprocessableEntity) createRoleAssignmentRes() {}
+
+type CreateRoleBadRequest Problem
+
+func (*CreateRoleBadRequest) createRoleRes() {}
+
+type CreateRoleForbidden Problem
+
+func (*CreateRoleForbidden) createRoleRes() {}
+
+type CreateRolePreconditionRequired Problem
+
+func (*CreateRolePreconditionRequired) createRoleRes() {}
+
+type CreateRoleUnprocessableEntity Problem
+
+func (*CreateRoleUnprocessableEntity) createRoleRes() {}
+
+type CreateSegmentBadRequest Problem
+
+func (*CreateSegmentBadRequest) createSegmentRes() {}
+
+type CreateSegmentForbidden Problem
+
+func (*CreateSegmentForbidden) createSegmentRes() {}
+
+type CreateSegmentPreconditionRequired Problem
+
+func (*CreateSegmentPreconditionRequired) createSegmentRes() {}
+
+type CreateSegmentUnprocessableEntity Problem
+
+func (*CreateSegmentUnprocessableEntity) createSegmentRes() {}
+
+type CreateSodRuleBadRequest Problem
+
+func (*CreateSodRuleBadRequest) createSodRuleRes() {}
+
+type CreateSodRuleForbidden Problem
+
+func (*CreateSodRuleForbidden) createSodRuleRes() {}
+
+type CreateSodRulePreconditionRequired Problem
+
+func (*CreateSodRulePreconditionRequired) createSodRuleRes() {}
+
+type CreateSodRuleUnprocessableEntity Problem
+
+func (*CreateSodRuleUnprocessableEntity) createSodRuleRes() {}
+
+type CreateSupplierInvoiceBadRequest Problem
+
+func (*CreateSupplierInvoiceBadRequest) createSupplierInvoiceRes() {}
+
+type CreateSupplierInvoiceForbidden Problem
+
+func (*CreateSupplierInvoiceForbidden) createSupplierInvoiceRes() {}
+
+type CreateSupplierInvoicePreconditionRequired Problem
+
+func (*CreateSupplierInvoicePreconditionRequired) createSupplierInvoiceRes() {}
+
+type CreateSupplierInvoiceUnprocessableEntity Problem
+
+func (*CreateSupplierInvoiceUnprocessableEntity) createSupplierInvoiceRes() {}
+
+type CreateUploadBadRequest Problem
+
+func (*CreateUploadBadRequest) createUploadRes() {}
+
 // CreateUploadCreatedHeaders wraps Upload with response headers.
 type CreateUploadCreatedHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           Upload
 }
 
@@ -13395,21 +12092,6 @@ func (s *CreateUploadCreatedHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *CreateUploadCreatedHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *CreateUploadCreatedHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *CreateUploadCreatedHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *CreateUploadCreatedHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -13432,27 +12114,40 @@ func (s *CreateUploadCreatedHeaders) SetLocation(val OptString) {
 	s.Location = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *CreateUploadCreatedHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *CreateUploadCreatedHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *CreateUploadCreatedHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *CreateUploadCreatedHeaders) SetResponse(val Upload) {
 	s.Response = val
 }
 
 func (*CreateUploadCreatedHeaders) createUploadRes() {}
+
+type CreateUploadForbidden Problem
+
+func (*CreateUploadForbidden) createUploadRes() {}
+
+type CreateUploadPreconditionRequired Problem
+
+func (*CreateUploadPreconditionRequired) createUploadRes() {}
+
+type CreateUploadUnprocessableEntity Problem
+
+func (*CreateUploadUnprocessableEntity) createUploadRes() {}
+
+type CreateWebhookSubscriptionBadRequest Problem
+
+func (*CreateWebhookSubscriptionBadRequest) createWebhookSubscriptionRes() {}
+
+type CreateWebhookSubscriptionForbidden Problem
+
+func (*CreateWebhookSubscriptionForbidden) createWebhookSubscriptionRes() {}
+
+type CreateWebhookSubscriptionPreconditionRequired Problem
+
+func (*CreateWebhookSubscriptionPreconditionRequired) createWebhookSubscriptionRes() {}
+
+type CreateWebhookSubscriptionUnprocessableEntity Problem
+
+func (*CreateWebhookSubscriptionUnprocessableEntity) createWebhookSubscriptionRes() {}
 
 // The caller (getCurrentPrincipal): advisory, as the API decides every call.
 // Ref: #/components/schemas/CurrentPrincipal
@@ -13585,55 +12280,7 @@ func (s *CurrentPrincipal) SetAutonomyLevel(val OptNilInt32) {
 	s.AutonomyLevel = val
 }
 
-// CurrentPrincipalHeaders wraps CurrentPrincipal with response headers.
-type CurrentPrincipalHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           CurrentPrincipal
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *CurrentPrincipalHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *CurrentPrincipalHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *CurrentPrincipalHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *CurrentPrincipalHeaders) GetResponse() CurrentPrincipal {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *CurrentPrincipalHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *CurrentPrincipalHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *CurrentPrincipalHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *CurrentPrincipalHeaders) SetResponse(val CurrentPrincipal) {
-	s.Response = val
-}
-
-func (*CurrentPrincipalHeaders) getCurrentPrincipalRes() {}
+func (*CurrentPrincipal) getCurrentPrincipalRes() {}
 
 // A tenant's custom field schema for one entity, as the active configuration version holds it
 // (ADR-0046).
@@ -13696,31 +12343,13 @@ func (s *CustomFieldSchema) SetSchema(val CustomFieldSchemaSchema) {
 
 // CustomFieldSchemaHeaders wraps CustomFieldSchema with response headers.
 type CustomFieldSchemaHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           CustomFieldSchema
+	ETag     OptString
+	Response CustomFieldSchema
 }
 
 // GetETag returns the value of ETag.
 func (s *CustomFieldSchemaHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *CustomFieldSchemaHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *CustomFieldSchemaHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *CustomFieldSchemaHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -13731,21 +12360,6 @@ func (s *CustomFieldSchemaHeaders) GetResponse() CustomFieldSchema {
 // SetETag sets the value of ETag.
 func (s *CustomFieldSchemaHeaders) SetETag(val OptString) {
 	s.ETag = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *CustomFieldSchemaHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *CustomFieldSchemaHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *CustomFieldSchemaHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -13770,13 +12384,22 @@ func (s *CustomFieldSchemaSchema) init() CustomFieldSchemaSchema {
 	return m
 }
 
+type DecideRecommendationBadRequest Problem
+
+func (*DecideRecommendationBadRequest) decideRecommendationRes() {}
+
+type DecideRecommendationForbidden Problem
+
+func (*DecideRecommendationForbidden) decideRecommendationRes() {}
+
+type DecideRecommendationNotFound Problem
+
+func (*DecideRecommendationNotFound) decideRecommendationRes() {}
+
 // DecideRecommendationOKHeaders wraps Recommendation with response headers.
 type DecideRecommendationOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           Recommendation
 }
 
@@ -13788,21 +12411,6 @@ func (s *DecideRecommendationOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *DecideRecommendationOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *DecideRecommendationOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *DecideRecommendationOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *DecideRecommendationOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -13820,27 +12428,24 @@ func (s *DecideRecommendationOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *DecideRecommendationOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *DecideRecommendationOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *DecideRecommendationOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *DecideRecommendationOKHeaders) SetResponse(val Recommendation) {
 	s.Response = val
 }
 
 func (*DecideRecommendationOKHeaders) decideRecommendationRes() {}
+
+type DecideRecommendationPreconditionFailed Problem
+
+func (*DecideRecommendationPreconditionFailed) decideRecommendationRes() {}
+
+type DecideRecommendationPreconditionRequired Problem
+
+func (*DecideRecommendationPreconditionRequired) decideRecommendationRes() {}
+
+type DecideRecommendationUnprocessableEntity Problem
+
+func (*DecideRecommendationUnprocessableEntity) decideRecommendationRes() {}
 
 type Decimal string
 
@@ -13939,6 +12544,54 @@ func (s *DecisionInput) GetComment() OptString {
 func (s *DecisionInput) SetComment(val OptString) {
 	s.Comment = val
 }
+
+type DeleteWebhookSubscriptionBadRequest Problem
+
+func (*DeleteWebhookSubscriptionBadRequest) deleteWebhookSubscriptionRes() {}
+
+type DeleteWebhookSubscriptionForbidden Problem
+
+func (*DeleteWebhookSubscriptionForbidden) deleteWebhookSubscriptionRes() {}
+
+type DeleteWebhookSubscriptionNotFound Problem
+
+func (*DeleteWebhookSubscriptionNotFound) deleteWebhookSubscriptionRes() {}
+
+type DeleteWebhookSubscriptionPreconditionFailed Problem
+
+func (*DeleteWebhookSubscriptionPreconditionFailed) deleteWebhookSubscriptionRes() {}
+
+type DeleteWebhookSubscriptionPreconditionRequired Problem
+
+func (*DeleteWebhookSubscriptionPreconditionRequired) deleteWebhookSubscriptionRes() {}
+
+type DeleteWebhookSubscriptionUnprocessableEntity Problem
+
+func (*DeleteWebhookSubscriptionUnprocessableEntity) deleteWebhookSubscriptionRes() {}
+
+type DisableConnectorBadRequest Problem
+
+func (*DisableConnectorBadRequest) disableConnectorRes() {}
+
+type DisableConnectorForbidden Problem
+
+func (*DisableConnectorForbidden) disableConnectorRes() {}
+
+type DisableConnectorNotFound Problem
+
+func (*DisableConnectorNotFound) disableConnectorRes() {}
+
+type DisableConnectorPreconditionFailed Problem
+
+func (*DisableConnectorPreconditionFailed) disableConnectorRes() {}
+
+type DisableConnectorPreconditionRequired Problem
+
+func (*DisableConnectorPreconditionRequired) disableConnectorRes() {}
+
+type DisableConnectorUnprocessableEntity Problem
+
+func (*DisableConnectorUnprocessableEntity) disableConnectorRes() {}
 
 // The down payments to clear against the invoice.
 // Ref: #/components/schemas/DownPaymentClearingInput
@@ -14317,9 +12970,6 @@ type DownPaymentRequestHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           DownPaymentRequest
 }
 
@@ -14336,21 +12986,6 @@ func (s *DownPaymentRequestHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *DownPaymentRequestHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *DownPaymentRequestHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *DownPaymentRequestHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *DownPaymentRequestHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -14371,21 +13006,6 @@ func (s *DownPaymentRequestHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *DownPaymentRequestHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *DownPaymentRequestHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *DownPaymentRequestHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *DownPaymentRequestHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -14424,63 +13044,48 @@ func (s *DownPaymentRequestPage) SetNextPageToken(val OptString) {
 	s.NextPageToken = val
 }
 
-// DownPaymentRequestPageHeaders wraps DownPaymentRequestPage with response headers.
-type DownPaymentRequestPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           DownPaymentRequestPage
-}
+func (*DownPaymentRequestPage) listDownPaymentRequestsRes() {}
 
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *DownPaymentRequestPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
+type EnableConnectorBadRequest Problem
 
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *DownPaymentRequestPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
+func (*EnableConnectorBadRequest) enableConnectorRes() {}
 
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *DownPaymentRequestPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
+type EnableConnectorForbidden Problem
 
-// GetResponse returns the value of Response.
-func (s *DownPaymentRequestPageHeaders) GetResponse() DownPaymentRequestPage {
-	return s.Response
-}
+func (*EnableConnectorForbidden) enableConnectorRes() {}
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *DownPaymentRequestPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
+type EnableConnectorNotFound Problem
 
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *DownPaymentRequestPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
+func (*EnableConnectorNotFound) enableConnectorRes() {}
 
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *DownPaymentRequestPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
+type EnableConnectorPreconditionFailed Problem
 
-// SetResponse sets the value of Response.
-func (s *DownPaymentRequestPageHeaders) SetResponse(val DownPaymentRequestPage) {
-	s.Response = val
-}
+func (*EnableConnectorPreconditionFailed) enableConnectorRes() {}
 
-func (*DownPaymentRequestPageHeaders) listDownPaymentRequestsRes() {}
+type EnableConnectorPreconditionRequired Problem
+
+func (*EnableConnectorPreconditionRequired) enableConnectorRes() {}
+
+type EnableConnectorUnprocessableEntity Problem
+
+func (*EnableConnectorUnprocessableEntity) enableConnectorRes() {}
+
+type EndAgentSessionBadRequest Problem
+
+func (*EndAgentSessionBadRequest) endAgentSessionRes() {}
+
+type EndAgentSessionForbidden Problem
+
+func (*EndAgentSessionForbidden) endAgentSessionRes() {}
+
+type EndAgentSessionNotFound Problem
+
+func (*EndAgentSessionNotFound) endAgentSessionRes() {}
 
 // EndAgentSessionOKHeaders wraps AgentSession with response headers.
 type EndAgentSessionOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           AgentSession
 }
 
@@ -14492,21 +13097,6 @@ func (s *EndAgentSessionOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *EndAgentSessionOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *EndAgentSessionOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *EndAgentSessionOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *EndAgentSessionOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -14524,21 +13114,6 @@ func (s *EndAgentSessionOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *EndAgentSessionOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *EndAgentSessionOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *EndAgentSessionOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *EndAgentSessionOKHeaders) SetResponse(val AgentSession) {
 	s.Response = val
@@ -14546,13 +13121,34 @@ func (s *EndAgentSessionOKHeaders) SetResponse(val AgentSession) {
 
 func (*EndAgentSessionOKHeaders) endAgentSessionRes() {}
 
+type EndAgentSessionPreconditionFailed Problem
+
+func (*EndAgentSessionPreconditionFailed) endAgentSessionRes() {}
+
+type EndAgentSessionPreconditionRequired Problem
+
+func (*EndAgentSessionPreconditionRequired) endAgentSessionRes() {}
+
+type EndAgentSessionUnprocessableEntity Problem
+
+func (*EndAgentSessionUnprocessableEntity) endAgentSessionRes() {}
+
+type EndCompanyAccessBadRequest Problem
+
+func (*EndCompanyAccessBadRequest) endCompanyAccessRes() {}
+
+type EndCompanyAccessForbidden Problem
+
+func (*EndCompanyAccessForbidden) endCompanyAccessRes() {}
+
+type EndCompanyAccessNotFound Problem
+
+func (*EndCompanyAccessNotFound) endCompanyAccessRes() {}
+
 // EndCompanyAccessOKHeaders wraps CompanyAccess with response headers.
 type EndCompanyAccessOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           CompanyAccess
 }
 
@@ -14564,21 +13160,6 @@ func (s *EndCompanyAccessOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *EndCompanyAccessOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *EndCompanyAccessOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *EndCompanyAccessOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *EndCompanyAccessOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -14596,27 +13177,36 @@ func (s *EndCompanyAccessOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *EndCompanyAccessOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *EndCompanyAccessOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *EndCompanyAccessOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *EndCompanyAccessOKHeaders) SetResponse(val CompanyAccess) {
 	s.Response = val
 }
 
 func (*EndCompanyAccessOKHeaders) endCompanyAccessRes() {}
+
+type EndCompanyAccessPreconditionFailed Problem
+
+func (*EndCompanyAccessPreconditionFailed) endCompanyAccessRes() {}
+
+type EndCompanyAccessPreconditionRequired Problem
+
+func (*EndCompanyAccessPreconditionRequired) endCompanyAccessRes() {}
+
+type EndCompanyAccessUnprocessableEntity Problem
+
+func (*EndCompanyAccessUnprocessableEntity) endCompanyAccessRes() {}
+
+type EndCurrentSessionBadRequest Problem
+
+func (*EndCurrentSessionBadRequest) endCurrentSessionRes() {}
+
+type EndCurrentSessionForbidden Problem
+
+func (*EndCurrentSessionForbidden) endCurrentSessionRes() {}
+
+type EndCurrentSessionUnprocessableEntity Problem
+
+func (*EndCurrentSessionUnprocessableEntity) endCurrentSessionRes() {}
 
 // End an effective-dated resource.
 // Ref: #/components/schemas/EndInput
@@ -14635,13 +13225,22 @@ func (s *EndInput) SetValidTo(val time.Time) {
 	s.ValidTo = val
 }
 
+type EndRoleAssignmentBadRequest Problem
+
+func (*EndRoleAssignmentBadRequest) endRoleAssignmentRes() {}
+
+type EndRoleAssignmentForbidden Problem
+
+func (*EndRoleAssignmentForbidden) endRoleAssignmentRes() {}
+
+type EndRoleAssignmentNotFound Problem
+
+func (*EndRoleAssignmentNotFound) endRoleAssignmentRes() {}
+
 // EndRoleAssignmentOKHeaders wraps RoleAssignment with response headers.
 type EndRoleAssignmentOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           RoleAssignment
 }
 
@@ -14653,21 +13252,6 @@ func (s *EndRoleAssignmentOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *EndRoleAssignmentOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *EndRoleAssignmentOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *EndRoleAssignmentOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *EndRoleAssignmentOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -14685,21 +13269,6 @@ func (s *EndRoleAssignmentOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *EndRoleAssignmentOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *EndRoleAssignmentOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *EndRoleAssignmentOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *EndRoleAssignmentOKHeaders) SetResponse(val RoleAssignment) {
 	s.Response = val
@@ -14707,13 +13276,34 @@ func (s *EndRoleAssignmentOKHeaders) SetResponse(val RoleAssignment) {
 
 func (*EndRoleAssignmentOKHeaders) endRoleAssignmentRes() {}
 
+type EndRoleAssignmentPreconditionFailed Problem
+
+func (*EndRoleAssignmentPreconditionFailed) endRoleAssignmentRes() {}
+
+type EndRoleAssignmentPreconditionRequired Problem
+
+func (*EndRoleAssignmentPreconditionRequired) endRoleAssignmentRes() {}
+
+type EndRoleAssignmentUnprocessableEntity Problem
+
+func (*EndRoleAssignmentUnprocessableEntity) endRoleAssignmentRes() {}
+
+type EndRolePermissionBadRequest Problem
+
+func (*EndRolePermissionBadRequest) endRolePermissionRes() {}
+
+type EndRolePermissionForbidden Problem
+
+func (*EndRolePermissionForbidden) endRolePermissionRes() {}
+
+type EndRolePermissionNotFound Problem
+
+func (*EndRolePermissionNotFound) endRolePermissionRes() {}
+
 // EndRolePermissionOKHeaders wraps RolePermission with response headers.
 type EndRolePermissionOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           RolePermission
 }
 
@@ -14725,21 +13315,6 @@ func (s *EndRolePermissionOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *EndRolePermissionOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *EndRolePermissionOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *EndRolePermissionOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *EndRolePermissionOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -14757,21 +13332,6 @@ func (s *EndRolePermissionOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *EndRolePermissionOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *EndRolePermissionOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *EndRolePermissionOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *EndRolePermissionOKHeaders) SetResponse(val RolePermission) {
 	s.Response = val
@@ -14779,13 +13339,34 @@ func (s *EndRolePermissionOKHeaders) SetResponse(val RolePermission) {
 
 func (*EndRolePermissionOKHeaders) endRolePermissionRes() {}
 
+type EndRolePermissionPreconditionFailed Problem
+
+func (*EndRolePermissionPreconditionFailed) endRolePermissionRes() {}
+
+type EndRolePermissionPreconditionRequired Problem
+
+func (*EndRolePermissionPreconditionRequired) endRolePermissionRes() {}
+
+type EndRolePermissionUnprocessableEntity Problem
+
+func (*EndRolePermissionUnprocessableEntity) endRolePermissionRes() {}
+
+type EndSodRuleBadRequest Problem
+
+func (*EndSodRuleBadRequest) endSodRuleRes() {}
+
+type EndSodRuleForbidden Problem
+
+func (*EndSodRuleForbidden) endSodRuleRes() {}
+
+type EndSodRuleNotFound Problem
+
+func (*EndSodRuleNotFound) endSodRuleRes() {}
+
 // EndSodRuleOKHeaders wraps SodRule with response headers.
 type EndSodRuleOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           SodRule
 }
 
@@ -14797,21 +13378,6 @@ func (s *EndSodRuleOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *EndSodRuleOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *EndSodRuleOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *EndSodRuleOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *EndSodRuleOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -14829,27 +13395,24 @@ func (s *EndSodRuleOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *EndSodRuleOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *EndSodRuleOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *EndSodRuleOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *EndSodRuleOKHeaders) SetResponse(val SodRule) {
 	s.Response = val
 }
 
 func (*EndSodRuleOKHeaders) endSodRuleRes() {}
+
+type EndSodRulePreconditionFailed Problem
+
+func (*EndSodRulePreconditionFailed) endSodRuleRes() {}
+
+type EndSodRulePreconditionRequired Problem
+
+func (*EndSodRulePreconditionRequired) endSodRuleRes() {}
+
+type EndSodRuleUnprocessableEntity Problem
+
+func (*EndSodRuleUnprocessableEntity) endSodRuleRes() {}
 
 // Evidence supporting a change request; the latest per kind applies.
 // Ref: #/components/schemas/Evidence
@@ -15148,9 +13711,6 @@ type ExchangeRateHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           ExchangeRate
 }
 
@@ -15167,21 +13727,6 @@ func (s *ExchangeRateHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *ExchangeRateHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ExchangeRateHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ExchangeRateHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ExchangeRateHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -15202,21 +13747,6 @@ func (s *ExchangeRateHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *ExchangeRateHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ExchangeRateHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ExchangeRateHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ExchangeRateHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -15268,55 +13798,31 @@ func (s *ExchangeRatePage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// ExchangeRatePageHeaders wraps ExchangeRatePage with response headers.
-type ExchangeRatePageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           ExchangeRatePage
-}
+func (*ExchangeRatePage) listExchangeRatesRes() {}
 
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ExchangeRatePageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
+type ExcludeBankStatementLineBadRequest Problem
 
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ExchangeRatePageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
+func (*ExcludeBankStatementLineBadRequest) excludeBankStatementLineRes() {}
 
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ExchangeRatePageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
+type ExcludeBankStatementLineForbidden Problem
 
-// GetResponse returns the value of Response.
-func (s *ExchangeRatePageHeaders) GetResponse() ExchangeRatePage {
-	return s.Response
-}
+func (*ExcludeBankStatementLineForbidden) excludeBankStatementLineRes() {}
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ExchangeRatePageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
+type ExcludeBankStatementLineNotFound Problem
 
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ExchangeRatePageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
+func (*ExcludeBankStatementLineNotFound) excludeBankStatementLineRes() {}
 
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ExchangeRatePageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
+type ExcludeBankStatementLinePreconditionFailed Problem
 
-// SetResponse sets the value of Response.
-func (s *ExchangeRatePageHeaders) SetResponse(val ExchangeRatePage) {
-	s.Response = val
-}
+func (*ExcludeBankStatementLinePreconditionFailed) excludeBankStatementLineRes() {}
 
-func (*ExchangeRatePageHeaders) listExchangeRatesRes() {}
+type ExcludeBankStatementLinePreconditionRequired Problem
+
+func (*ExcludeBankStatementLinePreconditionRequired) excludeBankStatementLineRes() {}
+
+type ExcludeBankStatementLineUnprocessableEntity Problem
+
+func (*ExcludeBankStatementLineUnprocessableEntity) excludeBankStatementLineRes() {}
 
 // Read-only copies of referenced resources requested with `expand`.
 // Ref: #/components/schemas/Expanded
@@ -15568,31 +14074,13 @@ func (s *FiscalPeriod) SetUnlockRequestID(val OptUUID) {
 
 // FiscalPeriodHeaders wraps FiscalPeriod with response headers.
 type FiscalPeriodHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           FiscalPeriod
+	ETag     OptString
+	Response FiscalPeriod
 }
 
 // GetETag returns the value of ETag.
 func (s *FiscalPeriodHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *FiscalPeriodHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *FiscalPeriodHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *FiscalPeriodHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -15603,21 +14091,6 @@ func (s *FiscalPeriodHeaders) GetResponse() FiscalPeriod {
 // SetETag sets the value of ETag.
 func (s *FiscalPeriodHeaders) SetETag(val OptString) {
 	s.ETag = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *FiscalPeriodHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *FiscalPeriodHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *FiscalPeriodHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -15669,414 +14142,41 @@ func (s *FiscalPeriodPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// FiscalPeriodPageHeaders wraps FiscalPeriodPage with response headers.
-type FiscalPeriodPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           FiscalPeriodPage
-}
+func (*FiscalPeriodPage) listFiscalPeriodsRes() {}
 
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *FiscalPeriodPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
+type GetAccountBadRequest Problem
 
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *FiscalPeriodPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
+func (*GetAccountBadRequest) getAccountRes() {}
 
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *FiscalPeriodPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
+type GetAccountForbidden Problem
 
-// GetResponse returns the value of Response.
-func (s *FiscalPeriodPageHeaders) GetResponse() FiscalPeriodPage {
-	return s.Response
-}
+func (*GetAccountForbidden) getAccountRes() {}
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *FiscalPeriodPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
+type GetAccountNotFound Problem
 
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *FiscalPeriodPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
+func (*GetAccountNotFound) getAccountRes() {}
 
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *FiscalPeriodPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
+type GetAgentSessionBadRequest Problem
 
-// SetResponse sets the value of Response.
-func (s *FiscalPeriodPageHeaders) SetResponse(val FiscalPeriodPage) {
-	s.Response = val
-}
+func (*GetAgentSessionBadRequest) getAgentSessionRes() {}
 
-func (*FiscalPeriodPageHeaders) listFiscalPeriodsRes() {}
+type GetAgentSessionForbidden Problem
 
-// ForbiddenHeaders wraps Problem with response headers.
-type ForbiddenHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           Problem
-}
+func (*GetAgentSessionForbidden) getAgentSessionRes() {}
 
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ForbiddenHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
+type GetAgentSessionNotFound Problem
 
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ForbiddenHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ForbiddenHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *ForbiddenHeaders) GetResponse() Problem {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ForbiddenHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ForbiddenHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ForbiddenHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *ForbiddenHeaders) SetResponse(val Problem) {
-	s.Response = val
-}
-
-func (*ForbiddenHeaders) acceptBankStatementLineProposalRes()  {}
-func (*ForbiddenHeaders) acceptMemoRecordProposalRes()         {}
-func (*ForbiddenHeaders) activateChangeRequestRes()            {}
-func (*ForbiddenHeaders) activateLegalEntityRes()              {}
-func (*ForbiddenHeaders) activateOrgUnitRes()                  {}
-func (*ForbiddenHeaders) addHierarchyNodeRes()                 {}
-func (*ForbiddenHeaders) applyCountryPackRes()                 {}
-func (*ForbiddenHeaders) approveApprovalRequestRes()           {}
-func (*ForbiddenHeaders) assignProfitCenterRes()               {}
-func (*ForbiddenHeaders) blockBusinessPartnerRes()             {}
-func (*ForbiddenHeaders) blockLegalEntityRes()                 {}
-func (*ForbiddenHeaders) blockOrgUnitRes()                     {}
-func (*ForbiddenHeaders) blockPrincipalRes()                   {}
-func (*ForbiddenHeaders) cancelApprovalRequestRes()            {}
-func (*ForbiddenHeaders) cancelContractRes()                   {}
-func (*ForbiddenHeaders) cancelDownPaymentRequestRes()         {}
-func (*ForbiddenHeaders) cancelMemoRecordRes()                 {}
-func (*ForbiddenHeaders) cancelOperationRes()                  {}
-func (*ForbiddenHeaders) cancelParkedJournalEntryRes()         {}
-func (*ForbiddenHeaders) cancelPurchaseOrderChangeRes()        {}
-func (*ForbiddenHeaders) cancelPurchaseOrderRes()              {}
-func (*ForbiddenHeaders) cancelRequisitionRes()                {}
-func (*ForbiddenHeaders) cancelRevaluationRunRes()             {}
-func (*ForbiddenHeaders) cancelSupplierInvoiceRes()            {}
-func (*ForbiddenHeaders) captureSupplierInvoiceRes()           {}
-func (*ForbiddenHeaders) clearSupplierInvoiceDownPaymentsRes() {}
-func (*ForbiddenHeaders) closeFiscalPeriodRes()                {}
-func (*ForbiddenHeaders) closePurchaseOrderRes()               {}
-func (*ForbiddenHeaders) createBusinessPartnerRes()            {}
-func (*ForbiddenHeaders) createChangeRequestRes()              {}
-func (*ForbiddenHeaders) createClearingRes()                   {}
-func (*ForbiddenHeaders) createCompanyAccessRes()              {}
-func (*ForbiddenHeaders) createConnectorRes()                  {}
-func (*ForbiddenHeaders) createContractRes()                   {}
-func (*ForbiddenHeaders) createCostCenterRes()                 {}
-func (*ForbiddenHeaders) createDownPaymentRequestRes()         {}
-func (*ForbiddenHeaders) createExchangeRateRes()               {}
-func (*ForbiddenHeaders) createHierarchyRes()                  {}
-func (*ForbiddenHeaders) createLegalEntityRes()                {}
-func (*ForbiddenHeaders) createMemoRecordRes()                 {}
-func (*ForbiddenHeaders) createMigrationRunRes()               {}
-func (*ForbiddenHeaders) createOrgUnitRes()                    {}
-func (*ForbiddenHeaders) createPartnerChangeRes()              {}
-func (*ForbiddenHeaders) createPrincipalRes()                  {}
-func (*ForbiddenHeaders) createProfitCenterRes()               {}
-func (*ForbiddenHeaders) createPurchaseOrderChangeRes()        {}
-func (*ForbiddenHeaders) createPurchaseOrderRes()              {}
-func (*ForbiddenHeaders) createRecommendationRes()             {}
-func (*ForbiddenHeaders) createRegressionSuiteRes()            {}
-func (*ForbiddenHeaders) createRequisitionRes()                {}
-func (*ForbiddenHeaders) createRoleAssignmentRes()             {}
-func (*ForbiddenHeaders) createRoleRes()                       {}
-func (*ForbiddenHeaders) createSegmentRes()                    {}
-func (*ForbiddenHeaders) createSodRuleRes()                    {}
-func (*ForbiddenHeaders) createSupplierInvoiceRes()            {}
-func (*ForbiddenHeaders) createUploadRes()                     {}
-func (*ForbiddenHeaders) createWebhookSubscriptionRes()        {}
-func (*ForbiddenHeaders) decideRecommendationRes()             {}
-func (*ForbiddenHeaders) deleteWebhookSubscriptionRes()        {}
-func (*ForbiddenHeaders) disableConnectorRes()                 {}
-func (*ForbiddenHeaders) enableConnectorRes()                  {}
-func (*ForbiddenHeaders) endAgentSessionRes()                  {}
-func (*ForbiddenHeaders) endCompanyAccessRes()                 {}
-func (*ForbiddenHeaders) endCurrentSessionRes()                {}
-func (*ForbiddenHeaders) endRoleAssignmentRes()                {}
-func (*ForbiddenHeaders) endRolePermissionRes()                {}
-func (*ForbiddenHeaders) endSodRuleRes()                       {}
-func (*ForbiddenHeaders) excludeBankStatementLineRes()         {}
-func (*ForbiddenHeaders) getAccountRes()                       {}
-func (*ForbiddenHeaders) getAgentSessionRes()                  {}
-func (*ForbiddenHeaders) getAiPolicyRes()                      {}
-func (*ForbiddenHeaders) getAiUsageRes()                       {}
-func (*ForbiddenHeaders) getAnalyticsModelRes()                {}
-func (*ForbiddenHeaders) getApprovalRequestRes()               {}
-func (*ForbiddenHeaders) getBankAccountRes()                   {}
-func (*ForbiddenHeaders) getBankFileContentRes()               {}
-func (*ForbiddenHeaders) getBankFileRes()                      {}
-func (*ForbiddenHeaders) getBankReconciliationRes()            {}
-func (*ForbiddenHeaders) getBankStatementFileRes()             {}
-func (*ForbiddenHeaders) getBankStatementRes()                 {}
-func (*ForbiddenHeaders) getBankStatementRulesRes()            {}
-func (*ForbiddenHeaders) getBusinessPartnerRes()               {}
-func (*ForbiddenHeaders) getCashPositionRes()                  {}
-func (*ForbiddenHeaders) getCenterChangeRes()                  {}
-func (*ForbiddenHeaders) getChangeRequestRes()                 {}
-func (*ForbiddenHeaders) getClearingRes()                      {}
-func (*ForbiddenHeaders) getCompanyAccessRes()                 {}
-func (*ForbiddenHeaders) getConfigVersionRes()                 {}
-func (*ForbiddenHeaders) getConnectorRes()                     {}
-func (*ForbiddenHeaders) getContractRes()                      {}
-func (*ForbiddenHeaders) getCostCenterRes()                    {}
-func (*ForbiddenHeaders) getCurrentPrincipalRes()              {}
-func (*ForbiddenHeaders) getDownPaymentRequestRes()            {}
-func (*ForbiddenHeaders) getExchangeRateRes()                  {}
-func (*ForbiddenHeaders) getFiscalPeriodRes()                  {}
-func (*ForbiddenHeaders) getGoodsReceiptRes()                  {}
-func (*ForbiddenHeaders) getHierarchyNodeRes()                 {}
-func (*ForbiddenHeaders) getHierarchyRes()                     {}
-func (*ForbiddenHeaders) getJournalEntryRes()                  {}
-func (*ForbiddenHeaders) getLegalEntityRes()                   {}
-func (*ForbiddenHeaders) getMatchResultRes()                   {}
-func (*ForbiddenHeaders) getMemoRecordRes()                    {}
-func (*ForbiddenHeaders) getMigrationRunRes()                  {}
-func (*ForbiddenHeaders) getNumberRangeRes()                   {}
-func (*ForbiddenHeaders) getOperationRes()                     {}
-func (*ForbiddenHeaders) getOrgUnitRes()                       {}
-func (*ForbiddenHeaders) getParkedJournalEntryRes()            {}
-func (*ForbiddenHeaders) getPartnerChangeRes()                 {}
-func (*ForbiddenHeaders) getPaymentRunRes()                    {}
-func (*ForbiddenHeaders) getPrincipalRes()                     {}
-func (*ForbiddenHeaders) getProfitCenterRes()                  {}
-func (*ForbiddenHeaders) getPurchaseOrderChangeRes()           {}
-func (*ForbiddenHeaders) getPurchaseOrderRes()                 {}
-func (*ForbiddenHeaders) getRecommendationRes()                {}
-func (*ForbiddenHeaders) getRegressionSuiteRes()               {}
-func (*ForbiddenHeaders) getRequisitionRes()                   {}
-func (*ForbiddenHeaders) getRevaluationRunRes()                {}
-func (*ForbiddenHeaders) getRoleAssignmentRes()                {}
-func (*ForbiddenHeaders) getRolePermissionRes()                {}
-func (*ForbiddenHeaders) getRoleRes()                          {}
-func (*ForbiddenHeaders) getSchemaRes()                        {}
-func (*ForbiddenHeaders) getSegmentRes()                       {}
-func (*ForbiddenHeaders) getSodRuleRes()                       {}
-func (*ForbiddenHeaders) getSupplierInvoiceDocumentRes()       {}
-func (*ForbiddenHeaders) getSupplierInvoiceRes()               {}
-func (*ForbiddenHeaders) getUploadRes()                        {}
-func (*ForbiddenHeaders) getWebhookDeliveryRes()               {}
-func (*ForbiddenHeaders) getWebhookSubscriptionRes()           {}
-func (*ForbiddenHeaders) grantRolePermissionRes()              {}
-func (*ForbiddenHeaders) holdSupplierInvoiceRes()              {}
-func (*ForbiddenHeaders) importBankStatementsRes()             {}
-func (*ForbiddenHeaders) listAccountsRes()                     {}
-func (*ForbiddenHeaders) listAgentSessionsRes()                {}
-func (*ForbiddenHeaders) listAgentToolCallsRes()               {}
-func (*ForbiddenHeaders) listApprovalRequestsRes()             {}
-func (*ForbiddenHeaders) listAuditEventsRes()                  {}
-func (*ForbiddenHeaders) listBalancesRes()                     {}
-func (*ForbiddenHeaders) listBankAccountsRes()                 {}
-func (*ForbiddenHeaders) listBankFilesRes()                    {}
-func (*ForbiddenHeaders) listBankStatementMatchesRes()         {}
-func (*ForbiddenHeaders) listBankStatementsRes()               {}
-func (*ForbiddenHeaders) listBusinessPartnersRes()             {}
-func (*ForbiddenHeaders) listCenterChangesRes()                {}
-func (*ForbiddenHeaders) listChangeRequestsRes()               {}
-func (*ForbiddenHeaders) listClearingsRes()                    {}
-func (*ForbiddenHeaders) listCompanyAccessRes()                {}
-func (*ForbiddenHeaders) listConfigVersionsRes()               {}
-func (*ForbiddenHeaders) listConnectorsRes()                   {}
-func (*ForbiddenHeaders) listContractsRes()                    {}
-func (*ForbiddenHeaders) listCostCenterBalancesRes()           {}
-func (*ForbiddenHeaders) listCostCenterPathsRes()              {}
-func (*ForbiddenHeaders) listCostCentersRes()                  {}
-func (*ForbiddenHeaders) listCountryPacksRes()                 {}
-func (*ForbiddenHeaders) listDownPaymentRequestsRes()          {}
-func (*ForbiddenHeaders) listExchangeRatesRes()                {}
-func (*ForbiddenHeaders) listFiscalPeriodsRes()                {}
-func (*ForbiddenHeaders) listGoodsReceiptsRes()                {}
-func (*ForbiddenHeaders) listGrIrBalancesRes()                 {}
-func (*ForbiddenHeaders) listHierarchiesRes()                  {}
-func (*ForbiddenHeaders) listHouseBanksRes()                   {}
-func (*ForbiddenHeaders) listJournalEntriesRes()               {}
-func (*ForbiddenHeaders) listLedgerGroupsRes()                 {}
-func (*ForbiddenHeaders) listLedgerReconciliationEntriesRes()  {}
-func (*ForbiddenHeaders) listLedgerReconciliationRes()         {}
-func (*ForbiddenHeaders) listLedgersRes()                      {}
-func (*ForbiddenHeaders) listLegalEntitiesRes()                {}
-func (*ForbiddenHeaders) listMatchResultsRes()                 {}
-func (*ForbiddenHeaders) listMemoRecordsRes()                  {}
-func (*ForbiddenHeaders) listMigrationRunsRes()                {}
-func (*ForbiddenHeaders) listNumberRangesRes()                 {}
-func (*ForbiddenHeaders) listOpenItemsRes()                    {}
-func (*ForbiddenHeaders) listOperationsRes()                   {}
-func (*ForbiddenHeaders) listOrgUnitsRes()                     {}
-func (*ForbiddenHeaders) listParkedJournalEntriesRes()         {}
-func (*ForbiddenHeaders) listPartnerChangesRes()               {}
-func (*ForbiddenHeaders) listPaymentExclusionsRes()            {}
-func (*ForbiddenHeaders) listPaymentRunsRes()                  {}
-func (*ForbiddenHeaders) listPaymentsRes()                     {}
-func (*ForbiddenHeaders) listPrincipalNamesRes()               {}
-func (*ForbiddenHeaders) listPrincipalsRes()                   {}
-func (*ForbiddenHeaders) listProfitCenterBalancesRes()         {}
-func (*ForbiddenHeaders) listProfitCenterPathsRes()            {}
-func (*ForbiddenHeaders) listProfitCentersRes()                {}
-func (*ForbiddenHeaders) listPurchaseOrderChangesRes()         {}
-func (*ForbiddenHeaders) listPurchaseOrdersRes()               {}
-func (*ForbiddenHeaders) listRecommendationsRes()              {}
-func (*ForbiddenHeaders) listRegressionSuitesRes()             {}
-func (*ForbiddenHeaders) listRequisitionsRes()                 {}
-func (*ForbiddenHeaders) listRevaluationRunsRes()              {}
-func (*ForbiddenHeaders) listRoleAssignmentsRes()              {}
-func (*ForbiddenHeaders) listRolePermissionsRes()              {}
-func (*ForbiddenHeaders) listRolesRes()                        {}
-func (*ForbiddenHeaders) listSegmentsRes()                     {}
-func (*ForbiddenHeaders) listSodRulesRes()                     {}
-func (*ForbiddenHeaders) listSupplierInvoicesRes()             {}
-func (*ForbiddenHeaders) listWebhookDeliveriesRes()            {}
-func (*ForbiddenHeaders) listWebhookSubscriptionsRes()         {}
-func (*ForbiddenHeaders) lockCostCenterRes()                   {}
-func (*ForbiddenHeaders) lockFiscalPeriodRes()                 {}
-func (*ForbiddenHeaders) lockProfitCenterRes()                 {}
-func (*ForbiddenHeaders) matchBankStatementLineRes()           {}
-func (*ForbiddenHeaders) matchBankStatementRes()               {}
-func (*ForbiddenHeaders) matchSupplierInvoiceRes()             {}
-func (*ForbiddenHeaders) moveCostCenterRes()                   {}
-func (*ForbiddenHeaders) moveHierarchyNodeRes()                {}
-func (*ForbiddenHeaders) moveProfitCenterRes()                 {}
-func (*ForbiddenHeaders) openFiscalPeriodRes()                 {}
-func (*ForbiddenHeaders) parkJournalEntryRes()                 {}
-func (*ForbiddenHeaders) pauseWebhookSubscriptionRes()         {}
-func (*ForbiddenHeaders) pingWebhookSubscriptionRes()          {}
-func (*ForbiddenHeaders) placeInHierarchyRes()                 {}
-func (*ForbiddenHeaders) postBankStatementLineRes()            {}
-func (*ForbiddenHeaders) postGoodsReceiptRes()                 {}
-func (*ForbiddenHeaders) postJournalEntryRes()                 {}
-func (*ForbiddenHeaders) postParkedJournalEntryRes()           {}
-func (*ForbiddenHeaders) postRevaluationRunRes()               {}
-func (*ForbiddenHeaders) postSupplierInvoiceRes()              {}
-func (*ForbiddenHeaders) previewRevaluationRes()               {}
-func (*ForbiddenHeaders) proposeBankStatementLineRes()         {}
-func (*ForbiddenHeaders) proposeMemoRecordRes()                {}
-func (*ForbiddenHeaders) proposePaymentRunRes()                {}
-func (*ForbiddenHeaders) realiseMemoRecordRes()                {}
-func (*ForbiddenHeaders) reconcileMigrationRunRes()            {}
-func (*ForbiddenHeaders) recordAgentToolCallRes()              {}
-func (*ForbiddenHeaders) redateCostCenterRes()                 {}
-func (*ForbiddenHeaders) redateProfitCenterRes()               {}
-func (*ForbiddenHeaders) redeliverWebhookDeliveryRes()         {}
-func (*ForbiddenHeaders) rejectApprovalRequestRes()            {}
-func (*ForbiddenHeaders) rejectBankStatementLineProposalRes()  {}
-func (*ForbiddenHeaders) rejectMemoRecordProposalRes()         {}
-func (*ForbiddenHeaders) rejectPaymentRunRes()                 {}
-func (*ForbiddenHeaders) releaseContractRes()                  {}
-func (*ForbiddenHeaders) releasePaymentRunRes()                {}
-func (*ForbiddenHeaders) releasePurchaseOrderRes()             {}
-func (*ForbiddenHeaders) releaseSupplierInvoiceRes()           {}
-func (*ForbiddenHeaders) removeHierarchyNodeRes()              {}
-func (*ForbiddenHeaders) renameHierarchyNodeRes()              {}
-func (*ForbiddenHeaders) renewContractRes()                    {}
-func (*ForbiddenHeaders) replayWebhookDeliveriesRes()          {}
-func (*ForbiddenHeaders) reportBankFileStatusRes()             {}
-func (*ForbiddenHeaders) requestBankAccountChangeRes()         {}
-func (*ForbiddenHeaders) requestBankAccountEndRes()            {}
-func (*ForbiddenHeaders) resumeWebhookSubscriptionRes()        {}
-func (*ForbiddenHeaders) reverseGoodsReceiptRes()              {}
-func (*ForbiddenHeaders) reverseJournalEntryRes()              {}
-func (*ForbiddenHeaders) reverseSupplierInvoiceRes()           {}
-func (*ForbiddenHeaders) rotateWebhookSubscriptionSecretRes()  {}
-func (*ForbiddenHeaders) runAnalyticsQueryRes()                {}
-func (*ForbiddenHeaders) simulateChangeRequestRes()            {}
-func (*ForbiddenHeaders) startAgentSessionRes()                {}
-func (*ForbiddenHeaders) startMigrationRunRes()                {}
-func (*ForbiddenHeaders) submitChangeRequestRes()              {}
-func (*ForbiddenHeaders) submitPaymentRunRes()                 {}
-func (*ForbiddenHeaders) submitPurchaseOrderChangeRes()        {}
-func (*ForbiddenHeaders) submitRequisitionRes()                {}
-func (*ForbiddenHeaders) terminateContractRes()                {}
-func (*ForbiddenHeaders) transmitBankFileRes()                 {}
-func (*ForbiddenHeaders) unblockBusinessPartnerRes()           {}
-func (*ForbiddenHeaders) unblockLegalEntityRes()               {}
-func (*ForbiddenHeaders) unblockOrgUnitRes()                   {}
-func (*ForbiddenHeaders) unlockFiscalPeriodRes()               {}
-func (*ForbiddenHeaders) updateAiPolicyRes()                   {}
-func (*ForbiddenHeaders) updateChangeRequestRes()              {}
-func (*ForbiddenHeaders) updateConnectorRes()                  {}
-func (*ForbiddenHeaders) updateContractRes()                   {}
-func (*ForbiddenHeaders) updateCostCenterRes()                 {}
-func (*ForbiddenHeaders) updateLegalEntityRes()                {}
-func (*ForbiddenHeaders) updateMemoRecordRes()                 {}
-func (*ForbiddenHeaders) updateOrgUnitRes()                    {}
-func (*ForbiddenHeaders) updateParkedJournalEntryRes()         {}
-func (*ForbiddenHeaders) updatePrincipalRes()                  {}
-func (*ForbiddenHeaders) updateProfitCenterRes()               {}
-func (*ForbiddenHeaders) updatePurchaseOrderChangeRes()        {}
-func (*ForbiddenHeaders) updatePurchaseOrderRes()              {}
-func (*ForbiddenHeaders) updateRequisitionRes()                {}
-func (*ForbiddenHeaders) updateRoleRes()                       {}
-func (*ForbiddenHeaders) updateSegmentRes()                    {}
-func (*ForbiddenHeaders) updateSupplierInvoiceRes()            {}
-func (*ForbiddenHeaders) updateWebhookSubscriptionRes()        {}
-func (*ForbiddenHeaders) uploadMemoRecordsRes()                {}
-func (*ForbiddenHeaders) verifyAuditChainRes()                 {}
-func (*ForbiddenHeaders) withdrawChangeRequestRes()            {}
+func (*GetAgentSessionNotFound) getAgentSessionRes() {}
 
 // GetAgentSessionOKHeaders wraps AgentSession with response headers.
 type GetAgentSessionOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           AgentSession
+	ETag     OptString
+	Response AgentSession
 }
 
 // GetETag returns the value of ETag.
 func (s *GetAgentSessionOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetAgentSessionOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetAgentSessionOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetAgentSessionOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -16089,27 +14189,80 @@ func (s *GetAgentSessionOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetAgentSessionOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetAgentSessionOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetAgentSessionOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetAgentSessionOKHeaders) SetResponse(val AgentSession) {
 	s.Response = val
 }
 
 func (*GetAgentSessionOKHeaders) getAgentSessionRes() {}
+
+type GetAiPolicyBadRequest Problem
+
+func (*GetAiPolicyBadRequest) getAiPolicyRes() {}
+
+type GetAiPolicyForbidden Problem
+
+func (*GetAiPolicyForbidden) getAiPolicyRes() {}
+
+type GetAiUsageBadRequest Problem
+
+func (*GetAiUsageBadRequest) getAiUsageRes() {}
+
+type GetAiUsageForbidden Problem
+
+func (*GetAiUsageForbidden) getAiUsageRes() {}
+
+type GetAnalyticsModelBadRequest Problem
+
+func (*GetAnalyticsModelBadRequest) getAnalyticsModelRes() {}
+
+type GetAnalyticsModelForbidden Problem
+
+func (*GetAnalyticsModelForbidden) getAnalyticsModelRes() {}
+
+type GetAnalyticsModelUnprocessableEntity Problem
+
+func (*GetAnalyticsModelUnprocessableEntity) getAnalyticsModelRes() {}
+
+type GetApprovalRequestBadRequest Problem
+
+func (*GetApprovalRequestBadRequest) getApprovalRequestRes() {}
+
+type GetApprovalRequestForbidden Problem
+
+func (*GetApprovalRequestForbidden) getApprovalRequestRes() {}
+
+type GetApprovalRequestNotFound Problem
+
+func (*GetApprovalRequestNotFound) getApprovalRequestRes() {}
+
+type GetBankAccountBadRequest Problem
+
+func (*GetBankAccountBadRequest) getBankAccountRes() {}
+
+type GetBankAccountForbidden Problem
+
+func (*GetBankAccountForbidden) getBankAccountRes() {}
+
+type GetBankAccountNotFound Problem
+
+func (*GetBankAccountNotFound) getBankAccountRes() {}
+
+type GetBankFileBadRequest Problem
+
+func (*GetBankFileBadRequest) getBankFileRes() {}
+
+type GetBankFileContentBadRequest Problem
+
+func (*GetBankFileContentBadRequest) getBankFileContentRes() {}
+
+type GetBankFileContentForbidden Problem
+
+func (*GetBankFileContentForbidden) getBankFileContentRes() {}
+
+type GetBankFileContentNotFound Problem
+
+func (*GetBankFileContentNotFound) getBankFileContentRes() {}
 
 // The ISO 20022 message.
 type GetBankFileContentOK struct {
@@ -16126,55 +14279,47 @@ func (s GetBankFileContentOK) Read(p []byte) (n int, err error) {
 	return s.Data.Read(p)
 }
 
-// GetBankFileContentOKHeaders wraps GetBankFileContentOK with response headers.
-type GetBankFileContentOKHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           GetBankFileContentOK
-}
+func (*GetBankFileContentOK) getBankFileContentRes() {}
 
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetBankFileContentOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
+type GetBankFileForbidden Problem
 
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetBankFileContentOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
+func (*GetBankFileForbidden) getBankFileRes() {}
 
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetBankFileContentOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
+type GetBankFileNotFound Problem
 
-// GetResponse returns the value of Response.
-func (s *GetBankFileContentOKHeaders) GetResponse() GetBankFileContentOK {
-	return s.Response
-}
+func (*GetBankFileNotFound) getBankFileRes() {}
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetBankFileContentOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
+type GetBankReconciliationBadRequest Problem
 
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetBankFileContentOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
+func (*GetBankReconciliationBadRequest) getBankReconciliationRes() {}
 
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetBankFileContentOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
+type GetBankReconciliationForbidden Problem
 
-// SetResponse sets the value of Response.
-func (s *GetBankFileContentOKHeaders) SetResponse(val GetBankFileContentOK) {
-	s.Response = val
-}
+func (*GetBankReconciliationForbidden) getBankReconciliationRes() {}
 
-func (*GetBankFileContentOKHeaders) getBankFileContentRes() {}
+type GetBankReconciliationNotFound Problem
+
+func (*GetBankReconciliationNotFound) getBankReconciliationRes() {}
+
+type GetBankReconciliationUnprocessableEntity Problem
+
+func (*GetBankReconciliationUnprocessableEntity) getBankReconciliationRes() {}
+
+type GetBankStatementBadRequest Problem
+
+func (*GetBankStatementBadRequest) getBankStatementRes() {}
+
+type GetBankStatementFileBadRequest Problem
+
+func (*GetBankStatementFileBadRequest) getBankStatementFileRes() {}
+
+type GetBankStatementFileForbidden Problem
+
+func (*GetBankStatementFileForbidden) getBankStatementFileRes() {}
+
+type GetBankStatementFileNotFound Problem
+
+func (*GetBankStatementFileNotFound) getBankStatementFileRes() {}
 
 // The file's bytes.
 type GetBankStatementFileOK struct {
@@ -16191,83 +14336,49 @@ func (s GetBankStatementFileOK) Read(p []byte) (n int, err error) {
 	return s.Data.Read(p)
 }
 
-// GetBankStatementFileOKHeaders wraps GetBankStatementFileOK with response headers.
-type GetBankStatementFileOKHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           GetBankStatementFileOK
-}
+func (*GetBankStatementFileOK) getBankStatementFileRes() {}
 
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetBankStatementFileOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
+type GetBankStatementForbidden Problem
 
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetBankStatementFileOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
+func (*GetBankStatementForbidden) getBankStatementRes() {}
 
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetBankStatementFileOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
+type GetBankStatementNotFound Problem
 
-// GetResponse returns the value of Response.
-func (s *GetBankStatementFileOKHeaders) GetResponse() GetBankStatementFileOK {
-	return s.Response
-}
+func (*GetBankStatementNotFound) getBankStatementRes() {}
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetBankStatementFileOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
+type GetBankStatementRulesBadRequest Problem
 
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetBankStatementFileOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
+func (*GetBankStatementRulesBadRequest) getBankStatementRulesRes() {}
 
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetBankStatementFileOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
+type GetBankStatementRulesForbidden Problem
 
-// SetResponse sets the value of Response.
-func (s *GetBankStatementFileOKHeaders) SetResponse(val GetBankStatementFileOK) {
-	s.Response = val
-}
+func (*GetBankStatementRulesForbidden) getBankStatementRulesRes() {}
 
-func (*GetBankStatementFileOKHeaders) getBankStatementFileRes() {}
+type GetBankStatementRulesNotFound Problem
+
+func (*GetBankStatementRulesNotFound) getBankStatementRulesRes() {}
+
+type GetBusinessPartnerBadRequest Problem
+
+func (*GetBusinessPartnerBadRequest) getBusinessPartnerRes() {}
+
+type GetBusinessPartnerForbidden Problem
+
+func (*GetBusinessPartnerForbidden) getBusinessPartnerRes() {}
+
+type GetBusinessPartnerNotFound Problem
+
+func (*GetBusinessPartnerNotFound) getBusinessPartnerRes() {}
 
 // GetBusinessPartnerOKHeaders wraps BusinessPartner with response headers.
 type GetBusinessPartnerOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           BusinessPartner
+	ETag     OptString
+	Response BusinessPartner
 }
 
 // GetETag returns the value of ETag.
 func (s *GetBusinessPartnerOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetBusinessPartnerOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetBusinessPartnerOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetBusinessPartnerOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -16280,21 +14391,6 @@ func (s *GetBusinessPartnerOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetBusinessPartnerOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetBusinessPartnerOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetBusinessPartnerOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetBusinessPartnerOKHeaders) SetResponse(val BusinessPartner) {
 	s.Response = val
@@ -16302,33 +14398,55 @@ func (s *GetBusinessPartnerOKHeaders) SetResponse(val BusinessPartner) {
 
 func (*GetBusinessPartnerOKHeaders) getBusinessPartnerRes() {}
 
+type GetCashPositionBadRequest Problem
+
+func (*GetCashPositionBadRequest) getCashPositionRes() {}
+
+type GetCashPositionForbidden Problem
+
+func (*GetCashPositionForbidden) getCashPositionRes() {}
+
+type GetCashPositionNotFound Problem
+
+func (*GetCashPositionNotFound) getCashPositionRes() {}
+
+type GetCashPositionUnprocessableEntity Problem
+
+func (*GetCashPositionUnprocessableEntity) getCashPositionRes() {}
+
+type GetCenterChangeBadRequest Problem
+
+func (*GetCenterChangeBadRequest) getCenterChangeRes() {}
+
+type GetCenterChangeForbidden Problem
+
+func (*GetCenterChangeForbidden) getCenterChangeRes() {}
+
+type GetCenterChangeNotFound Problem
+
+func (*GetCenterChangeNotFound) getCenterChangeRes() {}
+
+type GetChangeRequestBadRequest Problem
+
+func (*GetChangeRequestBadRequest) getChangeRequestRes() {}
+
+type GetChangeRequestForbidden Problem
+
+func (*GetChangeRequestForbidden) getChangeRequestRes() {}
+
+type GetChangeRequestNotFound Problem
+
+func (*GetChangeRequestNotFound) getChangeRequestRes() {}
+
 // GetChangeRequestOKHeaders wraps ChangeRequest with response headers.
 type GetChangeRequestOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           ChangeRequest
+	ETag     OptString
+	Response ChangeRequest
 }
 
 // GetETag returns the value of ETag.
 func (s *GetChangeRequestOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetChangeRequestOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetChangeRequestOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetChangeRequestOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -16341,21 +14459,6 @@ func (s *GetChangeRequestOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetChangeRequestOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetChangeRequestOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetChangeRequestOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetChangeRequestOKHeaders) SetResponse(val ChangeRequest) {
 	s.Response = val
@@ -16363,33 +14466,27 @@ func (s *GetChangeRequestOKHeaders) SetResponse(val ChangeRequest) {
 
 func (*GetChangeRequestOKHeaders) getChangeRequestRes() {}
 
+type GetClearingBadRequest Problem
+
+func (*GetClearingBadRequest) getClearingRes() {}
+
+type GetClearingForbidden Problem
+
+func (*GetClearingForbidden) getClearingRes() {}
+
+type GetClearingNotFound Problem
+
+func (*GetClearingNotFound) getClearingRes() {}
+
 // GetClearingOKHeaders wraps Clearing with response headers.
 type GetClearingOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           Clearing
+	ETag     OptString
+	Response Clearing
 }
 
 // GetETag returns the value of ETag.
 func (s *GetClearingOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetClearingOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetClearingOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetClearingOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -16402,21 +14499,6 @@ func (s *GetClearingOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetClearingOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetClearingOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetClearingOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetClearingOKHeaders) SetResponse(val Clearing) {
 	s.Response = val
@@ -16424,33 +14506,27 @@ func (s *GetClearingOKHeaders) SetResponse(val Clearing) {
 
 func (*GetClearingOKHeaders) getClearingRes() {}
 
+type GetCompanyAccessBadRequest Problem
+
+func (*GetCompanyAccessBadRequest) getCompanyAccessRes() {}
+
+type GetCompanyAccessForbidden Problem
+
+func (*GetCompanyAccessForbidden) getCompanyAccessRes() {}
+
+type GetCompanyAccessNotFound Problem
+
+func (*GetCompanyAccessNotFound) getCompanyAccessRes() {}
+
 // GetCompanyAccessOKHeaders wraps CompanyAccess with response headers.
 type GetCompanyAccessOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           CompanyAccess
+	ETag     OptString
+	Response CompanyAccess
 }
 
 // GetETag returns the value of ETag.
 func (s *GetCompanyAccessOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetCompanyAccessOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetCompanyAccessOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetCompanyAccessOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -16463,21 +14539,6 @@ func (s *GetCompanyAccessOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetCompanyAccessOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetCompanyAccessOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetCompanyAccessOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetCompanyAccessOKHeaders) SetResponse(val CompanyAccess) {
 	s.Response = val
@@ -16485,33 +14546,39 @@ func (s *GetCompanyAccessOKHeaders) SetResponse(val CompanyAccess) {
 
 func (*GetCompanyAccessOKHeaders) getCompanyAccessRes() {}
 
+type GetConfigVersionBadRequest Problem
+
+func (*GetConfigVersionBadRequest) getConfigVersionRes() {}
+
+type GetConfigVersionForbidden Problem
+
+func (*GetConfigVersionForbidden) getConfigVersionRes() {}
+
+type GetConfigVersionNotFound Problem
+
+func (*GetConfigVersionNotFound) getConfigVersionRes() {}
+
+type GetConnectorBadRequest Problem
+
+func (*GetConnectorBadRequest) getConnectorRes() {}
+
+type GetConnectorForbidden Problem
+
+func (*GetConnectorForbidden) getConnectorRes() {}
+
+type GetConnectorNotFound Problem
+
+func (*GetConnectorNotFound) getConnectorRes() {}
+
 // GetConnectorOKHeaders wraps Connector with response headers.
 type GetConnectorOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           Connector
+	ETag     OptString
+	Response Connector
 }
 
 // GetETag returns the value of ETag.
 func (s *GetConnectorOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetConnectorOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetConnectorOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetConnectorOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -16524,21 +14591,6 @@ func (s *GetConnectorOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetConnectorOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetConnectorOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetConnectorOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetConnectorOKHeaders) SetResponse(val Connector) {
 	s.Response = val
@@ -16546,33 +14598,27 @@ func (s *GetConnectorOKHeaders) SetResponse(val Connector) {
 
 func (*GetConnectorOKHeaders) getConnectorRes() {}
 
+type GetContractBadRequest Problem
+
+func (*GetContractBadRequest) getContractRes() {}
+
+type GetContractForbidden Problem
+
+func (*GetContractForbidden) getContractRes() {}
+
+type GetContractNotFound Problem
+
+func (*GetContractNotFound) getContractRes() {}
+
 // GetContractOKHeaders wraps Contract with response headers.
 type GetContractOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           Contract
+	ETag     OptString
+	Response Contract
 }
 
 // GetETag returns the value of ETag.
 func (s *GetContractOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetContractOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetContractOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetContractOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -16585,21 +14631,6 @@ func (s *GetContractOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetContractOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetContractOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetContractOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetContractOKHeaders) SetResponse(val Contract) {
 	s.Response = val
@@ -16607,33 +14638,27 @@ func (s *GetContractOKHeaders) SetResponse(val Contract) {
 
 func (*GetContractOKHeaders) getContractRes() {}
 
+type GetCostCenterBadRequest Problem
+
+func (*GetCostCenterBadRequest) getCostCenterRes() {}
+
+type GetCostCenterForbidden Problem
+
+func (*GetCostCenterForbidden) getCostCenterRes() {}
+
+type GetCostCenterNotFound Problem
+
+func (*GetCostCenterNotFound) getCostCenterRes() {}
+
 // GetCostCenterOKHeaders wraps CostCenter with response headers.
 type GetCostCenterOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           CostCenter
+	ETag     OptString
+	Response CostCenter
 }
 
 // GetETag returns the value of ETag.
 func (s *GetCostCenterOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetCostCenterOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetCostCenterOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetCostCenterOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -16646,21 +14671,6 @@ func (s *GetCostCenterOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetCostCenterOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetCostCenterOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetCostCenterOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetCostCenterOKHeaders) SetResponse(val CostCenter) {
 	s.Response = val
@@ -16668,33 +14678,35 @@ func (s *GetCostCenterOKHeaders) SetResponse(val CostCenter) {
 
 func (*GetCostCenterOKHeaders) getCostCenterRes() {}
 
+type GetCurrentPrincipalBadRequest Problem
+
+func (*GetCurrentPrincipalBadRequest) getCurrentPrincipalRes() {}
+
+type GetCurrentPrincipalForbidden Problem
+
+func (*GetCurrentPrincipalForbidden) getCurrentPrincipalRes() {}
+
+type GetDownPaymentRequestBadRequest Problem
+
+func (*GetDownPaymentRequestBadRequest) getDownPaymentRequestRes() {}
+
+type GetDownPaymentRequestForbidden Problem
+
+func (*GetDownPaymentRequestForbidden) getDownPaymentRequestRes() {}
+
+type GetDownPaymentRequestNotFound Problem
+
+func (*GetDownPaymentRequestNotFound) getDownPaymentRequestRes() {}
+
 // GetDownPaymentRequestOKHeaders wraps DownPaymentRequest with response headers.
 type GetDownPaymentRequestOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           DownPaymentRequest
+	ETag     OptString
+	Response DownPaymentRequest
 }
 
 // GetETag returns the value of ETag.
 func (s *GetDownPaymentRequestOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetDownPaymentRequestOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetDownPaymentRequestOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetDownPaymentRequestOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -16707,21 +14719,6 @@ func (s *GetDownPaymentRequestOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetDownPaymentRequestOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetDownPaymentRequestOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetDownPaymentRequestOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetDownPaymentRequestOKHeaders) SetResponse(val DownPaymentRequest) {
 	s.Response = val
@@ -16729,33 +14726,27 @@ func (s *GetDownPaymentRequestOKHeaders) SetResponse(val DownPaymentRequest) {
 
 func (*GetDownPaymentRequestOKHeaders) getDownPaymentRequestRes() {}
 
+type GetExchangeRateBadRequest Problem
+
+func (*GetExchangeRateBadRequest) getExchangeRateRes() {}
+
+type GetExchangeRateForbidden Problem
+
+func (*GetExchangeRateForbidden) getExchangeRateRes() {}
+
+type GetExchangeRateNotFound Problem
+
+func (*GetExchangeRateNotFound) getExchangeRateRes() {}
+
 // GetExchangeRateOKHeaders wraps ExchangeRate with response headers.
 type GetExchangeRateOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           ExchangeRate
+	ETag     OptString
+	Response ExchangeRate
 }
 
 // GetETag returns the value of ETag.
 func (s *GetExchangeRateOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetExchangeRateOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetExchangeRateOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetExchangeRateOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -16768,21 +14759,6 @@ func (s *GetExchangeRateOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetExchangeRateOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetExchangeRateOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetExchangeRateOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetExchangeRateOKHeaders) SetResponse(val ExchangeRate) {
 	s.Response = val
@@ -16790,33 +14766,39 @@ func (s *GetExchangeRateOKHeaders) SetResponse(val ExchangeRate) {
 
 func (*GetExchangeRateOKHeaders) getExchangeRateRes() {}
 
+type GetFiscalPeriodBadRequest Problem
+
+func (*GetFiscalPeriodBadRequest) getFiscalPeriodRes() {}
+
+type GetFiscalPeriodForbidden Problem
+
+func (*GetFiscalPeriodForbidden) getFiscalPeriodRes() {}
+
+type GetFiscalPeriodNotFound Problem
+
+func (*GetFiscalPeriodNotFound) getFiscalPeriodRes() {}
+
+type GetGoodsReceiptBadRequest Problem
+
+func (*GetGoodsReceiptBadRequest) getGoodsReceiptRes() {}
+
+type GetGoodsReceiptForbidden Problem
+
+func (*GetGoodsReceiptForbidden) getGoodsReceiptRes() {}
+
+type GetGoodsReceiptNotFound Problem
+
+func (*GetGoodsReceiptNotFound) getGoodsReceiptRes() {}
+
 // GetGoodsReceiptOKHeaders wraps GoodsReceipt with response headers.
 type GetGoodsReceiptOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           GoodsReceipt
+	ETag     OptString
+	Response GoodsReceipt
 }
 
 // GetETag returns the value of ETag.
 func (s *GetGoodsReceiptOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetGoodsReceiptOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetGoodsReceiptOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetGoodsReceiptOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -16829,21 +14811,6 @@ func (s *GetGoodsReceiptOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetGoodsReceiptOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetGoodsReceiptOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetGoodsReceiptOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetGoodsReceiptOKHeaders) SetResponse(val GoodsReceipt) {
 	s.Response = val
@@ -16851,33 +14818,51 @@ func (s *GetGoodsReceiptOKHeaders) SetResponse(val GoodsReceipt) {
 
 func (*GetGoodsReceiptOKHeaders) getGoodsReceiptRes() {}
 
+type GetHierarchyBadRequest Problem
+
+func (*GetHierarchyBadRequest) getHierarchyRes() {}
+
+type GetHierarchyForbidden Problem
+
+func (*GetHierarchyForbidden) getHierarchyRes() {}
+
+type GetHierarchyNodeBadRequest Problem
+
+func (*GetHierarchyNodeBadRequest) getHierarchyNodeRes() {}
+
+type GetHierarchyNodeForbidden Problem
+
+func (*GetHierarchyNodeForbidden) getHierarchyNodeRes() {}
+
+type GetHierarchyNodeNotFound Problem
+
+func (*GetHierarchyNodeNotFound) getHierarchyNodeRes() {}
+
+type GetHierarchyNotFound Problem
+
+func (*GetHierarchyNotFound) getHierarchyRes() {}
+
+type GetJournalEntryBadRequest Problem
+
+func (*GetJournalEntryBadRequest) getJournalEntryRes() {}
+
+type GetJournalEntryForbidden Problem
+
+func (*GetJournalEntryForbidden) getJournalEntryRes() {}
+
+type GetJournalEntryNotFound Problem
+
+func (*GetJournalEntryNotFound) getJournalEntryRes() {}
+
 // GetJournalEntryOKHeaders wraps JournalEntry with response headers.
 type GetJournalEntryOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           JournalEntry
+	ETag     OptString
+	Response JournalEntry
 }
 
 // GetETag returns the value of ETag.
 func (s *GetJournalEntryOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetJournalEntryOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetJournalEntryOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetJournalEntryOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -16890,21 +14875,6 @@ func (s *GetJournalEntryOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetJournalEntryOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetJournalEntryOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetJournalEntryOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetJournalEntryOKHeaders) SetResponse(val JournalEntry) {
 	s.Response = val
@@ -16912,33 +14882,27 @@ func (s *GetJournalEntryOKHeaders) SetResponse(val JournalEntry) {
 
 func (*GetJournalEntryOKHeaders) getJournalEntryRes() {}
 
+type GetLegalEntityBadRequest Problem
+
+func (*GetLegalEntityBadRequest) getLegalEntityRes() {}
+
+type GetLegalEntityForbidden Problem
+
+func (*GetLegalEntityForbidden) getLegalEntityRes() {}
+
+type GetLegalEntityNotFound Problem
+
+func (*GetLegalEntityNotFound) getLegalEntityRes() {}
+
 // GetLegalEntityOKHeaders wraps LegalEntity with response headers.
 type GetLegalEntityOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           LegalEntity
+	ETag     OptString
+	Response LegalEntity
 }
 
 // GetETag returns the value of ETag.
 func (s *GetLegalEntityOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetLegalEntityOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetLegalEntityOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetLegalEntityOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -16951,21 +14915,6 @@ func (s *GetLegalEntityOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetLegalEntityOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetLegalEntityOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetLegalEntityOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetLegalEntityOKHeaders) SetResponse(val LegalEntity) {
 	s.Response = val
@@ -16973,33 +14922,39 @@ func (s *GetLegalEntityOKHeaders) SetResponse(val LegalEntity) {
 
 func (*GetLegalEntityOKHeaders) getLegalEntityRes() {}
 
+type GetMatchResultBadRequest Problem
+
+func (*GetMatchResultBadRequest) getMatchResultRes() {}
+
+type GetMatchResultForbidden Problem
+
+func (*GetMatchResultForbidden) getMatchResultRes() {}
+
+type GetMatchResultNotFound Problem
+
+func (*GetMatchResultNotFound) getMatchResultRes() {}
+
+type GetMemoRecordBadRequest Problem
+
+func (*GetMemoRecordBadRequest) getMemoRecordRes() {}
+
+type GetMemoRecordForbidden Problem
+
+func (*GetMemoRecordForbidden) getMemoRecordRes() {}
+
+type GetMemoRecordNotFound Problem
+
+func (*GetMemoRecordNotFound) getMemoRecordRes() {}
+
 // GetMemoRecordOKHeaders wraps MemoRecord with response headers.
 type GetMemoRecordOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           MemoRecord
+	ETag     OptString
+	Response MemoRecord
 }
 
 // GetETag returns the value of ETag.
 func (s *GetMemoRecordOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetMemoRecordOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetMemoRecordOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetMemoRecordOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -17012,21 +14967,6 @@ func (s *GetMemoRecordOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetMemoRecordOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetMemoRecordOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetMemoRecordOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetMemoRecordOKHeaders) SetResponse(val MemoRecord) {
 	s.Response = val
@@ -17034,33 +14974,27 @@ func (s *GetMemoRecordOKHeaders) SetResponse(val MemoRecord) {
 
 func (*GetMemoRecordOKHeaders) getMemoRecordRes() {}
 
+type GetMigrationRunBadRequest Problem
+
+func (*GetMigrationRunBadRequest) getMigrationRunRes() {}
+
+type GetMigrationRunForbidden Problem
+
+func (*GetMigrationRunForbidden) getMigrationRunRes() {}
+
+type GetMigrationRunNotFound Problem
+
+func (*GetMigrationRunNotFound) getMigrationRunRes() {}
+
 // GetMigrationRunOKHeaders wraps MigrationRun with response headers.
 type GetMigrationRunOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           MigrationRun
+	ETag     OptString
+	Response MigrationRun
 }
 
 // GetETag returns the value of ETag.
 func (s *GetMigrationRunOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetMigrationRunOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetMigrationRunOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetMigrationRunOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -17073,21 +15007,6 @@ func (s *GetMigrationRunOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetMigrationRunOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetMigrationRunOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetMigrationRunOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetMigrationRunOKHeaders) SetResponse(val MigrationRun) {
 	s.Response = val
@@ -17095,33 +15014,39 @@ func (s *GetMigrationRunOKHeaders) SetResponse(val MigrationRun) {
 
 func (*GetMigrationRunOKHeaders) getMigrationRunRes() {}
 
+type GetNumberRangeBadRequest Problem
+
+func (*GetNumberRangeBadRequest) getNumberRangeRes() {}
+
+type GetNumberRangeForbidden Problem
+
+func (*GetNumberRangeForbidden) getNumberRangeRes() {}
+
+type GetNumberRangeNotFound Problem
+
+func (*GetNumberRangeNotFound) getNumberRangeRes() {}
+
+type GetOperationBadRequest Problem
+
+func (*GetOperationBadRequest) getOperationRes() {}
+
+type GetOperationForbidden Problem
+
+func (*GetOperationForbidden) getOperationRes() {}
+
+type GetOperationNotFound Problem
+
+func (*GetOperationNotFound) getOperationRes() {}
+
 // GetOperationOKHeaders wraps Operation with response headers.
 type GetOperationOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           Operation
+	ETag     OptString
+	Response Operation
 }
 
 // GetETag returns the value of ETag.
 func (s *GetOperationOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetOperationOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetOperationOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetOperationOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -17134,21 +15059,6 @@ func (s *GetOperationOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetOperationOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetOperationOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetOperationOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetOperationOKHeaders) SetResponse(val Operation) {
 	s.Response = val
@@ -17156,33 +15066,27 @@ func (s *GetOperationOKHeaders) SetResponse(val Operation) {
 
 func (*GetOperationOKHeaders) getOperationRes() {}
 
+type GetOrgUnitBadRequest Problem
+
+func (*GetOrgUnitBadRequest) getOrgUnitRes() {}
+
+type GetOrgUnitForbidden Problem
+
+func (*GetOrgUnitForbidden) getOrgUnitRes() {}
+
+type GetOrgUnitNotFound Problem
+
+func (*GetOrgUnitNotFound) getOrgUnitRes() {}
+
 // GetOrgUnitOKHeaders wraps OrgUnit with response headers.
 type GetOrgUnitOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           OrgUnit
+	ETag     OptString
+	Response OrgUnit
 }
 
 // GetETag returns the value of ETag.
 func (s *GetOrgUnitOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetOrgUnitOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetOrgUnitOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetOrgUnitOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -17195,21 +15099,6 @@ func (s *GetOrgUnitOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetOrgUnitOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetOrgUnitOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetOrgUnitOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetOrgUnitOKHeaders) SetResponse(val OrgUnit) {
 	s.Response = val
@@ -17217,33 +15106,27 @@ func (s *GetOrgUnitOKHeaders) SetResponse(val OrgUnit) {
 
 func (*GetOrgUnitOKHeaders) getOrgUnitRes() {}
 
+type GetParkedJournalEntryBadRequest Problem
+
+func (*GetParkedJournalEntryBadRequest) getParkedJournalEntryRes() {}
+
+type GetParkedJournalEntryForbidden Problem
+
+func (*GetParkedJournalEntryForbidden) getParkedJournalEntryRes() {}
+
+type GetParkedJournalEntryNotFound Problem
+
+func (*GetParkedJournalEntryNotFound) getParkedJournalEntryRes() {}
+
 // GetParkedJournalEntryOKHeaders wraps ParkedJournalEntry with response headers.
 type GetParkedJournalEntryOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           ParkedJournalEntry
+	ETag     OptString
+	Response ParkedJournalEntry
 }
 
 // GetETag returns the value of ETag.
 func (s *GetParkedJournalEntryOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetParkedJournalEntryOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetParkedJournalEntryOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetParkedJournalEntryOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -17256,21 +15139,6 @@ func (s *GetParkedJournalEntryOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetParkedJournalEntryOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetParkedJournalEntryOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetParkedJournalEntryOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetParkedJournalEntryOKHeaders) SetResponse(val ParkedJournalEntry) {
 	s.Response = val
@@ -17278,33 +15146,27 @@ func (s *GetParkedJournalEntryOKHeaders) SetResponse(val ParkedJournalEntry) {
 
 func (*GetParkedJournalEntryOKHeaders) getParkedJournalEntryRes() {}
 
+type GetPartnerChangeBadRequest Problem
+
+func (*GetPartnerChangeBadRequest) getPartnerChangeRes() {}
+
+type GetPartnerChangeForbidden Problem
+
+func (*GetPartnerChangeForbidden) getPartnerChangeRes() {}
+
+type GetPartnerChangeNotFound Problem
+
+func (*GetPartnerChangeNotFound) getPartnerChangeRes() {}
+
 // GetPartnerChangeOKHeaders wraps PartnerChange with response headers.
 type GetPartnerChangeOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           PartnerChange
+	ETag     OptString
+	Response PartnerChange
 }
 
 // GetETag returns the value of ETag.
 func (s *GetPartnerChangeOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetPartnerChangeOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetPartnerChangeOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetPartnerChangeOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -17317,21 +15179,6 @@ func (s *GetPartnerChangeOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetPartnerChangeOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetPartnerChangeOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetPartnerChangeOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetPartnerChangeOKHeaders) SetResponse(val PartnerChange) {
 	s.Response = val
@@ -17339,33 +15186,39 @@ func (s *GetPartnerChangeOKHeaders) SetResponse(val PartnerChange) {
 
 func (*GetPartnerChangeOKHeaders) getPartnerChangeRes() {}
 
+type GetPaymentRunBadRequest Problem
+
+func (*GetPaymentRunBadRequest) getPaymentRunRes() {}
+
+type GetPaymentRunForbidden Problem
+
+func (*GetPaymentRunForbidden) getPaymentRunRes() {}
+
+type GetPaymentRunNotFound Problem
+
+func (*GetPaymentRunNotFound) getPaymentRunRes() {}
+
+type GetPrincipalBadRequest Problem
+
+func (*GetPrincipalBadRequest) getPrincipalRes() {}
+
+type GetPrincipalForbidden Problem
+
+func (*GetPrincipalForbidden) getPrincipalRes() {}
+
+type GetPrincipalNotFound Problem
+
+func (*GetPrincipalNotFound) getPrincipalRes() {}
+
 // GetPrincipalOKHeaders wraps Principal with response headers.
 type GetPrincipalOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           Principal
+	ETag     OptString
+	Response Principal
 }
 
 // GetETag returns the value of ETag.
 func (s *GetPrincipalOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetPrincipalOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetPrincipalOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetPrincipalOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -17378,21 +15231,6 @@ func (s *GetPrincipalOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetPrincipalOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetPrincipalOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetPrincipalOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetPrincipalOKHeaders) SetResponse(val Principal) {
 	s.Response = val
@@ -17400,33 +15238,27 @@ func (s *GetPrincipalOKHeaders) SetResponse(val Principal) {
 
 func (*GetPrincipalOKHeaders) getPrincipalRes() {}
 
+type GetProfitCenterBadRequest Problem
+
+func (*GetProfitCenterBadRequest) getProfitCenterRes() {}
+
+type GetProfitCenterForbidden Problem
+
+func (*GetProfitCenterForbidden) getProfitCenterRes() {}
+
+type GetProfitCenterNotFound Problem
+
+func (*GetProfitCenterNotFound) getProfitCenterRes() {}
+
 // GetProfitCenterOKHeaders wraps ProfitCenter with response headers.
 type GetProfitCenterOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           ProfitCenter
+	ETag     OptString
+	Response ProfitCenter
 }
 
 // GetETag returns the value of ETag.
 func (s *GetProfitCenterOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetProfitCenterOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetProfitCenterOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetProfitCenterOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -17439,21 +15271,6 @@ func (s *GetProfitCenterOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetProfitCenterOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetProfitCenterOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetProfitCenterOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetProfitCenterOKHeaders) SetResponse(val ProfitCenter) {
 	s.Response = val
@@ -17461,33 +15278,31 @@ func (s *GetProfitCenterOKHeaders) SetResponse(val ProfitCenter) {
 
 func (*GetProfitCenterOKHeaders) getProfitCenterRes() {}
 
+type GetPurchaseOrderBadRequest Problem
+
+func (*GetPurchaseOrderBadRequest) getPurchaseOrderRes() {}
+
+type GetPurchaseOrderChangeBadRequest Problem
+
+func (*GetPurchaseOrderChangeBadRequest) getPurchaseOrderChangeRes() {}
+
+type GetPurchaseOrderChangeForbidden Problem
+
+func (*GetPurchaseOrderChangeForbidden) getPurchaseOrderChangeRes() {}
+
+type GetPurchaseOrderChangeNotFound Problem
+
+func (*GetPurchaseOrderChangeNotFound) getPurchaseOrderChangeRes() {}
+
 // GetPurchaseOrderChangeOKHeaders wraps PurchaseOrderChange with response headers.
 type GetPurchaseOrderChangeOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           PurchaseOrderChange
+	ETag     OptString
+	Response PurchaseOrderChange
 }
 
 // GetETag returns the value of ETag.
 func (s *GetPurchaseOrderChangeOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetPurchaseOrderChangeOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetPurchaseOrderChangeOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetPurchaseOrderChangeOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -17500,21 +15315,6 @@ func (s *GetPurchaseOrderChangeOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetPurchaseOrderChangeOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetPurchaseOrderChangeOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetPurchaseOrderChangeOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetPurchaseOrderChangeOKHeaders) SetResponse(val PurchaseOrderChange) {
 	s.Response = val
@@ -17522,33 +15322,23 @@ func (s *GetPurchaseOrderChangeOKHeaders) SetResponse(val PurchaseOrderChange) {
 
 func (*GetPurchaseOrderChangeOKHeaders) getPurchaseOrderChangeRes() {}
 
+type GetPurchaseOrderForbidden Problem
+
+func (*GetPurchaseOrderForbidden) getPurchaseOrderRes() {}
+
+type GetPurchaseOrderNotFound Problem
+
+func (*GetPurchaseOrderNotFound) getPurchaseOrderRes() {}
+
 // GetPurchaseOrderOKHeaders wraps PurchaseOrder with response headers.
 type GetPurchaseOrderOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           PurchaseOrder
+	ETag     OptString
+	Response PurchaseOrder
 }
 
 // GetETag returns the value of ETag.
 func (s *GetPurchaseOrderOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetPurchaseOrderOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetPurchaseOrderOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetPurchaseOrderOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -17561,21 +15351,6 @@ func (s *GetPurchaseOrderOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetPurchaseOrderOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetPurchaseOrderOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetPurchaseOrderOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetPurchaseOrderOKHeaders) SetResponse(val PurchaseOrder) {
 	s.Response = val
@@ -17583,33 +15358,27 @@ func (s *GetPurchaseOrderOKHeaders) SetResponse(val PurchaseOrder) {
 
 func (*GetPurchaseOrderOKHeaders) getPurchaseOrderRes() {}
 
+type GetRecommendationBadRequest Problem
+
+func (*GetRecommendationBadRequest) getRecommendationRes() {}
+
+type GetRecommendationForbidden Problem
+
+func (*GetRecommendationForbidden) getRecommendationRes() {}
+
+type GetRecommendationNotFound Problem
+
+func (*GetRecommendationNotFound) getRecommendationRes() {}
+
 // GetRecommendationOKHeaders wraps Recommendation with response headers.
 type GetRecommendationOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           Recommendation
+	ETag     OptString
+	Response Recommendation
 }
 
 // GetETag returns the value of ETag.
 func (s *GetRecommendationOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetRecommendationOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetRecommendationOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetRecommendationOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -17622,21 +15391,6 @@ func (s *GetRecommendationOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetRecommendationOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetRecommendationOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetRecommendationOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetRecommendationOKHeaders) SetResponse(val Recommendation) {
 	s.Response = val
@@ -17644,33 +15398,27 @@ func (s *GetRecommendationOKHeaders) SetResponse(val Recommendation) {
 
 func (*GetRecommendationOKHeaders) getRecommendationRes() {}
 
+type GetRegressionSuiteBadRequest Problem
+
+func (*GetRegressionSuiteBadRequest) getRegressionSuiteRes() {}
+
+type GetRegressionSuiteForbidden Problem
+
+func (*GetRegressionSuiteForbidden) getRegressionSuiteRes() {}
+
+type GetRegressionSuiteNotFound Problem
+
+func (*GetRegressionSuiteNotFound) getRegressionSuiteRes() {}
+
 // GetRegressionSuiteOKHeaders wraps RegressionSuite with response headers.
 type GetRegressionSuiteOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           RegressionSuite
+	ETag     OptString
+	Response RegressionSuite
 }
 
 // GetETag returns the value of ETag.
 func (s *GetRegressionSuiteOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetRegressionSuiteOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetRegressionSuiteOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetRegressionSuiteOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -17683,21 +15431,6 @@ func (s *GetRegressionSuiteOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetRegressionSuiteOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetRegressionSuiteOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetRegressionSuiteOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetRegressionSuiteOKHeaders) SetResponse(val RegressionSuite) {
 	s.Response = val
@@ -17705,33 +15438,27 @@ func (s *GetRegressionSuiteOKHeaders) SetResponse(val RegressionSuite) {
 
 func (*GetRegressionSuiteOKHeaders) getRegressionSuiteRes() {}
 
+type GetRequisitionBadRequest Problem
+
+func (*GetRequisitionBadRequest) getRequisitionRes() {}
+
+type GetRequisitionForbidden Problem
+
+func (*GetRequisitionForbidden) getRequisitionRes() {}
+
+type GetRequisitionNotFound Problem
+
+func (*GetRequisitionNotFound) getRequisitionRes() {}
+
 // GetRequisitionOKHeaders wraps Requisition with response headers.
 type GetRequisitionOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           Requisition
+	ETag     OptString
+	Response Requisition
 }
 
 // GetETag returns the value of ETag.
 func (s *GetRequisitionOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetRequisitionOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetRequisitionOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetRequisitionOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -17744,21 +15471,6 @@ func (s *GetRequisitionOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetRequisitionOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetRequisitionOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetRequisitionOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetRequisitionOKHeaders) SetResponse(val Requisition) {
 	s.Response = val
@@ -17766,33 +15478,27 @@ func (s *GetRequisitionOKHeaders) SetResponse(val Requisition) {
 
 func (*GetRequisitionOKHeaders) getRequisitionRes() {}
 
+type GetRevaluationRunBadRequest Problem
+
+func (*GetRevaluationRunBadRequest) getRevaluationRunRes() {}
+
+type GetRevaluationRunForbidden Problem
+
+func (*GetRevaluationRunForbidden) getRevaluationRunRes() {}
+
+type GetRevaluationRunNotFound Problem
+
+func (*GetRevaluationRunNotFound) getRevaluationRunRes() {}
+
 // GetRevaluationRunOKHeaders wraps RevaluationRun with response headers.
 type GetRevaluationRunOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           RevaluationRun
+	ETag     OptString
+	Response RevaluationRun
 }
 
 // GetETag returns the value of ETag.
 func (s *GetRevaluationRunOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetRevaluationRunOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetRevaluationRunOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetRevaluationRunOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -17805,21 +15511,6 @@ func (s *GetRevaluationRunOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetRevaluationRunOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetRevaluationRunOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetRevaluationRunOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetRevaluationRunOKHeaders) SetResponse(val RevaluationRun) {
 	s.Response = val
@@ -17827,33 +15518,27 @@ func (s *GetRevaluationRunOKHeaders) SetResponse(val RevaluationRun) {
 
 func (*GetRevaluationRunOKHeaders) getRevaluationRunRes() {}
 
+type GetRoleAssignmentBadRequest Problem
+
+func (*GetRoleAssignmentBadRequest) getRoleAssignmentRes() {}
+
+type GetRoleAssignmentForbidden Problem
+
+func (*GetRoleAssignmentForbidden) getRoleAssignmentRes() {}
+
+type GetRoleAssignmentNotFound Problem
+
+func (*GetRoleAssignmentNotFound) getRoleAssignmentRes() {}
+
 // GetRoleAssignmentOKHeaders wraps RoleAssignment with response headers.
 type GetRoleAssignmentOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           RoleAssignment
+	ETag     OptString
+	Response RoleAssignment
 }
 
 // GetETag returns the value of ETag.
 func (s *GetRoleAssignmentOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetRoleAssignmentOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetRoleAssignmentOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetRoleAssignmentOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -17866,21 +15551,6 @@ func (s *GetRoleAssignmentOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetRoleAssignmentOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetRoleAssignmentOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetRoleAssignmentOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetRoleAssignmentOKHeaders) SetResponse(val RoleAssignment) {
 	s.Response = val
@@ -17888,33 +15558,27 @@ func (s *GetRoleAssignmentOKHeaders) SetResponse(val RoleAssignment) {
 
 func (*GetRoleAssignmentOKHeaders) getRoleAssignmentRes() {}
 
+type GetRoleBadRequest Problem
+
+func (*GetRoleBadRequest) getRoleRes() {}
+
+type GetRoleForbidden Problem
+
+func (*GetRoleForbidden) getRoleRes() {}
+
+type GetRoleNotFound Problem
+
+func (*GetRoleNotFound) getRoleRes() {}
+
 // GetRoleOKHeaders wraps Role with response headers.
 type GetRoleOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           Role
+	ETag     OptString
+	Response Role
 }
 
 // GetETag returns the value of ETag.
 func (s *GetRoleOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetRoleOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetRoleOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetRoleOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -17927,21 +15591,6 @@ func (s *GetRoleOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetRoleOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetRoleOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetRoleOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetRoleOKHeaders) SetResponse(val Role) {
 	s.Response = val
@@ -17949,33 +15598,27 @@ func (s *GetRoleOKHeaders) SetResponse(val Role) {
 
 func (*GetRoleOKHeaders) getRoleRes() {}
 
+type GetRolePermissionBadRequest Problem
+
+func (*GetRolePermissionBadRequest) getRolePermissionRes() {}
+
+type GetRolePermissionForbidden Problem
+
+func (*GetRolePermissionForbidden) getRolePermissionRes() {}
+
+type GetRolePermissionNotFound Problem
+
+func (*GetRolePermissionNotFound) getRolePermissionRes() {}
+
 // GetRolePermissionOKHeaders wraps RolePermission with response headers.
 type GetRolePermissionOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           RolePermission
+	ETag     OptString
+	Response RolePermission
 }
 
 // GetETag returns the value of ETag.
 func (s *GetRolePermissionOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetRolePermissionOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetRolePermissionOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetRolePermissionOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -17988,21 +15631,6 @@ func (s *GetRolePermissionOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetRolePermissionOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetRolePermissionOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetRolePermissionOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetRolePermissionOKHeaders) SetResponse(val RolePermission) {
 	s.Response = val
@@ -18010,12 +15638,21 @@ func (s *GetRolePermissionOKHeaders) SetResponse(val RolePermission) {
 
 func (*GetRolePermissionOKHeaders) getRolePermissionRes() {}
 
+type GetSchemaBadRequest Problem
+
+func (*GetSchemaBadRequest) getSchemaRes() {}
+
+type GetSchemaForbidden Problem
+
+func (*GetSchemaForbidden) getSchemaRes() {}
+
+type GetSchemaNotFound Problem
+
+func (*GetSchemaNotFound) getSchemaRes() {}
+
 // GetSchemaNotModified is response for GetSchema operation.
 type GetSchemaNotModified struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
+	ETag OptString
 }
 
 // GetETag returns the value of ETag.
@@ -18023,70 +15660,34 @@ func (s *GetSchemaNotModified) GetETag() OptString {
 	return s.ETag
 }
 
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetSchemaNotModified) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetSchemaNotModified) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetSchemaNotModified) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
 // SetETag sets the value of ETag.
 func (s *GetSchemaNotModified) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetSchemaNotModified) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetSchemaNotModified) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetSchemaNotModified) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 func (*GetSchemaNotModified) getSchemaRes() {}
+
+type GetSegmentBadRequest Problem
+
+func (*GetSegmentBadRequest) getSegmentRes() {}
+
+type GetSegmentForbidden Problem
+
+func (*GetSegmentForbidden) getSegmentRes() {}
+
+type GetSegmentNotFound Problem
+
+func (*GetSegmentNotFound) getSegmentRes() {}
 
 // GetSegmentOKHeaders wraps Segment with response headers.
 type GetSegmentOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           Segment
+	ETag     OptString
+	Response Segment
 }
 
 // GetETag returns the value of ETag.
 func (s *GetSegmentOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetSegmentOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetSegmentOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetSegmentOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -18099,21 +15700,6 @@ func (s *GetSegmentOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetSegmentOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetSegmentOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetSegmentOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetSegmentOKHeaders) SetResponse(val Segment) {
 	s.Response = val
@@ -18121,33 +15707,27 @@ func (s *GetSegmentOKHeaders) SetResponse(val Segment) {
 
 func (*GetSegmentOKHeaders) getSegmentRes() {}
 
+type GetSodRuleBadRequest Problem
+
+func (*GetSodRuleBadRequest) getSodRuleRes() {}
+
+type GetSodRuleForbidden Problem
+
+func (*GetSodRuleForbidden) getSodRuleRes() {}
+
+type GetSodRuleNotFound Problem
+
+func (*GetSodRuleNotFound) getSodRuleRes() {}
+
 // GetSodRuleOKHeaders wraps SodRule with response headers.
 type GetSodRuleOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           SodRule
+	ETag     OptString
+	Response SodRule
 }
 
 // GetETag returns the value of ETag.
 func (s *GetSodRuleOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetSodRuleOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetSodRuleOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetSodRuleOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -18160,27 +15740,28 @@ func (s *GetSodRuleOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetSodRuleOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetSodRuleOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetSodRuleOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetSodRuleOKHeaders) SetResponse(val SodRule) {
 	s.Response = val
 }
 
 func (*GetSodRuleOKHeaders) getSodRuleRes() {}
+
+type GetSupplierInvoiceBadRequest Problem
+
+func (*GetSupplierInvoiceBadRequest) getSupplierInvoiceRes() {}
+
+type GetSupplierInvoiceDocumentBadRequest Problem
+
+func (*GetSupplierInvoiceDocumentBadRequest) getSupplierInvoiceDocumentRes() {}
+
+type GetSupplierInvoiceDocumentForbidden Problem
+
+func (*GetSupplierInvoiceDocumentForbidden) getSupplierInvoiceDocumentRes() {}
+
+type GetSupplierInvoiceDocumentNotFound Problem
+
+func (*GetSupplierInvoiceDocumentNotFound) getSupplierInvoiceDocumentRes() {}
 
 // The document bytes.
 type GetSupplierInvoiceDocumentOK struct {
@@ -18197,83 +15778,25 @@ func (s GetSupplierInvoiceDocumentOK) Read(p []byte) (n int, err error) {
 	return s.Data.Read(p)
 }
 
-// GetSupplierInvoiceDocumentOKHeaders wraps GetSupplierInvoiceDocumentOK with response headers.
-type GetSupplierInvoiceDocumentOKHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           GetSupplierInvoiceDocumentOK
-}
+func (*GetSupplierInvoiceDocumentOK) getSupplierInvoiceDocumentRes() {}
 
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetSupplierInvoiceDocumentOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
+type GetSupplierInvoiceForbidden Problem
 
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetSupplierInvoiceDocumentOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
+func (*GetSupplierInvoiceForbidden) getSupplierInvoiceRes() {}
 
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetSupplierInvoiceDocumentOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
+type GetSupplierInvoiceNotFound Problem
 
-// GetResponse returns the value of Response.
-func (s *GetSupplierInvoiceDocumentOKHeaders) GetResponse() GetSupplierInvoiceDocumentOK {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetSupplierInvoiceDocumentOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetSupplierInvoiceDocumentOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetSupplierInvoiceDocumentOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *GetSupplierInvoiceDocumentOKHeaders) SetResponse(val GetSupplierInvoiceDocumentOK) {
-	s.Response = val
-}
-
-func (*GetSupplierInvoiceDocumentOKHeaders) getSupplierInvoiceDocumentRes() {}
+func (*GetSupplierInvoiceNotFound) getSupplierInvoiceRes() {}
 
 // GetSupplierInvoiceOKHeaders wraps SupplierInvoice with response headers.
 type GetSupplierInvoiceOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           SupplierInvoice
+	ETag     OptString
+	Response SupplierInvoice
 }
 
 // GetETag returns the value of ETag.
 func (s *GetSupplierInvoiceOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetSupplierInvoiceOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetSupplierInvoiceOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetSupplierInvoiceOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -18286,21 +15809,6 @@ func (s *GetSupplierInvoiceOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetSupplierInvoiceOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetSupplierInvoiceOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetSupplierInvoiceOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetSupplierInvoiceOKHeaders) SetResponse(val SupplierInvoice) {
 	s.Response = val
@@ -18308,33 +15816,27 @@ func (s *GetSupplierInvoiceOKHeaders) SetResponse(val SupplierInvoice) {
 
 func (*GetSupplierInvoiceOKHeaders) getSupplierInvoiceRes() {}
 
+type GetUploadBadRequest Problem
+
+func (*GetUploadBadRequest) getUploadRes() {}
+
+type GetUploadForbidden Problem
+
+func (*GetUploadForbidden) getUploadRes() {}
+
+type GetUploadNotFound Problem
+
+func (*GetUploadNotFound) getUploadRes() {}
+
 // GetUploadOKHeaders wraps Upload with response headers.
 type GetUploadOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           Upload
+	ETag     OptString
+	Response Upload
 }
 
 // GetETag returns the value of ETag.
 func (s *GetUploadOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetUploadOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetUploadOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetUploadOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -18347,21 +15849,6 @@ func (s *GetUploadOKHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetUploadOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetUploadOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetUploadOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GetUploadOKHeaders) SetResponse(val Upload) {
 	s.Response = val
@@ -18369,33 +15856,39 @@ func (s *GetUploadOKHeaders) SetResponse(val Upload) {
 
 func (*GetUploadOKHeaders) getUploadRes() {}
 
+type GetWebhookDeliveryBadRequest Problem
+
+func (*GetWebhookDeliveryBadRequest) getWebhookDeliveryRes() {}
+
+type GetWebhookDeliveryForbidden Problem
+
+func (*GetWebhookDeliveryForbidden) getWebhookDeliveryRes() {}
+
+type GetWebhookDeliveryNotFound Problem
+
+func (*GetWebhookDeliveryNotFound) getWebhookDeliveryRes() {}
+
+type GetWebhookSubscriptionBadRequest Problem
+
+func (*GetWebhookSubscriptionBadRequest) getWebhookSubscriptionRes() {}
+
+type GetWebhookSubscriptionForbidden Problem
+
+func (*GetWebhookSubscriptionForbidden) getWebhookSubscriptionRes() {}
+
+type GetWebhookSubscriptionNotFound Problem
+
+func (*GetWebhookSubscriptionNotFound) getWebhookSubscriptionRes() {}
+
 // GetWebhookSubscriptionOKHeaders wraps WebhookSubscription with response headers.
 type GetWebhookSubscriptionOKHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           WebhookSubscription
+	ETag     OptString
+	Response WebhookSubscription
 }
 
 // GetETag returns the value of ETag.
 func (s *GetWebhookSubscriptionOKHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GetWebhookSubscriptionOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GetWebhookSubscriptionOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GetWebhookSubscriptionOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -18406,21 +15899,6 @@ func (s *GetWebhookSubscriptionOKHeaders) GetResponse() WebhookSubscription {
 // SetETag sets the value of ETag.
 func (s *GetWebhookSubscriptionOKHeaders) SetETag(val OptString) {
 	s.ETag = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GetWebhookSubscriptionOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GetWebhookSubscriptionOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GetWebhookSubscriptionOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -18727,9 +16205,6 @@ type GoodsReceiptHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           GoodsReceipt
 }
 
@@ -18746,21 +16221,6 @@ func (s *GoodsReceiptHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *GoodsReceiptHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GoodsReceiptHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GoodsReceiptHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GoodsReceiptHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -18781,21 +16241,6 @@ func (s *GoodsReceiptHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *GoodsReceiptHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GoodsReceiptHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GoodsReceiptHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GoodsReceiptHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -18941,55 +16386,7 @@ func (s *GoodsReceiptPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// GoodsReceiptPageHeaders wraps GoodsReceiptPage with response headers.
-type GoodsReceiptPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           GoodsReceiptPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GoodsReceiptPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GoodsReceiptPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GoodsReceiptPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *GoodsReceiptPageHeaders) GetResponse() GoodsReceiptPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GoodsReceiptPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GoodsReceiptPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GoodsReceiptPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *GoodsReceiptPageHeaders) SetResponse(val GoodsReceiptPage) {
-	s.Response = val
-}
-
-func (*GoodsReceiptPageHeaders) listGoodsReceiptsRes() {}
+func (*GoodsReceiptPage) listGoodsReceiptsRes() {}
 
 // Options for reversing a goods receipt.
 // Ref: #/components/schemas/GoodsReceiptReverse
@@ -19175,55 +16572,27 @@ func (s *GrIrBalancePage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// GrIrBalancePageHeaders wraps GrIrBalancePage with response headers.
-type GrIrBalancePageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           GrIrBalancePage
-}
+func (*GrIrBalancePage) listGrIrBalancesRes() {}
 
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *GrIrBalancePageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
+type GrantRolePermissionBadRequest Problem
 
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *GrIrBalancePageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
+func (*GrantRolePermissionBadRequest) grantRolePermissionRes() {}
 
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *GrIrBalancePageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
+type GrantRolePermissionForbidden Problem
 
-// GetResponse returns the value of Response.
-func (s *GrIrBalancePageHeaders) GetResponse() GrIrBalancePage {
-	return s.Response
-}
+func (*GrantRolePermissionForbidden) grantRolePermissionRes() {}
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *GrIrBalancePageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
+type GrantRolePermissionNotFound Problem
 
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *GrIrBalancePageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
+func (*GrantRolePermissionNotFound) grantRolePermissionRes() {}
 
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *GrIrBalancePageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
+type GrantRolePermissionPreconditionRequired Problem
 
-// SetResponse sets the value of Response.
-func (s *GrIrBalancePageHeaders) SetResponse(val GrIrBalancePage) {
-	s.Response = val
-}
+func (*GrantRolePermissionPreconditionRequired) grantRolePermissionRes() {}
 
-func (*GrIrBalancePageHeaders) listGrIrBalancesRes() {}
+type GrantRolePermissionUnprocessableEntity Problem
+
+func (*GrantRolePermissionUnprocessableEntity) grantRolePermissionRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/Hierarchy
@@ -19422,9 +16791,6 @@ type HierarchyHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           Hierarchy
 }
 
@@ -19441,21 +16807,6 @@ func (s *HierarchyHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *HierarchyHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *HierarchyHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *HierarchyHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *HierarchyHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -19476,21 +16827,6 @@ func (s *HierarchyHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *HierarchyHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *HierarchyHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *HierarchyHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *HierarchyHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -19772,55 +17108,7 @@ func (s *HierarchyPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// HierarchyPageHeaders wraps HierarchyPage with response headers.
-type HierarchyPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           HierarchyPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *HierarchyPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *HierarchyPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *HierarchyPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *HierarchyPageHeaders) GetResponse() HierarchyPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *HierarchyPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *HierarchyPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *HierarchyPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *HierarchyPageHeaders) SetResponse(val HierarchyPage) {
-	s.Response = val
-}
-
-func (*HierarchyPageHeaders) listHierarchiesRes() {}
+func (*HierarchyPage) listHierarchiesRes() {}
 
 // Where a center goes in the hierarchy.
 // Ref: #/components/schemas/HierarchyPlace
@@ -20015,31 +17303,13 @@ func (s *HierarchyTree) SetNodes(val []HierarchyNode) {
 
 // HierarchyTreeHeaders wraps HierarchyTree with response headers.
 type HierarchyTreeHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           HierarchyTree
+	ETag     OptString
+	Response HierarchyTree
 }
 
 // GetETag returns the value of ETag.
 func (s *HierarchyTreeHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *HierarchyTreeHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *HierarchyTreeHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *HierarchyTreeHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -20052,21 +17322,6 @@ func (s *HierarchyTreeHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *HierarchyTreeHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *HierarchyTreeHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *HierarchyTreeHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *HierarchyTreeHeaders) SetResponse(val HierarchyTree) {
 	s.Response = val
@@ -20074,6 +17329,30 @@ func (s *HierarchyTreeHeaders) SetResponse(val HierarchyTree) {
 
 func (*HierarchyTreeHeaders) getHierarchyNodeRes() {}
 func (*HierarchyTreeHeaders) getHierarchyRes()     {}
+
+type HoldSupplierInvoiceBadRequest Problem
+
+func (*HoldSupplierInvoiceBadRequest) holdSupplierInvoiceRes() {}
+
+type HoldSupplierInvoiceForbidden Problem
+
+func (*HoldSupplierInvoiceForbidden) holdSupplierInvoiceRes() {}
+
+type HoldSupplierInvoiceNotFound Problem
+
+func (*HoldSupplierInvoiceNotFound) holdSupplierInvoiceRes() {}
+
+type HoldSupplierInvoicePreconditionFailed Problem
+
+func (*HoldSupplierInvoicePreconditionFailed) holdSupplierInvoiceRes() {}
+
+type HoldSupplierInvoicePreconditionRequired Problem
+
+func (*HoldSupplierInvoicePreconditionRequired) holdSupplierInvoiceRes() {}
+
+type HoldSupplierInvoiceUnprocessableEntity Problem
+
+func (*HoldSupplierInvoiceUnprocessableEntity) holdSupplierInvoiceRes() {}
 
 // A house bank of a company (SAP T012K), from the configuration (`companies[].house_bank(s)`,
 // ADR-0038).
@@ -20197,63 +17476,31 @@ func (s *HouseBankPage) SetNextPageToken(val OptString) {
 	s.NextPageToken = val
 }
 
-// HouseBankPageHeaders wraps HouseBankPage with response headers.
-type HouseBankPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           HouseBankPage
-}
+func (*HouseBankPage) listHouseBanksRes() {}
 
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *HouseBankPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
+type ImportBankStatementsBadRequest Problem
 
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *HouseBankPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *HouseBankPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *HouseBankPageHeaders) GetResponse() HouseBankPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *HouseBankPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *HouseBankPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *HouseBankPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *HouseBankPageHeaders) SetResponse(val HouseBankPage) {
-	s.Response = val
-}
-
-func (*HouseBankPageHeaders) listHouseBanksRes() {}
+func (*ImportBankStatementsBadRequest) importBankStatementsRes() {}
 
 type ImportBankStatementsCreated BankStatementImportHeaders
 
 func (*ImportBankStatementsCreated) importBankStatementsRes() {}
 
+type ImportBankStatementsForbidden Problem
+
+func (*ImportBankStatementsForbidden) importBankStatementsRes() {}
+
 type ImportBankStatementsOK BankStatementImportHeaders
 
 func (*ImportBankStatementsOK) importBankStatementsRes() {}
+
+type ImportBankStatementsPreconditionRequired Problem
+
+func (*ImportBankStatementsPreconditionRequired) importBankStatementsRes() {}
+
+type ImportBankStatementsUnprocessableEntity Problem
+
+func (*ImportBankStatementsUnprocessableEntity) importBankStatementsRes() {}
 
 // Payment terms frozen when a document posted (T36b), as SAP keeps ZTERM, ZFBDT and ZBD1T..ZBD3T: a
 // later change to the payment term changes neither the net due date nor the discounts.
@@ -20799,9 +18046,6 @@ type JournalEntryHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           JournalEntry
 }
 
@@ -20818,21 +18062,6 @@ func (s *JournalEntryHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *JournalEntryHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *JournalEntryHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *JournalEntryHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *JournalEntryHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -20853,21 +18082,6 @@ func (s *JournalEntryHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *JournalEntryHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *JournalEntryHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *JournalEntryHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *JournalEntryHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -20919,55 +18133,7 @@ func (s *JournalEntryPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// JournalEntryPageHeaders wraps JournalEntryPage with response headers.
-type JournalEntryPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           JournalEntryPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *JournalEntryPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *JournalEntryPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *JournalEntryPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *JournalEntryPageHeaders) GetResponse() JournalEntryPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *JournalEntryPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *JournalEntryPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *JournalEntryPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *JournalEntryPageHeaders) SetResponse(val JournalEntryPage) {
-	s.Response = val
-}
-
-func (*JournalEntryPageHeaders) listJournalEntriesRes() {}
+func (*JournalEntryPage) listJournalEntriesRes() {}
 
 // Options for a reversal.
 // Ref: #/components/schemas/JournalEntryReverse
@@ -21789,55 +18955,7 @@ func (s *LedgerGroupPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// LedgerGroupPageHeaders wraps LedgerGroupPage with response headers.
-type LedgerGroupPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           LedgerGroupPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *LedgerGroupPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *LedgerGroupPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *LedgerGroupPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *LedgerGroupPageHeaders) GetResponse() LedgerGroupPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *LedgerGroupPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *LedgerGroupPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *LedgerGroupPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *LedgerGroupPageHeaders) SetResponse(val LedgerGroupPage) {
-	s.Response = val
-}
-
-func (*LedgerGroupPageHeaders) listLedgerGroupsRes() {}
+func (*LedgerGroupPage) listLedgerGroupsRes() {}
 
 // One page of ledgers.
 // Ref: #/components/schemas/LedgerPage
@@ -21881,55 +18999,7 @@ func (s *LedgerPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// LedgerPageHeaders wraps LedgerPage with response headers.
-type LedgerPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           LedgerPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *LedgerPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *LedgerPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *LedgerPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *LedgerPageHeaders) GetResponse() LedgerPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *LedgerPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *LedgerPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *LedgerPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *LedgerPageHeaders) SetResponse(val LedgerPage) {
-	s.Response = val
-}
-
-func (*LedgerPageHeaders) listLedgersRes() {}
+func (*LedgerPage) listLedgersRes() {}
 
 // A journal line of an entry posted in one of two ledgers and not in the other; amounts are signed,
 // debit positive.
@@ -22086,55 +19156,7 @@ func (s *LedgerReconciliationEntryPage) SetNextPageToken(val OptString) {
 	s.NextPageToken = val
 }
 
-// LedgerReconciliationEntryPageHeaders wraps LedgerReconciliationEntryPage with response headers.
-type LedgerReconciliationEntryPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           LedgerReconciliationEntryPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *LedgerReconciliationEntryPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *LedgerReconciliationEntryPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *LedgerReconciliationEntryPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *LedgerReconciliationEntryPageHeaders) GetResponse() LedgerReconciliationEntryPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *LedgerReconciliationEntryPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *LedgerReconciliationEntryPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *LedgerReconciliationEntryPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *LedgerReconciliationEntryPageHeaders) SetResponse(val LedgerReconciliationEntryPage) {
-	s.Response = val
-}
-
-func (*LedgerReconciliationEntryPageHeaders) listLedgerReconciliationEntriesRes() {}
+func (*LedgerReconciliationEntryPage) listLedgerReconciliationEntriesRes() {}
 
 // One page of the differences between two ledgers, with each ledger's trial balance check.
 // Ref: #/components/schemas/LedgerReconciliationPage
@@ -22202,55 +19224,7 @@ func (s *LedgerReconciliationPage) SetNextPageToken(val OptString) {
 	s.NextPageToken = val
 }
 
-// LedgerReconciliationPageHeaders wraps LedgerReconciliationPage with response headers.
-type LedgerReconciliationPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           LedgerReconciliationPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *LedgerReconciliationPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *LedgerReconciliationPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *LedgerReconciliationPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *LedgerReconciliationPageHeaders) GetResponse() LedgerReconciliationPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *LedgerReconciliationPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *LedgerReconciliationPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *LedgerReconciliationPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *LedgerReconciliationPageHeaders) SetResponse(val LedgerReconciliationPage) {
-	s.Response = val
-}
-
-func (*LedgerReconciliationPageHeaders) listLedgerReconciliationRes() {}
+func (*LedgerReconciliationPage) listLedgerReconciliationRes() {}
 
 // One ledger's trial balance check: its debits and credits in local and group currency, which net to
 // zero.
@@ -22575,9 +19549,6 @@ type LegalEntityHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           LegalEntity
 }
 
@@ -22594,21 +19565,6 @@ func (s *LegalEntityHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *LegalEntityHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *LegalEntityHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *LegalEntityHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *LegalEntityHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -22629,21 +19585,6 @@ func (s *LegalEntityHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *LegalEntityHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *LegalEntityHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *LegalEntityHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *LegalEntityHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -22695,55 +19636,7 @@ func (s *LegalEntityPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// LegalEntityPageHeaders wraps LegalEntityPage with response headers.
-type LegalEntityPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           LegalEntityPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *LegalEntityPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *LegalEntityPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *LegalEntityPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *LegalEntityPageHeaders) GetResponse() LegalEntityPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *LegalEntityPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *LegalEntityPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *LegalEntityPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *LegalEntityPageHeaders) SetResponse(val LegalEntityPage) {
-	s.Response = val
-}
-
-func (*LegalEntityPageHeaders) listLegalEntitiesRes() {}
+func (*LegalEntityPage) listLegalEntitiesRes() {}
 
 // Merge patch of a legal entity. Code, country and currency are immutable.
 // Ref: #/components/schemas/LegalEntityUpdate
@@ -22774,13 +19667,594 @@ func (s *LegalEntityUpdate) SetExtensions(val OptExtensions) {
 	s.Extensions = val
 }
 
+type ListAccountsBadRequest Problem
+
+func (*ListAccountsBadRequest) listAccountsRes() {}
+
+type ListAccountsForbidden Problem
+
+func (*ListAccountsForbidden) listAccountsRes() {}
+
+type ListAgentSessionsBadRequest Problem
+
+func (*ListAgentSessionsBadRequest) listAgentSessionsRes() {}
+
+type ListAgentSessionsForbidden Problem
+
+func (*ListAgentSessionsForbidden) listAgentSessionsRes() {}
+
+type ListAgentToolCallsBadRequest Problem
+
+func (*ListAgentToolCallsBadRequest) listAgentToolCallsRes() {}
+
+type ListAgentToolCallsForbidden Problem
+
+func (*ListAgentToolCallsForbidden) listAgentToolCallsRes() {}
+
+type ListAgentToolCallsNotFound Problem
+
+func (*ListAgentToolCallsNotFound) listAgentToolCallsRes() {}
+
+type ListApprovalRequestsBadRequest Problem
+
+func (*ListApprovalRequestsBadRequest) listApprovalRequestsRes() {}
+
+type ListApprovalRequestsForbidden Problem
+
+func (*ListApprovalRequestsForbidden) listApprovalRequestsRes() {}
+
+type ListAuditEventsBadRequest Problem
+
+func (*ListAuditEventsBadRequest) listAuditEventsRes() {}
+
+type ListAuditEventsForbidden Problem
+
+func (*ListAuditEventsForbidden) listAuditEventsRes() {}
+
+type ListBalancesBadRequest Problem
+
+func (*ListBalancesBadRequest) listBalancesRes() {}
+
+type ListBalancesForbidden Problem
+
+func (*ListBalancesForbidden) listBalancesRes() {}
+
+type ListBankAccountsBadRequest Problem
+
+func (*ListBankAccountsBadRequest) listBankAccountsRes() {}
+
+type ListBankAccountsForbidden Problem
+
+func (*ListBankAccountsForbidden) listBankAccountsRes() {}
+
+type ListBankAccountsNotFound Problem
+
+func (*ListBankAccountsNotFound) listBankAccountsRes() {}
+
+type ListBankFilesBadRequest Problem
+
+func (*ListBankFilesBadRequest) listBankFilesRes() {}
+
+type ListBankFilesForbidden Problem
+
+func (*ListBankFilesForbidden) listBankFilesRes() {}
+
+type ListBankStatementMatchesBadRequest Problem
+
+func (*ListBankStatementMatchesBadRequest) listBankStatementMatchesRes() {}
+
+type ListBankStatementMatchesForbidden Problem
+
+func (*ListBankStatementMatchesForbidden) listBankStatementMatchesRes() {}
+
+type ListBankStatementMatchesNotFound Problem
+
+func (*ListBankStatementMatchesNotFound) listBankStatementMatchesRes() {}
+
+type ListBankStatementsBadRequest Problem
+
+func (*ListBankStatementsBadRequest) listBankStatementsRes() {}
+
+type ListBankStatementsForbidden Problem
+
+func (*ListBankStatementsForbidden) listBankStatementsRes() {}
+
+type ListBusinessPartnersBadRequest Problem
+
+func (*ListBusinessPartnersBadRequest) listBusinessPartnersRes() {}
+
+type ListBusinessPartnersForbidden Problem
+
+func (*ListBusinessPartnersForbidden) listBusinessPartnersRes() {}
+
+type ListCenterChangesBadRequest Problem
+
+func (*ListCenterChangesBadRequest) listCenterChangesRes() {}
+
+type ListCenterChangesForbidden Problem
+
+func (*ListCenterChangesForbidden) listCenterChangesRes() {}
+
+type ListChangeRequestsBadRequest Problem
+
+func (*ListChangeRequestsBadRequest) listChangeRequestsRes() {}
+
+type ListChangeRequestsForbidden Problem
+
+func (*ListChangeRequestsForbidden) listChangeRequestsRes() {}
+
+type ListClearingsBadRequest Problem
+
+func (*ListClearingsBadRequest) listClearingsRes() {}
+
+type ListClearingsForbidden Problem
+
+func (*ListClearingsForbidden) listClearingsRes() {}
+
+type ListCompanyAccessBadRequest Problem
+
+func (*ListCompanyAccessBadRequest) listCompanyAccessRes() {}
+
+type ListCompanyAccessForbidden Problem
+
+func (*ListCompanyAccessForbidden) listCompanyAccessRes() {}
+
+type ListConfigVersionsBadRequest Problem
+
+func (*ListConfigVersionsBadRequest) listConfigVersionsRes() {}
+
+type ListConfigVersionsForbidden Problem
+
+func (*ListConfigVersionsForbidden) listConfigVersionsRes() {}
+
+type ListConnectorsBadRequest Problem
+
+func (*ListConnectorsBadRequest) listConnectorsRes() {}
+
+type ListConnectorsForbidden Problem
+
+func (*ListConnectorsForbidden) listConnectorsRes() {}
+
+type ListContractsBadRequest Problem
+
+func (*ListContractsBadRequest) listContractsRes() {}
+
+type ListContractsForbidden Problem
+
+func (*ListContractsForbidden) listContractsRes() {}
+
+type ListCostCenterBalancesBadRequest Problem
+
+func (*ListCostCenterBalancesBadRequest) listCostCenterBalancesRes() {}
+
+type ListCostCenterBalancesForbidden Problem
+
+func (*ListCostCenterBalancesForbidden) listCostCenterBalancesRes() {}
+
+type ListCostCenterPathsBadRequest Problem
+
+func (*ListCostCenterPathsBadRequest) listCostCenterPathsRes() {}
+
+type ListCostCenterPathsForbidden Problem
+
+func (*ListCostCenterPathsForbidden) listCostCenterPathsRes() {}
+
+type ListCostCenterPathsNotFound Problem
+
+func (*ListCostCenterPathsNotFound) listCostCenterPathsRes() {}
+
+type ListCostCentersBadRequest Problem
+
+func (*ListCostCentersBadRequest) listCostCentersRes() {}
+
+type ListCostCentersForbidden Problem
+
+func (*ListCostCentersForbidden) listCostCentersRes() {}
+
+type ListCountryPacksBadRequest Problem
+
+func (*ListCountryPacksBadRequest) listCountryPacksRes() {}
+
+type ListCountryPacksForbidden Problem
+
+func (*ListCountryPacksForbidden) listCountryPacksRes() {}
+
+type ListDownPaymentRequestsBadRequest Problem
+
+func (*ListDownPaymentRequestsBadRequest) listDownPaymentRequestsRes() {}
+
+type ListDownPaymentRequestsForbidden Problem
+
+func (*ListDownPaymentRequestsForbidden) listDownPaymentRequestsRes() {}
+
+type ListExchangeRatesBadRequest Problem
+
+func (*ListExchangeRatesBadRequest) listExchangeRatesRes() {}
+
+type ListExchangeRatesForbidden Problem
+
+func (*ListExchangeRatesForbidden) listExchangeRatesRes() {}
+
+type ListFiscalPeriodsBadRequest Problem
+
+func (*ListFiscalPeriodsBadRequest) listFiscalPeriodsRes() {}
+
+type ListFiscalPeriodsForbidden Problem
+
+func (*ListFiscalPeriodsForbidden) listFiscalPeriodsRes() {}
+
+type ListGoodsReceiptsBadRequest Problem
+
+func (*ListGoodsReceiptsBadRequest) listGoodsReceiptsRes() {}
+
+type ListGoodsReceiptsForbidden Problem
+
+func (*ListGoodsReceiptsForbidden) listGoodsReceiptsRes() {}
+
+type ListGrIrBalancesBadRequest Problem
+
+func (*ListGrIrBalancesBadRequest) listGrIrBalancesRes() {}
+
+type ListGrIrBalancesForbidden Problem
+
+func (*ListGrIrBalancesForbidden) listGrIrBalancesRes() {}
+
+type ListHierarchiesBadRequest Problem
+
+func (*ListHierarchiesBadRequest) listHierarchiesRes() {}
+
+type ListHierarchiesForbidden Problem
+
+func (*ListHierarchiesForbidden) listHierarchiesRes() {}
+
+type ListHouseBanksBadRequest Problem
+
+func (*ListHouseBanksBadRequest) listHouseBanksRes() {}
+
+type ListHouseBanksForbidden Problem
+
+func (*ListHouseBanksForbidden) listHouseBanksRes() {}
+
+type ListJournalEntriesBadRequest Problem
+
+func (*ListJournalEntriesBadRequest) listJournalEntriesRes() {}
+
+type ListJournalEntriesForbidden Problem
+
+func (*ListJournalEntriesForbidden) listJournalEntriesRes() {}
+
+type ListLedgerGroupsBadRequest Problem
+
+func (*ListLedgerGroupsBadRequest) listLedgerGroupsRes() {}
+
+type ListLedgerGroupsForbidden Problem
+
+func (*ListLedgerGroupsForbidden) listLedgerGroupsRes() {}
+
+type ListLedgerReconciliationBadRequest Problem
+
+func (*ListLedgerReconciliationBadRequest) listLedgerReconciliationRes() {}
+
+type ListLedgerReconciliationEntriesBadRequest Problem
+
+func (*ListLedgerReconciliationEntriesBadRequest) listLedgerReconciliationEntriesRes() {}
+
+type ListLedgerReconciliationEntriesForbidden Problem
+
+func (*ListLedgerReconciliationEntriesForbidden) listLedgerReconciliationEntriesRes() {}
+
+type ListLedgerReconciliationForbidden Problem
+
+func (*ListLedgerReconciliationForbidden) listLedgerReconciliationRes() {}
+
+type ListLedgersBadRequest Problem
+
+func (*ListLedgersBadRequest) listLedgersRes() {}
+
+type ListLedgersForbidden Problem
+
+func (*ListLedgersForbidden) listLedgersRes() {}
+
+type ListLegalEntitiesBadRequest Problem
+
+func (*ListLegalEntitiesBadRequest) listLegalEntitiesRes() {}
+
+type ListLegalEntitiesForbidden Problem
+
+func (*ListLegalEntitiesForbidden) listLegalEntitiesRes() {}
+
+type ListMatchResultsBadRequest Problem
+
+func (*ListMatchResultsBadRequest) listMatchResultsRes() {}
+
+type ListMatchResultsForbidden Problem
+
+func (*ListMatchResultsForbidden) listMatchResultsRes() {}
+
+type ListMatchResultsNotFound Problem
+
+func (*ListMatchResultsNotFound) listMatchResultsRes() {}
+
+type ListMemoRecordsBadRequest Problem
+
+func (*ListMemoRecordsBadRequest) listMemoRecordsRes() {}
+
+type ListMemoRecordsForbidden Problem
+
+func (*ListMemoRecordsForbidden) listMemoRecordsRes() {}
+
+type ListMigrationRunsBadRequest Problem
+
+func (*ListMigrationRunsBadRequest) listMigrationRunsRes() {}
+
+type ListMigrationRunsForbidden Problem
+
+func (*ListMigrationRunsForbidden) listMigrationRunsRes() {}
+
+type ListNumberRangesBadRequest Problem
+
+func (*ListNumberRangesBadRequest) listNumberRangesRes() {}
+
+type ListNumberRangesForbidden Problem
+
+func (*ListNumberRangesForbidden) listNumberRangesRes() {}
+
+type ListOpenItemsBadRequest Problem
+
+func (*ListOpenItemsBadRequest) listOpenItemsRes() {}
+
+type ListOpenItemsForbidden Problem
+
+func (*ListOpenItemsForbidden) listOpenItemsRes() {}
+
+type ListOperationsBadRequest Problem
+
+func (*ListOperationsBadRequest) listOperationsRes() {}
+
+type ListOperationsForbidden Problem
+
+func (*ListOperationsForbidden) listOperationsRes() {}
+
+type ListOrgUnitsBadRequest Problem
+
+func (*ListOrgUnitsBadRequest) listOrgUnitsRes() {}
+
+type ListOrgUnitsForbidden Problem
+
+func (*ListOrgUnitsForbidden) listOrgUnitsRes() {}
+
+type ListParkedJournalEntriesBadRequest Problem
+
+func (*ListParkedJournalEntriesBadRequest) listParkedJournalEntriesRes() {}
+
+type ListParkedJournalEntriesForbidden Problem
+
+func (*ListParkedJournalEntriesForbidden) listParkedJournalEntriesRes() {}
+
+type ListPartnerChangesBadRequest Problem
+
+func (*ListPartnerChangesBadRequest) listPartnerChangesRes() {}
+
+type ListPartnerChangesForbidden Problem
+
+func (*ListPartnerChangesForbidden) listPartnerChangesRes() {}
+
+type ListPaymentExclusionsBadRequest Problem
+
+func (*ListPaymentExclusionsBadRequest) listPaymentExclusionsRes() {}
+
+type ListPaymentExclusionsForbidden Problem
+
+func (*ListPaymentExclusionsForbidden) listPaymentExclusionsRes() {}
+
+type ListPaymentExclusionsNotFound Problem
+
+func (*ListPaymentExclusionsNotFound) listPaymentExclusionsRes() {}
+
+type ListPaymentRunsBadRequest Problem
+
+func (*ListPaymentRunsBadRequest) listPaymentRunsRes() {}
+
+type ListPaymentRunsForbidden Problem
+
+func (*ListPaymentRunsForbidden) listPaymentRunsRes() {}
+
+type ListPaymentsBadRequest Problem
+
+func (*ListPaymentsBadRequest) listPaymentsRes() {}
+
+type ListPaymentsForbidden Problem
+
+func (*ListPaymentsForbidden) listPaymentsRes() {}
+
+type ListPaymentsNotFound Problem
+
+func (*ListPaymentsNotFound) listPaymentsRes() {}
+
+type ListPrincipalNamesBadRequest Problem
+
+func (*ListPrincipalNamesBadRequest) listPrincipalNamesRes() {}
+
+type ListPrincipalNamesForbidden Problem
+
+func (*ListPrincipalNamesForbidden) listPrincipalNamesRes() {}
+
+type ListPrincipalsBadRequest Problem
+
+func (*ListPrincipalsBadRequest) listPrincipalsRes() {}
+
+type ListPrincipalsForbidden Problem
+
+func (*ListPrincipalsForbidden) listPrincipalsRes() {}
+
+type ListProfitCenterBalancesBadRequest Problem
+
+func (*ListProfitCenterBalancesBadRequest) listProfitCenterBalancesRes() {}
+
+type ListProfitCenterBalancesForbidden Problem
+
+func (*ListProfitCenterBalancesForbidden) listProfitCenterBalancesRes() {}
+
+type ListProfitCenterPathsBadRequest Problem
+
+func (*ListProfitCenterPathsBadRequest) listProfitCenterPathsRes() {}
+
+type ListProfitCenterPathsForbidden Problem
+
+func (*ListProfitCenterPathsForbidden) listProfitCenterPathsRes() {}
+
+type ListProfitCenterPathsNotFound Problem
+
+func (*ListProfitCenterPathsNotFound) listProfitCenterPathsRes() {}
+
+type ListProfitCentersBadRequest Problem
+
+func (*ListProfitCentersBadRequest) listProfitCentersRes() {}
+
+type ListProfitCentersForbidden Problem
+
+func (*ListProfitCentersForbidden) listProfitCentersRes() {}
+
+type ListPurchaseOrderChangesBadRequest Problem
+
+func (*ListPurchaseOrderChangesBadRequest) listPurchaseOrderChangesRes() {}
+
+type ListPurchaseOrderChangesForbidden Problem
+
+func (*ListPurchaseOrderChangesForbidden) listPurchaseOrderChangesRes() {}
+
+type ListPurchaseOrderChangesNotFound Problem
+
+func (*ListPurchaseOrderChangesNotFound) listPurchaseOrderChangesRes() {}
+
+type ListPurchaseOrdersBadRequest Problem
+
+func (*ListPurchaseOrdersBadRequest) listPurchaseOrdersRes() {}
+
+type ListPurchaseOrdersForbidden Problem
+
+func (*ListPurchaseOrdersForbidden) listPurchaseOrdersRes() {}
+
+type ListRecommendationsBadRequest Problem
+
+func (*ListRecommendationsBadRequest) listRecommendationsRes() {}
+
+type ListRecommendationsForbidden Problem
+
+func (*ListRecommendationsForbidden) listRecommendationsRes() {}
+
+type ListRegressionSuitesBadRequest Problem
+
+func (*ListRegressionSuitesBadRequest) listRegressionSuitesRes() {}
+
+type ListRegressionSuitesForbidden Problem
+
+func (*ListRegressionSuitesForbidden) listRegressionSuitesRes() {}
+
+type ListRequisitionsBadRequest Problem
+
+func (*ListRequisitionsBadRequest) listRequisitionsRes() {}
+
+type ListRequisitionsForbidden Problem
+
+func (*ListRequisitionsForbidden) listRequisitionsRes() {}
+
+type ListRevaluationRunsBadRequest Problem
+
+func (*ListRevaluationRunsBadRequest) listRevaluationRunsRes() {}
+
+type ListRevaluationRunsForbidden Problem
+
+func (*ListRevaluationRunsForbidden) listRevaluationRunsRes() {}
+
+type ListRoleAssignmentsBadRequest Problem
+
+func (*ListRoleAssignmentsBadRequest) listRoleAssignmentsRes() {}
+
+type ListRoleAssignmentsForbidden Problem
+
+func (*ListRoleAssignmentsForbidden) listRoleAssignmentsRes() {}
+
+type ListRolePermissionsBadRequest Problem
+
+func (*ListRolePermissionsBadRequest) listRolePermissionsRes() {}
+
+type ListRolePermissionsForbidden Problem
+
+func (*ListRolePermissionsForbidden) listRolePermissionsRes() {}
+
+type ListRolePermissionsNotFound Problem
+
+func (*ListRolePermissionsNotFound) listRolePermissionsRes() {}
+
+type ListRolesBadRequest Problem
+
+func (*ListRolesBadRequest) listRolesRes() {}
+
+type ListRolesForbidden Problem
+
+func (*ListRolesForbidden) listRolesRes() {}
+
+type ListSegmentsBadRequest Problem
+
+func (*ListSegmentsBadRequest) listSegmentsRes() {}
+
+type ListSegmentsForbidden Problem
+
+func (*ListSegmentsForbidden) listSegmentsRes() {}
+
+type ListSodRulesBadRequest Problem
+
+func (*ListSodRulesBadRequest) listSodRulesRes() {}
+
+type ListSodRulesForbidden Problem
+
+func (*ListSodRulesForbidden) listSodRulesRes() {}
+
+type ListSupplierInvoicesBadRequest Problem
+
+func (*ListSupplierInvoicesBadRequest) listSupplierInvoicesRes() {}
+
+type ListSupplierInvoicesForbidden Problem
+
+func (*ListSupplierInvoicesForbidden) listSupplierInvoicesRes() {}
+
+type ListWebhookDeliveriesBadRequest Problem
+
+func (*ListWebhookDeliveriesBadRequest) listWebhookDeliveriesRes() {}
+
+type ListWebhookDeliveriesForbidden Problem
+
+func (*ListWebhookDeliveriesForbidden) listWebhookDeliveriesRes() {}
+
+type ListWebhookDeliveriesNotFound Problem
+
+func (*ListWebhookDeliveriesNotFound) listWebhookDeliveriesRes() {}
+
+type ListWebhookSubscriptionsBadRequest Problem
+
+func (*ListWebhookSubscriptionsBadRequest) listWebhookSubscriptionsRes() {}
+
+type ListWebhookSubscriptionsForbidden Problem
+
+func (*ListWebhookSubscriptionsForbidden) listWebhookSubscriptionsRes() {}
+
+type LockCostCenterBadRequest Problem
+
+func (*LockCostCenterBadRequest) lockCostCenterRes() {}
+
+type LockCostCenterForbidden Problem
+
+func (*LockCostCenterForbidden) lockCostCenterRes() {}
+
+type LockCostCenterNotFound Problem
+
+func (*LockCostCenterNotFound) lockCostCenterRes() {}
+
 // LockCostCenterOKHeaders wraps CenterChange with response headers.
 type LockCostCenterOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           CenterChange
 }
 
@@ -22792,21 +20266,6 @@ func (s *LockCostCenterOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *LockCostCenterOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *LockCostCenterOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *LockCostCenterOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *LockCostCenterOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -22822,21 +20281,6 @@ func (s *LockCostCenterOKHeaders) SetETag(val OptString) {
 // SetIdempotentReplayed sets the value of IdempotentReplayed.
 func (s *LockCostCenterOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *LockCostCenterOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *LockCostCenterOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *LockCostCenterOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -22857,13 +20301,106 @@ func (*LockCostCenterOKHeaders) redateProfitCenterRes()  {}
 func (*LockCostCenterOKHeaders) removeHierarchyNodeRes() {}
 func (*LockCostCenterOKHeaders) renameHierarchyNodeRes() {}
 
+type LockCostCenterPreconditionFailed Problem
+
+func (*LockCostCenterPreconditionFailed) lockCostCenterRes() {}
+
+type LockCostCenterPreconditionRequired Problem
+
+func (*LockCostCenterPreconditionRequired) lockCostCenterRes() {}
+
+type LockCostCenterUnprocessableEntity Problem
+
+func (*LockCostCenterUnprocessableEntity) lockCostCenterRes() {}
+
+type LockFiscalPeriodBadRequest Problem
+
+func (*LockFiscalPeriodBadRequest) lockFiscalPeriodRes() {}
+
+type LockFiscalPeriodForbidden Problem
+
+func (*LockFiscalPeriodForbidden) lockFiscalPeriodRes() {}
+
+type LockFiscalPeriodNotFound Problem
+
+func (*LockFiscalPeriodNotFound) lockFiscalPeriodRes() {}
+
+type LockFiscalPeriodPreconditionFailed Problem
+
+func (*LockFiscalPeriodPreconditionFailed) lockFiscalPeriodRes() {}
+
+type LockFiscalPeriodPreconditionRequired Problem
+
+func (*LockFiscalPeriodPreconditionRequired) lockFiscalPeriodRes() {}
+
+type LockFiscalPeriodUnprocessableEntity Problem
+
+func (*LockFiscalPeriodUnprocessableEntity) lockFiscalPeriodRes() {}
+
+type LockProfitCenterBadRequest Problem
+
+func (*LockProfitCenterBadRequest) lockProfitCenterRes() {}
+
+type LockProfitCenterForbidden Problem
+
+func (*LockProfitCenterForbidden) lockProfitCenterRes() {}
+
+type LockProfitCenterNotFound Problem
+
+func (*LockProfitCenterNotFound) lockProfitCenterRes() {}
+
+type LockProfitCenterPreconditionFailed Problem
+
+func (*LockProfitCenterPreconditionFailed) lockProfitCenterRes() {}
+
+type LockProfitCenterPreconditionRequired Problem
+
+func (*LockProfitCenterPreconditionRequired) lockProfitCenterRes() {}
+
+type LockProfitCenterUnprocessableEntity Problem
+
+func (*LockProfitCenterUnprocessableEntity) lockProfitCenterRes() {}
+
+type MatchBankStatementBadRequest Problem
+
+func (*MatchBankStatementBadRequest) matchBankStatementRes() {}
+
+type MatchBankStatementForbidden Problem
+
+func (*MatchBankStatementForbidden) matchBankStatementRes() {}
+
+type MatchBankStatementLineBadRequest Problem
+
+func (*MatchBankStatementLineBadRequest) matchBankStatementLineRes() {}
+
+type MatchBankStatementLineForbidden Problem
+
+func (*MatchBankStatementLineForbidden) matchBankStatementLineRes() {}
+
+type MatchBankStatementLineNotFound Problem
+
+func (*MatchBankStatementLineNotFound) matchBankStatementLineRes() {}
+
+type MatchBankStatementLinePreconditionFailed Problem
+
+func (*MatchBankStatementLinePreconditionFailed) matchBankStatementLineRes() {}
+
+type MatchBankStatementLinePreconditionRequired Problem
+
+func (*MatchBankStatementLinePreconditionRequired) matchBankStatementLineRes() {}
+
+type MatchBankStatementLineUnprocessableEntity Problem
+
+func (*MatchBankStatementLineUnprocessableEntity) matchBankStatementLineRes() {}
+
+type MatchBankStatementNotFound Problem
+
+func (*MatchBankStatementNotFound) matchBankStatementRes() {}
+
 // MatchBankStatementOKHeaders wraps BankStatement with response headers.
 type MatchBankStatementOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           BankStatement
 }
 
@@ -22875,21 +20412,6 @@ func (s *MatchBankStatementOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *MatchBankStatementOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *MatchBankStatementOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *MatchBankStatementOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *MatchBankStatementOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -22907,27 +20429,24 @@ func (s *MatchBankStatementOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *MatchBankStatementOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *MatchBankStatementOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *MatchBankStatementOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *MatchBankStatementOKHeaders) SetResponse(val BankStatement) {
 	s.Response = val
 }
 
 func (*MatchBankStatementOKHeaders) matchBankStatementRes() {}
+
+type MatchBankStatementPreconditionFailed Problem
+
+func (*MatchBankStatementPreconditionFailed) matchBankStatementRes() {}
+
+type MatchBankStatementPreconditionRequired Problem
+
+func (*MatchBankStatementPreconditionRequired) matchBankStatementRes() {}
+
+type MatchBankStatementUnprocessableEntity Problem
+
+func (*MatchBankStatementUnprocessableEntity) matchBankStatementRes() {}
 
 // Whether a matched invoice is posted automatically: its gross amount, converted into the company's
 // currency at the average rate of its invoice date, compared exactly with the company's
@@ -23128,31 +20647,13 @@ func (s *MatchResult) SetDecision(val OptMatchDecision) {
 
 // MatchResultHeaders wraps MatchResult with response headers.
 type MatchResultHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           MatchResult
+	ETag     OptString
+	Response MatchResult
 }
 
 // GetETag returns the value of ETag.
 func (s *MatchResultHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *MatchResultHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *MatchResultHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *MatchResultHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -23163,21 +20664,6 @@ func (s *MatchResultHeaders) GetResponse() MatchResult {
 // SetETag sets the value of ETag.
 func (s *MatchResultHeaders) SetETag(val OptString) {
 	s.ETag = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *MatchResultHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *MatchResultHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *MatchResultHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -23229,63 +20715,24 @@ func (s *MatchResultPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// MatchResultPageHeaders wraps MatchResultPage with response headers.
-type MatchResultPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           MatchResultPage
-}
+func (*MatchResultPage) listMatchResultsRes() {}
 
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *MatchResultPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
+type MatchSupplierInvoiceBadRequest Problem
 
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *MatchResultPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
+func (*MatchSupplierInvoiceBadRequest) matchSupplierInvoiceRes() {}
 
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *MatchResultPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
+type MatchSupplierInvoiceForbidden Problem
 
-// GetResponse returns the value of Response.
-func (s *MatchResultPageHeaders) GetResponse() MatchResultPage {
-	return s.Response
-}
+func (*MatchSupplierInvoiceForbidden) matchSupplierInvoiceRes() {}
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *MatchResultPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
+type MatchSupplierInvoiceNotFound Problem
 
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *MatchResultPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *MatchResultPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *MatchResultPageHeaders) SetResponse(val MatchResultPage) {
-	s.Response = val
-}
-
-func (*MatchResultPageHeaders) listMatchResultsRes() {}
+func (*MatchSupplierInvoiceNotFound) matchSupplierInvoiceRes() {}
 
 // MatchSupplierInvoiceOKHeaders wraps MatchResult with response headers.
 type MatchSupplierInvoiceOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           MatchResult
 }
 
@@ -23297,21 +20744,6 @@ func (s *MatchSupplierInvoiceOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *MatchSupplierInvoiceOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *MatchSupplierInvoiceOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *MatchSupplierInvoiceOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *MatchSupplierInvoiceOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -23329,27 +20761,24 @@ func (s *MatchSupplierInvoiceOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *MatchSupplierInvoiceOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *MatchSupplierInvoiceOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *MatchSupplierInvoiceOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *MatchSupplierInvoiceOKHeaders) SetResponse(val MatchResult) {
 	s.Response = val
 }
 
 func (*MatchSupplierInvoiceOKHeaders) matchSupplierInvoiceRes() {}
+
+type MatchSupplierInvoicePreconditionFailed Problem
+
+func (*MatchSupplierInvoicePreconditionFailed) matchSupplierInvoiceRes() {}
+
+type MatchSupplierInvoicePreconditionRequired Problem
+
+func (*MatchSupplierInvoicePreconditionRequired) matchSupplierInvoiceRes() {}
+
+type MatchSupplierInvoiceUnprocessableEntity Problem
+
+func (*MatchSupplierInvoiceUnprocessableEntity) matchSupplierInvoiceRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/MemoRecord
@@ -23907,9 +21336,6 @@ type MemoRecordHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           MemoRecord
 }
 
@@ -23926,21 +21352,6 @@ func (s *MemoRecordHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *MemoRecordHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *MemoRecordHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *MemoRecordHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *MemoRecordHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -23961,21 +21372,6 @@ func (s *MemoRecordHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *MemoRecordHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *MemoRecordHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *MemoRecordHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *MemoRecordHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -24030,55 +21426,7 @@ func (s *MemoRecordPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// MemoRecordPageHeaders wraps MemoRecordPage with response headers.
-type MemoRecordPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           MemoRecordPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *MemoRecordPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *MemoRecordPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *MemoRecordPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *MemoRecordPageHeaders) GetResponse() MemoRecordPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *MemoRecordPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *MemoRecordPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *MemoRecordPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *MemoRecordPageHeaders) SetResponse(val MemoRecordPage) {
-	s.Response = val
-}
-
-func (*MemoRecordPageHeaders) listMemoRecordsRes() {}
+func (*MemoRecordPage) listMemoRecordsRes() {}
 
 // An agent's proposed memo record, in its running session, with its reason and evidence.
 // Ref: #/components/schemas/MemoRecordProposal
@@ -24551,30 +21899,12 @@ func (s *MemoRecordUploadResult) SetKeptRealised(val int32) {
 // MemoRecordUploadResultHeaders wraps MemoRecordUploadResult with response headers.
 type MemoRecordUploadResultHeaders struct {
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           MemoRecordUploadResult
 }
 
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *MemoRecordUploadResultHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *MemoRecordUploadResultHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *MemoRecordUploadResultHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *MemoRecordUploadResultHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -24585,21 +21915,6 @@ func (s *MemoRecordUploadResultHeaders) GetResponse() MemoRecordUploadResult {
 // SetIdempotentReplayed sets the value of IdempotentReplayed.
 func (s *MemoRecordUploadResultHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *MemoRecordUploadResultHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *MemoRecordUploadResultHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *MemoRecordUploadResultHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -24899,9 +22214,6 @@ type MigrationRunHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           MigrationRun
 }
 
@@ -24918,21 +22230,6 @@ func (s *MigrationRunHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *MigrationRunHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *MigrationRunHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *MigrationRunHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *MigrationRunHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -24953,21 +22250,6 @@ func (s *MigrationRunHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *MigrationRunHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *MigrationRunHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *MigrationRunHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *MigrationRunHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -25019,55 +22301,7 @@ func (s *MigrationRunPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// MigrationRunPageHeaders wraps MigrationRunPage with response headers.
-type MigrationRunPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           MigrationRunPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *MigrationRunPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *MigrationRunPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *MigrationRunPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *MigrationRunPageHeaders) GetResponse() MigrationRunPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *MigrationRunPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *MigrationRunPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *MigrationRunPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *MigrationRunPageHeaders) SetResponse(val MigrationRunPage) {
-	s.Response = val
-}
-
-func (*MigrationRunPageHeaders) listMigrationRunsRes() {}
+func (*MigrationRunPage) listMigrationRunsRes() {}
 
 // Reconciliation report.
 type MigrationRunReport map[string]jx.Raw
@@ -25140,6 +22374,78 @@ func (s *Money) SetAmount(val string) {
 func (s *Money) SetCurrency(val string) {
 	s.Currency = val
 }
+
+type MoveCostCenterBadRequest Problem
+
+func (*MoveCostCenterBadRequest) moveCostCenterRes() {}
+
+type MoveCostCenterForbidden Problem
+
+func (*MoveCostCenterForbidden) moveCostCenterRes() {}
+
+type MoveCostCenterNotFound Problem
+
+func (*MoveCostCenterNotFound) moveCostCenterRes() {}
+
+type MoveCostCenterPreconditionFailed Problem
+
+func (*MoveCostCenterPreconditionFailed) moveCostCenterRes() {}
+
+type MoveCostCenterPreconditionRequired Problem
+
+func (*MoveCostCenterPreconditionRequired) moveCostCenterRes() {}
+
+type MoveCostCenterUnprocessableEntity Problem
+
+func (*MoveCostCenterUnprocessableEntity) moveCostCenterRes() {}
+
+type MoveHierarchyNodeBadRequest Problem
+
+func (*MoveHierarchyNodeBadRequest) moveHierarchyNodeRes() {}
+
+type MoveHierarchyNodeForbidden Problem
+
+func (*MoveHierarchyNodeForbidden) moveHierarchyNodeRes() {}
+
+type MoveHierarchyNodeNotFound Problem
+
+func (*MoveHierarchyNodeNotFound) moveHierarchyNodeRes() {}
+
+type MoveHierarchyNodePreconditionFailed Problem
+
+func (*MoveHierarchyNodePreconditionFailed) moveHierarchyNodeRes() {}
+
+type MoveHierarchyNodePreconditionRequired Problem
+
+func (*MoveHierarchyNodePreconditionRequired) moveHierarchyNodeRes() {}
+
+type MoveHierarchyNodeUnprocessableEntity Problem
+
+func (*MoveHierarchyNodeUnprocessableEntity) moveHierarchyNodeRes() {}
+
+type MoveProfitCenterBadRequest Problem
+
+func (*MoveProfitCenterBadRequest) moveProfitCenterRes() {}
+
+type MoveProfitCenterForbidden Problem
+
+func (*MoveProfitCenterForbidden) moveProfitCenterRes() {}
+
+type MoveProfitCenterNotFound Problem
+
+func (*MoveProfitCenterNotFound) moveProfitCenterRes() {}
+
+type MoveProfitCenterPreconditionFailed Problem
+
+func (*MoveProfitCenterPreconditionFailed) moveProfitCenterRes() {}
+
+type MoveProfitCenterPreconditionRequired Problem
+
+func (*MoveProfitCenterPreconditionRequired) moveProfitCenterRes() {}
+
+type MoveProfitCenterUnprocessableEntity Problem
+
+func (*MoveProfitCenterUnprocessableEntity) moveProfitCenterRes() {}
 
 // NewNilInt64 returns new NilInt64 with value set to v.
 func NewNilInt64(v int64) NilInt64 {
@@ -25275,238 +22581,6 @@ func (o NilUUID) Or(d uuid.UUID) uuid.UUID {
 	}
 	return d
 }
-
-// NotFoundHeaders wraps Problem with response headers.
-type NotFoundHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           Problem
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *NotFoundHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *NotFoundHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *NotFoundHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *NotFoundHeaders) GetResponse() Problem {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *NotFoundHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *NotFoundHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *NotFoundHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *NotFoundHeaders) SetResponse(val Problem) {
-	s.Response = val
-}
-
-func (*NotFoundHeaders) acceptBankStatementLineProposalRes()  {}
-func (*NotFoundHeaders) acceptMemoRecordProposalRes()         {}
-func (*NotFoundHeaders) activateChangeRequestRes()            {}
-func (*NotFoundHeaders) activateLegalEntityRes()              {}
-func (*NotFoundHeaders) activateOrgUnitRes()                  {}
-func (*NotFoundHeaders) addHierarchyNodeRes()                 {}
-func (*NotFoundHeaders) applyCountryPackRes()                 {}
-func (*NotFoundHeaders) approveApprovalRequestRes()           {}
-func (*NotFoundHeaders) assignProfitCenterRes()               {}
-func (*NotFoundHeaders) blockBusinessPartnerRes()             {}
-func (*NotFoundHeaders) blockLegalEntityRes()                 {}
-func (*NotFoundHeaders) blockOrgUnitRes()                     {}
-func (*NotFoundHeaders) blockPrincipalRes()                   {}
-func (*NotFoundHeaders) cancelApprovalRequestRes()            {}
-func (*NotFoundHeaders) cancelContractRes()                   {}
-func (*NotFoundHeaders) cancelDownPaymentRequestRes()         {}
-func (*NotFoundHeaders) cancelMemoRecordRes()                 {}
-func (*NotFoundHeaders) cancelOperationRes()                  {}
-func (*NotFoundHeaders) cancelParkedJournalEntryRes()         {}
-func (*NotFoundHeaders) cancelPurchaseOrderChangeRes()        {}
-func (*NotFoundHeaders) cancelPurchaseOrderRes()              {}
-func (*NotFoundHeaders) cancelRequisitionRes()                {}
-func (*NotFoundHeaders) cancelRevaluationRunRes()             {}
-func (*NotFoundHeaders) cancelSupplierInvoiceRes()            {}
-func (*NotFoundHeaders) clearSupplierInvoiceDownPaymentsRes() {}
-func (*NotFoundHeaders) closeFiscalPeriodRes()                {}
-func (*NotFoundHeaders) closePurchaseOrderRes()               {}
-func (*NotFoundHeaders) createMemoRecordRes()                 {}
-func (*NotFoundHeaders) createPurchaseOrderChangeRes()        {}
-func (*NotFoundHeaders) decideRecommendationRes()             {}
-func (*NotFoundHeaders) deleteWebhookSubscriptionRes()        {}
-func (*NotFoundHeaders) disableConnectorRes()                 {}
-func (*NotFoundHeaders) enableConnectorRes()                  {}
-func (*NotFoundHeaders) endAgentSessionRes()                  {}
-func (*NotFoundHeaders) endCompanyAccessRes()                 {}
-func (*NotFoundHeaders) endRoleAssignmentRes()                {}
-func (*NotFoundHeaders) endRolePermissionRes()                {}
-func (*NotFoundHeaders) endSodRuleRes()                       {}
-func (*NotFoundHeaders) excludeBankStatementLineRes()         {}
-func (*NotFoundHeaders) getAccountRes()                       {}
-func (*NotFoundHeaders) getAgentSessionRes()                  {}
-func (*NotFoundHeaders) getApprovalRequestRes()               {}
-func (*NotFoundHeaders) getBankAccountRes()                   {}
-func (*NotFoundHeaders) getBankFileContentRes()               {}
-func (*NotFoundHeaders) getBankFileRes()                      {}
-func (*NotFoundHeaders) getBankReconciliationRes()            {}
-func (*NotFoundHeaders) getBankStatementFileRes()             {}
-func (*NotFoundHeaders) getBankStatementRes()                 {}
-func (*NotFoundHeaders) getBankStatementRulesRes()            {}
-func (*NotFoundHeaders) getBusinessPartnerRes()               {}
-func (*NotFoundHeaders) getCashPositionRes()                  {}
-func (*NotFoundHeaders) getCenterChangeRes()                  {}
-func (*NotFoundHeaders) getChangeRequestRes()                 {}
-func (*NotFoundHeaders) getClearingRes()                      {}
-func (*NotFoundHeaders) getCompanyAccessRes()                 {}
-func (*NotFoundHeaders) getConfigVersionRes()                 {}
-func (*NotFoundHeaders) getConnectorRes()                     {}
-func (*NotFoundHeaders) getContractRes()                      {}
-func (*NotFoundHeaders) getCostCenterRes()                    {}
-func (*NotFoundHeaders) getDownPaymentRequestRes()            {}
-func (*NotFoundHeaders) getExchangeRateRes()                  {}
-func (*NotFoundHeaders) getFiscalPeriodRes()                  {}
-func (*NotFoundHeaders) getGoodsReceiptRes()                  {}
-func (*NotFoundHeaders) getHierarchyNodeRes()                 {}
-func (*NotFoundHeaders) getHierarchyRes()                     {}
-func (*NotFoundHeaders) getJournalEntryRes()                  {}
-func (*NotFoundHeaders) getLegalEntityRes()                   {}
-func (*NotFoundHeaders) getMatchResultRes()                   {}
-func (*NotFoundHeaders) getMemoRecordRes()                    {}
-func (*NotFoundHeaders) getMigrationRunRes()                  {}
-func (*NotFoundHeaders) getNumberRangeRes()                   {}
-func (*NotFoundHeaders) getOperationRes()                     {}
-func (*NotFoundHeaders) getOrgUnitRes()                       {}
-func (*NotFoundHeaders) getParkedJournalEntryRes()            {}
-func (*NotFoundHeaders) getPartnerChangeRes()                 {}
-func (*NotFoundHeaders) getPaymentRunRes()                    {}
-func (*NotFoundHeaders) getPrincipalRes()                     {}
-func (*NotFoundHeaders) getProfitCenterRes()                  {}
-func (*NotFoundHeaders) getPurchaseOrderChangeRes()           {}
-func (*NotFoundHeaders) getPurchaseOrderRes()                 {}
-func (*NotFoundHeaders) getRecommendationRes()                {}
-func (*NotFoundHeaders) getRegressionSuiteRes()               {}
-func (*NotFoundHeaders) getRequisitionRes()                   {}
-func (*NotFoundHeaders) getRevaluationRunRes()                {}
-func (*NotFoundHeaders) getRoleAssignmentRes()                {}
-func (*NotFoundHeaders) getRolePermissionRes()                {}
-func (*NotFoundHeaders) getRoleRes()                          {}
-func (*NotFoundHeaders) getSchemaRes()                        {}
-func (*NotFoundHeaders) getSegmentRes()                       {}
-func (*NotFoundHeaders) getSodRuleRes()                       {}
-func (*NotFoundHeaders) getSupplierInvoiceDocumentRes()       {}
-func (*NotFoundHeaders) getSupplierInvoiceRes()               {}
-func (*NotFoundHeaders) getUploadRes()                        {}
-func (*NotFoundHeaders) getWebhookDeliveryRes()               {}
-func (*NotFoundHeaders) getWebhookSubscriptionRes()           {}
-func (*NotFoundHeaders) grantRolePermissionRes()              {}
-func (*NotFoundHeaders) holdSupplierInvoiceRes()              {}
-func (*NotFoundHeaders) listAgentToolCallsRes()               {}
-func (*NotFoundHeaders) listBankAccountsRes()                 {}
-func (*NotFoundHeaders) listBankStatementMatchesRes()         {}
-func (*NotFoundHeaders) listCostCenterPathsRes()              {}
-func (*NotFoundHeaders) listMatchResultsRes()                 {}
-func (*NotFoundHeaders) listPaymentExclusionsRes()            {}
-func (*NotFoundHeaders) listPaymentsRes()                     {}
-func (*NotFoundHeaders) listProfitCenterPathsRes()            {}
-func (*NotFoundHeaders) listPurchaseOrderChangesRes()         {}
-func (*NotFoundHeaders) listRolePermissionsRes()              {}
-func (*NotFoundHeaders) listWebhookDeliveriesRes()            {}
-func (*NotFoundHeaders) lockCostCenterRes()                   {}
-func (*NotFoundHeaders) lockFiscalPeriodRes()                 {}
-func (*NotFoundHeaders) lockProfitCenterRes()                 {}
-func (*NotFoundHeaders) matchBankStatementLineRes()           {}
-func (*NotFoundHeaders) matchBankStatementRes()               {}
-func (*NotFoundHeaders) matchSupplierInvoiceRes()             {}
-func (*NotFoundHeaders) moveCostCenterRes()                   {}
-func (*NotFoundHeaders) moveHierarchyNodeRes()                {}
-func (*NotFoundHeaders) moveProfitCenterRes()                 {}
-func (*NotFoundHeaders) openFiscalPeriodRes()                 {}
-func (*NotFoundHeaders) pauseWebhookSubscriptionRes()         {}
-func (*NotFoundHeaders) pingWebhookSubscriptionRes()          {}
-func (*NotFoundHeaders) placeInHierarchyRes()                 {}
-func (*NotFoundHeaders) postBankStatementLineRes()            {}
-func (*NotFoundHeaders) postParkedJournalEntryRes()           {}
-func (*NotFoundHeaders) postSupplierInvoiceRes()              {}
-func (*NotFoundHeaders) proposeBankStatementLineRes()         {}
-func (*NotFoundHeaders) proposeMemoRecordRes()                {}
-func (*NotFoundHeaders) realiseMemoRecordRes()                {}
-func (*NotFoundHeaders) reconcileMigrationRunRes()            {}
-func (*NotFoundHeaders) recordAgentToolCallRes()              {}
-func (*NotFoundHeaders) redateCostCenterRes()                 {}
-func (*NotFoundHeaders) redateProfitCenterRes()               {}
-func (*NotFoundHeaders) redeliverWebhookDeliveryRes()         {}
-func (*NotFoundHeaders) rejectApprovalRequestRes()            {}
-func (*NotFoundHeaders) rejectBankStatementLineProposalRes()  {}
-func (*NotFoundHeaders) rejectMemoRecordProposalRes()         {}
-func (*NotFoundHeaders) rejectPaymentRunRes()                 {}
-func (*NotFoundHeaders) releaseContractRes()                  {}
-func (*NotFoundHeaders) releasePaymentRunRes()                {}
-func (*NotFoundHeaders) releasePurchaseOrderRes()             {}
-func (*NotFoundHeaders) releaseSupplierInvoiceRes()           {}
-func (*NotFoundHeaders) removeHierarchyNodeRes()              {}
-func (*NotFoundHeaders) renameHierarchyNodeRes()              {}
-func (*NotFoundHeaders) renewContractRes()                    {}
-func (*NotFoundHeaders) replayWebhookDeliveriesRes()          {}
-func (*NotFoundHeaders) reportBankFileStatusRes()             {}
-func (*NotFoundHeaders) requestBankAccountChangeRes()         {}
-func (*NotFoundHeaders) requestBankAccountEndRes()            {}
-func (*NotFoundHeaders) resumeWebhookSubscriptionRes()        {}
-func (*NotFoundHeaders) reverseGoodsReceiptRes()              {}
-func (*NotFoundHeaders) reverseJournalEntryRes()              {}
-func (*NotFoundHeaders) reverseSupplierInvoiceRes()           {}
-func (*NotFoundHeaders) rotateWebhookSubscriptionSecretRes()  {}
-func (*NotFoundHeaders) simulateChangeRequestRes()            {}
-func (*NotFoundHeaders) startMigrationRunRes()                {}
-func (*NotFoundHeaders) submitChangeRequestRes()              {}
-func (*NotFoundHeaders) submitPaymentRunRes()                 {}
-func (*NotFoundHeaders) submitPurchaseOrderChangeRes()        {}
-func (*NotFoundHeaders) submitRequisitionRes()                {}
-func (*NotFoundHeaders) terminateContractRes()                {}
-func (*NotFoundHeaders) transmitBankFileRes()                 {}
-func (*NotFoundHeaders) unblockBusinessPartnerRes()           {}
-func (*NotFoundHeaders) unblockLegalEntityRes()               {}
-func (*NotFoundHeaders) unblockOrgUnitRes()                   {}
-func (*NotFoundHeaders) unlockFiscalPeriodRes()               {}
-func (*NotFoundHeaders) updateChangeRequestRes()              {}
-func (*NotFoundHeaders) updateConnectorRes()                  {}
-func (*NotFoundHeaders) updateContractRes()                   {}
-func (*NotFoundHeaders) updateCostCenterRes()                 {}
-func (*NotFoundHeaders) updateLegalEntityRes()                {}
-func (*NotFoundHeaders) updateMemoRecordRes()                 {}
-func (*NotFoundHeaders) updateOrgUnitRes()                    {}
-func (*NotFoundHeaders) updateParkedJournalEntryRes()         {}
-func (*NotFoundHeaders) updatePrincipalRes()                  {}
-func (*NotFoundHeaders) updateProfitCenterRes()               {}
-func (*NotFoundHeaders) updatePurchaseOrderChangeRes()        {}
-func (*NotFoundHeaders) updatePurchaseOrderRes()              {}
-func (*NotFoundHeaders) updateRequisitionRes()                {}
-func (*NotFoundHeaders) updateRoleRes()                       {}
-func (*NotFoundHeaders) updateSegmentRes()                    {}
-func (*NotFoundHeaders) updateSupplierInvoiceRes()            {}
-func (*NotFoundHeaders) updateWebhookSubscriptionRes()        {}
-func (*NotFoundHeaders) uploadMemoRecordsRes()                {}
-func (*NotFoundHeaders) withdrawChangeRequestRes()            {}
 
 // Merged schema.
 // Ref: #/components/schemas/NumberRange
@@ -25683,31 +22757,13 @@ func (s *NumberRange) SetIsGapless(val bool) {
 
 // NumberRangeHeaders wraps NumberRange with response headers.
 type NumberRangeHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           NumberRange
+	ETag     OptString
+	Response NumberRange
 }
 
 // GetETag returns the value of ETag.
 func (s *NumberRangeHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *NumberRangeHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *NumberRangeHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *NumberRangeHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -25718,21 +22774,6 @@ func (s *NumberRangeHeaders) GetResponse() NumberRange {
 // SetETag sets the value of ETag.
 func (s *NumberRangeHeaders) SetETag(val OptString) {
 	s.ETag = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *NumberRangeHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *NumberRangeHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *NumberRangeHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -25784,55 +22825,7 @@ func (s *NumberRangePage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// NumberRangePageHeaders wraps NumberRangePage with response headers.
-type NumberRangePageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           NumberRangePage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *NumberRangePageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *NumberRangePageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *NumberRangePageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *NumberRangePageHeaders) GetResponse() NumberRangePage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *NumberRangePageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *NumberRangePageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *NumberRangePageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *NumberRangePageHeaders) SetResponse(val NumberRangePage) {
-	s.Response = val
-}
-
-func (*NumberRangePageHeaders) listNumberRangesRes() {}
+func (*NumberRangePage) listNumberRangesRes() {}
 
 type Oidc struct {
 	Token string
@@ -25858,6 +22851,30 @@ func (s *Oidc) SetToken(val string) {
 func (s *Oidc) SetRoles(val []string) {
 	s.Roles = val
 }
+
+type OpenFiscalPeriodBadRequest Problem
+
+func (*OpenFiscalPeriodBadRequest) openFiscalPeriodRes() {}
+
+type OpenFiscalPeriodForbidden Problem
+
+func (*OpenFiscalPeriodForbidden) openFiscalPeriodRes() {}
+
+type OpenFiscalPeriodNotFound Problem
+
+func (*OpenFiscalPeriodNotFound) openFiscalPeriodRes() {}
+
+type OpenFiscalPeriodPreconditionFailed Problem
+
+func (*OpenFiscalPeriodPreconditionFailed) openFiscalPeriodRes() {}
+
+type OpenFiscalPeriodPreconditionRequired Problem
+
+func (*OpenFiscalPeriodPreconditionRequired) openFiscalPeriodRes() {}
+
+type OpenFiscalPeriodUnprocessableEntity Problem
+
+func (*OpenFiscalPeriodUnprocessableEntity) openFiscalPeriodRes() {}
 
 // A line on a supplier or customer reconciliation account that is not yet cleared. Identified by
 // (fiscal_year, journal_entry_id, line_no).
@@ -26161,55 +23178,7 @@ func (s *OpenItemPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// OpenItemPageHeaders wraps OpenItemPage with response headers.
-type OpenItemPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           OpenItemPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *OpenItemPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *OpenItemPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *OpenItemPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *OpenItemPageHeaders) GetResponse() OpenItemPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *OpenItemPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *OpenItemPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *OpenItemPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *OpenItemPageHeaders) SetResponse(val OpenItemPage) {
-	s.Response = val
-}
-
-func (*OpenItemPageHeaders) listOpenItemsRes() {}
+func (*OpenItemPage) listOpenItemsRes() {}
 
 // A long-running operation (ADR-0012). Poll `GET /v1/operations/{id}` or subscribe to its completion
 // event.
@@ -26366,9 +23335,6 @@ func (s *Operation) SetUpdatedBy(val uuid.UUID) {
 type OperationHeaders struct {
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           Operation
 }
 
@@ -26380,21 +23346,6 @@ func (s *OperationHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *OperationHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *OperationHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *OperationHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *OperationHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -26410,21 +23361,6 @@ func (s *OperationHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *OperationHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *OperationHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *OperationHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *OperationHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -26483,55 +23419,7 @@ func (s *OperationPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// OperationPageHeaders wraps OperationPage with response headers.
-type OperationPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           OperationPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *OperationPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *OperationPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *OperationPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *OperationPageHeaders) GetResponse() OperationPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *OperationPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *OperationPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *OperationPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *OperationPageHeaders) SetResponse(val OperationPage) {
-	s.Response = val
-}
-
-func (*OperationPageHeaders) listOperationsRes() {}
+func (*OperationPage) listOperationsRes() {}
 
 // Progress of a long-running operation, as counts.
 // Ref: #/components/schemas/OperationProgress
@@ -29045,9 +25933,6 @@ type OrgUnitHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           OrgUnit
 }
 
@@ -29064,21 +25949,6 @@ func (s *OrgUnitHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *OrgUnitHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *OrgUnitHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *OrgUnitHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *OrgUnitHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -29099,21 +25969,6 @@ func (s *OrgUnitHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *OrgUnitHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *OrgUnitHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *OrgUnitHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *OrgUnitHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -29165,55 +26020,7 @@ func (s *OrgUnitPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// OrgUnitPageHeaders wraps OrgUnitPage with response headers.
-type OrgUnitPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           OrgUnitPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *OrgUnitPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *OrgUnitPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *OrgUnitPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *OrgUnitPageHeaders) GetResponse() OrgUnitPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *OrgUnitPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *OrgUnitPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *OrgUnitPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *OrgUnitPageHeaders) SetResponse(val OrgUnitPage) {
-	s.Response = val
-}
-
-func (*OrgUnitPageHeaders) listOrgUnitsRes() {}
+func (*OrgUnitPage) listOrgUnitsRes() {}
 
 // Merge patch of an org unit.
 // Ref: #/components/schemas/OrgUnitUpdate
@@ -29243,6 +26050,22 @@ func (s *OrgUnitUpdate) SetName(val OptString) {
 func (s *OrgUnitUpdate) SetParentID(val OptNilUUID) {
 	s.ParentID = val
 }
+
+type ParkJournalEntryBadRequest Problem
+
+func (*ParkJournalEntryBadRequest) parkJournalEntryRes() {}
+
+type ParkJournalEntryForbidden Problem
+
+func (*ParkJournalEntryForbidden) parkJournalEntryRes() {}
+
+type ParkJournalEntryPreconditionRequired Problem
+
+func (*ParkJournalEntryPreconditionRequired) parkJournalEntryRes() {}
+
+type ParkJournalEntryUnprocessableEntity Problem
+
+func (*ParkJournalEntryUnprocessableEntity) parkJournalEntryRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/ParkedJournalEntry
@@ -29547,9 +26370,6 @@ type ParkedJournalEntryHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           ParkedJournalEntry
 }
 
@@ -29566,21 +26386,6 @@ func (s *ParkedJournalEntryHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *ParkedJournalEntryHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ParkedJournalEntryHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ParkedJournalEntryHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ParkedJournalEntryHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -29601,21 +26406,6 @@ func (s *ParkedJournalEntryHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *ParkedJournalEntryHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ParkedJournalEntryHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ParkedJournalEntryHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ParkedJournalEntryHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -29654,55 +26444,7 @@ func (s *ParkedJournalEntryPage) SetNextPageToken(val OptString) {
 	s.NextPageToken = val
 }
 
-// ParkedJournalEntryPageHeaders wraps ParkedJournalEntryPage with response headers.
-type ParkedJournalEntryPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           ParkedJournalEntryPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ParkedJournalEntryPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ParkedJournalEntryPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ParkedJournalEntryPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *ParkedJournalEntryPageHeaders) GetResponse() ParkedJournalEntryPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ParkedJournalEntryPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ParkedJournalEntryPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ParkedJournalEntryPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *ParkedJournalEntryPageHeaders) SetResponse(val ParkedJournalEntryPage) {
-	s.Response = val
-}
-
-func (*ParkedJournalEntryPageHeaders) listParkedJournalEntriesRes() {}
+func (*ParkedJournalEntryPage) listParkedJournalEntriesRes() {}
 
 // Merge patch of a parked journal entry.
 // Ref: #/components/schemas/ParkedJournalEntryUpdate
@@ -30251,9 +26993,6 @@ type PartnerChangeHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           PartnerChange
 }
 
@@ -30270,21 +27009,6 @@ func (s *PartnerChangeHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *PartnerChangeHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *PartnerChangeHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *PartnerChangeHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *PartnerChangeHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -30305,21 +27029,6 @@ func (s *PartnerChangeHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *PartnerChangeHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *PartnerChangeHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *PartnerChangeHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *PartnerChangeHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -30372,55 +27081,7 @@ func (s *PartnerChangePage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// PartnerChangePageHeaders wraps PartnerChangePage with response headers.
-type PartnerChangePageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           PartnerChangePage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *PartnerChangePageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *PartnerChangePageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *PartnerChangePageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *PartnerChangePageHeaders) GetResponse() PartnerChangePage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *PartnerChangePageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *PartnerChangePageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *PartnerChangePageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *PartnerChangePageHeaders) SetResponse(val PartnerChangePage) {
-	s.Response = val
-}
-
-func (*PartnerChangePageHeaders) listPartnerChangesRes() {}
+func (*PartnerChangePage) listPartnerChangesRes() {}
 
 // The requested values. Sensitive values are masked.
 type PartnerChangePayload map[string]jx.Raw
@@ -30529,6 +27190,30 @@ func (s *PartnerSummary) SetCountryCode(val string) {
 func (s *PartnerSummary) SetStatus(val string) {
 	s.Status = val
 }
+
+type PauseWebhookSubscriptionBadRequest Problem
+
+func (*PauseWebhookSubscriptionBadRequest) pauseWebhookSubscriptionRes() {}
+
+type PauseWebhookSubscriptionForbidden Problem
+
+func (*PauseWebhookSubscriptionForbidden) pauseWebhookSubscriptionRes() {}
+
+type PauseWebhookSubscriptionNotFound Problem
+
+func (*PauseWebhookSubscriptionNotFound) pauseWebhookSubscriptionRes() {}
+
+type PauseWebhookSubscriptionPreconditionFailed Problem
+
+func (*PauseWebhookSubscriptionPreconditionFailed) pauseWebhookSubscriptionRes() {}
+
+type PauseWebhookSubscriptionPreconditionRequired Problem
+
+func (*PauseWebhookSubscriptionPreconditionRequired) pauseWebhookSubscriptionRes() {}
+
+type PauseWebhookSubscriptionUnprocessableEntity Problem
+
+func (*PauseWebhookSubscriptionUnprocessableEntity) pauseWebhookSubscriptionRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/Payment
@@ -30853,55 +27538,7 @@ func (s *PaymentExclusionPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// PaymentExclusionPageHeaders wraps PaymentExclusionPage with response headers.
-type PaymentExclusionPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           PaymentExclusionPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *PaymentExclusionPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *PaymentExclusionPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *PaymentExclusionPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *PaymentExclusionPageHeaders) GetResponse() PaymentExclusionPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *PaymentExclusionPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *PaymentExclusionPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *PaymentExclusionPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *PaymentExclusionPageHeaders) SetResponse(val PaymentExclusionPage) {
-	s.Response = val
-}
-
-func (*PaymentExclusionPageHeaders) listPaymentExclusionsRes() {}
+func (*PaymentExclusionPage) listPaymentExclusionsRes() {}
 
 // An open item settled by a payment.
 // Ref: #/components/schemas/PaymentItem
@@ -31050,55 +27687,7 @@ func (s *PaymentPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// PaymentPageHeaders wraps PaymentPage with response headers.
-type PaymentPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           PaymentPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *PaymentPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *PaymentPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *PaymentPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *PaymentPageHeaders) GetResponse() PaymentPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *PaymentPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *PaymentPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *PaymentPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *PaymentPageHeaders) SetResponse(val PaymentPage) {
-	s.Response = val
-}
-
-func (*PaymentPageHeaders) listPaymentsRes() {}
+func (*PaymentPage) listPaymentsRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/PaymentRun
@@ -31339,31 +27928,13 @@ func (s *PaymentRun) SetReleaseApproval(val OptPaymentRunReleaseApproval) {
 
 // PaymentRunHeaders wraps PaymentRun with response headers.
 type PaymentRunHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           PaymentRun
+	ETag     OptString
+	Response PaymentRun
 }
 
 // GetETag returns the value of ETag.
 func (s *PaymentRunHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *PaymentRunHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *PaymentRunHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *PaymentRunHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -31374,21 +27945,6 @@ func (s *PaymentRunHeaders) GetResponse() PaymentRun {
 // SetETag sets the value of ETag.
 func (s *PaymentRunHeaders) SetETag(val OptString) {
 	s.ETag = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *PaymentRunHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *PaymentRunHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *PaymentRunHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -31440,55 +27996,7 @@ func (s *PaymentRunPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// PaymentRunPageHeaders wraps PaymentRunPage with response headers.
-type PaymentRunPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           PaymentRunPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *PaymentRunPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *PaymentRunPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *PaymentRunPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *PaymentRunPageHeaders) GetResponse() PaymentRunPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *PaymentRunPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *PaymentRunPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *PaymentRunPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *PaymentRunPageHeaders) SetResponse(val PaymentRunPage) {
-	s.Response = val
-}
-
-func (*PaymentRunPageHeaders) listPaymentRunsRes() {}
+func (*PaymentRunPage) listPaymentRunsRes() {}
 
 // Parameters of a payment proposal.
 // Ref: #/components/schemas/PaymentRunPropose
@@ -31627,369 +28135,189 @@ func (s *PaymentRunReleaseApproval) SetApprovedAt(val OptDateTime) {
 	s.ApprovedAt = val
 }
 
-// PreconditionFailedHeaders wraps Problem with response headers.
-type PreconditionFailedHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           Problem
-}
+type PingWebhookSubscriptionBadRequest Problem
 
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *PreconditionFailedHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
+func (*PingWebhookSubscriptionBadRequest) pingWebhookSubscriptionRes() {}
 
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *PreconditionFailedHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
+type PingWebhookSubscriptionForbidden Problem
 
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *PreconditionFailedHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
+func (*PingWebhookSubscriptionForbidden) pingWebhookSubscriptionRes() {}
 
-// GetResponse returns the value of Response.
-func (s *PreconditionFailedHeaders) GetResponse() Problem {
-	return s.Response
-}
+type PingWebhookSubscriptionNotFound Problem
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *PreconditionFailedHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
+func (*PingWebhookSubscriptionNotFound) pingWebhookSubscriptionRes() {}
 
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *PreconditionFailedHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
+type PingWebhookSubscriptionPreconditionFailed Problem
 
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *PreconditionFailedHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
+func (*PingWebhookSubscriptionPreconditionFailed) pingWebhookSubscriptionRes() {}
 
-// SetResponse sets the value of Response.
-func (s *PreconditionFailedHeaders) SetResponse(val Problem) {
-	s.Response = val
-}
+type PingWebhookSubscriptionPreconditionRequired Problem
 
-func (*PreconditionFailedHeaders) acceptBankStatementLineProposalRes()  {}
-func (*PreconditionFailedHeaders) acceptMemoRecordProposalRes()         {}
-func (*PreconditionFailedHeaders) activateChangeRequestRes()            {}
-func (*PreconditionFailedHeaders) activateLegalEntityRes()              {}
-func (*PreconditionFailedHeaders) activateOrgUnitRes()                  {}
-func (*PreconditionFailedHeaders) addHierarchyNodeRes()                 {}
-func (*PreconditionFailedHeaders) approveApprovalRequestRes()           {}
-func (*PreconditionFailedHeaders) assignProfitCenterRes()               {}
-func (*PreconditionFailedHeaders) blockBusinessPartnerRes()             {}
-func (*PreconditionFailedHeaders) blockLegalEntityRes()                 {}
-func (*PreconditionFailedHeaders) blockOrgUnitRes()                     {}
-func (*PreconditionFailedHeaders) blockPrincipalRes()                   {}
-func (*PreconditionFailedHeaders) cancelApprovalRequestRes()            {}
-func (*PreconditionFailedHeaders) cancelContractRes()                   {}
-func (*PreconditionFailedHeaders) cancelDownPaymentRequestRes()         {}
-func (*PreconditionFailedHeaders) cancelMemoRecordRes()                 {}
-func (*PreconditionFailedHeaders) cancelOperationRes()                  {}
-func (*PreconditionFailedHeaders) cancelParkedJournalEntryRes()         {}
-func (*PreconditionFailedHeaders) cancelPurchaseOrderChangeRes()        {}
-func (*PreconditionFailedHeaders) cancelPurchaseOrderRes()              {}
-func (*PreconditionFailedHeaders) cancelRequisitionRes()                {}
-func (*PreconditionFailedHeaders) cancelRevaluationRunRes()             {}
-func (*PreconditionFailedHeaders) cancelSupplierInvoiceRes()            {}
-func (*PreconditionFailedHeaders) clearSupplierInvoiceDownPaymentsRes() {}
-func (*PreconditionFailedHeaders) closeFiscalPeriodRes()                {}
-func (*PreconditionFailedHeaders) closePurchaseOrderRes()               {}
-func (*PreconditionFailedHeaders) createMemoRecordRes()                 {}
-func (*PreconditionFailedHeaders) decideRecommendationRes()             {}
-func (*PreconditionFailedHeaders) deleteWebhookSubscriptionRes()        {}
-func (*PreconditionFailedHeaders) disableConnectorRes()                 {}
-func (*PreconditionFailedHeaders) enableConnectorRes()                  {}
-func (*PreconditionFailedHeaders) endAgentSessionRes()                  {}
-func (*PreconditionFailedHeaders) endCompanyAccessRes()                 {}
-func (*PreconditionFailedHeaders) endRoleAssignmentRes()                {}
-func (*PreconditionFailedHeaders) endRolePermissionRes()                {}
-func (*PreconditionFailedHeaders) endSodRuleRes()                       {}
-func (*PreconditionFailedHeaders) excludeBankStatementLineRes()         {}
-func (*PreconditionFailedHeaders) holdSupplierInvoiceRes()              {}
-func (*PreconditionFailedHeaders) lockCostCenterRes()                   {}
-func (*PreconditionFailedHeaders) lockFiscalPeriodRes()                 {}
-func (*PreconditionFailedHeaders) lockProfitCenterRes()                 {}
-func (*PreconditionFailedHeaders) matchBankStatementLineRes()           {}
-func (*PreconditionFailedHeaders) matchBankStatementRes()               {}
-func (*PreconditionFailedHeaders) matchSupplierInvoiceRes()             {}
-func (*PreconditionFailedHeaders) moveCostCenterRes()                   {}
-func (*PreconditionFailedHeaders) moveHierarchyNodeRes()                {}
-func (*PreconditionFailedHeaders) moveProfitCenterRes()                 {}
-func (*PreconditionFailedHeaders) openFiscalPeriodRes()                 {}
-func (*PreconditionFailedHeaders) pauseWebhookSubscriptionRes()         {}
-func (*PreconditionFailedHeaders) pingWebhookSubscriptionRes()          {}
-func (*PreconditionFailedHeaders) placeInHierarchyRes()                 {}
-func (*PreconditionFailedHeaders) postBankStatementLineRes()            {}
-func (*PreconditionFailedHeaders) postParkedJournalEntryRes()           {}
-func (*PreconditionFailedHeaders) postSupplierInvoiceRes()              {}
-func (*PreconditionFailedHeaders) proposeBankStatementLineRes()         {}
-func (*PreconditionFailedHeaders) proposeMemoRecordRes()                {}
-func (*PreconditionFailedHeaders) realiseMemoRecordRes()                {}
-func (*PreconditionFailedHeaders) reconcileMigrationRunRes()            {}
-func (*PreconditionFailedHeaders) redateCostCenterRes()                 {}
-func (*PreconditionFailedHeaders) redateProfitCenterRes()               {}
-func (*PreconditionFailedHeaders) redeliverWebhookDeliveryRes()         {}
-func (*PreconditionFailedHeaders) rejectApprovalRequestRes()            {}
-func (*PreconditionFailedHeaders) rejectBankStatementLineProposalRes()  {}
-func (*PreconditionFailedHeaders) rejectMemoRecordProposalRes()         {}
-func (*PreconditionFailedHeaders) rejectPaymentRunRes()                 {}
-func (*PreconditionFailedHeaders) releaseContractRes()                  {}
-func (*PreconditionFailedHeaders) releasePaymentRunRes()                {}
-func (*PreconditionFailedHeaders) releasePurchaseOrderRes()             {}
-func (*PreconditionFailedHeaders) releaseSupplierInvoiceRes()           {}
-func (*PreconditionFailedHeaders) removeHierarchyNodeRes()              {}
-func (*PreconditionFailedHeaders) renameHierarchyNodeRes()              {}
-func (*PreconditionFailedHeaders) renewContractRes()                    {}
-func (*PreconditionFailedHeaders) replayWebhookDeliveriesRes()          {}
-func (*PreconditionFailedHeaders) reportBankFileStatusRes()             {}
-func (*PreconditionFailedHeaders) requestBankAccountEndRes()            {}
-func (*PreconditionFailedHeaders) resumeWebhookSubscriptionRes()        {}
-func (*PreconditionFailedHeaders) reverseGoodsReceiptRes()              {}
-func (*PreconditionFailedHeaders) reverseJournalEntryRes()              {}
-func (*PreconditionFailedHeaders) reverseSupplierInvoiceRes()           {}
-func (*PreconditionFailedHeaders) rotateWebhookSubscriptionSecretRes()  {}
-func (*PreconditionFailedHeaders) simulateChangeRequestRes()            {}
-func (*PreconditionFailedHeaders) startMigrationRunRes()                {}
-func (*PreconditionFailedHeaders) submitChangeRequestRes()              {}
-func (*PreconditionFailedHeaders) submitPaymentRunRes()                 {}
-func (*PreconditionFailedHeaders) submitPurchaseOrderChangeRes()        {}
-func (*PreconditionFailedHeaders) submitRequisitionRes()                {}
-func (*PreconditionFailedHeaders) terminateContractRes()                {}
-func (*PreconditionFailedHeaders) transmitBankFileRes()                 {}
-func (*PreconditionFailedHeaders) unblockBusinessPartnerRes()           {}
-func (*PreconditionFailedHeaders) unblockLegalEntityRes()               {}
-func (*PreconditionFailedHeaders) unblockOrgUnitRes()                   {}
-func (*PreconditionFailedHeaders) unlockFiscalPeriodRes()               {}
-func (*PreconditionFailedHeaders) updateAiPolicyRes()                   {}
-func (*PreconditionFailedHeaders) updateChangeRequestRes()              {}
-func (*PreconditionFailedHeaders) updateConnectorRes()                  {}
-func (*PreconditionFailedHeaders) updateContractRes()                   {}
-func (*PreconditionFailedHeaders) updateCostCenterRes()                 {}
-func (*PreconditionFailedHeaders) updateLegalEntityRes()                {}
-func (*PreconditionFailedHeaders) updateMemoRecordRes()                 {}
-func (*PreconditionFailedHeaders) updateOrgUnitRes()                    {}
-func (*PreconditionFailedHeaders) updateParkedJournalEntryRes()         {}
-func (*PreconditionFailedHeaders) updatePrincipalRes()                  {}
-func (*PreconditionFailedHeaders) updateProfitCenterRes()               {}
-func (*PreconditionFailedHeaders) updatePurchaseOrderChangeRes()        {}
-func (*PreconditionFailedHeaders) updatePurchaseOrderRes()              {}
-func (*PreconditionFailedHeaders) updateRequisitionRes()                {}
-func (*PreconditionFailedHeaders) updateRoleRes()                       {}
-func (*PreconditionFailedHeaders) updateSegmentRes()                    {}
-func (*PreconditionFailedHeaders) updateSupplierInvoiceRes()            {}
-func (*PreconditionFailedHeaders) updateWebhookSubscriptionRes()        {}
-func (*PreconditionFailedHeaders) uploadMemoRecordsRes()                {}
-func (*PreconditionFailedHeaders) withdrawChangeRequestRes()            {}
+func (*PingWebhookSubscriptionPreconditionRequired) pingWebhookSubscriptionRes() {}
 
-// PreconditionRequiredHeaders wraps Problem with response headers.
-type PreconditionRequiredHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           Problem
-}
+type PingWebhookSubscriptionUnprocessableEntity Problem
 
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *PreconditionRequiredHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
+func (*PingWebhookSubscriptionUnprocessableEntity) pingWebhookSubscriptionRes() {}
 
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *PreconditionRequiredHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
+type PlaceInHierarchyBadRequest Problem
 
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *PreconditionRequiredHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
+func (*PlaceInHierarchyBadRequest) placeInHierarchyRes() {}
 
-// GetResponse returns the value of Response.
-func (s *PreconditionRequiredHeaders) GetResponse() Problem {
-	return s.Response
-}
+type PlaceInHierarchyForbidden Problem
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *PreconditionRequiredHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
+func (*PlaceInHierarchyForbidden) placeInHierarchyRes() {}
 
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *PreconditionRequiredHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
+type PlaceInHierarchyNotFound Problem
 
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *PreconditionRequiredHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
+func (*PlaceInHierarchyNotFound) placeInHierarchyRes() {}
 
-// SetResponse sets the value of Response.
-func (s *PreconditionRequiredHeaders) SetResponse(val Problem) {
-	s.Response = val
-}
+type PlaceInHierarchyPreconditionFailed Problem
 
-func (*PreconditionRequiredHeaders) acceptBankStatementLineProposalRes()  {}
-func (*PreconditionRequiredHeaders) acceptMemoRecordProposalRes()         {}
-func (*PreconditionRequiredHeaders) activateChangeRequestRes()            {}
-func (*PreconditionRequiredHeaders) activateLegalEntityRes()              {}
-func (*PreconditionRequiredHeaders) activateOrgUnitRes()                  {}
-func (*PreconditionRequiredHeaders) addHierarchyNodeRes()                 {}
-func (*PreconditionRequiredHeaders) applyCountryPackRes()                 {}
-func (*PreconditionRequiredHeaders) approveApprovalRequestRes()           {}
-func (*PreconditionRequiredHeaders) assignProfitCenterRes()               {}
-func (*PreconditionRequiredHeaders) blockBusinessPartnerRes()             {}
-func (*PreconditionRequiredHeaders) blockLegalEntityRes()                 {}
-func (*PreconditionRequiredHeaders) blockOrgUnitRes()                     {}
-func (*PreconditionRequiredHeaders) blockPrincipalRes()                   {}
-func (*PreconditionRequiredHeaders) cancelApprovalRequestRes()            {}
-func (*PreconditionRequiredHeaders) cancelContractRes()                   {}
-func (*PreconditionRequiredHeaders) cancelDownPaymentRequestRes()         {}
-func (*PreconditionRequiredHeaders) cancelMemoRecordRes()                 {}
-func (*PreconditionRequiredHeaders) cancelOperationRes()                  {}
-func (*PreconditionRequiredHeaders) cancelParkedJournalEntryRes()         {}
-func (*PreconditionRequiredHeaders) cancelPurchaseOrderChangeRes()        {}
-func (*PreconditionRequiredHeaders) cancelPurchaseOrderRes()              {}
-func (*PreconditionRequiredHeaders) cancelRequisitionRes()                {}
-func (*PreconditionRequiredHeaders) cancelRevaluationRunRes()             {}
-func (*PreconditionRequiredHeaders) cancelSupplierInvoiceRes()            {}
-func (*PreconditionRequiredHeaders) captureSupplierInvoiceRes()           {}
-func (*PreconditionRequiredHeaders) clearSupplierInvoiceDownPaymentsRes() {}
-func (*PreconditionRequiredHeaders) closeFiscalPeriodRes()                {}
-func (*PreconditionRequiredHeaders) closePurchaseOrderRes()               {}
-func (*PreconditionRequiredHeaders) createBusinessPartnerRes()            {}
-func (*PreconditionRequiredHeaders) createChangeRequestRes()              {}
-func (*PreconditionRequiredHeaders) createClearingRes()                   {}
-func (*PreconditionRequiredHeaders) createCompanyAccessRes()              {}
-func (*PreconditionRequiredHeaders) createConnectorRes()                  {}
-func (*PreconditionRequiredHeaders) createContractRes()                   {}
-func (*PreconditionRequiredHeaders) createCostCenterRes()                 {}
-func (*PreconditionRequiredHeaders) createExchangeRateRes()               {}
-func (*PreconditionRequiredHeaders) createHierarchyRes()                  {}
-func (*PreconditionRequiredHeaders) createLegalEntityRes()                {}
-func (*PreconditionRequiredHeaders) createMemoRecordRes()                 {}
-func (*PreconditionRequiredHeaders) createMigrationRunRes()               {}
-func (*PreconditionRequiredHeaders) createOrgUnitRes()                    {}
-func (*PreconditionRequiredHeaders) createPartnerChangeRes()              {}
-func (*PreconditionRequiredHeaders) createPrincipalRes()                  {}
-func (*PreconditionRequiredHeaders) createProfitCenterRes()               {}
-func (*PreconditionRequiredHeaders) createPurchaseOrderChangeRes()        {}
-func (*PreconditionRequiredHeaders) createPurchaseOrderRes()              {}
-func (*PreconditionRequiredHeaders) createRecommendationRes()             {}
-func (*PreconditionRequiredHeaders) createRegressionSuiteRes()            {}
-func (*PreconditionRequiredHeaders) createRequisitionRes()                {}
-func (*PreconditionRequiredHeaders) createRoleAssignmentRes()             {}
-func (*PreconditionRequiredHeaders) createRoleRes()                       {}
-func (*PreconditionRequiredHeaders) createSegmentRes()                    {}
-func (*PreconditionRequiredHeaders) createSodRuleRes()                    {}
-func (*PreconditionRequiredHeaders) createSupplierInvoiceRes()            {}
-func (*PreconditionRequiredHeaders) createUploadRes()                     {}
-func (*PreconditionRequiredHeaders) createWebhookSubscriptionRes()        {}
-func (*PreconditionRequiredHeaders) decideRecommendationRes()             {}
-func (*PreconditionRequiredHeaders) deleteWebhookSubscriptionRes()        {}
-func (*PreconditionRequiredHeaders) disableConnectorRes()                 {}
-func (*PreconditionRequiredHeaders) enableConnectorRes()                  {}
-func (*PreconditionRequiredHeaders) endAgentSessionRes()                  {}
-func (*PreconditionRequiredHeaders) endCompanyAccessRes()                 {}
-func (*PreconditionRequiredHeaders) endRoleAssignmentRes()                {}
-func (*PreconditionRequiredHeaders) endRolePermissionRes()                {}
-func (*PreconditionRequiredHeaders) endSodRuleRes()                       {}
-func (*PreconditionRequiredHeaders) excludeBankStatementLineRes()         {}
-func (*PreconditionRequiredHeaders) grantRolePermissionRes()              {}
-func (*PreconditionRequiredHeaders) holdSupplierInvoiceRes()              {}
-func (*PreconditionRequiredHeaders) importBankStatementsRes()             {}
-func (*PreconditionRequiredHeaders) lockCostCenterRes()                   {}
-func (*PreconditionRequiredHeaders) lockFiscalPeriodRes()                 {}
-func (*PreconditionRequiredHeaders) lockProfitCenterRes()                 {}
-func (*PreconditionRequiredHeaders) matchBankStatementLineRes()           {}
-func (*PreconditionRequiredHeaders) matchBankStatementRes()               {}
-func (*PreconditionRequiredHeaders) matchSupplierInvoiceRes()             {}
-func (*PreconditionRequiredHeaders) moveCostCenterRes()                   {}
-func (*PreconditionRequiredHeaders) moveHierarchyNodeRes()                {}
-func (*PreconditionRequiredHeaders) moveProfitCenterRes()                 {}
-func (*PreconditionRequiredHeaders) openFiscalPeriodRes()                 {}
-func (*PreconditionRequiredHeaders) parkJournalEntryRes()                 {}
-func (*PreconditionRequiredHeaders) pauseWebhookSubscriptionRes()         {}
-func (*PreconditionRequiredHeaders) pingWebhookSubscriptionRes()          {}
-func (*PreconditionRequiredHeaders) placeInHierarchyRes()                 {}
-func (*PreconditionRequiredHeaders) postBankStatementLineRes()            {}
-func (*PreconditionRequiredHeaders) postGoodsReceiptRes()                 {}
-func (*PreconditionRequiredHeaders) postJournalEntryRes()                 {}
-func (*PreconditionRequiredHeaders) postParkedJournalEntryRes()           {}
-func (*PreconditionRequiredHeaders) postRevaluationRunRes()               {}
-func (*PreconditionRequiredHeaders) postSupplierInvoiceRes()              {}
-func (*PreconditionRequiredHeaders) previewRevaluationRes()               {}
-func (*PreconditionRequiredHeaders) proposeBankStatementLineRes()         {}
-func (*PreconditionRequiredHeaders) proposeMemoRecordRes()                {}
-func (*PreconditionRequiredHeaders) proposePaymentRunRes()                {}
-func (*PreconditionRequiredHeaders) realiseMemoRecordRes()                {}
-func (*PreconditionRequiredHeaders) reconcileMigrationRunRes()            {}
-func (*PreconditionRequiredHeaders) recordAgentToolCallRes()              {}
-func (*PreconditionRequiredHeaders) redateCostCenterRes()                 {}
-func (*PreconditionRequiredHeaders) redateProfitCenterRes()               {}
-func (*PreconditionRequiredHeaders) redeliverWebhookDeliveryRes()         {}
-func (*PreconditionRequiredHeaders) rejectApprovalRequestRes()            {}
-func (*PreconditionRequiredHeaders) rejectBankStatementLineProposalRes()  {}
-func (*PreconditionRequiredHeaders) rejectMemoRecordProposalRes()         {}
-func (*PreconditionRequiredHeaders) rejectPaymentRunRes()                 {}
-func (*PreconditionRequiredHeaders) releaseContractRes()                  {}
-func (*PreconditionRequiredHeaders) releasePaymentRunRes()                {}
-func (*PreconditionRequiredHeaders) releasePurchaseOrderRes()             {}
-func (*PreconditionRequiredHeaders) releaseSupplierInvoiceRes()           {}
-func (*PreconditionRequiredHeaders) removeHierarchyNodeRes()              {}
-func (*PreconditionRequiredHeaders) renameHierarchyNodeRes()              {}
-func (*PreconditionRequiredHeaders) renewContractRes()                    {}
-func (*PreconditionRequiredHeaders) replayWebhookDeliveriesRes()          {}
-func (*PreconditionRequiredHeaders) reportBankFileStatusRes()             {}
-func (*PreconditionRequiredHeaders) requestBankAccountChangeRes()         {}
-func (*PreconditionRequiredHeaders) requestBankAccountEndRes()            {}
-func (*PreconditionRequiredHeaders) resumeWebhookSubscriptionRes()        {}
-func (*PreconditionRequiredHeaders) reverseGoodsReceiptRes()              {}
-func (*PreconditionRequiredHeaders) reverseJournalEntryRes()              {}
-func (*PreconditionRequiredHeaders) reverseSupplierInvoiceRes()           {}
-func (*PreconditionRequiredHeaders) rotateWebhookSubscriptionSecretRes()  {}
-func (*PreconditionRequiredHeaders) runAnalyticsQueryRes()                {}
-func (*PreconditionRequiredHeaders) simulateChangeRequestRes()            {}
-func (*PreconditionRequiredHeaders) startAgentSessionRes()                {}
-func (*PreconditionRequiredHeaders) startMigrationRunRes()                {}
-func (*PreconditionRequiredHeaders) submitChangeRequestRes()              {}
-func (*PreconditionRequiredHeaders) submitPaymentRunRes()                 {}
-func (*PreconditionRequiredHeaders) submitPurchaseOrderChangeRes()        {}
-func (*PreconditionRequiredHeaders) submitRequisitionRes()                {}
-func (*PreconditionRequiredHeaders) terminateContractRes()                {}
-func (*PreconditionRequiredHeaders) transmitBankFileRes()                 {}
-func (*PreconditionRequiredHeaders) unblockBusinessPartnerRes()           {}
-func (*PreconditionRequiredHeaders) unblockLegalEntityRes()               {}
-func (*PreconditionRequiredHeaders) unblockOrgUnitRes()                   {}
-func (*PreconditionRequiredHeaders) unlockFiscalPeriodRes()               {}
-func (*PreconditionRequiredHeaders) updateAiPolicyRes()                   {}
-func (*PreconditionRequiredHeaders) updateChangeRequestRes()              {}
-func (*PreconditionRequiredHeaders) updateConnectorRes()                  {}
-func (*PreconditionRequiredHeaders) updateContractRes()                   {}
-func (*PreconditionRequiredHeaders) updateCostCenterRes()                 {}
-func (*PreconditionRequiredHeaders) updateLegalEntityRes()                {}
-func (*PreconditionRequiredHeaders) updateMemoRecordRes()                 {}
-func (*PreconditionRequiredHeaders) updateOrgUnitRes()                    {}
-func (*PreconditionRequiredHeaders) updateParkedJournalEntryRes()         {}
-func (*PreconditionRequiredHeaders) updatePrincipalRes()                  {}
-func (*PreconditionRequiredHeaders) updateProfitCenterRes()               {}
-func (*PreconditionRequiredHeaders) updatePurchaseOrderChangeRes()        {}
-func (*PreconditionRequiredHeaders) updatePurchaseOrderRes()              {}
-func (*PreconditionRequiredHeaders) updateRequisitionRes()                {}
-func (*PreconditionRequiredHeaders) updateRoleRes()                       {}
-func (*PreconditionRequiredHeaders) updateSegmentRes()                    {}
-func (*PreconditionRequiredHeaders) updateSupplierInvoiceRes()            {}
-func (*PreconditionRequiredHeaders) updateWebhookSubscriptionRes()        {}
-func (*PreconditionRequiredHeaders) uploadMemoRecordsRes()                {}
-func (*PreconditionRequiredHeaders) verifyAuditChainRes()                 {}
-func (*PreconditionRequiredHeaders) withdrawChangeRequestRes()            {}
+func (*PlaceInHierarchyPreconditionFailed) placeInHierarchyRes() {}
+
+type PlaceInHierarchyPreconditionRequired Problem
+
+func (*PlaceInHierarchyPreconditionRequired) placeInHierarchyRes() {}
+
+type PlaceInHierarchyUnprocessableEntity Problem
+
+func (*PlaceInHierarchyUnprocessableEntity) placeInHierarchyRes() {}
+
+type PostBankStatementLineBadRequest Problem
+
+func (*PostBankStatementLineBadRequest) postBankStatementLineRes() {}
+
+type PostBankStatementLineForbidden Problem
+
+func (*PostBankStatementLineForbidden) postBankStatementLineRes() {}
+
+type PostBankStatementLineNotFound Problem
+
+func (*PostBankStatementLineNotFound) postBankStatementLineRes() {}
+
+type PostBankStatementLinePreconditionFailed Problem
+
+func (*PostBankStatementLinePreconditionFailed) postBankStatementLineRes() {}
+
+type PostBankStatementLinePreconditionRequired Problem
+
+func (*PostBankStatementLinePreconditionRequired) postBankStatementLineRes() {}
+
+type PostBankStatementLineUnprocessableEntity Problem
+
+func (*PostBankStatementLineUnprocessableEntity) postBankStatementLineRes() {}
+
+type PostGoodsReceiptBadRequest Problem
+
+func (*PostGoodsReceiptBadRequest) postGoodsReceiptRes() {}
+
+type PostGoodsReceiptForbidden Problem
+
+func (*PostGoodsReceiptForbidden) postGoodsReceiptRes() {}
+
+type PostGoodsReceiptPreconditionRequired Problem
+
+func (*PostGoodsReceiptPreconditionRequired) postGoodsReceiptRes() {}
+
+type PostGoodsReceiptUnprocessableEntity Problem
+
+func (*PostGoodsReceiptUnprocessableEntity) postGoodsReceiptRes() {}
+
+type PostJournalEntryBadRequest Problem
+
+func (*PostJournalEntryBadRequest) postJournalEntryRes() {}
+
+type PostJournalEntryForbidden Problem
+
+func (*PostJournalEntryForbidden) postJournalEntryRes() {}
+
+type PostJournalEntryPreconditionRequired Problem
+
+func (*PostJournalEntryPreconditionRequired) postJournalEntryRes() {}
+
+type PostJournalEntryUnprocessableEntity Problem
+
+func (*PostJournalEntryUnprocessableEntity) postJournalEntryRes() {}
+
+type PostParkedJournalEntryBadRequest Problem
+
+func (*PostParkedJournalEntryBadRequest) postParkedJournalEntryRes() {}
+
+type PostParkedJournalEntryForbidden Problem
+
+func (*PostParkedJournalEntryForbidden) postParkedJournalEntryRes() {}
+
+type PostParkedJournalEntryNotFound Problem
+
+func (*PostParkedJournalEntryNotFound) postParkedJournalEntryRes() {}
+
+type PostParkedJournalEntryPreconditionFailed Problem
+
+func (*PostParkedJournalEntryPreconditionFailed) postParkedJournalEntryRes() {}
+
+type PostParkedJournalEntryPreconditionRequired Problem
+
+func (*PostParkedJournalEntryPreconditionRequired) postParkedJournalEntryRes() {}
+
+type PostParkedJournalEntryUnprocessableEntity Problem
+
+func (*PostParkedJournalEntryUnprocessableEntity) postParkedJournalEntryRes() {}
+
+type PostRevaluationRunBadRequest Problem
+
+func (*PostRevaluationRunBadRequest) postRevaluationRunRes() {}
+
+type PostRevaluationRunForbidden Problem
+
+func (*PostRevaluationRunForbidden) postRevaluationRunRes() {}
+
+type PostRevaluationRunPreconditionRequired Problem
+
+func (*PostRevaluationRunPreconditionRequired) postRevaluationRunRes() {}
+
+type PostRevaluationRunUnprocessableEntity Problem
+
+func (*PostRevaluationRunUnprocessableEntity) postRevaluationRunRes() {}
+
+type PostSupplierInvoiceBadRequest Problem
+
+func (*PostSupplierInvoiceBadRequest) postSupplierInvoiceRes() {}
+
+type PostSupplierInvoiceForbidden Problem
+
+func (*PostSupplierInvoiceForbidden) postSupplierInvoiceRes() {}
+
+type PostSupplierInvoiceNotFound Problem
+
+func (*PostSupplierInvoiceNotFound) postSupplierInvoiceRes() {}
+
+type PostSupplierInvoicePreconditionFailed Problem
+
+func (*PostSupplierInvoicePreconditionFailed) postSupplierInvoiceRes() {}
+
+type PostSupplierInvoicePreconditionRequired Problem
+
+func (*PostSupplierInvoicePreconditionRequired) postSupplierInvoiceRes() {}
+
+type PostSupplierInvoiceUnprocessableEntity Problem
+
+func (*PostSupplierInvoiceUnprocessableEntity) postSupplierInvoiceRes() {}
+
+type PreviewRevaluationBadRequest Problem
+
+func (*PreviewRevaluationBadRequest) previewRevaluationRes() {}
+
+type PreviewRevaluationForbidden Problem
+
+func (*PreviewRevaluationForbidden) previewRevaluationRes() {}
+
+type PreviewRevaluationPreconditionRequired Problem
+
+func (*PreviewRevaluationPreconditionRequired) previewRevaluationRes() {}
+
+type PreviewRevaluationUnprocessableEntity Problem
+
+func (*PreviewRevaluationUnprocessableEntity) previewRevaluationRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/Principal
@@ -32254,9 +28582,6 @@ type PrincipalHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           Principal
 }
 
@@ -32273,21 +28598,6 @@ func (s *PrincipalHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *PrincipalHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *PrincipalHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *PrincipalHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *PrincipalHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -32308,21 +28618,6 @@ func (s *PrincipalHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *PrincipalHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *PrincipalHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *PrincipalHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *PrincipalHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -32390,55 +28685,7 @@ func (s *PrincipalNames) SetItems(val []PrincipalName) {
 	s.Items = val
 }
 
-// PrincipalNamesHeaders wraps PrincipalNames with response headers.
-type PrincipalNamesHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           PrincipalNames
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *PrincipalNamesHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *PrincipalNamesHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *PrincipalNamesHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *PrincipalNamesHeaders) GetResponse() PrincipalNames {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *PrincipalNamesHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *PrincipalNamesHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *PrincipalNamesHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *PrincipalNamesHeaders) SetResponse(val PrincipalNames) {
-	s.Response = val
-}
-
-func (*PrincipalNamesHeaders) listPrincipalNamesRes() {}
+func (*PrincipalNames) listPrincipalNamesRes() {}
 
 // One page of principals.
 // Ref: #/components/schemas/PrincipalPage
@@ -32482,55 +28729,7 @@ func (s *PrincipalPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// PrincipalPageHeaders wraps PrincipalPage with response headers.
-type PrincipalPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           PrincipalPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *PrincipalPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *PrincipalPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *PrincipalPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *PrincipalPageHeaders) GetResponse() PrincipalPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *PrincipalPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *PrincipalPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *PrincipalPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *PrincipalPageHeaders) SetResponse(val PrincipalPage) {
-	s.Response = val
-}
-
-func (*PrincipalPageHeaders) listPrincipalsRes() {}
+func (*PrincipalPage) listPrincipalsRes() {}
 
 // Merge patch of a principal.
 // Ref: #/components/schemas/PrincipalUpdate
@@ -33178,55 +29377,7 @@ func (s *ProfitCenterBalancePage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// ProfitCenterBalancePageHeaders wraps ProfitCenterBalancePage with response headers.
-type ProfitCenterBalancePageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           ProfitCenterBalancePage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ProfitCenterBalancePageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ProfitCenterBalancePageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ProfitCenterBalancePageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *ProfitCenterBalancePageHeaders) GetResponse() ProfitCenterBalancePage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ProfitCenterBalancePageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ProfitCenterBalancePageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ProfitCenterBalancePageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *ProfitCenterBalancePageHeaders) SetResponse(val ProfitCenterBalancePage) {
-	s.Response = val
-}
-
-func (*ProfitCenterBalancePageHeaders) listProfitCenterBalancesRes() {}
+func (*ProfitCenterBalancePage) listProfitCenterBalancesRes() {}
 
 // A new profit center, its first period and its companies.
 // Ref: #/components/schemas/ProfitCenterCreate
@@ -33363,9 +29514,6 @@ type ProfitCenterHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           ProfitCenter
 }
 
@@ -33382,21 +29530,6 @@ func (s *ProfitCenterHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *ProfitCenterHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ProfitCenterHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ProfitCenterHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ProfitCenterHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -33417,21 +29550,6 @@ func (s *ProfitCenterHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *ProfitCenterHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ProfitCenterHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ProfitCenterHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ProfitCenterHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -33565,55 +29683,7 @@ func (s *ProfitCenterPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// ProfitCenterPageHeaders wraps ProfitCenterPage with response headers.
-type ProfitCenterPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           ProfitCenterPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ProfitCenterPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ProfitCenterPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ProfitCenterPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *ProfitCenterPageHeaders) GetResponse() ProfitCenterPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ProfitCenterPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ProfitCenterPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ProfitCenterPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *ProfitCenterPageHeaders) SetResponse(val ProfitCenterPage) {
-	s.Response = val
-}
-
-func (*ProfitCenterPageHeaders) listProfitCentersRes() {}
+func (*ProfitCenterPage) listProfitCentersRes() {}
 
 // An effective-dated period of a profit center.
 // Ref: #/components/schemas/ProfitCenterPeriod
@@ -33656,13 +29726,77 @@ func (s *ProfitCenterPeriod) SetLocked(val bool) {
 	s.Locked = val
 }
 
+type ProposeBankStatementLineBadRequest Problem
+
+func (*ProposeBankStatementLineBadRequest) proposeBankStatementLineRes() {}
+
 type ProposeBankStatementLineCreated StatementMatchHeaders
 
 func (*ProposeBankStatementLineCreated) proposeBankStatementLineRes() {}
 
+type ProposeBankStatementLineForbidden Problem
+
+func (*ProposeBankStatementLineForbidden) proposeBankStatementLineRes() {}
+
+type ProposeBankStatementLineNotFound Problem
+
+func (*ProposeBankStatementLineNotFound) proposeBankStatementLineRes() {}
+
 type ProposeBankStatementLineOK StatementMatchHeaders
 
 func (*ProposeBankStatementLineOK) proposeBankStatementLineRes() {}
+
+type ProposeBankStatementLinePreconditionFailed Problem
+
+func (*ProposeBankStatementLinePreconditionFailed) proposeBankStatementLineRes() {}
+
+type ProposeBankStatementLinePreconditionRequired Problem
+
+func (*ProposeBankStatementLinePreconditionRequired) proposeBankStatementLineRes() {}
+
+type ProposeBankStatementLineUnprocessableEntity Problem
+
+func (*ProposeBankStatementLineUnprocessableEntity) proposeBankStatementLineRes() {}
+
+type ProposeMemoRecordBadRequest Problem
+
+func (*ProposeMemoRecordBadRequest) proposeMemoRecordRes() {}
+
+type ProposeMemoRecordForbidden Problem
+
+func (*ProposeMemoRecordForbidden) proposeMemoRecordRes() {}
+
+type ProposeMemoRecordNotFound Problem
+
+func (*ProposeMemoRecordNotFound) proposeMemoRecordRes() {}
+
+type ProposeMemoRecordPreconditionFailed Problem
+
+func (*ProposeMemoRecordPreconditionFailed) proposeMemoRecordRes() {}
+
+type ProposeMemoRecordPreconditionRequired Problem
+
+func (*ProposeMemoRecordPreconditionRequired) proposeMemoRecordRes() {}
+
+type ProposeMemoRecordUnprocessableEntity Problem
+
+func (*ProposeMemoRecordUnprocessableEntity) proposeMemoRecordRes() {}
+
+type ProposePaymentRunBadRequest Problem
+
+func (*ProposePaymentRunBadRequest) proposePaymentRunRes() {}
+
+type ProposePaymentRunForbidden Problem
+
+func (*ProposePaymentRunForbidden) proposePaymentRunRes() {}
+
+type ProposePaymentRunPreconditionRequired Problem
+
+func (*ProposePaymentRunPreconditionRequired) proposePaymentRunRes() {}
+
+type ProposePaymentRunUnprocessableEntity Problem
+
+func (*ProposePaymentRunUnprocessableEntity) proposePaymentRunRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/PurchaseOrder
@@ -34245,9 +30379,6 @@ type PurchaseOrderChangeHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           PurchaseOrderChange
 }
 
@@ -34264,21 +30395,6 @@ func (s *PurchaseOrderChangeHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *PurchaseOrderChangeHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *PurchaseOrderChangeHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *PurchaseOrderChangeHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *PurchaseOrderChangeHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -34299,21 +30415,6 @@ func (s *PurchaseOrderChangeHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *PurchaseOrderChangeHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *PurchaseOrderChangeHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *PurchaseOrderChangeHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *PurchaseOrderChangeHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -34352,55 +30453,7 @@ func (s *PurchaseOrderChangePage) SetNextPageToken(val OptString) {
 	s.NextPageToken = val
 }
 
-// PurchaseOrderChangePageHeaders wraps PurchaseOrderChangePage with response headers.
-type PurchaseOrderChangePageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           PurchaseOrderChangePage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *PurchaseOrderChangePageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *PurchaseOrderChangePageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *PurchaseOrderChangePageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *PurchaseOrderChangePageHeaders) GetResponse() PurchaseOrderChangePage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *PurchaseOrderChangePageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *PurchaseOrderChangePageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *PurchaseOrderChangePageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *PurchaseOrderChangePageHeaders) SetResponse(val PurchaseOrderChangePage) {
-	s.Response = val
-}
-
-func (*PurchaseOrderChangePageHeaders) listPurchaseOrderChangesRes() {}
+func (*PurchaseOrderChangePage) listPurchaseOrderChangesRes() {}
 
 // Merge patch of a drafted order change.
 // Ref: #/components/schemas/PurchaseOrderChangeUpdate
@@ -34597,9 +30650,6 @@ type PurchaseOrderHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           PurchaseOrder
 }
 
@@ -34616,21 +30666,6 @@ func (s *PurchaseOrderHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *PurchaseOrderHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *PurchaseOrderHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *PurchaseOrderHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *PurchaseOrderHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -34651,21 +30686,6 @@ func (s *PurchaseOrderHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *PurchaseOrderHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *PurchaseOrderHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *PurchaseOrderHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *PurchaseOrderHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -34916,55 +30936,7 @@ func (s *PurchaseOrderPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// PurchaseOrderPageHeaders wraps PurchaseOrderPage with response headers.
-type PurchaseOrderPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           PurchaseOrderPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *PurchaseOrderPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *PurchaseOrderPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *PurchaseOrderPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *PurchaseOrderPageHeaders) GetResponse() PurchaseOrderPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *PurchaseOrderPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *PurchaseOrderPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *PurchaseOrderPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *PurchaseOrderPageHeaders) SetResponse(val PurchaseOrderPage) {
-	s.Response = val
-}
-
-func (*PurchaseOrderPageHeaders) listPurchaseOrdersRes() {}
+func (*PurchaseOrderPage) listPurchaseOrdersRes() {}
 
 // Merge patch of a draft purchase order.
 // Ref: #/components/schemas/PurchaseOrderUpdate
@@ -35095,6 +31067,30 @@ func (s *Quantity) SetValue(val string) {
 func (s *Quantity) SetUnit(val string) {
 	s.Unit = val
 }
+
+type RealiseMemoRecordBadRequest Problem
+
+func (*RealiseMemoRecordBadRequest) realiseMemoRecordRes() {}
+
+type RealiseMemoRecordForbidden Problem
+
+func (*RealiseMemoRecordForbidden) realiseMemoRecordRes() {}
+
+type RealiseMemoRecordNotFound Problem
+
+func (*RealiseMemoRecordNotFound) realiseMemoRecordRes() {}
+
+type RealiseMemoRecordPreconditionFailed Problem
+
+func (*RealiseMemoRecordPreconditionFailed) realiseMemoRecordRes() {}
+
+type RealiseMemoRecordPreconditionRequired Problem
+
+func (*RealiseMemoRecordPreconditionRequired) realiseMemoRecordRes() {}
+
+type RealiseMemoRecordUnprocessableEntity Problem
+
+func (*RealiseMemoRecordUnprocessableEntity) realiseMemoRecordRes() {}
 
 // Body of a transition that requires a reason.
 // Ref: #/components/schemas/ReasonInput
@@ -35363,9 +31359,6 @@ type RecommendationHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           Recommendation
 }
 
@@ -35382,21 +31375,6 @@ func (s *RecommendationHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *RecommendationHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *RecommendationHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *RecommendationHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *RecommendationHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -35417,21 +31395,6 @@ func (s *RecommendationHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *RecommendationHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *RecommendationHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *RecommendationHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *RecommendationHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -35470,63 +31433,116 @@ func (s *RecommendationPage) SetNextPageToken(val OptString) {
 	s.NextPageToken = val
 }
 
-// RecommendationPageHeaders wraps RecommendationPage with response headers.
-type RecommendationPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           RecommendationPage
-}
+func (*RecommendationPage) listRecommendationsRes() {}
 
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *RecommendationPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
+type ReconcileMigrationRunBadRequest Problem
 
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *RecommendationPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
+func (*ReconcileMigrationRunBadRequest) reconcileMigrationRunRes() {}
 
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *RecommendationPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
+type ReconcileMigrationRunForbidden Problem
 
-// GetResponse returns the value of Response.
-func (s *RecommendationPageHeaders) GetResponse() RecommendationPage {
-	return s.Response
-}
+func (*ReconcileMigrationRunForbidden) reconcileMigrationRunRes() {}
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *RecommendationPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
+type ReconcileMigrationRunNotFound Problem
 
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *RecommendationPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
+func (*ReconcileMigrationRunNotFound) reconcileMigrationRunRes() {}
 
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *RecommendationPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
+type ReconcileMigrationRunPreconditionFailed Problem
 
-// SetResponse sets the value of Response.
-func (s *RecommendationPageHeaders) SetResponse(val RecommendationPage) {
-	s.Response = val
-}
+func (*ReconcileMigrationRunPreconditionFailed) reconcileMigrationRunRes() {}
 
-func (*RecommendationPageHeaders) listRecommendationsRes() {}
+type ReconcileMigrationRunPreconditionRequired Problem
+
+func (*ReconcileMigrationRunPreconditionRequired) reconcileMigrationRunRes() {}
+
+type ReconcileMigrationRunUnprocessableEntity Problem
+
+func (*ReconcileMigrationRunUnprocessableEntity) reconcileMigrationRunRes() {}
+
+type RecordAgentToolCallBadRequest Problem
+
+func (*RecordAgentToolCallBadRequest) recordAgentToolCallRes() {}
+
+type RecordAgentToolCallForbidden Problem
+
+func (*RecordAgentToolCallForbidden) recordAgentToolCallRes() {}
+
+type RecordAgentToolCallNotFound Problem
+
+func (*RecordAgentToolCallNotFound) recordAgentToolCallRes() {}
+
+type RecordAgentToolCallPreconditionRequired Problem
+
+func (*RecordAgentToolCallPreconditionRequired) recordAgentToolCallRes() {}
+
+type RecordAgentToolCallUnprocessableEntity Problem
+
+func (*RecordAgentToolCallUnprocessableEntity) recordAgentToolCallRes() {}
+
+type RedateCostCenterBadRequest Problem
+
+func (*RedateCostCenterBadRequest) redateCostCenterRes() {}
+
+type RedateCostCenterForbidden Problem
+
+func (*RedateCostCenterForbidden) redateCostCenterRes() {}
+
+type RedateCostCenterNotFound Problem
+
+func (*RedateCostCenterNotFound) redateCostCenterRes() {}
+
+type RedateCostCenterPreconditionFailed Problem
+
+func (*RedateCostCenterPreconditionFailed) redateCostCenterRes() {}
+
+type RedateCostCenterPreconditionRequired Problem
+
+func (*RedateCostCenterPreconditionRequired) redateCostCenterRes() {}
+
+type RedateCostCenterUnprocessableEntity Problem
+
+func (*RedateCostCenterUnprocessableEntity) redateCostCenterRes() {}
+
+type RedateProfitCenterBadRequest Problem
+
+func (*RedateProfitCenterBadRequest) redateProfitCenterRes() {}
+
+type RedateProfitCenterForbidden Problem
+
+func (*RedateProfitCenterForbidden) redateProfitCenterRes() {}
+
+type RedateProfitCenterNotFound Problem
+
+func (*RedateProfitCenterNotFound) redateProfitCenterRes() {}
+
+type RedateProfitCenterPreconditionFailed Problem
+
+func (*RedateProfitCenterPreconditionFailed) redateProfitCenterRes() {}
+
+type RedateProfitCenterPreconditionRequired Problem
+
+func (*RedateProfitCenterPreconditionRequired) redateProfitCenterRes() {}
+
+type RedateProfitCenterUnprocessableEntity Problem
+
+func (*RedateProfitCenterUnprocessableEntity) redateProfitCenterRes() {}
+
+type RedeliverWebhookDeliveryBadRequest Problem
+
+func (*RedeliverWebhookDeliveryBadRequest) redeliverWebhookDeliveryRes() {}
+
+type RedeliverWebhookDeliveryForbidden Problem
+
+func (*RedeliverWebhookDeliveryForbidden) redeliverWebhookDeliveryRes() {}
+
+type RedeliverWebhookDeliveryNotFound Problem
+
+func (*RedeliverWebhookDeliveryNotFound) redeliverWebhookDeliveryRes() {}
 
 // RedeliverWebhookDeliveryOKHeaders wraps WebhookDelivery with response headers.
 type RedeliverWebhookDeliveryOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           WebhookDelivery
 }
 
@@ -35538,21 +31554,6 @@ func (s *RedeliverWebhookDeliveryOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *RedeliverWebhookDeliveryOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *RedeliverWebhookDeliveryOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *RedeliverWebhookDeliveryOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *RedeliverWebhookDeliveryOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -35570,21 +31571,6 @@ func (s *RedeliverWebhookDeliveryOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *RedeliverWebhookDeliveryOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *RedeliverWebhookDeliveryOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *RedeliverWebhookDeliveryOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *RedeliverWebhookDeliveryOKHeaders) SetResponse(val WebhookDelivery) {
 	s.Response = val
@@ -35592,6 +31578,18 @@ func (s *RedeliverWebhookDeliveryOKHeaders) SetResponse(val WebhookDelivery) {
 
 func (*RedeliverWebhookDeliveryOKHeaders) pingWebhookSubscriptionRes()  {}
 func (*RedeliverWebhookDeliveryOKHeaders) redeliverWebhookDeliveryRes() {}
+
+type RedeliverWebhookDeliveryPreconditionFailed Problem
+
+func (*RedeliverWebhookDeliveryPreconditionFailed) redeliverWebhookDeliveryRes() {}
+
+type RedeliverWebhookDeliveryPreconditionRequired Problem
+
+func (*RedeliverWebhookDeliveryPreconditionRequired) redeliverWebhookDeliveryRes() {}
+
+type RedeliverWebhookDeliveryUnprocessableEntity Problem
+
+func (*RedeliverWebhookDeliveryUnprocessableEntity) redeliverWebhookDeliveryRes() {}
 
 // One case of a regression suite: a supplier invoice and the decision it got when the suite was
 // captured.
@@ -35910,9 +31908,6 @@ type RegressionSuiteHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           RegressionSuite
 }
 
@@ -35929,21 +31924,6 @@ func (s *RegressionSuiteHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *RegressionSuiteHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *RegressionSuiteHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *RegressionSuiteHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *RegressionSuiteHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -35964,21 +31944,6 @@ func (s *RegressionSuiteHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *RegressionSuiteHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *RegressionSuiteHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *RegressionSuiteHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *RegressionSuiteHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -36017,63 +31982,96 @@ func (s *RegressionSuitePage) SetNextPageToken(val OptString) {
 	s.NextPageToken = val
 }
 
-// RegressionSuitePageHeaders wraps RegressionSuitePage with response headers.
-type RegressionSuitePageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           RegressionSuitePage
-}
+func (*RegressionSuitePage) listRegressionSuitesRes() {}
 
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *RegressionSuitePageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
+type RejectApprovalRequestBadRequest Problem
 
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *RegressionSuitePageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
+func (*RejectApprovalRequestBadRequest) rejectApprovalRequestRes() {}
 
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *RegressionSuitePageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
+type RejectApprovalRequestForbidden Problem
 
-// GetResponse returns the value of Response.
-func (s *RegressionSuitePageHeaders) GetResponse() RegressionSuitePage {
-	return s.Response
-}
+func (*RejectApprovalRequestForbidden) rejectApprovalRequestRes() {}
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *RegressionSuitePageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
+type RejectApprovalRequestNotFound Problem
 
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *RegressionSuitePageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
+func (*RejectApprovalRequestNotFound) rejectApprovalRequestRes() {}
 
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *RegressionSuitePageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
+type RejectApprovalRequestPreconditionFailed Problem
 
-// SetResponse sets the value of Response.
-func (s *RegressionSuitePageHeaders) SetResponse(val RegressionSuitePage) {
-	s.Response = val
-}
+func (*RejectApprovalRequestPreconditionFailed) rejectApprovalRequestRes() {}
 
-func (*RegressionSuitePageHeaders) listRegressionSuitesRes() {}
+type RejectApprovalRequestPreconditionRequired Problem
+
+func (*RejectApprovalRequestPreconditionRequired) rejectApprovalRequestRes() {}
+
+type RejectApprovalRequestUnprocessableEntity Problem
+
+func (*RejectApprovalRequestUnprocessableEntity) rejectApprovalRequestRes() {}
+
+type RejectBankStatementLineProposalBadRequest Problem
+
+func (*RejectBankStatementLineProposalBadRequest) rejectBankStatementLineProposalRes() {}
+
+type RejectBankStatementLineProposalForbidden Problem
+
+func (*RejectBankStatementLineProposalForbidden) rejectBankStatementLineProposalRes() {}
+
+type RejectBankStatementLineProposalNotFound Problem
+
+func (*RejectBankStatementLineProposalNotFound) rejectBankStatementLineProposalRes() {}
+
+type RejectBankStatementLineProposalPreconditionFailed Problem
+
+func (*RejectBankStatementLineProposalPreconditionFailed) rejectBankStatementLineProposalRes() {}
+
+type RejectBankStatementLineProposalPreconditionRequired Problem
+
+func (*RejectBankStatementLineProposalPreconditionRequired) rejectBankStatementLineProposalRes() {}
+
+type RejectBankStatementLineProposalUnprocessableEntity Problem
+
+func (*RejectBankStatementLineProposalUnprocessableEntity) rejectBankStatementLineProposalRes() {}
+
+type RejectMemoRecordProposalBadRequest Problem
+
+func (*RejectMemoRecordProposalBadRequest) rejectMemoRecordProposalRes() {}
+
+type RejectMemoRecordProposalForbidden Problem
+
+func (*RejectMemoRecordProposalForbidden) rejectMemoRecordProposalRes() {}
+
+type RejectMemoRecordProposalNotFound Problem
+
+func (*RejectMemoRecordProposalNotFound) rejectMemoRecordProposalRes() {}
+
+type RejectMemoRecordProposalPreconditionFailed Problem
+
+func (*RejectMemoRecordProposalPreconditionFailed) rejectMemoRecordProposalRes() {}
+
+type RejectMemoRecordProposalPreconditionRequired Problem
+
+func (*RejectMemoRecordProposalPreconditionRequired) rejectMemoRecordProposalRes() {}
+
+type RejectMemoRecordProposalUnprocessableEntity Problem
+
+func (*RejectMemoRecordProposalUnprocessableEntity) rejectMemoRecordProposalRes() {}
+
+type RejectPaymentRunBadRequest Problem
+
+func (*RejectPaymentRunBadRequest) rejectPaymentRunRes() {}
+
+type RejectPaymentRunForbidden Problem
+
+func (*RejectPaymentRunForbidden) rejectPaymentRunRes() {}
+
+type RejectPaymentRunNotFound Problem
+
+func (*RejectPaymentRunNotFound) rejectPaymentRunRes() {}
 
 // RejectPaymentRunOKHeaders wraps PaymentRun with response headers.
 type RejectPaymentRunOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           PaymentRun
 }
 
@@ -36085,21 +32083,6 @@ func (s *RejectPaymentRunOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *RejectPaymentRunOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *RejectPaymentRunOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *RejectPaymentRunOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *RejectPaymentRunOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -36117,21 +32100,6 @@ func (s *RejectPaymentRunOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *RejectPaymentRunOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *RejectPaymentRunOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *RejectPaymentRunOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *RejectPaymentRunOKHeaders) SetResponse(val PaymentRun) {
 	s.Response = val
@@ -36140,13 +32108,226 @@ func (s *RejectPaymentRunOKHeaders) SetResponse(val PaymentRun) {
 func (*RejectPaymentRunOKHeaders) rejectPaymentRunRes() {}
 func (*RejectPaymentRunOKHeaders) submitPaymentRunRes() {}
 
+type RejectPaymentRunPreconditionFailed Problem
+
+func (*RejectPaymentRunPreconditionFailed) rejectPaymentRunRes() {}
+
+type RejectPaymentRunPreconditionRequired Problem
+
+func (*RejectPaymentRunPreconditionRequired) rejectPaymentRunRes() {}
+
+type RejectPaymentRunUnprocessableEntity Problem
+
+func (*RejectPaymentRunUnprocessableEntity) rejectPaymentRunRes() {}
+
+type ReleaseContractBadRequest Problem
+
+func (*ReleaseContractBadRequest) releaseContractRes() {}
+
+type ReleaseContractForbidden Problem
+
+func (*ReleaseContractForbidden) releaseContractRes() {}
+
+type ReleaseContractNotFound Problem
+
+func (*ReleaseContractNotFound) releaseContractRes() {}
+
+type ReleaseContractPreconditionFailed Problem
+
+func (*ReleaseContractPreconditionFailed) releaseContractRes() {}
+
+type ReleaseContractPreconditionRequired Problem
+
+func (*ReleaseContractPreconditionRequired) releaseContractRes() {}
+
+type ReleaseContractUnprocessableEntity Problem
+
+func (*ReleaseContractUnprocessableEntity) releaseContractRes() {}
+
+type ReleasePaymentRunBadRequest Problem
+
+func (*ReleasePaymentRunBadRequest) releasePaymentRunRes() {}
+
+type ReleasePaymentRunForbidden Problem
+
+func (*ReleasePaymentRunForbidden) releasePaymentRunRes() {}
+
+type ReleasePaymentRunNotFound Problem
+
+func (*ReleasePaymentRunNotFound) releasePaymentRunRes() {}
+
+type ReleasePaymentRunPreconditionFailed Problem
+
+func (*ReleasePaymentRunPreconditionFailed) releasePaymentRunRes() {}
+
+type ReleasePaymentRunPreconditionRequired Problem
+
+func (*ReleasePaymentRunPreconditionRequired) releasePaymentRunRes() {}
+
+type ReleasePaymentRunUnprocessableEntity Problem
+
+func (*ReleasePaymentRunUnprocessableEntity) releasePaymentRunRes() {}
+
+type ReleasePurchaseOrderBadRequest Problem
+
+func (*ReleasePurchaseOrderBadRequest) releasePurchaseOrderRes() {}
+
+type ReleasePurchaseOrderForbidden Problem
+
+func (*ReleasePurchaseOrderForbidden) releasePurchaseOrderRes() {}
+
+type ReleasePurchaseOrderNotFound Problem
+
+func (*ReleasePurchaseOrderNotFound) releasePurchaseOrderRes() {}
+
+type ReleasePurchaseOrderPreconditionFailed Problem
+
+func (*ReleasePurchaseOrderPreconditionFailed) releasePurchaseOrderRes() {}
+
+type ReleasePurchaseOrderPreconditionRequired Problem
+
+func (*ReleasePurchaseOrderPreconditionRequired) releasePurchaseOrderRes() {}
+
+type ReleasePurchaseOrderUnprocessableEntity Problem
+
+func (*ReleasePurchaseOrderUnprocessableEntity) releasePurchaseOrderRes() {}
+
+type ReleaseSupplierInvoiceBadRequest Problem
+
+func (*ReleaseSupplierInvoiceBadRequest) releaseSupplierInvoiceRes() {}
+
+type ReleaseSupplierInvoiceForbidden Problem
+
+func (*ReleaseSupplierInvoiceForbidden) releaseSupplierInvoiceRes() {}
+
+type ReleaseSupplierInvoiceNotFound Problem
+
+func (*ReleaseSupplierInvoiceNotFound) releaseSupplierInvoiceRes() {}
+
+type ReleaseSupplierInvoicePreconditionFailed Problem
+
+func (*ReleaseSupplierInvoicePreconditionFailed) releaseSupplierInvoiceRes() {}
+
+type ReleaseSupplierInvoicePreconditionRequired Problem
+
+func (*ReleaseSupplierInvoicePreconditionRequired) releaseSupplierInvoiceRes() {}
+
+type ReleaseSupplierInvoiceUnprocessableEntity Problem
+
+func (*ReleaseSupplierInvoiceUnprocessableEntity) releaseSupplierInvoiceRes() {}
+
+type RemoveHierarchyNodeBadRequest Problem
+
+func (*RemoveHierarchyNodeBadRequest) removeHierarchyNodeRes() {}
+
+type RemoveHierarchyNodeForbidden Problem
+
+func (*RemoveHierarchyNodeForbidden) removeHierarchyNodeRes() {}
+
+type RemoveHierarchyNodeNotFound Problem
+
+func (*RemoveHierarchyNodeNotFound) removeHierarchyNodeRes() {}
+
+type RemoveHierarchyNodePreconditionFailed Problem
+
+func (*RemoveHierarchyNodePreconditionFailed) removeHierarchyNodeRes() {}
+
+type RemoveHierarchyNodePreconditionRequired Problem
+
+func (*RemoveHierarchyNodePreconditionRequired) removeHierarchyNodeRes() {}
+
+type RemoveHierarchyNodeUnprocessableEntity Problem
+
+func (*RemoveHierarchyNodeUnprocessableEntity) removeHierarchyNodeRes() {}
+
+type RenameHierarchyNodeBadRequest Problem
+
+func (*RenameHierarchyNodeBadRequest) renameHierarchyNodeRes() {}
+
+type RenameHierarchyNodeForbidden Problem
+
+func (*RenameHierarchyNodeForbidden) renameHierarchyNodeRes() {}
+
+type RenameHierarchyNodeNotFound Problem
+
+func (*RenameHierarchyNodeNotFound) renameHierarchyNodeRes() {}
+
+type RenameHierarchyNodePreconditionFailed Problem
+
+func (*RenameHierarchyNodePreconditionFailed) renameHierarchyNodeRes() {}
+
+type RenameHierarchyNodePreconditionRequired Problem
+
+func (*RenameHierarchyNodePreconditionRequired) renameHierarchyNodeRes() {}
+
+type RenameHierarchyNodeUnprocessableEntity Problem
+
+func (*RenameHierarchyNodeUnprocessableEntity) renameHierarchyNodeRes() {}
+
+type RenewContractBadRequest Problem
+
+func (*RenewContractBadRequest) renewContractRes() {}
+
+type RenewContractForbidden Problem
+
+func (*RenewContractForbidden) renewContractRes() {}
+
+type RenewContractNotFound Problem
+
+func (*RenewContractNotFound) renewContractRes() {}
+
+type RenewContractPreconditionFailed Problem
+
+func (*RenewContractPreconditionFailed) renewContractRes() {}
+
+type RenewContractPreconditionRequired Problem
+
+func (*RenewContractPreconditionRequired) renewContractRes() {}
+
+type RenewContractUnprocessableEntity Problem
+
+func (*RenewContractUnprocessableEntity) renewContractRes() {}
+
+type ReplayWebhookDeliveriesBadRequest Problem
+
+func (*ReplayWebhookDeliveriesBadRequest) replayWebhookDeliveriesRes() {}
+
+type ReplayWebhookDeliveriesForbidden Problem
+
+func (*ReplayWebhookDeliveriesForbidden) replayWebhookDeliveriesRes() {}
+
+type ReplayWebhookDeliveriesNotFound Problem
+
+func (*ReplayWebhookDeliveriesNotFound) replayWebhookDeliveriesRes() {}
+
+type ReplayWebhookDeliveriesPreconditionFailed Problem
+
+func (*ReplayWebhookDeliveriesPreconditionFailed) replayWebhookDeliveriesRes() {}
+
+type ReplayWebhookDeliveriesPreconditionRequired Problem
+
+func (*ReplayWebhookDeliveriesPreconditionRequired) replayWebhookDeliveriesRes() {}
+
+type ReplayWebhookDeliveriesUnprocessableEntity Problem
+
+func (*ReplayWebhookDeliveriesUnprocessableEntity) replayWebhookDeliveriesRes() {}
+
+type ReportBankFileStatusBadRequest Problem
+
+func (*ReportBankFileStatusBadRequest) reportBankFileStatusRes() {}
+
+type ReportBankFileStatusForbidden Problem
+
+func (*ReportBankFileStatusForbidden) reportBankFileStatusRes() {}
+
+type ReportBankFileStatusNotFound Problem
+
+func (*ReportBankFileStatusNotFound) reportBankFileStatusRes() {}
+
 // ReportBankFileStatusOKHeaders wraps BankFile with response headers.
 type ReportBankFileStatusOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           BankFile
 }
 
@@ -36158,21 +32339,6 @@ func (s *ReportBankFileStatusOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *ReportBankFileStatusOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ReportBankFileStatusOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ReportBankFileStatusOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ReportBankFileStatusOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -36190,21 +32356,6 @@ func (s *ReportBankFileStatusOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ReportBankFileStatusOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ReportBankFileStatusOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ReportBankFileStatusOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *ReportBankFileStatusOKHeaders) SetResponse(val BankFile) {
 	s.Response = val
@@ -36212,13 +32363,54 @@ func (s *ReportBankFileStatusOKHeaders) SetResponse(val BankFile) {
 
 func (*ReportBankFileStatusOKHeaders) reportBankFileStatusRes() {}
 
+type ReportBankFileStatusPreconditionFailed Problem
+
+func (*ReportBankFileStatusPreconditionFailed) reportBankFileStatusRes() {}
+
+type ReportBankFileStatusPreconditionRequired Problem
+
+func (*ReportBankFileStatusPreconditionRequired) reportBankFileStatusRes() {}
+
+type ReportBankFileStatusUnprocessableEntity Problem
+
+func (*ReportBankFileStatusUnprocessableEntity) reportBankFileStatusRes() {}
+
+type RequestBankAccountChangeBadRequest Problem
+
+func (*RequestBankAccountChangeBadRequest) requestBankAccountChangeRes() {}
+
+type RequestBankAccountChangeForbidden Problem
+
+func (*RequestBankAccountChangeForbidden) requestBankAccountChangeRes() {}
+
+type RequestBankAccountChangeNotFound Problem
+
+func (*RequestBankAccountChangeNotFound) requestBankAccountChangeRes() {}
+
+type RequestBankAccountChangePreconditionRequired Problem
+
+func (*RequestBankAccountChangePreconditionRequired) requestBankAccountChangeRes() {}
+
+type RequestBankAccountChangeUnprocessableEntity Problem
+
+func (*RequestBankAccountChangeUnprocessableEntity) requestBankAccountChangeRes() {}
+
+type RequestBankAccountEndBadRequest Problem
+
+func (*RequestBankAccountEndBadRequest) requestBankAccountEndRes() {}
+
+type RequestBankAccountEndForbidden Problem
+
+func (*RequestBankAccountEndForbidden) requestBankAccountEndRes() {}
+
+type RequestBankAccountEndNotFound Problem
+
+func (*RequestBankAccountEndNotFound) requestBankAccountEndRes() {}
+
 // RequestBankAccountEndOKHeaders wraps PartnerChange with response headers.
 type RequestBankAccountEndOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           PartnerChange
 }
 
@@ -36230,21 +32422,6 @@ func (s *RequestBankAccountEndOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *RequestBankAccountEndOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *RequestBankAccountEndOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *RequestBankAccountEndOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *RequestBankAccountEndOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -36262,21 +32439,6 @@ func (s *RequestBankAccountEndOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *RequestBankAccountEndOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *RequestBankAccountEndOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *RequestBankAccountEndOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *RequestBankAccountEndOKHeaders) SetResponse(val PartnerChange) {
 	s.Response = val
@@ -36285,6 +32447,18 @@ func (s *RequestBankAccountEndOKHeaders) SetResponse(val PartnerChange) {
 func (*RequestBankAccountEndOKHeaders) blockBusinessPartnerRes()   {}
 func (*RequestBankAccountEndOKHeaders) requestBankAccountEndRes()  {}
 func (*RequestBankAccountEndOKHeaders) unblockBusinessPartnerRes() {}
+
+type RequestBankAccountEndPreconditionFailed Problem
+
+func (*RequestBankAccountEndPreconditionFailed) requestBankAccountEndRes() {}
+
+type RequestBankAccountEndPreconditionRequired Problem
+
+func (*RequestBankAccountEndPreconditionRequired) requestBankAccountEndRes() {}
+
+type RequestBankAccountEndUnprocessableEntity Problem
+
+func (*RequestBankAccountEndUnprocessableEntity) requestBankAccountEndRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/Requisition
@@ -36614,9 +32788,6 @@ type RequisitionHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           Requisition
 }
 
@@ -36633,21 +32804,6 @@ func (s *RequisitionHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *RequisitionHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *RequisitionHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *RequisitionHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *RequisitionHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -36668,21 +32824,6 @@ func (s *RequisitionHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *RequisitionHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *RequisitionHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *RequisitionHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *RequisitionHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -36854,55 +32995,7 @@ func (s *RequisitionPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// RequisitionPageHeaders wraps RequisitionPage with response headers.
-type RequisitionPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           RequisitionPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *RequisitionPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *RequisitionPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *RequisitionPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *RequisitionPageHeaders) GetResponse() RequisitionPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *RequisitionPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *RequisitionPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *RequisitionPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *RequisitionPageHeaders) SetResponse(val RequisitionPage) {
-	s.Response = val
-}
-
-func (*RequisitionPageHeaders) listRequisitionsRes() {}
+func (*RequisitionPage) listRequisitionsRes() {}
 
 // Merge patch of a draft requisition.
 // Ref: #/components/schemas/RequisitionUpdate
@@ -36980,6 +33073,30 @@ func (s *RequisitionUpdate) SetItems(val []RequisitionItem) {
 func (s *RequisitionUpdate) SetExtensions(val OptExtensions) {
 	s.Extensions = val
 }
+
+type ResumeWebhookSubscriptionBadRequest Problem
+
+func (*ResumeWebhookSubscriptionBadRequest) resumeWebhookSubscriptionRes() {}
+
+type ResumeWebhookSubscriptionForbidden Problem
+
+func (*ResumeWebhookSubscriptionForbidden) resumeWebhookSubscriptionRes() {}
+
+type ResumeWebhookSubscriptionNotFound Problem
+
+func (*ResumeWebhookSubscriptionNotFound) resumeWebhookSubscriptionRes() {}
+
+type ResumeWebhookSubscriptionPreconditionFailed Problem
+
+func (*ResumeWebhookSubscriptionPreconditionFailed) resumeWebhookSubscriptionRes() {}
+
+type ResumeWebhookSubscriptionPreconditionRequired Problem
+
+func (*ResumeWebhookSubscriptionPreconditionRequired) resumeWebhookSubscriptionRes() {}
+
+type ResumeWebhookSubscriptionUnprocessableEntity Problem
+
+func (*ResumeWebhookSubscriptionUnprocessableEntity) resumeWebhookSubscriptionRes() {}
 
 // One valued item: an open item (a journal line on a reconciliation account) or the balance in one
 // currency of a flagged account.
@@ -37300,30 +33417,12 @@ func (s *RevaluationPreview) SetTotals(val []RevaluationTotal) {
 // RevaluationPreviewHeaders wraps RevaluationPreview with response headers.
 type RevaluationPreviewHeaders struct {
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           RevaluationPreview
 }
 
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *RevaluationPreviewHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *RevaluationPreviewHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *RevaluationPreviewHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *RevaluationPreviewHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -37334,21 +33433,6 @@ func (s *RevaluationPreviewHeaders) GetResponse() RevaluationPreview {
 // SetIdempotentReplayed sets the value of IdempotentReplayed.
 func (s *RevaluationPreviewHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *RevaluationPreviewHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *RevaluationPreviewHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *RevaluationPreviewHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -37592,9 +33676,6 @@ type RevaluationRunHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           RevaluationRun
 }
 
@@ -37611,21 +33692,6 @@ func (s *RevaluationRunHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *RevaluationRunHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *RevaluationRunHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *RevaluationRunHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *RevaluationRunHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -37646,21 +33712,6 @@ func (s *RevaluationRunHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *RevaluationRunHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *RevaluationRunHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *RevaluationRunHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *RevaluationRunHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -37699,55 +33750,7 @@ func (s *RevaluationRunPage) SetNextPageToken(val OptString) {
 	s.NextPageToken = val
 }
 
-// RevaluationRunPageHeaders wraps RevaluationRunPage with response headers.
-type RevaluationRunPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           RevaluationRunPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *RevaluationRunPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *RevaluationRunPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *RevaluationRunPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *RevaluationRunPageHeaders) GetResponse() RevaluationRunPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *RevaluationRunPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *RevaluationRunPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *RevaluationRunPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *RevaluationRunPageHeaders) SetResponse(val RevaluationRunPage) {
-	s.Response = val
-}
-
-func (*RevaluationRunPageHeaders) listRevaluationRunsRes() {}
+func (*RevaluationRunPage) listRevaluationRunsRes() {}
 
 // The items of one account and currency with a gain, or with a loss, summed.
 // Ref: #/components/schemas/RevaluationTotal
@@ -37886,13 +33889,22 @@ func (s *RevaluationTotal) SetDifferenceGc(val Money) {
 	s.DifferenceGc = val
 }
 
+type ReverseGoodsReceiptBadRequest Problem
+
+func (*ReverseGoodsReceiptBadRequest) reverseGoodsReceiptRes() {}
+
+type ReverseGoodsReceiptForbidden Problem
+
+func (*ReverseGoodsReceiptForbidden) reverseGoodsReceiptRes() {}
+
+type ReverseGoodsReceiptNotFound Problem
+
+func (*ReverseGoodsReceiptNotFound) reverseGoodsReceiptRes() {}
+
 // ReverseGoodsReceiptOKHeaders wraps GoodsReceipt with response headers.
 type ReverseGoodsReceiptOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           GoodsReceipt
 }
 
@@ -37904,21 +33916,6 @@ func (s *ReverseGoodsReceiptOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *ReverseGoodsReceiptOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ReverseGoodsReceiptOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ReverseGoodsReceiptOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ReverseGoodsReceiptOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -37936,21 +33933,6 @@ func (s *ReverseGoodsReceiptOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ReverseGoodsReceiptOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ReverseGoodsReceiptOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ReverseGoodsReceiptOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *ReverseGoodsReceiptOKHeaders) SetResponse(val GoodsReceipt) {
 	s.Response = val
@@ -37958,13 +33940,34 @@ func (s *ReverseGoodsReceiptOKHeaders) SetResponse(val GoodsReceipt) {
 
 func (*ReverseGoodsReceiptOKHeaders) reverseGoodsReceiptRes() {}
 
+type ReverseGoodsReceiptPreconditionFailed Problem
+
+func (*ReverseGoodsReceiptPreconditionFailed) reverseGoodsReceiptRes() {}
+
+type ReverseGoodsReceiptPreconditionRequired Problem
+
+func (*ReverseGoodsReceiptPreconditionRequired) reverseGoodsReceiptRes() {}
+
+type ReverseGoodsReceiptUnprocessableEntity Problem
+
+func (*ReverseGoodsReceiptUnprocessableEntity) reverseGoodsReceiptRes() {}
+
+type ReverseJournalEntryBadRequest Problem
+
+func (*ReverseJournalEntryBadRequest) reverseJournalEntryRes() {}
+
+type ReverseJournalEntryForbidden Problem
+
+func (*ReverseJournalEntryForbidden) reverseJournalEntryRes() {}
+
+type ReverseJournalEntryNotFound Problem
+
+func (*ReverseJournalEntryNotFound) reverseJournalEntryRes() {}
+
 // ReverseJournalEntryOKHeaders wraps JournalEntry with response headers.
 type ReverseJournalEntryOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           JournalEntry
 }
 
@@ -37976,21 +33979,6 @@ func (s *ReverseJournalEntryOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *ReverseJournalEntryOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ReverseJournalEntryOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ReverseJournalEntryOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ReverseJournalEntryOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -38008,27 +33996,48 @@ func (s *ReverseJournalEntryOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ReverseJournalEntryOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ReverseJournalEntryOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ReverseJournalEntryOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *ReverseJournalEntryOKHeaders) SetResponse(val JournalEntry) {
 	s.Response = val
 }
 
 func (*ReverseJournalEntryOKHeaders) reverseJournalEntryRes() {}
+
+type ReverseJournalEntryPreconditionFailed Problem
+
+func (*ReverseJournalEntryPreconditionFailed) reverseJournalEntryRes() {}
+
+type ReverseJournalEntryPreconditionRequired Problem
+
+func (*ReverseJournalEntryPreconditionRequired) reverseJournalEntryRes() {}
+
+type ReverseJournalEntryUnprocessableEntity Problem
+
+func (*ReverseJournalEntryUnprocessableEntity) reverseJournalEntryRes() {}
+
+type ReverseSupplierInvoiceBadRequest Problem
+
+func (*ReverseSupplierInvoiceBadRequest) reverseSupplierInvoiceRes() {}
+
+type ReverseSupplierInvoiceForbidden Problem
+
+func (*ReverseSupplierInvoiceForbidden) reverseSupplierInvoiceRes() {}
+
+type ReverseSupplierInvoiceNotFound Problem
+
+func (*ReverseSupplierInvoiceNotFound) reverseSupplierInvoiceRes() {}
+
+type ReverseSupplierInvoicePreconditionFailed Problem
+
+func (*ReverseSupplierInvoicePreconditionFailed) reverseSupplierInvoiceRes() {}
+
+type ReverseSupplierInvoicePreconditionRequired Problem
+
+func (*ReverseSupplierInvoicePreconditionRequired) reverseSupplierInvoiceRes() {}
+
+type ReverseSupplierInvoiceUnprocessableEntity Problem
+
+func (*ReverseSupplierInvoiceUnprocessableEntity) reverseSupplierInvoiceRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/Role
@@ -38341,9 +34350,6 @@ type RoleAssignmentHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           RoleAssignment
 }
 
@@ -38360,21 +34366,6 @@ func (s *RoleAssignmentHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *RoleAssignmentHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *RoleAssignmentHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *RoleAssignmentHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *RoleAssignmentHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -38395,21 +34386,6 @@ func (s *RoleAssignmentHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *RoleAssignmentHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *RoleAssignmentHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *RoleAssignmentHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *RoleAssignmentHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -38461,55 +34437,7 @@ func (s *RoleAssignmentPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// RoleAssignmentPageHeaders wraps RoleAssignmentPage with response headers.
-type RoleAssignmentPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           RoleAssignmentPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *RoleAssignmentPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *RoleAssignmentPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *RoleAssignmentPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *RoleAssignmentPageHeaders) GetResponse() RoleAssignmentPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *RoleAssignmentPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *RoleAssignmentPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *RoleAssignmentPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *RoleAssignmentPageHeaders) SetResponse(val RoleAssignmentPage) {
-	s.Response = val
-}
-
-func (*RoleAssignmentPageHeaders) listRoleAssignmentsRes() {}
+func (*RoleAssignmentPage) listRoleAssignmentsRes() {}
 
 // Create a role; grant permissions through `POST /v1/roles/{id}/permissions`.
 // Ref: #/components/schemas/RoleCreate
@@ -38557,9 +34485,6 @@ type RoleHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           Role
 }
 
@@ -38576,21 +34501,6 @@ func (s *RoleHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *RoleHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *RoleHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *RoleHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *RoleHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -38611,21 +34521,6 @@ func (s *RoleHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *RoleHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *RoleHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *RoleHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *RoleHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -38677,55 +34572,7 @@ func (s *RolePage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// RolePageHeaders wraps RolePage with response headers.
-type RolePageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           RolePage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *RolePageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *RolePageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *RolePageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *RolePageHeaders) GetResponse() RolePage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *RolePageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *RolePageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *RolePageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *RolePageHeaders) SetResponse(val RolePage) {
-	s.Response = val
-}
-
-func (*RolePageHeaders) listRolesRes() {}
+func (*RolePage) listRolesRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/RolePermission
@@ -38888,9 +34735,6 @@ type RolePermissionHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           RolePermission
 }
 
@@ -38907,21 +34751,6 @@ func (s *RolePermissionHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *RolePermissionHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *RolePermissionHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *RolePermissionHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *RolePermissionHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -38942,21 +34771,6 @@ func (s *RolePermissionHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *RolePermissionHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *RolePermissionHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *RolePermissionHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *RolePermissionHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -39008,55 +34822,7 @@ func (s *RolePermissionPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// RolePermissionPageHeaders wraps RolePermissionPage with response headers.
-type RolePermissionPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           RolePermissionPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *RolePermissionPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *RolePermissionPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *RolePermissionPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *RolePermissionPageHeaders) GetResponse() RolePermissionPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *RolePermissionPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *RolePermissionPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *RolePermissionPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *RolePermissionPageHeaders) SetResponse(val RolePermissionPage) {
-	s.Response = val
-}
-
-func (*RolePermissionPageHeaders) listRolePermissionsRes() {}
+func (*RolePermissionPage) listRolePermissionsRes() {}
 
 // Merge patch of a role.
 // Ref: #/components/schemas/RoleUpdate
@@ -39086,6 +34852,46 @@ func (s *RoleUpdate) SetName(val OptString) {
 func (s *RoleUpdate) SetDescription(val OptNilString) {
 	s.Description = val
 }
+
+type RotateWebhookSubscriptionSecretBadRequest Problem
+
+func (*RotateWebhookSubscriptionSecretBadRequest) rotateWebhookSubscriptionSecretRes() {}
+
+type RotateWebhookSubscriptionSecretForbidden Problem
+
+func (*RotateWebhookSubscriptionSecretForbidden) rotateWebhookSubscriptionSecretRes() {}
+
+type RotateWebhookSubscriptionSecretNotFound Problem
+
+func (*RotateWebhookSubscriptionSecretNotFound) rotateWebhookSubscriptionSecretRes() {}
+
+type RotateWebhookSubscriptionSecretPreconditionFailed Problem
+
+func (*RotateWebhookSubscriptionSecretPreconditionFailed) rotateWebhookSubscriptionSecretRes() {}
+
+type RotateWebhookSubscriptionSecretPreconditionRequired Problem
+
+func (*RotateWebhookSubscriptionSecretPreconditionRequired) rotateWebhookSubscriptionSecretRes() {}
+
+type RotateWebhookSubscriptionSecretUnprocessableEntity Problem
+
+func (*RotateWebhookSubscriptionSecretUnprocessableEntity) rotateWebhookSubscriptionSecretRes() {}
+
+type RunAnalyticsQueryBadRequest Problem
+
+func (*RunAnalyticsQueryBadRequest) runAnalyticsQueryRes() {}
+
+type RunAnalyticsQueryForbidden Problem
+
+func (*RunAnalyticsQueryForbidden) runAnalyticsQueryRes() {}
+
+type RunAnalyticsQueryPreconditionRequired Problem
+
+func (*RunAnalyticsQueryPreconditionRequired) runAnalyticsQueryRes() {}
+
+type RunAnalyticsQueryUnprocessableEntity Problem
+
+func (*RunAnalyticsQueryUnprocessableEntity) runAnalyticsQueryRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/Segment
@@ -39246,9 +35052,6 @@ type SegmentHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           Segment
 }
 
@@ -39265,21 +35068,6 @@ func (s *SegmentHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *SegmentHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *SegmentHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *SegmentHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *SegmentHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -39300,21 +35088,6 @@ func (s *SegmentHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *SegmentHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *SegmentHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *SegmentHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *SegmentHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -39366,55 +35139,7 @@ func (s *SegmentPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// SegmentPageHeaders wraps SegmentPage with response headers.
-type SegmentPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           SegmentPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *SegmentPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *SegmentPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *SegmentPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *SegmentPageHeaders) GetResponse() SegmentPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *SegmentPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *SegmentPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *SegmentPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *SegmentPageHeaders) SetResponse(val SegmentPage) {
-	s.Response = val
-}
-
-func (*SegmentPageHeaders) listSegmentsRes() {}
+func (*SegmentPage) listSegmentsRes() {}
 
 // Merge patch of a segment.
 // Ref: #/components/schemas/SegmentUpdate
@@ -39447,26 +35172,8 @@ func (s *SegmentUpdate) SetDescription(val OptNilString) {
 
 // ServiceUnavailableHeaders wraps Problem with response headers.
 type ServiceUnavailableHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	RetryAfter         OptInt32
-	Response           Problem
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *ServiceUnavailableHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *ServiceUnavailableHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *ServiceUnavailableHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
+	RetryAfter OptInt32
+	Response   Problem
 }
 
 // GetRetryAfter returns the value of RetryAfter.
@@ -39477,21 +35184,6 @@ func (s *ServiceUnavailableHeaders) GetRetryAfter() OptInt32 {
 // GetResponse returns the value of Response.
 func (s *ServiceUnavailableHeaders) GetResponse() Problem {
 	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *ServiceUnavailableHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *ServiceUnavailableHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *ServiceUnavailableHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetRetryAfter sets the value of RetryAfter.
@@ -39693,30 +35385,12 @@ func (s *SessionEnd) SetEndedAt(val OptNilDateTime) {
 // SessionEndHeaders wraps SessionEnd with response headers.
 type SessionEndHeaders struct {
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           SessionEnd
 }
 
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *SessionEndHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *SessionEndHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *SessionEndHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *SessionEndHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -39729,27 +35403,36 @@ func (s *SessionEndHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *SessionEndHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *SessionEndHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *SessionEndHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *SessionEndHeaders) SetResponse(val SessionEnd) {
 	s.Response = val
 }
 
 func (*SessionEndHeaders) endCurrentSessionRes() {}
+
+type SimulateChangeRequestBadRequest Problem
+
+func (*SimulateChangeRequestBadRequest) simulateChangeRequestRes() {}
+
+type SimulateChangeRequestForbidden Problem
+
+func (*SimulateChangeRequestForbidden) simulateChangeRequestRes() {}
+
+type SimulateChangeRequestNotFound Problem
+
+func (*SimulateChangeRequestNotFound) simulateChangeRequestRes() {}
+
+type SimulateChangeRequestPreconditionFailed Problem
+
+func (*SimulateChangeRequestPreconditionFailed) simulateChangeRequestRes() {}
+
+type SimulateChangeRequestPreconditionRequired Problem
+
+func (*SimulateChangeRequestPreconditionRequired) simulateChangeRequestRes() {}
+
+type SimulateChangeRequestUnprocessableEntity Problem
+
+func (*SimulateChangeRequestUnprocessableEntity) simulateChangeRequestRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/SodRule
@@ -39947,9 +35630,6 @@ type SodRuleHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           SodRule
 }
 
@@ -39966,21 +35646,6 @@ func (s *SodRuleHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *SodRuleHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *SodRuleHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *SodRuleHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *SodRuleHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -40001,21 +35666,6 @@ func (s *SodRuleHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *SodRuleHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *SodRuleHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *SodRuleHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *SodRuleHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -40067,55 +35717,47 @@ func (s *SodRulePage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// SodRulePageHeaders wraps SodRulePage with response headers.
-type SodRulePageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           SodRulePage
-}
+func (*SodRulePage) listSodRulesRes() {}
 
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *SodRulePageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
+type StartAgentSessionBadRequest Problem
 
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *SodRulePageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
+func (*StartAgentSessionBadRequest) startAgentSessionRes() {}
 
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *SodRulePageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
+type StartAgentSessionForbidden Problem
 
-// GetResponse returns the value of Response.
-func (s *SodRulePageHeaders) GetResponse() SodRulePage {
-	return s.Response
-}
+func (*StartAgentSessionForbidden) startAgentSessionRes() {}
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *SodRulePageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
+type StartAgentSessionPreconditionRequired Problem
 
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *SodRulePageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
+func (*StartAgentSessionPreconditionRequired) startAgentSessionRes() {}
 
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *SodRulePageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
+type StartAgentSessionUnprocessableEntity Problem
 
-// SetResponse sets the value of Response.
-func (s *SodRulePageHeaders) SetResponse(val SodRulePage) {
-	s.Response = val
-}
+func (*StartAgentSessionUnprocessableEntity) startAgentSessionRes() {}
 
-func (*SodRulePageHeaders) listSodRulesRes() {}
+type StartMigrationRunBadRequest Problem
+
+func (*StartMigrationRunBadRequest) startMigrationRunRes() {}
+
+type StartMigrationRunForbidden Problem
+
+func (*StartMigrationRunForbidden) startMigrationRunRes() {}
+
+type StartMigrationRunNotFound Problem
+
+func (*StartMigrationRunNotFound) startMigrationRunRes() {}
+
+type StartMigrationRunPreconditionFailed Problem
+
+func (*StartMigrationRunPreconditionFailed) startMigrationRunRes() {}
+
+type StartMigrationRunPreconditionRequired Problem
+
+func (*StartMigrationRunPreconditionRequired) startMigrationRunRes() {}
+
+type StartMigrationRunUnprocessableEntity Problem
+
+func (*StartMigrationRunUnprocessableEntity) startMigrationRunRes() {}
 
 // A person's match of a line: the payments it clears, a posting rule, or the house bank's incoming
 // payments clearing account (one of them), and why.
@@ -40587,9 +36229,6 @@ func (s *StatementMatch) SetOutcome(val OptString) {
 type StatementMatchHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           StatementMatch
 }
 
@@ -40601,21 +36240,6 @@ func (s *StatementMatchHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *StatementMatchHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *StatementMatchHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *StatementMatchHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *StatementMatchHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -40631,21 +36255,6 @@ func (s *StatementMatchHeaders) SetETag(val OptString) {
 // SetIdempotentReplayed sets the value of IdempotentReplayed.
 func (s *StatementMatchHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *StatementMatchHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *StatementMatchHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *StatementMatchHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -40675,55 +36284,7 @@ func (s *StatementMatchList) SetItems(val []StatementMatch) {
 	s.Items = val
 }
 
-// StatementMatchListHeaders wraps StatementMatchList with response headers.
-type StatementMatchListHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           StatementMatchList
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *StatementMatchListHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *StatementMatchListHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *StatementMatchListHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *StatementMatchListHeaders) GetResponse() StatementMatchList {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *StatementMatchListHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *StatementMatchListHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *StatementMatchListHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *StatementMatchListHeaders) SetResponse(val StatementMatchList) {
-	s.Response = val
-}
-
-func (*StatementMatchListHeaders) listBankStatementMatchesRes() {}
+func (*StatementMatchList) listBankStatementMatchesRes() {}
 
 // A payment, with the bank file of a batch booking, a posting rule, or the incoming payments clearing
 // account.
@@ -40791,6 +36352,102 @@ func (s *StatementMatchTarget) SetPostingRule(val OptString) {
 func (s *StatementMatchTarget) SetIncoming(val OptBool) {
 	s.Incoming = val
 }
+
+type SubmitChangeRequestBadRequest Problem
+
+func (*SubmitChangeRequestBadRequest) submitChangeRequestRes() {}
+
+type SubmitChangeRequestForbidden Problem
+
+func (*SubmitChangeRequestForbidden) submitChangeRequestRes() {}
+
+type SubmitChangeRequestNotFound Problem
+
+func (*SubmitChangeRequestNotFound) submitChangeRequestRes() {}
+
+type SubmitChangeRequestPreconditionFailed Problem
+
+func (*SubmitChangeRequestPreconditionFailed) submitChangeRequestRes() {}
+
+type SubmitChangeRequestPreconditionRequired Problem
+
+func (*SubmitChangeRequestPreconditionRequired) submitChangeRequestRes() {}
+
+type SubmitChangeRequestUnprocessableEntity Problem
+
+func (*SubmitChangeRequestUnprocessableEntity) submitChangeRequestRes() {}
+
+type SubmitPaymentRunBadRequest Problem
+
+func (*SubmitPaymentRunBadRequest) submitPaymentRunRes() {}
+
+type SubmitPaymentRunForbidden Problem
+
+func (*SubmitPaymentRunForbidden) submitPaymentRunRes() {}
+
+type SubmitPaymentRunNotFound Problem
+
+func (*SubmitPaymentRunNotFound) submitPaymentRunRes() {}
+
+type SubmitPaymentRunPreconditionFailed Problem
+
+func (*SubmitPaymentRunPreconditionFailed) submitPaymentRunRes() {}
+
+type SubmitPaymentRunPreconditionRequired Problem
+
+func (*SubmitPaymentRunPreconditionRequired) submitPaymentRunRes() {}
+
+type SubmitPaymentRunUnprocessableEntity Problem
+
+func (*SubmitPaymentRunUnprocessableEntity) submitPaymentRunRes() {}
+
+type SubmitPurchaseOrderChangeBadRequest Problem
+
+func (*SubmitPurchaseOrderChangeBadRequest) submitPurchaseOrderChangeRes() {}
+
+type SubmitPurchaseOrderChangeForbidden Problem
+
+func (*SubmitPurchaseOrderChangeForbidden) submitPurchaseOrderChangeRes() {}
+
+type SubmitPurchaseOrderChangeNotFound Problem
+
+func (*SubmitPurchaseOrderChangeNotFound) submitPurchaseOrderChangeRes() {}
+
+type SubmitPurchaseOrderChangePreconditionFailed Problem
+
+func (*SubmitPurchaseOrderChangePreconditionFailed) submitPurchaseOrderChangeRes() {}
+
+type SubmitPurchaseOrderChangePreconditionRequired Problem
+
+func (*SubmitPurchaseOrderChangePreconditionRequired) submitPurchaseOrderChangeRes() {}
+
+type SubmitPurchaseOrderChangeUnprocessableEntity Problem
+
+func (*SubmitPurchaseOrderChangeUnprocessableEntity) submitPurchaseOrderChangeRes() {}
+
+type SubmitRequisitionBadRequest Problem
+
+func (*SubmitRequisitionBadRequest) submitRequisitionRes() {}
+
+type SubmitRequisitionForbidden Problem
+
+func (*SubmitRequisitionForbidden) submitRequisitionRes() {}
+
+type SubmitRequisitionNotFound Problem
+
+func (*SubmitRequisitionNotFound) submitRequisitionRes() {}
+
+type SubmitRequisitionPreconditionFailed Problem
+
+func (*SubmitRequisitionPreconditionFailed) submitRequisitionRes() {}
+
+type SubmitRequisitionPreconditionRequired Problem
+
+func (*SubmitRequisitionPreconditionRequired) submitRequisitionRes() {}
+
+type SubmitRequisitionUnprocessableEntity Problem
+
+func (*SubmitRequisitionUnprocessableEntity) submitRequisitionRes() {}
 
 // Company-specific supplier data.
 // Ref: #/components/schemas/SupplierCompany
@@ -41568,9 +37225,6 @@ type SupplierInvoiceHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           SupplierInvoice
 }
 
@@ -41587,21 +37241,6 @@ func (s *SupplierInvoiceHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *SupplierInvoiceHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *SupplierInvoiceHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *SupplierInvoiceHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *SupplierInvoiceHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -41622,21 +37261,6 @@ func (s *SupplierInvoiceHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *SupplierInvoiceHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *SupplierInvoiceHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *SupplierInvoiceHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *SupplierInvoiceHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -41822,55 +37446,7 @@ func (s *SupplierInvoicePage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// SupplierInvoicePageHeaders wraps SupplierInvoicePage with response headers.
-type SupplierInvoicePageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           SupplierInvoicePage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *SupplierInvoicePageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *SupplierInvoicePageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *SupplierInvoicePageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *SupplierInvoicePageHeaders) GetResponse() SupplierInvoicePage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *SupplierInvoicePageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *SupplierInvoicePageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *SupplierInvoicePageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *SupplierInvoicePageHeaders) SetResponse(val SupplierInvoicePage) {
-	s.Response = val
-}
-
-func (*SupplierInvoicePageHeaders) listSupplierInvoicesRes() {}
+func (*SupplierInvoicePage) listSupplierInvoicesRes() {}
 
 // Options for posting.
 // Ref: #/components/schemas/SupplierInvoicePost
@@ -42103,28 +37679,34 @@ func (s *TaxIdentifierInput) SetValue(val string) {
 	s.Value = val
 }
 
+type TerminateContractBadRequest Problem
+
+func (*TerminateContractBadRequest) terminateContractRes() {}
+
+type TerminateContractForbidden Problem
+
+func (*TerminateContractForbidden) terminateContractRes() {}
+
+type TerminateContractNotFound Problem
+
+func (*TerminateContractNotFound) terminateContractRes() {}
+
+type TerminateContractPreconditionFailed Problem
+
+func (*TerminateContractPreconditionFailed) terminateContractRes() {}
+
+type TerminateContractPreconditionRequired Problem
+
+func (*TerminateContractPreconditionRequired) terminateContractRes() {}
+
+type TerminateContractUnprocessableEntity Problem
+
+func (*TerminateContractUnprocessableEntity) terminateContractRes() {}
+
 // TooManyRequestsHeaders wraps Problem with response headers.
 type TooManyRequestsHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	RetryAfter         OptInt32
-	Response           Problem
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *TooManyRequestsHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *TooManyRequestsHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *TooManyRequestsHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
+	RetryAfter OptInt32
+	Response   Problem
 }
 
 // GetRetryAfter returns the value of RetryAfter.
@@ -42135,21 +37717,6 @@ func (s *TooManyRequestsHeaders) GetRetryAfter() OptInt32 {
 // GetResponse returns the value of Response.
 func (s *TooManyRequestsHeaders) GetResponse() Problem {
 	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *TooManyRequestsHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *TooManyRequestsHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *TooManyRequestsHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetRetryAfter sets the value of RetryAfter.
@@ -42445,28 +38012,34 @@ func (*TooManyRequestsHeaders) uploadMemoRecordsRes()                {}
 func (*TooManyRequestsHeaders) verifyAuditChainRes()                 {}
 func (*TooManyRequestsHeaders) withdrawChangeRequestRes()            {}
 
+type TransmitBankFileBadRequest Problem
+
+func (*TransmitBankFileBadRequest) transmitBankFileRes() {}
+
+type TransmitBankFileForbidden Problem
+
+func (*TransmitBankFileForbidden) transmitBankFileRes() {}
+
+type TransmitBankFileNotFound Problem
+
+func (*TransmitBankFileNotFound) transmitBankFileRes() {}
+
+type TransmitBankFilePreconditionFailed Problem
+
+func (*TransmitBankFilePreconditionFailed) transmitBankFileRes() {}
+
+type TransmitBankFilePreconditionRequired Problem
+
+func (*TransmitBankFilePreconditionRequired) transmitBankFileRes() {}
+
+type TransmitBankFileUnprocessableEntity Problem
+
+func (*TransmitBankFileUnprocessableEntity) transmitBankFileRes() {}
+
 // UnauthorizedHeaders wraps Problem with response headers.
 type UnauthorizedHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	WWWAuthenticate    OptString
-	Response           Problem
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *UnauthorizedHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *UnauthorizedHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *UnauthorizedHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
+	WWWAuthenticate OptString
+	Response        Problem
 }
 
 // GetWWWAuthenticate returns the value of WWWAuthenticate.
@@ -42477,21 +38050,6 @@ func (s *UnauthorizedHeaders) GetWWWAuthenticate() OptString {
 // GetResponse returns the value of Response.
 func (s *UnauthorizedHeaders) GetResponse() Problem {
 	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *UnauthorizedHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *UnauthorizedHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *UnauthorizedHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetWWWAuthenticate sets the value of WWWAuthenticate.
@@ -42787,221 +38345,114 @@ func (*UnauthorizedHeaders) uploadMemoRecordsRes()                {}
 func (*UnauthorizedHeaders) verifyAuditChainRes()                 {}
 func (*UnauthorizedHeaders) withdrawChangeRequestRes()            {}
 
-// UnprocessableHeaders wraps Problem with response headers.
-type UnprocessableHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           Problem
-}
+type UnblockBusinessPartnerBadRequest Problem
 
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *UnprocessableHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
+func (*UnblockBusinessPartnerBadRequest) unblockBusinessPartnerRes() {}
 
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *UnprocessableHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
+type UnblockBusinessPartnerForbidden Problem
 
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *UnprocessableHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
+func (*UnblockBusinessPartnerForbidden) unblockBusinessPartnerRes() {}
 
-// GetResponse returns the value of Response.
-func (s *UnprocessableHeaders) GetResponse() Problem {
-	return s.Response
-}
+type UnblockBusinessPartnerNotFound Problem
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *UnprocessableHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
+func (*UnblockBusinessPartnerNotFound) unblockBusinessPartnerRes() {}
 
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *UnprocessableHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
+type UnblockBusinessPartnerPreconditionFailed Problem
 
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *UnprocessableHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
+func (*UnblockBusinessPartnerPreconditionFailed) unblockBusinessPartnerRes() {}
 
-// SetResponse sets the value of Response.
-func (s *UnprocessableHeaders) SetResponse(val Problem) {
-	s.Response = val
-}
+type UnblockBusinessPartnerPreconditionRequired Problem
 
-func (*UnprocessableHeaders) acceptBankStatementLineProposalRes()  {}
-func (*UnprocessableHeaders) acceptMemoRecordProposalRes()         {}
-func (*UnprocessableHeaders) activateChangeRequestRes()            {}
-func (*UnprocessableHeaders) activateLegalEntityRes()              {}
-func (*UnprocessableHeaders) activateOrgUnitRes()                  {}
-func (*UnprocessableHeaders) addHierarchyNodeRes()                 {}
-func (*UnprocessableHeaders) applyCountryPackRes()                 {}
-func (*UnprocessableHeaders) approveApprovalRequestRes()           {}
-func (*UnprocessableHeaders) assignProfitCenterRes()               {}
-func (*UnprocessableHeaders) blockBusinessPartnerRes()             {}
-func (*UnprocessableHeaders) blockLegalEntityRes()                 {}
-func (*UnprocessableHeaders) blockOrgUnitRes()                     {}
-func (*UnprocessableHeaders) blockPrincipalRes()                   {}
-func (*UnprocessableHeaders) cancelApprovalRequestRes()            {}
-func (*UnprocessableHeaders) cancelContractRes()                   {}
-func (*UnprocessableHeaders) cancelDownPaymentRequestRes()         {}
-func (*UnprocessableHeaders) cancelMemoRecordRes()                 {}
-func (*UnprocessableHeaders) cancelOperationRes()                  {}
-func (*UnprocessableHeaders) cancelParkedJournalEntryRes()         {}
-func (*UnprocessableHeaders) cancelPurchaseOrderChangeRes()        {}
-func (*UnprocessableHeaders) cancelPurchaseOrderRes()              {}
-func (*UnprocessableHeaders) cancelRequisitionRes()                {}
-func (*UnprocessableHeaders) cancelRevaluationRunRes()             {}
-func (*UnprocessableHeaders) cancelSupplierInvoiceRes()            {}
-func (*UnprocessableHeaders) captureSupplierInvoiceRes()           {}
-func (*UnprocessableHeaders) clearSupplierInvoiceDownPaymentsRes() {}
-func (*UnprocessableHeaders) closeFiscalPeriodRes()                {}
-func (*UnprocessableHeaders) closePurchaseOrderRes()               {}
-func (*UnprocessableHeaders) createBusinessPartnerRes()            {}
-func (*UnprocessableHeaders) createChangeRequestRes()              {}
-func (*UnprocessableHeaders) createClearingRes()                   {}
-func (*UnprocessableHeaders) createCompanyAccessRes()              {}
-func (*UnprocessableHeaders) createConnectorRes()                  {}
-func (*UnprocessableHeaders) createContractRes()                   {}
-func (*UnprocessableHeaders) createCostCenterRes()                 {}
-func (*UnprocessableHeaders) createDownPaymentRequestRes()         {}
-func (*UnprocessableHeaders) createExchangeRateRes()               {}
-func (*UnprocessableHeaders) createHierarchyRes()                  {}
-func (*UnprocessableHeaders) createLegalEntityRes()                {}
-func (*UnprocessableHeaders) createMemoRecordRes()                 {}
-func (*UnprocessableHeaders) createMigrationRunRes()               {}
-func (*UnprocessableHeaders) createOrgUnitRes()                    {}
-func (*UnprocessableHeaders) createPartnerChangeRes()              {}
-func (*UnprocessableHeaders) createPrincipalRes()                  {}
-func (*UnprocessableHeaders) createProfitCenterRes()               {}
-func (*UnprocessableHeaders) createPurchaseOrderChangeRes()        {}
-func (*UnprocessableHeaders) createPurchaseOrderRes()              {}
-func (*UnprocessableHeaders) createRecommendationRes()             {}
-func (*UnprocessableHeaders) createRegressionSuiteRes()            {}
-func (*UnprocessableHeaders) createRequisitionRes()                {}
-func (*UnprocessableHeaders) createRoleAssignmentRes()             {}
-func (*UnprocessableHeaders) createRoleRes()                       {}
-func (*UnprocessableHeaders) createSegmentRes()                    {}
-func (*UnprocessableHeaders) createSodRuleRes()                    {}
-func (*UnprocessableHeaders) createSupplierInvoiceRes()            {}
-func (*UnprocessableHeaders) createUploadRes()                     {}
-func (*UnprocessableHeaders) createWebhookSubscriptionRes()        {}
-func (*UnprocessableHeaders) decideRecommendationRes()             {}
-func (*UnprocessableHeaders) deleteWebhookSubscriptionRes()        {}
-func (*UnprocessableHeaders) disableConnectorRes()                 {}
-func (*UnprocessableHeaders) enableConnectorRes()                  {}
-func (*UnprocessableHeaders) endAgentSessionRes()                  {}
-func (*UnprocessableHeaders) endCompanyAccessRes()                 {}
-func (*UnprocessableHeaders) endCurrentSessionRes()                {}
-func (*UnprocessableHeaders) endRoleAssignmentRes()                {}
-func (*UnprocessableHeaders) endRolePermissionRes()                {}
-func (*UnprocessableHeaders) endSodRuleRes()                       {}
-func (*UnprocessableHeaders) excludeBankStatementLineRes()         {}
-func (*UnprocessableHeaders) getAnalyticsModelRes()                {}
-func (*UnprocessableHeaders) getBankReconciliationRes()            {}
-func (*UnprocessableHeaders) getCashPositionRes()                  {}
-func (*UnprocessableHeaders) grantRolePermissionRes()              {}
-func (*UnprocessableHeaders) holdSupplierInvoiceRes()              {}
-func (*UnprocessableHeaders) importBankStatementsRes()             {}
-func (*UnprocessableHeaders) lockCostCenterRes()                   {}
-func (*UnprocessableHeaders) lockFiscalPeriodRes()                 {}
-func (*UnprocessableHeaders) lockProfitCenterRes()                 {}
-func (*UnprocessableHeaders) matchBankStatementLineRes()           {}
-func (*UnprocessableHeaders) matchBankStatementRes()               {}
-func (*UnprocessableHeaders) matchSupplierInvoiceRes()             {}
-func (*UnprocessableHeaders) moveCostCenterRes()                   {}
-func (*UnprocessableHeaders) moveHierarchyNodeRes()                {}
-func (*UnprocessableHeaders) moveProfitCenterRes()                 {}
-func (*UnprocessableHeaders) openFiscalPeriodRes()                 {}
-func (*UnprocessableHeaders) parkJournalEntryRes()                 {}
-func (*UnprocessableHeaders) pauseWebhookSubscriptionRes()         {}
-func (*UnprocessableHeaders) pingWebhookSubscriptionRes()          {}
-func (*UnprocessableHeaders) placeInHierarchyRes()                 {}
-func (*UnprocessableHeaders) postBankStatementLineRes()            {}
-func (*UnprocessableHeaders) postGoodsReceiptRes()                 {}
-func (*UnprocessableHeaders) postJournalEntryRes()                 {}
-func (*UnprocessableHeaders) postParkedJournalEntryRes()           {}
-func (*UnprocessableHeaders) postRevaluationRunRes()               {}
-func (*UnprocessableHeaders) postSupplierInvoiceRes()              {}
-func (*UnprocessableHeaders) previewRevaluationRes()               {}
-func (*UnprocessableHeaders) proposeBankStatementLineRes()         {}
-func (*UnprocessableHeaders) proposeMemoRecordRes()                {}
-func (*UnprocessableHeaders) proposePaymentRunRes()                {}
-func (*UnprocessableHeaders) realiseMemoRecordRes()                {}
-func (*UnprocessableHeaders) reconcileMigrationRunRes()            {}
-func (*UnprocessableHeaders) recordAgentToolCallRes()              {}
-func (*UnprocessableHeaders) redateCostCenterRes()                 {}
-func (*UnprocessableHeaders) redateProfitCenterRes()               {}
-func (*UnprocessableHeaders) redeliverWebhookDeliveryRes()         {}
-func (*UnprocessableHeaders) rejectApprovalRequestRes()            {}
-func (*UnprocessableHeaders) rejectBankStatementLineProposalRes()  {}
-func (*UnprocessableHeaders) rejectMemoRecordProposalRes()         {}
-func (*UnprocessableHeaders) rejectPaymentRunRes()                 {}
-func (*UnprocessableHeaders) releaseContractRes()                  {}
-func (*UnprocessableHeaders) releasePaymentRunRes()                {}
-func (*UnprocessableHeaders) releasePurchaseOrderRes()             {}
-func (*UnprocessableHeaders) releaseSupplierInvoiceRes()           {}
-func (*UnprocessableHeaders) removeHierarchyNodeRes()              {}
-func (*UnprocessableHeaders) renameHierarchyNodeRes()              {}
-func (*UnprocessableHeaders) renewContractRes()                    {}
-func (*UnprocessableHeaders) replayWebhookDeliveriesRes()          {}
-func (*UnprocessableHeaders) reportBankFileStatusRes()             {}
-func (*UnprocessableHeaders) requestBankAccountChangeRes()         {}
-func (*UnprocessableHeaders) requestBankAccountEndRes()            {}
-func (*UnprocessableHeaders) resumeWebhookSubscriptionRes()        {}
-func (*UnprocessableHeaders) reverseGoodsReceiptRes()              {}
-func (*UnprocessableHeaders) reverseJournalEntryRes()              {}
-func (*UnprocessableHeaders) reverseSupplierInvoiceRes()           {}
-func (*UnprocessableHeaders) rotateWebhookSubscriptionSecretRes()  {}
-func (*UnprocessableHeaders) runAnalyticsQueryRes()                {}
-func (*UnprocessableHeaders) simulateChangeRequestRes()            {}
-func (*UnprocessableHeaders) startAgentSessionRes()                {}
-func (*UnprocessableHeaders) startMigrationRunRes()                {}
-func (*UnprocessableHeaders) submitChangeRequestRes()              {}
-func (*UnprocessableHeaders) submitPaymentRunRes()                 {}
-func (*UnprocessableHeaders) submitPurchaseOrderChangeRes()        {}
-func (*UnprocessableHeaders) submitRequisitionRes()                {}
-func (*UnprocessableHeaders) terminateContractRes()                {}
-func (*UnprocessableHeaders) transmitBankFileRes()                 {}
-func (*UnprocessableHeaders) unblockBusinessPartnerRes()           {}
-func (*UnprocessableHeaders) unblockLegalEntityRes()               {}
-func (*UnprocessableHeaders) unblockOrgUnitRes()                   {}
-func (*UnprocessableHeaders) unlockFiscalPeriodRes()               {}
-func (*UnprocessableHeaders) updateAiPolicyRes()                   {}
-func (*UnprocessableHeaders) updateChangeRequestRes()              {}
-func (*UnprocessableHeaders) updateConnectorRes()                  {}
-func (*UnprocessableHeaders) updateContractRes()                   {}
-func (*UnprocessableHeaders) updateCostCenterRes()                 {}
-func (*UnprocessableHeaders) updateLegalEntityRes()                {}
-func (*UnprocessableHeaders) updateMemoRecordRes()                 {}
-func (*UnprocessableHeaders) updateOrgUnitRes()                    {}
-func (*UnprocessableHeaders) updateParkedJournalEntryRes()         {}
-func (*UnprocessableHeaders) updatePrincipalRes()                  {}
-func (*UnprocessableHeaders) updateProfitCenterRes()               {}
-func (*UnprocessableHeaders) updatePurchaseOrderChangeRes()        {}
-func (*UnprocessableHeaders) updatePurchaseOrderRes()              {}
-func (*UnprocessableHeaders) updateRequisitionRes()                {}
-func (*UnprocessableHeaders) updateRoleRes()                       {}
-func (*UnprocessableHeaders) updateSegmentRes()                    {}
-func (*UnprocessableHeaders) updateSupplierInvoiceRes()            {}
-func (*UnprocessableHeaders) updateWebhookSubscriptionRes()        {}
-func (*UnprocessableHeaders) uploadMemoRecordsRes()                {}
-func (*UnprocessableHeaders) verifyAuditChainRes()                 {}
-func (*UnprocessableHeaders) withdrawChangeRequestRes()            {}
+func (*UnblockBusinessPartnerPreconditionRequired) unblockBusinessPartnerRes() {}
+
+type UnblockBusinessPartnerUnprocessableEntity Problem
+
+func (*UnblockBusinessPartnerUnprocessableEntity) unblockBusinessPartnerRes() {}
+
+type UnblockLegalEntityBadRequest Problem
+
+func (*UnblockLegalEntityBadRequest) unblockLegalEntityRes() {}
+
+type UnblockLegalEntityForbidden Problem
+
+func (*UnblockLegalEntityForbidden) unblockLegalEntityRes() {}
+
+type UnblockLegalEntityNotFound Problem
+
+func (*UnblockLegalEntityNotFound) unblockLegalEntityRes() {}
+
+type UnblockLegalEntityPreconditionFailed Problem
+
+func (*UnblockLegalEntityPreconditionFailed) unblockLegalEntityRes() {}
+
+type UnblockLegalEntityPreconditionRequired Problem
+
+func (*UnblockLegalEntityPreconditionRequired) unblockLegalEntityRes() {}
+
+type UnblockLegalEntityUnprocessableEntity Problem
+
+func (*UnblockLegalEntityUnprocessableEntity) unblockLegalEntityRes() {}
+
+type UnblockOrgUnitBadRequest Problem
+
+func (*UnblockOrgUnitBadRequest) unblockOrgUnitRes() {}
+
+type UnblockOrgUnitForbidden Problem
+
+func (*UnblockOrgUnitForbidden) unblockOrgUnitRes() {}
+
+type UnblockOrgUnitNotFound Problem
+
+func (*UnblockOrgUnitNotFound) unblockOrgUnitRes() {}
+
+type UnblockOrgUnitPreconditionFailed Problem
+
+func (*UnblockOrgUnitPreconditionFailed) unblockOrgUnitRes() {}
+
+type UnblockOrgUnitPreconditionRequired Problem
+
+func (*UnblockOrgUnitPreconditionRequired) unblockOrgUnitRes() {}
+
+type UnblockOrgUnitUnprocessableEntity Problem
+
+func (*UnblockOrgUnitUnprocessableEntity) unblockOrgUnitRes() {}
+
+type UnlockFiscalPeriodBadRequest Problem
+
+func (*UnlockFiscalPeriodBadRequest) unlockFiscalPeriodRes() {}
+
+type UnlockFiscalPeriodForbidden Problem
+
+func (*UnlockFiscalPeriodForbidden) unlockFiscalPeriodRes() {}
+
+type UnlockFiscalPeriodNotFound Problem
+
+func (*UnlockFiscalPeriodNotFound) unlockFiscalPeriodRes() {}
+
+type UnlockFiscalPeriodPreconditionFailed Problem
+
+func (*UnlockFiscalPeriodPreconditionFailed) unlockFiscalPeriodRes() {}
+
+type UnlockFiscalPeriodPreconditionRequired Problem
+
+func (*UnlockFiscalPeriodPreconditionRequired) unlockFiscalPeriodRes() {}
+
+type UnlockFiscalPeriodUnprocessableEntity Problem
+
+func (*UnlockFiscalPeriodUnprocessableEntity) unlockFiscalPeriodRes() {}
+
+type UpdateAiPolicyBadRequest Problem
+
+func (*UpdateAiPolicyBadRequest) updateAiPolicyRes() {}
+
+type UpdateAiPolicyForbidden Problem
+
+func (*UpdateAiPolicyForbidden) updateAiPolicyRes() {}
 
 // UpdateAiPolicyOKHeaders wraps AiPolicy with response headers.
 type UpdateAiPolicyOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           AiPolicy
 }
 
@@ -43013,21 +38464,6 @@ func (s *UpdateAiPolicyOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *UpdateAiPolicyOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *UpdateAiPolicyOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *UpdateAiPolicyOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *UpdateAiPolicyOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -43045,21 +38481,6 @@ func (s *UpdateAiPolicyOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *UpdateAiPolicyOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *UpdateAiPolicyOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *UpdateAiPolicyOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *UpdateAiPolicyOKHeaders) SetResponse(val AiPolicy) {
 	s.Response = val
@@ -43067,13 +38488,34 @@ func (s *UpdateAiPolicyOKHeaders) SetResponse(val AiPolicy) {
 
 func (*UpdateAiPolicyOKHeaders) updateAiPolicyRes() {}
 
+type UpdateAiPolicyPreconditionFailed Problem
+
+func (*UpdateAiPolicyPreconditionFailed) updateAiPolicyRes() {}
+
+type UpdateAiPolicyPreconditionRequired Problem
+
+func (*UpdateAiPolicyPreconditionRequired) updateAiPolicyRes() {}
+
+type UpdateAiPolicyUnprocessableEntity Problem
+
+func (*UpdateAiPolicyUnprocessableEntity) updateAiPolicyRes() {}
+
+type UpdateChangeRequestBadRequest Problem
+
+func (*UpdateChangeRequestBadRequest) updateChangeRequestRes() {}
+
+type UpdateChangeRequestForbidden Problem
+
+func (*UpdateChangeRequestForbidden) updateChangeRequestRes() {}
+
+type UpdateChangeRequestNotFound Problem
+
+func (*UpdateChangeRequestNotFound) updateChangeRequestRes() {}
+
 // UpdateChangeRequestOKHeaders wraps ChangeRequest with response headers.
 type UpdateChangeRequestOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           ChangeRequest
 }
 
@@ -43085,21 +38527,6 @@ func (s *UpdateChangeRequestOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *UpdateChangeRequestOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *UpdateChangeRequestOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *UpdateChangeRequestOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *UpdateChangeRequestOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -43117,21 +38544,6 @@ func (s *UpdateChangeRequestOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *UpdateChangeRequestOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *UpdateChangeRequestOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *UpdateChangeRequestOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *UpdateChangeRequestOKHeaders) SetResponse(val ChangeRequest) {
 	s.Response = val
@@ -43142,13 +38554,34 @@ func (*UpdateChangeRequestOKHeaders) submitChangeRequestRes()   {}
 func (*UpdateChangeRequestOKHeaders) updateChangeRequestRes()   {}
 func (*UpdateChangeRequestOKHeaders) withdrawChangeRequestRes() {}
 
+type UpdateChangeRequestPreconditionFailed Problem
+
+func (*UpdateChangeRequestPreconditionFailed) updateChangeRequestRes() {}
+
+type UpdateChangeRequestPreconditionRequired Problem
+
+func (*UpdateChangeRequestPreconditionRequired) updateChangeRequestRes() {}
+
+type UpdateChangeRequestUnprocessableEntity Problem
+
+func (*UpdateChangeRequestUnprocessableEntity) updateChangeRequestRes() {}
+
+type UpdateConnectorBadRequest Problem
+
+func (*UpdateConnectorBadRequest) updateConnectorRes() {}
+
+type UpdateConnectorForbidden Problem
+
+func (*UpdateConnectorForbidden) updateConnectorRes() {}
+
+type UpdateConnectorNotFound Problem
+
+func (*UpdateConnectorNotFound) updateConnectorRes() {}
+
 // UpdateConnectorOKHeaders wraps Connector with response headers.
 type UpdateConnectorOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           Connector
 }
 
@@ -43160,21 +38593,6 @@ func (s *UpdateConnectorOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *UpdateConnectorOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *UpdateConnectorOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *UpdateConnectorOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *UpdateConnectorOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -43192,21 +38610,6 @@ func (s *UpdateConnectorOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *UpdateConnectorOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *UpdateConnectorOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *UpdateConnectorOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *UpdateConnectorOKHeaders) SetResponse(val Connector) {
 	s.Response = val
@@ -43216,13 +38619,34 @@ func (*UpdateConnectorOKHeaders) disableConnectorRes() {}
 func (*UpdateConnectorOKHeaders) enableConnectorRes()  {}
 func (*UpdateConnectorOKHeaders) updateConnectorRes()  {}
 
+type UpdateConnectorPreconditionFailed Problem
+
+func (*UpdateConnectorPreconditionFailed) updateConnectorRes() {}
+
+type UpdateConnectorPreconditionRequired Problem
+
+func (*UpdateConnectorPreconditionRequired) updateConnectorRes() {}
+
+type UpdateConnectorUnprocessableEntity Problem
+
+func (*UpdateConnectorUnprocessableEntity) updateConnectorRes() {}
+
+type UpdateContractBadRequest Problem
+
+func (*UpdateContractBadRequest) updateContractRes() {}
+
+type UpdateContractForbidden Problem
+
+func (*UpdateContractForbidden) updateContractRes() {}
+
+type UpdateContractNotFound Problem
+
+func (*UpdateContractNotFound) updateContractRes() {}
+
 // UpdateContractOKHeaders wraps Contract with response headers.
 type UpdateContractOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           Contract
 }
 
@@ -43234,21 +38658,6 @@ func (s *UpdateContractOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *UpdateContractOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *UpdateContractOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *UpdateContractOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *UpdateContractOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -43266,21 +38675,6 @@ func (s *UpdateContractOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *UpdateContractOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *UpdateContractOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *UpdateContractOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *UpdateContractOKHeaders) SetResponse(val Contract) {
 	s.Response = val
@@ -43291,13 +38685,34 @@ func (*UpdateContractOKHeaders) releaseContractRes()   {}
 func (*UpdateContractOKHeaders) terminateContractRes() {}
 func (*UpdateContractOKHeaders) updateContractRes()    {}
 
+type UpdateContractPreconditionFailed Problem
+
+func (*UpdateContractPreconditionFailed) updateContractRes() {}
+
+type UpdateContractPreconditionRequired Problem
+
+func (*UpdateContractPreconditionRequired) updateContractRes() {}
+
+type UpdateContractUnprocessableEntity Problem
+
+func (*UpdateContractUnprocessableEntity) updateContractRes() {}
+
+type UpdateCostCenterBadRequest Problem
+
+func (*UpdateCostCenterBadRequest) updateCostCenterRes() {}
+
+type UpdateCostCenterForbidden Problem
+
+func (*UpdateCostCenterForbidden) updateCostCenterRes() {}
+
+type UpdateCostCenterNotFound Problem
+
+func (*UpdateCostCenterNotFound) updateCostCenterRes() {}
+
 // UpdateCostCenterOKHeaders wraps CostCenter with response headers.
 type UpdateCostCenterOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           CostCenter
 }
 
@@ -43309,21 +38724,6 @@ func (s *UpdateCostCenterOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *UpdateCostCenterOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *UpdateCostCenterOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *UpdateCostCenterOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *UpdateCostCenterOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -43341,21 +38741,6 @@ func (s *UpdateCostCenterOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *UpdateCostCenterOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *UpdateCostCenterOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *UpdateCostCenterOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *UpdateCostCenterOKHeaders) SetResponse(val CostCenter) {
 	s.Response = val
@@ -43363,13 +38748,34 @@ func (s *UpdateCostCenterOKHeaders) SetResponse(val CostCenter) {
 
 func (*UpdateCostCenterOKHeaders) updateCostCenterRes() {}
 
+type UpdateCostCenterPreconditionFailed Problem
+
+func (*UpdateCostCenterPreconditionFailed) updateCostCenterRes() {}
+
+type UpdateCostCenterPreconditionRequired Problem
+
+func (*UpdateCostCenterPreconditionRequired) updateCostCenterRes() {}
+
+type UpdateCostCenterUnprocessableEntity Problem
+
+func (*UpdateCostCenterUnprocessableEntity) updateCostCenterRes() {}
+
+type UpdateLegalEntityBadRequest Problem
+
+func (*UpdateLegalEntityBadRequest) updateLegalEntityRes() {}
+
+type UpdateLegalEntityForbidden Problem
+
+func (*UpdateLegalEntityForbidden) updateLegalEntityRes() {}
+
+type UpdateLegalEntityNotFound Problem
+
+func (*UpdateLegalEntityNotFound) updateLegalEntityRes() {}
+
 // UpdateLegalEntityOKHeaders wraps LegalEntity with response headers.
 type UpdateLegalEntityOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           LegalEntity
 }
 
@@ -43381,21 +38787,6 @@ func (s *UpdateLegalEntityOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *UpdateLegalEntityOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *UpdateLegalEntityOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *UpdateLegalEntityOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *UpdateLegalEntityOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -43413,21 +38804,6 @@ func (s *UpdateLegalEntityOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *UpdateLegalEntityOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *UpdateLegalEntityOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *UpdateLegalEntityOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *UpdateLegalEntityOKHeaders) SetResponse(val LegalEntity) {
 	s.Response = val
@@ -43438,13 +38814,34 @@ func (*UpdateLegalEntityOKHeaders) blockLegalEntityRes()    {}
 func (*UpdateLegalEntityOKHeaders) unblockLegalEntityRes()  {}
 func (*UpdateLegalEntityOKHeaders) updateLegalEntityRes()   {}
 
+type UpdateLegalEntityPreconditionFailed Problem
+
+func (*UpdateLegalEntityPreconditionFailed) updateLegalEntityRes() {}
+
+type UpdateLegalEntityPreconditionRequired Problem
+
+func (*UpdateLegalEntityPreconditionRequired) updateLegalEntityRes() {}
+
+type UpdateLegalEntityUnprocessableEntity Problem
+
+func (*UpdateLegalEntityUnprocessableEntity) updateLegalEntityRes() {}
+
+type UpdateMemoRecordBadRequest Problem
+
+func (*UpdateMemoRecordBadRequest) updateMemoRecordRes() {}
+
+type UpdateMemoRecordForbidden Problem
+
+func (*UpdateMemoRecordForbidden) updateMemoRecordRes() {}
+
+type UpdateMemoRecordNotFound Problem
+
+func (*UpdateMemoRecordNotFound) updateMemoRecordRes() {}
+
 // UpdateMemoRecordOKHeaders wraps MemoRecord with response headers.
 type UpdateMemoRecordOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           MemoRecord
 }
 
@@ -43456,21 +38853,6 @@ func (s *UpdateMemoRecordOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *UpdateMemoRecordOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *UpdateMemoRecordOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *UpdateMemoRecordOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *UpdateMemoRecordOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -43488,21 +38870,6 @@ func (s *UpdateMemoRecordOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *UpdateMemoRecordOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *UpdateMemoRecordOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *UpdateMemoRecordOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *UpdateMemoRecordOKHeaders) SetResponse(val MemoRecord) {
 	s.Response = val
@@ -43514,13 +38881,34 @@ func (*UpdateMemoRecordOKHeaders) realiseMemoRecordRes()        {}
 func (*UpdateMemoRecordOKHeaders) rejectMemoRecordProposalRes() {}
 func (*UpdateMemoRecordOKHeaders) updateMemoRecordRes()         {}
 
+type UpdateMemoRecordPreconditionFailed Problem
+
+func (*UpdateMemoRecordPreconditionFailed) updateMemoRecordRes() {}
+
+type UpdateMemoRecordPreconditionRequired Problem
+
+func (*UpdateMemoRecordPreconditionRequired) updateMemoRecordRes() {}
+
+type UpdateMemoRecordUnprocessableEntity Problem
+
+func (*UpdateMemoRecordUnprocessableEntity) updateMemoRecordRes() {}
+
+type UpdateOrgUnitBadRequest Problem
+
+func (*UpdateOrgUnitBadRequest) updateOrgUnitRes() {}
+
+type UpdateOrgUnitForbidden Problem
+
+func (*UpdateOrgUnitForbidden) updateOrgUnitRes() {}
+
+type UpdateOrgUnitNotFound Problem
+
+func (*UpdateOrgUnitNotFound) updateOrgUnitRes() {}
+
 // UpdateOrgUnitOKHeaders wraps OrgUnit with response headers.
 type UpdateOrgUnitOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           OrgUnit
 }
 
@@ -43532,21 +38920,6 @@ func (s *UpdateOrgUnitOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *UpdateOrgUnitOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *UpdateOrgUnitOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *UpdateOrgUnitOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *UpdateOrgUnitOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -43564,21 +38937,6 @@ func (s *UpdateOrgUnitOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *UpdateOrgUnitOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *UpdateOrgUnitOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *UpdateOrgUnitOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *UpdateOrgUnitOKHeaders) SetResponse(val OrgUnit) {
 	s.Response = val
@@ -43589,13 +38947,34 @@ func (*UpdateOrgUnitOKHeaders) blockOrgUnitRes()    {}
 func (*UpdateOrgUnitOKHeaders) unblockOrgUnitRes()  {}
 func (*UpdateOrgUnitOKHeaders) updateOrgUnitRes()   {}
 
+type UpdateOrgUnitPreconditionFailed Problem
+
+func (*UpdateOrgUnitPreconditionFailed) updateOrgUnitRes() {}
+
+type UpdateOrgUnitPreconditionRequired Problem
+
+func (*UpdateOrgUnitPreconditionRequired) updateOrgUnitRes() {}
+
+type UpdateOrgUnitUnprocessableEntity Problem
+
+func (*UpdateOrgUnitUnprocessableEntity) updateOrgUnitRes() {}
+
+type UpdateParkedJournalEntryBadRequest Problem
+
+func (*UpdateParkedJournalEntryBadRequest) updateParkedJournalEntryRes() {}
+
+type UpdateParkedJournalEntryForbidden Problem
+
+func (*UpdateParkedJournalEntryForbidden) updateParkedJournalEntryRes() {}
+
+type UpdateParkedJournalEntryNotFound Problem
+
+func (*UpdateParkedJournalEntryNotFound) updateParkedJournalEntryRes() {}
+
 // UpdateParkedJournalEntryOKHeaders wraps ParkedJournalEntry with response headers.
 type UpdateParkedJournalEntryOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           ParkedJournalEntry
 }
 
@@ -43607,21 +38986,6 @@ func (s *UpdateParkedJournalEntryOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *UpdateParkedJournalEntryOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *UpdateParkedJournalEntryOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *UpdateParkedJournalEntryOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *UpdateParkedJournalEntryOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -43639,21 +39003,6 @@ func (s *UpdateParkedJournalEntryOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *UpdateParkedJournalEntryOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *UpdateParkedJournalEntryOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *UpdateParkedJournalEntryOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *UpdateParkedJournalEntryOKHeaders) SetResponse(val ParkedJournalEntry) {
 	s.Response = val
@@ -43663,13 +39012,34 @@ func (*UpdateParkedJournalEntryOKHeaders) cancelParkedJournalEntryRes() {}
 func (*UpdateParkedJournalEntryOKHeaders) postParkedJournalEntryRes()   {}
 func (*UpdateParkedJournalEntryOKHeaders) updateParkedJournalEntryRes() {}
 
+type UpdateParkedJournalEntryPreconditionFailed Problem
+
+func (*UpdateParkedJournalEntryPreconditionFailed) updateParkedJournalEntryRes() {}
+
+type UpdateParkedJournalEntryPreconditionRequired Problem
+
+func (*UpdateParkedJournalEntryPreconditionRequired) updateParkedJournalEntryRes() {}
+
+type UpdateParkedJournalEntryUnprocessableEntity Problem
+
+func (*UpdateParkedJournalEntryUnprocessableEntity) updateParkedJournalEntryRes() {}
+
+type UpdatePrincipalBadRequest Problem
+
+func (*UpdatePrincipalBadRequest) updatePrincipalRes() {}
+
+type UpdatePrincipalForbidden Problem
+
+func (*UpdatePrincipalForbidden) updatePrincipalRes() {}
+
+type UpdatePrincipalNotFound Problem
+
+func (*UpdatePrincipalNotFound) updatePrincipalRes() {}
+
 // UpdatePrincipalOKHeaders wraps Principal with response headers.
 type UpdatePrincipalOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           Principal
 }
 
@@ -43681,21 +39051,6 @@ func (s *UpdatePrincipalOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *UpdatePrincipalOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *UpdatePrincipalOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *UpdatePrincipalOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *UpdatePrincipalOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -43713,21 +39068,6 @@ func (s *UpdatePrincipalOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *UpdatePrincipalOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *UpdatePrincipalOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *UpdatePrincipalOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *UpdatePrincipalOKHeaders) SetResponse(val Principal) {
 	s.Response = val
@@ -43736,13 +39076,34 @@ func (s *UpdatePrincipalOKHeaders) SetResponse(val Principal) {
 func (*UpdatePrincipalOKHeaders) blockPrincipalRes()  {}
 func (*UpdatePrincipalOKHeaders) updatePrincipalRes() {}
 
+type UpdatePrincipalPreconditionFailed Problem
+
+func (*UpdatePrincipalPreconditionFailed) updatePrincipalRes() {}
+
+type UpdatePrincipalPreconditionRequired Problem
+
+func (*UpdatePrincipalPreconditionRequired) updatePrincipalRes() {}
+
+type UpdatePrincipalUnprocessableEntity Problem
+
+func (*UpdatePrincipalUnprocessableEntity) updatePrincipalRes() {}
+
+type UpdateProfitCenterBadRequest Problem
+
+func (*UpdateProfitCenterBadRequest) updateProfitCenterRes() {}
+
+type UpdateProfitCenterForbidden Problem
+
+func (*UpdateProfitCenterForbidden) updateProfitCenterRes() {}
+
+type UpdateProfitCenterNotFound Problem
+
+func (*UpdateProfitCenterNotFound) updateProfitCenterRes() {}
+
 // UpdateProfitCenterOKHeaders wraps ProfitCenter with response headers.
 type UpdateProfitCenterOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           ProfitCenter
 }
 
@@ -43754,21 +39115,6 @@ func (s *UpdateProfitCenterOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *UpdateProfitCenterOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *UpdateProfitCenterOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *UpdateProfitCenterOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *UpdateProfitCenterOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -43786,21 +39132,6 @@ func (s *UpdateProfitCenterOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *UpdateProfitCenterOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *UpdateProfitCenterOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *UpdateProfitCenterOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *UpdateProfitCenterOKHeaders) SetResponse(val ProfitCenter) {
 	s.Response = val
@@ -43808,13 +39139,38 @@ func (s *UpdateProfitCenterOKHeaders) SetResponse(val ProfitCenter) {
 
 func (*UpdateProfitCenterOKHeaders) updateProfitCenterRes() {}
 
+type UpdateProfitCenterPreconditionFailed Problem
+
+func (*UpdateProfitCenterPreconditionFailed) updateProfitCenterRes() {}
+
+type UpdateProfitCenterPreconditionRequired Problem
+
+func (*UpdateProfitCenterPreconditionRequired) updateProfitCenterRes() {}
+
+type UpdateProfitCenterUnprocessableEntity Problem
+
+func (*UpdateProfitCenterUnprocessableEntity) updateProfitCenterRes() {}
+
+type UpdatePurchaseOrderBadRequest Problem
+
+func (*UpdatePurchaseOrderBadRequest) updatePurchaseOrderRes() {}
+
+type UpdatePurchaseOrderChangeBadRequest Problem
+
+func (*UpdatePurchaseOrderChangeBadRequest) updatePurchaseOrderChangeRes() {}
+
+type UpdatePurchaseOrderChangeForbidden Problem
+
+func (*UpdatePurchaseOrderChangeForbidden) updatePurchaseOrderChangeRes() {}
+
+type UpdatePurchaseOrderChangeNotFound Problem
+
+func (*UpdatePurchaseOrderChangeNotFound) updatePurchaseOrderChangeRes() {}
+
 // UpdatePurchaseOrderChangeOKHeaders wraps PurchaseOrderChange with response headers.
 type UpdatePurchaseOrderChangeOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           PurchaseOrderChange
 }
 
@@ -43826,21 +39182,6 @@ func (s *UpdatePurchaseOrderChangeOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *UpdatePurchaseOrderChangeOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *UpdatePurchaseOrderChangeOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *UpdatePurchaseOrderChangeOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *UpdatePurchaseOrderChangeOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -43858,21 +39199,6 @@ func (s *UpdatePurchaseOrderChangeOKHeaders) SetIdempotentReplayed(val OptBool) 
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *UpdatePurchaseOrderChangeOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *UpdatePurchaseOrderChangeOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *UpdatePurchaseOrderChangeOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *UpdatePurchaseOrderChangeOKHeaders) SetResponse(val PurchaseOrderChange) {
 	s.Response = val
@@ -43882,13 +39208,30 @@ func (*UpdatePurchaseOrderChangeOKHeaders) cancelPurchaseOrderChangeRes() {}
 func (*UpdatePurchaseOrderChangeOKHeaders) submitPurchaseOrderChangeRes() {}
 func (*UpdatePurchaseOrderChangeOKHeaders) updatePurchaseOrderChangeRes() {}
 
+type UpdatePurchaseOrderChangePreconditionFailed Problem
+
+func (*UpdatePurchaseOrderChangePreconditionFailed) updatePurchaseOrderChangeRes() {}
+
+type UpdatePurchaseOrderChangePreconditionRequired Problem
+
+func (*UpdatePurchaseOrderChangePreconditionRequired) updatePurchaseOrderChangeRes() {}
+
+type UpdatePurchaseOrderChangeUnprocessableEntity Problem
+
+func (*UpdatePurchaseOrderChangeUnprocessableEntity) updatePurchaseOrderChangeRes() {}
+
+type UpdatePurchaseOrderForbidden Problem
+
+func (*UpdatePurchaseOrderForbidden) updatePurchaseOrderRes() {}
+
+type UpdatePurchaseOrderNotFound Problem
+
+func (*UpdatePurchaseOrderNotFound) updatePurchaseOrderRes() {}
+
 // UpdatePurchaseOrderOKHeaders wraps PurchaseOrder with response headers.
 type UpdatePurchaseOrderOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           PurchaseOrder
 }
 
@@ -43900,21 +39243,6 @@ func (s *UpdatePurchaseOrderOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *UpdatePurchaseOrderOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *UpdatePurchaseOrderOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *UpdatePurchaseOrderOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *UpdatePurchaseOrderOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -43932,21 +39260,6 @@ func (s *UpdatePurchaseOrderOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *UpdatePurchaseOrderOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *UpdatePurchaseOrderOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *UpdatePurchaseOrderOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *UpdatePurchaseOrderOKHeaders) SetResponse(val PurchaseOrder) {
 	s.Response = val
@@ -43957,13 +39270,34 @@ func (*UpdatePurchaseOrderOKHeaders) closePurchaseOrderRes()   {}
 func (*UpdatePurchaseOrderOKHeaders) releasePurchaseOrderRes() {}
 func (*UpdatePurchaseOrderOKHeaders) updatePurchaseOrderRes()  {}
 
+type UpdatePurchaseOrderPreconditionFailed Problem
+
+func (*UpdatePurchaseOrderPreconditionFailed) updatePurchaseOrderRes() {}
+
+type UpdatePurchaseOrderPreconditionRequired Problem
+
+func (*UpdatePurchaseOrderPreconditionRequired) updatePurchaseOrderRes() {}
+
+type UpdatePurchaseOrderUnprocessableEntity Problem
+
+func (*UpdatePurchaseOrderUnprocessableEntity) updatePurchaseOrderRes() {}
+
+type UpdateRequisitionBadRequest Problem
+
+func (*UpdateRequisitionBadRequest) updateRequisitionRes() {}
+
+type UpdateRequisitionForbidden Problem
+
+func (*UpdateRequisitionForbidden) updateRequisitionRes() {}
+
+type UpdateRequisitionNotFound Problem
+
+func (*UpdateRequisitionNotFound) updateRequisitionRes() {}
+
 // UpdateRequisitionOKHeaders wraps Requisition with response headers.
 type UpdateRequisitionOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           Requisition
 }
 
@@ -43975,21 +39309,6 @@ func (s *UpdateRequisitionOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *UpdateRequisitionOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *UpdateRequisitionOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *UpdateRequisitionOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *UpdateRequisitionOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -44007,21 +39326,6 @@ func (s *UpdateRequisitionOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *UpdateRequisitionOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *UpdateRequisitionOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *UpdateRequisitionOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *UpdateRequisitionOKHeaders) SetResponse(val Requisition) {
 	s.Response = val
@@ -44031,13 +39335,34 @@ func (*UpdateRequisitionOKHeaders) cancelRequisitionRes() {}
 func (*UpdateRequisitionOKHeaders) submitRequisitionRes() {}
 func (*UpdateRequisitionOKHeaders) updateRequisitionRes() {}
 
+type UpdateRequisitionPreconditionFailed Problem
+
+func (*UpdateRequisitionPreconditionFailed) updateRequisitionRes() {}
+
+type UpdateRequisitionPreconditionRequired Problem
+
+func (*UpdateRequisitionPreconditionRequired) updateRequisitionRes() {}
+
+type UpdateRequisitionUnprocessableEntity Problem
+
+func (*UpdateRequisitionUnprocessableEntity) updateRequisitionRes() {}
+
+type UpdateRoleBadRequest Problem
+
+func (*UpdateRoleBadRequest) updateRoleRes() {}
+
+type UpdateRoleForbidden Problem
+
+func (*UpdateRoleForbidden) updateRoleRes() {}
+
+type UpdateRoleNotFound Problem
+
+func (*UpdateRoleNotFound) updateRoleRes() {}
+
 // UpdateRoleOKHeaders wraps Role with response headers.
 type UpdateRoleOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           Role
 }
 
@@ -44049,21 +39374,6 @@ func (s *UpdateRoleOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *UpdateRoleOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *UpdateRoleOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *UpdateRoleOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *UpdateRoleOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -44081,21 +39391,6 @@ func (s *UpdateRoleOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *UpdateRoleOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *UpdateRoleOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *UpdateRoleOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *UpdateRoleOKHeaders) SetResponse(val Role) {
 	s.Response = val
@@ -44103,13 +39398,34 @@ func (s *UpdateRoleOKHeaders) SetResponse(val Role) {
 
 func (*UpdateRoleOKHeaders) updateRoleRes() {}
 
+type UpdateRolePreconditionFailed Problem
+
+func (*UpdateRolePreconditionFailed) updateRoleRes() {}
+
+type UpdateRolePreconditionRequired Problem
+
+func (*UpdateRolePreconditionRequired) updateRoleRes() {}
+
+type UpdateRoleUnprocessableEntity Problem
+
+func (*UpdateRoleUnprocessableEntity) updateRoleRes() {}
+
+type UpdateSegmentBadRequest Problem
+
+func (*UpdateSegmentBadRequest) updateSegmentRes() {}
+
+type UpdateSegmentForbidden Problem
+
+func (*UpdateSegmentForbidden) updateSegmentRes() {}
+
+type UpdateSegmentNotFound Problem
+
+func (*UpdateSegmentNotFound) updateSegmentRes() {}
+
 // UpdateSegmentOKHeaders wraps Segment with response headers.
 type UpdateSegmentOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           Segment
 }
 
@@ -44121,21 +39437,6 @@ func (s *UpdateSegmentOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *UpdateSegmentOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *UpdateSegmentOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *UpdateSegmentOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *UpdateSegmentOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -44153,21 +39454,6 @@ func (s *UpdateSegmentOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *UpdateSegmentOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *UpdateSegmentOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *UpdateSegmentOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *UpdateSegmentOKHeaders) SetResponse(val Segment) {
 	s.Response = val
@@ -44175,13 +39461,34 @@ func (s *UpdateSegmentOKHeaders) SetResponse(val Segment) {
 
 func (*UpdateSegmentOKHeaders) updateSegmentRes() {}
 
+type UpdateSegmentPreconditionFailed Problem
+
+func (*UpdateSegmentPreconditionFailed) updateSegmentRes() {}
+
+type UpdateSegmentPreconditionRequired Problem
+
+func (*UpdateSegmentPreconditionRequired) updateSegmentRes() {}
+
+type UpdateSegmentUnprocessableEntity Problem
+
+func (*UpdateSegmentUnprocessableEntity) updateSegmentRes() {}
+
+type UpdateSupplierInvoiceBadRequest Problem
+
+func (*UpdateSupplierInvoiceBadRequest) updateSupplierInvoiceRes() {}
+
+type UpdateSupplierInvoiceForbidden Problem
+
+func (*UpdateSupplierInvoiceForbidden) updateSupplierInvoiceRes() {}
+
+type UpdateSupplierInvoiceNotFound Problem
+
+func (*UpdateSupplierInvoiceNotFound) updateSupplierInvoiceRes() {}
+
 // UpdateSupplierInvoiceOKHeaders wraps SupplierInvoice with response headers.
 type UpdateSupplierInvoiceOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           SupplierInvoice
 }
 
@@ -44193,21 +39500,6 @@ func (s *UpdateSupplierInvoiceOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *UpdateSupplierInvoiceOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *UpdateSupplierInvoiceOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *UpdateSupplierInvoiceOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *UpdateSupplierInvoiceOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -44225,21 +39517,6 @@ func (s *UpdateSupplierInvoiceOKHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *UpdateSupplierInvoiceOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *UpdateSupplierInvoiceOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *UpdateSupplierInvoiceOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *UpdateSupplierInvoiceOKHeaders) SetResponse(val SupplierInvoice) {
 	s.Response = val
@@ -44253,13 +39530,34 @@ func (*UpdateSupplierInvoiceOKHeaders) releaseSupplierInvoiceRes()           {}
 func (*UpdateSupplierInvoiceOKHeaders) reverseSupplierInvoiceRes()           {}
 func (*UpdateSupplierInvoiceOKHeaders) updateSupplierInvoiceRes()            {}
 
+type UpdateSupplierInvoicePreconditionFailed Problem
+
+func (*UpdateSupplierInvoicePreconditionFailed) updateSupplierInvoiceRes() {}
+
+type UpdateSupplierInvoicePreconditionRequired Problem
+
+func (*UpdateSupplierInvoicePreconditionRequired) updateSupplierInvoiceRes() {}
+
+type UpdateSupplierInvoiceUnprocessableEntity Problem
+
+func (*UpdateSupplierInvoiceUnprocessableEntity) updateSupplierInvoiceRes() {}
+
+type UpdateWebhookSubscriptionBadRequest Problem
+
+func (*UpdateWebhookSubscriptionBadRequest) updateWebhookSubscriptionRes() {}
+
+type UpdateWebhookSubscriptionForbidden Problem
+
+func (*UpdateWebhookSubscriptionForbidden) updateWebhookSubscriptionRes() {}
+
+type UpdateWebhookSubscriptionNotFound Problem
+
+func (*UpdateWebhookSubscriptionNotFound) updateWebhookSubscriptionRes() {}
+
 // UpdateWebhookSubscriptionOKHeaders wraps WebhookSubscription with response headers.
 type UpdateWebhookSubscriptionOKHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           WebhookSubscription
 }
 
@@ -44271,21 +39569,6 @@ func (s *UpdateWebhookSubscriptionOKHeaders) GetETag() OptString {
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *UpdateWebhookSubscriptionOKHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *UpdateWebhookSubscriptionOKHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *UpdateWebhookSubscriptionOKHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *UpdateWebhookSubscriptionOKHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -44303,21 +39586,6 @@ func (s *UpdateWebhookSubscriptionOKHeaders) SetIdempotentReplayed(val OptBool) 
 	s.IdempotentReplayed = val
 }
 
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *UpdateWebhookSubscriptionOKHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *UpdateWebhookSubscriptionOKHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *UpdateWebhookSubscriptionOKHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
 // SetResponse sets the value of Response.
 func (s *UpdateWebhookSubscriptionOKHeaders) SetResponse(val WebhookSubscription) {
 	s.Response = val
@@ -44328,6 +39596,18 @@ func (*UpdateWebhookSubscriptionOKHeaders) pauseWebhookSubscriptionRes()        
 func (*UpdateWebhookSubscriptionOKHeaders) resumeWebhookSubscriptionRes()       {}
 func (*UpdateWebhookSubscriptionOKHeaders) rotateWebhookSubscriptionSecretRes() {}
 func (*UpdateWebhookSubscriptionOKHeaders) updateWebhookSubscriptionRes()       {}
+
+type UpdateWebhookSubscriptionPreconditionFailed Problem
+
+func (*UpdateWebhookSubscriptionPreconditionFailed) updateWebhookSubscriptionRes() {}
+
+type UpdateWebhookSubscriptionPreconditionRequired Problem
+
+func (*UpdateWebhookSubscriptionPreconditionRequired) updateWebhookSubscriptionRes() {}
+
+type UpdateWebhookSubscriptionUnprocessableEntity Problem
+
+func (*UpdateWebhookSubscriptionUnprocessableEntity) updateWebhookSubscriptionRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/Upload
@@ -44574,6 +39854,46 @@ func (s *UploadHeaders) init() UploadHeaders {
 	return m
 }
 
+type UploadMemoRecordsBadRequest Problem
+
+func (*UploadMemoRecordsBadRequest) uploadMemoRecordsRes() {}
+
+type UploadMemoRecordsForbidden Problem
+
+func (*UploadMemoRecordsForbidden) uploadMemoRecordsRes() {}
+
+type UploadMemoRecordsNotFound Problem
+
+func (*UploadMemoRecordsNotFound) uploadMemoRecordsRes() {}
+
+type UploadMemoRecordsPreconditionFailed Problem
+
+func (*UploadMemoRecordsPreconditionFailed) uploadMemoRecordsRes() {}
+
+type UploadMemoRecordsPreconditionRequired Problem
+
+func (*UploadMemoRecordsPreconditionRequired) uploadMemoRecordsRes() {}
+
+type UploadMemoRecordsUnprocessableEntity Problem
+
+func (*UploadMemoRecordsUnprocessableEntity) uploadMemoRecordsRes() {}
+
+type VerifyAuditChainBadRequest Problem
+
+func (*VerifyAuditChainBadRequest) verifyAuditChainRes() {}
+
+type VerifyAuditChainForbidden Problem
+
+func (*VerifyAuditChainForbidden) verifyAuditChainRes() {}
+
+type VerifyAuditChainPreconditionRequired Problem
+
+func (*VerifyAuditChainPreconditionRequired) verifyAuditChainRes() {}
+
+type VerifyAuditChainUnprocessableEntity Problem
+
+func (*VerifyAuditChainUnprocessableEntity) verifyAuditChainRes() {}
+
 // One event sent, or to be sent, to a subscription's endpoint (ADR-0041). Kept 30 days.
 // Ref: #/components/schemas/WebhookDelivery
 type WebhookDelivery struct {
@@ -44765,31 +40085,13 @@ func (s *WebhookDelivery) SetUpdatedAt(val time.Time) {
 
 // WebhookDeliveryHeaders wraps WebhookDelivery with response headers.
 type WebhookDeliveryHeaders struct {
-	ETag               OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           WebhookDelivery
+	ETag     OptString
+	Response WebhookDelivery
 }
 
 // GetETag returns the value of ETag.
 func (s *WebhookDeliveryHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *WebhookDeliveryHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *WebhookDeliveryHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *WebhookDeliveryHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -44800,21 +40102,6 @@ func (s *WebhookDeliveryHeaders) GetResponse() WebhookDelivery {
 // SetETag sets the value of ETag.
 func (s *WebhookDeliveryHeaders) SetETag(val OptString) {
 	s.ETag = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *WebhookDeliveryHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *WebhookDeliveryHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *WebhookDeliveryHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -44853,55 +40140,7 @@ func (s *WebhookDeliveryPage) SetNextPageToken(val OptString) {
 	s.NextPageToken = val
 }
 
-// WebhookDeliveryPageHeaders wraps WebhookDeliveryPage with response headers.
-type WebhookDeliveryPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           WebhookDeliveryPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *WebhookDeliveryPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *WebhookDeliveryPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *WebhookDeliveryPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *WebhookDeliveryPageHeaders) GetResponse() WebhookDeliveryPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *WebhookDeliveryPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *WebhookDeliveryPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *WebhookDeliveryPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *WebhookDeliveryPageHeaders) SetResponse(val WebhookDeliveryPage) {
-	s.Response = val
-}
-
-func (*WebhookDeliveryPageHeaders) listWebhookDeliveriesRes() {}
+func (*WebhookDeliveryPage) listWebhookDeliveriesRes() {}
 
 // Replay the deliveries of the events since an instant.
 // Ref: #/components/schemas/WebhookReplay
@@ -44940,30 +40179,12 @@ func (s *WebhookReplayResult) SetQueued(val int32) {
 // WebhookReplayResultHeaders wraps WebhookReplayResult with response headers.
 type WebhookReplayResultHeaders struct {
 	IdempotentReplayed OptBool
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           WebhookReplayResult
 }
 
 // GetIdempotentReplayed returns the value of IdempotentReplayed.
 func (s *WebhookReplayResultHeaders) GetIdempotentReplayed() OptBool {
 	return s.IdempotentReplayed
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *WebhookReplayResultHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *WebhookReplayResultHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *WebhookReplayResultHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -44974,21 +40195,6 @@ func (s *WebhookReplayResultHeaders) GetResponse() WebhookReplayResult {
 // SetIdempotentReplayed sets the value of IdempotentReplayed.
 func (s *WebhookReplayResultHeaders) SetIdempotentReplayed(val OptBool) {
 	s.IdempotentReplayed = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *WebhookReplayResultHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *WebhookReplayResultHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *WebhookReplayResultHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -45226,9 +40432,6 @@ type WebhookSubscriptionHeaders struct {
 	ETag               OptString
 	IdempotentReplayed OptBool
 	Location           OptString
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
 	Response           WebhookSubscription
 }
 
@@ -45245,21 +40448,6 @@ func (s *WebhookSubscriptionHeaders) GetIdempotentReplayed() OptBool {
 // GetLocation returns the value of Location.
 func (s *WebhookSubscriptionHeaders) GetLocation() OptString {
 	return s.Location
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *WebhookSubscriptionHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *WebhookSubscriptionHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *WebhookSubscriptionHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
 }
 
 // GetResponse returns the value of Response.
@@ -45280,21 +40468,6 @@ func (s *WebhookSubscriptionHeaders) SetIdempotentReplayed(val OptBool) {
 // SetLocation sets the value of Location.
 func (s *WebhookSubscriptionHeaders) SetLocation(val OptString) {
 	s.Location = val
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *WebhookSubscriptionHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *WebhookSubscriptionHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *WebhookSubscriptionHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
 }
 
 // SetResponse sets the value of Response.
@@ -45346,55 +40519,7 @@ func (s *WebhookSubscriptionPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-// WebhookSubscriptionPageHeaders wraps WebhookSubscriptionPage with response headers.
-type WebhookSubscriptionPageHeaders struct {
-	RateLimitLimit     OptInt32
-	RateLimitRemaining OptInt32
-	RateLimitReset     OptInt32
-	Response           WebhookSubscriptionPage
-}
-
-// GetRateLimitLimit returns the value of RateLimitLimit.
-func (s *WebhookSubscriptionPageHeaders) GetRateLimitLimit() OptInt32 {
-	return s.RateLimitLimit
-}
-
-// GetRateLimitRemaining returns the value of RateLimitRemaining.
-func (s *WebhookSubscriptionPageHeaders) GetRateLimitRemaining() OptInt32 {
-	return s.RateLimitRemaining
-}
-
-// GetRateLimitReset returns the value of RateLimitReset.
-func (s *WebhookSubscriptionPageHeaders) GetRateLimitReset() OptInt32 {
-	return s.RateLimitReset
-}
-
-// GetResponse returns the value of Response.
-func (s *WebhookSubscriptionPageHeaders) GetResponse() WebhookSubscriptionPage {
-	return s.Response
-}
-
-// SetRateLimitLimit sets the value of RateLimitLimit.
-func (s *WebhookSubscriptionPageHeaders) SetRateLimitLimit(val OptInt32) {
-	s.RateLimitLimit = val
-}
-
-// SetRateLimitRemaining sets the value of RateLimitRemaining.
-func (s *WebhookSubscriptionPageHeaders) SetRateLimitRemaining(val OptInt32) {
-	s.RateLimitRemaining = val
-}
-
-// SetRateLimitReset sets the value of RateLimitReset.
-func (s *WebhookSubscriptionPageHeaders) SetRateLimitReset(val OptInt32) {
-	s.RateLimitReset = val
-}
-
-// SetResponse sets the value of Response.
-func (s *WebhookSubscriptionPageHeaders) SetResponse(val WebhookSubscriptionPage) {
-	s.Response = val
-}
-
-func (*WebhookSubscriptionPageHeaders) listWebhookSubscriptionsRes() {}
+func (*WebhookSubscriptionPage) listWebhookSubscriptionsRes() {}
 
 // Merge patch of a webhook subscription.
 // Ref: #/components/schemas/WebhookSubscriptionUpdate
@@ -45436,3 +40561,27 @@ func (s *WebhookSubscriptionUpdate) SetDescription(val OptString) {
 func (s *WebhookSubscriptionUpdate) SetEventTypes(val []string) {
 	s.EventTypes = val
 }
+
+type WithdrawChangeRequestBadRequest Problem
+
+func (*WithdrawChangeRequestBadRequest) withdrawChangeRequestRes() {}
+
+type WithdrawChangeRequestForbidden Problem
+
+func (*WithdrawChangeRequestForbidden) withdrawChangeRequestRes() {}
+
+type WithdrawChangeRequestNotFound Problem
+
+func (*WithdrawChangeRequestNotFound) withdrawChangeRequestRes() {}
+
+type WithdrawChangeRequestPreconditionFailed Problem
+
+func (*WithdrawChangeRequestPreconditionFailed) withdrawChangeRequestRes() {}
+
+type WithdrawChangeRequestPreconditionRequired Problem
+
+func (*WithdrawChangeRequestPreconditionRequired) withdrawChangeRequestRes() {}
+
+type WithdrawChangeRequestUnprocessableEntity Problem
+
+func (*WithdrawChangeRequestUnprocessableEntity) withdrawChangeRequestRes() {}

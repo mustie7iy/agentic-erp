@@ -44,11 +44,11 @@ func TestObjectHistoryReadsOnlyItsEvents(t *testing.T) {
 		if got := pgtest.RowsRead(t, ctx, tx, "audit", `audit\_event\_%`) - before; got != 1 {
 			t.Errorf("events read for an object with one event: got %d, want 1", got)
 		}
-		page, ok := res.(*gen.AuditEventPageHeaders)
+		page, ok := res.(*gen.AuditEventPage)
 		if !ok {
-			t.Fatalf("list answer: got %T, want *gen.AuditEventPageHeaders", res)
+			t.Fatalf("list answer: got %T, want *gen.AuditEventPage", res)
 		}
-		if got := len(page.Response.Items); got != 1 {
+		if got := len(page.Items); got != 1 {
 			t.Errorf("events of the object: got %d, want 1", got)
 		}
 		return nil

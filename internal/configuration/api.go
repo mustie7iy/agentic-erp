@@ -156,7 +156,7 @@ func (e *Endpoints) ListChangeRequests(ctx context.Context, params gen.ListChang
 		return nil, err
 	}
 	items, next := apitypes.PageOf(ks, crs, func(c ChangeRequest) (string, uuid.UUID) { return c.CreatedAt.UTC().Format(time.RFC3339Nano), c.ID }, crToAPI)
-	return &gen.ChangeRequestPageHeaders{Response: gen.ChangeRequestPage{Items: items, NextPageToken: next}}, nil
+	return &gen.ChangeRequestPage{Items: items, NextPageToken: next}, nil
 }
 
 // UpdateChangeRequest implements PATCH /v1/change-requests/{id}.
@@ -300,7 +300,7 @@ func (e *Endpoints) ListConfigVersions(ctx context.Context, params gen.ListConfi
 		return nil, fmt.Errorf("configuration: list configuration versions: %w", err)
 	}
 	items, next := apitypes.PageOf(ks, vs, func(v version) (string, uuid.UUID) { return strconv.Itoa(int(v.Number)), v.ID }, versionToAPI)
-	return &gen.ConfigVersionPageHeaders{Response: gen.ConfigVersionPage{Items: items, NextPageToken: next}}, nil
+	return &gen.ConfigVersionPage{Items: items, NextPageToken: next}, nil
 }
 
 // NumberRange is a row of config.number_range.
@@ -393,5 +393,5 @@ func (e *Endpoints) ListNumberRanges(ctx context.Context, params gen.ListNumberR
 		}
 		return n.DocumentType, n.ID
 	}, rangeToAPI)
-	return &gen.NumberRangePageHeaders{Response: gen.NumberRangePage{Items: items, NextPageToken: next}}, nil
+	return &gen.NumberRangePage{Items: items, NextPageToken: next}, nil
 }
