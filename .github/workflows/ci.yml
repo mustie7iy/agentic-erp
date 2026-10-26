@@ -37,7 +37,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      actions: read # the last green run on main, which a push is compared with
+      actions: read # main's runs: a push's last green one, a nightly's latest full one
     outputs:
       run: ${{ steps.decide.outputs.run }}
       images: ${{ steps.decide.outputs.images }}
@@ -89,7 +89,8 @@ jobs:
     # pair made for the run, standing in for the release KMS key; verified;
     # and refused with another key, another commit, a tag or no signature.
     # On a push to main, when its inputs changed; the nightly, manual and
-    # weekly runs, with no base to compare with, do it regardless.
+    # weekly runs do it regardless, but for a nightly of a main whose latest
+    # full run passed at that commit, which skips every job (ci-changes.sh).
     # A pull request's author ran it locally (scripts/ci-local.sh).
     needs: changes
     if: github.event_name != 'pull_request' && needs.changes.outputs.images != 'false'
@@ -253,7 +254,8 @@ jobs:
     # Nightly on main and on demand only (PO 2026-10-26): a push to main
     # runs the other jobs, and its ci-ok passes with this one skipped; a
     # nightly or manual run is red when this one fails, and while the latest
-    # one on main is red nothing merges but the fix forward (06 §6.5).
+    # one on main is red nothing merges but the fix forward (06 §6.5). A
+    # nightly of a main whose latest full run passed at that commit skips it.
     if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.run != 'false'
     # The full suite on main (06 §6.5), the second line after the author's
     # local gates: the static checks, the race detector, the performance
@@ -473,7 +475,8 @@ jobs:
     # On a pull request it aggregates the light jobs (changes, short), the
     # others skipped; on a push to main, fuzz, signing and release-scripts,
     # test skipped (it runs nightly); on the nightly or a manual run, every
-    # job but short, so a failed test turns that run red.
+    # job but short, so a failed test turns that run red; a nightly of a main
+    # whose latest full run passed at that commit, only changes.
     needs: [changes, short, test, fuzz, signing, release-scripts]
     if: always()
     runs-on: ubuntu-latest

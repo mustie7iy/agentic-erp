@@ -15,9 +15,9 @@
 # runs those checks on the same classes, before a merge.
 #
 # EVENT is pull_request, push, schedule or workflow_dispatch (the nightly
-# and manual runs, which run everything; a nightly is skipped when main is
-# still its last green full run's commit), BASE the commit to
-# compare with (the pull request's base), HEAD the commit under test
+# and manual runs, which run everything, but for a nightly of a main whose
+# latest full run passed at that commit), BASE the commit to compare with
+# (the pull request's base), HEAD the commit under test
 # (default HEAD). A push to main is compared with the last commit whose
 # push run on main passed, not with the commit before it: a newer push
 # cancels a running one (ci.yml), so a documentation merge right after a
@@ -55,18 +55,21 @@ changed() {
   if grep -Eq "$1" <<<"${2-$files}"; then echo true; else echo false; fi
 }
 
-# A nightly run of a main that has not moved since the last green full run
-# (nightly or manual) runs nothing: the suite takes about three hours on the
-# runner and the Actions budget is small (PO 2026-10-26). Anything else that
-# finds no such run, or another commit, runs everything.
+# A nightly run of a main whose latest full run (nightly or manual, finished
+# and not cancelled) passed at this very commit runs nothing: the suite takes
+# about three hours on the runner and the Actions budget is small (PO
+# 2026-10-26). The latest such run decides, not the last green one, so a red
+# run is never hidden by an older green one at the same commit. A manual run
+# never skips. No run found (beyond the last 100 runs on main, or gh
+# failing), a red one or another commit runs everything.
 if [ "$event" = schedule ]; then
-  full="$($GH run list --repo "${GITHUB_REPOSITORY:?}" --workflow ci.yml --branch main --status success \
-    --limit 20 --json headSha,event \
-    --jq 'first(.[] | select(.event == "schedule" or .event == "workflow_dispatch") | .headSha) // empty')" || full=""
+  full="$($GH run list --repo "${GITHUB_REPOSITORY:?}" --workflow ci.yml --branch main \
+    --limit 100 --json headSha,event,status,conclusion \
+    --jq '[.[] | select((.event == "schedule" or .event == "workflow_dispatch") and .status == "completed" and .conclusion != "cancelled")][0] | select(.conclusion == "success") | .headSha // empty')" || full=""
   if [ -n "$full" ] && [ "$full" = "$(git rev-parse "$head")" ]; then
-    decide false "main has not moved since its last green full run"
+    decide false "main has not moved since its latest full run, which passed"
   fi
-  [ -n "$full" ] || decide true "no green full run on main to compare with"
+  [ -n "$full" ] || decide true "no passing latest full run on main to compare with"
   decide true "a nightly run of a main that has moved"
 fi
 if [ "$event" = push ]; then

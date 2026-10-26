@@ -209,15 +209,16 @@ pull request:
   06:00 UTC (`schedule`) and whenever started by hand
   (`workflow_dispatch`, on any branch: a change to the jobs is tried before
   it reaches `main`); everything runs, except that a nightly run of a
-  `main` still at its last green full run's commit runs nothing
+  `main` whose latest full run passed at that same commit runs nothing
   (`scripts/ci-changes.sh`): the Actions budget is small, and a quiet night
-  would otherwise cost three runner hours. It no longer runs on every push: run 40334507190 (2026-10-26, on
-  the private repository's 2-CPU, 7.9 GB runner) was cancelled at its
-  120-minute limit with no test failed and the race step unfinished, and
-  the whole job takes about three hours, so its limit is 240 minutes. A
-  nightly, a manual and a push run on `main` do not cancel each other.
-  Every merge's push run on `main` is read after it (coordinator/status.py),
-  and every nightly or manual full run must be read as well, not only the
+  would otherwise cost three runner hours. The latest full run decides, so
+  an older green run never hides a red one. It no longer runs on every
+  push: run 40334507190 (2026-10-26, on the private repository's 2-CPU,
+  7.9 GB runner) was cancelled at its 120-minute limit with no test failed
+  and the race step unfinished, and the whole job takes about three hours,
+  so its limit is 240 minutes. A nightly, a manual and a push run on `main`
+  do not cancel each other. After every merge the coordinator reads `main`'s
+  latest nightly and manual full runs (coordinator/status.py), not only the
   pull request's light check: from 2026-10-21 to 2026-10-25 the runner
   stopped every run on `main`, unseen.
 - **A red `main`** (PO decisions, 2026-10-21 and 2026-10-26): `main` is

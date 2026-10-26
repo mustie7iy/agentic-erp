@@ -16,9 +16,14 @@ cat >"$work/bin/gh" <<'EOF2'
 #!/usr/bin/env bash
 [ "$1 $2" = "run list" ] || exit 2
 args=" $* "
-# The nightly's query: the last green full run on main, of any event.
-if [[ "$args" == *" headSha,event "* ]]; then
-  echo "${FAKE_FULL:-}"
+# The nightly's query: the runs on main of every event, which the real --jq
+# filter, applied here, reduces to the latest full run's commit if it passed.
+# FAKE_RUNS is gh's JSON for those runs, newest first; FAKE_GH_FAIL fails gh.
+if [[ "$args" == *" headSha,event,status,conclusion "* ]]; then
+  [ -z "${FAKE_GH_FAIL:-}" ] || exit 1
+  [[ "$args" == *" --branch main "* && "$args" != *" --event "* && "$args" != *" --status "* ]] || exit 3
+  while [ $# -gt 0 ] && [ "$1" != --jq ]; do shift; done
+  jq -r "$2" <<<"${FAKE_RUNS:-[]}"
   exit 0
 fi
 for want in "--status success" "--branch main" "--event push"; do
@@ -69,9 +74,22 @@ expect "documentation after code whose run was cancelled" true EVENT=push FAKE_G
 expect "a last green commit that is not an ancestor" true EVENT=push FAKE_GREEN=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef HEAD="$tracker"
 # The nightly full run (ci.yml's schedule) runs everything, documentation-only
 # nights included, unless main is still the last green full run's commit.
-expect "a nightly run with no green full run on main" true EVENT=schedule HEAD="$tracker"
-expect "a nightly run of a main that has moved" true EVENT=schedule FAKE_FULL="$code" HEAD="$tracker"
-expect "a nightly run of the last green full run's commit" false EVENT=schedule FAKE_FULL="$tracker" HEAD="$tracker"
+run() { # run prints one gh run of event $1 at commit $2, ended $3
+  printf '{"headSha":"%s","event":"%s","status":"completed","conclusion":"%s"}' "$2" "$1" "$3"
+}
+expect "a nightly run with no full run on main" true EVENT=schedule HEAD="$tracker"
+expect "a nightly run of a main that has moved" true EVENT=schedule \
+  FAKE_RUNS="[$(run schedule "$code" success)]" HEAD="$tracker"
+expect "a nightly run of the commit whose latest full run passed" false EVENT=schedule \
+  FAKE_RUNS="[$(run push "$code" success),$(run workflow_dispatch "$tracker" success)]" HEAD="$tracker"
+expect "a red latest full run is not hidden by an older green one" true EVENT=schedule \
+  FAKE_RUNS="[$(run workflow_dispatch "$tracker" failure),$(run schedule "$tracker" success)]" HEAD="$tracker"
+expect "a cancelled full run leaves the one before it to decide" false EVENT=schedule \
+  FAKE_RUNS="[$(run schedule "$tracker" cancelled),$(run schedule "$tracker" success)]" HEAD="$tracker"
+expect "a manual run never skips" true EVENT=workflow_dispatch \
+  FAKE_RUNS="[$(run schedule "$tracker" success)]" HEAD="$tracker"
+expect "a failing gh runs the nightly" true EVENT=schedule FAKE_GH_FAIL=1 \
+  FAKE_RUNS="[$(run schedule "$tracker" success)]" HEAD="$tracker"
 
 # expect_out checks one more output line ($3=$4) for the change $2.
 expect_out() {
