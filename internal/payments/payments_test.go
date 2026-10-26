@@ -237,8 +237,9 @@ func workLeftovers(t *testing.T) {
 // tenant in the package database, so a job left behind is done by the next
 // test that runs it and counted as that test's own: T54f's "worker did 2
 // jobs" in TestProposeReleaseTransmit was a job TestDownPaymentDatabaseFailures
-// left before it had workLeftovers. Registered first, the check runs after
-// the test's own cleanups, workLeftovers among them.
+// left before it had workLeftovers. Registered before the test's own
+// cleanups (the API's and workLeftovers), the check runs after them: keep
+// the call ahead of apitest.NewWith in setupIn.
 func leavesNoProposal(t *testing.T, tenant uuid.UUID) {
 	t.Helper()
 	t.Cleanup(func() {
