@@ -1915,9 +1915,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Actual reports: ledger.assignment_balance maintained by the projector (exactly once, run-twice test); GET /v1/cost-center-balances, /v1/profit-center-balances (by center, node, segment, account, period; exact at the read); schema test that assignment balances add up to period_balance on P&L accounts; drill-down via journal filters",
-        "r": "T56f",
+        "s": "D",
+        "t": "Actual reports: ledger.assignment_balance (ledger, company, account, cost center, profit center, segment, year, period, currency; hash key, written by the projection only) kept exactly once with period_balance by a statement trigger on balance_projection fired by the projector's round (every release's projector, rolling upgrade), lines projected before added by the migration; run-twice test and schema tests; GET /v1/cost-center-balances, /v1/profit-center-balances (ledger.cost_center.read, x-slo-class report): one company, ledger and year, period range, center, hierarchy node (its subtree's centers, today's tree), segment, account; P&L only; exact at the read as the trial balance (projected plus pending lines); paged by center, account, period; P&L assignment balances add up to period_balance (TestAssignmentBalancesAddUp); drill-down via the journal list's cost_center_id/profit_center_id filters, none added; held to the trial balance budget at its volume",
+        "r": "migration 000163 · internal/ledger centerbalances.go, projector.go · api/openapi.yaml · ADR-0050 §7 · 03 §3.7 · 04 §4.6 · T56f",
         "src": "baseline",
         "c": []
        },

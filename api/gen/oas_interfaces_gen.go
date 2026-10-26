@@ -597,6 +597,10 @@ type ListContractsRes interface {
 	listContractsRes()
 }
 
+type ListCostCenterBalancesRes interface {
+	listCostCenterBalancesRes()
+}
+
 type ListCostCenterPathsRes interface {
 	listCostCenterPathsRes()
 }
@@ -715,6 +719,10 @@ type ListPrincipalNamesRes interface {
 
 type ListPrincipalsRes interface {
 	listPrincipalsRes()
+}
+
+type ListProfitCenterBalancesRes interface {
+	listProfitCenterBalancesRes()
 }
 
 type ListProfitCenterPathsRes interface {

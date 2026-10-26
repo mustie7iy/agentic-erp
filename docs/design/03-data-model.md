@@ -632,6 +632,18 @@ erDiagram
     char currency_tc PK
     bigint debit_lc
     bigint credit_lc }
+  assignment_balance { uuid id PK "hash of the key (T56f)"
+    uuid ledger_id
+    uuid legal_entity_id
+    uuid account_id
+    uuid cost_center_id
+    uuid profit_center_id
+    uuid segment_id
+    smallint fiscal_year
+    smallint fiscal_period
+    char currency_tc
+    bigint debit_lc
+    bigint credit_lc }
 ```
 
 Rules enforced in the database:
@@ -1097,6 +1109,22 @@ derived when the entry is posted. A center change is checked against the
 lines carrying the center (ADR-0050 §3, T56d2: the
 `journal_line_cost_center` index serves the cost center's ranges of
 posting dates).
+
+Balances by account assignment (T56f, ADR-0050 §7, migration 000163).
+`assignment_balance` holds, per ledger, company, account, cost center,
+profit center, segment, year, period and transaction currency, the totals
+of the lines that carry any center (`assignment_balance_assigned`); the
+centers are nullable, so the primary key is `id`, a hash of the whole key
+(as `gr_ir_position`'s). It is written only by the projection
+(`erp_projector`; the application reads it): the trigger
+`balance_projection_assignment` on `balance_projection` adds an entry's
+assigned lines when the projector marks it projected, in the statement
+that adds it to `period_balance`, so both count each entry once and every
+release's projector keeps it. The migration added the lines projected
+before it. The two center reports read it with the lines still pending,
+as the trial balance reads `period_balance`, through the partial indexes
+`assignment_balance_cost_center` and `assignment_balance_profit_center`
+(company, ledger, year, period, center).
 
 ## 3.8 Procurement (`procurement`)
 

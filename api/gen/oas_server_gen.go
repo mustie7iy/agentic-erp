@@ -1197,6 +1197,19 @@ type Handler interface {
 	//
 	// GET /v1/contracts
 	ListContracts(ctx context.Context, params ListContractsParams) (ListContractsRes, error)
+	// ListCostCenterBalances implements listCostCenterBalances operation.
+	//
+	// Actual period totals per cost center, account and transaction currency of one legal entity, ledger
+	// and fiscal year (ADR-0050 §7), exact at the moment of the read: the balances the projector keeps by
+	// assignment (ADR-0006) plus the lines of entries it has not reached yet, as `GET /v1/balances`. Only
+	// profit and loss accounts: balance sheet lines carry no cost center, and a balance sheet by profit
+	// center or segment needs document splitting (ADR-0050 decision P3). A legal entity the caller cannot
+	// act in, or a ledger that does not exist, has none. The lines behind a row are the entries
+	// `GET /v1/journal-entries` lists with `legal_entity_id`, `ledger_id`, `fiscal_year` and
+	// `cost_center_id`. Sortable by: `cost_center_id`, `account_id`, `fiscal_period`.
+	//
+	// GET /v1/cost-center-balances
+	ListCostCenterBalances(ctx context.Context, params ListCostCenterBalancesParams) (ListCostCenterBalancesRes, error)
 	// ListCostCenterPaths implements listCostCenterPaths operation.
 	//
 	// Where the cost center sits in each hierarchy that holds it, the standard one included: the nodes
@@ -1423,6 +1436,20 @@ type Handler interface {
 	//
 	// GET /v1/principals
 	ListPrincipals(ctx context.Context, params ListPrincipalsParams) (ListPrincipalsRes, error)
+	// ListProfitCenterBalances implements listProfitCenterBalances operation.
+	//
+	// Actual period totals per profit center, its segment, account and transaction currency of one legal
+	// entity, ledger and fiscal year (ADR-0050 §7): the profit and loss statement by profit center and,
+	// summed by `segment_id`, by segment; exact at the moment of the read: the balances the projector
+	// keeps by assignment (ADR-0006) plus the lines of entries it has not reached yet, as
+	// `GET /v1/balances`. Only profit and loss accounts: balance sheet lines carry no cost center, and a
+	// balance sheet by profit center or segment needs document splitting (ADR-0050 decision P3). A legal
+	// entity the caller cannot act in, or a ledger that does not exist, has none. The lines behind a row
+	// are the entries `GET /v1/journal-entries` lists with `legal_entity_id`, `ledger_id`, `fiscal_year`
+	// and `profit_center_id`. Sortable by: `profit_center_id`, `account_id`, `fiscal_period`.
+	//
+	// GET /v1/profit-center-balances
+	ListProfitCenterBalances(ctx context.Context, params ListProfitCenterBalancesParams) (ListProfitCenterBalancesRes, error)
 	// ListProfitCenterPaths implements listProfitCenterPaths operation.
 	//
 	// Where the profit center sits in each hierarchy that holds it, the standard one included: the nodes

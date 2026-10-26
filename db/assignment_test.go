@@ -19,24 +19,24 @@ type assignedLine struct {
 }
 
 // assignedEntry inserts an entry of the fixture's company in March 2026
-// with the lines.
-func (f centerFixture) assignedEntry(tx pgx.Tx, lines ...assignedLine) error {
+// with the lines and returns its id.
+func (f centerFixture) assignedEntry(tx pgx.Tx, lines ...assignedLine) (uuid.UUID, error) {
 	je := id()
 	if err := exec(tx, `INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period, document_type,
 		document_number, document_date, posting_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, posted_by)
 		VALUES ($1,2026,$2,$3,$4,3,'SA',$5,'2026-03-10','2026-03-10','USD','USD','EUR',1,0.9,'ledger',$6)`,
 		f.tenant, je, f.entity, f.ledger, je.String()[24:], f.actor); err != nil {
-		return err
+		return je, err
 	}
 	for i, l := range lines {
 		if err := exec(tx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id, fiscal_period,
 			posting_date, account_id, amount_tc, amount_lc, amount_gc, cost_center_id, profit_center_id, segment_id)
 			VALUES ($1,2026,$2,$3,$4,$5,3,'2026-03-10',$6,$7,$7,$8,$9,$10,$11)`,
 			f.tenant, je, i+1, f.entity, f.ledger, l.account, l.amount, l.amount*9/10, l.cc, l.pc, l.seg); err != nil {
-			return err
+			return je, err
 		}
 	}
-	return nil
+	return je, nil
 }
 
 func TestJournalLineAssignment(t *testing.T) {
@@ -64,7 +64,10 @@ func TestJournalLineAssignment(t *testing.T) {
 	})
 	post := func(t *testing.T, lines ...assignedLine) error {
 		t.Helper()
-		return asApp(t, f.tenant, func(tx pgx.Tx) error { return f.assignedEntry(tx, lines...) })
+		return asApp(t, f.tenant, func(tx pgx.Tx) error {
+			_, err := f.assignedEntry(tx, lines...)
+			return err
+		})
 	}
 	bank := func(amount int64) assignedLine { return assignedLine{account: f.bank, amount: amount} }
 	for name, c := range map[string]struct {

@@ -3468,6 +3468,7 @@ func (*BadRequestHeaders) listCompanyAccessRes()                {}
 func (*BadRequestHeaders) listConfigVersionsRes()               {}
 func (*BadRequestHeaders) listConnectorsRes()                   {}
 func (*BadRequestHeaders) listContractsRes()                    {}
+func (*BadRequestHeaders) listCostCenterBalancesRes()           {}
 func (*BadRequestHeaders) listCostCenterPathsRes()              {}
 func (*BadRequestHeaders) listCostCentersRes()                  {}
 func (*BadRequestHeaders) listCountryPacksRes()                 {}
@@ -3498,6 +3499,7 @@ func (*BadRequestHeaders) listPaymentRunsRes()                  {}
 func (*BadRequestHeaders) listPaymentsRes()                     {}
 func (*BadRequestHeaders) listPrincipalNamesRes()               {}
 func (*BadRequestHeaders) listPrincipalsRes()                   {}
+func (*BadRequestHeaders) listProfitCenterBalancesRes()         {}
 func (*BadRequestHeaders) listProfitCenterPathsRes()            {}
 func (*BadRequestHeaders) listProfitCentersRes()                {}
 func (*BadRequestHeaders) listPurchaseOrderChangesRes()         {}
@@ -12128,6 +12130,283 @@ func (s *CostCenter) SetPendingChangeID(val OptUUID) {
 	s.PendingChangeID = val
 }
 
+// Actual period totals of a cost center on one account in one transaction currency (ADR-0050 §7).
+// Ref: #/components/schemas/CostCenterBalance
+type CostCenterBalance struct {
+	// Ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Cost center.
+	CostCenterID uuid.UUID `json:"cost_center_id"`
+	// The cost center's code.
+	CostCenterCode string `json:"cost_center_code"`
+	// Account.
+	AccountID uuid.UUID `json:"account_id"`
+	// Fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// Fiscal period.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// Transaction currency of the totals.
+	Currency string `json:"currency"`
+	// Debit total in transaction currency.
+	Debit Money `json:"debit"`
+	// Credit total in transaction currency (positive).
+	Credit Money `json:"credit"`
+	// Debit total in local currency.
+	DebitLc Money `json:"debit_lc"`
+	// Credit total in local currency (positive).
+	CreditLc Money `json:"credit_lc"`
+	// Debit total in group currency.
+	DebitGc Money `json:"debit_gc"`
+	// Credit total in group currency (positive).
+	CreditGc Money `json:"credit_gc"`
+	// When the row's latest projected or pending line was added.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *CostCenterBalance) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CostCenterBalance) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *CostCenterBalance) GetCostCenterID() uuid.UUID {
+	return s.CostCenterID
+}
+
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *CostCenterBalance) GetCostCenterCode() string {
+	return s.CostCenterCode
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *CostCenterBalance) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *CostCenterBalance) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *CostCenterBalance) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CostCenterBalance) GetCurrency() string {
+	return s.Currency
+}
+
+// GetDebit returns the value of Debit.
+func (s *CostCenterBalance) GetDebit() Money {
+	return s.Debit
+}
+
+// GetCredit returns the value of Credit.
+func (s *CostCenterBalance) GetCredit() Money {
+	return s.Credit
+}
+
+// GetDebitLc returns the value of DebitLc.
+func (s *CostCenterBalance) GetDebitLc() Money {
+	return s.DebitLc
+}
+
+// GetCreditLc returns the value of CreditLc.
+func (s *CostCenterBalance) GetCreditLc() Money {
+	return s.CreditLc
+}
+
+// GetDebitGc returns the value of DebitGc.
+func (s *CostCenterBalance) GetDebitGc() Money {
+	return s.DebitGc
+}
+
+// GetCreditGc returns the value of CreditGc.
+func (s *CostCenterBalance) GetCreditGc() Money {
+	return s.CreditGc
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *CostCenterBalance) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *CostCenterBalance) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CostCenterBalance) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *CostCenterBalance) SetCostCenterID(val uuid.UUID) {
+	s.CostCenterID = val
+}
+
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *CostCenterBalance) SetCostCenterCode(val string) {
+	s.CostCenterCode = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *CostCenterBalance) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *CostCenterBalance) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *CostCenterBalance) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CostCenterBalance) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetDebit sets the value of Debit.
+func (s *CostCenterBalance) SetDebit(val Money) {
+	s.Debit = val
+}
+
+// SetCredit sets the value of Credit.
+func (s *CostCenterBalance) SetCredit(val Money) {
+	s.Credit = val
+}
+
+// SetDebitLc sets the value of DebitLc.
+func (s *CostCenterBalance) SetDebitLc(val Money) {
+	s.DebitLc = val
+}
+
+// SetCreditLc sets the value of CreditLc.
+func (s *CostCenterBalance) SetCreditLc(val Money) {
+	s.CreditLc = val
+}
+
+// SetDebitGc sets the value of DebitGc.
+func (s *CostCenterBalance) SetDebitGc(val Money) {
+	s.DebitGc = val
+}
+
+// SetCreditGc sets the value of CreditGc.
+func (s *CostCenterBalance) SetCreditGc(val Money) {
+	s.CreditGc = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *CostCenterBalance) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// One page of cost center balances.
+// Ref: #/components/schemas/CostCenterBalancePage
+type CostCenterBalancePage struct {
+	// The cost center balances on this page.
+	Items []CostCenterBalance `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *CostCenterBalancePage) GetItems() []CostCenterBalance {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CostCenterBalancePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *CostCenterBalancePage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *CostCenterBalancePage) SetItems(val []CostCenterBalance) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CostCenterBalancePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *CostCenterBalancePage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+// CostCenterBalancePageHeaders wraps CostCenterBalancePage with response headers.
+type CostCenterBalancePageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           CostCenterBalancePage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *CostCenterBalancePageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *CostCenterBalancePageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *CostCenterBalancePageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *CostCenterBalancePageHeaders) GetResponse() CostCenterBalancePage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *CostCenterBalancePageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *CostCenterBalancePageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *CostCenterBalancePageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CostCenterBalancePageHeaders) SetResponse(val CostCenterBalancePage) {
+	s.Response = val
+}
+
+func (*CostCenterBalancePageHeaders) listCostCenterBalancesRes() {}
+
 // A new cost center and its first period.
 // Ref: #/components/schemas/CostCenterCreate
 type CostCenterCreate struct {
@@ -15637,6 +15916,7 @@ func (*ForbiddenHeaders) listCompanyAccessRes()                {}
 func (*ForbiddenHeaders) listConfigVersionsRes()               {}
 func (*ForbiddenHeaders) listConnectorsRes()                   {}
 func (*ForbiddenHeaders) listContractsRes()                    {}
+func (*ForbiddenHeaders) listCostCenterBalancesRes()           {}
 func (*ForbiddenHeaders) listCostCenterPathsRes()              {}
 func (*ForbiddenHeaders) listCostCentersRes()                  {}
 func (*ForbiddenHeaders) listCountryPacksRes()                 {}
@@ -15667,6 +15947,7 @@ func (*ForbiddenHeaders) listPaymentRunsRes()                  {}
 func (*ForbiddenHeaders) listPaymentsRes()                     {}
 func (*ForbiddenHeaders) listPrincipalNamesRes()               {}
 func (*ForbiddenHeaders) listPrincipalsRes()                   {}
+func (*ForbiddenHeaders) listProfitCenterBalancesRes()         {}
 func (*ForbiddenHeaders) listProfitCenterPathsRes()            {}
 func (*ForbiddenHeaders) listProfitCentersRes()                {}
 func (*ForbiddenHeaders) listPurchaseOrderChangesRes()         {}
@@ -32645,6 +32926,308 @@ func (s *ProfitCenterAssign) SetReason(val string) {
 	s.Reason = val
 }
 
+// Actual period totals of a profit center and its segment on one profit and loss account in one
+// transaction currency (ADR-0050 §7).
+// Ref: #/components/schemas/ProfitCenterBalance
+type ProfitCenterBalance struct {
+	// Ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Profit center.
+	ProfitCenterID uuid.UUID `json:"profit_center_id"`
+	// The profit center's code.
+	ProfitCenterCode string `json:"profit_center_code"`
+	// The segment of the lines, the profit center's (ADR-0050 §5); absent when they carry none.
+	SegmentID OptUUID `json:"segment_id"`
+	// The segment's code; absent with `segment_id`.
+	SegmentCode OptString `json:"segment_code"`
+	// Account.
+	AccountID uuid.UUID `json:"account_id"`
+	// Fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// Fiscal period.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// Transaction currency of the totals.
+	Currency string `json:"currency"`
+	// Debit total in transaction currency.
+	Debit Money `json:"debit"`
+	// Credit total in transaction currency (positive).
+	Credit Money `json:"credit"`
+	// Debit total in local currency.
+	DebitLc Money `json:"debit_lc"`
+	// Credit total in local currency (positive).
+	CreditLc Money `json:"credit_lc"`
+	// Debit total in group currency.
+	DebitGc Money `json:"debit_gc"`
+	// Credit total in group currency (positive).
+	CreditGc Money `json:"credit_gc"`
+	// When the row's latest projected or pending line was added.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *ProfitCenterBalance) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ProfitCenterBalance) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *ProfitCenterBalance) GetProfitCenterID() uuid.UUID {
+	return s.ProfitCenterID
+}
+
+// GetProfitCenterCode returns the value of ProfitCenterCode.
+func (s *ProfitCenterBalance) GetProfitCenterCode() string {
+	return s.ProfitCenterCode
+}
+
+// GetSegmentID returns the value of SegmentID.
+func (s *ProfitCenterBalance) GetSegmentID() OptUUID {
+	return s.SegmentID
+}
+
+// GetSegmentCode returns the value of SegmentCode.
+func (s *ProfitCenterBalance) GetSegmentCode() OptString {
+	return s.SegmentCode
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *ProfitCenterBalance) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *ProfitCenterBalance) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *ProfitCenterBalance) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetCurrency returns the value of Currency.
+func (s *ProfitCenterBalance) GetCurrency() string {
+	return s.Currency
+}
+
+// GetDebit returns the value of Debit.
+func (s *ProfitCenterBalance) GetDebit() Money {
+	return s.Debit
+}
+
+// GetCredit returns the value of Credit.
+func (s *ProfitCenterBalance) GetCredit() Money {
+	return s.Credit
+}
+
+// GetDebitLc returns the value of DebitLc.
+func (s *ProfitCenterBalance) GetDebitLc() Money {
+	return s.DebitLc
+}
+
+// GetCreditLc returns the value of CreditLc.
+func (s *ProfitCenterBalance) GetCreditLc() Money {
+	return s.CreditLc
+}
+
+// GetDebitGc returns the value of DebitGc.
+func (s *ProfitCenterBalance) GetDebitGc() Money {
+	return s.DebitGc
+}
+
+// GetCreditGc returns the value of CreditGc.
+func (s *ProfitCenterBalance) GetCreditGc() Money {
+	return s.CreditGc
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *ProfitCenterBalance) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *ProfitCenterBalance) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ProfitCenterBalance) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *ProfitCenterBalance) SetProfitCenterID(val uuid.UUID) {
+	s.ProfitCenterID = val
+}
+
+// SetProfitCenterCode sets the value of ProfitCenterCode.
+func (s *ProfitCenterBalance) SetProfitCenterCode(val string) {
+	s.ProfitCenterCode = val
+}
+
+// SetSegmentID sets the value of SegmentID.
+func (s *ProfitCenterBalance) SetSegmentID(val OptUUID) {
+	s.SegmentID = val
+}
+
+// SetSegmentCode sets the value of SegmentCode.
+func (s *ProfitCenterBalance) SetSegmentCode(val OptString) {
+	s.SegmentCode = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *ProfitCenterBalance) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *ProfitCenterBalance) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *ProfitCenterBalance) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *ProfitCenterBalance) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetDebit sets the value of Debit.
+func (s *ProfitCenterBalance) SetDebit(val Money) {
+	s.Debit = val
+}
+
+// SetCredit sets the value of Credit.
+func (s *ProfitCenterBalance) SetCredit(val Money) {
+	s.Credit = val
+}
+
+// SetDebitLc sets the value of DebitLc.
+func (s *ProfitCenterBalance) SetDebitLc(val Money) {
+	s.DebitLc = val
+}
+
+// SetCreditLc sets the value of CreditLc.
+func (s *ProfitCenterBalance) SetCreditLc(val Money) {
+	s.CreditLc = val
+}
+
+// SetDebitGc sets the value of DebitGc.
+func (s *ProfitCenterBalance) SetDebitGc(val Money) {
+	s.DebitGc = val
+}
+
+// SetCreditGc sets the value of CreditGc.
+func (s *ProfitCenterBalance) SetCreditGc(val Money) {
+	s.CreditGc = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *ProfitCenterBalance) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// One page of profit center balances.
+// Ref: #/components/schemas/ProfitCenterBalancePage
+type ProfitCenterBalancePage struct {
+	// The profit center balances on this page.
+	Items []ProfitCenterBalance `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *ProfitCenterBalancePage) GetItems() []ProfitCenterBalance {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ProfitCenterBalancePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *ProfitCenterBalancePage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *ProfitCenterBalancePage) SetItems(val []ProfitCenterBalance) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ProfitCenterBalancePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *ProfitCenterBalancePage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+// ProfitCenterBalancePageHeaders wraps ProfitCenterBalancePage with response headers.
+type ProfitCenterBalancePageHeaders struct {
+	RateLimitLimit     OptInt32
+	RateLimitRemaining OptInt32
+	RateLimitReset     OptInt32
+	Response           ProfitCenterBalancePage
+}
+
+// GetRateLimitLimit returns the value of RateLimitLimit.
+func (s *ProfitCenterBalancePageHeaders) GetRateLimitLimit() OptInt32 {
+	return s.RateLimitLimit
+}
+
+// GetRateLimitRemaining returns the value of RateLimitRemaining.
+func (s *ProfitCenterBalancePageHeaders) GetRateLimitRemaining() OptInt32 {
+	return s.RateLimitRemaining
+}
+
+// GetRateLimitReset returns the value of RateLimitReset.
+func (s *ProfitCenterBalancePageHeaders) GetRateLimitReset() OptInt32 {
+	return s.RateLimitReset
+}
+
+// GetResponse returns the value of Response.
+func (s *ProfitCenterBalancePageHeaders) GetResponse() ProfitCenterBalancePage {
+	return s.Response
+}
+
+// SetRateLimitLimit sets the value of RateLimitLimit.
+func (s *ProfitCenterBalancePageHeaders) SetRateLimitLimit(val OptInt32) {
+	s.RateLimitLimit = val
+}
+
+// SetRateLimitRemaining sets the value of RateLimitRemaining.
+func (s *ProfitCenterBalancePageHeaders) SetRateLimitRemaining(val OptInt32) {
+	s.RateLimitRemaining = val
+}
+
+// SetRateLimitReset sets the value of RateLimitReset.
+func (s *ProfitCenterBalancePageHeaders) SetRateLimitReset(val OptInt32) {
+	s.RateLimitReset = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ProfitCenterBalancePageHeaders) SetResponse(val ProfitCenterBalancePage) {
+	s.Response = val
+}
+
+func (*ProfitCenterBalancePageHeaders) listProfitCenterBalancesRes() {}
+
 // A new profit center, its first period and its companies.
 // Ref: #/components/schemas/ProfitCenterCreate
 type ProfitCenterCreate struct {
@@ -41728,6 +42311,7 @@ func (*TooManyRequestsHeaders) listCompanyAccessRes()                {}
 func (*TooManyRequestsHeaders) listConfigVersionsRes()               {}
 func (*TooManyRequestsHeaders) listConnectorsRes()                   {}
 func (*TooManyRequestsHeaders) listContractsRes()                    {}
+func (*TooManyRequestsHeaders) listCostCenterBalancesRes()           {}
 func (*TooManyRequestsHeaders) listCostCenterPathsRes()              {}
 func (*TooManyRequestsHeaders) listCostCentersRes()                  {}
 func (*TooManyRequestsHeaders) listCountryPacksRes()                 {}
@@ -41758,6 +42342,7 @@ func (*TooManyRequestsHeaders) listPaymentRunsRes()                  {}
 func (*TooManyRequestsHeaders) listPaymentsRes()                     {}
 func (*TooManyRequestsHeaders) listPrincipalNamesRes()               {}
 func (*TooManyRequestsHeaders) listPrincipalsRes()                   {}
+func (*TooManyRequestsHeaders) listProfitCenterBalancesRes()         {}
 func (*TooManyRequestsHeaders) listProfitCenterPathsRes()            {}
 func (*TooManyRequestsHeaders) listProfitCentersRes()                {}
 func (*TooManyRequestsHeaders) listPurchaseOrderChangesRes()         {}
@@ -42068,6 +42653,7 @@ func (*UnauthorizedHeaders) listCompanyAccessRes()                {}
 func (*UnauthorizedHeaders) listConfigVersionsRes()               {}
 func (*UnauthorizedHeaders) listConnectorsRes()                   {}
 func (*UnauthorizedHeaders) listContractsRes()                    {}
+func (*UnauthorizedHeaders) listCostCenterBalancesRes()           {}
 func (*UnauthorizedHeaders) listCostCenterPathsRes()              {}
 func (*UnauthorizedHeaders) listCostCentersRes()                  {}
 func (*UnauthorizedHeaders) listCountryPacksRes()                 {}
@@ -42098,6 +42684,7 @@ func (*UnauthorizedHeaders) listPaymentRunsRes()                  {}
 func (*UnauthorizedHeaders) listPaymentsRes()                     {}
 func (*UnauthorizedHeaders) listPrincipalNamesRes()               {}
 func (*UnauthorizedHeaders) listPrincipalsRes()                   {}
+func (*UnauthorizedHeaders) listProfitCenterBalancesRes()         {}
 func (*UnauthorizedHeaders) listProfitCenterPathsRes()            {}
 func (*UnauthorizedHeaders) listProfitCentersRes()                {}
 func (*UnauthorizedHeaders) listPurchaseOrderChangesRes()         {}
