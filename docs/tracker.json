@@ -5961,9 +5961,10 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Fix the flaky payments TestProposeReleaseTransmit (\"worker did 2 jobs\" under -race/-shuffle)",
-        "r": "internal/payments · T54f",
+        "r": "internal/payments/payments_test.go leavesNoProposal · downpayments_test.go workLeftovers (4b3fb421) · T54f",
+        "src": "ci:T54",
         "c": []
        },
        {
