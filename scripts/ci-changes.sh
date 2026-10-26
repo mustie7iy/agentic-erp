@@ -15,16 +15,18 @@
 # included, as those workflows' path filters count it. scripts/ci-local.sh
 # runs those checks on the same classes, before a merge.
 #
-# EVENT is pull_request, push or workflow_dispatch (which, with no base,
-# runs everything), BASE the commit to compare with (the pull
-# request's base), HEAD the commit under test (default HEAD). A push to
-# main is compared with the last commit whose run on main passed, not with
-# the commit before it: a newer push cancels a running one (ci.yml), so a
-# documentation merge right after a code merge would otherwise skip the
-# only full run the code would get. GH (default gh) and GITHUB_REPOSITORY
-# find that run; tests replace GH.
+# EVENT is pull_request, push, schedule or workflow_dispatch (the nightly
+# and manual runs, which run everything, but for a nightly of a main whose
+# latest full run passed at that commit), BASE the commit to compare with
+# (the pull request's base), HEAD the commit under test
+# (default HEAD). A push to main is compared with the last commit whose
+# push run on main passed, not with the commit before it: a newer push
+# cancels a running one (ci.yml), so a documentation merge right after a
+# code merge would otherwise skip the only push run (fuzzing, signing, the
+# release scripts) the code would get; the full suite runs nightly. GH
+# (default gh) and GITHUB_REPOSITORY find that run; tests replace GH.
 set -euo pipefail
-event="${EVENT:?EVENT: pull_request or push}"
+event="${EVENT:?EVENT: pull_request, push, schedule or workflow_dispatch}"
 head="${HEAD:-$(git rev-parse HEAD)}"
 base="${BASE:-}"
 GH="${GH:-gh}"
@@ -54,6 +56,23 @@ changed() {
   if grep -Eq "$1" <<<"${2-$files}"; then echo true; else echo false; fi
 }
 
+# A nightly run of a main whose latest finished full run (nightly or manual)
+# passed at this very commit runs nothing: the suite takes about three hours on
+# the runner and the Actions budget is small (PO 2026-10-26). The latest such
+# run decides, not the last green one, so a red or cancelled run (a timed-out
+# suite ends cancelled) is never hidden by an older green one at the same
+# commit. A manual run never skips. No run found (beyond the last 100 runs on
+# main, or gh failing), a red one or another commit runs everything.
+if [ "$event" = schedule ]; then
+  full="$($GH run list --repo "${GITHUB_REPOSITORY:?}" --workflow ci.yml --branch main \
+    --limit 100 --json headSha,event,status,conclusion \
+    --jq '[.[] | select((.event == "schedule" or .event == "workflow_dispatch") and .status == "completed")][0] | select(.conclusion == "success") | .headSha // empty')" || full=""
+  if [ -n "$full" ] && [ "$full" = "$(git rev-parse "$head")" ]; then
+    decide false "main has not moved since its latest full run, which passed"
+  fi
+  [ -n "$full" ] || decide true "no passing latest full run on main to compare with"
+  decide true "a nightly run of a main that has moved"
+fi
 if [ "$event" = push ]; then
   base="$($GH run list --repo "${GITHUB_REPOSITORY:?}" --workflow ci.yml --branch main --event push \
     --status success --limit 1 --json headSha --jq '.[0].headSha // empty')" || base=""
