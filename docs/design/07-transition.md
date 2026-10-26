@@ -1651,6 +1651,17 @@ its open contract steps and follow-ups moved into the modules they belong to, an
 each planned item carries the step that builds it (T0, T30–T72). Items without a
 step stay planned until a later step is drafted for them.
 
+Every item names its source in `src` (product owner, 2026-10-25): an accepted
+ADR (`adr:ADR-0052`), a product owner decision (`po:2026-10-25`), a reviewer
+finding in a step (`review:T73j`), a failed or measured check (`ci:batch6`,
+`ci:T73j`), the pilot walkthrough (`walkthrough:2026-10-22`), a split of an
+approved step (`split:T73j`) or a design section (`design:01 §1.4`); several are
+joined by ` · `. A decision of the coordinator alone is not a source: it goes to
+the product owner first. The 966 items of 2026-10-25 carry `baseline`, their
+sources being in their references, ADRs and history; `TestTrackerItemsNameTheirSource`
+(docs/tracker_test.go) refuses an item without a known source and any rise in
+the number of baseline items.
+
 ## 7.6 After the transition: completing Phase 1 (T30–T47)
 
 T1–T29 moved Phase 1 onto the foundation. These steps finish what Phase 1 still
