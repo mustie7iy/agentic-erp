@@ -151,6 +151,9 @@ step generate bash -c 'make generate && git diff --exit-code -- api/gen internal
 step contract vacuum lint -r api/vacuum-ruleset.yaml -b -q -d api/openapi.yaml api/control.yaml api/directory.yaml api/model.yaml
 step breaking breaking
 step schema go test -count=1 ./db
+# Every tracker item names its source (07 §7.5): a documentation-only change
+# skips GitHub's suite, so the check runs here by name as well.
+step tracker go test -count=1 ./docs
 # Three shuffled runs with the race detector: CI's single race run and the
 # order dependence 07 §7.7 asks for, in one pass. Three runs of a package
 # take three times go test's default limit of 10 minutes: the schema
