@@ -285,3 +285,60 @@ func TestMoney(t *testing.T) {
 		})
 	}
 }
+
+// TestAmount: an amount a person typed is read with the locale's decimal
+// sign or a point, without grouping, into the API's decimal string, and
+// written back as it would be typed; anything else is refused, as are the
+// shapes the API's amount never takes.
+func TestAmount(t *testing.T) {
+	c, err := Load(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	en, fr := c.Match("en"), c.Match("fr-CA")
+	for name, tc := range map[string]struct {
+		l     Locale
+		typed string
+		want  string
+		ok    bool
+	}{
+		"English":               {en, " 1200.50 ", "1200.50", true},
+		"a credit":              {en, "-1200", "-1200", true},
+		"French":                {fr, "1200,50", "1200.50", true},
+		"French with a point":   {fr, "-0.5", "-0.5", true},
+		"grouped":               {en, "1,200.50", "", false},
+		"French grouped":        {fr, "1 200,50", "", false},
+		"two signs":             {fr, "1,200.50", "", false},
+		"a leading zero":        {en, "012", "", false},
+		"five fraction digits":  {en, "1.12345", "", false},
+		"nineteen whole digits": {en, "1234567890123456789", "", false},
+		"no whole part":         {en, ".5", "", false},
+		"a plus":                {en, "+5", "", false},
+		"empty":                 {en, "", "", false},
+		"letters":               {en, "twelve", "", false},
+		"French's comma, in en": {en, "12,50", "", false},
+		"the largest":           {en, "999999999999999999.9999", "999999999999999999.9999", true},
+		"zero, for the API":     {en, "0.00", "0.00", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, ok := tc.l.Amount(tc.typed)
+			if got != tc.want || ok != tc.ok {
+				t.Errorf("got %q %v, want %q %v", got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+	for name, tc := range map[string]struct{ got, want string }{
+		"English's sign": {en.DecimalSign(), "."},
+		"French's sign":  {fr.DecimalSign(), ","},
+		"French input":   {fr.AmountInput("-1200.50"), "-1200,50"},
+		"English input":  {en.AmountInput("1200.50"), "1200.50"},
+		"a whole amount": {fr.AmountInput("15000"), "15000"},
+		"read back":      {func() string { s, _ := fr.Amount(fr.AmountInput("7.25")); return s }(), "7.25"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if tc.got != tc.want {
+				t.Errorf("got %q, want %q", tc.got, tc.want)
+			}
+		})
+	}
+}

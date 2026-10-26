@@ -39,6 +39,9 @@ const (
 	permReadAccounts          = "ledger.account.read"
 	permReadEntries           = "ledger.entry.read"
 	permPostEntries           = "ledger.entry.post"
+	permParkEntries           = "ledger.entry.park"
+	permReadCenters           = "ledger.cost_center.read"
+	permCancelRequests        = "workflow.request.cancel"
 )
 
 // objectApprovers are the decisions' x-object-permissions: the permission
@@ -54,13 +57,16 @@ var objectApprovers = map[string]string{
 }
 
 // Operation is one API operation a route calls: its operationId, the
-// permission the screen hides it by ("" when it hides nothing by one), and
+// permission the screen hides it by ("" when it hides nothing by one),
 // whether the route is human-only, as an x-agent: false operation needs
-// (the workspace signs people in, never agents).
+// (the workspace signs people in, never agents), and whether it is a
+// lookup: a code a form names turned into its id before the form's write,
+// part of the write and not one of the page's reads (T73h).
 type Operation struct {
 	ID        string
 	HiddenBy  string
 	HumanOnly bool
+	Lookup    bool
 }
 
 var (
@@ -101,7 +107,32 @@ var (
 	opAccounts       = Operation{ID: "listAccounts", HiddenBy: permReadAccounts}
 	opRevaluation    = []Operation{opMe, opCompanies, opLedgers, {ID: "listRevaluationRuns", HiddenBy: permReadEntries}, opNames}
 	opRevaluationRun = []Operation{opMe, {ID: "getRevaluationRun", HiddenBy: permReadEntries}, opCompanies, opLedgers, opAccounts, opNames}
+	// opParkedList are the reads of the parked entries' list (journal.go),
+	// opJournal those of the journal (journal_entries.go) and opEntry
+	// those of a posted entry's page; opEntryForm those of a new entry's
+	// form and opChangeForm a parked one's change (entry_form.go);
+	// opParkedEntry those of a parked entry's page (parked.go). Sending a
+	// form looks its codes up besides (opLookups, entry_lookup.go).
+	opParkedList  = []Operation{opMe, opCompanies, {ID: "listParkedJournalEntries", HiddenBy: permReadEntries}, opNames}
+	opJournal     = []Operation{opMe, opCompanies, opLedgers, {ID: "listCostCenters", HiddenBy: permReadCenters}, {ID: "listProfitCenters", HiddenBy: permReadCenters}, {ID: "listJournalEntries", HiddenBy: permReadEntries}}
+	opEntry       = []Operation{opMe, {ID: "getJournalEntry", HiddenBy: permReadEntries}, opCompanies, opLedgers, opAccounts, opNames}
+	opGetParked   = Operation{ID: "getParkedJournalEntry", HiddenBy: permReadEntries}
+	opEntryForm   = []Operation{opMe, opCompanies, opAccounts}
+	opChangeForm  = []Operation{opMe, opGetParked, opCompanies, opAccounts}
+	opParkedEntry = []Operation{opMe, opGetParked, opCompanies, opAccounts, opNames, opGet}
+	opLookups     = []Operation{{ID: "listAccounts", Lookup: true}, {ID: "listCostCenters", Lookup: true}, {ID: "listProfitCenters", Lookup: true},
+		{ID: "listSegments", Lookup: true}, {ID: "listBusinessPartners", Lookup: true}}
+	opUpdateParked = Operation{ID: "updateParkedJournalEntry", HiddenBy: permParkEntries}
 )
+
+// parkedOps are the operations of the decisions on a parked entry, by
+// verb, each hidden by its x-permission: its post, which only people make
+// (T35), its cancellation, and the withdrawal of its approval request.
+var parkedOps = map[string]Operation{
+	ui.ParkedPost:     {ID: "postParkedJournalEntry", HiddenBy: permPostEntries, HumanOnly: true},
+	ui.ParkedCancel:   {ID: "cancelParkedJournalEntry", HiddenBy: permParkEntries},
+	ui.ParkedWithdraw: {ID: "cancelApprovalRequest", HiddenBy: permCancelRequests},
+}
 
 // periodOps are the operations of the decisions on a period, by verb,
 // each hidden by its x-permission: opening and closing it, and its lock
@@ -176,8 +207,18 @@ var Screens = func() map[string][]Operation {
 		"GET /close/revaluation":                    opRevaluation,
 		"POST /close/revaluation/preview": append(append([]Operation{{ID: "previewRevaluation", HiddenBy: permReadEntries}}, opRevaluation...),
 			opAccounts),
-		"POST /close/revaluation/post": append([]Operation{{ID: "postRevaluationRun", HiddenBy: permPostEntries, HumanOnly: true}}, opRevaluation...),
-		"GET /close/revaluation/{id}":  opRevaluationRun,
+		"POST /close/revaluation/post":       append([]Operation{{ID: "postRevaluationRun", HiddenBy: permPostEntries, HumanOnly: true}}, opRevaluation...),
+		"GET /close/revaluation/{id}":        opRevaluationRun,
+		"GET /journal":                       opParkedList,
+		"GET /journal/new":                   opEntryForm,
+		"POST /journal/new":                  append(append([]Operation{{ID: "parkJournalEntry", HiddenBy: permParkEntries}}, opEntryForm...), opLookups...),
+		"GET /journal/parked/{id}":           opParkedEntry,
+		"GET /journal/parked/{id}/edit":      opChangeForm,
+		"POST /journal/parked/{id}/edit":     append(append([]Operation{opUpdateParked}, opChangeForm...), opLookups...),
+		"POST /journal/parked/{id}/lines":    append(append([]Operation{opUpdateParked}, opParkedEntry...), opLookups...),
+		"GET /journal/entries":               opJournal,
+		"GET /journal/entries/{id}":          opEntry,
+		"POST /journal/entries/{id}/reverse": append([]Operation{{ID: "reverseJournalEntry", HiddenBy: permPostEntries, HumanOnly: true}}, opEntry...),
 	}
 	for verb, op := range actionOps {
 		screens["POST /invoices/{id}/"+verb] = append([]Operation{op}, opInvoice...)
@@ -190,6 +231,9 @@ var Screens = func() map[string][]Operation {
 	}
 	for verb, op := range periodOps {
 		screens["POST /close/periods/{id}/"+verb] = append([]Operation{op}, opPeriod...)
+	}
+	for verb, op := range parkedOps {
+		screens["POST /journal/parked/{id}/"+verb] = append([]Operation{op}, opParkedEntry...)
 	}
 	return screens
 }()

@@ -198,6 +198,7 @@ func (s *Server) mux() *http.ServeMux {
 		route("POST "+ui.PaymentsPath+"/{id}/"+verb, s.signedIn(s.csrf(s.decideRun(verb))))
 	}
 	s.closeRoutes(route)
+	s.journalRoutes(route)
 	route("GET /signed-out", s.signedOut)
 	route("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		st := ui.Status{Version: s.Build.Version, Revision: s.Build.Revision}
@@ -220,6 +221,23 @@ func (s *Server) closeRoutes(route func(string, http.HandlerFunc)) {
 	route("POST "+ui.PreviewPath, s.signedIn(s.csrf(s.previewRevaluation)))
 	route("POST "+ui.RevaluePostPath, s.signedIn(s.csrf(s.postRevaluation)))
 	route("GET "+ui.RevaluationPath+"/{id}", s.signedIn(s.revaluationRun))
+}
+
+// journalRoutes routes the manual journal entries' pages (T73h).
+func (s *Server) journalRoutes(route func(string, http.HandlerFunc)) {
+	route("GET "+ui.JournalPath, s.signedIn(s.parkedEntries))
+	route("GET "+ui.NewEntryPath, s.signedIn(s.newEntry))
+	route("POST "+ui.NewEntryPath, s.signedIn(s.csrf(s.parkEntry)))
+	route("GET "+ui.ParkedBase+"/{id}", s.signedIn(s.parkedEntry))
+	route("GET "+ui.ParkedBase+"/{id}/edit", s.signedIn(s.editEntry))
+	route("POST "+ui.ParkedBase+"/{id}/edit", s.signedIn(s.csrf(s.saveEntry)))
+	route("POST "+ui.ParkedBase+"/{id}/lines", s.signedIn(s.csrfUpload(s.uploadLines)))
+	for verb := range parkedOps {
+		route("POST "+ui.ParkedBase+"/{id}/"+verb, s.signedIn(s.csrf(s.decideParked(verb))))
+	}
+	route("GET "+ui.EntriesPath, s.signedIn(s.journalEntries))
+	route("GET "+ui.EntriesPath+"/{id}", s.signedIn(s.journalEntry))
+	route("POST "+ui.EntriesPath+"/{id}/reverse", s.signedIn(s.csrf(s.reverseEntry)))
 }
 
 func (s *Server) shell(title i18n.Key, current string) ui.Shell {

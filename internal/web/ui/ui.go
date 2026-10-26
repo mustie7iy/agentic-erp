@@ -88,6 +88,7 @@ type NavJobs struct {
 	Invoices  bool // supplier invoices
 	Bank      bool // bank statements
 	Payments  bool // payment runs
+	Journal   bool // journal entries
 	Close     bool // posting periods
 }
 
@@ -106,6 +107,9 @@ func SignedInNav(jobs NavJobs) []NavItem {
 	}
 	if jobs.Payments {
 		nav = append(nav, NavItem{Path: PaymentsPath, Label: i18n.JobPayments})
+	}
+	if jobs.Journal {
+		nav = append(nav, NavItem{Path: JournalPath, Label: i18n.JobJournal})
 	}
 	if jobs.Close {
 		nav = append(nav, NavItem{Path: ClosePath, Label: i18n.JobClose})

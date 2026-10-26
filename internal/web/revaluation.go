@@ -257,25 +257,12 @@ var revaluationDone = map[string]i18n.Key{"posted": i18n.RevaluationDonePosted}
 // maxAccounts is the most accounts a page names, the API's largest page.
 const maxAccounts = 500
 
-// accounts are the numbers of the company's accounts, by id
-// (listAccounts); none without the permission to list them. A call that
-// fails leaves them unnamed, logged: an account's number is no reason to
-// refuse a page.
+// accounts are the numbers and names of the company's accounts, by id,
+// as its chart's page holds them (chartOf); none without the permission
+// to list them or when they could not be read (logged): an account's
+// number is no reason to refuse a page.
 func (s *Server) accounts(ctx context.Context, m me, company uuid.UUID) map[uuid.UUID]string {
-	if !m.may(permReadAccounts) {
-		return nil
-	}
-	res, err := s.API.ListAccounts(ctx, gen.ListAccountsParams{LegalEntityID: gen.NewOptUUID(company), PageSize: gen.NewOptInt32(maxAccounts)})
-	page, ok := res.(*gen.AccountPageHeaders)
-	if !ok {
-		s.Log.WarnContext(ctx, "web: the accounts could not be read", "answer", res, "error", err)
-		return nil
-	}
-	out := make(map[uuid.UUID]string, len(page.Response.Items))
-	for _, a := range page.Response.Items {
-		out[a.ID] = a.Number + " " + a.Name
-	}
-	return out
+	return s.chartOf(ctx, m, company).names()
 }
 
 // accountText is an account by number and name, its id when it could not

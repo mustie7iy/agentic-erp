@@ -29,11 +29,10 @@ var invoiceDoneOf = map[string]string{ui.ActMatch: "matched", ui.ActPost: "poste
 // false, the answer written (with the way back to the page), when the
 // form is not the page's.
 func (s *Server) formFields(w http.ResponseWriter, r *http.Request, back string, backText i18n.Key) (ifMatch, key string, ok bool) {
-	// csrf parsed the form unless htmx sent the token as a header; a body
-	// that does not parse leaves the fields empty, refused below.
-	_ = r.ParseForm()
-	ifMatch, key = r.PostForm.Get(ui.FieldIfMatch), r.PostForm.Get(ui.FieldIdempotency)
-	if _, err := uuid.Parse(key); err != nil || ifMatch == "" {
+	if key, ok = s.formKey(w, r, back, backText); !ok {
+		return "", "", false
+	}
+	if ifMatch = r.PostForm.Get(ui.FieldIfMatch); ifMatch == "" {
 		// Not the page's form: nothing to keep or explain.
 		s.render(w, r, http.StatusBadRequest, ui.Problem(s.shell(i18n.RefusedTitle, ""), i18n.RefusedTitle, i18n.ProblemInvoiceBody, back, backText))
 		return "", "", false

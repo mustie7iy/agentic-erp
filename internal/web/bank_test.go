@@ -138,8 +138,9 @@ func upload(b *browser, fields map[string]string, file []byte) response {
 
 const uploadPathOf = "/bank/statements"
 
-// raw sends a body of its own type, as the browser sends a form.
-func (b *browser) raw(method, path string, body io.Reader, ctype string) response {
+// raw sends a body of its own type, as the browser sends a form; header
+// holds extra headers, as name, value pairs.
+func (b *browser) raw(method, path string, body io.Reader, ctype string, header ...string) response {
 	b.s.t.Helper()
 	req, err := http.NewRequestWithContext(context.Background(), method, b.s.public+path, body)
 	if err != nil {
@@ -148,6 +149,9 @@ func (b *browser) raw(method, path string, body io.Reader, ctype string) respons
 	req.Header.Set("Content-Type", ctype)
 	req.Header.Set("Origin", b.s.public)
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	for i := 0; i+1 < len(header); i += 2 {
+		req.Header.Set(header[i], header[i+1])
+	}
 	resp, err := b.hc.Do(req)
 	if err != nil {
 		b.s.t.Fatal(err)

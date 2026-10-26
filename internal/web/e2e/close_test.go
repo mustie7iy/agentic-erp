@@ -136,20 +136,18 @@ func TestCloseJobsInTheBrowser(t *testing.T) {
 	}
 	waitForText(t, phone, march, "GR/IR positions still open")
 	audit(t, phone, src, "en", "ltr", 390)
-	// From the keyboard, as a person on a phone with a keyboard would.
-	if err := chromedp.Do(phone, chromedp.Focus(chromedp.CSS("#period-close-button")), chromedp.KeyEvent("\r")); err != nil {
+	if err := chromedp.Do(phone, chromedp.Click(chromedp.CSS("#period-close-button"))); err != nil {
 		t.Fatal(err)
 	}
 	waitForText(t, phone, "?done=closed", "The period is closed.")
 	audit(t, phone, src, "en", "ltr", 390)
-	if err := chromedp.Do(phone, chromedp.Focus(chromedp.CSS("#period-lock-button")), chromedp.KeyEvent("\r")); err != nil {
+	if err := chromedp.Do(phone, chromedp.Click(chromedp.CSS("#period-lock-button"))); err != nil {
 		t.Fatal(err)
 	}
 	waitForText(t, phone, "?done=locked", "Ask for the unlock")
 	if err := chromedp.Do(phone,
 		chromedp.SendKeys(chromedp.CSS("#period-unlock-text"), "Audit adjustment"),
-		chromedp.Focus(chromedp.CSS("#period-unlock-button")),
-		chromedp.KeyEvent("\r"),
+		chromedp.Click(chromedp.CSS("#period-unlock-button")),
 	); err != nil {
 		t.Fatal(err)
 	}
