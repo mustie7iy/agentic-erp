@@ -34109,6 +34109,22 @@ type PurchaseOrderItem struct {
 	PriceUnit OptInt32 `json:"price_unit"`
 	// General ledger account.
 	AccountID uuid.UUID `json:"account_id"`
+	// Account assignment (ADR-0050 §6, SAP's account assignment category; open enumeration: clients must
+	// accept and preserve values not listed here): `cost_center` with `cost_center_id`, or `none` without
+	// (422 `procurement.invalid_account_assignment`). Absent: `cost_center` when a cost center is given,
+	// else `none`. Checked against the ledger on the order date when the order is released and again when
+	// its release is approved, and for the items an order change adds when it is submitted and approved,
+	// as the item's postings will be: on a primary cost account the item names a cost center while cost
+	// center accounting applies (422 `ledger.cost_center_required`; the account's default is not taken),
+	// and the cost center is one of the legal entity, active, valid on the order date and not locked for
+	// costs (422 `ledger.cost_center_invalid` with the reason; its profit center:
+	// `ledger.profit_center_invalid`). Goods receipts post the item's account with its cost center, and an
+	// invoice's price difference on the item too when the price difference account is a primary cost
+	// account. A released order's item keeps its assignment, as its account (422
+	// `procurement.invalid_change`).
+	AccountAssignment OptString `json:"account_assignment"`
+	// Cost center the item is charged to, with `account_assignment` `cost_center`.
+	CostCenterID OptUUID `json:"cost_center_id"`
 	// Over-delivery tolerance in percent (0-100).
 	OverDeliveryPct OptDecimal `json:"over_delivery_pct"`
 	// Tax code.
@@ -34158,6 +34174,16 @@ func (s *PurchaseOrderItem) GetPriceUnit() OptInt32 {
 // GetAccountID returns the value of AccountID.
 func (s *PurchaseOrderItem) GetAccountID() uuid.UUID {
 	return s.AccountID
+}
+
+// GetAccountAssignment returns the value of AccountAssignment.
+func (s *PurchaseOrderItem) GetAccountAssignment() OptString {
+	return s.AccountAssignment
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *PurchaseOrderItem) GetCostCenterID() OptUUID {
+	return s.CostCenterID
 }
 
 // GetOverDeliveryPct returns the value of OverDeliveryPct.
@@ -34223,6 +34249,16 @@ func (s *PurchaseOrderItem) SetPriceUnit(val OptInt32) {
 // SetAccountID sets the value of AccountID.
 func (s *PurchaseOrderItem) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
+}
+
+// SetAccountAssignment sets the value of AccountAssignment.
+func (s *PurchaseOrderItem) SetAccountAssignment(val OptString) {
+	s.AccountAssignment = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *PurchaseOrderItem) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
 }
 
 // SetOverDeliveryPct sets the value of OverDeliveryPct.
@@ -36090,6 +36126,17 @@ type RequisitionItem struct {
 	PriceUnit OptInt32 `json:"price_unit"`
 	// General ledger account to charge.
 	AccountID uuid.UUID `json:"account_id"`
+	// Account assignment (ADR-0050 §6, SAP's account assignment category; open enumeration: clients must
+	// accept and preserve values not listed here): `cost_center` with `cost_center_id`, or `none` without
+	// (422 `procurement.invalid_account_assignment`). Absent: `cost_center` when a cost center is given,
+	// else `none`. Checked against the ledger when the requisition is submitted, on that day, as its
+	// postings will be: on a primary cost account the item names a cost center while cost center
+	// accounting applies (422 `ledger.cost_center_required`; the account's default is not taken), and the
+	// cost center is one of the legal entity, active, valid on the day and not locked for costs (422
+	// `ledger.cost_center_invalid` with the reason).
+	AccountAssignment OptString `json:"account_assignment"`
+	// Cost center the item is charged to, with `account_assignment` `cost_center`.
+	CostCenterID OptUUID `json:"cost_center_id"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -36127,6 +36174,16 @@ func (s *RequisitionItem) GetAccountID() uuid.UUID {
 	return s.AccountID
 }
 
+// GetAccountAssignment returns the value of AccountAssignment.
+func (s *RequisitionItem) GetAccountAssignment() OptString {
+	return s.AccountAssignment
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *RequisitionItem) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *RequisitionItem) SetItemNo(val OptInt32) {
 	s.ItemNo = val
@@ -36160,6 +36217,16 @@ func (s *RequisitionItem) SetPriceUnit(val OptInt32) {
 // SetAccountID sets the value of AccountID.
 func (s *RequisitionItem) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
+}
+
+// SetAccountAssignment sets the value of AccountAssignment.
+func (s *RequisitionItem) SetAccountAssignment(val OptString) {
+	s.AccountAssignment = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *RequisitionItem) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
 }
 
 // One page of requisitions.
@@ -41015,6 +41082,19 @@ type SupplierInvoiceItem struct {
 	TaxCode OptString `json:"tax_code"`
 	// General ledger account; required when the item is not PO-based.
 	AccountID OptUUID `json:"account_id"`
+	// Cost center of an item that is not PO-based (ADR-0050 §6), posted on its line: checked when the
+	// invoice is entered or changed, on its posting date (else its invoice date), as the posting will
+	// check it (422 `ledger.cost_center_invalid` with the reason). Without one, an item on a primary cost
+	// account takes the account's default cost center while cost center accounting applies, or is refused
+	// (422 `ledger.cost_center_required`). A PO-based item takes its order item's cost center; another one
+	// given is refused (422 `payables.assignment_from_order`).
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// Profit center of an item that is not PO-based, for a P&L account without a cost center (422
+	// `ledger.profit_center_invalid`); with a cost center it must be the cost center's (422
+	// `ledger.profit_center_mismatch`). Without either, a P&L item takes the company's default profit
+	// center while profit center accounting applies. A PO-based item takes none of its own (422
+	// `payables.assignment_from_order`).
+	ProfitCenterID OptUUID `json:"profit_center_id"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -41057,6 +41137,16 @@ func (s *SupplierInvoiceItem) GetAccountID() OptUUID {
 	return s.AccountID
 }
 
+// GetCostCenterID returns the value of CostCenterID.
+func (s *SupplierInvoiceItem) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *SupplierInvoiceItem) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *SupplierInvoiceItem) SetItemNo(val OptInt32) {
 	s.ItemNo = val
@@ -41095,6 +41185,16 @@ func (s *SupplierInvoiceItem) SetTaxCode(val OptString) {
 // SetAccountID sets the value of AccountID.
 func (s *SupplierInvoiceItem) SetAccountID(val OptUUID) {
 	s.AccountID = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *SupplierInvoiceItem) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *SupplierInvoiceItem) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
 }
 
 // One page of supplier invoices.

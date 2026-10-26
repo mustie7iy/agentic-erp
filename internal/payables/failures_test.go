@@ -249,8 +249,8 @@ func TestEdgeCases(t *testing.T) {
 	e.Problem(422, "payables.no_tax_account", "POST", "/v1/supplier-invoices/"+id(untaxed)+":post", "", e.tag(t, id(untaxed)))
 	// Custom fields merge as a merge patch: given keys replace, null removes.
 	withExt, tag := e.Must(201, "POST", "/v1/supplier-invoices", strings.Replace(e.invoice(e.Vendor, "E-5", "1.00", "0.00", plain),
-		`"items"`, `"extensions": {"cost_center": "CC1", "channel": "edi"}, "items"`, 1), "")
-	got, tag := e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(withExt), `{"extensions": {"cost_center": "CC2", "channel": null}}`, tag)
+		`"items"`, `"extensions": {"region": "CC1", "channel": "edi"}, "items"`, 1), "")
+	got, tag := e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(withExt), `{"extensions": {"region": "CC2", "channel": null}}`, tag)
 	var schema *int
 	pgtest.Scan(t, `SELECT extensions_schema FROM payables.supplier_invoice WHERE id = $1`, []any{id(withExt)}, &schema)
 	if schema == nil || *schema != 1 {
@@ -260,7 +260,7 @@ func TestEdgeCases(t *testing.T) {
 	if errs := bad["errors"].([]any); len(errs) != 2 {
 		t.Errorf("field errors: got %v, want one for Bad and one for channel", errs)
 	}
-	if r := got["extensions"].(map[string]any); len(r) != 1 || r["cost_center"] != "CC2" {
-		t.Errorf("merged: got %v, want map[cost_center:CC2]", r)
+	if r := got["extensions"].(map[string]any); len(r) != 1 || r["region"] != "CC2" {
+		t.Errorf("merged: got %v, want map[region:CC2]", r)
 	}
 }

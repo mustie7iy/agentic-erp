@@ -53,7 +53,7 @@ func TestPurchaseOrders(t *testing.T) {
 		"order_date": "2026-03-10", "requisition_id": %q, "items": %s}`, e.DE, e.Supplier, id(r), items(item(e.office, "1", "EA", "1.00", "EUR", ""))), "")
 	e.Approve(t, id(r))
 	o := e.order(t, items(item(e.office, "10", "EA", "5.00", "EUR", `, "tax_code": "V1"`), item(e.expense, "4", "KG", "2.50", "EUR", `, "over_delivery_pct": "10"`)),
-		fmt.Sprintf(`, "purchasing_org_id": %q, "requisition_id": %q, "extensions": {"cost_center": "MKT"}`, org, id(r)))
+		fmt.Sprintf(`, "purchasing_org_id": %q, "requisition_id": %q, "extensions": {"region": "MKT"}`, org, id(r)))
 	path := "/v1/purchase-orders/" + id(o)
 	it := o["items"].([]any)
 	if o["document_number"] != "PO100000" {

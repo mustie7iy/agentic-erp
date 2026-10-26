@@ -32,6 +32,9 @@ type OrderItem struct {
 	// price an invoice is matched against.
 	ValuationPrice     money.Minor `json:"valuation_price"`
 	ValuationPriceUnit int32       `json:"valuation_price_unit"`
+	// CostCenterID is the item's cost center (T56e), nil when it is
+	// assigned to none: an invoice item on it takes it.
+	CostCenterID *uuid.UUID `json:"cost_center_id"`
 }
 
 // Order is a purchase order as payables sees it.
@@ -61,6 +64,7 @@ func (Orders) Order(ctx context.Context, id uuid.UUID) (Order, bool, error) {
 				-- (value_released_items, purchase_order_item_valued): payables posts
 				-- only on released orders
 				'valuation_price', coalesce(i.valuation_price, 0), 'valuation_price_unit', coalesce(i.valuation_price_unit, 1),
+				'cost_center_id', i.cost_center_id,
 				'received', trim_scale(coalesce((SELECT sum(g.quantity) FROM procurement.goods_movement_item g WHERE g.tenant_id = i.tenant_id
 					AND g.purchase_order_id = i.purchase_order_id AND g.po_item_no = i.item_no), 0))::text) ORDER BY i.item_no)
 			 FROM procurement.purchase_order_item i WHERE i.tenant_id = po.tenant_id AND i.purchase_order_id = po.id AND NOT i.is_removed), '[]')

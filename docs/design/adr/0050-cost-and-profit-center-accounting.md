@@ -671,6 +671,79 @@ As built in T56d, T56d2 and T56d4 (migrations 000155-000160; the commit-time che
   refusal; it is for extra statistical references, not the posting
   assignment, which is a first-class field.
 
+As built in T56e (migrations 000161-000162; the capture agent's proposals are T56e2):
+- **Items.** `requisition_item` and `purchase_order_item` gain
+  `account_assignment` (`none` | `cost_center`, default `none`) and
+  `cost_center_id`, tied by `requisition_item_account_assignment` /
+  `purchase_order_item_account_assignment` (a cost center assignment names
+  its cost center, and only it does; added `NOT VALID`, validated by
+  000162); `supplier_invoice_item` gains `cost_center_id` and
+  `profit_center_id`. The centers are the ledger's, with no foreign key
+  across schemas (§2), as the items' `account_id`. The API takes
+  `account_assignment` optionally: without it, `cost_center` when a cost
+  center is given, else `none` (422 `procurement.invalid_account_assignment`
+  when the two disagree), so existing clients are unchanged (additive).
+- **Checked through the ledger.** `ledger.Accounts.CheckAssignments`, the
+  ledger's published check, runs the posting's derivation and validation
+  (`assign`, §5 as built) on the items without locks and names the items
+  (`items[i].cost_center_id`, "Item n"). An order or requisition item takes
+  no default: while cost center accounting applies to the date's fiscal
+  year, an item on a primary cost account names its cost center (422
+  `ledger.cost_center_required`), so `none` stays for accounts whose cost
+  element is `none`, as decided above; the cost center is one of the legal
+  entity, active, valid on the date and not locked for costs (422
+  `ledger.cost_center_invalid` with the reason), its profit center valid
+  and unlocked (`ledger.profit_center_invalid`). A requisition is checked
+  when it is submitted, on that day; an order when it is released, on its
+  order date, before approval is asked and again as the release is
+  approved; an order change's added items when it is submitted and as it
+  is approved, on the changed order date. An order a migration run releases
+  (`ReleaseLoadedOrder`) is not checked: it is valued directly, and its
+  invoices' lines are derived and checked when they post; migrated account
+  assignments (EKKN) are for T56h if the pilot needs them.
+- **A released item keeps its assignment**, as its account (000161 extends
+  `purchase_order_item_identity`; 422 `procurement.invalid_change`): its
+  receipts, their reversals (102), returns (122) and the invoice's price
+  difference all post to one center. An item added back under a removed
+  number keeps the removed one's.
+- **Postings.** A goods movement's WE entry posts the item's account with
+  the item's cost center (`GRIRItem.CostCenterID`); the GR/IR line, a
+  balance sheet line, carries none. An invoice's price difference carries
+  the order item's cost center when the price difference account is a
+  primary cost account; on one whose element is `none` it derives as any
+  line does. An item without an order posts its line with the item's cost
+  and profit center; one on an order takes the order item's cost center
+  (422 `payables.assignment_from_order` for another one, or a profit
+  center, given). Non-deductible tax added to an item's line (T61d)
+  carries its assignment. An invoice item without an order is checked at
+  entry and at each change, on the invoice's posting date (else its
+  invoice date), with defaults: without a cost center it takes the
+  account's default, as its posting will. Every posting checks again.
+  Own lines of a GR/IR posting (an invoice on a GR/IR order with items
+  without an order item) now carry their centers into the ledger.
+- **No fiscal year, nothing checked.** The check resolves the date's
+  fiscal year from the legal entity's own periods; a date in none (an
+  order released before the next year is set up) checks nothing, as no
+  switch applies to it and its posting is refused for the date, so the
+  check adds no `ledger.no_fiscal_period` to release or submission.
+- **Order changes.** An item an order change resends without
+  `account_assignment` or `cost_center_id` keeps the item's, as its
+  tolerance, so clients that do not know the fields change cost-centred
+  orders as before.
+- **Rolling upgrade.** The previous release reads and writes items without
+  the columns: a goods receipt or invoice it posts for a cost-centred item
+  carries none of the item's centers. Cost-centred items exist only once
+  this release writes them, and turning cost center accounting on is a
+  tier 4 change, which belongs after the rollout (06 §6.4); the window is
+  accepted.
+- **Not built (no source in the design):** copying a requisition's items
+  to the order (the client sends the order's items, as for every other
+  field); assignment fields on `PurchaseOrderReleased`/`PurchaseOrderChanged`
+  (a later additive change if a consumer needs them).
+- **Fixtures.** The free-text custom field `cost_center` of the test
+  fixtures' purchase order and supplier invoice schemas is replaced by
+  `region`; tests assign items with the real field.
+
 ### 7. Reporting
 - **Actuals by assignment**: the projector (ADR-0006) maintains
   `ledger.assignment_balance`, keyed by ledger, company, account, cost
@@ -865,7 +938,8 @@ coverage 100%, reviewer). Lane F (ledger), after T52 for T56d.
 | T56d2 | **Assignment in the journal API; in-use refusals** (released with T56d; built, see §5 as built) | `ledger.cost_center_period_in_use`, `ledger.cost_center_posted_after`, `ledger.segment_in_use` (attributes in force on each posted date); journal API lines with the three ids and codes, entered on manual and parked entries (stored on parked lines), list filters `cost_center_id`/`profit_center_id`, `JournalEntryPosted` fields (additive, openapi and asyncapi) |
 | T56d4 | **Profit center changes against posted lines; same-kind lock check** (built, see §3 as built) | Product owner 2026-10-25: a cost center lock change compared with posted lines of its kind only (cost lines on expense accounts, revenue lines on revenue accounts); a reversal after a new end counts; a profit center's redate or lock refused against the lines carrying it, 409 `ledger.profit_center_posted_after` / `ledger.profit_center_period_in_use` (additive, x-problem-codes), at the request and again at the approval |
 | T56d3 | **Commit-time check of §5's table** (contract step: the release after the one shipping T56d and T56d2) | Deferred constraint trigger on `journal_line` holding the table for fiscal years from the switches, the segment always the profit center's, reversals exempt; constraint names mapped to the §5 problems (`ledger.profit_center_required` for a P&L line without one); schema tests per rule |
-| T56e | **Procurement and payables** | `account_assignment` and `cost_center_id` on requisition and PO items (validated at release), GR and price-difference lines with the item's center; invoice items' `cost_center_id`/`profit_center_id`; capture agent proposals with eval cases; the free-text custom field in fixtures replaced; ADR-0034 note |
+| T56e | **Procurement and payables** (built, see §6 as built; the capture agent's proposals split to T56e2) | `account_assignment` and `cost_center_id` on requisition and PO items (validated at release), GR and price-difference lines with the item's center; invoice items' `cost_center_id`/`profit_center_id`; capture agent proposals with eval cases; the free-text custom field in fixtures replaced; ADR-0034 note |
+| T56e2 | **Capture agent proposals** (split from T56e: capture enters only order items today, which take their order item's center, so proposals need captured items without an order first) | The capture agent proposes a cost center per item without an order from the supplier's posted history and the document text, confirmed by a clerk or the default; ADR-0039 eval cases (documents and expected proposals) in `evals/capture` |
 | T56f | **Actual reports** | `ledger.assignment_balance` maintained by the projector (exactly once, run-twice test); `GET /v1/cost-center-balances`, `/v1/profit-center-balances` (by center, node, segment, account, period; exact at the read); schema test that assignment balances add up to `period_balance` on P&L accounts; drill-down via journal filters |
 | T56g | **Plan and plan/actual** (P5) | `controlling` context and schema; plan categories with a human-only lock; plan lines by upload and API, idempotent by batch; `GET /v1/cost-center-plan-actual`; actuals through `ledger.AssignmentBalances` |
 | T56h | **SAP migration** | Extract and load of CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), CSKB categories, OKB9 defaults, sets 0101/0106 with ranges expanded; ACDOCA RCNTR/PRCTR/SEGMENT; quality-gate issues (center outside the standard hierarchy, range matching nothing, unknown profit center); mock generator extended; reconciliation of migrated center totals |

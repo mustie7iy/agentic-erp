@@ -1126,7 +1126,9 @@ erDiagram
     numeric quantity
     text uom_code
     bigint unit_price
-    uuid account_id }
+    uuid account_id
+    text account_assignment "none | cost_center (T56e)"
+    uuid cost_center_id "T56e" }
   contract { uuid id PK
     uuid supplier_id
     date valid_from
@@ -1151,7 +1153,9 @@ erDiagram
     numeric quantity
     bigint unit_price
     int price_unit
-    numeric over_delivery_pct }
+    numeric over_delivery_pct
+    text account_assignment "none | cost_center (T56e)"
+    uuid cost_center_id "T56e" }
   goods_movement { uuid id PK
     text movement_type "101 | 102 | 122 | 123"
     date posting_date
@@ -1320,6 +1324,18 @@ released order carries its valuation price (`purchase_order_item_valued`);
 and items of orders released before T47a were valued at their price, which
 could not change after the release.
 
+Requisition and order items carry their account assignment (migrations
+000161-000162, T56e, ADR-0050 §6): `account_assignment` (`none` or
+`cost_center`, default `none`) and `cost_center_id`, a cost center
+assignment naming its cost center and only it naming one
+(`requisition_item_account_assignment`,
+`purchase_order_item_account_assignment`, added `NOT VALID` and validated
+by 000162). The cost center is the ledger's, checked through its published
+API as the document is released, with no foreign key across schemas. A
+released order's item keeps its assignment as it keeps its account
+(`purchase_order_item_identity`, 000161), and its goods movements post the
+item's account with its cost center.
+
 ## 3.9 Accounts payable (`payables`)
 
 ```mermaid
@@ -1353,7 +1369,9 @@ erDiagram
     numeric quantity
     bigint amount
     text tax_code
-    uuid account_id }
+    uuid account_id
+    uuid cost_center_id "T56e"
+    uuid profit_center_id "T56e" }
   match_result { uuid id PK
     uuid supplier_invoice_id
     timestamptz evaluated_at
@@ -1362,6 +1380,12 @@ erDiagram
     int config_version
     int invoice_version }
 ```
+
+A supplier invoice item carries `cost_center_id` and `profit_center_id`
+(migration 000161, T56e): as entered on an item without an order, the
+order item's cost center on one with; its line posts with them, and an
+invoice on GR/IR posts the order item's cost center on the price
+difference when the price difference account is a primary cost account.
 
 A supplier invoice's `tax_date` (migration 000146, T61d, ADR-0049 §4) is
 the date its codes' rates apply on and its tax is reported in, set by a

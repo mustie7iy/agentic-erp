@@ -461,7 +461,8 @@ func (e *Endpoints) invoiceLines(ctx context.Context, v Invoice, sup partner.Sup
 			// Every item has an account: validation requires one on an item
 			// without an order item and fills it from the order item
 			// otherwise (orderItem).
-			lines = append(lines, ledger.PostingLine{AccountID: *it.AccountID, Amount: signed(v, amount), TaxCode: it.TaxCode, Text: it.Description})
+			lines = append(lines, ledger.PostingLine{AccountID: *it.AccountID, Amount: signed(v, amount), TaxCode: it.TaxCode, Text: it.Description,
+				CostCenterID: it.CostCenterID, ProfitCenterID: it.ProfitCenterID})
 		}
 	}
 	if t.items == nil && v.Tax != 0 {
@@ -498,7 +499,7 @@ func grirItem(o procurement.Order, kind string, it Item, amount money.Minor) (le
 	for _, oi := range o.Items {
 		if oi.ItemNo == *it.POItemNo {
 			return ledger.GRIRItem{PurchaseOrderID: o.ID, POItemNo: oi.ItemNo, Quantity: quantity, Unit: it.Unit, UnitPrice: oi.ValuationPrice,
-				PriceUnit: oi.ValuationPriceUnit, Invoiced: &amount, TaxCode: it.TaxCode, Text: it.Description}, nil
+				PriceUnit: oi.ValuationPriceUnit, Invoiced: &amount, TaxCode: it.TaxCode, Text: it.Description, CostCenterID: oi.CostCenterID}, nil
 		}
 	}
 	return ledger.GRIRItem{}, problem.Unprocessable("payables.order_item_missing",

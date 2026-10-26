@@ -1901,10 +1901,17 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Procurement and payables: account_assignment and cost_center_id on requisition and PO items (validated at release), GR and price-difference lines with the item's center; invoice items' cost_center_id/profit_center_id; capture agent proposals with eval cases; the free-text custom field in fixtures replaced; ADR-0034 note",
-        "r": "T56e",
+        "s": "D",
+        "t": "Procurement and payables: account_assignment (none | cost_center) and cost_center_id on requisition and PO items, checked through ledger.Accounts.CheckAssignments (the posting's derivation and validation, naming items, no default for an order item) at requisition submission, order release and its approval, and for items an order change adds at submission and approval; a released item keeps its assignment (purchase_order_item_identity); GR lines with the item's cost center, the invoice's price difference with it on a primary cost price difference account; invoice items' cost_center_id/profit_center_id, checked at entry with defaults, an order item's taken from the order (payables.assignment_from_order); GR/IR own lines carry their centers; the free-text custom field cost_center in the fixtures replaced by region and the real field; ADR-0034 note; capture agent proposals split to T56e2",
+        "r": "migrations 000161-000162 · internal/ledger itemassign.go, assignment.go, grir.go, ports.go · internal/procurement assignment.go, requisitions.go, purchase_orders.go, order_changes.go, order_change_apply.go, receipts.go, grir.go · internal/payables payables.go, post.go · internal/platform/fixture controlling.go · api/openapi.yaml · ADR-0050 §6, ADR-0034 · T56e",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Capture agent proposals (split from T56e: capture enters only order items, which take their order item's center, so proposals need captured items without an order first): a cost center per item without an order from the supplier's posted history and the document text, confirmed by a clerk or the default; ADR-0039 eval cases in evals/capture",
+        "r": "T56e2",
+        "src": "split:T56e",
         "c": []
        },
        {

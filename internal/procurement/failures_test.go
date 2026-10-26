@@ -420,9 +420,9 @@ func TestEdges(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Custom fields merge as a merge patch: null removes a key.
-	o := e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), `, "extensions": {"cost_center": "north", "project": "P2"}`)
+	o := e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), `, "extensions": {"region": "north", "project": "P2"}`)
 	upd, _ := e.Must(200, "PATCH", "/v1/purchase-orders/"+id(o), `{"extensions": {"project": null}}`, `"1"`)
-	if fmt.Sprint(upd["extensions"]) != "map[cost_center:north]" {
+	if fmt.Sprint(upd["extensions"]) != "map[region:north]" {
 		t.Fatalf("merged: %v", upd["extensions"])
 	}
 	e.Problem(412, "request.version_mismatch", "PATCH", "/v1/purchase-orders/"+id(o), `{}`, `"1"`)
@@ -463,7 +463,9 @@ func TestEdges(t *testing.T) {
 	// Constraint translations.
 	for name, code := range map[string]string{"purchase_order_one_per_requisition": "procurement.requisition_ordered",
 		"contract_item_material_key": "procurement.duplicate_material_key", "requisition_item_uom_code_fkey": "procurement.unknown_unit",
-		"goods_movement_item_tenant_id_purchase_order_id_po_item_no_fkey": "procurement.unknown_order_item"} {
+		"goods_movement_item_tenant_id_purchase_order_id_po_item_no_fkey": "procurement.unknown_order_item",
+		"requisition_item_account_assignment":                             "procurement.invalid_account_assignment",
+		"purchase_order_item_account_assignment":                          "procurement.invalid_account_assignment"} {
 		t.Run(name, func(t *testing.T) {
 			if p := problem.From(&pgconn.PgError{Code: "23505", ConstraintName: name}); p.Code != code {
 				t.Errorf("problem code: got %s, want %s", p.Code, code)
