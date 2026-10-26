@@ -4,7 +4,9 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -202,9 +204,28 @@ func (o Operation) Level() int {
 	return LevelWrites
 }
 
-// Operations returns every operation in the contract by operationId.
+// Operations returns every operation in the contract by operationId. The
+// contract is embedded and fixed at build time, so it is parsed once per
+// process: building the API server reads it three times (the authorizer,
+// the snapshot and the deprecation tables), servers are built for every
+// test, and parsing the 1.2 MB contract each time was most of a test's
+// setup. Each caller gets its own copy, so none can change another's.
 func Operations() (map[string]Operation, error) {
-	return parseOperations(openapiYAML, true)
+	ops, err := contractOperations()
+	return cloneOperations(ops), err
+}
+
+var contractOperations = sync.OnceValues(func() (map[string]Operation, error) { return parseOperations(openapiYAML, true) })
+
+// cloneOperations copies ops down to each operation's entity permissions,
+// the one field that is itself a map.
+func cloneOperations(ops map[string]Operation) map[string]Operation {
+	c := make(map[string]Operation, len(ops))
+	for id, op := range ops {
+		op.EntityPermissions = maps.Clone(op.EntityPermissions)
+		c[id] = op
+	}
+	return c
 }
 
 // parseOperations reads the operations of a contract; permissioned says
@@ -237,11 +258,14 @@ func parseOperations(src []byte, permissioned bool) (map[string]Operation, error
 // MustOperations is Operations for program start: the embedded contract is
 // checked by this package's tests, so failing to parse it is a build defect.
 func MustOperations() map[string]Operation {
-	return mustParse(openapiYAML)
+	return must(Operations())
 }
 
 func mustParse(src []byte) map[string]Operation {
-	ops, err := parseOperations(src, true)
+	return must(parseOperations(src, true))
+}
+
+func must(ops map[string]Operation, err error) map[string]Operation {
 	if err != nil {
 		//nolint:forbidigo // init-time wiring of a static value: the embedded contract is fixed at build time and checked by this package's tests
 		panic(err)

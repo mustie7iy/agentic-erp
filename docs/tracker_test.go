@@ -15,14 +15,12 @@ import (
 	"time"
 )
 
-// baselineItems is the number of items carrying "baseline": the 966 items of
-// 2026-10-25, when sources were first recorded, less the eight whose references
-// already named the step they were split from or found in and the three the
-// product owner confirmed that day (they had rested on the coordinator's
-// decision alone). The others' sources
-// are in their references, ADRs and history. The count must match exactly, so
-// removing a baseline item lowers it here and no new item can take its place.
-const baselineItems = 955
+// baselineItems is the number of items carrying "baseline": the items of
+// 2026-10-25, when sources were first recorded, whose sources are in their
+// references, ADRs and history. It must match exactly and only ever falls: an
+// item given its real source, or removed, lowers it here, so no new item can
+// take a baseline item's place unseen in the diff.
+const baselineItems = 953
 
 // accepted lists the sources an item may name, several joined by " · ":
 //
