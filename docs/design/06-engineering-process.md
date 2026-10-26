@@ -211,6 +211,15 @@ to repeating the slow gates on each pull request:
   on `main` is the second, which catches what a laptop cannot (a clean
   runner's timing, disk and platform), so a failure there is also a gap to
   close in `ci-local.sh`.
+- **A gap in the gates** (PO decision, 2026-10-26): when something broke
+  that a gate should have stopped, the note below records which layer should
+  have caught it and what changed, so the same gap is not left open twice.
+  - 2026-10-21: main's full suite failed on every push from 2026-10-21 (the
+    runner stopped it; tracker, Quality engineering) and nobody saw it until
+    2026-10-25, as the merge queue waited only for the pull request's short
+    check. Layer: the merge queue, which should have read main's full run
+    after each merge. Changed: `coordinator/status.py` prints main's runs,
+    and the red-main rule above has been followed again since batch14.
 - Secret scanning runs on every event. Everything else is skipped when
   `scripts/ci-changes.sh` finds that only documentation changed (`docs/`,
   Markdown) since the base: a pull request's base, or for a push to `main`
@@ -362,6 +371,16 @@ A change is done when:
 
 - Trunk-based: short-lived branches, pull requests into `main`, at least one
   reviewer; two for migrations, contracts and security-sensitive code.
+- Review follows `REVIEW.md` (PO decision, 2026-10-26). A finding is
+  labelled Blocking (correctness, money, tenancy, authorization,
+  concurrency, idempotency, a contract break, a `CLAUDE.md` convention), Nit
+  (never blocking, at most three a round) or Pre-existing (not introduced by
+  the diff: never held against the step, tracked as `review:<step>`). It
+  cites `path:line` and names its bug class, and the author fixes every
+  instance of the class in the diff. After the first round a round reviews
+  only the changes since the previous one; after three rounds on one step
+  with a blocking finding left, the author reconsiders the approach and
+  tells the coordinator.
 - Commit subjects are a sentence naming the tracker item, prefixed `Fix:`,
   `Refactor:`, `Tests:` (older history also `Test:`), `CI:`, `Plan:`,
   `Tracker:`, `Process:` or `Release:` where they are one of those; the

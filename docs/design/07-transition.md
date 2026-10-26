@@ -1850,9 +1850,13 @@ done. CLAUDE.md states the conventions; this is the loop that applies them.
    breaking-change check and the performance budgets; `make ci-local` runs them
    all at CI's pinned versions, then GitHub's short check (06 §6.5).
 9. **Review.** The `go-reviewer` agent reviews the step's diff and is re-run until
-   it has no blocking finding. After every few steps, and before a pilot, a fresh
-   whole-codebase review scores the eight dimensions; a dimension below 9.5 is
-   brought back before the next step starts.
+   it has no blocking finding, under `REVIEW.md` (06 §6.9): findings labelled
+   Blocking, Nit or Pre-existing, each bug class fixed wherever it occurs in
+   the diff, rounds after the first reviewing only the changes since, and
+   after three rounds on one step with a blocking finding left the approach
+   reconsidered and the coordinator told. After every few steps, and before a
+   pilot, a fresh whole-codebase review scores the eight dimensions; a
+   dimension below 9.5 is brought back before the next step starts.
 10. **Record.** Commits name the step (`<what> (T<n>)`) and end with the
     co-author line; the tracker, the design documents and any ADR change in the
     same commit as the code; `main` changes only through a reviewed pull request
