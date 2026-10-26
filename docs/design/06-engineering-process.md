@@ -206,21 +206,21 @@ pull request:
   detector, the performance budgets, the coverage gate, the images on both
   platforms built twice and their scan — with fuzzing, the signing round
   trip and the release scripts, on the tree `main` really holds. It runs at
-  06:00 UTC (`schedule`) and whenever started by hand
-  (`workflow_dispatch`, on any branch: a change to the jobs is tried before
-  it reaches `main`); everything runs, except that a nightly run of a
-  `main` whose latest full run passed at that same commit runs nothing
-  (`scripts/ci-changes.sh`): the Actions budget is small, and a quiet night
-  would otherwise cost three runner hours. The latest full run decides, so
-  an older green run never hides a red one. It no longer runs on every
-  push: run 40334507190 (2026-10-26, on the private repository's 2-CPU,
-  7.9 GB runner) was cancelled at its 120-minute limit with no test failed
-  and the race step unfinished, and the whole job takes about three hours,
-  so its limit is 240 minutes. A nightly, a manual and a push run on `main`
-  do not cancel each other. After every merge the coordinator reads `main`'s
-  latest nightly and manual full runs (coordinator/status.py), not only the
-  pull request's light check: from 2026-10-21 to 2026-10-25 the runner
-  stopped every run on `main`, unseen.
+  06:00 UTC (`schedule`) and whenever started by hand (`workflow_dispatch`, on
+  any branch: a change to the jobs is tried before it reaches `main`);
+  everything runs, except that a nightly run of a `main` whose latest full run
+  passed at that same commit runs nothing (`scripts/ci-changes.sh`): the
+  Actions budget is small, and a quiet night would otherwise cost three runner
+  hours. The latest finished full run decides, so an older green run never
+  hides a red or cancelled one. It no longer runs on every push: run
+  40334507190 (2026-10-26, on the private repository's 2-CPU, 7.9 GB runner)
+  was cancelled at its 120-minute limit with no test failed and the race step
+  unfinished, and the whole job takes about three hours, so its limit is 240
+  minutes. A nightly, a manual and a push run on `main` do not cancel each
+  other. After every merge the coordinator reads `main`'s latest push run and
+  its latest nightly or manual full run (coordinator/status.py), not only the
+  pull request's light check: from 2026-10-21 to 2026-10-25 the runner stopped
+  every run on `main`, unseen.
 - **A red `main`** (PO decisions, 2026-10-21 and 2026-10-26): `main` is
   red while its latest push run, or its latest nightly or manual full run,
   is red. The merge that turned it red is reverted at once, or fixed

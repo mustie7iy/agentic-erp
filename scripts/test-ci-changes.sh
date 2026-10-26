@@ -73,7 +73,7 @@ expect "a push of documentation since the last green commit" false EVENT=push FA
 expect "documentation after code whose run was cancelled" true EVENT=push FAKE_GREEN="$docs" HEAD="$tracker"
 expect "a last green commit that is not an ancestor" true EVENT=push FAKE_GREEN=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef HEAD="$tracker"
 # The nightly full run (ci.yml's schedule) runs everything, documentation-only
-# nights included, unless main is still the last green full run's commit.
+# nights included, unless main's latest full run passed at this commit.
 run() { # run prints one gh run of event $1 at commit $2, ended $3
   printf '{"headSha":"%s","event":"%s","status":"completed","conclusion":"%s"}' "$2" "$1" "$3"
 }
@@ -84,7 +84,7 @@ expect "a nightly run of the commit whose latest full run passed" false EVENT=sc
   FAKE_RUNS="[$(run push "$code" success),$(run workflow_dispatch "$tracker" success)]" HEAD="$tracker"
 expect "a red latest full run is not hidden by an older green one" true EVENT=schedule \
   FAKE_RUNS="[$(run workflow_dispatch "$tracker" failure),$(run schedule "$tracker" success)]" HEAD="$tracker"
-expect "a cancelled full run leaves the one before it to decide" false EVENT=schedule \
+expect "a cancelled latest full run runs the nightly" true EVENT=schedule \
   FAKE_RUNS="[$(run schedule "$tracker" cancelled),$(run schedule "$tracker" success)]" HEAD="$tracker"
 expect "a manual run never skips" true EVENT=workflow_dispatch \
   FAKE_RUNS="[$(run schedule "$tracker" success)]" HEAD="$tracker"
