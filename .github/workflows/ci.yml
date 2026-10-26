@@ -403,15 +403,34 @@ jobs:
       - name: Fuzz (30s per target)
         run: make fuzz FUZZTIME=30s
 
+  tracker:
+    # Every tracker item names its source (07 §7.5). A change to the
+    # tracker alone is documentation, which skips the suite, so this job
+    # runs on every event: the docs package reads the tracker and the design
+    # files and imports the standard library alone, so it needs no module
+    # download and stays well under a minute.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Tracker items name their source
+        run: go test -count=1 ./docs
+
   ci-ok:
     # The one check branch protection requires. A job skipped by an `if`
     # reports success, so requiring the jobs themselves would let a failed
     # `changes` (a leaked secret, a broken skip rule) skip the suite and
     # pass: this job fails unless `changes` succeeded and nothing it gates
     # failed or was cancelled.
-    # On a pull request it aggregates the light jobs (changes, short), the
-    # others skipped; on main, the full ones.
-    needs: [changes, short, test, fuzz, signing, release-scripts]
+    # On a pull request it aggregates the light jobs (changes, tracker,
+    # short), the others skipped; on main, the full ones.
+    needs: [changes, tracker, short, test, fuzz, signing, release-scripts]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -421,5 +440,5 @@ jobs:
           RESULTS: ${{ toJSON(needs) }}
         run: |
           echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          echo "$RESULTS" | jq -e '.changes.result == "success"
+          echo "$RESULTS" | jq -e '.changes.result == "success" and .tracker.result == "success"
             and ([.[] | .result] | all(. == "success" or . == "skipped"))' >/dev/null

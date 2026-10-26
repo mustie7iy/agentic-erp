@@ -2,25 +2,27 @@
 //
 // docs/tracker.json is the only plan (07-transition §7.5). Scope may grow only
 // by detailing what an ADR, the product owner, a review or a failed check asked
-// for, so every item names where it came from (PO 2026-10-25).
+// for, so every leaf item names where it came from (PO 2026-10-25).
 package docs
 
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // baselineItems is the number of items carrying "baseline": the 966 items of
 // 2026-10-25, when sources were first recorded, less the eight whose references
 // already named the step they were split from or found in. The others' sources
-// are in their references, ADRs and history. The count may only fall: a new
-// item names its source.
+// are in their references, ADRs and history. The count must match exactly, so
+// removing a baseline item lowers it here and no new item can take its place.
 const baselineItems = 958
 
-// sourcePattern lists the accepted sources of an item:
+// accepted lists the sources an item may name, several joined by " · ":
 //
 //	adr:ADR-0052           an accepted ADR asks for it
 //	po:2026-10-25          a product owner decision of that day
@@ -29,10 +31,17 @@ const baselineItems = 958
 //	walkthrough:2026-10-22 the pilot walkthrough of that day
 //	split:T73j             split from that approved step
 //	design:01 §1.4         a design document's section
-var sourcePattern = regexp.MustCompile(`^(adr:ADR-\d{4}|po:\d{4}-\d{2}-\d{2}|review:T\d+[a-z0-9]*|ci:[A-Za-z0-9-]+|walkthrough:\d{4}-\d{2}-\d{2}|split:T\d+[a-z0-9]*|design:0[1-7] §\d+(\.\d+)*)$`)
+const accepted = `adr:ADR-NNNN, po:YYYY-MM-DD, review:Tn, ci:batchN or ci:Tn, walkthrough:YYYY-MM-DD, split:Tn or design:0N §n.n, joined by " · "`
+
+var (
+	sourcePattern = regexp.MustCompile(`^(adr:ADR-(\d{4})|(po|walkthrough):(\d{4}-\d{2}-\d{2})|(review|split|ci):(T\d+[a-z0-9]*)|ci:batch\d+|design:(0[1-7]) §(\d+(\.\d+)*))$`)
+	stepPattern   = regexp.MustCompile(`\bT\d+[a-z0-9]*\b`)
+	statusPattern = regexp.MustCompile(`(?m)^\*\*Status:\*\* accepted`)
+)
 
 type item struct {
 	Title    string `json:"t"`
+	Ref      string `json:"r"`
 	Source   string `json:"src"`
 	Children []item `json:"c"`
 }
@@ -42,8 +51,12 @@ type leaf struct {
 	source string
 }
 
-func leaves(items []item, path string, out []leaf) []leaf {
+// walk collects the leaf items and every step any item names.
+func walk(items []item, path string, out []leaf, steps map[string]bool) []leaf {
 	for _, it := range items {
+		for _, s := range stepPattern.FindAllString(it.Title+" "+it.Ref, -1) {
+			steps[s] = true
+		}
 		p := it.Title
 		if path != "" {
 			p = path + " / " + it.Title
@@ -52,9 +65,61 @@ func leaves(items []item, path string, out []leaf) []leaf {
 			out = append(out, leaf{path: p, source: it.Source})
 			continue
 		}
-		out = leaves(it.Children, p, out)
+		out = walk(it.Children, p, out, steps)
 	}
 	return out
+}
+
+// sourceExists says why a well-formed source names nothing real, or "".
+func sourceExists(t *testing.T, m []string, steps map[string]bool) string {
+	t.Helper()
+	switch {
+	case m[2] != "":
+		return acceptedADR(t, m[2])
+	case m[4] != "":
+		if _, err := time.Parse(time.DateOnly, m[4]); err != nil {
+			return "is not a date"
+		}
+	case m[6] != "":
+		if !steps[m[6]] {
+			return "names a step no tracker item names"
+		}
+	case m[7] != "":
+		return designSection(t, m[7], m[8])
+	}
+	return ""
+}
+
+// only reads the one file glob finds, or says why there is none.
+func only(t *testing.T, glob, none string) ([]byte, string) {
+	t.Helper()
+	files, err := filepath.Glob(glob)
+	if err != nil || len(files) != 1 {
+		return nil, none
+	}
+	raw, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatalf("read %s: %v", files[0], err)
+	}
+	return raw, ""
+}
+
+func acceptedADR(t *testing.T, n string) string {
+	t.Helper()
+	raw, why := only(t, filepath.Join("design", "adr", n+"-*.md"), "names no ADR in docs/design/adr")
+	if why == "" && !statusPattern.Match(raw) {
+		why = "names an ADR that is not accepted"
+	}
+	return why
+}
+
+func designSection(t *testing.T, doc, section string) string {
+	t.Helper()
+	raw, why := only(t, filepath.Join("design", doc+"-*.md"), "names no design document")
+	if why == "" && !regexp.MustCompile(`(?m)^#+ `+regexp.QuoteMeta(section)+`\s`).Match(raw) {
+		why = "names no section of design document " + doc
+	}
+	return why
 }
 
 func TestTrackerItemsNameTheirSource(t *testing.T) {
@@ -66,23 +131,27 @@ func TestTrackerItemsNameTheirSource(t *testing.T) {
 	if err := json.Unmarshal(raw, &items); err != nil {
 		t.Fatalf("parse tracker: %v", err)
 	}
+	steps := map[string]bool{}
 	baseline := 0
-	for _, l := range leaves(items, "", nil) {
-		if l.source == "baseline" {
+	for _, l := range walk(items, "", nil, steps) {
+		switch l.source {
+		case "baseline":
 			baseline++
 			continue
-		}
-		if l.source == "" {
-			t.Errorf("%s: no src; want one of adr:, po:, review:, ci:, walkthrough:, split:, design:", l.path)
+		case "":
+			t.Errorf("%s: no src; want %s", l.path, accepted)
 			continue
 		}
 		for _, s := range strings.Split(l.source, " · ") {
-			if !sourcePattern.MatchString(s) {
-				t.Errorf("%s: src %q is not a known source", l.path, s)
+			m := sourcePattern.FindStringSubmatch(s)
+			if m == nil {
+				t.Errorf("%s: src %q is not a known source; want %s", l.path, s, accepted)
+			} else if why := sourceExists(t, m, steps); why != "" {
+				t.Errorf("%s: src %q %s", l.path, s, why)
 			}
 		}
 	}
-	if baseline > baselineItems {
-		t.Errorf("%d items carry src baseline, want at most %d: a new item names its source", baseline, baselineItems)
+	if baseline != baselineItems {
+		t.Errorf("%d items carry src baseline, want %d: a new item names its source, and a removed one lowers baselineItems", baseline, baselineItems)
 	}
 }

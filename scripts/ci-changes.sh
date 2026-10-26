@@ -2,8 +2,9 @@
 # Decides whether CI's jobs beyond the secret scan have to run for this
 # event (06 §6.5) and writes run=true|false and reason=... for
 # GITHUB_OUTPUT. They are skipped when only documentation changed (docs/,
-# Markdown files): no test reads it, and secret scanning runs on every
-# event regardless. Anything it cannot establish runs them. When they run,
+# Markdown files): no test of the suite reads it; secret scanning, and the
+# tracker's own check (docs/tracker_test.go, ci.yml's tracker job), run on
+# every event regardless. Anything it cannot establish runs them. When they run,
 # it also writes images=true|false and release=true|false: whether the
 # image reproducibility gate and the signing round trip, and the release
 # scripts' tests, have to run, which they do when their inputs changed

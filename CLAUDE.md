@@ -119,7 +119,7 @@ changed. For large branches the user may also run `/code-review high` or `/code-
 - Each step ends green: lint, tests, coverage, reviewer. Commit per step with a message naming
   the T-number, as the existing history does.
 - Update `docs/tracker.json` and any affected design doc or ADR in the same change. A new
-  tracker item names its source in `src` (07-transition §7.5); a test refuses one without.
+  tracker leaf item names its source in `src` (07-transition §7.5); a test refuses one without.
 
 ## Definition of done
 
