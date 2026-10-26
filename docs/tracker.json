@@ -8296,6 +8296,13 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "Review rules (PO 2026-10-26): REVIEW.md at the root says what is blocking (correctness, money, tenancy and RLS, authorization, concurrency, idempotency, contract breaks, CLAUDE.md conventions), limits nits to three a round, never blocking, ignores generated code and asks for path:line findings under a summary counted by label or an explicit no issues; findings labelled Blocking, Nit or Pre-existing (not introduced by the diff, never held against the step, tracked as review:<step>); a finding names its bug class and the author fixes every instance in the diff; rounds after the first review only the changes since, and after three rounds the author reconsiders the approach and tells the coordinator; a gap in the gates gets a note of the layer that should have caught it and what changed, the first one main's unseen full-suite failures from 2026-10-21",
+      "r": "REVIEW.md · .claude/agents/go-reviewer.md · CLAUDE.md · 06 §6.5 · 06 §6.9 · 07-transition §7.7",
+      "src": "po:2026-10-26",
+      "c": []
+     },
+     {
       "s": "P",
       "t": "Main's full suite on GitHub, stopped by the runner (exit 143, \"received a shutdown signal\") about 8 minutes into the race step on every push from 2026-10-21 with no test failing: the generated API built alone first, then the packages tested two at a time, memory and disk logged every 30 s; workflow_dispatch runs the full jobs on any branch (PO 2026-10-25); verified by main's first run after it merges",
       "r": ".github/workflows/ci.yml test job",

@@ -108,6 +108,9 @@ After any non-trivial change (new feature, workflow, migration, anything touchin
 tenancy, auth or concurrency), run the **`go-reviewer`** agent on the diff and resolve every
 blocking finding before telling the user the work is done. Report what it found and what you
 changed. For large branches the user may also run `/code-review high` or `/code-review ultra`.
+`REVIEW.md` sets the rules: findings labelled Blocking, Nit or Pre-existing; every instance of
+a named bug class in the diff fixed; after three rounds on one step with a blocking finding left,
+reconsider the approach and tell the coordinator.
 
 ### 4. Small, specific tasks
 
