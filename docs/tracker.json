@@ -4668,7 +4668,7 @@
        },
        {
         "s": "T",
-        "t": "Reports beyond T73j: a trial balance account's entries (listJournalEntries filters by no account: a contract change, an account_id filter); the aging's buckets chosen on the page (the API takes aging_days, the page asks 30, 60, 90); downloads of the ledger reconciliation and the audit history; suppliers named on open items (by id now: T73f2's contract change); the page budgets measured at the pilot's volumes once the pilot gives them (neither the tracker nor ADR-0052 names them); OWASP's CSV injection guidance and the byte order mark's need verified from primary sources (ADR-0052, from memory); walked through by a pilot GL accountant, AP clerk and controller",
+        "t": "Reports beyond T73j: a trial balance account's entries (listJournalEntries filters by no account: a contract change, an account_id filter); the aging's buckets chosen on the page (the API takes aging_days, the page asks 30, 60, 90); downloads of the ledger reconciliation and the audit history; an address naming one ledger as both ledger_id and compare_ledger_id refused on the page rather than sent to the API (T73j review); suppliers named on open items (by id now: T73f2's contract change); the page budgets measured at the pilot's volumes once the pilot gives them (neither the tracker nor ADR-0052 names them); OWASP's CSV injection guidance and the byte order mark's need verified from primary sources (ADR-0052, from memory); walked through by a pilot GL accountant, AP clerk and controller",
         "r": "T73j2 (split from T73j, 2026-10-25)",
         "c": []
        },
