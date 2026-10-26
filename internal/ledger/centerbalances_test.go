@@ -187,6 +187,7 @@ func TestCenterBalancesExactAndPaged(t *testing.T) {
 	if got, want := r.centerRows(t, "/v1/cost-center-balances", "&fiscal_period_from=6"), []string{"1000/520000/6 36.00/0.00 EUR"}; fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("projected and pending: got %v, want %v", got, want)
 	}
+	whole := sorted(r.centerRows(t, "/v1/profit-center-balances", ""))
 	for _, order := range []string{"", "profit_center_id desc", "account_id", "fiscal_period desc"} {
 		t.Run("by "+order, func(t *testing.T) {
 			var rows []string
@@ -207,8 +208,11 @@ func TestCenterBalancesExactAndPaged(t *testing.T) {
 				}
 				rows, token = append(rows, page[:len(page)-1]...), strings.TrimPrefix(last, "next:")
 			}
-			if len(rows) != 4 {
-				t.Errorf("rows over every page: got %v, want 4", rows)
+			if got := sorted(rows); fmt.Sprint(got) != fmt.Sprint(whole) {
+				t.Errorf("rows over every page: got %v, want %v", got, whole)
+			}
+			if order == "fiscal_period desc" && !strings.Contains(rows[0], "/6 ") {
+				t.Errorf("first row by period descending: got %q, want period 6", rows[0])
 			}
 		})
 	}

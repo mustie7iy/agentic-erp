@@ -1,7 +1,6 @@
 package ledger_test
 
 import (
-	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -108,6 +107,6 @@ func centerBudgetData(t *testing.T) assigned {
 	}
 	pgtest.Exec(t, `ANALYZE ledger.assignment_balance, ledger.journal_entry, ledger.journal_line, ledger.balance_projection, ledger.cost_center,
 		ledger.profit_center, ledger.gl_account`)
-	t.Log(fmt.Sprintf("loaded 360,000 assignment balances and %d pending lines", 100*len(lines)))
+	t.Logf("loaded 360,000 assignment balances and %d pending lines", 100*len(lines))
 	return r
 }

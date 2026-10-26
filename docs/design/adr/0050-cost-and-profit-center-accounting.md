@@ -797,7 +797,8 @@ As built in T56f (migration 000163):
   as 000054 backfilled GR/IR positions; lines still queued are left to the
   trigger. Postings wait while it runs. Lines carry centers only since
   T56d and the switches turn on from a fiscal year with no postings yet,
-  so it reads at most the open year's assigned lines since T56d's release;
+  so it adds at most the open year's assigned lines since T56d's release,
+  though it scans the projected lines of every year;
   if that release has run long at volume before this one, the backfill
   should instead be an operation in batches (06 §6.4): a question for the
   product owner, not decided here.

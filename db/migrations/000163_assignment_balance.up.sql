@@ -80,11 +80,11 @@ CREATE TRIGGER balance_projection_assignment AFTER UPDATE ON ledger.balance_proj
 
 -- The balances of the lines projected so far. Lines carry centers only
 -- since T56d (000155), and center accounting is turned on from a fiscal
--- year with no postings yet (T56c), so these are the lines of at most the
--- open year since T56d's release, posted while postings wait for this
--- statement. Were that a long backfill (06 §6.4), it would be an operation
--- in batches instead: an open question for the product owner (ADR-0050 §7
--- as built). Tenant rows: under a role that does not bypass row-level
+-- year with no postings yet (T56c), so what it adds are at most the open
+-- year's lines since T56d's release; it still scans the projected entries'
+-- lines of every year, while postings wait for this statement. Were that
+-- long (06 §6.4), it would be an operation in batches instead: an open
+-- question for the product owner (ADR-0050 §7 as built). Tenant rows: under a role that does not bypass row-level
 -- security this fails rather than project nothing, as 000054.
 SET LOCAL row_security = off;
 INSERT INTO ledger.assignment_balance (tenant_id, ledger_id, legal_entity_id, account_id, cost_center_id, profit_center_id, segment_id,
