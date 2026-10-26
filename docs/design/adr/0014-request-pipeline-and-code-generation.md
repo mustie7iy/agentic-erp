@@ -32,7 +32,7 @@ with its validation from day one.
 | Unit of work | One database transaction per request: `SET LOCAL ROLE erp_app`, `app.tenant_id`, `app.actor_id`; principal resolved and required active; safe methods run read-only |
 | Idempotency | For `POST`/`PATCH`: key inserted in the same transaction; response buffered and stored with the key |
 | Router (generated) | Route, decode and validate; unknown or malformed input answered as problem+json |
-| Authorization | Operation's `x-permission` (read from the embedded contract) against the principal's current role permissions; `x-agent: false` refuses agents and services |
+| Authorization | Operation's `x-permission` and any `x-also-permissions` (read from the embedded contract) against the principal's current role permissions; `x-agent: false` refuses agents and services |
 | Handler | Domain logic; adds audit entries and outbox events through the transaction in the context |
 
 **Unit of work rules.**

@@ -208,7 +208,8 @@ account's default; an item on an order takes its order item's (422
 
 The actual reports by account assignment (ADR-0050 §7, T56f), `GET
 /v1/cost-center-balances` and `GET /v1/profit-center-balances`
-(`ledger.cost_center.read`, `x-slo-class: report`), give the period totals
+(`ledger.cost_center.read` and, as for every ledger amount,
+`ledger.entry.read`; `x-slo-class: report`), give the period totals
 of one legal entity, ledger (the leading one by default) and fiscal year,
 per center, account, period and transaction currency, a profit center's
 rows with its segment; profit and loss accounts only. They filter by

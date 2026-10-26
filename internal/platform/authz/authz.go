@@ -176,6 +176,8 @@ func (a *Authorizer) AuthorizeEntity(ctx context.Context, operationID, entity st
 			return problem.NotFound("Nothing is served for this entity.")
 		}
 	}
+	// An operation with x-entity-permissions has no x-also-permissions:
+	// the contract's parser refuses the two together.
 	return holdsAll(ctx, tx, append([]string{permission}, op.AlsoPermissions...))
 }
 
