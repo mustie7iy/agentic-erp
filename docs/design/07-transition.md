@@ -1657,8 +1657,9 @@ finding in a step (`review:T73j`), a failed or measured check (`ci:batch6`,
 `ci:T73j`), the pilot walkthrough (`walkthrough:2026-10-22`), a split of an
 approved step (`split:T73j`) or a design section (`design:01 §1.4`); several are
 joined by ` · `. A decision of the coordinator alone is not a source: it goes to
-the product owner first. The 966 items of 2026-10-25 carry `baseline`, their
-sources being in their references, ADRs and history; `TestTrackerItemsNameTheirSource`
+the product owner first. 958 of the 966 items of 2026-10-25 carry `baseline`,
+their sources being in their references, ADRs and history (the eight whose
+references name their split or finding carry it); `TestTrackerItemsNameTheirSource`
 (docs/tracker_test.go) refuses an item without a known source and any rise in
 the number of baseline items.
 

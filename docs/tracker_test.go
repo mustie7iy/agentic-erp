@@ -13,10 +13,12 @@ import (
 	"testing"
 )
 
-// baselineItems is the number of items on 2026-10-25, when sources were first
-// recorded. Their sources are in their references, ADRs and commit history, so
-// they carry "baseline". The count may only fall: a new item names its source.
-const baselineItems = 966
+// baselineItems is the number of items carrying "baseline": the 966 items of
+// 2026-10-25, when sources were first recorded, less the eight whose references
+// already named the step they were split from or found in. The others' sources
+// are in their references, ADRs and history. The count may only fall: a new
+// item names its source.
+const baselineItems = 958
 
 // sourcePattern lists the accepted sources of an item:
 //
