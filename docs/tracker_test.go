@@ -51,26 +51,24 @@ type leaf struct {
 	source string
 }
 
-// citedPattern finds the steps a source cites: review:, split: and ci: name one.
-var citedPattern = regexp.MustCompile(`(?:^| · )(?:review|split|ci):(T\d+[a-z0-9]*)`)
-
 // vouch counts, for each step a leaf names in its title or reference, one leaf
-// that names it without citing it as its own source: only such a leaf shows
-// the step exists. A group names steps without a source of its own, and leaves
-// citing a step cannot vouch for each other, so neither counts.
+// that shows the step exists: a leaf whose own source cites no step. A group
+// has no source of its own, and leaves citing steps (review:, split:, ci:Tn)
+// could vouch for each other's invented steps, so neither counts. A step thus
+// traces back to a leaf from the baseline, an ADR, the product owner, the
+// walkthrough, a design section or a batch's check.
 func vouch(it item, steps map[string]int) {
-	cited := map[string]bool{}
-	for _, m := range citedPattern.FindAllStringSubmatch(it.Source, -1) {
-		cited[m[1]] = true
+	for _, part := range strings.Split(it.Source, " · ") {
+		if m := sourcePattern.FindStringSubmatch(part); m != nil && m[6] != "" {
+			return
+		}
 	}
 	names := map[string]bool{}
 	for _, s := range stepPattern.FindAllString(it.Title+" "+it.Ref, -1) {
 		names[s] = true
 	}
 	for s := range names {
-		if !cited[s] {
-			steps[s]++
-		}
+		steps[s]++
 	}
 }
 
@@ -103,7 +101,7 @@ func sourceExists(t *testing.T, m []string, steps map[string]int) string {
 		}
 	case m[6] != "":
 		if steps[m[6]] < 1 {
-			return "names a step no leaf with another source names"
+			return "names a step that no leaf citing no step names"
 		}
 	case m[7] != "":
 		return designSection(t, m[7], m[8])
