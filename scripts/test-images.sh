@@ -5,7 +5,8 @@
 #   - images.sh builds erp-analytics with buildx one platform at a time,
 #     dated at the epoch, without buildx attestations, joins the platforms
 #     into one index listed in images.txt after ko's images, writes an SBOM
-#     per image whose first package is its digest, honours KO_PLATFORMS,
+#     per image whose first package is its digest, runs ko one build at a
+#     time (each of three compiles api/gen in about 3 GB), honours KO_PLATFORMS,
 #     pushes the index with crane under each tag, and refuses an archive
 #     that is not one image of the platform asked, a platform that is not
 #     one and a push whose digest is not the index built;
@@ -90,6 +91,9 @@ for p in amd64 arm64; do
   grep -q "erp-analytics@$(first "$sbom")$" "$work/out/images.txt" || fail platform-sbom "linux/$p's SBOM names an image not listed"
 done
 echo "test-images: two platforms built one at a time, joined into one index, an SBOM per image"
+[ "$(calls "^ko build --jobs=1 ")" -eq 1 ] && [ "$(calls "^ko ")" -eq 1 ] ||
+  fail ko-jobs "ko not run once with --jobs=1: two api/gen builds at once stopped CI's runner"
+echo "test-images: ko builds one binary and platform at a time"
 
 : >"$CALLS"
 ERP_COSIGN_KEY=k "$root/scripts/sign-images.sh" "$work/out" >"$work/log" 2>&1 || { cat "$work/log" >&2; fail sign "sign-images.sh failed"; }
