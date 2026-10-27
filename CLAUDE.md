@@ -99,7 +99,7 @@ hard gate. Follow all of them; the later ones will stop you if you skip the earl
   govulncheck, gitleaks, contract lint, the breaking-change check, `-race` three times
   shuffled, the coverage gate, fuzzing and performance budgets. GitHub then gives a pull
   request a short independent check (static checks, the suite without `-race`) and runs
-  the full suite on `main` nightly and on demand (06 §6.5). Merge with
+  the full suite on `main` on demand after each batch (06 §6.5). Merge with
   `scripts/merge-pr.sh <n>`, which requires both; while the latest full run on `main` is
   red, nothing merges but the fix forward.
 

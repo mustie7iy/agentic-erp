@@ -4,13 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
-  # The full suite (the test job) runs nightly on main and on demand, not on
-  # every push (PO 2026-10-26): it takes about three hours on the private
-  # repository's 2-CPU runner. 06:00 UTC is the PO's night.
-  schedule:
-    - cron: "0 6 * * *"
-  # The full jobs on demand, on any branch: a change to them is tried before
-  # it reaches main (2026-10-25, main's suite stopped by the runner).
+  # The full suite (the test job) runs only on demand, not on every push
+  # (PO 2026-10-26) nor nightly (PO 2026-10-27): it takes about three hours,
+  # some 190 billable job-minutes, on the private repository's 2-CPU runner.
+  # The coordinator starts it on main after each batch of merges, and on any
+  # branch a change to the full jobs is tried before it reaches main
+  # (2026-10-25, main's suite stopped by the runner).
   workflow_dispatch:
 
 # A newer run of the same event and ref makes a running one obsolete: on a
@@ -18,8 +17,8 @@ on:
 # earlier dispatch, whose changes the newer run's tree contains. Cancel it,
 # so merges in quick succession pay for one run (06 §6.5).
 concurrency:
-  # The event is in the group, so a push, a dispatch and the nightly run on
-  # main do not cancel each other's runs.
+  # The event is in the group, so a push and a dispatch on main do not
+  # cancel each other's runs.
   group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
@@ -37,7 +36,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      actions: read # main's runs: a push's last green one, a nightly's latest full one
+      actions: read # main's runs: a push's last green one
     outputs:
       run: ${{ steps.decide.outputs.run }}
       images: ${{ steps.decide.outputs.images }}
@@ -79,7 +78,8 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           GH_TOKEN: ${{ github.token }}
         # bash with pipefail, so a failing script fails the step rather than
-        # tee hiding it; the gates below also run on anything but "false".
+        # tee hiding it; the gates below that read it also run on anything
+        # but "false".
         shell: bash
         run: ./scripts/ci-changes.sh | tee -a "$GITHUB_OUTPUT"
 
@@ -88,9 +88,8 @@ jobs:
     # job: images pushed, signed and attested (SBOM, provenance) with a key
     # pair made for the run, standing in for the release KMS key; verified;
     # and refused with another key, another commit, a tag or no signature.
-    # On a push to main, when its inputs changed; the nightly, manual and
-    # weekly runs do it regardless, but for a nightly of a main whose latest
-    # full run passed at that commit, which skips every job (ci-changes.sh).
+    # On a push to main, when its inputs changed; the manual and weekly runs
+    # do it regardless.
     # A pull request's author ran it locally (scripts/ci-local.sh).
     needs: changes
     if: github.event_name != 'pull_request' && needs.changes.outputs.images != 'false'
@@ -123,7 +122,7 @@ jobs:
     # The version rules and the changelog of ADR-0032 on throwaway
     # repositories (scripts/test-release-scripts.sh), with the git-cliff the
     # release workflow installs. On a push to main, when those scripts
-    # changed, and on every nightly or manual run; a pull request's author
+    # changed, and on every manual run; a pull request's author
     # ran them locally (scripts/ci-local.sh).
     needs: changes
     if: github.event_name != 'pull_request' && needs.changes.outputs.release != 'false'
@@ -152,8 +151,8 @@ jobs:
     # checks the cheap guards on a clean runner: format, vet, the whole
     # tree lint, the generated code, the contract lint and breaking-change
     # check, the build and the suite in short mode without the race
-    # detector, within ten minutes. The nightly run on main runs the full
-    # suite again (test).
+    # detector, within ten minutes. A manual run on main after each batch
+    # of merges runs the full suite again (test).
     needs: changes
     if: github.event_name == 'pull_request' && needs.changes.outputs.run != 'false'
     runs-on: ubuntu-latest
@@ -177,10 +176,10 @@ jobs:
         with:
           go-version-file: go.mod
       - name: CI tools (pinned, cached)
-        # The nightly test job's cache on main, restored: a pull request
-        # builds them when it changes scripts/ci-tools.sh, and every pull
-        # request does after such a change merges until the next nightly
-        # (or a manual run on main) saves them again.
+        # The test job's cache, restored: a pull request builds them when
+        # it changes scripts/ci-tools.sh, and every pull request does after
+        # such a change merges until the next manual run on main saves them
+        # again.
         id: tools
         uses: actions/cache/restore@v5.1.0
         with:
@@ -251,12 +250,13 @@ jobs:
 
   test:
     needs: changes
-    # Nightly on main and on demand only (PO 2026-10-26): a push to main
-    # runs the other jobs, and its ci-ok passes with this one skipped; a
-    # nightly or manual run is red when this one fails, and while the latest
-    # one on main is red nothing merges but the fix forward (06 §6.5). A
-    # nightly of a main whose latest full run passed at that commit skips it.
-    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.run != 'false'
+    # On demand only (PO 2026-10-26, 2026-10-27): the coordinator starts it
+    # on main after each batch of merges. A push to main runs the other
+    # jobs, and its ci-ok passes with this one skipped; a manual run is red
+    # when this one fails, and while the latest one on main is red nothing
+    # merges but the fix forward (06 §6.5). A manual run never skips it
+    # (scripts/ci-changes.sh), so the documentation rule is not consulted.
+    if: github.event_name == 'workflow_dispatch'
     # The full suite on main (06 §6.5), the second line after the author's
     # local gates: the static checks, the race detector, the performance
     # budgets, the coverage gate and the images, on the tree main really
@@ -272,7 +272,7 @@ jobs:
     # passed and none failed when its 120-minute limit cancelled the job;
     # the budgets, the coverage gate's second instrumented run and the
     # images follow, about three hours in all. 240 leaves an hour's margin
-    # for a nightly run nobody is waiting on.
+    # for a run nobody is watching.
     timeout-minutes: 240
     services:
       postgres:
@@ -426,8 +426,8 @@ jobs:
         # an image that cannot be rebuilt bit for bit from its commit cannot
         # be checked against it. Nothing is pushed here; T39c's release
         # workflow pushes and signs. Only when the image inputs changed;
-        # otherwise one build for the scan. The nightly and manual runs have
-        # no base to compare with, so they always build twice.
+        # otherwise one build for the scan. A manual run has no base to
+        # compare with, so it always builds twice.
         # Both platforms, as .ko.yaml lists them; a pull request's author
         # built linux/amd64 (scripts/ci-local.sh).
         env:
@@ -448,7 +448,7 @@ jobs:
           df -h / | tail -1
 
   fuzz:
-    # On a push to main whenever code changed, and nightly. A pull
+    # On a push to main whenever code changed, and on a manual run. A pull
     # request's tests already run every target's seed corpus, its author
     # fuzzed 30 s per target locally (scripts/ci-local.sh), and the weekly
     # run fuzzes 5 minutes per target.
@@ -493,10 +493,8 @@ jobs:
     # failed or was cancelled.
     # On a pull request it aggregates the light jobs (changes, tracker,
     # short), the others skipped; on a push to main, tracker, fuzz, signing
-    # and release-scripts, test skipped (it runs nightly); on the nightly or
-    # a manual run, every job but short, so a failed test turns that run
-    # red; a nightly of a main whose latest full run passed at that commit,
-    # only changes and tracker.
+    # and release-scripts, test skipped (it runs on demand); on a manual
+    # run, every job but short, so a failed test turns that run red.
     needs: [changes, tracker, short, test, fuzz, signing, release-scripts]
     if: always()
     runs-on: ubuntu-latest
