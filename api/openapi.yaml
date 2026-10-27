@@ -59,6 +59,8 @@ tags:
     description: Payment runs, payments and bank files.
   - name: cash
     description: "Cash management (ADR-0051): the daily cash position, computed from statements, payments, runs and memo records, and the memo records of expected receipts and payments."
+  - name: controlling
+    description: "Controlling (ADR-0050): plan categories, plan lines by batch and plan against actual by cost center."
   - name: workflow
     description: Approval requests and decisions. Decisions are human-only.
   - name: audit
@@ -7274,6 +7276,439 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ProfitCenterBalancePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/plan-categories:
+    get:
+      operationId: listPlanCategories
+      tags:
+        - controlling
+      summary: List plan categories
+      description: "The tenant's plan categories (ADR-0050 §8), such as `PLAN` and `FORECAST`: open, or locked so their plan does not move. Sortable by: `code`."
+      x-permission: controlling.plan.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: code
+          in: query
+          required: false
+          description: Only the category with this code.
+          schema:
+            type: string
+            pattern: "^[0-9A-Z_]{1,10}$"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of plan categories.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanCategoryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createPlanCategory
+      tags:
+        - controlling
+      summary: Create a plan category
+      description: "Creates an open plan category (ADR-0050 §8). A code is unique in the tenant (409 `controlling.plan_category_exists`). Audited, and published as PlanCategoryChanged. Agents may not create one."
+      x-permission: controlling.plan.write
+      x-agent: false
+      x-problem-codes:
+        - controlling.plan_category_exists
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The plan category create request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanCategoryCreate"
+      responses:
+        "201":
+          description: "Created; the new plan category."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanCategory"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/plan-categories/{id}":
+    get:
+      operationId: getPlanCategory
+      tags:
+        - controlling
+      summary: Get a plan category
+      description: "Returns one plan category."
+      x-permission: controlling.plan.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The plan category.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanCategory"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/plan-categories/{id}:lock":
+    post:
+      operationId: lockPlanCategory
+      tags:
+        - controlling
+      summary: Lock a plan category
+      description: "Locks an open plan category, so its plan does not move after the budget's approval (ADR-0050 §8): batches for it are refused (409 `controlling.plan_category_locked`) until a person unlocks it. A locked category is refused (409 `controlling.plan_category_locked`). Locking is a person's decision: `controlling.plan.lock` is an approval permission, which agents cannot hold. Audited, and published as PlanCategoryChanged."
+      x-permission: controlling.plan.lock
+      x-agent: false
+      x-problem-codes:
+        - controlling.plan_category_exists
+        - controlling.plan_category_locked
+        - controlling.plan_category_open
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The plan category, locked."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanCategory"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/plan-categories/{id}:unlock":
+    post:
+      operationId: unlockPlanCategory
+      tags:
+        - controlling
+      summary: Unlock a plan category
+      description: "Opens a locked plan category again, so batches may replace its plan (ADR-0050 §8). An open category is refused (409 `controlling.plan_category_open`). Unlocking is a person's decision: `controlling.plan.lock` is an approval permission, which agents cannot hold. Audited, and published as PlanCategoryChanged."
+      x-permission: controlling.plan.lock
+      x-agent: false
+      x-problem-codes:
+        - controlling.plan_category_exists
+        - controlling.plan_category_locked
+        - controlling.plan_category_open
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The plan category, open."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanCategory"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/plan-batches:
+    post:
+      operationId: applyPlanBatch
+      tags:
+        - controlling
+      summary: Upload a batch of plan lines
+      description: "Uploads the plan of a category, legal entity and fiscal year for some of its centers (ADR-0050 §8): each line plans an amount in the legal entity's local currency (debit positive as on the journal: costs positive, revenue negative) on a cost center or a profit center and a profit and loss account in a period, with an optional quantity. The batch replaces the plan of its category, legal entity and year on every center it names: their earlier lines in the year, in every period and on every account, are marked replaced (never deleted: `replaced_by_batch_id`), and the batch's lines written; other centers' plans stay. Every line is checked first; if any is wrong nothing is written and the 422 `controlling.plan_batch_invalid` names every wrong field as `lines[N].field` (at most 100): a cost center must be an active one of the legal entity, a profit center an active one assigned to it, the account a profit and loss account set up in it, the period one of the year in its calendar, and a center, account and period at most once in the batch. Idempotent by `batch_key`: a key already applied to the category, legal entity and year with the same lines changes nothing, publishes nothing and returns the batch as it was applied (`replayed`), even after later batches; the key with other lines is refused (409 `controlling.plan_batch_reused`). A locked category is refused (409 `controlling.plan_category_locked`). Audited per batch, and published as PlanBatchApplied. Agents may not upload a plan."
+      x-permission: controlling.plan.write
+      x-agent: false
+      x-problem-codes:
+        - controlling.plan_batch_invalid
+        - controlling.plan_batch_reused
+        - controlling.plan_category_locked
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The batch.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanBatchCreate"
+      responses:
+        "200":
+          description: "The batch as applied: now, or before for a batch key already applied (`replayed`)."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanBatch"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/plan-lines:
+    get:
+      operationId: listPlanLines
+      tags:
+        - controlling
+      summary: List plan lines
+      description: "The plan lines of a legal entity's fiscal year (ADR-0050 §8), of every category or one. A legal entity the caller cannot act in has none. Sortable by: `fiscal_period`."
+      x-permission: controlling.plan.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: Fiscal year (required).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: plan_category_id
+          in: query
+          required: false
+          description: Only lines of this plan category.
+          schema:
+            type: string
+            format: uuid
+        - name: cost_center_id
+          in: query
+          required: false
+          description: Only lines of this cost center.
+          schema:
+            type: string
+            format: uuid
+        - name: profit_center_id
+          in: query
+          required: false
+          description: Only lines of this profit center.
+          schema:
+            type: string
+            format: uuid
+        - name: account_id
+          in: query
+          required: false
+          description: Only lines on this account.
+          schema:
+            type: string
+            format: uuid
+        - name: plan_batch_id
+          in: query
+          required: false
+          description: Only lines this batch wrote.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of plan lines.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanLinePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/cost-center-plan-actual:
+    get:
+      operationId: listCostCenterPlanActual
+      x-slo-class: report
+      tags:
+        - controlling
+      summary: List plan against actual by cost center
+      description: "Plan against actual per cost center and account of one legal entity, plan category and fiscal year, summed over a range of periods (ADR-0050 §8), in the legal entity's local currency: the category's plan lines, the leading ledger's actuals exact at the moment of the read as `GET /v1/cost-center-balances` reads them (ADR-0050 §7), the variance (actual less plan) and the variance in percent of the plan (two decimals, rounded half away from zero; absent when the plan is zero). A cost center and account with a plan or an actual has a row, the other side zero. A legal entity the caller cannot act in, or a plan category that does not exist, has none. Rows are in the order of `cost_center_id`, then `account_id`. The actuals are ledger amounts, so besides `controlling.plan.read` the caller needs `ledger.entry.read`, as for the trial balance (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: controlling.plan.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: plan_category_id
+          in: query
+          required: true
+          description: Plan category (required).
+          schema:
+            type: string
+            format: uuid
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: Fiscal year (required).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: fiscal_period_from
+          in: query
+          required: false
+          description: "Periods from this one (default 1)."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: fiscal_period_to
+          in: query
+          required: false
+          description: "Periods up to this one (default 16); before `fiscal_period_from`: 400 `request.invalid_parameter`."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: cost_center_id
+          in: query
+          required: false
+          description: "Only this cost center."
+          schema:
+            type: string
+            format: uuid
+        - name: hierarchy_node_id
+          in: query
+          required: false
+          description: "Only the cost centers at this node of a cost center hierarchy (`GET /v1/hierarchies/{id}`) or below it, under today's tree (ADR-0050 decision P7), as `GET /v1/cost-center-balances` takes it; a node's total is the sum of their rows. A node of another kind's hierarchy, or one that is unknown or removed, has none."
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of plan against actual.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostCenterPlanActualPage"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -24192,6 +24627,459 @@ components:
           format: int64
           description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
           minimum: 0
+    PlanCategory:
+      description: "A plan category (ADR-0050 §8, SAP's category for planning): plan values of one kind, such as the budget (`PLAN`) or a forecast, open or locked."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - code
+            - name
+            - locked
+          properties:
+            code:
+              type: string
+              pattern: "^[0-9A-Z_]{1,10}$"
+              description: Code, unique in the tenant. Immutable.
+              readOnly: true
+            name:
+              type: string
+              minLength: 1
+              maxLength: 100
+              description: Name.
+              readOnly: true
+            locked:
+              type: boolean
+              description: "Whether the category is locked (`:lock`), so batches for it are refused."
+              readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000a01"
+          version: 2
+          created_at: "2026-10-27T09:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+          updated_at: "2026-10-27T10:00:00Z"
+          updated_by: "0192a000-0000-7000-8000-000000000102"
+          code: PLAN
+          name: Budget
+          locked: true
+    PlanCategoryCreate:
+      type: object
+      description: "A new plan category."
+      required:
+        - code
+        - name
+      properties:
+        code:
+          type: string
+          pattern: "^[0-9A-Z_]{1,10}$"
+          description: Code, unique in the tenant.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Name.
+      additionalProperties: false
+      examples:
+        - code: PLAN
+          name: Budget
+    PlanCategoryPage:
+      type: object
+      description: One page of plan categories.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlanCategory"
+          description: The plan categories on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+    PlanBatchLine:
+      type: object
+      description: "A line of a plan batch: the amount planned on a cost center or a profit center (exactly one) and an account in a period."
+      required:
+        - account_id
+        - fiscal_period
+        - amount
+      properties:
+        cost_center_id:
+          type: string
+          format: uuid
+          description: "The cost center; an active one of the legal entity."
+        profit_center_id:
+          type: string
+          format: uuid
+          description: "The profit center; an active one assigned to the legal entity."
+        account_id:
+          type: string
+          format: uuid
+          description: "A profit and loss account set up in the legal entity."
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          description: "A period of the fiscal year in the legal entity's calendar."
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "The amount in the legal entity's local currency; debit positive (costs positive, revenue negative)."
+        quantity:
+          $ref: "#/components/schemas/Quantity"
+          description: "The quantity planned, positive."
+      additionalProperties: false
+      examples:
+        - cost_center_id: "0192a000-0000-7000-8000-000000000201"
+          account_id: "0192a000-0000-7000-8000-000000000501"
+          fiscal_period: 1
+          amount:
+            amount: "12000.00"
+            currency: EUR
+    PlanBatchCreate:
+      type: object
+      description: "A batch of plan lines: it replaces the plan of its category, legal entity and fiscal year on the centers it names."
+      required:
+        - plan_category_id
+        - legal_entity_id
+        - fiscal_year
+        - batch_key
+        - lines
+      properties:
+        plan_category_id:
+          type: string
+          format: uuid
+          description: The plan category.
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The legal entity.
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          description: The fiscal year.
+        batch_key:
+          type: string
+          minLength: 1
+          maxLength: 100
+          pattern: "^\\S(.*\\S)?$"
+          description: "The client's key of the batch, once per category, legal entity and year: the same key and lines again change nothing."
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 5000
+          items:
+            $ref: "#/components/schemas/PlanBatchLine"
+          description: The lines.
+      additionalProperties: false
+      examples:
+        - plan_category_id: "0192a000-0000-7000-8000-000000000a01"
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          fiscal_year: 2027
+          batch_key: budget-2027-v1
+          lines:
+            - cost_center_id: "0192a000-0000-7000-8000-000000000201"
+              account_id: "0192a000-0000-7000-8000-000000000501"
+              fiscal_period: 1
+              amount:
+                amount: "12000.00"
+                currency: EUR
+    PlanBatch:
+      type: object
+      description: "A plan batch as applied."
+      required:
+        - id
+        - plan_category_id
+        - legal_entity_id
+        - fiscal_year
+        - batch_key
+        - line_count
+        - replaced_count
+        - replayed
+        - created_at
+        - created_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7); `GET /v1/plan-lines?plan_batch_id=` lists its lines that no later batch replaced.
+          readOnly: true
+        plan_category_id:
+          type: string
+          format: uuid
+          description: The plan category.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The legal entity.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: The fiscal year.
+          readOnly: true
+        batch_key:
+          type: string
+          description: The client's key of the batch.
+          readOnly: true
+        line_count:
+          type: integer
+          format: int32
+          description: The lines the batch wrote.
+          readOnly: true
+        replaced_count:
+          type: integer
+          format: int32
+          description: "The earlier lines of the batch's centers it marked replaced (they are kept, never deleted)."
+          readOnly: true
+        replayed:
+          type: boolean
+          description: "Whether the batch key had already been applied with these lines, so nothing changed."
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: When the batch was applied (UTC).
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: Principal that applied the batch.
+          readOnly: true
+      additionalProperties: false
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000b01"
+          plan_category_id: "0192a000-0000-7000-8000-000000000a01"
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          fiscal_year: 2027
+          batch_key: budget-2027-v1
+          line_count: 1
+          replaced_count: 0
+          replayed: false
+          created_at: "2026-10-27T09:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+    PlanLine:
+      type: object
+      description: "A plan line (ADR-0050 §8): the amount planned in a category on a cost center or a profit center and an account in a period."
+      required:
+        - id
+        - plan_batch_id
+        - plan_category_id
+        - legal_entity_id
+        - fiscal_year
+        - fiscal_period
+        - account_id
+        - amount
+        - created_at
+        - created_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7).
+          readOnly: true
+        plan_batch_id:
+          type: string
+          format: uuid
+          description: The batch that wrote the line.
+          readOnly: true
+        plan_category_id:
+          type: string
+          format: uuid
+          description: The plan category.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The legal entity.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: The fiscal year.
+          readOnly: true
+        fiscal_period:
+          type: integer
+          format: int32
+          description: The period.
+          readOnly: true
+        cost_center_id:
+          type: string
+          format: uuid
+          description: The cost center; absent on a profit center's line.
+          readOnly: true
+        profit_center_id:
+          type: string
+          format: uuid
+          description: The profit center; absent on a cost center's line.
+          readOnly: true
+        account_id:
+          type: string
+          format: uuid
+          description: The account.
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "The amount in the legal entity's local currency; debit positive."
+          readOnly: true
+        quantity:
+          $ref: "#/components/schemas/Quantity"
+          description: The quantity planned.
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: When its batch wrote the line (UTC).
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: Principal that applied its batch.
+          readOnly: true
+      additionalProperties: false
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000c01"
+          plan_batch_id: "0192a000-0000-7000-8000-000000000b01"
+          plan_category_id: "0192a000-0000-7000-8000-000000000a01"
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          fiscal_year: 2027
+          fiscal_period: 1
+          cost_center_id: "0192a000-0000-7000-8000-000000000201"
+          account_id: "0192a000-0000-7000-8000-000000000501"
+          amount:
+            amount: "12000.00"
+            currency: EUR
+          created_at: "2026-10-27T09:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+    PlanLinePage:
+      type: object
+      description: One page of plan lines.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlanLine"
+          description: The plan lines on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+    CostCenterPlanActual:
+      type: object
+      description: "Plan against actual of a cost center on an account over a range of periods (ADR-0050 §8), in the legal entity's local currency, debit positive."
+      required:
+        - plan_category_id
+        - legal_entity_id
+        - fiscal_year
+        - fiscal_period_from
+        - fiscal_period_to
+        - cost_center_id
+        - account_id
+        - plan
+        - actual
+        - variance
+      properties:
+        plan_category_id:
+          type: string
+          format: uuid
+          description: The plan category.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The legal entity.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: The fiscal year.
+          readOnly: true
+        fiscal_period_from:
+          type: integer
+          format: int32
+          description: The first period summed.
+          readOnly: true
+        fiscal_period_to:
+          type: integer
+          format: int32
+          description: The last period summed.
+          readOnly: true
+        cost_center_id:
+          type: string
+          format: uuid
+          description: The cost center.
+          readOnly: true
+        account_id:
+          type: string
+          format: uuid
+          description: The account.
+          readOnly: true
+        plan:
+          $ref: "#/components/schemas/Money"
+          description: The category's plan.
+          readOnly: true
+        actual:
+          $ref: "#/components/schemas/Money"
+          description: "The leading ledger's actual."
+          readOnly: true
+        variance:
+          $ref: "#/components/schemas/Money"
+          description: The actual less the plan.
+          readOnly: true
+        variance_percent:
+          $ref: "#/components/schemas/Decimal"
+          description: "The variance in percent of the plan, two decimals, rounded half away from zero; absent when the plan is zero."
+          readOnly: true
+      additionalProperties: false
+      examples:
+        - plan_category_id: "0192a000-0000-7000-8000-000000000a01"
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          fiscal_year: 2027
+          fiscal_period_from: 1
+          fiscal_period_to: 3
+          cost_center_id: "0192a000-0000-7000-8000-000000000201"
+          account_id: "0192a000-0000-7000-8000-000000000501"
+          plan:
+            amount: "36000.00"
+            currency: EUR
+          actual:
+            amount: "37800.00"
+            currency: EUR
+          variance:
+            amount: "1800.00"
+            currency: EUR
+          variance_percent: "5.00"
+    CostCenterPlanActualPage:
+      type: object
+      description: One page of plan against actual.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CostCenterPlanActual"
+          description: The rows on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
     LedgerDifference:
       type: object
       description: "One account and transaction currency whose balance differs between two ledgers; amounts are signed, debit positive."

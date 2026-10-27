@@ -852,8 +852,9 @@ As built in T56f (migration 000163):
   `TestCenterBalancesBudget`); the number of centers (100 of each) is the
   test's, as no requirement names one. The rows are loaded period by
   period, as the projector writes them.
-- **Not built:** the `ledger.AssignmentBalances` port (T56g's, with the
-  plan); node subtotals (decided above); cross-company totals.
+- **Not built:** node subtotals (decided above); cross-company totals.
+  The `ledger.AssignmentBalances` port came with the plan (T56g, §8 as
+  built).
 
 ### 8. Plan values (minimal, decision P5)
 `controlling.plan_category` (code, name, e.g. `PLAN`, `FORECAST`; locked or
@@ -868,6 +869,76 @@ only) so a budget does not move after approval. Plan against actual: `GET
 plan, actual, variance and percent). No planning functions, no
 availability control, no plan in transaction currency, no plan per
 parallel ledger (it compares with the leading ledger).
+
+As built in T56g (migration 000164):
+- **The context.** `internal/controlling`, schema `controlling` with its
+  outbox. It imports the ledger's published port only (`internal/layout`:
+  `controlling` may import `ledger` and `tenancy`; no context imports
+  it): `ledger.AssignmentBalances` answers what a plan of a company's year
+  may name (`PlanObjects`: its active cost centers, the active profit
+  centers assigned to it, the profit and loss accounts set up in it, the
+  periods of the year in its calendar), the cost centers of a center or
+  hierarchy node (`CostCenters`, as the cost center report takes them,
+  §7) and the actuals by cost center and account (`CostCenterActuals`:
+  the leading ledger's local amounts, debit positive, projected plus
+  pending as the report reads them). No foreign key crosses into the
+  ledger's schema.
+- **Categories.** `controlling.plan_category`: a code
+  (`^[0-9A-Z_]{1,10}$`, as the cost center categories') unique in the
+  tenant, a name, `locked`. `POST /v1/plan-categories` creates an open one
+  (`controlling.plan.write`); `:lock` and `:unlock` take the caller's
+  version, read the category FOR UPDATE and need `controlling.plan.lock`,
+  an approval permission, so only a person locks (`x-agent: false`; 403
+  `identity.agent_not_allowed`), as §12 says. A category has no rename
+  and is never deleted (not asked for).
+- **Batches.** `POST /v1/plan-batches` carries a category, company, fiscal
+  year, `batch_key` and up to 5,000 lines (a cost center or a profit
+  center, an account, a period, the amount in the company's local
+  currency, debit positive as on the journal, an optional positive
+  quantity with its unit). Every line is checked before anything is
+  written (422 `controlling.plan_batch_invalid`, `lines[N].field`, at most
+  100). The batch replaces the plan of its category, company and year on
+  every center it names, in every period and on every account; other
+  centers' plans stay. Lines are never deleted (business records are not, 03 §3.1
+  "Lifecycles instead of deletes"; `TestDesignRules`): the replaced ones get
+  `replaced_by_batch_id`, once, so earlier plans stay readable and the plan
+  is the lines not replaced (`plan_line_once` on those). The batch row
+  keeps the key, once per category, company and year, and the SHA-256 of
+  its lines in any order: the key with the same lines answers the batch as
+  it was applied (`replayed`), writes and publishes nothing, also after
+  later batches, so a late retry never undoes a newer plan; the key with
+  other lines is 409 `controlling.plan_batch_reused`. The category is held
+  FOR UPDATE for the batch, so batches of a category run one after the
+  other and a lock waits for them; a trigger refuses writing or replacing
+  lines of a locked category (`plan_category_open`, 409
+  `controlling.plan_category_locked`), the category read FOR SHARE.
+  Audited per batch (`controlling.plan_batch.apply`) and published as
+  `PlanBatchApplied` (the centers whose plan it replaced, the counts).
+  `GET /v1/plan-lines` lists the current lines of a company and year
+  (filters: category, center, account, batch).
+- **Upload.** The batch is the upload: a client, or T63's import of
+  CSV/XLSX files when it exists, sends the file's lines as a batch. No CSV
+  endpoint of its own was built.
+- **Plan against actual.** `GET /v1/cost-center-plan-actual`
+  (`controlling.plan.read` and, as for the center reports,
+  `ledger.entry.read`; `x-slo-class: report`): category, company, year,
+  period range (`fiscal_period_from`/`_to`), cost center or hierarchy node
+  (its subtree's cost centers under today's tree, as §7). One row per cost
+  center and account summed over the periods: the plan, the actual, the
+  variance (actual less plan) and the variance in percent of the plan, a
+  decimal string of two places computed exactly (`big.Rat`, no floats) and
+  rounded half away from zero, absent when the plan is zero (the center
+  reports show no percent, so this is the first; the API's `Decimal`, as
+  rates and percentages elsewhere). A cost center and account with a plan
+  or an actual has a row. Pages are cut by a cursor over cost center and
+  account: each side reads its first keys after the page's start, one
+  more than the page, and the page is the first keys of the two. An
+  unknown category, or a company the caller cannot act in, has no rows.
+- **Not built:** plan against actual by profit center (profit center plan
+  lines are stored and listed; the operation §8 names is the cost
+  center's); the cost center's plan lock (`cost_center_period.lock_plan`,
+  §3) is not read by batches; agents' plan uploads as drafts (§12, T56j);
+  a category's rename.
 
 ### 9. Document splitting: not in T56 (decision P3)
 Decided (P3): no document splitting now. P&L by cost center, profit

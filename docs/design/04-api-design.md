@@ -222,6 +222,26 @@ projected. A row's lines are the entries `GET /v1/journal-entries` lists
 for its center (`cost_center_id`, `profit_center_id`) with the company,
 ledger and year; the reports add no journal filter.
 
+Plan values (ADR-0050 §8, T56g) are the controlling context's.
+`/v1/plan-categories` (`controlling.plan.read`, `.write`) are open or
+locked by a person (`:lock`, `:unlock`: `controlling.plan.lock`, an
+approval permission, `x-agent: false`). `POST /v1/plan-batches` (`x-agent:
+false`; agents' drafts are T56j's) replaces the plan of a category,
+company and fiscal year on the centers its lines name; every line is
+checked first (422 `controlling.plan_batch_invalid`, naming
+`lines[N].field`), and it is idempotent by `batch_key` beyond the
+`Idempotency-Key`'s window: the key applied with the same lines answers the
+batch as it was (`replayed`) and publishes nothing, with other lines 409
+`controlling.plan_batch_reused`; a locked category is 409
+`controlling.plan_category_locked`. `GET /v1/plan-lines` lists the current
+plan. `GET /v1/cost-center-plan-actual` (`controlling.plan.read` and
+`ledger.entry.read`, `x-slo-class: report`) gives per cost center and
+account, over a range of periods, the plan, the leading ledger's actual
+exact at the read, the variance (actual less plan) and the variance in
+percent of the plan as a decimal string with two decimals, computed
+exactly and rounded half away from zero, absent on a zero plan; it pages
+by a cursor over cost center and account.
+
 ## 4.7 Concurrency and idempotency
 
 Per ADR-0008:
@@ -498,6 +518,7 @@ with the month's total against the tenant's cap.
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
 | payments | `payment-runs`, `bank-files` | `:propose` (202), `:submit`, `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
 | cash | `cash-position` (computed on read, ADR-0051), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
+| controlling | `plan-categories`, `plan-batches` (by batch key), `plan-lines`, `cost-center-plan-actual` (computed on read, ADR-0050 §8) | `:lock`, `:unlock` |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |
 | audit | `audit-events` | `:verify` |
 | integration | `migration-runs`, `connectors` | `:start`, `:reconcile`, `:enable`, `:disable` |

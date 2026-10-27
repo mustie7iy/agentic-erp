@@ -1922,9 +1922,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Plan and plan/actual (P5): controlling context and schema; plan categories with a human-only lock; plan lines by upload and API, idempotent by batch; GET /v1/cost-center-plan-actual; actuals through ledger.AssignmentBalances",
-        "r": "T56g",
+        "s": "D",
+        "t": "Plan and plan/actual (P5): controlling context and schema (internal/controlling, controlling outbox; reads the ledger only through ledger.AssignmentBalances: PlanObjects, CostCenters, CostCenterActuals); plan categories (code, name, locked) with :lock/:unlock by a person (controlling.plan.lock, an approval permission, x-agent: false; FOR UPDATE with the caller's version), audited, PlanCategoryChanged; plan lines by batch (POST /v1/plan-batches, the upload; CSV/XLSX through T63's import), every line checked first, idempotent by batch key and digest (the same batch again, also late or concurrent, changes and publishes nothing; the key with other lines 409), replacing the plan of its category, company, year and centers (lines marked replaced, never deleted), refused on a locked category (409 and trigger); GET /v1/plan-lines; GET /v1/cost-center-plan-actual (category, company, period range, cost center or node; plan, leading ledger's actual exact at the read, variance, percent exact with big.Rat; controlling.plan.read and ledger.entry.read), paged by a cursor over center and account across both sources",
+        "r": "migration 000164 · internal/controlling · internal/ledger assignmentbalances.go · api/openapi.yaml, api/asyncapi.yaml (PlanCategoryChanged, PlanBatchApplied) · db/controlling_plan_test.go · ADR-0050 §8 as built · 03 §3.19 · 04 §4.6 · T56g",
         "src": "baseline",
         "c": []
        },
@@ -1973,7 +1973,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Plan vs actual",
       "r": "T56g",
       "src": "baseline",

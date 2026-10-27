@@ -96,6 +96,7 @@ info:
     - name: integration
     - name: agents
     - name: cash
+    - name: controlling
     - name: platform
 
 defaultContentType: application/json
@@ -332,6 +333,15 @@ channels:
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       MemoRecordChanged: {$ref: '#/components/messages/MemoRecordChanged'}
+  controlling:
+    address: 'erp.{cell}.controlling.{tenant}.{event}'
+    title: Controlling events
+    description: Plan categories and plan batches (ADR-0050 §8).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      PlanCategoryChanged: {$ref: '#/components/messages/PlanCategoryChanged'}
+      PlanBatchApplied: {$ref: '#/components/messages/PlanBatchApplied'}
   platform:
     address: 'erp.{cell}.platform.{tenant}.{event}'
     title: Platform operation events
@@ -520,6 +530,13 @@ operations:
     channel: {$ref: '#/channels/cash'}
     messages:
       - $ref: '#/channels/cash/messages/MemoRecordChanged'
+  publishControllingEvents:
+    action: send
+    title: Controlling publishes
+    channel: {$ref: '#/channels/controlling'}
+    messages:
+      - $ref: '#/channels/controlling/messages/PlanCategoryChanged'
+      - $ref: '#/channels/controlling/messages/PlanBatchApplied'
   publishPlatformEvents:
     action: send
     title: Platform publishes
@@ -2708,6 +2725,47 @@ components:
         - name: created
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000501, source: /erp/eu-1/cash, type: com.example.erp.cash.memo_record_changed.v1, subject: 0192a000-0000-7000-8000-000000000d01, time: '2026-10-21T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {memo_record_id: 0192a000-0000-7000-8000-000000000d01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, change: created, status: active, version: 1}
+    PlanCategoryChanged:
+      name: PlanCategoryChanged
+      title: Plan category changed
+      summary: A plan category was created, locked or unlocked.
+      description: |
+        Emitted by `plan-categories` (POST, `created`) and its `:lock`
+        (`locked`) and `:unlock` (`unlocked`), ADR-0050 §8: a locked
+        category's plan does not move. Subject is the plan category id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.controlling.plan_category_changed.v1}
+      payload: {$ref: '#/components/schemas/PlanCategoryChangedV1'}
+      examples:
+        - name: locked
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000601, source: /erp/eu-1/controlling, type: com.example.erp.controlling.plan_category_changed.v1, subject: 0192a000-0000-7000-8000-000000000a01, time: '2026-10-27T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
+          payload: {plan_category_id: 0192a000-0000-7000-8000-000000000a01, code: PLAN, name: Budget, locked: true, change: locked}
+    PlanBatchApplied:
+      name: PlanBatchApplied
+      title: Plan batch applied
+      summary: A batch replaced the plan of its category, legal entity, fiscal year and centers.
+      description: |
+        Emitted by `plan-batches` (POST) when a batch is applied, ADR-0050
+        §8: the plan of the category, legal entity and fiscal year on the
+        centers named is now the batch's lines (`GET /v1/plan-lines` with
+        `plan_batch_id`). A batch key applied again with the same lines
+        changes nothing and is not published again. Subject is the plan
+        batch id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.controlling.plan_batch_applied.v1}
+      payload: {$ref: '#/components/schemas/PlanBatchAppliedV1'}
+      examples:
+        - name: applied
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000602, source: /erp/eu-1/controlling, type: com.example.erp.controlling.plan_batch_applied.v1, subject: 0192a000-0000-7000-8000-000000000b01, time: '2026-10-27T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {plan_batch_id: 0192a000-0000-7000-8000-000000000b01, plan_category_id: 0192a000-0000-7000-8000-000000000a01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, fiscal_year: 2027, batch_key: budget-2027-v1, line_count: 12, replaced_count: 0, cost_center_ids: [0192a000-0000-7000-8000-000000000201], profit_center_ids: []}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -3138,6 +3196,28 @@ components:
         change: {type: string, description: 'Open enum: created, proposed, updated, accepted, rejected, realised, cancelled.'}
         status: {type: string, description: 'The stored status after the change. Open enum: proposed, active, realised, cancelled, rejected.'}
         version: {type: integer, description: The record's version after the change.}
+    PlanCategoryChangedV1:
+      type: object
+      required: [plan_category_id, code, name, locked, change]
+      properties:
+        plan_category_id: {$ref: '#/components/schemas/Uuid', description: '`controlling.plan_category.id`.'}
+        code: {type: string}
+        name: {type: string}
+        locked: {type: boolean, description: Whether the category is locked after the change.}
+        change: {type: string, description: 'Open enum: created, locked, unlocked.'}
+    PlanBatchAppliedV1:
+      type: object
+      required: [plan_batch_id, plan_category_id, legal_entity_id, fiscal_year, batch_key, line_count, replaced_count, cost_center_ids, profit_center_ids]
+      properties:
+        plan_batch_id: {$ref: '#/components/schemas/Uuid', description: '`controlling.plan_batch.id`.'}
+        plan_category_id: {$ref: '#/components/schemas/Uuid'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        fiscal_year: {type: integer}
+        batch_key: {type: string}
+        line_count: {type: integer, description: The lines the batch wrote.}
+        replaced_count: {type: integer, description: "The earlier lines of its centers it marked replaced (kept, never deleted)."}
+        cost_center_ids: {type: array, items: {$ref: '#/components/schemas/Uuid'}, description: The cost centers whose plan the batch replaced.}
+        profit_center_ids: {type: array, items: {$ref: '#/components/schemas/Uuid'}, description: The profit centers whose plan the batch replaced.}
     SegmentChangedV1:
       type: object
       required: [segment_id, code, name, change]
