@@ -134,7 +134,7 @@ Every change passes, before it is merged:
 | Fuzz targets | Every target's seed corpus with the tests on PRs; `make fuzz` 30 s per target on `main`, 5 minutes weekly |
 | Image signing round trip | `make signing-roundtrip` against a registry service: push, sign and attest (SBOM, provenance) with a key pair made for the job, verify, and the refusals (another key, another commit, a tag, no signature, attestations without a signature, uncommitted changes) (ADR-0032). When signing or image inputs change, and weekly |
 | Release scripts | `scripts/test-release-scripts.sh`: the version rules and the changelog's grouping on throwaway repositories, with the pinned git-cliff (ADR-0032). When those scripts or their inputs change, and weekly |
-| Build and container images | `make build`; `make image-scan`: grype on each SBOM and the pinned base, failing on a fixable high or critical vulnerability; `make images-reproducible` (the four ko images and erp-analytics built twice, with private caches, and their digests compared) when image inputs change, and weekly (ADR-0032) |
+| Build and container images | `make build`; `make image-scan`: grype on each SBOM and the pinned base, failing on a fixable high or critical vulnerability; `make images-reproducible` (the four ko images and erp-analytics built twice, with private caches, and their digests compared; one build at a time, as the three ko binaries that import `api/gen` and erp-analytics each compile it: measured cold, ko peaks at 3843 MiB and erp-analytics's buildx builder at 3784 MiB) when image inputs change, and weekly (ADR-0032) |
 | Infrastructure (when the deploy workflow's paths change: `deploy/` but promotions, its scripts, `temporal/`, `scripts/lib/`, any workflow) | `scripts/deploy-checks.sh`: actionlint on the workflows, `terraform fmt`, `validate` and `test` in every module with tests (mock provider, no credentials), tflint, and the encryption-at-rest policy with conftest: unit tests, every root and module, and a fixture it must refuse (ADR-0035) |
 | Cluster content (the same paths) | `scripts/helm-checks.sh`: the pinned add-ons, the charts and their policies with helm, kubeconform, promtool and conftest, then `scripts/admission-checks.sh` (Kyverno's CLI against images signed in a local zot registry); `scripts/test-mirror-images.sh`; `scripts/nats-checks.sh` (NATS authorization by SPIFFE identity); `scripts/temporal-checks.sh` (the temporal module's vet, lint, `-race` tests and 100% coverage) |
 | Promotion checks' own tests (when they change) | `scripts/test-promotion-checks.sh`, `test-promotion-approvals.sh`, `test-rollback-drill.sh`, `test-restore-drill.sh` |
@@ -241,6 +241,17 @@ gates on each pull request:
     check. Layer: the merge queue, which should have read main's full run
     after each merge. Changed: `coordinator/status.py` prints main's runs,
     and the red-main rule above has been followed again since batch14.
+  - 2026-10-27: main's manual full runs 40460447291 and 40547406558 were
+    stopped by the runner 6 minutes into the image reproducibility gate,
+    after every test had passed. ko ran as many builds as CPUs (two on the
+    2-CPU, 7938 MiB runner), so erp-server compiled `api/gen` cold for
+    both platforms at once: ko alone measured 6484 MiB at its peak that
+    way, 3843 MiB one at a time. Layer: the machine checks, which did not
+    hold the build's concurrency; `ci-local.sh` builds one platform on a
+    machine with more memory, and the runner's memory was logged only in
+    the race step. Changed: `scripts/images.sh` runs ko with `--jobs=1`,
+    which `scripts/test-images.sh` holds, and the image step logs memory
+    every 30 s too.
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
   documentation changed (`docs/`, Markdown) since the base: a pull

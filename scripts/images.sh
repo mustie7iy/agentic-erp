@@ -7,7 +7,13 @@
 #                   by digest;
 #   OUT/sbom/       an SPDX SBOM per image (Go modules and the base image),
 #                   its first package the image's digest.
-# erp-server, erp-router, erp-web and erp are ko's (.ko.yaml). erp-analytics links
+# erp-server, erp-router, erp-web and erp are ko's (.ko.yaml), built one
+# binary and platform at a time (--jobs=1): ko otherwise runs GOMAXPROCS go
+# builds at once, and three of them compile api/gen, about 3 GB each with
+# an empty cache: on CI's 2-CPU, 7938 MiB runner erp-server built for both
+# platforms at once and the runner was stopped (main's full runs
+# 40460447291 and 40547406558); measured cold at GOMAXPROCS=2, ko's build
+# peaks at 6484 MiB that way and 3843 MiB one at a time. erp-analytics links
 # DuckDB through cgo (ADR-0044), which ko does not cross-compile: docker
 # buildx builds it from deploy/images/erp-analytics.Dockerfile one platform
 # at a time (each compiles api/gen in a few GB of the Docker VM's memory),
@@ -37,7 +43,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 repo="${KO_DOCKER_REPO:-erp.local}"
 rm -rf "$OUT"
 mkdir -p "$OUT/sbom"
-KO_DOCKER_REPO="$repo" ERP_VERSION="${ERP_VERSION:-}" $KO build --push="${PUSH:-false}" --base-import-paths \
+KO_DOCKER_REPO="$repo" ERP_VERSION="${ERP_VERSION:-}" $KO build --jobs=1 --push="${PUSH:-false}" --base-import-paths \
   --tags="${KO_TAGS:-latest}" ${KO_PLATFORMS:+--platform="$KO_PLATFORMS"} \
   --sbom=spdx --sbom-dir="$OUT/sbom" --image-refs="$OUT/images.txt" \
   ./cmd/erp-server ./cmd/erp-router ./cmd/erp-web ./cmd/erp >/dev/null
