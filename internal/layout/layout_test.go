@@ -86,6 +86,7 @@ var allowed = map[string][]string{
 	"cash":                    {"config"}, // a leaf (ADR-0051 §2): the ledger, payments, payables and procurement through ports the composition root wires
 	"config":                  {"bankfile"},
 	"configuration":           {"approvals", "config", "countrypack", "operations"},
+	"controlling":             {"ledger", "tenancy"}, // plan values over the ledger's centers and actuals, through ledger.AssignmentBalances (ADR-0050 §2)
 	"countrypack":             {"config"},
 	"controlplane":            {"agents", "audit", "config", "directory", "identity", "offboarding", "provisioning", "tenancy"},
 	"delivery/configagent":    {"apitools", "llm"},

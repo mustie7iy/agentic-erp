@@ -2236,6 +2236,22 @@ type ApplyCountryPackUnprocessableEntity Problem
 
 func (*ApplyCountryPackUnprocessableEntity) applyCountryPackRes() {}
 
+type ApplyPlanBatchBadRequest Problem
+
+func (*ApplyPlanBatchBadRequest) applyPlanBatchRes() {}
+
+type ApplyPlanBatchForbidden Problem
+
+func (*ApplyPlanBatchForbidden) applyPlanBatchRes() {}
+
+type ApplyPlanBatchPreconditionRequired Problem
+
+func (*ApplyPlanBatchPreconditionRequired) applyPlanBatchRes() {}
+
+type ApplyPlanBatchUnprocessableEntity Problem
+
+func (*ApplyPlanBatchUnprocessableEntity) applyPlanBatchRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/ApprovalRequest
 type ApprovalRequest struct {
@@ -9199,6 +9215,7 @@ func (*ConflictHeaders) activateLegalEntityRes()              {}
 func (*ConflictHeaders) activateOrgUnitRes()                  {}
 func (*ConflictHeaders) addHierarchyNodeRes()                 {}
 func (*ConflictHeaders) applyCountryPackRes()                 {}
+func (*ConflictHeaders) applyPlanBatchRes()                   {}
 func (*ConflictHeaders) approveApprovalRequestRes()           {}
 func (*ConflictHeaders) assignProfitCenterRes()               {}
 func (*ConflictHeaders) blockBusinessPartnerRes()             {}
@@ -9235,6 +9252,7 @@ func (*ConflictHeaders) createMemoRecordRes()                 {}
 func (*ConflictHeaders) createMigrationRunRes()               {}
 func (*ConflictHeaders) createOrgUnitRes()                    {}
 func (*ConflictHeaders) createPartnerChangeRes()              {}
+func (*ConflictHeaders) createPlanCategoryRes()               {}
 func (*ConflictHeaders) createPrincipalRes()                  {}
 func (*ConflictHeaders) createProfitCenterRes()               {}
 func (*ConflictHeaders) createPurchaseOrderChangeRes()        {}
@@ -9265,6 +9283,7 @@ func (*ConflictHeaders) holdSupplierInvoiceRes()              {}
 func (*ConflictHeaders) importBankStatementsRes()             {}
 func (*ConflictHeaders) lockCostCenterRes()                   {}
 func (*ConflictHeaders) lockFiscalPeriodRes()                 {}
+func (*ConflictHeaders) lockPlanCategoryRes()                 {}
 func (*ConflictHeaders) lockProfitCenterRes()                 {}
 func (*ConflictHeaders) matchBankStatementLineRes()           {}
 func (*ConflictHeaders) matchBankStatementRes()               {}
@@ -9327,6 +9346,7 @@ func (*ConflictHeaders) unblockBusinessPartnerRes()           {}
 func (*ConflictHeaders) unblockLegalEntityRes()               {}
 func (*ConflictHeaders) unblockOrgUnitRes()                   {}
 func (*ConflictHeaders) unlockFiscalPeriodRes()               {}
+func (*ConflictHeaders) unlockPlanCategoryRes()               {}
 func (*ConflictHeaders) updateAiPolicyRes()                   {}
 func (*ConflictHeaders) updateChangeRequestRes()              {}
 func (*ConflictHeaders) updateConnectorRes()                  {}
@@ -11254,6 +11274,176 @@ func (s *CostCenterPeriod) SetLockPlan(val bool) {
 	s.LockPlan = val
 }
 
+// Plan against actual of a cost center on an account over a range of periods (ADR-0050 §8), in the
+// legal entity's local currency, debit positive.
+// Ref: #/components/schemas/CostCenterPlanActual
+type CostCenterPlanActual struct {
+	// The plan category.
+	PlanCategoryID uuid.UUID `json:"plan_category_id"`
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The first period summed.
+	FiscalPeriodFrom int32 `json:"fiscal_period_from"`
+	// The last period summed.
+	FiscalPeriodTo int32 `json:"fiscal_period_to"`
+	// The cost center.
+	CostCenterID uuid.UUID `json:"cost_center_id"`
+	// The account.
+	AccountID uuid.UUID `json:"account_id"`
+	// The category's plan.
+	Plan Money `json:"plan"`
+	// The leading ledger's actual.
+	Actual Money `json:"actual"`
+	// The actual less the plan.
+	Variance Money `json:"variance"`
+	// The variance in percent of the plan, two decimals, rounded half away from zero; absent when the plan
+	// is zero.
+	VariancePercent OptDecimal `json:"variance_percent"`
+}
+
+// GetPlanCategoryID returns the value of PlanCategoryID.
+func (s *CostCenterPlanActual) GetPlanCategoryID() uuid.UUID {
+	return s.PlanCategoryID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CostCenterPlanActual) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *CostCenterPlanActual) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriodFrom returns the value of FiscalPeriodFrom.
+func (s *CostCenterPlanActual) GetFiscalPeriodFrom() int32 {
+	return s.FiscalPeriodFrom
+}
+
+// GetFiscalPeriodTo returns the value of FiscalPeriodTo.
+func (s *CostCenterPlanActual) GetFiscalPeriodTo() int32 {
+	return s.FiscalPeriodTo
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *CostCenterPlanActual) GetCostCenterID() uuid.UUID {
+	return s.CostCenterID
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *CostCenterPlanActual) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetPlan returns the value of Plan.
+func (s *CostCenterPlanActual) GetPlan() Money {
+	return s.Plan
+}
+
+// GetActual returns the value of Actual.
+func (s *CostCenterPlanActual) GetActual() Money {
+	return s.Actual
+}
+
+// GetVariance returns the value of Variance.
+func (s *CostCenterPlanActual) GetVariance() Money {
+	return s.Variance
+}
+
+// GetVariancePercent returns the value of VariancePercent.
+func (s *CostCenterPlanActual) GetVariancePercent() OptDecimal {
+	return s.VariancePercent
+}
+
+// SetPlanCategoryID sets the value of PlanCategoryID.
+func (s *CostCenterPlanActual) SetPlanCategoryID(val uuid.UUID) {
+	s.PlanCategoryID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CostCenterPlanActual) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *CostCenterPlanActual) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriodFrom sets the value of FiscalPeriodFrom.
+func (s *CostCenterPlanActual) SetFiscalPeriodFrom(val int32) {
+	s.FiscalPeriodFrom = val
+}
+
+// SetFiscalPeriodTo sets the value of FiscalPeriodTo.
+func (s *CostCenterPlanActual) SetFiscalPeriodTo(val int32) {
+	s.FiscalPeriodTo = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *CostCenterPlanActual) SetCostCenterID(val uuid.UUID) {
+	s.CostCenterID = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *CostCenterPlanActual) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetPlan sets the value of Plan.
+func (s *CostCenterPlanActual) SetPlan(val Money) {
+	s.Plan = val
+}
+
+// SetActual sets the value of Actual.
+func (s *CostCenterPlanActual) SetActual(val Money) {
+	s.Actual = val
+}
+
+// SetVariance sets the value of Variance.
+func (s *CostCenterPlanActual) SetVariance(val Money) {
+	s.Variance = val
+}
+
+// SetVariancePercent sets the value of VariancePercent.
+func (s *CostCenterPlanActual) SetVariancePercent(val OptDecimal) {
+	s.VariancePercent = val
+}
+
+// One page of plan against actual.
+// Ref: #/components/schemas/CostCenterPlanActualPage
+type CostCenterPlanActualPage struct {
+	// The rows on this page.
+	Items []CostCenterPlanActual `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *CostCenterPlanActualPage) GetItems() []CostCenterPlanActual {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CostCenterPlanActualPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *CostCenterPlanActualPage) SetItems(val []CostCenterPlanActual) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CostCenterPlanActualPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CostCenterPlanActualPage) listCostCenterPlanActualRes() {}
+
 // A released country pack version (ADR-0048): a country's chart of accounts, tax codes, holidays,
 // number ranges and payment terms, with the legal sources they rest on. Released versions never
 // change.
@@ -11870,6 +12060,22 @@ func (*CreatePartnerChangePreconditionRequired) createPartnerChangeRes() {}
 type CreatePartnerChangeUnprocessableEntity Problem
 
 func (*CreatePartnerChangeUnprocessableEntity) createPartnerChangeRes() {}
+
+type CreatePlanCategoryBadRequest Problem
+
+func (*CreatePlanCategoryBadRequest) createPlanCategoryRes() {}
+
+type CreatePlanCategoryForbidden Problem
+
+func (*CreatePlanCategoryForbidden) createPlanCategoryRes() {}
+
+type CreatePlanCategoryPreconditionRequired Problem
+
+func (*CreatePlanCategoryPreconditionRequired) createPlanCategoryRes() {}
+
+type CreatePlanCategoryUnprocessableEntity Problem
+
+func (*CreatePlanCategoryUnprocessableEntity) createPlanCategoryRes() {}
 
 type CreatePrincipalBadRequest Problem
 
@@ -15197,6 +15403,46 @@ func (*GetPaymentRunForbidden) getPaymentRunRes() {}
 type GetPaymentRunNotFound Problem
 
 func (*GetPaymentRunNotFound) getPaymentRunRes() {}
+
+type GetPlanCategoryBadRequest Problem
+
+func (*GetPlanCategoryBadRequest) getPlanCategoryRes() {}
+
+type GetPlanCategoryForbidden Problem
+
+func (*GetPlanCategoryForbidden) getPlanCategoryRes() {}
+
+type GetPlanCategoryNotFound Problem
+
+func (*GetPlanCategoryNotFound) getPlanCategoryRes() {}
+
+// GetPlanCategoryOKHeaders wraps PlanCategory with response headers.
+type GetPlanCategoryOKHeaders struct {
+	ETag     OptString
+	Response PlanCategory
+}
+
+// GetETag returns the value of ETag.
+func (s *GetPlanCategoryOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetPlanCategoryOKHeaders) GetResponse() PlanCategory {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetPlanCategoryOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetPlanCategoryOKHeaders) SetResponse(val PlanCategory) {
+	s.Response = val
+}
+
+func (*GetPlanCategoryOKHeaders) getPlanCategoryRes() {}
 
 type GetPrincipalBadRequest Problem
 
@@ -19843,6 +20089,14 @@ type ListCostCenterPathsNotFound Problem
 
 func (*ListCostCenterPathsNotFound) listCostCenterPathsRes() {}
 
+type ListCostCenterPlanActualBadRequest Problem
+
+func (*ListCostCenterPlanActualBadRequest) listCostCenterPlanActualRes() {}
+
+type ListCostCenterPlanActualForbidden Problem
+
+func (*ListCostCenterPlanActualForbidden) listCostCenterPlanActualRes() {}
+
 type ListCostCentersBadRequest Problem
 
 func (*ListCostCentersBadRequest) listCostCentersRes() {}
@@ -20070,6 +20324,22 @@ func (*ListPaymentsForbidden) listPaymentsRes() {}
 type ListPaymentsNotFound Problem
 
 func (*ListPaymentsNotFound) listPaymentsRes() {}
+
+type ListPlanCategoriesBadRequest Problem
+
+func (*ListPlanCategoriesBadRequest) listPlanCategoriesRes() {}
+
+type ListPlanCategoriesForbidden Problem
+
+func (*ListPlanCategoriesForbidden) listPlanCategoriesRes() {}
+
+type ListPlanLinesBadRequest Problem
+
+func (*ListPlanLinesBadRequest) listPlanLinesRes() {}
+
+type ListPlanLinesForbidden Problem
+
+func (*ListPlanLinesForbidden) listPlanLinesRes() {}
 
 type ListPrincipalNamesBadRequest Problem
 
@@ -20336,6 +20606,66 @@ func (*LockFiscalPeriodPreconditionRequired) lockFiscalPeriodRes() {}
 type LockFiscalPeriodUnprocessableEntity Problem
 
 func (*LockFiscalPeriodUnprocessableEntity) lockFiscalPeriodRes() {}
+
+type LockPlanCategoryBadRequest Problem
+
+func (*LockPlanCategoryBadRequest) lockPlanCategoryRes() {}
+
+type LockPlanCategoryForbidden Problem
+
+func (*LockPlanCategoryForbidden) lockPlanCategoryRes() {}
+
+type LockPlanCategoryNotFound Problem
+
+func (*LockPlanCategoryNotFound) lockPlanCategoryRes() {}
+
+// LockPlanCategoryOKHeaders wraps PlanCategory with response headers.
+type LockPlanCategoryOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           PlanCategory
+}
+
+// GetETag returns the value of ETag.
+func (s *LockPlanCategoryOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *LockPlanCategoryOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *LockPlanCategoryOKHeaders) GetResponse() PlanCategory {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *LockPlanCategoryOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *LockPlanCategoryOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *LockPlanCategoryOKHeaders) SetResponse(val PlanCategory) {
+	s.Response = val
+}
+
+func (*LockPlanCategoryOKHeaders) lockPlanCategoryRes()   {}
+func (*LockPlanCategoryOKHeaders) unlockPlanCategoryRes() {}
+
+type LockPlanCategoryPreconditionFailed Problem
+
+func (*LockPlanCategoryPreconditionFailed) lockPlanCategoryRes() {}
+
+type LockPlanCategoryPreconditionRequired Problem
+
+func (*LockPlanCategoryPreconditionRequired) lockPlanCategoryRes() {}
 
 type LockProfitCenterBadRequest Problem
 
@@ -28183,6 +28513,747 @@ type PlaceInHierarchyUnprocessableEntity Problem
 
 func (*PlaceInHierarchyUnprocessableEntity) placeInHierarchyRes() {}
 
+// A plan batch as applied.
+// Ref: #/components/schemas/PlanBatch
+type PlanBatch struct {
+	// Identifier (UUIDv7); `GET /v1/plan-lines?plan_batch_id=` lists its lines that no later batch
+	// replaced.
+	ID uuid.UUID `json:"id"`
+	// The plan category.
+	PlanCategoryID uuid.UUID `json:"plan_category_id"`
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The client's key of the batch.
+	BatchKey string `json:"batch_key"`
+	// The lines the batch wrote.
+	LineCount int32 `json:"line_count"`
+	// The earlier lines of the batch's centers it deleted.
+	ReplacedCount int32 `json:"replaced_count"`
+	// Whether the batch key had already been applied with these lines, so nothing changed.
+	Replayed bool `json:"replayed"`
+	// When the batch was applied (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that applied the batch.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *PlanBatch) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetPlanCategoryID returns the value of PlanCategoryID.
+func (s *PlanBatch) GetPlanCategoryID() uuid.UUID {
+	return s.PlanCategoryID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *PlanBatch) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *PlanBatch) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetBatchKey returns the value of BatchKey.
+func (s *PlanBatch) GetBatchKey() string {
+	return s.BatchKey
+}
+
+// GetLineCount returns the value of LineCount.
+func (s *PlanBatch) GetLineCount() int32 {
+	return s.LineCount
+}
+
+// GetReplacedCount returns the value of ReplacedCount.
+func (s *PlanBatch) GetReplacedCount() int32 {
+	return s.ReplacedCount
+}
+
+// GetReplayed returns the value of Replayed.
+func (s *PlanBatch) GetReplayed() bool {
+	return s.Replayed
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *PlanBatch) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *PlanBatch) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *PlanBatch) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetPlanCategoryID sets the value of PlanCategoryID.
+func (s *PlanBatch) SetPlanCategoryID(val uuid.UUID) {
+	s.PlanCategoryID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *PlanBatch) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *PlanBatch) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetBatchKey sets the value of BatchKey.
+func (s *PlanBatch) SetBatchKey(val string) {
+	s.BatchKey = val
+}
+
+// SetLineCount sets the value of LineCount.
+func (s *PlanBatch) SetLineCount(val int32) {
+	s.LineCount = val
+}
+
+// SetReplacedCount sets the value of ReplacedCount.
+func (s *PlanBatch) SetReplacedCount(val int32) {
+	s.ReplacedCount = val
+}
+
+// SetReplayed sets the value of Replayed.
+func (s *PlanBatch) SetReplayed(val bool) {
+	s.Replayed = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *PlanBatch) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *PlanBatch) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// A batch of plan lines: it replaces the plan of its category, legal entity and fiscal year on the
+// centers it names.
+// Ref: #/components/schemas/PlanBatchCreate
+type PlanBatchCreate struct {
+	// The plan category.
+	PlanCategoryID uuid.UUID `json:"plan_category_id"`
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The client's key of the batch, once per category, legal entity and year: the same key and lines
+	// again change nothing.
+	BatchKey string `json:"batch_key"`
+	// The lines.
+	Lines []PlanBatchLine `json:"lines"`
+}
+
+// GetPlanCategoryID returns the value of PlanCategoryID.
+func (s *PlanBatchCreate) GetPlanCategoryID() uuid.UUID {
+	return s.PlanCategoryID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *PlanBatchCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *PlanBatchCreate) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetBatchKey returns the value of BatchKey.
+func (s *PlanBatchCreate) GetBatchKey() string {
+	return s.BatchKey
+}
+
+// GetLines returns the value of Lines.
+func (s *PlanBatchCreate) GetLines() []PlanBatchLine {
+	return s.Lines
+}
+
+// SetPlanCategoryID sets the value of PlanCategoryID.
+func (s *PlanBatchCreate) SetPlanCategoryID(val uuid.UUID) {
+	s.PlanCategoryID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *PlanBatchCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *PlanBatchCreate) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetBatchKey sets the value of BatchKey.
+func (s *PlanBatchCreate) SetBatchKey(val string) {
+	s.BatchKey = val
+}
+
+// SetLines sets the value of Lines.
+func (s *PlanBatchCreate) SetLines(val []PlanBatchLine) {
+	s.Lines = val
+}
+
+// PlanBatchHeaders wraps PlanBatch with response headers.
+type PlanBatchHeaders struct {
+	IdempotentReplayed OptBool
+	Response           PlanBatch
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *PlanBatchHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *PlanBatchHeaders) GetResponse() PlanBatch {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *PlanBatchHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *PlanBatchHeaders) SetResponse(val PlanBatch) {
+	s.Response = val
+}
+
+func (*PlanBatchHeaders) applyPlanBatchRes() {}
+
+// A line of a plan batch: the amount planned on a cost center or a profit center (exactly one) and an
+// account in a period.
+// Ref: #/components/schemas/PlanBatchLine
+type PlanBatchLine struct {
+	// The cost center; an active one of the legal entity.
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// The profit center; an active one assigned to the legal entity.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// A profit and loss account set up in the legal entity.
+	AccountID uuid.UUID `json:"account_id"`
+	// A period of the fiscal year in the legal entity's calendar.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The amount in the legal entity's local currency; debit positive (costs positive, revenue negative).
+	Amount Money `json:"amount"`
+	// The quantity planned, positive.
+	Quantity OptQuantity `json:"quantity"`
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *PlanBatchLine) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *PlanBatchLine) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *PlanBatchLine) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *PlanBatchLine) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetAmount returns the value of Amount.
+func (s *PlanBatchLine) GetAmount() Money {
+	return s.Amount
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *PlanBatchLine) GetQuantity() OptQuantity {
+	return s.Quantity
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *PlanBatchLine) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *PlanBatchLine) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *PlanBatchLine) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *PlanBatchLine) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *PlanBatchLine) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *PlanBatchLine) SetQuantity(val OptQuantity) {
+	s.Quantity = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/PlanCategory
+type PlanCategory struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// Code, unique in the tenant. Immutable.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// Whether the category is locked (`:lock`), so batches for it are refused.
+	Locked bool `json:"locked"`
+}
+
+// GetID returns the value of ID.
+func (s *PlanCategory) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *PlanCategory) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *PlanCategory) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *PlanCategory) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *PlanCategory) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *PlanCategory) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetCode returns the value of Code.
+func (s *PlanCategory) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *PlanCategory) GetName() string {
+	return s.Name
+}
+
+// GetLocked returns the value of Locked.
+func (s *PlanCategory) GetLocked() bool {
+	return s.Locked
+}
+
+// SetID sets the value of ID.
+func (s *PlanCategory) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *PlanCategory) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *PlanCategory) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *PlanCategory) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *PlanCategory) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *PlanCategory) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetCode sets the value of Code.
+func (s *PlanCategory) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *PlanCategory) SetName(val string) {
+	s.Name = val
+}
+
+// SetLocked sets the value of Locked.
+func (s *PlanCategory) SetLocked(val bool) {
+	s.Locked = val
+}
+
+// A new plan category.
+// Ref: #/components/schemas/PlanCategoryCreate
+type PlanCategoryCreate struct {
+	// Code, unique in the tenant.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+}
+
+// GetCode returns the value of Code.
+func (s *PlanCategoryCreate) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *PlanCategoryCreate) GetName() string {
+	return s.Name
+}
+
+// SetCode sets the value of Code.
+func (s *PlanCategoryCreate) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *PlanCategoryCreate) SetName(val string) {
+	s.Name = val
+}
+
+// PlanCategoryHeaders wraps PlanCategory with response headers.
+type PlanCategoryHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           PlanCategory
+}
+
+// GetETag returns the value of ETag.
+func (s *PlanCategoryHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *PlanCategoryHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *PlanCategoryHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *PlanCategoryHeaders) GetResponse() PlanCategory {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *PlanCategoryHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *PlanCategoryHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *PlanCategoryHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *PlanCategoryHeaders) SetResponse(val PlanCategory) {
+	s.Response = val
+}
+
+func (*PlanCategoryHeaders) createPlanCategoryRes() {}
+
+// One page of plan categories.
+// Ref: #/components/schemas/PlanCategoryPage
+type PlanCategoryPage struct {
+	// The plan categories on this page.
+	Items []PlanCategory `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *PlanCategoryPage) GetItems() []PlanCategory {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *PlanCategoryPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *PlanCategoryPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *PlanCategoryPage) SetItems(val []PlanCategory) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *PlanCategoryPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *PlanCategoryPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+func (*PlanCategoryPage) listPlanCategoriesRes() {}
+
+// A plan line (ADR-0050 §8): the amount planned in a category on a cost center or a profit center and
+// an account in a period.
+// Ref: #/components/schemas/PlanLine
+type PlanLine struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The batch that wrote the line.
+	PlanBatchID uuid.UUID `json:"plan_batch_id"`
+	// The plan category.
+	PlanCategoryID uuid.UUID `json:"plan_category_id"`
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The period.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The cost center; absent on a profit center's line.
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// The profit center; absent on a cost center's line.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// The account.
+	AccountID uuid.UUID `json:"account_id"`
+	// The amount in the legal entity's local currency; debit positive.
+	Amount Money `json:"amount"`
+	// The quantity planned.
+	Quantity OptQuantity `json:"quantity"`
+	// When its batch wrote the line (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that applied its batch.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *PlanLine) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetPlanBatchID returns the value of PlanBatchID.
+func (s *PlanLine) GetPlanBatchID() uuid.UUID {
+	return s.PlanBatchID
+}
+
+// GetPlanCategoryID returns the value of PlanCategoryID.
+func (s *PlanLine) GetPlanCategoryID() uuid.UUID {
+	return s.PlanCategoryID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *PlanLine) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *PlanLine) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *PlanLine) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *PlanLine) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *PlanLine) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *PlanLine) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAmount returns the value of Amount.
+func (s *PlanLine) GetAmount() Money {
+	return s.Amount
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *PlanLine) GetQuantity() OptQuantity {
+	return s.Quantity
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *PlanLine) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *PlanLine) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *PlanLine) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetPlanBatchID sets the value of PlanBatchID.
+func (s *PlanLine) SetPlanBatchID(val uuid.UUID) {
+	s.PlanBatchID = val
+}
+
+// SetPlanCategoryID sets the value of PlanCategoryID.
+func (s *PlanLine) SetPlanCategoryID(val uuid.UUID) {
+	s.PlanCategoryID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *PlanLine) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *PlanLine) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *PlanLine) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *PlanLine) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *PlanLine) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *PlanLine) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *PlanLine) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *PlanLine) SetQuantity(val OptQuantity) {
+	s.Quantity = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *PlanLine) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *PlanLine) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// One page of plan lines.
+// Ref: #/components/schemas/PlanLinePage
+type PlanLinePage struct {
+	// The plan lines on this page.
+	Items []PlanLine `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *PlanLinePage) GetItems() []PlanLine {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *PlanLinePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *PlanLinePage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *PlanLinePage) SetItems(val []PlanLine) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *PlanLinePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *PlanLinePage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+func (*PlanLinePage) listPlanLinesRes() {}
+
 type PostBankStatementLineBadRequest Problem
 
 func (*PostBankStatementLineBadRequest) postBankStatementLineRes() {}
@@ -35203,6 +36274,7 @@ func (*ServiceUnavailableHeaders) activateLegalEntityRes()              {}
 func (*ServiceUnavailableHeaders) activateOrgUnitRes()                  {}
 func (*ServiceUnavailableHeaders) addHierarchyNodeRes()                 {}
 func (*ServiceUnavailableHeaders) applyCountryPackRes()                 {}
+func (*ServiceUnavailableHeaders) applyPlanBatchRes()                   {}
 func (*ServiceUnavailableHeaders) approveApprovalRequestRes()           {}
 func (*ServiceUnavailableHeaders) assignProfitCenterRes()               {}
 func (*ServiceUnavailableHeaders) blockBusinessPartnerRes()             {}
@@ -35239,6 +36311,7 @@ func (*ServiceUnavailableHeaders) createMemoRecordRes()                 {}
 func (*ServiceUnavailableHeaders) createMigrationRunRes()               {}
 func (*ServiceUnavailableHeaders) createOrgUnitRes()                    {}
 func (*ServiceUnavailableHeaders) createPartnerChangeRes()              {}
+func (*ServiceUnavailableHeaders) createPlanCategoryRes()               {}
 func (*ServiceUnavailableHeaders) createPrincipalRes()                  {}
 func (*ServiceUnavailableHeaders) createProfitCenterRes()               {}
 func (*ServiceUnavailableHeaders) createPurchaseOrderChangeRes()        {}
@@ -35270,6 +36343,7 @@ func (*ServiceUnavailableHeaders) holdSupplierInvoiceRes()              {}
 func (*ServiceUnavailableHeaders) importBankStatementsRes()             {}
 func (*ServiceUnavailableHeaders) lockCostCenterRes()                   {}
 func (*ServiceUnavailableHeaders) lockFiscalPeriodRes()                 {}
+func (*ServiceUnavailableHeaders) lockPlanCategoryRes()                 {}
 func (*ServiceUnavailableHeaders) lockProfitCenterRes()                 {}
 func (*ServiceUnavailableHeaders) matchBankStatementLineRes()           {}
 func (*ServiceUnavailableHeaders) matchBankStatementRes()               {}
@@ -35331,6 +36405,7 @@ func (*ServiceUnavailableHeaders) unblockBusinessPartnerRes()           {}
 func (*ServiceUnavailableHeaders) unblockLegalEntityRes()               {}
 func (*ServiceUnavailableHeaders) unblockOrgUnitRes()                   {}
 func (*ServiceUnavailableHeaders) unlockFiscalPeriodRes()               {}
+func (*ServiceUnavailableHeaders) unlockPlanCategoryRes()               {}
 func (*ServiceUnavailableHeaders) updateAiPolicyRes()                   {}
 func (*ServiceUnavailableHeaders) updateChangeRequestRes()              {}
 func (*ServiceUnavailableHeaders) updateConnectorRes()                  {}
@@ -37736,6 +38811,7 @@ func (*TooManyRequestsHeaders) activateLegalEntityRes()              {}
 func (*TooManyRequestsHeaders) activateOrgUnitRes()                  {}
 func (*TooManyRequestsHeaders) addHierarchyNodeRes()                 {}
 func (*TooManyRequestsHeaders) applyCountryPackRes()                 {}
+func (*TooManyRequestsHeaders) applyPlanBatchRes()                   {}
 func (*TooManyRequestsHeaders) approveApprovalRequestRes()           {}
 func (*TooManyRequestsHeaders) assignProfitCenterRes()               {}
 func (*TooManyRequestsHeaders) blockBusinessPartnerRes()             {}
@@ -37772,6 +38848,7 @@ func (*TooManyRequestsHeaders) createMemoRecordRes()                 {}
 func (*TooManyRequestsHeaders) createMigrationRunRes()               {}
 func (*TooManyRequestsHeaders) createOrgUnitRes()                    {}
 func (*TooManyRequestsHeaders) createPartnerChangeRes()              {}
+func (*TooManyRequestsHeaders) createPlanCategoryRes()               {}
 func (*TooManyRequestsHeaders) createPrincipalRes()                  {}
 func (*TooManyRequestsHeaders) createProfitCenterRes()               {}
 func (*TooManyRequestsHeaders) createPurchaseOrderChangeRes()        {}
@@ -37838,6 +38915,7 @@ func (*TooManyRequestsHeaders) getOrgUnitRes()                       {}
 func (*TooManyRequestsHeaders) getParkedJournalEntryRes()            {}
 func (*TooManyRequestsHeaders) getPartnerChangeRes()                 {}
 func (*TooManyRequestsHeaders) getPaymentRunRes()                    {}
+func (*TooManyRequestsHeaders) getPlanCategoryRes()                  {}
 func (*TooManyRequestsHeaders) getPrincipalRes()                     {}
 func (*TooManyRequestsHeaders) getProfitCenterRes()                  {}
 func (*TooManyRequestsHeaders) getPurchaseOrderChangeRes()           {}
@@ -37880,6 +38958,7 @@ func (*TooManyRequestsHeaders) listConnectorsRes()                   {}
 func (*TooManyRequestsHeaders) listContractsRes()                    {}
 func (*TooManyRequestsHeaders) listCostCenterBalancesRes()           {}
 func (*TooManyRequestsHeaders) listCostCenterPathsRes()              {}
+func (*TooManyRequestsHeaders) listCostCenterPlanActualRes()         {}
 func (*TooManyRequestsHeaders) listCostCentersRes()                  {}
 func (*TooManyRequestsHeaders) listCountryPacksRes()                 {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()          {}
@@ -37907,6 +38986,8 @@ func (*TooManyRequestsHeaders) listPartnerChangesRes()               {}
 func (*TooManyRequestsHeaders) listPaymentExclusionsRes()            {}
 func (*TooManyRequestsHeaders) listPaymentRunsRes()                  {}
 func (*TooManyRequestsHeaders) listPaymentsRes()                     {}
+func (*TooManyRequestsHeaders) listPlanCategoriesRes()               {}
+func (*TooManyRequestsHeaders) listPlanLinesRes()                    {}
 func (*TooManyRequestsHeaders) listPrincipalNamesRes()               {}
 func (*TooManyRequestsHeaders) listPrincipalsRes()                   {}
 func (*TooManyRequestsHeaders) listProfitCenterBalancesRes()         {}
@@ -37928,6 +39009,7 @@ func (*TooManyRequestsHeaders) listWebhookDeliveriesRes()            {}
 func (*TooManyRequestsHeaders) listWebhookSubscriptionsRes()         {}
 func (*TooManyRequestsHeaders) lockCostCenterRes()                   {}
 func (*TooManyRequestsHeaders) lockFiscalPeriodRes()                 {}
+func (*TooManyRequestsHeaders) lockPlanCategoryRes()                 {}
 func (*TooManyRequestsHeaders) lockProfitCenterRes()                 {}
 func (*TooManyRequestsHeaders) matchBankStatementLineRes()           {}
 func (*TooManyRequestsHeaders) matchBankStatementRes()               {}
@@ -37990,6 +39072,7 @@ func (*TooManyRequestsHeaders) unblockBusinessPartnerRes()           {}
 func (*TooManyRequestsHeaders) unblockLegalEntityRes()               {}
 func (*TooManyRequestsHeaders) unblockOrgUnitRes()                   {}
 func (*TooManyRequestsHeaders) unlockFiscalPeriodRes()               {}
+func (*TooManyRequestsHeaders) unlockPlanCategoryRes()               {}
 func (*TooManyRequestsHeaders) updateAiPolicyRes()                   {}
 func (*TooManyRequestsHeaders) updateChangeRequestRes()              {}
 func (*TooManyRequestsHeaders) updateConnectorRes()                  {}
@@ -38069,6 +39152,7 @@ func (*UnauthorizedHeaders) activateLegalEntityRes()              {}
 func (*UnauthorizedHeaders) activateOrgUnitRes()                  {}
 func (*UnauthorizedHeaders) addHierarchyNodeRes()                 {}
 func (*UnauthorizedHeaders) applyCountryPackRes()                 {}
+func (*UnauthorizedHeaders) applyPlanBatchRes()                   {}
 func (*UnauthorizedHeaders) approveApprovalRequestRes()           {}
 func (*UnauthorizedHeaders) assignProfitCenterRes()               {}
 func (*UnauthorizedHeaders) blockBusinessPartnerRes()             {}
@@ -38105,6 +39189,7 @@ func (*UnauthorizedHeaders) createMemoRecordRes()                 {}
 func (*UnauthorizedHeaders) createMigrationRunRes()               {}
 func (*UnauthorizedHeaders) createOrgUnitRes()                    {}
 func (*UnauthorizedHeaders) createPartnerChangeRes()              {}
+func (*UnauthorizedHeaders) createPlanCategoryRes()               {}
 func (*UnauthorizedHeaders) createPrincipalRes()                  {}
 func (*UnauthorizedHeaders) createProfitCenterRes()               {}
 func (*UnauthorizedHeaders) createPurchaseOrderChangeRes()        {}
@@ -38171,6 +39256,7 @@ func (*UnauthorizedHeaders) getOrgUnitRes()                       {}
 func (*UnauthorizedHeaders) getParkedJournalEntryRes()            {}
 func (*UnauthorizedHeaders) getPartnerChangeRes()                 {}
 func (*UnauthorizedHeaders) getPaymentRunRes()                    {}
+func (*UnauthorizedHeaders) getPlanCategoryRes()                  {}
 func (*UnauthorizedHeaders) getPrincipalRes()                     {}
 func (*UnauthorizedHeaders) getProfitCenterRes()                  {}
 func (*UnauthorizedHeaders) getPurchaseOrderChangeRes()           {}
@@ -38213,6 +39299,7 @@ func (*UnauthorizedHeaders) listConnectorsRes()                   {}
 func (*UnauthorizedHeaders) listContractsRes()                    {}
 func (*UnauthorizedHeaders) listCostCenterBalancesRes()           {}
 func (*UnauthorizedHeaders) listCostCenterPathsRes()              {}
+func (*UnauthorizedHeaders) listCostCenterPlanActualRes()         {}
 func (*UnauthorizedHeaders) listCostCentersRes()                  {}
 func (*UnauthorizedHeaders) listCountryPacksRes()                 {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()          {}
@@ -38240,6 +39327,8 @@ func (*UnauthorizedHeaders) listPartnerChangesRes()               {}
 func (*UnauthorizedHeaders) listPaymentExclusionsRes()            {}
 func (*UnauthorizedHeaders) listPaymentRunsRes()                  {}
 func (*UnauthorizedHeaders) listPaymentsRes()                     {}
+func (*UnauthorizedHeaders) listPlanCategoriesRes()               {}
+func (*UnauthorizedHeaders) listPlanLinesRes()                    {}
 func (*UnauthorizedHeaders) listPrincipalNamesRes()               {}
 func (*UnauthorizedHeaders) listPrincipalsRes()                   {}
 func (*UnauthorizedHeaders) listProfitCenterBalancesRes()         {}
@@ -38261,6 +39350,7 @@ func (*UnauthorizedHeaders) listWebhookDeliveriesRes()            {}
 func (*UnauthorizedHeaders) listWebhookSubscriptionsRes()         {}
 func (*UnauthorizedHeaders) lockCostCenterRes()                   {}
 func (*UnauthorizedHeaders) lockFiscalPeriodRes()                 {}
+func (*UnauthorizedHeaders) lockPlanCategoryRes()                 {}
 func (*UnauthorizedHeaders) lockProfitCenterRes()                 {}
 func (*UnauthorizedHeaders) matchBankStatementLineRes()           {}
 func (*UnauthorizedHeaders) matchBankStatementRes()               {}
@@ -38323,6 +39413,7 @@ func (*UnauthorizedHeaders) unblockBusinessPartnerRes()           {}
 func (*UnauthorizedHeaders) unblockLegalEntityRes()               {}
 func (*UnauthorizedHeaders) unblockOrgUnitRes()                   {}
 func (*UnauthorizedHeaders) unlockFiscalPeriodRes()               {}
+func (*UnauthorizedHeaders) unlockPlanCategoryRes()               {}
 func (*UnauthorizedHeaders) updateAiPolicyRes()                   {}
 func (*UnauthorizedHeaders) updateChangeRequestRes()              {}
 func (*UnauthorizedHeaders) updateConnectorRes()                  {}
@@ -38440,6 +39531,26 @@ func (*UnlockFiscalPeriodPreconditionRequired) unlockFiscalPeriodRes() {}
 type UnlockFiscalPeriodUnprocessableEntity Problem
 
 func (*UnlockFiscalPeriodUnprocessableEntity) unlockFiscalPeriodRes() {}
+
+type UnlockPlanCategoryBadRequest Problem
+
+func (*UnlockPlanCategoryBadRequest) unlockPlanCategoryRes() {}
+
+type UnlockPlanCategoryForbidden Problem
+
+func (*UnlockPlanCategoryForbidden) unlockPlanCategoryRes() {}
+
+type UnlockPlanCategoryNotFound Problem
+
+func (*UnlockPlanCategoryNotFound) unlockPlanCategoryRes() {}
+
+type UnlockPlanCategoryPreconditionFailed Problem
+
+func (*UnlockPlanCategoryPreconditionFailed) unlockPlanCategoryRes() {}
+
+type UnlockPlanCategoryPreconditionRequired Problem
+
+func (*UnlockPlanCategoryPreconditionRequired) unlockPlanCategoryRes() {}
 
 type UpdateAiPolicyBadRequest Problem
 

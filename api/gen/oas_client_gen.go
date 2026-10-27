@@ -99,6 +99,27 @@ type Invoker interface {
 	//
 	// POST /v1/country-pack-applications
 	ApplyCountryPack(ctx context.Context, request *CountryPackApplication, params ApplyCountryPackParams) (ApplyCountryPackRes, error)
+	// ApplyPlanBatch invokes applyPlanBatch operation.
+	//
+	// Uploads the plan of a category, legal entity and fiscal year for some of its centers (ADR-0050 §8):
+	// each line plans an amount in the legal entity's local currency (debit positive as on the journal:
+	// costs positive, revenue negative) on a cost center or a profit center and a profit and loss account
+	// in a period, with an optional quantity. The batch replaces the plan of its category, legal entity
+	// and year on every center it names: their earlier lines in the year, in every period and on every
+	// account, are deleted, and the batch's lines written; other centers' plans stay. Every line is
+	// checked first; if any is wrong nothing is written and the 422 `controlling.plan_batch_invalid` names
+	// every wrong field as `lines[N].field` (at most 100): a cost center must be an active one of the
+	// legal entity, a profit center an active one assigned to it, the account a profit and loss account
+	// set up in it, the period one of the year in its calendar, and a center, account and period at most
+	// once in the batch. Idempotent by `batch_key`: a key already applied to the category, legal entity
+	// and year with the same lines changes nothing, publishes nothing and returns the batch as it was
+	// applied (`replayed`), even after later batches; the key with other lines is refused (409
+	// `controlling.plan_batch_reused`). A locked category is refused (409
+	// `controlling.plan_category_locked`). Audited per batch, and published as PlanBatchApplied. Agents
+	// may not upload a plan.
+	//
+	// POST /v1/plan-batches
+	ApplyPlanBatch(ctx context.Context, request *PlanBatchCreate, params ApplyPlanBatchParams) (ApplyPlanBatchRes, error)
 	// ApproveApprovalRequest invokes approveApprovalRequest operation.
 	//
 	// Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`);
@@ -416,6 +437,14 @@ type Invoker interface {
 	//
 	// POST /v1/partner-changes
 	CreatePartnerChange(ctx context.Context, request *PartnerChangeCreate, params CreatePartnerChangeParams) (CreatePartnerChangeRes, error)
+	// CreatePlanCategory invokes createPlanCategory operation.
+	//
+	// Creates an open plan category (ADR-0050 §8). A code is unique in the tenant (409
+	// `controlling.plan_category_exists`). Audited, and published as PlanCategoryChanged. Agents may not
+	// create one.
+	//
+	// POST /v1/plan-categories
+	CreatePlanCategory(ctx context.Context, request *PlanCategoryCreate, params CreatePlanCategoryParams) (CreatePlanCategoryRes, error)
 	// CreatePrincipal invokes createPrincipal operation.
 	//
 	// Creates a person, agent or service principal. Identity administration is human-only. The request can
@@ -943,6 +972,12 @@ type Invoker interface {
 	//
 	// GET /v1/payment-runs/{id}
 	GetPaymentRun(ctx context.Context, params GetPaymentRunParams) (GetPaymentRunRes, error)
+	// GetPlanCategory invokes getPlanCategory operation.
+	//
+	// Returns one plan category.
+	//
+	// GET /v1/plan-categories/{id}
+	GetPlanCategory(ctx context.Context, params GetPlanCategoryParams) (GetPlanCategoryRes, error)
 	// GetPrincipal invokes getPrincipal operation.
 	//
 	// Returns one principal.
@@ -1241,6 +1276,21 @@ type Invoker interface {
 	//
 	// GET /v1/cost-centers/{id}/hierarchy-paths
 	ListCostCenterPaths(ctx context.Context, params ListCostCenterPathsParams) (ListCostCenterPathsRes, error)
+	// ListCostCenterPlanActual invokes listCostCenterPlanActual operation.
+	//
+	// Plan against actual per cost center and account of one legal entity, plan category and fiscal year,
+	// summed over a range of periods (ADR-0050 §8), in the legal entity's local currency: the category's
+	// plan lines, the leading ledger's actuals exact at the moment of the read as
+	// `GET /v1/cost-center-balances` reads them (ADR-0050 §7), the variance (actual less plan) and the
+	// variance in percent of the plan (two decimals, rounded half away from zero; absent when the plan is
+	// zero). A cost center and account with a plan or an actual has a row, the other side zero. A legal
+	// entity the caller cannot act in, or a plan category that does not exist, has none. Rows are in the
+	// order of `cost_center_id`, then `account_id`. The actuals are ledger amounts, so besides
+	// `controlling.plan.read` the caller needs `ledger.entry.read`, as for the trial balance
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/cost-center-plan-actual
+	ListCostCenterPlanActual(ctx context.Context, params ListCostCenterPlanActualParams) (ListCostCenterPlanActualRes, error)
 	// ListCostCenters invokes listCostCenters operation.
 	//
 	// Cost centers of the legal entities the caller may act in, with their active periods. Sortable by:
@@ -1442,6 +1492,20 @@ type Invoker interface {
 	//
 	// GET /v1/payment-runs/{id}/payments
 	ListPayments(ctx context.Context, params ListPaymentsParams) (ListPaymentsRes, error)
+	// ListPlanCategories invokes listPlanCategories operation.
+	//
+	// The tenant's plan categories (ADR-0050 §8), such as `PLAN` and `FORECAST`: open, or locked so their
+	// plan does not move. Sortable by: `code`.
+	//
+	// GET /v1/plan-categories
+	ListPlanCategories(ctx context.Context, params ListPlanCategoriesParams) (ListPlanCategoriesRes, error)
+	// ListPlanLines invokes listPlanLines operation.
+	//
+	// The plan lines of a legal entity's fiscal year (ADR-0050 §8), of every category or one. A legal
+	// entity the caller cannot act in has none. Sortable by: `fiscal_period`.
+	//
+	// GET /v1/plan-lines
+	ListPlanLines(ctx context.Context, params ListPlanLinesParams) (ListPlanLinesRes, error)
 	// ListPrincipalNames invokes listPrincipalNames operation.
 	//
 	// The display name and kind of each principal of the caller's tenant among `ids` (ADR-0052 G3), so a
@@ -1605,6 +1669,16 @@ type Invoker interface {
 	//
 	// POST /v1/fiscal-periods/{id}:lock
 	LockFiscalPeriod(ctx context.Context, params LockFiscalPeriodParams) (LockFiscalPeriodRes, error)
+	// LockPlanCategory invokes lockPlanCategory operation.
+	//
+	// Locks an open plan category, so its plan does not move after the budget's approval (ADR-0050 §8):
+	// batches for it are refused (409 `controlling.plan_category_locked`) until a person unlocks it. A
+	// locked category is refused (409 `controlling.plan_category_locked`). Locking is a person's decision:
+	// `controlling.plan.lock` is an approval permission, which agents cannot hold. Audited, and published
+	// as PlanCategoryChanged.
+	//
+	// POST /v1/plan-categories/{id}:lock
+	LockPlanCategory(ctx context.Context, params LockPlanCategoryParams) (LockPlanCategoryRes, error)
 	// LockProfitCenter invokes lockProfitCenter operation.
 	//
 	// Sets or clears the profit center's lock from `valid_from` to `valid_to` (exclusive; absent: to the
@@ -2389,6 +2463,15 @@ type Invoker interface {
 	//
 	// POST /v1/fiscal-periods/{id}:unlock
 	UnlockFiscalPeriod(ctx context.Context, request *ReasonInput, params UnlockFiscalPeriodParams) (UnlockFiscalPeriodRes, error)
+	// UnlockPlanCategory invokes unlockPlanCategory operation.
+	//
+	// Opens a locked plan category again, so batches may replace its plan (ADR-0050 §8). An open category
+	// is refused (409 `controlling.plan_category_open`). Unlocking is a person's decision:
+	// `controlling.plan.lock` is an approval permission, which agents cannot hold. Audited, and published
+	// as PlanCategoryChanged.
+	//
+	// POST /v1/plan-categories/{id}:unlock
+	UnlockPlanCategory(ctx context.Context, params UnlockPlanCategoryParams) (UnlockPlanCategoryRes, error)
 	// UpdateAiPolicy invokes updateAiPolicy operation.
 	//
 	// Changes the policy. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` removes the
@@ -3760,6 +3843,151 @@ func (c *Client) sendApplyCountryPack(ctx context.Context, request *CountryPackA
 
 	stage = "DecodeResponse"
 	result, err := decodeApplyCountryPackResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ApplyPlanBatch invokes applyPlanBatch operation.
+//
+// Uploads the plan of a category, legal entity and fiscal year for some of its centers (ADR-0050 §8):
+// each line plans an amount in the legal entity's local currency (debit positive as on the journal:
+// costs positive, revenue negative) on a cost center or a profit center and a profit and loss account
+// in a period, with an optional quantity. The batch replaces the plan of its category, legal entity
+// and year on every center it names: their earlier lines in the year, in every period and on every
+// account, are deleted, and the batch's lines written; other centers' plans stay. Every line is
+// checked first; if any is wrong nothing is written and the 422 `controlling.plan_batch_invalid` names
+// every wrong field as `lines[N].field` (at most 100): a cost center must be an active one of the
+// legal entity, a profit center an active one assigned to it, the account a profit and loss account
+// set up in it, the period one of the year in its calendar, and a center, account and period at most
+// once in the batch. Idempotent by `batch_key`: a key already applied to the category, legal entity
+// and year with the same lines changes nothing, publishes nothing and returns the batch as it was
+// applied (`replayed`), even after later batches; the key with other lines is refused (409
+// `controlling.plan_batch_reused`). A locked category is refused (409
+// `controlling.plan_category_locked`). Audited per batch, and published as PlanBatchApplied. Agents
+// may not upload a plan.
+//
+// POST /v1/plan-batches
+func (c *Client) ApplyPlanBatch(ctx context.Context, request *PlanBatchCreate, params ApplyPlanBatchParams) (ApplyPlanBatchRes, error) {
+	res, err := c.sendApplyPlanBatch(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendApplyPlanBatch(ctx context.Context, request *PlanBatchCreate, params ApplyPlanBatchParams) (res ApplyPlanBatchRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("applyPlanBatch"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/plan-batches"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ApplyPlanBatchOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/plan-batches"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeApplyPlanBatchRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ApplyPlanBatchOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeApplyPlanBatchResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -9139,6 +9367,138 @@ func (c *Client) sendCreatePartnerChange(ctx context.Context, request *PartnerCh
 
 	stage = "DecodeResponse"
 	result, err := decodeCreatePartnerChangeResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreatePlanCategory invokes createPlanCategory operation.
+//
+// Creates an open plan category (ADR-0050 §8). A code is unique in the tenant (409
+// `controlling.plan_category_exists`). Audited, and published as PlanCategoryChanged. Agents may not
+// create one.
+//
+// POST /v1/plan-categories
+func (c *Client) CreatePlanCategory(ctx context.Context, request *PlanCategoryCreate, params CreatePlanCategoryParams) (CreatePlanCategoryRes, error) {
+	res, err := c.sendCreatePlanCategory(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreatePlanCategory(ctx context.Context, request *PlanCategoryCreate, params CreatePlanCategoryParams) (res CreatePlanCategoryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createPlanCategory"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/plan-categories"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreatePlanCategoryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/plan-categories"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreatePlanCategoryRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreatePlanCategoryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreatePlanCategoryResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -18415,6 +18775,137 @@ func (c *Client) sendGetPaymentRun(ctx context.Context, params GetPaymentRunPara
 	return result, nil
 }
 
+// GetPlanCategory invokes getPlanCategory operation.
+//
+// Returns one plan category.
+//
+// GET /v1/plan-categories/{id}
+func (c *Client) GetPlanCategory(ctx context.Context, params GetPlanCategoryParams) (GetPlanCategoryRes, error) {
+	res, err := c.sendGetPlanCategory(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetPlanCategory(ctx context.Context, params GetPlanCategoryParams) (res GetPlanCategoryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getPlanCategory"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/plan-categories/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetPlanCategoryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/plan-categories/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetPlanCategoryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetPlanCategoryResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetPrincipal invokes getPrincipal operation.
 //
 // Returns one principal.
@@ -26117,6 +26608,276 @@ func (c *Client) sendListCostCenterPaths(ctx context.Context, params ListCostCen
 	return result, nil
 }
 
+// ListCostCenterPlanActual invokes listCostCenterPlanActual operation.
+//
+// Plan against actual per cost center and account of one legal entity, plan category and fiscal year,
+// summed over a range of periods (ADR-0050 §8), in the legal entity's local currency: the category's
+// plan lines, the leading ledger's actuals exact at the moment of the read as
+// `GET /v1/cost-center-balances` reads them (ADR-0050 §7), the variance (actual less plan) and the
+// variance in percent of the plan (two decimals, rounded half away from zero; absent when the plan is
+// zero). A cost center and account with a plan or an actual has a row, the other side zero. A legal
+// entity the caller cannot act in, or a plan category that does not exist, has none. Rows are in the
+// order of `cost_center_id`, then `account_id`. The actuals are ledger amounts, so besides
+// `controlling.plan.read` the caller needs `ledger.entry.read`, as for the trial balance
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/cost-center-plan-actual
+func (c *Client) ListCostCenterPlanActual(ctx context.Context, params ListCostCenterPlanActualParams) (ListCostCenterPlanActualRes, error) {
+	res, err := c.sendListCostCenterPlanActual(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCostCenterPlanActual(ctx context.Context, params ListCostCenterPlanActualParams) (res ListCostCenterPlanActualRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCostCenterPlanActual"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/cost-center-plan-actual"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCostCenterPlanActualOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/cost-center-plan-actual"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "plan_category_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "plan_category_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.PlanCategoryID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.Int32ToString(params.FiscalYear))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period_from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period_from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriodFrom.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period_to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period_to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriodTo.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "cost_center_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "cost_center_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CostCenterID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "hierarchy_node_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "hierarchy_node_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.HierarchyNodeID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCostCenterPlanActualOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCostCenterPlanActualResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListCostCenters invokes listCostCenters operation.
 //
 // Cost centers of the legal entities the caller may act in, with their active periods. Sortable by:
@@ -32485,6 +33246,508 @@ func (c *Client) sendListPayments(ctx context.Context, params ListPaymentsParams
 	return result, nil
 }
 
+// ListPlanCategories invokes listPlanCategories operation.
+//
+// The tenant's plan categories (ADR-0050 §8), such as `PLAN` and `FORECAST`: open, or locked so their
+// plan does not move. Sortable by: `code`.
+//
+// GET /v1/plan-categories
+func (c *Client) ListPlanCategories(ctx context.Context, params ListPlanCategoriesParams) (ListPlanCategoriesRes, error) {
+	res, err := c.sendListPlanCategories(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListPlanCategories(ctx context.Context, params ListPlanCategoriesParams) (res ListPlanCategoriesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listPlanCategories"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/plan-categories"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListPlanCategoriesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/plan-categories"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "code" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "code",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Code.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Include.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListPlanCategoriesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListPlanCategoriesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListPlanLines invokes listPlanLines operation.
+//
+// The plan lines of a legal entity's fiscal year (ADR-0050 §8), of every category or one. A legal
+// entity the caller cannot act in has none. Sortable by: `fiscal_period`.
+//
+// GET /v1/plan-lines
+func (c *Client) ListPlanLines(ctx context.Context, params ListPlanLinesParams) (ListPlanLinesRes, error) {
+	res, err := c.sendListPlanLines(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListPlanLines(ctx context.Context, params ListPlanLinesParams) (res ListPlanLinesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listPlanLines"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/plan-lines"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListPlanLinesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/plan-lines"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.Int32ToString(params.FiscalYear))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "plan_category_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "plan_category_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PlanCategoryID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "cost_center_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "cost_center_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CostCenterID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "profit_center_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "profit_center_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.ProfitCenterID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "account_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "account_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.AccountID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "plan_batch_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "plan_batch_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PlanBatchID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Include.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListPlanLinesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListPlanLinesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListPrincipalNames invokes listPrincipalNames operation.
 //
 // The display name and kind of each principal of the caller's tenant among `ids` (ADR-0052 G3), so a
@@ -37198,6 +38461,167 @@ func (c *Client) sendLockFiscalPeriod(ctx context.Context, params LockFiscalPeri
 
 	stage = "DecodeResponse"
 	result, err := decodeLockFiscalPeriodResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// LockPlanCategory invokes lockPlanCategory operation.
+//
+// Locks an open plan category, so its plan does not move after the budget's approval (ADR-0050 §8):
+// batches for it are refused (409 `controlling.plan_category_locked`) until a person unlocks it. A
+// locked category is refused (409 `controlling.plan_category_locked`). Locking is a person's decision:
+// `controlling.plan.lock` is an approval permission, which agents cannot hold. Audited, and published
+// as PlanCategoryChanged.
+//
+// POST /v1/plan-categories/{id}:lock
+func (c *Client) LockPlanCategory(ctx context.Context, params LockPlanCategoryParams) (LockPlanCategoryRes, error) {
+	res, err := c.sendLockPlanCategory(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendLockPlanCategory(ctx context.Context, params LockPlanCategoryParams) (res LockPlanCategoryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("lockPlanCategory"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/plan-categories/{id}:lock"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, LockPlanCategoryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/plan-categories/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":lock"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, LockPlanCategoryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeLockPlanCategoryResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -47365,6 +48789,166 @@ func (c *Client) sendUnlockFiscalPeriod(ctx context.Context, request *ReasonInpu
 
 	stage = "DecodeResponse"
 	result, err := decodeUnlockFiscalPeriodResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UnlockPlanCategory invokes unlockPlanCategory operation.
+//
+// Opens a locked plan category again, so batches may replace its plan (ADR-0050 §8). An open category
+// is refused (409 `controlling.plan_category_open`). Unlocking is a person's decision:
+// `controlling.plan.lock` is an approval permission, which agents cannot hold. Audited, and published
+// as PlanCategoryChanged.
+//
+// POST /v1/plan-categories/{id}:unlock
+func (c *Client) UnlockPlanCategory(ctx context.Context, params UnlockPlanCategoryParams) (UnlockPlanCategoryRes, error) {
+	res, err := c.sendUnlockPlanCategory(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendUnlockPlanCategory(ctx context.Context, params UnlockPlanCategoryParams) (res UnlockPlanCategoryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("unlockPlanCategory"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/plan-categories/{id}:unlock"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UnlockPlanCategoryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/plan-categories/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":unlock"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UnlockPlanCategoryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUnlockPlanCategoryResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

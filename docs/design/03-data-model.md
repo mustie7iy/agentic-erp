@@ -2303,7 +2303,7 @@ line or reservation. An agent's budget is identity's
 ## 3.16 Later contexts
 
 `sales`, `receivables`, `inventory`, `manufacturing`, `maintenance`,
-`projects`, `hr`, `controlling`, `assets` follow the same patterns:
+`projects`, `hr`, `controlling` (plan values from T56g, §3.19), `assets` follow the same patterns:
 
 - documents as header + items with `document_number` from number ranges;
 - financial effects only through `ledger` postings (`source_context`,
@@ -2417,3 +2417,58 @@ active memo records on the banks not expired at the read (T53d), each
 occurrence on its value date moved to the next working day. Migration
 000152 seeds `cash.memo.read`, `cash.memo.write` and `cash.memo.propose`.
 
+## 3.19 Controlling (`controlling`)
+
+Plan values and plan against actual (ADR-0050 §2, §8, decision P5; T56g).
+Cost centers, profit centers, hierarchies and the actuals by assignment are
+the ledger's (§3.7); controlling reads them only through the ledger's
+published port `ledger.AssignmentBalances` (what a plan may name, the cost
+centers of a hierarchy node, the actuals by cost center and account), with
+no foreign key into the ledger's schema. Migration 000164 creates the schema,
+its outbox and the permissions `controlling.plan.read`,
+`controlling.plan.write` and `controlling.plan.lock` (an approval
+permission, which agents cannot hold).
+
+```mermaid
+erDiagram
+  plan_category ||--o{ plan_batch : "planned by"
+  plan_batch ||--o{ plan_line : "writes"
+  plan_batch ||--o{ plan_line : "replaces"
+  plan_category { uuid id PK
+    text code "unique; e.g. PLAN, FORECAST"
+    text name
+    bool locked }
+  plan_batch { uuid id PK
+    uuid category_id FK
+    uuid legal_entity_id "tenancy context"
+    smallint fiscal_year
+    text batch_key "once per category, company and year"
+    text digest "sha-256 of its lines"
+    int line_count
+    int replaced_count }
+  plan_line { uuid id PK
+    uuid batch_id FK
+    uuid category_id
+    uuid legal_entity_id
+    smallint fiscal_year
+    smallint fiscal_period
+    uuid cost_center_id "ledger context; or"
+    uuid profit_center_id "ledger context"
+    uuid account_id "ledger context"
+    bigint amount "local currency, minor units, debit positive"
+    numeric quantity
+    text uom_code
+    uuid replaced_by_batch_id FK }
+```
+
+| Table | Purpose |
+|---|---|
+| `controlling.plan_category` | A plan category (SAP's category for planning): code (`^[0-9A-Z_]{1,10}$`, unique), name, and `locked`; locked and unlocked by a person (`controlling.plan.lock`) with the caller's version, read FOR UPDATE; never deleted |
+| `controlling.plan_batch` | A batch applied, insert-only: its key once per category, company and year (`plan_batch_key_once`) and the digest of its lines, so the same batch again is recognised and changes nothing and the key with other lines is refused; at least one line; refused on a locked category (`plan_category_open`) |
+| `controlling.plan_line` | A line of a batch: one center (`plan_line_one_center`), a period 1-16, a P&L account, the amount in the company's local currency, an optional positive quantity with its unit (`plan_line_quantity_unit`); of its batch's category, company and year (foreign key). Never deleted: a later batch of the same category, company and year naming its center sets `replaced_by_batch_id` once (`plan_line_replaced_once`, `plan_line_replaced_later`), so the plan is the lines not replaced, one per category, company, year, center, account and period (`plan_line_once`, a partial unique index), and every earlier plan stays readable. Nothing is written or replaced on a locked category (`plan_category_open`, the category read FOR SHARE) |
+| `controlling.outbox`, `controlling.inbox` | The context's events (`PlanCategoryChanged`, `PlanBatchApplied`), relayed as every context's (`outbox.Contexts`) |
+
+Plan against actual (`GET /v1/cost-center-plan-actual`) stores nothing: the
+category's current lines are summed per cost center and account over the
+periods asked for and merged with the leading ledger's actuals, which the
+ledger reads as its cost center report does (§3.7, exact at the read).

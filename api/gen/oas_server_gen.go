@@ -78,6 +78,27 @@ type Handler interface {
 	//
 	// POST /v1/country-pack-applications
 	ApplyCountryPack(ctx context.Context, req *CountryPackApplication, params ApplyCountryPackParams) (ApplyCountryPackRes, error)
+	// ApplyPlanBatch implements applyPlanBatch operation.
+	//
+	// Uploads the plan of a category, legal entity and fiscal year for some of its centers (ADR-0050 §8):
+	// each line plans an amount in the legal entity's local currency (debit positive as on the journal:
+	// costs positive, revenue negative) on a cost center or a profit center and a profit and loss account
+	// in a period, with an optional quantity. The batch replaces the plan of its category, legal entity
+	// and year on every center it names: their earlier lines in the year, in every period and on every
+	// account, are deleted, and the batch's lines written; other centers' plans stay. Every line is
+	// checked first; if any is wrong nothing is written and the 422 `controlling.plan_batch_invalid` names
+	// every wrong field as `lines[N].field` (at most 100): a cost center must be an active one of the
+	// legal entity, a profit center an active one assigned to it, the account a profit and loss account
+	// set up in it, the period one of the year in its calendar, and a center, account and period at most
+	// once in the batch. Idempotent by `batch_key`: a key already applied to the category, legal entity
+	// and year with the same lines changes nothing, publishes nothing and returns the batch as it was
+	// applied (`replayed`), even after later batches; the key with other lines is refused (409
+	// `controlling.plan_batch_reused`). A locked category is refused (409
+	// `controlling.plan_category_locked`). Audited per batch, and published as PlanBatchApplied. Agents
+	// may not upload a plan.
+	//
+	// POST /v1/plan-batches
+	ApplyPlanBatch(ctx context.Context, req *PlanBatchCreate, params ApplyPlanBatchParams) (ApplyPlanBatchRes, error)
 	// ApproveApprovalRequest implements approveApprovalRequest operation.
 	//
 	// Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`);
@@ -395,6 +416,14 @@ type Handler interface {
 	//
 	// POST /v1/partner-changes
 	CreatePartnerChange(ctx context.Context, req *PartnerChangeCreate, params CreatePartnerChangeParams) (CreatePartnerChangeRes, error)
+	// CreatePlanCategory implements createPlanCategory operation.
+	//
+	// Creates an open plan category (ADR-0050 §8). A code is unique in the tenant (409
+	// `controlling.plan_category_exists`). Audited, and published as PlanCategoryChanged. Agents may not
+	// create one.
+	//
+	// POST /v1/plan-categories
+	CreatePlanCategory(ctx context.Context, req *PlanCategoryCreate, params CreatePlanCategoryParams) (CreatePlanCategoryRes, error)
 	// CreatePrincipal implements createPrincipal operation.
 	//
 	// Creates a person, agent or service principal. Identity administration is human-only. The request can
@@ -922,6 +951,12 @@ type Handler interface {
 	//
 	// GET /v1/payment-runs/{id}
 	GetPaymentRun(ctx context.Context, params GetPaymentRunParams) (GetPaymentRunRes, error)
+	// GetPlanCategory implements getPlanCategory operation.
+	//
+	// Returns one plan category.
+	//
+	// GET /v1/plan-categories/{id}
+	GetPlanCategory(ctx context.Context, params GetPlanCategoryParams) (GetPlanCategoryRes, error)
 	// GetPrincipal implements getPrincipal operation.
 	//
 	// Returns one principal.
@@ -1220,6 +1255,21 @@ type Handler interface {
 	//
 	// GET /v1/cost-centers/{id}/hierarchy-paths
 	ListCostCenterPaths(ctx context.Context, params ListCostCenterPathsParams) (ListCostCenterPathsRes, error)
+	// ListCostCenterPlanActual implements listCostCenterPlanActual operation.
+	//
+	// Plan against actual per cost center and account of one legal entity, plan category and fiscal year,
+	// summed over a range of periods (ADR-0050 §8), in the legal entity's local currency: the category's
+	// plan lines, the leading ledger's actuals exact at the moment of the read as
+	// `GET /v1/cost-center-balances` reads them (ADR-0050 §7), the variance (actual less plan) and the
+	// variance in percent of the plan (two decimals, rounded half away from zero; absent when the plan is
+	// zero). A cost center and account with a plan or an actual has a row, the other side zero. A legal
+	// entity the caller cannot act in, or a plan category that does not exist, has none. Rows are in the
+	// order of `cost_center_id`, then `account_id`. The actuals are ledger amounts, so besides
+	// `controlling.plan.read` the caller needs `ledger.entry.read`, as for the trial balance
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/cost-center-plan-actual
+	ListCostCenterPlanActual(ctx context.Context, params ListCostCenterPlanActualParams) (ListCostCenterPlanActualRes, error)
 	// ListCostCenters implements listCostCenters operation.
 	//
 	// Cost centers of the legal entities the caller may act in, with their active periods. Sortable by:
@@ -1421,6 +1471,20 @@ type Handler interface {
 	//
 	// GET /v1/payment-runs/{id}/payments
 	ListPayments(ctx context.Context, params ListPaymentsParams) (ListPaymentsRes, error)
+	// ListPlanCategories implements listPlanCategories operation.
+	//
+	// The tenant's plan categories (ADR-0050 §8), such as `PLAN` and `FORECAST`: open, or locked so their
+	// plan does not move. Sortable by: `code`.
+	//
+	// GET /v1/plan-categories
+	ListPlanCategories(ctx context.Context, params ListPlanCategoriesParams) (ListPlanCategoriesRes, error)
+	// ListPlanLines implements listPlanLines operation.
+	//
+	// The plan lines of a legal entity's fiscal year (ADR-0050 §8), of every category or one. A legal
+	// entity the caller cannot act in has none. Sortable by: `fiscal_period`.
+	//
+	// GET /v1/plan-lines
+	ListPlanLines(ctx context.Context, params ListPlanLinesParams) (ListPlanLinesRes, error)
 	// ListPrincipalNames implements listPrincipalNames operation.
 	//
 	// The display name and kind of each principal of the caller's tenant among `ids` (ADR-0052 G3), so a
@@ -1584,6 +1648,16 @@ type Handler interface {
 	//
 	// POST /v1/fiscal-periods/{id}:lock
 	LockFiscalPeriod(ctx context.Context, params LockFiscalPeriodParams) (LockFiscalPeriodRes, error)
+	// LockPlanCategory implements lockPlanCategory operation.
+	//
+	// Locks an open plan category, so its plan does not move after the budget's approval (ADR-0050 §8):
+	// batches for it are refused (409 `controlling.plan_category_locked`) until a person unlocks it. A
+	// locked category is refused (409 `controlling.plan_category_locked`). Locking is a person's decision:
+	// `controlling.plan.lock` is an approval permission, which agents cannot hold. Audited, and published
+	// as PlanCategoryChanged.
+	//
+	// POST /v1/plan-categories/{id}:lock
+	LockPlanCategory(ctx context.Context, params LockPlanCategoryParams) (LockPlanCategoryRes, error)
 	// LockProfitCenter implements lockProfitCenter operation.
 	//
 	// Sets or clears the profit center's lock from `valid_from` to `valid_to` (exclusive; absent: to the
@@ -2368,6 +2442,15 @@ type Handler interface {
 	//
 	// POST /v1/fiscal-periods/{id}:unlock
 	UnlockFiscalPeriod(ctx context.Context, req *ReasonInput, params UnlockFiscalPeriodParams) (UnlockFiscalPeriodRes, error)
+	// UnlockPlanCategory implements unlockPlanCategory operation.
+	//
+	// Opens a locked plan category again, so batches may replace its plan (ADR-0050 §8). An open category
+	// is refused (409 `controlling.plan_category_open`). Unlocking is a person's decision:
+	// `controlling.plan.lock` is an approval permission, which agents cannot hold. Audited, and published
+	// as PlanCategoryChanged.
+	//
+	// POST /v1/plan-categories/{id}:unlock
+	UnlockPlanCategory(ctx context.Context, params UnlockPlanCategoryParams) (UnlockPlanCategoryRes, error)
 	// UpdateAiPolicy implements updateAiPolicy operation.
 	//
 	// Changes the policy. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` removes the

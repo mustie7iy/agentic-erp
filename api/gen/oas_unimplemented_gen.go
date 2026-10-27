@@ -104,6 +104,30 @@ func (UnimplementedHandler) ApplyCountryPack(ctx context.Context, req *CountryPa
 	return r, ht.ErrNotImplemented
 }
 
+// ApplyPlanBatch implements applyPlanBatch operation.
+//
+// Uploads the plan of a category, legal entity and fiscal year for some of its centers (ADR-0050 §8):
+// each line plans an amount in the legal entity's local currency (debit positive as on the journal:
+// costs positive, revenue negative) on a cost center or a profit center and a profit and loss account
+// in a period, with an optional quantity. The batch replaces the plan of its category, legal entity
+// and year on every center it names: their earlier lines in the year, in every period and on every
+// account, are deleted, and the batch's lines written; other centers' plans stay. Every line is
+// checked first; if any is wrong nothing is written and the 422 `controlling.plan_batch_invalid` names
+// every wrong field as `lines[N].field` (at most 100): a cost center must be an active one of the
+// legal entity, a profit center an active one assigned to it, the account a profit and loss account
+// set up in it, the period one of the year in its calendar, and a center, account and period at most
+// once in the batch. Idempotent by `batch_key`: a key already applied to the category, legal entity
+// and year with the same lines changes nothing, publishes nothing and returns the batch as it was
+// applied (`replayed`), even after later batches; the key with other lines is refused (409
+// `controlling.plan_batch_reused`). A locked category is refused (409
+// `controlling.plan_category_locked`). Audited per batch, and published as PlanBatchApplied. Agents
+// may not upload a plan.
+//
+// POST /v1/plan-batches
+func (UnimplementedHandler) ApplyPlanBatch(ctx context.Context, req *PlanBatchCreate, params ApplyPlanBatchParams) (r ApplyPlanBatchRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ApproveApprovalRequest implements approveApprovalRequest operation.
 //
 // Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`);
@@ -526,6 +550,17 @@ func (UnimplementedHandler) CreateOrgUnit(ctx context.Context, req *OrgUnitCreat
 //
 // POST /v1/partner-changes
 func (UnimplementedHandler) CreatePartnerChange(ctx context.Context, req *PartnerChangeCreate, params CreatePartnerChangeParams) (r CreatePartnerChangeRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreatePlanCategory implements createPlanCategory operation.
+//
+// Creates an open plan category (ADR-0050 §8). A code is unique in the tenant (409
+// `controlling.plan_category_exists`). Audited, and published as PlanCategoryChanged. Agents may not
+// create one.
+//
+// POST /v1/plan-categories
+func (UnimplementedHandler) CreatePlanCategory(ctx context.Context, req *PlanCategoryCreate, params CreatePlanCategoryParams) (r CreatePlanCategoryRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1254,6 +1289,15 @@ func (UnimplementedHandler) GetPaymentRun(ctx context.Context, params GetPayment
 	return r, ht.ErrNotImplemented
 }
 
+// GetPlanCategory implements getPlanCategory operation.
+//
+// Returns one plan category.
+//
+// GET /v1/plan-categories/{id}
+func (UnimplementedHandler) GetPlanCategory(ctx context.Context, params GetPlanCategoryParams) (r GetPlanCategoryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetPrincipal implements getPrincipal operation.
 //
 // Returns one principal.
@@ -1678,6 +1722,24 @@ func (UnimplementedHandler) ListCostCenterPaths(ctx context.Context, params List
 	return r, ht.ErrNotImplemented
 }
 
+// ListCostCenterPlanActual implements listCostCenterPlanActual operation.
+//
+// Plan against actual per cost center and account of one legal entity, plan category and fiscal year,
+// summed over a range of periods (ADR-0050 §8), in the legal entity's local currency: the category's
+// plan lines, the leading ledger's actuals exact at the moment of the read as
+// `GET /v1/cost-center-balances` reads them (ADR-0050 §7), the variance (actual less plan) and the
+// variance in percent of the plan (two decimals, rounded half away from zero; absent when the plan is
+// zero). A cost center and account with a plan or an actual has a row, the other side zero. A legal
+// entity the caller cannot act in, or a plan category that does not exist, has none. Rows are in the
+// order of `cost_center_id`, then `account_id`. The actuals are ledger amounts, so besides
+// `controlling.plan.read` the caller needs `ledger.entry.read`, as for the trial balance
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/cost-center-plan-actual
+func (UnimplementedHandler) ListCostCenterPlanActual(ctx context.Context, params ListCostCenterPlanActualParams) (r ListCostCenterPlanActualRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListCostCenters implements listCostCenters operation.
 //
 // Cost centers of the legal entities the caller may act in, with their active periods. Sortable by:
@@ -1960,6 +2022,26 @@ func (UnimplementedHandler) ListPayments(ctx context.Context, params ListPayment
 	return r, ht.ErrNotImplemented
 }
 
+// ListPlanCategories implements listPlanCategories operation.
+//
+// The tenant's plan categories (ADR-0050 §8), such as `PLAN` and `FORECAST`: open, or locked so their
+// plan does not move. Sortable by: `code`.
+//
+// GET /v1/plan-categories
+func (UnimplementedHandler) ListPlanCategories(ctx context.Context, params ListPlanCategoriesParams) (r ListPlanCategoriesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListPlanLines implements listPlanLines operation.
+//
+// The plan lines of a legal entity's fiscal year (ADR-0050 §8), of every category or one. A legal
+// entity the caller cannot act in has none. Sortable by: `fiscal_period`.
+//
+// GET /v1/plan-lines
+func (UnimplementedHandler) ListPlanLines(ctx context.Context, params ListPlanLinesParams) (r ListPlanLinesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListPrincipalNames implements listPrincipalNames operation.
 //
 // The display name and kind of each principal of the caller's tenant among `ids` (ADR-0052 G3), so a
@@ -2183,6 +2265,19 @@ func (UnimplementedHandler) LockCostCenter(ctx context.Context, req *CostCenterL
 //
 // POST /v1/fiscal-periods/{id}:lock
 func (UnimplementedHandler) LockFiscalPeriod(ctx context.Context, params LockFiscalPeriodParams) (r LockFiscalPeriodRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// LockPlanCategory implements lockPlanCategory operation.
+//
+// Locks an open plan category, so its plan does not move after the budget's approval (ADR-0050 §8):
+// batches for it are refused (409 `controlling.plan_category_locked`) until a person unlocks it. A
+// locked category is refused (409 `controlling.plan_category_locked`). Locking is a person's decision:
+// `controlling.plan.lock` is an approval permission, which agents cannot hold. Audited, and published
+// as PlanCategoryChanged.
+//
+// POST /v1/plan-categories/{id}:lock
+func (UnimplementedHandler) LockPlanCategory(ctx context.Context, params LockPlanCategoryParams) (r LockPlanCategoryRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3153,6 +3248,18 @@ func (UnimplementedHandler) UnblockOrgUnit(ctx context.Context, params UnblockOr
 //
 // POST /v1/fiscal-periods/{id}:unlock
 func (UnimplementedHandler) UnlockFiscalPeriod(ctx context.Context, req *ReasonInput, params UnlockFiscalPeriodParams) (r UnlockFiscalPeriodRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UnlockPlanCategory implements unlockPlanCategory operation.
+//
+// Opens a locked plan category again, so batches may replace its plan (ADR-0050 §8). An open category
+// is refused (409 `controlling.plan_category_open`). Unlocking is a person's decision:
+// `controlling.plan.lock` is an approval permission, which agents cannot hold. Audited, and published
+// as PlanCategoryChanged.
+//
+// POST /v1/plan-categories/{id}:unlock
+func (UnimplementedHandler) UnlockPlanCategory(ctx context.Context, params UnlockPlanCategoryParams) (r UnlockPlanCategoryRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

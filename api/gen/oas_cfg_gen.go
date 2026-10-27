@@ -59,6 +59,7 @@ var regexMap = map[string]ogenregex.Regexp{
 	"^[a-z_]+( (asc|desc))?(, ?[a-z_]+( (asc|desc))?)*$": ogenregex.MustCompile("^[a-z_]+( (asc|desc))?(, ?[a-z_]+( (asc|desc))?)*$"),
 	"^[a-z_]+(\\.[a-z_]+)+$":                             ogenregex.MustCompile("^[a-z_]+(\\.[a-z_]+)+$"),
 	"^[a-z_]+\\.[a-z_]+$":                                ogenregex.MustCompile("^[a-z_]+\\.[a-z_]+$"),
+	"^\\S(.*\\S)?$":                                      ogenregex.MustCompile("^\\S(.*\\S)?$"),
 }
 var (
 	// Allocate option closure once.

@@ -30,6 +30,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/capture"
 	"github.com/mustie7iy/agentic-erp/internal/cash"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	"github.com/mustie7iy/agentic-erp/internal/controlling"
 	"github.com/mustie7iy/agentic-erp/internal/countrypack"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
@@ -76,6 +77,7 @@ type (
 	agentsAPI      = agents.Endpoints
 	analyticsAPI   = endpoint.Endpoints
 	cashAPI        = cash.Endpoints
+	controllingAPI = controlling.Endpoints
 )
 
 // handler is the generated Handler: one embedded endpoint set per context.
@@ -96,6 +98,7 @@ type handler struct {
 	*agentsAPI
 	*analyticsAPI
 	*cashAPI
+	*controllingAPI
 }
 
 // Config is what the API needs.
@@ -206,6 +209,7 @@ func New(cfg Config) (http.Handler, error) {
 		agentsAPI:      &agents.Endpoints{Pages: cfg.Pages, Countries: tenancy.Countries, Certifications: certifications(cfg)},
 		analyticsAPI:   analyticsEndpoints(cfg, loopback).Init(),
 		cashAPI:        Cash(cfg),
+		controllingAPI: &controlling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{}},
 	}
 	return httpapi.New(h, httpapi.Pipeline{
 		Pool: cfg.Pool, AppRole: cfg.AppRole, Verifier: cfg.Verifier, Limits: cfg.Limits, RequestTimeout: cfg.RequestTimeout,
