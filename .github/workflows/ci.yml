@@ -429,10 +429,20 @@ jobs:
         # otherwise one build for the scan. A manual run has no base to
         # compare with, so it always builds twice.
         # Both platforms, as .ko.yaml lists them; a pull request's author
-        # built linux/amd64 (scripts/ci-local.sh).
+        # built linux/amd64 (scripts/ci-local.sh). ko builds one binary and
+        # platform at a time (scripts/images.sh): with two at once, each
+        # compiling api/gen cold, the runner was stopped 6 minutes into the
+        # first build (runs 40460447291 and 40547406558). Memory and disk are
+        # logged every 30 s, as in the race step.
         env:
           IMAGES_CHANGED: ${{ needs.changes.outputs.images }}
         run: |
+          echo "cpus $(nproc)"; free -m
+          ( while sleep 30; do
+              echo "monitor $(date -u +%T) $(free -m | awk 'NR==2{print "memory used "$3" of "$2" MiB, available "$7}'), $(df -h / | awk 'NR==2{print "disk free "$4}')"
+            done ) &
+          monitor=$!
+          trap 'kill "$monitor" 2>/dev/null || true' EXIT
           if [ "$IMAGES_CHANGED" != false ]; then
             make images-reproducible
           else

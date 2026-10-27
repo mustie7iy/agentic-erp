@@ -18,7 +18,10 @@ Dockerfile, on `gcr.io/distroless/static-debian12:nonroot` pinned by the
 digest of its multi-platform index: no shell or package manager, uid 65532,
 CA certificates and time zones included. Platforms linux/amd64 and
 linux/arm64. The weekly run fails when the tag has moved off the pinned
-digest, so a new base comes in a reviewed change.
+digest, so a new base comes in a reviewed change. ko builds one binary and
+platform at a time (`--jobs=1`): three of the binaries compile `api/gen`,
+about 3 GB each with an empty cache, and two at once stopped CI's 7938 MiB
+runner (2026-10-27).
 
 **Reproducible.** Layers are dated at the epoch and the binaries carry no
 path or build id, so an image's digest is a function of the commit and

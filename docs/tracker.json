@@ -8343,6 +8343,13 @@
       "r": "scripts/budgets.sh · internal/procurement/grir_test.go TestGoodsReceiptBudget · T47d",
       "src": "ci:batch15",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "Main's manual full runs 40460447291 and 40547406558 (2026-10-27) stopped by the runner 6 minutes into the image reproducibility gate, after every test had passed: ko ran as many builds as CPUs, so on the 2-CPU, 7938 MiB runner erp-server compiled api/gen cold for both platforms at once (measured cold at GOMAXPROCS=2: ko's build peaks at 6484 MiB that way, 3843 MiB one at a time, same digests); scripts/images.sh runs ko with --jobs=1, which scripts/test-images.sh holds, and the image step logs memory every 30 s as the race step does; the verifying run on main is still to come",
+      "r": "scripts/images.sh · scripts/test-images.sh · .github/workflows/ci.yml · ADR-0032 · 06 §6.5",
+      "src": "ci:batch15",
+      "c": []
      }
     ]
    },
