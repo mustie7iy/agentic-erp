@@ -70,8 +70,9 @@ func scanBatch(r pgx.Row) (Batch, error) {
 	return b, errs.Wrapf(err, "controlling: scan plan batch")
 }
 
-func batchInvalid(errs ...problem.FieldError) error {
-	return problem.Unprocessable("controlling.plan_batch_invalid", "The batch's lines are not a plan; nothing was written.", errs[:min(len(errs), maxLineErrors)]...)
+func batchInvalid(fields ...problem.FieldError) error {
+	return problem.Unprocessable("controlling.plan_batch_invalid", "The batch's lines are not a plan; nothing was written.",
+		fields[:min(len(fields), maxLineErrors)]...)
 }
 
 func lineError(i int, field, message string) problem.FieldError {
@@ -245,11 +246,14 @@ func digestOf(lines []planLine) string {
 // centers are the lines' cost centers and profit centers, each once.
 func centers(lines []planLine) (costCenters, profitCenters []uuid.UUID) {
 	costCenters, profitCenters = []uuid.UUID{}, []uuid.UUID{}
+	seen := map[uuid.UUID]bool{}
 	for _, l := range lines {
-		if l.costCenter != nil && !slices.Contains(costCenters, *l.costCenter) {
+		if l.costCenter != nil && !seen[*l.costCenter] {
+			seen[*l.costCenter] = true
 			costCenters = append(costCenters, *l.costCenter)
 		}
-		if l.profitCenter != nil && !slices.Contains(profitCenters, *l.profitCenter) {
+		if l.profitCenter != nil && !seen[*l.profitCenter] {
+			seen[*l.profitCenter] = true
 			profitCenters = append(profitCenters, *l.profitCenter)
 		}
 	}

@@ -1493,15 +1493,15 @@ func (s *Server) handleApplyCountryPackRequest(args [0]string, argsEscaped bool,
 // costs positive, revenue negative) on a cost center or a profit center and a profit and loss account
 // in a period, with an optional quantity. The batch replaces the plan of its category, legal entity
 // and year on every center it names: their earlier lines in the year, in every period and on every
-// account, are deleted, and the batch's lines written; other centers' plans stay. Every line is
-// checked first; if any is wrong nothing is written and the 422 `controlling.plan_batch_invalid` names
-// every wrong field as `lines[N].field` (at most 100): a cost center must be an active one of the
-// legal entity, a profit center an active one assigned to it, the account a profit and loss account
-// set up in it, the period one of the year in its calendar, and a center, account and period at most
-// once in the batch. Idempotent by `batch_key`: a key already applied to the category, legal entity
-// and year with the same lines changes nothing, publishes nothing and returns the batch as it was
-// applied (`replayed`), even after later batches; the key with other lines is refused (409
-// `controlling.plan_batch_reused`). A locked category is refused (409
+// account, are marked replaced (never deleted: `replaced_by_batch_id`), and the batch's lines written;
+// other centers' plans stay. Every line is checked first; if any is wrong nothing is written and the
+// 422 `controlling.plan_batch_invalid` names every wrong field as `lines[N].field` (at most 100): a
+// cost center must be an active one of the legal entity, a profit center an active one assigned to it,
+// the account a profit and loss account set up in it, the period one of the year in its calendar, and
+// a center, account and period at most once in the batch. Idempotent by `batch_key`: a key already
+// applied to the category, legal entity and year with the same lines changes nothing, publishes
+// nothing and returns the batch as it was applied (`replayed`), even after later batches; the key with
+// other lines is refused (409 `controlling.plan_batch_reused`). A locked category is refused (409
 // `controlling.plan_category_locked`). Audited per batch, and published as PlanBatchApplied. Agents
 // may not upload a plan.
 //

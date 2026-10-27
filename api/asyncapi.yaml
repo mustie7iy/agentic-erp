@@ -3215,7 +3215,7 @@ components:
         fiscal_year: {type: integer}
         batch_key: {type: string}
         line_count: {type: integer, description: The lines the batch wrote.}
-        replaced_count: {type: integer, description: The earlier lines of its centers it deleted.}
+        replaced_count: {type: integer, description: "The earlier lines of its centers it marked replaced (kept, never deleted)."}
         cost_center_ids: {type: array, items: {$ref: '#/components/schemas/Uuid'}, description: The cost centers whose plan the batch replaced.}
         profit_center_ids: {type: array, items: {$ref: '#/components/schemas/Uuid'}, description: The profit centers whose plan the batch replaced.}
     SegmentChangedV1:

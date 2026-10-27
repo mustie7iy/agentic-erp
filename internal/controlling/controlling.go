@@ -33,8 +33,8 @@ func init() {
 	// Each constraint by its name: TestProblemCodes reads the names to
 	// place each constraint's problem on the operations writing it. A new
 	// category's code is checked by its constraint alone; a locked
-	// category is refused by the application first, and by the trigger
-	// only when a check loses a race.
+	// category is refused by the application, which holds the category
+	// FOR UPDATE, and the trigger backs that up for any other writer.
 	problem.RegisterConstraint("plan_category_code_once", func() *problem.Problem {
 		return problem.Conflict("controlling.plan_category_exists", "A plan category with this code already exists.")
 	})

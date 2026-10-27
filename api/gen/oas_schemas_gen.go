@@ -28529,7 +28529,7 @@ type PlanBatch struct {
 	BatchKey string `json:"batch_key"`
 	// The lines the batch wrote.
 	LineCount int32 `json:"line_count"`
-	// The earlier lines of the batch's centers it deleted.
+	// The earlier lines of the batch's centers it marked replaced (they are kept, never deleted).
 	ReplacedCount int32 `json:"replaced_count"`
 	// Whether the batch key had already been applied with these lines, so nothing changed.
 	Replayed bool `json:"replayed"`

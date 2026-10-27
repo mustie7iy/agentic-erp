@@ -3,6 +3,7 @@ package controlling_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -176,4 +177,31 @@ func TestPlanLockWaitsForABatch(t *testing.T) {
 	}
 	wantList(t, "plan locked after the batch", p.lines(t, ""), []string{"1000/520000/1 1.00"})
 	p.Problem(409, "controlling.plan_category_locked", "POST", "/v1/plan-batches", p.batchBody(cat.String(), "c", line(p.c.Admin, p.office, 1, "2.00")), "")
+}
+
+// TestPlanBatchConcurrentReplay: the same batch sent twice at once is
+// applied once: the second waits for the category the first holds, then
+// finds the first's batch and answers it as replayed.
+func TestPlanBatchConcurrentReplay(t *testing.T) {
+	p := setup(t)
+	h := endpoints(t)
+	cat := uuid.MustParse(p.category(t, "PLAN"))
+	var replayed []bool
+	apply := func(ctx context.Context) error {
+		res, err := h.ApplyPlanBatch(ctx, &gen.PlanBatchCreate{PlanCategoryID: cat, LegalEntityID: p.DE, FiscalYear: 2026, BatchKey: "b",
+			Lines: []gen.PlanBatchLine{{CostCenterID: gen.NewOptUUID(p.c.Admin), AccountID: p.office, FiscalPeriod: 1,
+				Amount: gen.Money{Amount: "1.00", Currency: "EUR"}}}}, gen.ApplyPlanBatchParams{})
+		if err == nil {
+			replayed = append(replayed, res.(*gen.PlanBatchHeaders).Response.Replayed)
+		}
+		return err
+	}
+	if err := errors.Join(apitest.Serialized(t, p.Tenant, p.Tenant.Human, apply, apply)); err != nil {
+		t.Fatal(err)
+	}
+	want(t, "first and second replayed", fmt.Sprint(replayed), "[false true]")
+	want(t, "events", len(p.events(t, "plan_batch_applied")), 1)
+	var batches int
+	pgtest.Scan(t, `SELECT count(*) FROM controlling.plan_batch WHERE tenant_id = $1`, []any{p.Tenant.ID}, &batches)
+	want(t, "batches", batches, 1)
 }
