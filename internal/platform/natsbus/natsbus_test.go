@@ -2,6 +2,7 @@ package natsbus_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -36,14 +37,23 @@ func TestPublishDeduplicatesByEventID(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	nc, _ := nats.Connect(url)
+	nc, err := nats.Connect(url)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer nc.Close()
-	js, _ := jetstream.New(nc)
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatal(err)
+	}
 	stream, err := js.Stream(ctx, natsbus.StreamName("eu1", "platform"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	info, _ := stream.Info(ctx)
+	info, err := stream.Info(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if info.State.Msgs != 1 {
 		t.Fatalf("stored %d messages, want 1 (de-duplicated)", info.State.Msgs)
 	}
@@ -68,9 +78,12 @@ func TestConnectAndStreamErrors(t *testing.T) {
 		t.Fatal("unreachable server accepted")
 	}
 	url := natstest.Server(t)
-	bus, _ := natsbus.Connect(url)
+	bus, err := natsbus.Connect(url)
+	if err != nil {
+		t.Fatal(err)
+	}
 	bus.Close()
-	if err := bus.EnsureStreams(context.Background(), "eu1"); err == nil {
-		t.Fatal("closed connection accepted")
+	if err := bus.EnsureStreams(context.Background(), "eu1"); !errors.Is(err, nats.ErrConnectionClosed) {
+		t.Fatalf("streams on a closed connection: got %v, want %v", err, nats.ErrConnectionClosed)
 	}
 }

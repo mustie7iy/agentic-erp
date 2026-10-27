@@ -143,11 +143,12 @@ func TestConsumerFailures(t *testing.T) {
 	url := natstest.Server(t)
 	b := connect(t, url)
 	ctx := t.Context()
-	if _, err := b.Consume(ctx, "eu1", "test", []string{"nowhere"}, (&seen{}).handle); err == nil {
-		t.Error("consumer on a missing stream: got nil error, want one")
+	if _, err := b.Consume(ctx, "eu1", "test", []string{"nowhere"}, (&seen{}).handle); !errors.Is(err, jetstream.ErrStreamNotFound) {
+		t.Errorf("consumer on a missing stream: got %v, want %v", err, jetstream.ErrStreamNotFound)
 	}
 	// A failed handler hands the event back after the default wait.
-	failing, err := b.Consume(ctx, "eu1", "nak", []string{"ledger"}, func(context.Context, outbox.Message) error { return errors.New("not now") })
+	errNotNow := errors.New("not now")
+	failing, err := b.Consume(ctx, "eu1", "nak", []string{"ledger"}, func(context.Context, outbox.Message) error { return errNotNow })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,8 +160,11 @@ func TestConsumerFailures(t *testing.T) {
 		n, err = failing.RunOnce(ctx)
 		return err != nil || n != 0
 	}, "failed handler: the event never arrived")
-	if err == nil || n != 0 {
-		t.Errorf("failed handler: handled %d, error %v; want 0 and an error", n, err)
+	if n != 0 {
+		t.Errorf("failed handler: handled %d, want 0", n)
+	}
+	if !errors.Is(err, errNotNow) {
+		t.Errorf("failed handler: got %v, want %v", err, errNotNow)
 	}
 	// A consumer deleted under the reader answers the fetch with an error.
 	nc, err := nats.Connect(url)
@@ -175,6 +179,8 @@ func TestConsumerFailures(t *testing.T) {
 	if err := js.DeleteConsumer(ctx, natsbus.StreamName("eu1", "ledger"), "nak"); err != nil {
 		t.Fatal(err)
 	}
+	// Which error reports the deletion is the client library's choice (it
+	// answers "no responders" today), so only the failure is asserted.
 	if _, err := failing.RunOnce(ctx); err == nil {
 		t.Error("fetch from a deleted consumer: got nil error, want one")
 	}
@@ -193,10 +199,13 @@ func TestConsumerFailures(t *testing.T) {
 		n, err = c.RunOnce(ctx)
 		return err != nil || n != 0
 	}, "lost acknowledgement: the event never arrived")
-	if err == nil || n != 0 {
-		t.Errorf("lost acknowledgement: handled %d, error %v; want 0 and an error", n, err)
+	if n != 0 {
+		t.Errorf("lost acknowledgement: handled %d, want 0", n)
 	}
-	if _, err := c.RunOnce(ctx); err == nil {
-		t.Error("fetch on a closed connection: got nil error, want one")
+	if !errors.Is(err, nats.ErrConnectionClosed) {
+		t.Errorf("lost acknowledgement: got %v, want %v", err, nats.ErrConnectionClosed)
+	}
+	if _, err := c.RunOnce(ctx); !errors.Is(err, nats.ErrConnectionClosed) {
+		t.Errorf("fetch on a closed connection: got %v, want %v", err, nats.ErrConnectionClosed)
 	}
 }

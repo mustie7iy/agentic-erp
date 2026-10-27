@@ -6,9 +6,10 @@
 # ones (the images, the signing round trip, the release scripts, the
 # deploy workflow, the promotion self-test) run on the classes
 # scripts/ci-changes.sh gives GitHub, so a change skips here exactly what
-# main's push run skips (the image reproducibility gate, which only the
-# manual runs hold, on the same classes); a skipped step is
-# listed as skip with its reason.
+# main's push run skips, except the image reproducibility gate: no push run
+# holds it (main's manual runs build twice every time, as does the weekly
+# images job, on Sundays and on a dispatch of all or images), so here it
+# runs on the same classes. A skipped step is listed as skip with its reason.
 # Every step runs even after one fails, so one run shows every failure;
 # each step's output is kept in its own log.
 #

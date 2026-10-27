@@ -8311,6 +8311,13 @@
      },
      {
       "s": "D",
+      "t": "Pre-existing review findings on the natsbus fix forward (#58) and on main's full suite on demand (REVIEW.md, PO 2026-10-26): every discarded error in the touched tests is handled (natsbus_test.go, consumer_test.go, cmd/erp-server/main_test.go, internal/nfr/resilience_test.go; requests through the test's request helper); the consumer's failure checks assert the cause with errors.Is (nats.ErrConnectionClosed after the connection closes, the handler's own error, jetstream.ErrStreamNotFound), the deleted consumer still any error, as the library chooses which; 06 §6.5, ci-local.sh and ci.yml say that main's manual runs and weekly.yml's images job hold the image reproducibility gate, not the manual runs alone",
+      "r": "internal/platform/natsbus · cmd/erp-server/main_test.go · internal/nfr/resilience_test.go · scripts/ci-local.sh · .github/workflows/ci.yml · 06 §6.5",
+      "src": "po:2026-10-26",
+      "c": []
+     },
+     {
+      "s": "D",
       "t": "Nightly: long load, resilience, two-hour soak, five minutes of fuzzing per target",
       "r": ".github/workflows/nightly.yml",
       "src": "baseline",
