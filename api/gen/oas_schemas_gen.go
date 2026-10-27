@@ -10563,6 +10563,235 @@ func (s *CostCenter) SetPendingChangeID(val OptUUID) {
 	s.PendingChangeID = val
 }
 
+// Actual period totals of a cost center on one account in one transaction currency (ADR-0050 §7).
+// Ref: #/components/schemas/CostCenterBalance
+type CostCenterBalance struct {
+	// Ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Cost center.
+	CostCenterID uuid.UUID `json:"cost_center_id"`
+	// The cost center's code.
+	CostCenterCode string `json:"cost_center_code"`
+	// Account.
+	AccountID uuid.UUID `json:"account_id"`
+	// Fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// Fiscal period.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// Transaction currency of the totals.
+	Currency string `json:"currency"`
+	// Debit total in transaction currency.
+	Debit Money `json:"debit"`
+	// Credit total in transaction currency (positive).
+	Credit Money `json:"credit"`
+	// Debit total in local currency.
+	DebitLc Money `json:"debit_lc"`
+	// Credit total in local currency (positive).
+	CreditLc Money `json:"credit_lc"`
+	// Debit total in group currency.
+	DebitGc Money `json:"debit_gc"`
+	// Credit total in group currency (positive).
+	CreditGc Money `json:"credit_gc"`
+	// When the row's latest projected or pending line was added.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *CostCenterBalance) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CostCenterBalance) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *CostCenterBalance) GetCostCenterID() uuid.UUID {
+	return s.CostCenterID
+}
+
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *CostCenterBalance) GetCostCenterCode() string {
+	return s.CostCenterCode
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *CostCenterBalance) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *CostCenterBalance) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *CostCenterBalance) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CostCenterBalance) GetCurrency() string {
+	return s.Currency
+}
+
+// GetDebit returns the value of Debit.
+func (s *CostCenterBalance) GetDebit() Money {
+	return s.Debit
+}
+
+// GetCredit returns the value of Credit.
+func (s *CostCenterBalance) GetCredit() Money {
+	return s.Credit
+}
+
+// GetDebitLc returns the value of DebitLc.
+func (s *CostCenterBalance) GetDebitLc() Money {
+	return s.DebitLc
+}
+
+// GetCreditLc returns the value of CreditLc.
+func (s *CostCenterBalance) GetCreditLc() Money {
+	return s.CreditLc
+}
+
+// GetDebitGc returns the value of DebitGc.
+func (s *CostCenterBalance) GetDebitGc() Money {
+	return s.DebitGc
+}
+
+// GetCreditGc returns the value of CreditGc.
+func (s *CostCenterBalance) GetCreditGc() Money {
+	return s.CreditGc
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *CostCenterBalance) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *CostCenterBalance) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CostCenterBalance) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *CostCenterBalance) SetCostCenterID(val uuid.UUID) {
+	s.CostCenterID = val
+}
+
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *CostCenterBalance) SetCostCenterCode(val string) {
+	s.CostCenterCode = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *CostCenterBalance) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *CostCenterBalance) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *CostCenterBalance) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CostCenterBalance) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetDebit sets the value of Debit.
+func (s *CostCenterBalance) SetDebit(val Money) {
+	s.Debit = val
+}
+
+// SetCredit sets the value of Credit.
+func (s *CostCenterBalance) SetCredit(val Money) {
+	s.Credit = val
+}
+
+// SetDebitLc sets the value of DebitLc.
+func (s *CostCenterBalance) SetDebitLc(val Money) {
+	s.DebitLc = val
+}
+
+// SetCreditLc sets the value of CreditLc.
+func (s *CostCenterBalance) SetCreditLc(val Money) {
+	s.CreditLc = val
+}
+
+// SetDebitGc sets the value of DebitGc.
+func (s *CostCenterBalance) SetDebitGc(val Money) {
+	s.DebitGc = val
+}
+
+// SetCreditGc sets the value of CreditGc.
+func (s *CostCenterBalance) SetCreditGc(val Money) {
+	s.CreditGc = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *CostCenterBalance) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// One page of cost center balances.
+// Ref: #/components/schemas/CostCenterBalancePage
+type CostCenterBalancePage struct {
+	// The cost center balances on this page.
+	Items []CostCenterBalance `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *CostCenterBalancePage) GetItems() []CostCenterBalance {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CostCenterBalancePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *CostCenterBalancePage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *CostCenterBalancePage) SetItems(val []CostCenterBalance) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CostCenterBalancePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *CostCenterBalancePage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+func (*CostCenterBalancePage) listCostCenterBalancesRes() {}
+
 // A new cost center and its first period.
 // Ref: #/components/schemas/CostCenterCreate
 type CostCenterCreate struct {
@@ -19594,6 +19823,14 @@ type ListContractsForbidden Problem
 
 func (*ListContractsForbidden) listContractsRes() {}
 
+type ListCostCenterBalancesBadRequest Problem
+
+func (*ListCostCenterBalancesBadRequest) listCostCenterBalancesRes() {}
+
+type ListCostCenterBalancesForbidden Problem
+
+func (*ListCostCenterBalancesForbidden) listCostCenterBalancesRes() {}
+
 type ListCostCenterPathsBadRequest Problem
 
 func (*ListCostCenterPathsBadRequest) listCostCenterPathsRes() {}
@@ -19849,6 +20086,14 @@ func (*ListPrincipalsBadRequest) listPrincipalsRes() {}
 type ListPrincipalsForbidden Problem
 
 func (*ListPrincipalsForbidden) listPrincipalsRes() {}
+
+type ListProfitCenterBalancesBadRequest Problem
+
+func (*ListProfitCenterBalancesBadRequest) listProfitCenterBalancesRes() {}
+
+type ListProfitCenterBalancesForbidden Problem
+
+func (*ListProfitCenterBalancesForbidden) listProfitCenterBalancesRes() {}
 
 type ListProfitCenterPathsBadRequest Problem
 
@@ -22796,11 +23041,96 @@ func (s *OpenItem) SetSpecialGl(val OptString) {
 	s.SpecialGl = val
 }
 
+// The open items of one aging bucket in one local currency (ADR-0052 G4): their number and their open
+// amount in local currency, signed (a supplier's credit negative).
+// Ref: #/components/schemas/OpenItemAging
+type OpenItemAging struct {
+	// `not_due`: due on the key date or later; `overdue`: from `days_from` to `days_to` days past the net
+	// due date (the last bucket without `days_to`); `no_due_date`: posted without payment terms. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Bucket string `json:"bucket"`
+	// An overdue bucket's first day past the net due date.
+	DaysFrom OptInt32 `json:"days_from"`
+	// An overdue bucket's last day past the net due date; absent on the last bucket.
+	DaysTo OptInt32 `json:"days_to"`
+	// The local currency the amounts are in.
+	Currency string `json:"currency"`
+	// How many items the bucket holds.
+	ItemCount int64 `json:"item_count"`
+	// The items' open amount in local currency, signed.
+	AmountLc Money `json:"amount_lc"`
+}
+
+// GetBucket returns the value of Bucket.
+func (s *OpenItemAging) GetBucket() string {
+	return s.Bucket
+}
+
+// GetDaysFrom returns the value of DaysFrom.
+func (s *OpenItemAging) GetDaysFrom() OptInt32 {
+	return s.DaysFrom
+}
+
+// GetDaysTo returns the value of DaysTo.
+func (s *OpenItemAging) GetDaysTo() OptInt32 {
+	return s.DaysTo
+}
+
+// GetCurrency returns the value of Currency.
+func (s *OpenItemAging) GetCurrency() string {
+	return s.Currency
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *OpenItemAging) GetItemCount() int64 {
+	return s.ItemCount
+}
+
+// GetAmountLc returns the value of AmountLc.
+func (s *OpenItemAging) GetAmountLc() Money {
+	return s.AmountLc
+}
+
+// SetBucket sets the value of Bucket.
+func (s *OpenItemAging) SetBucket(val string) {
+	s.Bucket = val
+}
+
+// SetDaysFrom sets the value of DaysFrom.
+func (s *OpenItemAging) SetDaysFrom(val OptInt32) {
+	s.DaysFrom = val
+}
+
+// SetDaysTo sets the value of DaysTo.
+func (s *OpenItemAging) SetDaysTo(val OptInt32) {
+	s.DaysTo = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *OpenItemAging) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *OpenItemAging) SetItemCount(val int64) {
+	s.ItemCount = val
+}
+
+// SetAmountLc sets the value of AmountLc.
+func (s *OpenItemAging) SetAmountLc(val Money) {
+	s.AmountLc = val
+}
+
 // One page of open items.
 // Ref: #/components/schemas/OpenItemPage
 type OpenItemPage struct {
 	// The open items on this page.
 	Items []OpenItem `json:"items"`
+	// On the first page with `aging_key_date`: the items the filters select, every page's, per local
+	// currency and bucket, buckets in the order not due, each overdue bucket by its days, without a due
+	// date; a bucket without items is left out.
+	Aging []OpenItemAging `json:"aging"`
 	// Opaque cursor for the next page; absent on the last page.
 	NextPageToken OptString `json:"next_page_token"`
 	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
@@ -22811,6 +23141,11 @@ type OpenItemPage struct {
 // GetItems returns the value of Items.
 func (s *OpenItemPage) GetItems() []OpenItem {
 	return s.Items
+}
+
+// GetAging returns the value of Aging.
+func (s *OpenItemPage) GetAging() []OpenItemAging {
+	return s.Aging
 }
 
 // GetNextPageToken returns the value of NextPageToken.
@@ -22826,6 +23161,11 @@ func (s *OpenItemPage) GetTotalEstimate() OptInt64 {
 // SetItems sets the value of Items.
 func (s *OpenItemPage) SetItems(val []OpenItem) {
 	s.Items = val
+}
+
+// SetAging sets the value of Aging.
+func (s *OpenItemPage) SetAging(val []OpenItemAging) {
+	s.Aging = val
 }
 
 // SetNextPageToken sets the value of NextPageToken.
@@ -28785,6 +29125,260 @@ func (s *ProfitCenterAssign) SetReason(val string) {
 	s.Reason = val
 }
 
+// Actual period totals of a profit center and its segment on one profit and loss account in one
+// transaction currency (ADR-0050 §7).
+// Ref: #/components/schemas/ProfitCenterBalance
+type ProfitCenterBalance struct {
+	// Ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Profit center.
+	ProfitCenterID uuid.UUID `json:"profit_center_id"`
+	// The profit center's code.
+	ProfitCenterCode string `json:"profit_center_code"`
+	// The segment of the lines, the profit center's (ADR-0050 §5); absent when they carry none.
+	SegmentID OptUUID `json:"segment_id"`
+	// The segment's code; absent with `segment_id`.
+	SegmentCode OptString `json:"segment_code"`
+	// Account.
+	AccountID uuid.UUID `json:"account_id"`
+	// Fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// Fiscal period.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// Transaction currency of the totals.
+	Currency string `json:"currency"`
+	// Debit total in transaction currency.
+	Debit Money `json:"debit"`
+	// Credit total in transaction currency (positive).
+	Credit Money `json:"credit"`
+	// Debit total in local currency.
+	DebitLc Money `json:"debit_lc"`
+	// Credit total in local currency (positive).
+	CreditLc Money `json:"credit_lc"`
+	// Debit total in group currency.
+	DebitGc Money `json:"debit_gc"`
+	// Credit total in group currency (positive).
+	CreditGc Money `json:"credit_gc"`
+	// When the row's latest projected or pending line was added.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *ProfitCenterBalance) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ProfitCenterBalance) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *ProfitCenterBalance) GetProfitCenterID() uuid.UUID {
+	return s.ProfitCenterID
+}
+
+// GetProfitCenterCode returns the value of ProfitCenterCode.
+func (s *ProfitCenterBalance) GetProfitCenterCode() string {
+	return s.ProfitCenterCode
+}
+
+// GetSegmentID returns the value of SegmentID.
+func (s *ProfitCenterBalance) GetSegmentID() OptUUID {
+	return s.SegmentID
+}
+
+// GetSegmentCode returns the value of SegmentCode.
+func (s *ProfitCenterBalance) GetSegmentCode() OptString {
+	return s.SegmentCode
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *ProfitCenterBalance) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *ProfitCenterBalance) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *ProfitCenterBalance) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetCurrency returns the value of Currency.
+func (s *ProfitCenterBalance) GetCurrency() string {
+	return s.Currency
+}
+
+// GetDebit returns the value of Debit.
+func (s *ProfitCenterBalance) GetDebit() Money {
+	return s.Debit
+}
+
+// GetCredit returns the value of Credit.
+func (s *ProfitCenterBalance) GetCredit() Money {
+	return s.Credit
+}
+
+// GetDebitLc returns the value of DebitLc.
+func (s *ProfitCenterBalance) GetDebitLc() Money {
+	return s.DebitLc
+}
+
+// GetCreditLc returns the value of CreditLc.
+func (s *ProfitCenterBalance) GetCreditLc() Money {
+	return s.CreditLc
+}
+
+// GetDebitGc returns the value of DebitGc.
+func (s *ProfitCenterBalance) GetDebitGc() Money {
+	return s.DebitGc
+}
+
+// GetCreditGc returns the value of CreditGc.
+func (s *ProfitCenterBalance) GetCreditGc() Money {
+	return s.CreditGc
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *ProfitCenterBalance) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *ProfitCenterBalance) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ProfitCenterBalance) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *ProfitCenterBalance) SetProfitCenterID(val uuid.UUID) {
+	s.ProfitCenterID = val
+}
+
+// SetProfitCenterCode sets the value of ProfitCenterCode.
+func (s *ProfitCenterBalance) SetProfitCenterCode(val string) {
+	s.ProfitCenterCode = val
+}
+
+// SetSegmentID sets the value of SegmentID.
+func (s *ProfitCenterBalance) SetSegmentID(val OptUUID) {
+	s.SegmentID = val
+}
+
+// SetSegmentCode sets the value of SegmentCode.
+func (s *ProfitCenterBalance) SetSegmentCode(val OptString) {
+	s.SegmentCode = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *ProfitCenterBalance) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *ProfitCenterBalance) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *ProfitCenterBalance) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *ProfitCenterBalance) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetDebit sets the value of Debit.
+func (s *ProfitCenterBalance) SetDebit(val Money) {
+	s.Debit = val
+}
+
+// SetCredit sets the value of Credit.
+func (s *ProfitCenterBalance) SetCredit(val Money) {
+	s.Credit = val
+}
+
+// SetDebitLc sets the value of DebitLc.
+func (s *ProfitCenterBalance) SetDebitLc(val Money) {
+	s.DebitLc = val
+}
+
+// SetCreditLc sets the value of CreditLc.
+func (s *ProfitCenterBalance) SetCreditLc(val Money) {
+	s.CreditLc = val
+}
+
+// SetDebitGc sets the value of DebitGc.
+func (s *ProfitCenterBalance) SetDebitGc(val Money) {
+	s.DebitGc = val
+}
+
+// SetCreditGc sets the value of CreditGc.
+func (s *ProfitCenterBalance) SetCreditGc(val Money) {
+	s.CreditGc = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *ProfitCenterBalance) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// One page of profit center balances.
+// Ref: #/components/schemas/ProfitCenterBalancePage
+type ProfitCenterBalancePage struct {
+	// The profit center balances on this page.
+	Items []ProfitCenterBalance `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *ProfitCenterBalancePage) GetItems() []ProfitCenterBalance {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ProfitCenterBalancePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *ProfitCenterBalancePage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *ProfitCenterBalancePage) SetItems(val []ProfitCenterBalance) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ProfitCenterBalancePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *ProfitCenterBalancePage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+func (*ProfitCenterBalancePage) listProfitCenterBalancesRes() {}
+
 // A new profit center, its first period and its companies.
 // Ref: #/components/schemas/ProfitCenterCreate
 type ProfitCenterCreate struct {
@@ -30118,6 +30712,22 @@ type PurchaseOrderItem struct {
 	PriceUnit OptInt32 `json:"price_unit"`
 	// General ledger account.
 	AccountID uuid.UUID `json:"account_id"`
+	// Account assignment (ADR-0050 §6, SAP's account assignment category; open enumeration: clients must
+	// accept and preserve values not listed here): `cost_center` with `cost_center_id`, or `none` without
+	// (422 `procurement.invalid_account_assignment`). Absent: `cost_center` when a cost center is given,
+	// else `none`. Checked against the ledger on the order date when the order is released and again when
+	// its release is approved, and for the items an order change adds when it is submitted and approved,
+	// as the item's postings will be: on a primary cost account the item names a cost center while cost
+	// center accounting applies (422 `ledger.cost_center_required`; the account's default is not taken),
+	// and the cost center is one of the legal entity, active, valid on the order date and not locked for
+	// costs (422 `ledger.cost_center_invalid` with the reason; its profit center:
+	// `ledger.profit_center_invalid`). Goods receipts post the item's account with its cost center, and an
+	// invoice's price difference on the item too when the price difference account is a primary cost
+	// account. A released order's item keeps its assignment, as its account (422
+	// `procurement.invalid_change`).
+	AccountAssignment OptString `json:"account_assignment"`
+	// Cost center the item is charged to, with `account_assignment` `cost_center`.
+	CostCenterID OptUUID `json:"cost_center_id"`
 	// Over-delivery tolerance in percent (0-100).
 	OverDeliveryPct OptDecimal `json:"over_delivery_pct"`
 	// Tax code.
@@ -30167,6 +30777,16 @@ func (s *PurchaseOrderItem) GetPriceUnit() OptInt32 {
 // GetAccountID returns the value of AccountID.
 func (s *PurchaseOrderItem) GetAccountID() uuid.UUID {
 	return s.AccountID
+}
+
+// GetAccountAssignment returns the value of AccountAssignment.
+func (s *PurchaseOrderItem) GetAccountAssignment() OptString {
+	return s.AccountAssignment
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *PurchaseOrderItem) GetCostCenterID() OptUUID {
+	return s.CostCenterID
 }
 
 // GetOverDeliveryPct returns the value of OverDeliveryPct.
@@ -30232,6 +30852,16 @@ func (s *PurchaseOrderItem) SetPriceUnit(val OptInt32) {
 // SetAccountID sets the value of AccountID.
 func (s *PurchaseOrderItem) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
+}
+
+// SetAccountAssignment sets the value of AccountAssignment.
+func (s *PurchaseOrderItem) SetAccountAssignment(val OptString) {
+	s.AccountAssignment = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *PurchaseOrderItem) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
 }
 
 // SetOverDeliveryPct sets the value of OverDeliveryPct.
@@ -32220,6 +32850,17 @@ type RequisitionItem struct {
 	PriceUnit OptInt32 `json:"price_unit"`
 	// General ledger account to charge.
 	AccountID uuid.UUID `json:"account_id"`
+	// Account assignment (ADR-0050 §6, SAP's account assignment category; open enumeration: clients must
+	// accept and preserve values not listed here): `cost_center` with `cost_center_id`, or `none` without
+	// (422 `procurement.invalid_account_assignment`). Absent: `cost_center` when a cost center is given,
+	// else `none`. Checked against the ledger when the requisition is submitted, on that day, as its
+	// postings will be: on a primary cost account the item names a cost center while cost center
+	// accounting applies (422 `ledger.cost_center_required`; the account's default is not taken), and the
+	// cost center is one of the legal entity, active, valid on the day and not locked for costs (422
+	// `ledger.cost_center_invalid` with the reason).
+	AccountAssignment OptString `json:"account_assignment"`
+	// Cost center the item is charged to, with `account_assignment` `cost_center`.
+	CostCenterID OptUUID `json:"cost_center_id"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -32257,6 +32898,16 @@ func (s *RequisitionItem) GetAccountID() uuid.UUID {
 	return s.AccountID
 }
 
+// GetAccountAssignment returns the value of AccountAssignment.
+func (s *RequisitionItem) GetAccountAssignment() OptString {
+	return s.AccountAssignment
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *RequisitionItem) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *RequisitionItem) SetItemNo(val OptInt32) {
 	s.ItemNo = val
@@ -32290,6 +32941,16 @@ func (s *RequisitionItem) SetPriceUnit(val OptInt32) {
 // SetAccountID sets the value of AccountID.
 func (s *RequisitionItem) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
+}
+
+// SetAccountAssignment sets the value of AccountAssignment.
+func (s *RequisitionItem) SetAccountAssignment(val OptString) {
+	s.AccountAssignment = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *RequisitionItem) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
 }
 
 // One page of requisitions.
@@ -36628,6 +37289,19 @@ type SupplierInvoiceItem struct {
 	TaxCode OptString `json:"tax_code"`
 	// General ledger account; required when the item is not PO-based.
 	AccountID OptUUID `json:"account_id"`
+	// Cost center of an item that is not PO-based (ADR-0050 §6), posted on its line: checked when the
+	// invoice is entered or changed, on its posting date (else its invoice date), as the posting will
+	// check it (422 `ledger.cost_center_invalid` with the reason). Without one, an item on a primary cost
+	// account takes the account's default cost center while cost center accounting applies, or is refused
+	// (422 `ledger.cost_center_required`). A PO-based item takes its order item's cost center; another one
+	// given is refused (422 `payables.assignment_from_order`).
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// Profit center of an item that is not PO-based, for a P&L account without a cost center (422
+	// `ledger.profit_center_invalid`); with a cost center it must be the cost center's (422
+	// `ledger.profit_center_mismatch`). Without either, a P&L item takes the company's default profit
+	// center while profit center accounting applies. A PO-based item takes none of its own (422
+	// `payables.assignment_from_order`).
+	ProfitCenterID OptUUID `json:"profit_center_id"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -36670,6 +37344,16 @@ func (s *SupplierInvoiceItem) GetAccountID() OptUUID {
 	return s.AccountID
 }
 
+// GetCostCenterID returns the value of CostCenterID.
+func (s *SupplierInvoiceItem) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *SupplierInvoiceItem) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *SupplierInvoiceItem) SetItemNo(val OptInt32) {
 	s.ItemNo = val
@@ -36708,6 +37392,16 @@ func (s *SupplierInvoiceItem) SetTaxCode(val OptString) {
 // SetAccountID sets the value of AccountID.
 func (s *SupplierInvoiceItem) SetAccountID(val OptUUID) {
 	s.AccountID = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *SupplierInvoiceItem) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *SupplierInvoiceItem) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
 }
 
 // One page of supplier invoices.
@@ -37184,6 +37878,7 @@ func (*TooManyRequestsHeaders) listCompanyAccessRes()                {}
 func (*TooManyRequestsHeaders) listConfigVersionsRes()               {}
 func (*TooManyRequestsHeaders) listConnectorsRes()                   {}
 func (*TooManyRequestsHeaders) listContractsRes()                    {}
+func (*TooManyRequestsHeaders) listCostCenterBalancesRes()           {}
 func (*TooManyRequestsHeaders) listCostCenterPathsRes()              {}
 func (*TooManyRequestsHeaders) listCostCentersRes()                  {}
 func (*TooManyRequestsHeaders) listCountryPacksRes()                 {}
@@ -37214,6 +37909,7 @@ func (*TooManyRequestsHeaders) listPaymentRunsRes()                  {}
 func (*TooManyRequestsHeaders) listPaymentsRes()                     {}
 func (*TooManyRequestsHeaders) listPrincipalNamesRes()               {}
 func (*TooManyRequestsHeaders) listPrincipalsRes()                   {}
+func (*TooManyRequestsHeaders) listProfitCenterBalancesRes()         {}
 func (*TooManyRequestsHeaders) listProfitCenterPathsRes()            {}
 func (*TooManyRequestsHeaders) listProfitCentersRes()                {}
 func (*TooManyRequestsHeaders) listPurchaseOrderChangesRes()         {}
@@ -37515,6 +38211,7 @@ func (*UnauthorizedHeaders) listCompanyAccessRes()                {}
 func (*UnauthorizedHeaders) listConfigVersionsRes()               {}
 func (*UnauthorizedHeaders) listConnectorsRes()                   {}
 func (*UnauthorizedHeaders) listContractsRes()                    {}
+func (*UnauthorizedHeaders) listCostCenterBalancesRes()           {}
 func (*UnauthorizedHeaders) listCostCenterPathsRes()              {}
 func (*UnauthorizedHeaders) listCostCentersRes()                  {}
 func (*UnauthorizedHeaders) listCountryPacksRes()                 {}
@@ -37545,6 +38242,7 @@ func (*UnauthorizedHeaders) listPaymentRunsRes()                  {}
 func (*UnauthorizedHeaders) listPaymentsRes()                     {}
 func (*UnauthorizedHeaders) listPrincipalNamesRes()               {}
 func (*UnauthorizedHeaders) listPrincipalsRes()                   {}
+func (*UnauthorizedHeaders) listProfitCenterBalancesRes()         {}
 func (*UnauthorizedHeaders) listProfitCenterPathsRes()            {}
 func (*UnauthorizedHeaders) listProfitCentersRes()                {}
 func (*UnauthorizedHeaders) listPurchaseOrderChangesRes()         {}

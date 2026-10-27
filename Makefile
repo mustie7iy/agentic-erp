@@ -50,7 +50,7 @@ test-release-scripts:
 # the merge base with main: the fast local loop. lint-all checks the whole
 # tree, which is at zero issues; CI runs it.
 # api/gen is left out of the package list: its findings are excluded anyway,
-# and analysing its 650,000 generated lines takes over half an hour.
+# and analysing its ~620,000 generated lines takes over half an hour.
 GOLANGCI ?= go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0
 LINT_BASE ?= main
 LINT_FLAGS ?=

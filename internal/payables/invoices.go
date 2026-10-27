@@ -206,7 +206,8 @@ func changed(v Invoice, ch Change) Input {
 		PurchaseOrderID: v.PurchaseOrderID, Extensions: mergepatch.Apply(v.Extensions, ch.Extensions), Kind: v.Kind, ReferenceInvoiceID: v.ReferenceInvoiceID}
 	for _, it := range v.Items {
 		in.Items = append(in.Items, ItemInput{PurchaseOrderID: it.PurchaseOrderID, POItemNo: it.POItemNo, Description: it.Description,
-			Quantity: it.Quantity, Unit: it.Unit, Amount: amountInput(it.Amount, v.Currency, v.Exponent), TaxCode: it.TaxCode, AccountID: it.AccountID})
+			Quantity: it.Quantity, Unit: it.Unit, Amount: amountInput(it.Amount, v.Currency, v.Exponent), TaxCode: it.TaxCode, AccountID: it.AccountID,
+			CostCenterID: it.CostCenterID, ProfitCenterID: it.ProfitCenterID})
 	}
 	if ch.SupplierReference != nil {
 		in.SupplierReference = *ch.SupplierReference

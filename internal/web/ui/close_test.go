@@ -100,7 +100,7 @@ func periodPage(full bool) PeriodPage {
 	h.Company, h.Special, h.UpdatedBy = "Acme GmbH", true, Name{Text: "Avery"}
 	return PeriodPage{Year: 2026, Period: 13, Header: h, Back: "/close", Unlock: "/approvals/1", Actions: []PeriodForm{{Verb: PeriodOpen, Action: "/x"},
 		{Verb: PeriodUnlock, Action: "/y", Text: "t"}}, Why: i18n.PeriodNotYours, Checks: "/close/checks", Revalue: "/close/revaluation", Done: i18n.PeriodDoneClosed,
-		Refusal: &r}
+		Refusal: &r, Audit: "/reports/audit?object_id=1"}
 }
 
 // grirPosition is an open GR/IR position.
@@ -123,9 +123,9 @@ func checksView(full bool) ChecksView {
 	}
 	m := Money{Amount: "5.00", Currency: "EUR"}
 	v.Period = "/close/periods/1"
-	v.GRIR = GRIRCheck{Positions: []GRIRPosition{grirPosition()}, More: true}
+	v.GRIR = GRIRCheck{Positions: []GRIRPosition{grirPosition()}, More: true, Report: "/reports/gr-ir"}
 	v.Ledgers = LedgerCheck{Ledger: "0L", Compare: "2L", Trials: []TrialView{{Ledger: "0L", Debit: m, Credit: m, Balanced: true}, {Ledger: "2L", Debit: m, Credit: m}},
-		Differences: []DifferenceView{difference()}, More: true}
+		Differences: []DifferenceView{difference(), {Account: "a2", Entries: "/reports/ledger-reconciliation/entries"}}, More: true, Report: "/reports/ledger-reconciliation"}
 	v.Statements.Rows, v.Statements.More = []StatementRow{statementRow(true)}, true
 	return v
 }

@@ -1,6 +1,7 @@
 // Package authz authorizes every operation against the contract: the
-// operation's x-permission (or its entity's, x-entity-permissions) must be
-// among the principal's current permissions, operations marked
+// operation's x-permission (or its entity's, x-entity-permissions) and any
+// x-also-permissions must be among the principal's current permissions,
+// operations marked
 // x-agent: false refuse agents and services, an agent acts within its
 // autonomy level (ADR-0036),
 // and a principal whose permissions break a segregation-of-duties rule may
@@ -141,8 +142,8 @@ func Require(ctx context.Context, permission string) error {
 	return nil
 }
 
-// Authorize checks the operation's agent rule, permission and the
-// segregation-of-duties rules that involve the permission.
+// Authorize checks the operation's agent rule, permissions and the
+// segregation-of-duties rules that involve them.
 func (a *Authorizer) Authorize(ctx context.Context, operationID string) error {
 	return a.AuthorizeEntity(ctx, operationID, "")
 }
@@ -175,14 +176,29 @@ func (a *Authorizer) AuthorizeEntity(ctx context.Context, operationID, entity st
 			return problem.NotFound("Nothing is served for this entity.")
 		}
 	}
+	// An operation with x-entity-permissions has no x-also-permissions:
+	// the contract's parser refuses the two together.
+	return holdsAll(ctx, tx, append([]string{permission}, op.AlsoPermissions...))
+}
+
+// holdsAll refuses the operation unless the principal holds every one of
+// the permissions, each free of a segregation-of-duties conflict.
+func holdsAll(ctx context.Context, tx pgx.Tx, permissions []string) error {
 	set, err := Permissions(ctx)
 	if err != nil {
 		return err
 	}
-	if !set[permission] {
-		return problem.Forbidden("identity.permission_missing", "This action requires the permission "+permission+".")
+	for _, permission := range permissions {
+		if !set[permission] {
+			return problem.Forbidden("identity.permission_missing", "This action requires the permission "+permission+".")
+		}
 	}
-	return checkSoD(ctx, tx, permission, set)
+	for _, permission := range permissions {
+		if err := checkSoD(ctx, tx, permission, set); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // withinAutonomy refuses an agent an operation above its autonomy level,

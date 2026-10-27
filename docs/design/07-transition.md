@@ -1652,6 +1652,26 @@ its open contract steps and follow-ups moved into the modules they belong to, an
 each planned item carries the step that builds it (T0, T30–T72). Items without a
 step stay planned until a later step is drafted for them.
 
+Every leaf item names its source in `src` (product owner, 2026-10-25): an
+accepted ADR (`adr:ADR-0052`), a product owner decision (`po:2026-10-25`), a
+reviewer finding in a step (`review:T73j`), a failed or measured check
+(`ci:batch6`, `ci:T73j`), the pilot walkthrough (`walkthrough:2026-10-22`), a
+split of an approved step (`split:T73j`) or a design section (`design:01
+§1.4`); several are joined by ` · `. A decision of the coordinator alone is not
+a source: it goes to the product owner first. The items of 2026-10-25 carry
+`baseline` until they are given their source; their sources are in their
+references, ADRs and history. `TestTrackerItemsNameTheirSource`
+(docs/tracker_test.go) refuses an item without a known source, a source naming
+an ADR that is not accepted (one superseded later refuses the items citing it,
+which then name its successor), a design section or date that does not exist, a
+step that no leaf with another source names (only a leaf whose own source cites
+no step vouches for one), and any change in the number of baseline items, so
+removing one lowers the count in the test. It cannot tell an item deleted and
+another added as `baseline` in the same change; review does, with the added
+items and their sources listed at each batch. It runs in ci-local and, because
+a change to the tracker alone skips GitHub's suite, in ci.yml's `tracker` job
+on every event.
+
 ## 7.6 After the transition: completing Phase 1 (T30–T47)
 
 T1–T29 moved Phase 1 onto the foundation. These steps finish what Phase 1 still
@@ -1831,9 +1851,13 @@ done. CLAUDE.md states the conventions; this is the loop that applies them.
    breaking-change check and the performance budgets; `make ci-local` runs them
    all at CI's pinned versions, then GitHub's short check (06 §6.5).
 9. **Review.** The `go-reviewer` agent reviews the step's diff and is re-run until
-   it has no blocking finding. After every few steps, and before a pilot, a fresh
-   whole-codebase review scores the eight dimensions; a dimension below 9.5 is
-   brought back before the next step starts.
+   it has no blocking finding, under `REVIEW.md` (06 §6.9): findings labelled
+   Blocking, Nit or Pre-existing, each bug class fixed wherever it occurs in
+   the diff, rounds after the first reviewing only the changes since, and
+   after three rounds on one step with a blocking finding left the approach
+   reconsidered and the coordinator told. After every few steps, and before a
+   pilot, a fresh whole-codebase review scores the eight dimensions; a
+   dimension below 9.5 is brought back before the next step starts.
 10. **Record.** Commits name the step (`<what> (T<n>)`) and end with the
     co-author line; the tracker, the design documents and any ADR change in the
     same commit as the code; `main` changes only through a reviewed pull request

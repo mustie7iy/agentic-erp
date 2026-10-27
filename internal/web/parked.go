@@ -92,7 +92,7 @@ func (s *Server) showParked(w http.ResponseWriter, r *http.Request, p *person, m
 		t.chart = &ch
 	}
 	pp := ui.ParkedPage{Header: s.parkedHeader(ctx, p, m, pe), Lines: parkedLines(pe.Lines, t.chart.names()),
-		Done: parkedDone[r.URL.Query().Get("done")], Refusal: refused, Back: ui.JournalPath}
+		Done: parkedDone[r.URL.Query().Get("done")], Refusal: refused, Back: ui.JournalPath, Audit: auditLink(m, pe.ID)}
 	if req, ok := pe.ApprovalRequestID.Get(); ok {
 		pp.Approval = ui.ApprovalsPath + "/" + req.String()
 	}

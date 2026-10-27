@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
@@ -220,6 +221,11 @@ type grirPosting struct {
 	group      string
 	rates      rates
 	grir, diff uuid.UUID
+	// diffCosts: the price difference account is a primary cost account,
+	// so an invoiced item's price difference carries the item's cost
+	// center (GRIRItem.CostCenterID); one that takes none derives its
+	// assignment as any line does.
+	diffCosts bool
 }
 
 // prepareGRIR resolves what a GR/IR posting books with: the legal entity,
@@ -246,10 +252,18 @@ func (p Postings) prepareGRIR(ctx context.Context, tx pgx.Tx, in Posting) (grirP
 	if g.grir, err = determined(ctx, g.le.ID, "gr_ir", "ledger.no_gr_ir_account"); err != nil {
 		return g, err
 	}
-	if slices.ContainsFunc(in.GRIR, func(it GRIRItem) bool { return it.Invoiced != nil }) {
-		g.diff, err = determined(ctx, g.le.ID, "price_difference", "ledger.no_price_difference_account")
+	if !slices.ContainsFunc(in.GRIR, func(it GRIRItem) bool { return it.Invoiced != nil }) {
+		return g, nil
 	}
-	return g, err
+	if g.diff, err = determined(ctx, g.le.ID, "price_difference", "ledger.no_price_difference_account"); err != nil {
+		return g, err
+	}
+	var element config.CostElement
+	if err := tx.QueryRow(ctx, `SELECT cost_element FROM ledger.gl_account WHERE id = $1`, g.diff).Scan(&element); err != nil {
+		return g, fmt.Errorf("ledger: cost element of the price difference account %s: %w", g.diff, err)
+	}
+	g.diffCosts = element == config.CostElementPrimaryCost
+	return g, nil
 }
 
 // determined is the legal entity's account for the key, or the problem
@@ -297,7 +311,7 @@ func (g grirPosting) ownLines() ([]Line, []bool, error) {
 	kept := make([]bool, 0, cap(lines))
 	for _, l := range g.in.Lines {
 		line := Line{AccountID: l.AccountID, TC: l.Amount, PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text,
-			SpecialGL: l.SpecialGL}
+			SpecialGL: l.SpecialGL, CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID, SegmentID: l.SegmentID}
 		if l.LC != nil {
 			gc, err := convert(*l.LC, g.rates.toGC, g.rates.expLC, g.rates.expGC)
 			if err != nil {
@@ -333,14 +347,19 @@ func (g grirPosting) itemLines(pos map[orderItem]*position, keys []orderItem) ([
 		kept = append(kept, true)
 		switch {
 		case it.OffsetAccountID != nil && (tc != 0 || lc != 0 || gc != 0):
-			lines, kept = append(lines, Line{AccountID: *it.OffsetAccountID, TC: -tc, LC: -lc, GC: -gc, Text: it.Text}), append(kept, true)
+			lines, kept = append(lines, Line{AccountID: *it.OffsetAccountID, TC: -tc, LC: -lc, GC: -gc, Text: it.Text, CostCenterID: it.CostCenterID}),
+				append(kept, true)
 		case it.Invoiced != nil:
 			diff, err := money.Diff(*it.Invoiced, tc)
 			if err != nil {
 				return nil, nil, errTotalTooLarge("grir")
 			}
 			if diff != 0 {
-				lines, kept = append(lines, Line{AccountID: g.diff, TC: diff, Text: it.Text, TaxCode: code}), append(kept, false)
+				line := Line{AccountID: g.diff, TC: diff, Text: it.Text, TaxCode: code}
+				if g.diffCosts {
+					line.CostCenterID = it.CostCenterID
+				}
+				lines, kept = append(lines, line), append(kept, false)
 			}
 		}
 	}

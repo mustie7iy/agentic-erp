@@ -1197,6 +1197,21 @@ type Handler interface {
 	//
 	// GET /v1/contracts
 	ListContracts(ctx context.Context, params ListContractsParams) (ListContractsRes, error)
+	// ListCostCenterBalances implements listCostCenterBalances operation.
+	//
+	// Actual period totals per cost center, account and transaction currency of one legal entity, ledger
+	// and fiscal year (ADR-0050 §7), exact at the moment of the read: the balances the projector keeps by
+	// assignment (ADR-0006) plus the lines of entries it has not reached yet, as `GET /v1/balances`. Only
+	// profit and loss accounts: balance sheet lines carry no cost center, and a balance sheet by profit
+	// center or segment needs document splitting (ADR-0050 decision P3). A legal entity the caller cannot
+	// act in, or a ledger that does not exist, has none. The lines behind a row are the entries
+	// `GET /v1/journal-entries` lists with `legal_entity_id`, `ledger_id`, `fiscal_year` and
+	// `cost_center_id`. Sortable by: `cost_center_id`, `account_id`, `fiscal_period`. The amounts are
+	// ledger amounts, so besides `ledger.cost_center.read` the caller needs `ledger.entry.read`, as for
+	// the trial balance (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/cost-center-balances
+	ListCostCenterBalances(ctx context.Context, params ListCostCenterBalancesParams) (ListCostCenterBalancesRes, error)
 	// ListCostCenterPaths implements listCostCenterPaths operation.
 	//
 	// Where the cost center sits in each hierarchy that holds it, the standard one included: the nodes
@@ -1352,7 +1367,12 @@ type Handler interface {
 	ListNumberRanges(ctx context.Context, params ListNumberRangesParams) (ListNumberRangesRes, error)
 	// ListOpenItems implements listOpenItems operation.
 	//
-	// Uncleared lines on supplier and customer reconciliation accounts. Sortable by: `posting_date`.
+	// Uncleared lines on supplier and customer reconciliation accounts. An item posted with payment terms
+	// (T36b) is due on their `net_due_date`, and earns a discount until each tier's `until`; an item
+	// without terms (posted before T36, manually, migrated, a customer's) has no due date the ledger
+	// keeps. With `aging_key_date` the first page also carries `aging`: every item the filters select, not
+	// only the page's, summed per local currency by how many days past its net due date it is on the key
+	// date (ADR-0052 G4). Sortable by: `posting_date`.
 	//
 	// GET /v1/open-items
 	ListOpenItems(ctx context.Context, params ListOpenItemsParams) (ListOpenItemsRes, error)
@@ -1418,6 +1438,22 @@ type Handler interface {
 	//
 	// GET /v1/principals
 	ListPrincipals(ctx context.Context, params ListPrincipalsParams) (ListPrincipalsRes, error)
+	// ListProfitCenterBalances implements listProfitCenterBalances operation.
+	//
+	// Actual period totals per profit center, its segment, account and transaction currency of one legal
+	// entity, ledger and fiscal year (ADR-0050 §7): the profit and loss statement by profit center and,
+	// summed by `segment_id`, by segment; exact at the moment of the read: the balances the projector
+	// keeps by assignment (ADR-0006) plus the lines of entries it has not reached yet, as
+	// `GET /v1/balances`. Only profit and loss accounts: balance sheet lines carry no cost center, and a
+	// balance sheet by profit center or segment needs document splitting (ADR-0050 decision P3). A legal
+	// entity the caller cannot act in, or a ledger that does not exist, has none. The lines behind a row
+	// are the entries `GET /v1/journal-entries` lists with `legal_entity_id`, `ledger_id`, `fiscal_year`
+	// and `profit_center_id`. Sortable by: `profit_center_id`, `account_id`, `fiscal_period`. The amounts
+	// are ledger amounts, so besides `ledger.cost_center.read` the caller needs `ledger.entry.read`, as
+	// for the trial balance (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/profit-center-balances
+	ListProfitCenterBalances(ctx context.Context, params ListProfitCenterBalancesParams) (ListProfitCenterBalancesRes, error)
 	// ListProfitCenterPaths implements listProfitCenterPaths operation.
 	//
 	// Where the profit center sits in each hierarchy that holds it, the standard one included: the nodes

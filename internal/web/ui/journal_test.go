@@ -130,7 +130,7 @@ func entryPage(full bool) EntryPage {
 	h.Company, h.TaxDate, h.Reference, h.Header, h.Debits = "Acme GmbH", &day, "R1", "Accrual", &Money{Amount: "10.00", Currency: "EUR"}
 	h.Parked, h.ReversalOf, h.ReversedBy = "/journal/parked/1", "/journal/entries/2", "/journal/entries/3"
 	return EntryPage{Number: "100001", Header: h, Lines: []JournalLine{journalLine(true)}, Reverse: &ReverseForm{Action: "/x"}, Done: i18n.EntryDoneReversed,
-		Refusal: &r, Back: "/journal/entries"}
+		Refusal: &r, Back: "/journal/entries", Audit: "/reports/audit?object_id=1"}
 }
 
 // linesUpload is the upload of an entry's lines: refused with its rows
@@ -156,7 +156,7 @@ func parkedPage(full bool) ParkedPage {
 	h.Company, h.TaxDate, h.Reference, h.Header, h.Debits, h.Owner = "Acme GmbH", &day, "R1", "Accrual", &Money{Amount: "10.00", Currency: "EUR"}, nil
 	return ParkedPage{Header: h, Lines: []JournalLine{journalLine(true)}, Edit: "/journal/parked/1/edit", Upload: new(linesUpload(true)),
 		Actions: []ParkedForm{{Verb: ParkedPost, Action: "/x"}}, Why: i18n.ParkedWaits, TakeOn: true, Approval: "/approvals/1",
-		Journal: "/journal/entries/1", Done: i18n.ParkedDonePosted, Refusal: &r, Back: "/journal"}
+		Journal: "/journal/entries/1", Done: i18n.ParkedDonePosted, Refusal: &r, Back: "/journal", Audit: "/reports/audit?object_id=1"}
 }
 
 // lineInput2 is a line of the form: with every error and refusal, focused

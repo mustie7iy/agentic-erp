@@ -159,6 +159,9 @@ func components() map[string]templ.Component {
 	for name, c := range journalComponents() {
 		out[name] = c
 	}
+	for name, c := range reportComponents() {
+		out[name] = c
+	}
 	return out
 }
 
@@ -900,8 +903,9 @@ func TestSignedInNav(t *testing.T) {
 		"payments":  {NavJobs{Payments: true}, "/ /payments /health"},
 		"close":     {NavJobs{Close: true}, "/ /close /health"},
 		"journal":   {NavJobs{Journal: true}, "/ /journal /health"},
-		"all": {NavJobs{Approvals: true, Invoices: true, Bank: true, Payments: true, Journal: true, Close: true},
-			"/ /approvals /invoices /bank /payments /journal /close /health"},
+		"reports":   {NavJobs{Reports: true}, "/ /reports /health"},
+		"all": {NavJobs{Approvals: true, Invoices: true, Bank: true, Payments: true, Journal: true, Close: true, Reports: true},
+			"/ /approvals /invoices /bank /payments /journal /close /reports /health"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := paths(SignedInNav(tc.jobs)); got != tc.want {

@@ -20,7 +20,7 @@ make ci-local                 # every gate CI has, locally, before a PR is merge
 make generate                 # regenerate api/gen after editing api/openapi.yaml
 ```
 
-Never edit `api/gen/` by hand: it is ~610k lines generated from `api/openapi.yaml`. Change the
+Never edit `api/gen/` by hand: it is ~620k lines generated from `api/openapi.yaml`. Change the
 spec, run `make generate`, and commit both.
 
 ## How quality is kept: four layers
@@ -109,6 +109,9 @@ After any non-trivial change (new feature, workflow, migration, anything touchin
 tenancy, auth or concurrency), run the **`go-reviewer`** agent on the diff and resolve every
 blocking finding before telling the user the work is done. Report what it found and what you
 changed. For large branches the user may also run `/code-review high` or `/code-review ultra`.
+`REVIEW.md` sets the rules: findings labelled Blocking, Nit or Pre-existing; every instance of
+a named bug class in the diff fixed; after three rounds on one step with a blocking finding left,
+reconsider the approach and tell the coordinator.
 
 ### 4. Small, specific tasks
 
@@ -119,7 +122,8 @@ changed. For large branches the user may also run `/code-review high` or `/code-
 - If a request is broad ("build approvals"), propose a split into tracker-sized steps first.
 - Each step ends green: lint, tests, coverage, reviewer. Commit per step with a message naming
   the T-number, as the existing history does.
-- Update `docs/tracker.json` and any affected design doc or ADR in the same change.
+- Update `docs/tracker.json` and any affected design doc or ADR in the same change. A new
+  tracker leaf item names its source in `src` (07-transition §7.5); a test refuses one without.
 
 ## Definition of done
 

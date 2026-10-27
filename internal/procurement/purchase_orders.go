@@ -62,6 +62,7 @@ const orderSelect = `SELECT o.id, o.document_number, o.legal_entity_id, o.purcha
 			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code, 'unit_price', i.unit_price, 'price_unit', i.price_unit,
 			'account_id', i.account_id, 'over_delivery_pct', trim_scale(i.over_delivery_pct)::text, 'tax_code', i.tax_code,
 			'contract_item_no', i.contract_item_no, 'valuation_price', i.valuation_price, 'valuation_price_unit', i.valuation_price_unit,
+			'account_assignment', i.account_assignment, 'cost_center_id', i.cost_center_id,
 			'received', trim_scale(coalesce((SELECT sum(g.quantity) FROM procurement.goods_movement_item g WHERE g.tenant_id = i.tenant_id
 				AND g.purchase_order_id = i.purchase_order_id AND g.po_item_no = i.item_no), 0))::text) ORDER BY i.item_no)
 		 FROM procurement.purchase_order_item i WHERE i.tenant_id = o.tenant_id AND i.purchase_order_id = o.id AND NOT i.is_removed), '[]')
@@ -192,6 +193,9 @@ func (e *Endpoints) orderItem(ctx context.Context, h orderHeader, i int, it Item
 	if err := applyContractPrice(&item, h.contract, it, field); err != nil {
 		return Item{}, err
 	}
+	if item.AccountAssignment, item.CostCenterID, err = itemAssignment(field, it); err != nil {
+		return Item{}, err
+	}
 	if err := e.account(ctx, h.le.ID, it.AccountID, field+".account_id"); err != nil {
 		return Item{}, err
 	}
@@ -236,24 +240,26 @@ func writeOrderItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, items
 	n := len(items)
 	nos, materials, descriptions, quantities, units := make([]int32, n), make([]*uuid.UUID, n), make([]string, n), make([]string, n), make([]string, n)
 	prices, priceUnits, accounts, tolerances := make([]money.Minor, n), make([]int32, n), make([]uuid.UUID, n), make([]string, n)
-	taxes, contractItems := make([]*string, n), make([]*int32, n)
+	taxes, contractItems, assigned, centers := make([]*string, n), make([]*int32, n), make([]string, n), make([]*uuid.UUID, n)
 	for i, it := range items {
 		nos[i], materials[i], descriptions[i], quantities[i], units[i] = it.No, it.MaterialID, it.Description, it.Quantity, it.Unit
 		prices[i], priceUnits[i], accounts[i], tolerances[i] = it.UnitPrice, it.PriceUnit, it.AccountID, it.OverDelivery
-		taxes[i], contractItems[i] = it.TaxCode, it.ContractItemNo
+		taxes[i], contractItems[i], assigned[i], centers[i] = it.TaxCode, it.ContractItemNo, it.assignment(), it.CostCenterID
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.purchase_order_item AS i (tenant_id, purchase_order_id, item_no, material_id, description, quantity,
-			uom_code, unit_price, price_unit, account_id, over_delivery_pct, tax_code, contract_item_no, valuation_price, valuation_price_unit)
-		SELECT $1, $2, n, m, d, q::numeric, u, p, pu, a, t::numeric, tx, ci, CASE WHEN $14 THEN p END, CASE WHEN $14 THEN pu END
-		FROM unnest($3::int[], $4::uuid[], $5::text[], $6::text[], $7::text[], $8::bigint[], $9::int[], $10::uuid[], $11::text[], $12::text[], $13::int[])
-			AS x(n, m, d, q, u, p, pu, a, t, tx, ci)
+			uom_code, unit_price, price_unit, account_id, over_delivery_pct, tax_code, contract_item_no, valuation_price, valuation_price_unit,
+			account_assignment, cost_center_id)
+		SELECT $1, $2, n, m, d, q::numeric, u, p, pu, a, t::numeric, tx, ci, CASE WHEN $14 THEN p END, CASE WHEN $14 THEN pu END, aa, cc
+		FROM unnest($3::int[], $4::uuid[], $5::text[], $6::text[], $7::text[], $8::bigint[], $9::int[], $10::uuid[], $11::text[], $12::text[], $13::int[],
+			$15::text[], $16::uuid[]) AS x(n, m, d, q, u, p, pu, a, t, tx, ci, aa, cc)
 		ON CONFLICT (tenant_id, purchase_order_id, item_no) DO UPDATE SET material_id = EXCLUDED.material_id, description = EXCLUDED.description,
 			quantity = EXCLUDED.quantity, uom_code = EXCLUDED.uom_code, unit_price = EXCLUDED.unit_price, price_unit = EXCLUDED.price_unit,
 			account_id = EXCLUDED.account_id, over_delivery_pct = EXCLUDED.over_delivery_pct, tax_code = EXCLUDED.tax_code,
-			contract_item_no = EXCLUDED.contract_item_no, is_removed = false,
-			valuation_price = coalesce(i.valuation_price, EXCLUDED.valuation_price),
+			contract_item_no = EXCLUDED.contract_item_no, account_assignment = EXCLUDED.account_assignment, cost_center_id = EXCLUDED.cost_center_id,
+			is_removed = false, valuation_price = coalesce(i.valuation_price, EXCLUDED.valuation_price),
 			valuation_price_unit = coalesce(i.valuation_price_unit, EXCLUDED.valuation_price_unit)`,
-		tenant, id, nos, materials, descriptions, quantities, units, prices, priceUnits, accounts, tolerances, taxes, contractItems, valued); err != nil {
+		tenant, id, nos, materials, descriptions, quantities, units, prices, priceUnits, accounts, tolerances, taxes, contractItems, valued,
+		assigned, centers); err != nil {
 		return fmt.Errorf("procurement: write items of purchase order %s: %w", id, err)
 	}
 	return removeItems(ctx, tx, "purchase_order_item", "purchase_order_id", id, n)
@@ -553,10 +559,11 @@ func changedOrderHeader(o PurchaseOrder, ch OrderChange) (orderHeaderFields, err
 func currentItems(o PurchaseOrder) []ItemInput {
 	var in []ItemInput
 	for _, it := range o.Items {
-		price := it.UnitPrice
+		price, assignment := it.UnitPrice, it.assignment()
 		in = append(in, ItemInput{MaterialID: it.MaterialID, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
 			Price: money.Minor(price).Plain(o.Exponent), Currency: o.Currency, PriceUnit: it.PriceUnit, AccountID: it.AccountID,
-			OverDelivery: &it.OverDelivery, TaxCode: it.TaxCode, ContractItemNo: it.ContractItemNo})
+			OverDelivery: &it.OverDelivery, TaxCode: it.TaxCode, ContractItemNo: it.ContractItemNo, AccountAssignment: &assignment,
+			CostCenterID: it.CostCenterID})
 	}
 	return in
 }
@@ -588,6 +595,15 @@ func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func
 	}
 	if err := e.supplier(ctx, o.SupplierID, o.LegalEntityID); err != nil {
 		return PurchaseOrder{}, err
+	}
+	// Before approval is asked, so approvers are not asked to release what
+	// the ledger refuses; the approval checks again (OrderReleases). A
+	// migration run's order is released as loaded: valued directly, its
+	// invoices' lines are derived and checked as they post.
+	if !loaded {
+		if err := e.checkAssignments(ctx, o.LegalEntityID, o.OrderDate, assignments(o.Items, 0)); err != nil {
+			return PurchaseOrder{}, err
+		}
 	}
 	value, err := documentTotal(o.Items)
 	if err != nil {

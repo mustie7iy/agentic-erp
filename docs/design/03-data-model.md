@@ -632,6 +632,18 @@ erDiagram
     char currency_tc PK
     bigint debit_lc
     bigint credit_lc }
+  assignment_balance { uuid id PK "hash of the key (T56f)"
+    uuid ledger_id
+    uuid legal_entity_id
+    uuid account_id
+    uuid cost_center_id
+    uuid profit_center_id
+    uuid segment_id
+    smallint fiscal_year
+    smallint fiscal_period
+    char currency_tc
+    bigint debit_lc
+    bigint credit_lc }
 ```
 
 Rules enforced in the database:
@@ -930,7 +942,12 @@ them with the entry (`ledger.Posting.Terms`; terms for an entry without a
 supplier open item are refused). The payable items and `GET
 /v1/open-items` show them, with the net due date and each discount's last
 day (`payment_terms`); an item posted without them (before T36, manual,
-migrated) has none and is due by its supplier's current terms.
+migrated) has none and is due by its supplier's current terms. The net
+due date is computed (baseline date plus net days), never stored or
+indexed: `GET /v1/open-items` filters by it (`due_date_to`, leaving out
+the items without terms) and ages the items it selects on a key date
+(`aging_key_date`, `aging_days`), summed per local currency on its first
+page (ADR-0052 G4, T73j).
 
 It keeps its supplier's withholding taxes too (`open_item_withholding`,
 migration 000088, T46f, ADR-0037; SAP WITH_ITEM), one row per code of the
@@ -1093,6 +1110,22 @@ lines carrying the center (ADR-0050 §3, T56d2: the
 `journal_line_cost_center` index serves the cost center's ranges of
 posting dates).
 
+Balances by account assignment (T56f, ADR-0050 §7, migration 000163).
+`assignment_balance` holds, per ledger, company, account, cost center,
+profit center, segment, year, period and transaction currency, the totals
+of the lines that carry any center (`assignment_balance_assigned`); the
+centers are nullable, so the primary key is `id`, a hash of the whole key
+(as `gr_ir_position`'s). It is written only by the projection
+(`erp_projector`; the application reads it): the trigger
+`balance_projection_assignment` on `balance_projection` adds an entry's
+assigned lines when the projector marks it projected, in the statement
+that adds it to `period_balance`, so both count each entry once and every
+release's projector keeps it. The migration added the lines projected
+before it. The two center reports read it with the lines still pending,
+as the trial balance reads `period_balance`, through the partial indexes
+`assignment_balance_cost_center` and `assignment_balance_profit_center`
+(company, ledger, year, period, center).
+
 ## 3.8 Procurement (`procurement`)
 
 ```mermaid
@@ -1121,7 +1154,9 @@ erDiagram
     numeric quantity
     text uom_code
     bigint unit_price
-    uuid account_id }
+    uuid account_id
+    text account_assignment "none | cost_center (T56e)"
+    uuid cost_center_id "T56e" }
   contract { uuid id PK
     uuid supplier_id
     date valid_from
@@ -1146,7 +1181,9 @@ erDiagram
     numeric quantity
     bigint unit_price
     int price_unit
-    numeric over_delivery_pct }
+    numeric over_delivery_pct
+    text account_assignment "none | cost_center (T56e)"
+    uuid cost_center_id "T56e" }
   goods_movement { uuid id PK
     text movement_type "101 | 102 | 122 | 123"
     date posting_date
@@ -1315,6 +1352,18 @@ released order carries its valuation price (`purchase_order_item_valued`);
 and items of orders released before T47a were valued at their price, which
 could not change after the release.
 
+Requisition and order items carry their account assignment (migrations
+000161-000162, T56e, ADR-0050 §6): `account_assignment` (`none` or
+`cost_center`, default `none`) and `cost_center_id`, a cost center
+assignment naming its cost center and only it naming one
+(`requisition_item_account_assignment`,
+`purchase_order_item_account_assignment`, added `NOT VALID` and validated
+by 000162). The cost center is the ledger's, checked through its published
+API as the document is released, with no foreign key across schemas. A
+released order's item keeps its assignment as it keeps its account
+(`purchase_order_item_identity`, 000161), and its goods movements post the
+item's account with its cost center.
+
 ## 3.9 Accounts payable (`payables`)
 
 ```mermaid
@@ -1348,7 +1397,9 @@ erDiagram
     numeric quantity
     bigint amount
     text tax_code
-    uuid account_id }
+    uuid account_id
+    uuid cost_center_id "T56e"
+    uuid profit_center_id "T56e" }
   match_result { uuid id PK
     uuid supplier_invoice_id
     timestamptz evaluated_at
@@ -1357,6 +1408,12 @@ erDiagram
     int config_version
     int invoice_version }
 ```
+
+A supplier invoice item carries `cost_center_id` and `profit_center_id`
+(migration 000161, T56e): as entered on an item without an order, the
+order item's cost center on one with; its line posts with them, and an
+invoice on GR/IR posts the order item's cost center on the price
+difference when the price difference account is a primary cost account.
 
 A supplier invoice's `tax_date` (migration 000146, T61d, ADR-0049 §4) is
 the date its codes' rates apply on and its tax is reported in, set by a

@@ -189,16 +189,10 @@ func (s *Server) mux() *http.ServeMux {
 		route("POST "+ui.UploadPath+"/{id}/"+verb, s.signedIn(s.csrf(s.decideLine(verb))))
 	}
 	route("GET "+ui.BankPath+"/house-banks/{id}/reconciliation", s.signedIn(s.reconciliation))
-	route("GET "+ui.PaymentsPath, s.signedIn(s.runs))
-	route("POST "+ui.ProposePath, s.signedIn(s.csrf(s.propose)))
-	route("GET "+ui.PaymentsPath+"/{id}", s.signedIn(s.run))
-	route("GET "+ui.PaymentsPath+"/{id}/progress", s.signedIn(s.progress))
-	route("POST "+ui.PaymentsPath+"/{id}/cancel", s.signedIn(s.csrf(s.cancelRunOperation)))
-	for verb := range runOps {
-		route("POST "+ui.PaymentsPath+"/{id}/"+verb, s.signedIn(s.csrf(s.decideRun(verb))))
-	}
+	s.paymentRoutes(route)
 	s.closeRoutes(route)
 	s.journalRoutes(route)
+	s.reportRoutes(route)
 	route("GET /signed-out", s.signedOut)
 	route("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		st := ui.Status{Version: s.Build.Version, Revision: s.Build.Revision}
@@ -207,6 +201,18 @@ func (s *Server) mux() *http.ServeMux {
 	route("GET /static/", s.Assets.ServeHTTP)
 	route("/", s.notFound)
 	return mux
+}
+
+// paymentRoutes routes the payment runs' pages (T73f).
+func (s *Server) paymentRoutes(route func(string, http.HandlerFunc)) {
+	route("GET "+ui.PaymentsPath, s.signedIn(s.runs))
+	route("POST "+ui.ProposePath, s.signedIn(s.csrf(s.propose)))
+	route("GET "+ui.PaymentsPath+"/{id}", s.signedIn(s.run))
+	route("GET "+ui.PaymentsPath+"/{id}/progress", s.signedIn(s.progress))
+	route("POST "+ui.PaymentsPath+"/{id}/cancel", s.signedIn(s.csrf(s.cancelRunOperation)))
+	for verb := range runOps {
+		route("POST "+ui.PaymentsPath+"/{id}/"+verb, s.signedIn(s.csrf(s.decideRun(verb))))
+	}
 }
 
 // closeRoutes routes the period close's pages (T73i).
@@ -238,6 +244,20 @@ func (s *Server) journalRoutes(route func(string, http.HandlerFunc)) {
 	route("GET "+ui.EntriesPath, s.signedIn(s.journalEntries))
 	route("GET "+ui.EntriesPath+"/{id}", s.signedIn(s.journalEntry))
 	route("POST "+ui.EntriesPath+"/{id}/reverse", s.signedIn(s.csrf(s.reverseEntry)))
+}
+
+// reportRoutes routes the reports' pages and downloads (T73j).
+func (s *Server) reportRoutes(route func(string, http.HandlerFunc)) {
+	route("GET "+ui.ReportsPath, s.signedIn(s.reports))
+	route("GET "+ui.TrialBalancePath, s.signedIn(s.trialBalance))
+	route("GET "+ui.TrialBalancePath+ui.CSVSuffix, s.signedIn(s.trialBalanceCSV))
+	route("GET "+ui.OpenItemsPath, s.signedIn(s.openItems))
+	route("GET "+ui.OpenItemsPath+ui.CSVSuffix, s.signedIn(s.openItemsCSV))
+	route("GET "+ui.GRIRPath, s.signedIn(s.grirReport))
+	route("GET "+ui.GRIRPath+ui.CSVSuffix, s.signedIn(s.grirCSV))
+	route("GET "+ui.LedgerReconPath, s.signedIn(s.ledgerRecon))
+	route("GET "+ui.ReconEntriesPath, s.signedIn(s.reconEntries))
+	route("GET "+ui.AuditPath, s.signedIn(s.audit))
 }
 
 func (s *Server) shell(title i18n.Key, current string) ui.Shell {

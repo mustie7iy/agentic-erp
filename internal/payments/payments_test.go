@@ -73,6 +73,7 @@ func setupWith(t *testing.T, more []string, configure func(*app.Config)) env {
 // setupIn is setupWith on the tenant f.
 func setupIn(t *testing.T, f fixture.Env, configure func(*app.Config)) env {
 	t.Helper()
+	leavesNoProposal(t, f.Tenant.ID)
 	c := &connector{}
 	f.API = apitest.NewWith(t, func(cfg *app.Config) {
 		cfg.Connector = c
@@ -229,6 +230,29 @@ func work(t *testing.T) int {
 func workLeftovers(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() { work(t) })
+}
+
+// leavesNoProposal fails the test if, when it ends, the tenant still has a
+// proposal job, and has the worker do it. The worker takes the jobs of every
+// tenant in the package database, so a job left behind is done by the next
+// test that runs it and counted as that test's own: T54f's "worker did 2
+// jobs" in TestProposeReleaseTransmit was a job TestDownPaymentDatabaseFailures
+// left before it had workLeftovers. Registered before the test's own
+// cleanups (the API's and workLeftovers), the check runs after them: keep
+// the call ahead of apitest.NewWith in setupIn.
+func leavesNoProposal(t *testing.T, tenant uuid.UUID) {
+	t.Helper()
+	t.Cleanup(func() {
+		var left int
+		pgtest.Scan(t, `SELECT count(*) FROM platform.operation o
+			JOIN payments.payment_run r ON r.tenant_id = o.tenant_id AND r.operation_id = o.id
+			WHERE o.tenant_id = $1 AND o.kind = $2 AND o.status IN ('queued', 'cancelled') AND r.status = 'proposing'`,
+			[]any{tenant, payments.ProposeKind}, &left)
+		if left > 0 {
+			t.Errorf("proposal jobs left for the next test's worker: got %d, want 0 (finish them, or call workLeftovers)", left)
+			work(t)
+		}
+	})
 }
 
 // bankAccount gives the supplier a payments bank account valid from the

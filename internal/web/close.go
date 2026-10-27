@@ -113,11 +113,9 @@ func periodParams(q url.Values, company, ledger string, f *ui.PeriodFilters) (ge
 			*v.set = gen.NewOptUUID(id)
 		}
 	}
-	year, err := strconv.ParseInt(f.Year, 10, 32)
-	if err != nil || year < 1900 || year > 2999 {
-		f.YearError = i18n.PeriodYearInvalid
-	}
-	params.FiscalYear = gen.NewOptInt32(int32(year))
+	var year int32
+	_, year, f.YearError = yearOf(f.Year)
+	params.FiscalYear = gen.NewOptInt32(year)
 	if v := q.Get("page"); v != "" {
 		params.PageToken = gen.NewOptString(v)
 	}

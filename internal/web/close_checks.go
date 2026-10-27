@@ -17,12 +17,12 @@ import (
 // closed, the GR/IR positions still open, the ledger's reconciliation
 // with another ledger the company keeps (ADR-0045) and the company's bank
 // statements not reconciled (ADR-0047), each with its result; a statement
-// links to its page and its bank's reconciliation report, the screens
-// that exist. The GR/IR and ledger reports are T73j's, so their checks
-// show their results in place. It is a section htmx loads into the
-// period's page (HX-Request), or a page of its own for a browser without
-// htmx; with getCurrentPrincipal and listLedgers it makes six calls, the
-// statements read once per status not reconciled.
+// links to its page and its bank's reconciliation report, the GR/IR
+// positions to their report and the reconciliation to its report, each
+// difference to the entries behind it (T73j). It is a section htmx loads
+// into the period's page (HX-Request), or a page of its own for a browser
+// without htmx; with getCurrentPrincipal and listLedgers it makes six
+// calls, the statements read once per status not reconciled.
 
 // checkSize is how many positions, differences and statements a check
 // shows; more are said to be there.
@@ -82,6 +82,7 @@ func (s *Server) runChecks(w http.ResponseWriter, r *http.Request, p *person, m 
 	var ok bool
 	if page, isPage := res.(*gen.GrIrBalancePage); isPage {
 		v.GRIR = grirCheck(*page)
+		v.GRIR.Report = ui.ReportFor(ui.GRIRPath, grirValues(cq.company, false))
 	} else if v.GRIR.Refusal, ok = refused("listGrIrBalances", res, err, "grir-refusal"); !ok {
 		return false
 	}
@@ -143,11 +144,10 @@ func (s *Server) ledgerCheck(r *http.Request, cq checkQuery, ledgers []gen.Ledge
 		v.Ledgers.Trials = append(v.Ledgers.Trials, ui.TrialView{Ledger: codes[tb.LedgerID], Debit: moneyOf(tb.DebitLc), Credit: moneyOf(tb.CreditLc),
 			Balanced: tb.Balanced})
 	}
-	for _, d := range page.Items {
-		v.Ledgers.Differences = append(v.Ledgers.Differences, ui.DifferenceView{Account: d.AccountID.String(), Currency: d.Currency,
-			Balance: moneyOf(d.Balance), Compare: moneyOf(d.CompareBalance), Difference: moneyOf(d.Difference)})
-	}
+	lq := ledgerQuery{company: cq.company, ledger: ledger.ID, compare: compare.ID, year: cq.year, period: gen.NewOptInt32(cq.period)}
+	v.Ledgers.Differences = differenceViews(page.Items, nil, lq)
 	v.Ledgers.More = page.NextPageToken.Set
+	v.Ledgers.Report = ui.ReportFor(ui.LedgerReconPath, lq.values())
 	return true
 }
 

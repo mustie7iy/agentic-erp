@@ -129,6 +129,7 @@ type Accounts interface {
 	TaxCode(ctx context.Context, legalEntity uuid.UUID, code string, date time.Time) (ledger.TaxCode, bool, error)
 	TaxCodes(ctx context.Context, legalEntity uuid.UUID, date time.Time) ([]ledger.TaxCode, error)
 	WithholdingTaxCode(ctx context.Context, legalEntity uuid.UUID, code string) (ledger.WithholdingTaxCode, bool, error)
+	CheckAssignments(ctx context.Context, legalEntity uuid.UUID, date time.Time, items []ledger.ItemAssignment, defaults bool) error
 }
 
 // Numbers issues document numbers (configuration context).
@@ -202,6 +203,10 @@ type Item struct {
 	Amount          money.Minor `json:"amount"`
 	TaxCode         *string     `json:"tax_code"`
 	AccountID       *uuid.UUID  `json:"account_id"`
+	// The item's assignment (ADR-0050 §6, T56e): as entered on an item
+	// without an order, its order item's cost center on one with.
+	CostCenterID   *uuid.UUID `json:"cost_center_id"`
+	ProfitCenterID *uuid.UUID `json:"profit_center_id"`
 }
 
 // Invoice is a row of payables.supplier_invoice with its live items.
@@ -249,7 +254,7 @@ const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.supp
 		i.tax_date,
 		coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'purchase_order_id', t.purchase_order_id, 'po_item_no', t.po_item_no,
 			'description', t.description, 'quantity', trim_scale(t.quantity)::text, 'unit', t.uom_code, 'amount', t.amount, 'tax_code', t.tax_code,
-			'account_id', t.account_id) ORDER BY t.item_no)
+			'account_id', t.account_id, 'cost_center_id', t.cost_center_id, 'profit_center_id', t.profit_center_id) ORDER BY t.item_no)
 		 FROM payables.supplier_invoice_item t WHERE t.tenant_id = i.tenant_id AND t.supplier_invoice_id = i.id AND NOT t.is_removed), '[]'),
 		` + termsColumns + `, i.version, i.created_at, i.created_by, i.updated_at, i.updated_by
 	FROM payables.supplier_invoice i JOIN ref.currency c ON c.code = i.currency
@@ -320,6 +325,9 @@ type ItemInput struct {
 	Amount          Amount
 	TaxCode         *string
 	AccountID       *uuid.UUID
+	// CostCenterID and ProfitCenterID are the assignment of an item
+	// without an order; one on an order item is its order item's.
+	CostCenterID, ProfitCenterID *uuid.UUID
 }
 
 // Input is an invoice as a client sends it, for entry and edits.
@@ -470,7 +478,29 @@ func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked,
 		}
 		c.items = append(c.items, item)
 	}
-	return c, nil
+	return c, v.assignments()
+}
+
+// assignments checks the centers of the items without an order against
+// the ledger as the posting will on the invoice's posting date, else its
+// invoice date (ADR-0050 §6): an item without a cost center takes its
+// account's default. The posting checks them again; an item on an order
+// has its order item's, checked as the order was released.
+func (v *invoiceCheck) assignments() error {
+	var items []ledger.ItemAssignment
+	for i, it := range v.c.items {
+		if it.PurchaseOrderID == nil {
+			items = append(items, ledger.ItemAssignment{Index: i, AccountID: *it.AccountID, CostCenterID: it.CostCenterID, ProfitCenterID: it.ProfitCenterID})
+		}
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	date := v.in.InvoiceDate
+	if v.in.PostingDate != nil {
+		date = *v.in.PostingDate
+	}
+	return v.e.Accounts.CheckAssignments(v.ctx, v.le.ID, date, items, true)
 }
 
 // invoiceParties resolves the legal entity, which the caller must be allowed
@@ -576,7 +606,8 @@ func (v *invoiceCheck) order(id uuid.UUID, field string) (procurement.Order, err
 // invoice currency, an order item or a postable account, a known tax code.
 func (v *invoiceCheck) item(i int, it ItemInput) (Item, error) {
 	field := fmt.Sprintf("items[%d]", i)
-	item := Item{ItemNo: int32(i + 1), Description: it.Description, Quantity: it.Quantity, Unit: it.Unit, TaxCode: it.TaxCode, AccountID: it.AccountID}
+	item := Item{ItemNo: int32(i + 1), Description: it.Description, Quantity: it.Quantity, Unit: it.Unit, TaxCode: it.TaxCode, AccountID: it.AccountID,
+		CostCenterID: it.CostCenterID, ProfitCenterID: it.ProfitCenterID}
 	// A subsequent debit's or credit's item names its order item first:
 	// what it is decides what its quantity may be.
 	if subsequent(v.c.kind) && it.POItemNo == nil {
@@ -655,10 +686,31 @@ func (v *invoiceCheck) orderItem(field string, po *uuid.UUID, it ItemInput, item
 	if item.AccountID == nil {
 		item.AccountID = &oi.AccountID
 	}
+	if err := fromOrder(field, o, *oi, it); err != nil {
+		return err
+	}
+	item.CostCenterID = oi.CostCenterID
 	if item.TaxCode == nil {
 		item.TaxCode = oi.TaxCode
 	}
 	return nil
+}
+
+// fromOrder refuses an assignment an item on order item oi gives: it
+// takes the order item's, checked as its order was released (T56e). A
+// stored item's copy of the order item's cost center passes; an order
+// item has no profit center of its own.
+func fromOrder(field string, o procurement.Order, oi procurement.OrderItem, it ItemInput) error {
+	switch {
+	case it.CostCenterID != nil && (oi.CostCenterID == nil || *it.CostCenterID != *oi.CostCenterID):
+		field += ".cost_center_id"
+	case it.ProfitCenterID != nil:
+		field += ".profit_center_id"
+	default:
+		return nil
+	}
+	return invalid("payables.assignment_from_order", field,
+		fmt.Sprintf("An item on order %s takes its order item's account assignment; leave its cost and profit center out.", o.DocumentNumber))
 }
 
 // taxCode checks that an item's tax code, if any, is an input tax code
@@ -693,20 +745,22 @@ func putItems(ctx context.Context, tx pgx.Tx, tenant, invoice uuid.UUID, items [
 	n := len(items)
 	nos, pos, poItems, accounts := make([]int32, n), make([]*uuid.UUID, n), make([]*int32, n), make([]*uuid.UUID, n)
 	descriptions, quantities, units, taxes := make([]*string, n), make([]string, n), make([]string, n), make([]*string, n)
-	amounts := make([]money.Minor, n)
+	amounts, costCenters, profitCenters := make([]money.Minor, n), make([]*uuid.UUID, n), make([]*uuid.UUID, n)
 	for i, it := range items {
 		nos[i], pos[i], poItems[i], accounts[i] = it.ItemNo, it.PurchaseOrderID, it.POItemNo, it.AccountID
 		descriptions[i], quantities[i], units[i], taxes[i], amounts[i] = it.Description, it.Quantity, it.Unit, it.TaxCode, it.Amount
+		costCenters[i], profitCenters[i] = it.CostCenterID, it.ProfitCenterID
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO payables.supplier_invoice_item AS t (tenant_id, supplier_invoice_id, item_no, purchase_order_id, po_item_no,
-			description, quantity, uom_code, amount, tax_code, account_id)
-		SELECT $1, $2, n, po, pi, d, q::numeric, u, a, tc, ac
-		FROM unnest($3::int[], $4::uuid[], $5::int[], $6::text[], $7::text[], $8::text[], $9::bigint[], $10::text[], $11::uuid[])
-			AS x(n, po, pi, d, q, u, a, tc, ac)
+			description, quantity, uom_code, amount, tax_code, account_id, cost_center_id, profit_center_id)
+		SELECT $1, $2, n, po, pi, d, q::numeric, u, a, tc, ac, cc, pc
+		FROM unnest($3::int[], $4::uuid[], $5::int[], $6::text[], $7::text[], $8::text[], $9::bigint[], $10::text[], $11::uuid[], $12::uuid[], $13::uuid[])
+			AS x(n, po, pi, d, q, u, a, tc, ac, cc, pc)
 		ON CONFLICT (tenant_id, supplier_invoice_id, item_no) DO UPDATE SET purchase_order_id = EXCLUDED.purchase_order_id,
 			po_item_no = EXCLUDED.po_item_no, description = EXCLUDED.description, quantity = EXCLUDED.quantity, uom_code = EXCLUDED.uom_code,
-			amount = EXCLUDED.amount, tax_code = EXCLUDED.tax_code, account_id = EXCLUDED.account_id, is_removed = false`,
-		tenant, invoice, nos, pos, poItems, descriptions, quantities, units, amounts, taxes, accounts); err != nil {
+			amount = EXCLUDED.amount, tax_code = EXCLUDED.tax_code, account_id = EXCLUDED.account_id, cost_center_id = EXCLUDED.cost_center_id,
+			profit_center_id = EXCLUDED.profit_center_id, is_removed = false`,
+		tenant, invoice, nos, pos, poItems, descriptions, quantities, units, amounts, taxes, accounts, costCenters, profitCenters); err != nil {
 		return fmt.Errorf("payables: write items of invoice %s: %w", invoice, err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice_item SET is_removed = true WHERE supplier_invoice_id = $1 AND item_no > $2 AND NOT is_removed`,

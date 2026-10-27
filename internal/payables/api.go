@@ -29,7 +29,8 @@ func fromItems(items []gen.SupplierInvoiceItem) []ItemInput {
 	for i, it := range items {
 		out[i] = ItemInput{PurchaseOrderID: apitypes.Ptr[uuid.UUID](it.PurchaseOrderID), POItemNo: apitypes.Ptr[int32](it.PoItemNo), Description: apitypes.Ptr[string](it.Description),
 			Quantity: it.Quantity.Value, Unit: it.Quantity.Unit, Amount: Amount{Value: it.Amount.Amount, Currency: it.Amount.Currency},
-			TaxCode: apitypes.Ptr[string](it.TaxCode), AccountID: apitypes.Ptr[uuid.UUID](it.AccountID)}
+			TaxCode: apitypes.Ptr[string](it.TaxCode), AccountID: apitypes.Ptr[uuid.UUID](it.AccountID), CostCenterID: apitypes.Ptr[uuid.UUID](it.CostCenterID),
+			ProfitCenterID: apitypes.Ptr[uuid.UUID](it.ProfitCenterID)}
 	}
 	return out
 }
@@ -54,7 +55,8 @@ func toAPI(v Invoice) gen.SupplierInvoice {
 		apitypes.OptUUID(v.PurchaseOrderID), apitypes.OptUUID(v.JournalEntryID), apitypes.OptUUID(v.ReversalEntryID), apitypes.OptUUID(v.WorkflowRequestID)
 	for i, it := range v.Items {
 		item := gen.SupplierInvoiceItem{ItemNo: gen.NewOptInt32(it.ItemNo), PurchaseOrderID: apitypes.OptUUID(it.PurchaseOrderID),
-			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, Amount: apitypes.Money(it.Amount, v.Currency, v.Exponent), AccountID: apitypes.OptUUID(it.AccountID)}
+			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, Amount: apitypes.Money(it.Amount, v.Currency, v.Exponent), AccountID: apitypes.OptUUID(it.AccountID),
+			CostCenterID: apitypes.OptUUID(it.CostCenterID), ProfitCenterID: apitypes.OptUUID(it.ProfitCenterID)}
 		if it.POItemNo != nil {
 			item.PoItemNo.SetTo(*it.POItemNo)
 		}

@@ -1218,6 +1218,21 @@ type Invoker interface {
 	//
 	// GET /v1/contracts
 	ListContracts(ctx context.Context, params ListContractsParams) (ListContractsRes, error)
+	// ListCostCenterBalances invokes listCostCenterBalances operation.
+	//
+	// Actual period totals per cost center, account and transaction currency of one legal entity, ledger
+	// and fiscal year (ADR-0050 §7), exact at the moment of the read: the balances the projector keeps by
+	// assignment (ADR-0006) plus the lines of entries it has not reached yet, as `GET /v1/balances`. Only
+	// profit and loss accounts: balance sheet lines carry no cost center, and a balance sheet by profit
+	// center or segment needs document splitting (ADR-0050 decision P3). A legal entity the caller cannot
+	// act in, or a ledger that does not exist, has none. The lines behind a row are the entries
+	// `GET /v1/journal-entries` lists with `legal_entity_id`, `ledger_id`, `fiscal_year` and
+	// `cost_center_id`. Sortable by: `cost_center_id`, `account_id`, `fiscal_period`. The amounts are
+	// ledger amounts, so besides `ledger.cost_center.read` the caller needs `ledger.entry.read`, as for
+	// the trial balance (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/cost-center-balances
+	ListCostCenterBalances(ctx context.Context, params ListCostCenterBalancesParams) (ListCostCenterBalancesRes, error)
 	// ListCostCenterPaths invokes listCostCenterPaths operation.
 	//
 	// Where the cost center sits in each hierarchy that holds it, the standard one included: the nodes
@@ -1373,7 +1388,12 @@ type Invoker interface {
 	ListNumberRanges(ctx context.Context, params ListNumberRangesParams) (ListNumberRangesRes, error)
 	// ListOpenItems invokes listOpenItems operation.
 	//
-	// Uncleared lines on supplier and customer reconciliation accounts. Sortable by: `posting_date`.
+	// Uncleared lines on supplier and customer reconciliation accounts. An item posted with payment terms
+	// (T36b) is due on their `net_due_date`, and earns a discount until each tier's `until`; an item
+	// without terms (posted before T36, manually, migrated, a customer's) has no due date the ledger
+	// keeps. With `aging_key_date` the first page also carries `aging`: every item the filters select, not
+	// only the page's, summed per local currency by how many days past its net due date it is on the key
+	// date (ADR-0052 G4). Sortable by: `posting_date`.
 	//
 	// GET /v1/open-items
 	ListOpenItems(ctx context.Context, params ListOpenItemsParams) (ListOpenItemsRes, error)
@@ -1439,6 +1459,22 @@ type Invoker interface {
 	//
 	// GET /v1/principals
 	ListPrincipals(ctx context.Context, params ListPrincipalsParams) (ListPrincipalsRes, error)
+	// ListProfitCenterBalances invokes listProfitCenterBalances operation.
+	//
+	// Actual period totals per profit center, its segment, account and transaction currency of one legal
+	// entity, ledger and fiscal year (ADR-0050 §7): the profit and loss statement by profit center and,
+	// summed by `segment_id`, by segment; exact at the moment of the read: the balances the projector
+	// keeps by assignment (ADR-0006) plus the lines of entries it has not reached yet, as
+	// `GET /v1/balances`. Only profit and loss accounts: balance sheet lines carry no cost center, and a
+	// balance sheet by profit center or segment needs document splitting (ADR-0050 decision P3). A legal
+	// entity the caller cannot act in, or a ledger that does not exist, has none. The lines behind a row
+	// are the entries `GET /v1/journal-entries` lists with `legal_entity_id`, `ledger_id`, `fiscal_year`
+	// and `profit_center_id`. Sortable by: `profit_center_id`, `account_id`, `fiscal_period`. The amounts
+	// are ledger amounts, so besides `ledger.cost_center.read` the caller needs `ledger.entry.read`, as
+	// for the trial balance (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/profit-center-balances
+	ListProfitCenterBalances(ctx context.Context, params ListProfitCenterBalancesParams) (ListProfitCenterBalancesRes, error)
 	// ListProfitCenterPaths invokes listProfitCenterPaths operation.
 	//
 	// Where the profit center sits in each hierarchy that holds it, the standard one included: the nodes
@@ -25534,6 +25570,347 @@ func (c *Client) sendListContracts(ctx context.Context, params ListContractsPara
 	return result, nil
 }
 
+// ListCostCenterBalances invokes listCostCenterBalances operation.
+//
+// Actual period totals per cost center, account and transaction currency of one legal entity, ledger
+// and fiscal year (ADR-0050 §7), exact at the moment of the read: the balances the projector keeps by
+// assignment (ADR-0006) plus the lines of entries it has not reached yet, as `GET /v1/balances`. Only
+// profit and loss accounts: balance sheet lines carry no cost center, and a balance sheet by profit
+// center or segment needs document splitting (ADR-0050 decision P3). A legal entity the caller cannot
+// act in, or a ledger that does not exist, has none. The lines behind a row are the entries
+// `GET /v1/journal-entries` lists with `legal_entity_id`, `ledger_id`, `fiscal_year` and
+// `cost_center_id`. Sortable by: `cost_center_id`, `account_id`, `fiscal_period`. The amounts are
+// ledger amounts, so besides `ledger.cost_center.read` the caller needs `ledger.entry.read`, as for
+// the trial balance (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/cost-center-balances
+func (c *Client) ListCostCenterBalances(ctx context.Context, params ListCostCenterBalancesParams) (ListCostCenterBalancesRes, error) {
+	res, err := c.sendListCostCenterBalances(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCostCenterBalances(ctx context.Context, params ListCostCenterBalancesParams) (res ListCostCenterBalancesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCostCenterBalances"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/cost-center-balances"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCostCenterBalancesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/cost-center-balances"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "ledger_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "ledger_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LedgerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.Int32ToString(params.FiscalYear))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period_from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period_from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriodFrom.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period_to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period_to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriodTo.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "cost_center_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "cost_center_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CostCenterID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "hierarchy_node_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "hierarchy_node_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.HierarchyNodeID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "segment_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "segment_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.SegmentID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "account_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "account_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.AccountID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Include.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCostCenterBalancesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCostCenterBalancesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListCostCenterPaths invokes listCostCenterPaths operation.
 //
 // Where the cost center sits in each hierarchy that holds it, the standard one included: the nodes
@@ -30252,7 +30629,12 @@ func (c *Client) sendListNumberRanges(ctx context.Context, params ListNumberRang
 
 // ListOpenItems invokes listOpenItems operation.
 //
-// Uncleared lines on supplier and customer reconciliation accounts. Sortable by: `posting_date`.
+// Uncleared lines on supplier and customer reconciliation accounts. An item posted with payment terms
+// (T36b) is due on their `net_due_date`, and earns a discount until each tier's `until`; an item
+// without terms (posted before T36, manually, migrated, a customer's) has no due date the ledger
+// keeps. With `aging_key_date` the first page also carries `aging`: every item the filters select, not
+// only the page's, summed per local currency by how many days past its net due date it is on the key
+// date (ADR-0052 G4). Sortable by: `posting_date`.
 //
 // GET /v1/open-items
 func (c *Client) ListOpenItems(ctx context.Context, params ListOpenItemsParams) (ListOpenItemsRes, error) {
@@ -30365,6 +30747,66 @@ func (c *Client) sendListOpenItems(ctx context.Context, params ListOpenItemsPara
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.PostingDateTo.Get(); ok {
 				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "due_date_to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "due_date_to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.DueDateTo.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "aging_key_date" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "aging_key_date",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.AgingKeyDate.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "aging_days" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "aging_days",
+			Style:   uri.QueryStyleForm,
+			Explode: false,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if params.AgingDays != nil {
+				return e.EncodeArray(func(e uri.Encoder) error {
+					for i, item := range params.AgingDays {
+						if err := func() error {
+							return e.EncodeValue(conv.Int32ToString(item))
+						}(); err != nil {
+							return errors.Wrapf(err, "[%d]", i)
+						}
+					}
+					return nil
+				})
 			}
 			return nil
 		}); err != nil {
@@ -32400,6 +32842,348 @@ func (c *Client) sendListPrincipals(ctx context.Context, params ListPrincipalsPa
 
 	stage = "DecodeResponse"
 	result, err := decodeListPrincipalsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListProfitCenterBalances invokes listProfitCenterBalances operation.
+//
+// Actual period totals per profit center, its segment, account and transaction currency of one legal
+// entity, ledger and fiscal year (ADR-0050 §7): the profit and loss statement by profit center and,
+// summed by `segment_id`, by segment; exact at the moment of the read: the balances the projector
+// keeps by assignment (ADR-0006) plus the lines of entries it has not reached yet, as
+// `GET /v1/balances`. Only profit and loss accounts: balance sheet lines carry no cost center, and a
+// balance sheet by profit center or segment needs document splitting (ADR-0050 decision P3). A legal
+// entity the caller cannot act in, or a ledger that does not exist, has none. The lines behind a row
+// are the entries `GET /v1/journal-entries` lists with `legal_entity_id`, `ledger_id`, `fiscal_year`
+// and `profit_center_id`. Sortable by: `profit_center_id`, `account_id`, `fiscal_period`. The amounts
+// are ledger amounts, so besides `ledger.cost_center.read` the caller needs `ledger.entry.read`, as
+// for the trial balance (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/profit-center-balances
+func (c *Client) ListProfitCenterBalances(ctx context.Context, params ListProfitCenterBalancesParams) (ListProfitCenterBalancesRes, error) {
+	res, err := c.sendListProfitCenterBalances(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListProfitCenterBalances(ctx context.Context, params ListProfitCenterBalancesParams) (res ListProfitCenterBalancesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listProfitCenterBalances"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/profit-center-balances"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListProfitCenterBalancesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/profit-center-balances"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "ledger_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "ledger_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LedgerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.Int32ToString(params.FiscalYear))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period_from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period_from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriodFrom.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period_to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period_to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriodTo.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "profit_center_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "profit_center_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.ProfitCenterID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "hierarchy_node_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "hierarchy_node_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.HierarchyNodeID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "segment_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "segment_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.SegmentID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "account_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "account_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.AccountID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Include.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListProfitCenterBalancesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListProfitCenterBalancesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

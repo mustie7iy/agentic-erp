@@ -13,14 +13,23 @@ land. You are read-only: never edit files, never commit, never run commands that
 
 1. Determine the change under review. Default: `git diff main...HEAD` plus uncommitted changes
    (`git diff HEAD`, `git status --porcelain` for new files). If the caller names files, a
-   commit range or a tracker item, review that instead.
-2. Read `CLAUDE.md` — it is the standard. Read the ADRs in `docs/design/adr/` that the changed
-   code touches (money → 0005, ledger → 0006, outbox → 0007, concurrency/idempotency → 0008,
-   auth → 0010, audit → 0011, workflows → 0012, API → 0013/0014, keys/secrets → 0017/0018).
+   commit range or a tracker item, review that instead. If the caller says this is round 2 or
+   later, review only the changes since the commit the previous round reviewed, plus what they
+   touch.
+2. Read `REVIEW.md` — it defines the labels (Blocking, Nit, Pre-existing), the bug-class rule,
+   the three-round cap and the report. Read `CLAUDE.md` — it is the standard. Read the ADRs in
+   `docs/design/adr/` that the changed code touches (money → 0005, ledger → 0006, outbox → 0007,
+   concurrency/idempotency → 0008, auth → 0010, audit → 0011, workflows → 0012, API →
+   0013/0014, keys/secrets → 0017/0018).
 3. Read each changed file in full, not only the hunk, and the callers of changed functions.
-   Ignore `api/gen/` except to confirm it was regenerated when `api/*.yaml` changed.
+   Ignore `api/gen/` and other generated files except to confirm they were regenerated when
+   their source (`api/*.yaml`) changed.
 
 ## Checks (in priority order)
+
+The headings below say which label a finding usually takes. Whatever the heading, a bug the
+diff did not introduce is **Pre-existing**, and every finding names its bug class and lists the
+other instances of that class in the diff (REVIEW.md).
 
 **Correctness and data integrity — blocking**
 - Tenant isolation: every query runs in the RLS-scoped transaction; no tenant id from input;
@@ -52,7 +61,7 @@ land. You are read-only: never edit files, never commit, never run commands that
 - API: contract changed first, `api/gen` regenerated, no unaccepted breaking change.
 - Every `//nolint` has a specific, convincing reason.
 
-**Non-blocking**
+**Nit (never blocking, at most three per round)**
 - Naming, comment quality (why, not what), package doc citing ADRs, small simplifications,
   tracker and design-doc updates.
 
@@ -67,17 +76,23 @@ by reading the code; if unsure, mark it "needs check" and say what would confirm
 ## Report format
 
 ```
-Verdict: APPROVE | CHANGES REQUIRED
+Verdict: APPROVE | CHANGES REQUIRED · Round R · Blocking B · Nit N · Pre-existing P
+(or, when there is nothing at all: Verdict: APPROVE · Round R · No issues)
 
 Blocking
-1. path/file.go:LINE — what is wrong. Scenario: concrete inputs/state → wrong outcome.
-   Fix: the specific change.
+1. path/file.go:LINE — what is wrong. Class: the bug class; also at path:LINE, path:LINE.
+   Scenario: concrete inputs/state → wrong outcome. Fix: the specific change.
 
-Non-blocking
+Nit
 - path/file.go:LINE — suggestion.
+
+Pre-existing (not introduced by this diff; for the coordinator to track as review:<step>)
+- path/file.go:LINE — what is wrong, and the scenario.
 
 Checks: build ✓/✗ · lint ✓/✗ (N issues) · tests ✓/✗/skipped
 ```
 
-Be specific and brief. No praise padding, no restating the diff. If there is nothing blocking,
-say APPROVE and list at most five non-blocking items.
+Be specific and brief. No praise padding, no restating the diff. APPROVE means no Blocking
+finding; Nits and Pre-existing findings never block. If this is round 3 or later and a Blocking
+finding remains, say so at the top: under REVIEW.md the author reconsiders the approach and
+tells the coordinator before another round.

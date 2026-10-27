@@ -15,7 +15,7 @@ MIN="${COVERAGE_MIN:-100.0}"
 excluded='/internal/(nfr|llm/llmtest|app/apitest)/|/internal/platform/(pgtest|authn/authntest|natsbus/natstest|tlsconf/tlstest|blobstore/blobstoretest|sftpclient/sftptest|secrets/vaulttest|fieldcrypt/kmstest|workflow/workflowtest|fixture)/|/api/gen/'
 # Instrument only the packages the figure counts. With -coverpkg=./... every
 # one of the ~70 test binaries carried an instrumented copy of api/gen
-# (650,000 generated lines, 16 times the rest of the code), which filled a
+# (~620,000 generated lines, over four times the rest of the code), which filled a
 # CI runner's disk; instrumenting the measured packages keeps the build
 # proportional to the code under test.
 coverpkg="$(go list ./... | sed 's#$#/#' | grep -v -E "$excluded" | sed 's#/$##' | paste -sd, -)"

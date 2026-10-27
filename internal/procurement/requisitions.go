@@ -40,6 +40,19 @@ type Item struct {
 	// through GR/IR, fixed when it is released (T47a); none before.
 	ValuationPrice     *money.Minor `json:"valuation_price"`
 	ValuationPriceUnit *int32       `json:"valuation_price_unit"`
+	// The item's account assignment (T56e): AssignNone or AssignCostCenter
+	// with its cost center. A change proposed before T56e reads "", none.
+	AccountAssignment string     `json:"account_assignment"`
+	CostCenterID      *uuid.UUID `json:"cost_center_id"`
+}
+
+// assignment is the item's account assignment, none when it has none
+// recorded (an order change proposed before T56e).
+func (it Item) assignment() string {
+	if it.AccountAssignment == "" {
+		return AssignNone
+	}
+	return it.AccountAssignment
 }
 
 // total is the items' total for display. Decisions use documentTotal,
@@ -63,6 +76,10 @@ type ItemInput struct {
 	OverDelivery   *string
 	TaxCode        *string
 	ContractItemNo *int32
+	// AccountAssignment and CostCenterID are a requisition's or an
+	// order's item's assignment (itemAssignment); contracts take none.
+	AccountAssignment *string
+	CostCenterID      *uuid.UUID
 }
 
 // Requisition is a row of procurement.requisition with its live items.
@@ -94,7 +111,7 @@ const requisitionSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.
 		r.needed_by, r.status, r.workflow_request_id, r.extensions, r.version, r.created_at, r.created_by, r.updated_at, r.updated_by,
 		coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'material_id', i.material_id, 'description', i.description,
 			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code, 'unit_price', i.unit_price, 'price_unit', i.price_unit,
-			'account_id', i.account_id) ORDER BY i.item_no)
+			'account_id', i.account_id, 'account_assignment', i.account_assignment, 'cost_center_id', i.cost_center_id) ORDER BY i.item_no)
 		 FROM procurement.requisition_item i WHERE i.tenant_id = r.tenant_id AND i.requisition_id = r.id AND NOT i.is_removed), '[]')
 	FROM procurement.requisition r JOIN ref.currency c ON c.code = r.currency`
 
@@ -152,8 +169,12 @@ func (e *Endpoints) requisitionItems(ctx context.Context, le uuid.UUID, currency
 		if err := e.account(ctx, le, it.AccountID, field+".account_id"); err != nil {
 			return nil, err
 		}
+		assignment, center, err := itemAssignment(field, it)
+		if err != nil {
+			return nil, err
+		}
 		items[i] = Item{No: int32(i + 1), MaterialID: it.MaterialID, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
-			UnitPrice: price, PriceUnit: max(it.PriceUnit, 1), AccountID: it.AccountID}
+			UnitPrice: price, PriceUnit: max(it.PriceUnit, 1), AccountID: it.AccountID, AccountAssignment: assignment, CostCenterID: center}
 	}
 	return items, checkTotal(items)
 }
@@ -163,18 +184,21 @@ func writeRequisitionItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID,
 	n := len(items)
 	nos, materials, descriptions, quantities, units := make([]int32, n), make([]*uuid.UUID, n), make([]string, n), make([]string, n), make([]string, n)
 	prices, priceUnits, accounts := make([]money.Minor, n), make([]int32, n), make([]uuid.UUID, n)
+	assigned, centers := make([]string, n), make([]*uuid.UUID, n)
 	for i, it := range items {
 		nos[i], materials[i], descriptions[i], quantities[i], units[i] = it.No, it.MaterialID, it.Description, it.Quantity, it.Unit
-		prices[i], priceUnits[i], accounts[i] = it.UnitPrice, it.PriceUnit, it.AccountID
+		prices[i], priceUnits[i], accounts[i], assigned[i], centers[i] = it.UnitPrice, it.PriceUnit, it.AccountID, it.assignment(), it.CostCenterID
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.requisition_item AS i (tenant_id, requisition_id, item_no, material_id, description, quantity,
-			uom_code, unit_price, price_unit, account_id)
-		SELECT $1, $2, n, m, d, q::numeric, u, p, pu, a
-		FROM unnest($3::int[], $4::uuid[], $5::text[], $6::text[], $7::text[], $8::bigint[], $9::int[], $10::uuid[]) AS x(n, m, d, q, u, p, pu, a)
+			uom_code, unit_price, price_unit, account_id, account_assignment, cost_center_id)
+		SELECT $1, $2, n, m, d, q::numeric, u, p, pu, a, aa, cc
+		FROM unnest($3::int[], $4::uuid[], $5::text[], $6::text[], $7::text[], $8::bigint[], $9::int[], $10::uuid[], $11::text[], $12::uuid[])
+			AS x(n, m, d, q, u, p, pu, a, aa, cc)
 		ON CONFLICT (tenant_id, requisition_id, item_no) DO UPDATE SET material_id = EXCLUDED.material_id, description = EXCLUDED.description,
 			quantity = EXCLUDED.quantity, uom_code = EXCLUDED.uom_code, unit_price = EXCLUDED.unit_price, price_unit = EXCLUDED.price_unit,
-			account_id = EXCLUDED.account_id, is_removed = false`,
-		tenant, id, nos, materials, descriptions, quantities, units, prices, priceUnits, accounts); err != nil {
+			account_id = EXCLUDED.account_id, account_assignment = EXCLUDED.account_assignment, cost_center_id = EXCLUDED.cost_center_id,
+			is_removed = false`,
+		tenant, id, nos, materials, descriptions, quantities, units, prices, priceUnits, accounts, assigned, centers); err != nil {
 		return fmt.Errorf("procurement: write items of requisition %s: %w", id, err)
 	}
 	return removeItems(ctx, tx, "requisition_item", "requisition_id", id, n)
@@ -425,6 +449,15 @@ func (e *Endpoints) submitRequisition(ctx context.Context, id uuid.UUID, ifMatch
 	}
 	r, err := loadDraft(ctx, tx, p, id, ifMatch, "submit", Draft)
 	if err != nil {
+		return Requisition{}, err
+	}
+	// Submission releases a requisition for approval: its items'
+	// assignments are checked on the day it is submitted (T56e).
+	today, err := database.Today(ctx, tx)
+	if err != nil {
+		return Requisition{}, err
+	}
+	if err := e.checkAssignments(ctx, r.LegalEntityID, today, assignments(r.Items, 0)); err != nil {
 		return Requisition{}, err
 	}
 	sum, err := documentTotal(r.Items)

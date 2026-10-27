@@ -16,10 +16,10 @@ import (
 func TestEventsMaskCustomFields(t *testing.T) {
 	e := setup(t)
 	secret, later := uuid.NewString(), uuid.NewString()
-	o := e.order(t, items(item(e.office, "10", "EA", "2.50", "EUR", "")), `, "extensions": {"cost_center": "north", "project": "`+secret+`"}`)
+	o := e.order(t, items(item(e.office, "10", "EA", "2.50", "EUR", "")), `, "extensions": {"region": "north", "project": "`+secret+`"}`)
 	path := "/v1/purchase-orders/" + id(o)
 	e.act(t, path, "release", "")
-	ch, tag := e.Must(201, "POST", path+"/changes", `{"reason": "r", "extensions": {"cost_center": "south", "project": "`+later+`"}}`, "")
+	ch, tag := e.Must(201, "POST", path+"/changes", `{"reason": "r", "extensions": {"region": "south", "project": "`+later+`"}}`, "")
 	if ch, _ = e.Must(200, "POST", path+"/changes/"+id(ch)+":submit", "", tag); ch["status"] != "applied" {
 		t.Fatalf("change: got %v, want applied", ch["status"])
 	}
@@ -30,8 +30,8 @@ func TestEventsMaskCustomFields(t *testing.T) {
 				t.Fatalf("got %d events, want 1", len(got))
 			}
 			ext, _ := got[0]["extensions"].(map[string]any)
-			if ext["cost_center"] != center {
-				t.Errorf("cost_center: got %v, want %s", ext["cost_center"], center)
+			if ext["region"] != center {
+				t.Errorf("region: got %v, want %s", ext["region"], center)
 			}
 			if ext["project"] != extensions.Masked {
 				t.Errorf("project: got %v, want %s", ext["project"], extensions.Masked)

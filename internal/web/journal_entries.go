@@ -198,7 +198,7 @@ func (s *Server) showEntry(w http.ResponseWriter, r *http.Request, p *person, m 
 	companies, ledgers, accounts := s.companies(ctx, m), s.ledgers(ctx, m), s.accounts(ctx, m, e.LegalEntityID)
 	names := s.names(ctx, p, []uuid.UUID{e.PostedBy})
 	ep := ui.EntryPage{Number: e.DocumentNumber, Header: entryHeader(e, companies, ledgers, names), Lines: postedLines(e.Lines, accounts),
-		Done: entryDone[r.URL.Query().Get("done")], Refusal: refused,
+		Done: entryDone[r.URL.Query().Get("done")], Refusal: refused, Audit: auditLink(m, e.ID),
 		Back: ui.EntriesFor(url.Values{ui.FieldCompany: {e.LegalEntityID.String()}, ui.FieldLedger: {e.LedgerID.String()}})}
 	switch {
 	case e.ReversedByID.Set, e.ReversalOfID.Set, !got.ETag.Set:

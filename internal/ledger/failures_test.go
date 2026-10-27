@@ -301,6 +301,10 @@ func ledgerCalls(t *testing.T, e env, h *ledger.Endpoints, d ledgerDocs) map[str
 			_, err := h.ListOpenItems(ctx, gen.ListOpenItemsParams{})
 			return err
 		},
+		"open items aged": func(ctx context.Context) error {
+			_, err := h.ListOpenItems(ctx, gen.ListOpenItemsParams{AgingKeyDate: gen.NewOptDate(date("2026-04-15"))})
+			return err
+		},
 		"GR/IR balances": func(ctx context.Context) error {
 			_, err := h.ListGrIrBalances(ctx, gen.ListGrIrBalancesParams{LegalEntityID: e.de})
 			return err

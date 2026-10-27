@@ -50,6 +50,7 @@ type Accounts interface {
 	Determination(ctx context.Context, legalEntity uuid.UUID, key string) (uuid.UUID, bool, error)
 	IsPostable(ctx context.Context, legalEntity, account uuid.UUID) (bool, error)
 	TaxCode(ctx context.Context, legalEntity uuid.UUID, code string, date time.Time) (ledger.TaxCode, bool, error)
+	CheckAssignments(ctx context.Context, legalEntity uuid.UUID, date time.Time, items []ledger.ItemAssignment, defaults bool) error
 }
 
 // Numbers issues document numbers (configuration context).
@@ -191,6 +192,9 @@ func (h OrderReleases) Approved(ctx context.Context, order, request uuid.UUID) e
 		return err
 	}
 	if err := h.Endpoints.supplier(ctx, o.SupplierID, o.LegalEntityID); err != nil {
+		return err
+	}
+	if err := h.Endpoints.checkAssignments(ctx, o.LegalEntityID, o.OrderDate, assignments(o.Items, 0)); err != nil {
 		return err
 	}
 	value, err := documentTotal(o.Items)

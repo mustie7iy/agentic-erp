@@ -6589,7 +6589,7 @@ paths:
       tags:
         - ledger
       summary: List open items
-      description: "Uncleared lines on supplier and customer reconciliation accounts. Sortable by: `posting_date`."
+      description: "Uncleared lines on supplier and customer reconciliation accounts. An item posted with payment terms (T36b) is due on their `net_due_date`, and earns a discount until each tier's `until`; an item without terms (posted before T36, manually, migrated, a customer's) has no due date the ledger keeps. With `aging_key_date` the first page also carries `aging`: every item the filters select, not only the page's, summed per local currency by how many days past its net due date it is on the key date (ADR-0052 G4). Sortable by: `posting_date`."
       x-permission: ledger.entry.read
       x-problem-codes:
         - request.invalid_order_by
@@ -6606,6 +6606,39 @@ paths:
             type: string
             format: uuid
         - $ref: "#/components/parameters/PostingDateTo"
+        - name: due_date_to
+          in: query
+          required: false
+          description: "Only items due on or before this date by the payment terms they were posted with (`payment_terms.net_due_date`); an item without terms has no due date and is left out."
+          schema:
+            type: string
+            format: date
+        - name: aging_key_date
+          in: query
+          required: false
+          description: "The date the items are aged on: the first page carries `aging`, the selected items summed in the buckets of `aging_days`."
+          schema:
+            type: string
+            format: date
+        - name: aging_days
+          in: query
+          required: false
+          description: "The aging buckets' last days past the net due date, ascending, comma-separated: `30,60,90` (the default) ages the items not yet due, 1 to 30, 31 to 60 and 61 to 90 days overdue, and more than 90. Only with `aging_key_date`: without it, 400 `request.invalid_parameter`, as for days not ascending."
+          schema:
+            type: array
+            items:
+              type: integer
+              format: int32
+              minimum: 1
+              maximum: 3650
+            minItems: 1
+            maxItems: 6
+          style: form
+          explode: false
+          example:
+            - 30
+            - 60
+            - 90
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -7033,6 +7066,214 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BalancePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/cost-center-balances:
+    get:
+      operationId: listCostCenterBalances
+      x-slo-class: report
+      tags:
+        - ledger
+      summary: List cost center balances
+      description: "Actual period totals per cost center, account and transaction currency of one legal entity, ledger and fiscal year (ADR-0050 §7), exact at the moment of the read: the balances the projector keeps by assignment (ADR-0006) plus the lines of entries it has not reached yet, as `GET /v1/balances`. Only profit and loss accounts: balance sheet lines carry no cost center, and a balance sheet by profit center or segment needs document splitting (ADR-0050 decision P3). A legal entity the caller cannot act in, or a ledger that does not exist, has none. The lines behind a row are the entries `GET /v1/journal-entries` lists with `legal_entity_id`, `ledger_id`, `fiscal_year` and `cost_center_id`. Sortable by: `cost_center_id`, `account_id`, `fiscal_period`. The amounts are ledger amounts, so besides `ledger.cost_center.read` the caller needs `ledger.entry.read`, as for the trial balance (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: ledger.cost_center.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: ledger_id
+          in: query
+          required: false
+          description: "Only this ledger (`GET /v1/ledgers`); defaults to the leading ledger."
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: Fiscal year (required).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: fiscal_period_from
+          in: query
+          required: false
+          description: "Only periods from this one (default 1)."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: fiscal_period_to
+          in: query
+          required: false
+          description: "Only periods up to this one (default 16); before `fiscal_period_from`: 400 `request.invalid_parameter`."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: cost_center_id
+          in: query
+          required: false
+          description: "Only this cost center."
+          schema:
+            type: string
+            format: uuid
+        - name: hierarchy_node_id
+          in: query
+          required: false
+          description: "Only the cost centers at this node of a cost center hierarchy (`GET /v1/hierarchies/{id}`) or below it, under today's tree (ADR-0050 decision P7); a node's total is the sum of their rows. A node of another kind's hierarchy, or one that is unknown or removed, has none."
+          schema:
+            type: string
+            format: uuid
+        - name: segment_id
+          in: query
+          required: false
+          description: "Only lines of this segment."
+          schema:
+            type: string
+            format: uuid
+        - name: account_id
+          in: query
+          required: false
+          description: Only this account.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of cost center balances.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostCenterBalancePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/profit-center-balances:
+    get:
+      operationId: listProfitCenterBalances
+      x-slo-class: report
+      tags:
+        - ledger
+      summary: List profit center balances
+      description: "Actual period totals per profit center, its segment, account and transaction currency of one legal entity, ledger and fiscal year (ADR-0050 §7): the profit and loss statement by profit center and, summed by `segment_id`, by segment; exact at the moment of the read: the balances the projector keeps by assignment (ADR-0006) plus the lines of entries it has not reached yet, as `GET /v1/balances`. Only profit and loss accounts: balance sheet lines carry no cost center, and a balance sheet by profit center or segment needs document splitting (ADR-0050 decision P3). A legal entity the caller cannot act in, or a ledger that does not exist, has none. The lines behind a row are the entries `GET /v1/journal-entries` lists with `legal_entity_id`, `ledger_id`, `fiscal_year` and `profit_center_id`. Sortable by: `profit_center_id`, `account_id`, `fiscal_period`. The amounts are ledger amounts, so besides `ledger.cost_center.read` the caller needs `ledger.entry.read`, as for the trial balance (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: ledger.cost_center.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: ledger_id
+          in: query
+          required: false
+          description: "Only this ledger (`GET /v1/ledgers`); defaults to the leading ledger."
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: Fiscal year (required).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: fiscal_period_from
+          in: query
+          required: false
+          description: "Only periods from this one (default 1)."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: fiscal_period_to
+          in: query
+          required: false
+          description: "Only periods up to this one (default 16); before `fiscal_period_from`: 400 `request.invalid_parameter`."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: profit_center_id
+          in: query
+          required: false
+          description: "Only this profit center."
+          schema:
+            type: string
+            format: uuid
+        - name: hierarchy_node_id
+          in: query
+          required: false
+          description: "Only the profit centers at this node of a profit center hierarchy (`GET /v1/hierarchies/{id}`) or below it, under today's tree (ADR-0050 decision P7); a node's total is the sum of their rows. A node of another kind's hierarchy, or one that is unknown or removed, has none."
+          schema:
+            type: string
+            format: uuid
+        - name: segment_id
+          in: query
+          required: false
+          description: "Only lines of this segment."
+          schema:
+            type: string
+            format: uuid
+        - name: account_id
+          in: query
+          required: false
+          description: Only this account.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of profit center balances.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfitCenterBalancePage"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -7558,6 +7799,7 @@ paths:
         - procurement.account_not_postable
         - procurement.amount_too_large
         - procurement.currency_mismatch
+        - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_contract
         - procurement.invalid_item_no
@@ -7651,6 +7893,7 @@ paths:
         - procurement.account_not_postable
         - procurement.amount_too_large
         - procurement.currency_mismatch
+        - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_contract
         - procurement.invalid_item_no
@@ -7716,7 +7959,12 @@ paths:
       x-autonomy: propose
       x-problem-codes:
         - config.not_bootstrapped
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.no_exchange_rate
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
         - procurement.amount_too_large
         - procurement.invalid_status
         - procurement.not_requester
@@ -7887,6 +8135,7 @@ paths:
         - procurement.account_not_postable
         - procurement.amount_too_large
         - procurement.currency_mismatch
+        - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
         - procurement.invalid_contract
@@ -7992,6 +8241,7 @@ paths:
         - procurement.account_not_postable
         - procurement.amount_too_large
         - procurement.currency_mismatch
+        - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
         - procurement.invalid_contract
@@ -8066,7 +8316,12 @@ paths:
       x-permission: procurement.order.release
       x-problem-codes:
         - config.not_bootstrapped
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.no_exchange_rate
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
         - procurement.amount_too_large
         - procurement.contract_exceeded
         - procurement.invalid_contract
@@ -8263,6 +8518,7 @@ paths:
         - procurement.amount_too_large
         - procurement.change_open
         - procurement.currency_mismatch
+        - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
         - procurement.invalid_contract
@@ -8368,6 +8624,7 @@ paths:
         - procurement.amount_too_large
         - procurement.change_open
         - procurement.currency_mismatch
+        - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
         - procurement.invalid_contract
@@ -8490,12 +8747,18 @@ paths:
       x-permission: procurement.order.create
       x-problem-codes:
         - config.not_bootstrapped
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.no_exchange_rate
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
         - procurement.account_not_postable
         - procurement.amount_too_large
         - procurement.change_open
         - procurement.contract_exceeded
         - procurement.currency_mismatch
+        - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
         - procurement.invalid_contract
@@ -9362,10 +9625,16 @@ paths:
       x-problem-codes:
         - config.no_number_range
         - config.number_range_exhausted
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.no_fiscal_period
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
         - payables.account_not_postable
         - payables.account_required
         - payables.already_captured
+        - payables.assignment_from_order
         - payables.currency_mismatch
         - payables.duplicate_invoice
         - payables.invalid_purchase_order
@@ -9502,12 +9771,18 @@ paths:
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
         - ledger.no_exchange_rate
         - ledger.no_fiscal_period
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
         - payables.account_not_postable
         - payables.account_required
         - payables.already_captured
         - payables.amount_too_large
+        - payables.assignment_from_order
         - payables.capture_needs_document
         - payables.capture_needs_order
         - payables.currency_mismatch
@@ -9732,9 +10007,15 @@ paths:
       x-permission: payables.invoice.capture
       x-autonomy: propose
       x-problem-codes:
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
         - payables.account_not_postable
         - payables.account_required
         - payables.already_captured
+        - payables.assignment_from_order
         - payables.currency_mismatch
         - payables.duplicate_invoice
         - payables.invalid_purchase_order
@@ -13083,6 +13364,7 @@ paths:
         - procurement.amount_too_large
         - procurement.change_open
         - procurement.contract_exceeded
+        - procurement.invalid_account_assignment
         - procurement.invalid_change
         - procurement.invalid_contract
         - procurement.invalid_status
@@ -14675,6 +14957,7 @@ paths:
         - payables.account_not_postable
         - payables.account_required
         - payables.already_captured
+        - payables.assignment_from_order
         - payables.currency_mismatch
         - payables.duplicate_invoice
         - payables.invalid_purchase_order
@@ -14700,6 +14983,7 @@ paths:
         - procurement.amount_too_large
         - procurement.contract_exceeded
         - procurement.currency_mismatch
+        - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
         - procurement.invalid_contract
@@ -14874,6 +15158,7 @@ paths:
         - payables.account_not_postable
         - payables.account_required
         - payables.already_captured
+        - payables.assignment_from_order
         - payables.currency_mismatch
         - payables.duplicate_invoice
         - payables.invalid_purchase_order
@@ -14899,6 +15184,7 @@ paths:
         - procurement.amount_too_large
         - procurement.contract_exceeded
         - procurement.currency_mismatch
+        - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
         - procurement.invalid_contract
@@ -23360,6 +23646,60 @@ components:
           $ref: "#/components/schemas/Money"
           description: Sum of their differences in group currency.
           readOnly: true
+    OpenItemAging:
+      type: object
+      description: "The open items of one aging bucket in one local currency (ADR-0052 G4): their number and their open amount in local currency, signed (a supplier's credit negative)."
+      required:
+        - bucket
+        - currency
+        - item_count
+        - amount_lc
+      properties:
+        bucket:
+          type: string
+          description: "`not_due`: due on the key date or later; `overdue`: from `days_from` to `days_to` days past the net due date (the last bucket without `days_to`); `no_due_date`: posted without payment terms. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - not_due
+            - overdue
+            - no_due_date
+          readOnly: true
+        days_from:
+          type: integer
+          format: int32
+          description: "An overdue bucket's first day past the net due date."
+          minimum: 1
+          readOnly: true
+        days_to:
+          type: integer
+          format: int32
+          description: "An overdue bucket's last day past the net due date; absent on the last bucket."
+          minimum: 1
+          readOnly: true
+        currency:
+          type: string
+          description: The local currency the amounts are in.
+          pattern: "^[A-Z]{3}$"
+          readOnly: true
+        item_count:
+          type: integer
+          format: int64
+          description: How many items the bucket holds.
+          minimum: 1
+          readOnly: true
+        amount_lc:
+          $ref: "#/components/schemas/Money"
+          description: The items' open amount in local currency, signed.
+          readOnly: true
+      additionalProperties: false
+      example:
+        bucket: overdue
+        days_from: 1
+        days_to: 30
+        currency: EUR
+        item_count: 3
+        amount_lc:
+          amount: "-1250.00"
+          currency: EUR
     OpenItemPage:
       type: object
       description: One page of open items.
@@ -23371,6 +23711,12 @@ components:
           items:
             $ref: "#/components/schemas/OpenItem"
           description: The open items on this page.
+        aging:
+          type: array
+          description: "On the first page with `aging_key_date`: the items the filters select, every page's, per local currency and bucket, buckets in the order not due, each overdue bucket by its days, without a due date; a bucket without items is left out."
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/OpenItemAging"
         next_page_token:
           type: string
           description: "Opaque cursor for the next page; absent on the last page."
@@ -23550,6 +23896,302 @@ components:
                 amount: "1080.00"
                 currency: EUR
               updated_at: "2026-10-09T14:03:11Z"
+    CostCenterBalance:
+      type: object
+      description: "Actual period totals of a cost center on one account in one transaction currency (ADR-0050 §7)."
+      required:
+        - ledger_id
+        - legal_entity_id
+        - cost_center_id
+        - cost_center_code
+        - account_id
+        - fiscal_year
+        - fiscal_period
+        - currency
+        - debit
+        - credit
+        - debit_lc
+        - credit_lc
+        - debit_gc
+        - credit_gc
+        - updated_at
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: Ledger.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity.
+          readOnly: true
+        cost_center_id:
+          type: string
+          format: uuid
+          description: Cost center.
+          readOnly: true
+        cost_center_code:
+          type: string
+          description: The cost center's code.
+          pattern: "^[0-9A-Z_-]{1,10}$"
+          readOnly: true
+        account_id:
+          type: string
+          format: uuid
+          description: Account.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year.
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+        fiscal_period:
+          type: integer
+          format: int32
+          description: Fiscal period.
+          minimum: 1
+          maximum: 16
+          readOnly: true
+        currency:
+          type: string
+          description: Transaction currency of the totals.
+          pattern: "^[A-Z]{3}$"
+          example: EUR
+          readOnly: true
+        debit:
+          $ref: "#/components/schemas/Money"
+          description: Debit total in transaction currency.
+          readOnly: true
+        credit:
+          $ref: "#/components/schemas/Money"
+          description: Credit total in transaction currency (positive).
+          readOnly: true
+        debit_lc:
+          $ref: "#/components/schemas/Money"
+          description: Debit total in local currency.
+          readOnly: true
+        credit_lc:
+          $ref: "#/components/schemas/Money"
+          description: Credit total in local currency (positive).
+          readOnly: true
+        debit_gc:
+          $ref: "#/components/schemas/Money"
+          description: Debit total in group currency.
+          readOnly: true
+        credit_gc:
+          $ref: "#/components/schemas/Money"
+          description: Credit total in group currency (positive).
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: "When the row's latest projected or pending line was added."
+          readOnly: true
+      examples:
+        - ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          cost_center_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc1"
+          cost_center_code: "1000"
+          account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+          fiscal_year: 2026
+          fiscal_period: 10
+          currency: CAD
+          debit:
+            amount: "1080.00"
+            currency: CAD
+          credit:
+            amount: "0.00"
+            currency: CAD
+          debit_lc:
+            amount: "1080.00"
+            currency: CAD
+          credit_lc:
+            amount: "0.00"
+            currency: CAD
+          debit_gc:
+            amount: "740.00"
+            currency: EUR
+          credit_gc:
+            amount: "0.00"
+            currency: EUR
+          updated_at: "2026-10-09T14:03:11Z"
+    CostCenterBalancePage:
+      type: object
+      description: One page of cost center balances.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CostCenterBalance"
+          description: The cost center balances on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+    ProfitCenterBalance:
+      type: object
+      description: "Actual period totals of a profit center and its segment on one profit and loss account in one transaction currency (ADR-0050 §7)."
+      required:
+        - ledger_id
+        - legal_entity_id
+        - profit_center_id
+        - profit_center_code
+        - account_id
+        - fiscal_year
+        - fiscal_period
+        - currency
+        - debit
+        - credit
+        - debit_lc
+        - credit_lc
+        - debit_gc
+        - credit_gc
+        - updated_at
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: Ledger.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity.
+          readOnly: true
+        profit_center_id:
+          type: string
+          format: uuid
+          description: Profit center.
+          readOnly: true
+        profit_center_code:
+          type: string
+          description: The profit center's code.
+          pattern: "^[0-9A-Z_-]{1,10}$"
+          readOnly: true
+        segment_id:
+          type: string
+          format: uuid
+          description: The segment of the lines, the profit center's (ADR-0050 §5); absent when they carry none.
+          readOnly: true
+        segment_code:
+          type: string
+          description: The segment's code; absent with `segment_id`.
+          pattern: "^[0-9A-Z_-]{1,10}$"
+          readOnly: true
+        account_id:
+          type: string
+          format: uuid
+          description: Account.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year.
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+        fiscal_period:
+          type: integer
+          format: int32
+          description: Fiscal period.
+          minimum: 1
+          maximum: 16
+          readOnly: true
+        currency:
+          type: string
+          description: Transaction currency of the totals.
+          pattern: "^[A-Z]{3}$"
+          example: EUR
+          readOnly: true
+        debit:
+          $ref: "#/components/schemas/Money"
+          description: Debit total in transaction currency.
+          readOnly: true
+        credit:
+          $ref: "#/components/schemas/Money"
+          description: Credit total in transaction currency (positive).
+          readOnly: true
+        debit_lc:
+          $ref: "#/components/schemas/Money"
+          description: Debit total in local currency.
+          readOnly: true
+        credit_lc:
+          $ref: "#/components/schemas/Money"
+          description: Credit total in local currency (positive).
+          readOnly: true
+        debit_gc:
+          $ref: "#/components/schemas/Money"
+          description: Debit total in group currency.
+          readOnly: true
+        credit_gc:
+          $ref: "#/components/schemas/Money"
+          description: Credit total in group currency (positive).
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: "When the row's latest projected or pending line was added."
+          readOnly: true
+      examples:
+        - ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db0"
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          profit_center_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc2"
+          profit_center_code: "PC1"
+          segment_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc3"
+          segment_code: "RETAIL"
+          account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+          fiscal_year: 2026
+          fiscal_period: 10
+          currency: CAD
+          debit:
+            amount: "1080.00"
+            currency: CAD
+          credit:
+            amount: "0.00"
+            currency: CAD
+          debit_lc:
+            amount: "1080.00"
+            currency: CAD
+          credit_lc:
+            amount: "0.00"
+            currency: CAD
+          debit_gc:
+            amount: "740.00"
+            currency: EUR
+          credit_gc:
+            amount: "0.00"
+            currency: EUR
+          updated_at: "2026-10-09T14:03:11Z"
+    ProfitCenterBalancePage:
+      type: object
+      description: One page of profit center balances.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProfitCenterBalance"
+          description: The profit center balances on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
     LedgerDifference:
       type: object
       description: "One account and transaction currency whose balance differs between two ledgers; amounts are signed, debit positive."
@@ -24177,6 +24819,16 @@ components:
           type: string
           format: uuid
           description: General ledger account to charge.
+        account_assignment:
+          type: string
+          x-extensible-enum:
+            - none
+            - cost_center
+          description: "Account assignment (ADR-0050 §6, SAP's account assignment category; open enumeration: clients must accept and preserve values not listed here): `cost_center` with `cost_center_id`, or `none` without (422 `procurement.invalid_account_assignment`). Absent: `cost_center` when a cost center is given, else `none`. Checked against the ledger when the requisition is submitted, on that day, as its postings will be: on a primary cost account the item names a cost center while cost center accounting applies (422 `ledger.cost_center_required`; the account's default is not taken), and the cost center is one of the legal entity, active, valid on the day and not locked for costs (422 `ledger.cost_center_invalid` with the reason)."
+        cost_center_id:
+          type: string
+          format: uuid
+          description: "Cost center the item is charged to, with `account_assignment` `cost_center`."
       examples:
         - description: Office chairs, ergonomic
           quantity:
@@ -24467,6 +25119,16 @@ components:
           type: string
           format: uuid
           description: General ledger account.
+        account_assignment:
+          type: string
+          x-extensible-enum:
+            - none
+            - cost_center
+          description: "Account assignment (ADR-0050 §6, SAP's account assignment category; open enumeration: clients must accept and preserve values not listed here): `cost_center` with `cost_center_id`, or `none` without (422 `procurement.invalid_account_assignment`). Absent: `cost_center` when a cost center is given, else `none`. Checked against the ledger on the order date when the order is released and again when its release is approved, and for the items an order change adds when it is submitted and approved, as the item's postings will be: on a primary cost account the item names a cost center while cost center accounting applies (422 `ledger.cost_center_required`; the account's default is not taken), and the cost center is one of the legal entity, active, valid on the order date and not locked for costs (422 `ledger.cost_center_invalid` with the reason; its profit center: `ledger.profit_center_invalid`). Goods receipts post the item's account with its cost center, and an invoice's price difference on the item too when the price difference account is a primary cost account. A released order's item keeps its assignment, as its account (422 `procurement.invalid_change`)."
+        cost_center_id:
+          type: string
+          format: uuid
+          description: "Cost center the item is charged to, with `account_assignment` `cost_center`."
         over_delivery_pct:
           $ref: "#/components/schemas/Decimal"
           description: Over-delivery tolerance in percent (0-100).
@@ -25571,6 +26233,14 @@ components:
           type: string
           format: uuid
           description: "General ledger account; required when the item is not PO-based."
+        cost_center_id:
+          type: string
+          format: uuid
+          description: "Cost center of an item that is not PO-based (ADR-0050 §6), posted on its line: checked when the invoice is entered or changed, on its posting date (else its invoice date), as the posting will check it (422 `ledger.cost_center_invalid` with the reason). Without one, an item on a primary cost account takes the account's default cost center while cost center accounting applies, or is refused (422 `ledger.cost_center_required`). A PO-based item takes its order item's cost center; another one given is refused (422 `payables.assignment_from_order`)."
+        profit_center_id:
+          type: string
+          format: uuid
+          description: "Profit center of an item that is not PO-based, for a P&L account without a cost center (422 `ledger.profit_center_invalid`); with a cost center it must be the cost center's (422 `ledger.profit_center_mismatch`). Without either, a P&L item takes the company's default profit center while profit center accounting applies. A PO-based item takes none of its own (422 `payables.assignment_from_order`)."
       examples:
         - quantity:
             value: "12.5"

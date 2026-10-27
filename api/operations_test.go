@@ -86,6 +86,8 @@ func TestOperationsRejectsBadContracts(t *testing.T) {
 		"snapshot write": "paths:\n  /v1/x:\n    post:\n      operationId: x\n      x-permission: a.b.c\n      x-snapshot: true\n",
 		"both permissions": "paths:\n  /v1/x/{entity}:\n    get:\n      operationId: getX\n      x-permission: a.b.c\n" +
 			"      x-entity-permissions:\n        e: a.b.read\n",
+		"also by entity": "paths:\n  /v1/x/{entity}:\n    get:\n      operationId: getX\n" +
+			"      x-entity-permissions:\n        e: a.b.read\n      x-also-permissions:\n        - a.b.c\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseOperations([]byte(src), true); err == nil {
@@ -133,6 +135,27 @@ func TestSnapshotOperations(t *testing.T) {
 	}
 }
 
+// TestAlsoPermissions: x-also-permissions are required beside
+// x-permission, and each caller of Operations gets its own copy of them.
+func TestAlsoPermissions(t *testing.T) {
+	ops, err := parseOperations([]byte("paths:\n  /v1/x:\n    get:\n      operationId: getX\n      x-permission: a.b.c\n"+
+		"      x-also-permissions:\n        - a.b.d\n"), true)
+	if err != nil {
+		t.Fatalf("x-also-permissions: %v", err)
+	}
+	if got, want := ops["getX"].AlsoPermissions, []string{"a.b.d"}; !slices.Equal(got, want) {
+		t.Errorf("also permissions: got %v, want %v", got, want)
+	}
+	first := MustOperations()["listCostCenterBalances"].AlsoPermissions
+	if want := []string{"ledger.entry.read"}; !slices.Equal(first, want) {
+		t.Fatalf("listCostCenterBalances: got %v, want %v", first, want)
+	}
+	first[0] = "changed"
+	if got := MustOperations()["listCostCenterBalances"].AlsoPermissions[0]; got != "ledger.entry.read" {
+		t.Errorf("a caller's change reached another's copy: got %q, want ledger.entry.read", got)
+	}
+}
+
 // TestEntityPermissions: x-entity-permissions stands in for x-permission.
 func TestEntityPermissions(t *testing.T) {
 	ops, err := parseOperations([]byte("paths:\n  /v1/x/{entity}:\n    get:\n      operationId: getX\n      x-entity-permissions:\n        e: a.b.read\n"), true)
@@ -154,6 +177,25 @@ func TestMustOperations(t *testing.T) {
 		}
 	}()
 	mustParse([]byte("paths: ["))
+}
+
+// TestOperationsAreCopies: the contract is parsed once, and each caller
+// gets its own copy of it: a caller that changes its operations, or an
+// operation's entity permissions, changes nobody else's.
+func TestOperationsAreCopies(t *testing.T) {
+	first := MustOperations()
+	first["getSchema"].EntityPermissions["x"] = "changed"
+	delete(first, "listOperations")
+	again := MustOperations()
+	if _, ok := again["getSchema"].EntityPermissions["x"]; ok {
+		t.Errorf("entity permissions: got the other caller's change %v", again["getSchema"].EntityPermissions)
+	}
+	if _, ok := again["listOperations"]; !ok {
+		t.Error("listOperations: got it deleted by another caller, want it")
+	}
+	if len(again["getSchema"].EntityPermissions) == 0 {
+		t.Error("getSchema entity permissions: got none, want the contract's")
+	}
 }
 
 func TestSpec(t *testing.T) {

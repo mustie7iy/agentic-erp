@@ -191,6 +191,37 @@ of its kind only), `ledger.profit_center_posted_after` and
 lines carrying it, T56d4) and `ledger.segment_in_use` (a posted profit
 center's segment), at the request and again at the approval.
 
+Requisition and purchase order items take `account_assignment` (`none` or
+`cost_center`; left out: `cost_center` when a `cost_center_id` is given)
+and `cost_center_id` (T56e): 422 `procurement.invalid_account_assignment`
+when they disagree. Submitting a requisition, releasing an order (and
+approving its release), and submitting or approving an order change that
+adds items check them as their postings will, naming `items[i]`: on a
+primary cost account the item names a cost center while cost center
+accounting applies (422 `ledger.cost_center_required`, no default taken),
+and the center is valid and unlocked (`ledger.cost_center_invalid`,
+`ledger.profit_center_invalid`). A released item keeps its assignment (422
+`procurement.invalid_change`). Supplier invoice items without an order take
+`cost_center_id` and `profit_center_id`, checked at entry with the
+account's default; an item on an order takes its order item's (422
+`payables.assignment_from_order` for one of its own).
+
+The actual reports by account assignment (ADR-0050 §7, T56f), `GET
+/v1/cost-center-balances` and `GET /v1/profit-center-balances`
+(`ledger.cost_center.read` and, as for every ledger amount,
+`ledger.entry.read`; `x-slo-class: report`), give the period totals
+of one legal entity, ledger (the leading one by default) and fiscal year,
+per center, account, period and transaction currency, a profit center's
+rows with its segment; profit and loss accounts only. They filter by
+period range (`fiscal_period_from`, `fiscal_period_to`; a range ending
+before it starts is 400 `request.invalid_parameter`), center, hierarchy
+node (its centers and those below it under today's tree), segment and
+account, and page like the trial balance. The figures are exact at the
+read, as the trial balance's: projected balances plus the lines not yet
+projected. A row's lines are the entries `GET /v1/journal-entries` lists
+for its center (`cost_center_id`, `profit_center_id`) with the company,
+ledger and year; the reports add no journal filter.
+
 ## 4.7 Concurrency and idempotency
 
 Per ADR-0008:
@@ -284,7 +315,11 @@ at most one bank file.
   if a handler has no permission, and a test checks that every permission in
   the spec exists in `ref.permission`. An operation whose resource is read by
   whoever may read an entity (`GET /v1/schemas/{entity}`, ADR-0046) names a
-  read permission per entity in `x-entity-permissions` instead.
+  read permission per entity in `x-entity-permissions` instead. An operation
+  that needs further permissions beside its own lists them in
+  `x-also-permissions`, and the caller must hold each: the cost and profit
+  center balance reports show ledger amounts, so they need the trial
+  balance's `ledger.entry.read` beside `ledger.cost_center.read` (ADR-0050).
 - Company access is checked on every read and write; resources outside the
   caller's companies are 404, not 403, so ids cannot be probed. A resource
   of no company that holds values of several (a change request's simulation
