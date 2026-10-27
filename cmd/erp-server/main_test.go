@@ -73,7 +73,10 @@ func quiet() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)
 // environment is a valid configuration on the package database.
 func environment(t *testing.T, is *authntest.Issuer, natsURL string) map[string]string {
 	t.Helper()
-	issuers, _ := json.Marshal([]any{is.Config()})
+	issuers, err := json.Marshal([]any{is.Config()})
+	if err != nil {
+		t.Fatal(err)
+	}
 	return map[string]string{
 		"DATABASE_URL":         pgtest.URL(t),
 		"ERP_ENV":              "development",
@@ -128,7 +131,7 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 	defer stop()
 	a := <-addrs
 	get := func(u, token string) (int, map[string]any) {
-		req, _ := http.NewRequestWithContext(t.Context(), "GET", u, nil)
+		req := request(t, "GET", u, "")
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
 		}
@@ -152,7 +155,10 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		scraped, _ = io.ReadAll(mresp.Body)
+		scraped, err = io.ReadAll(mresp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
 		_ = mresp.Body.Close() // the scrape is already read; a close error cannot change what is asserted
 		return strings.Contains(string(scraped), "erp_outbox_backlog ") && strings.Contains(string(scraped), "erp_projection_backlog 0") &&
 			strings.Contains(string(scraped), "erp_payment_proposals_queued 0") && strings.Contains(string(scraped), "erp_simulations_queued 0")
@@ -171,7 +177,7 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 	op := page["items"].([]any)[0].(map[string]any)
 
 	// Cancelling publishes OperationCompleted through the relay to JetStream.
-	req, _ := http.NewRequestWithContext(t.Context(), "POST", "http://"+a[0]+"/v1/operations/"+op["id"].(string)+":cancel", nil)
+	req := request(t, "POST", "http://"+a[0]+"/v1/operations/"+op["id"].(string)+":cancel", "")
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Idempotency-Key", "key-server-test-1")
 	req.Header.Set("If-Match", `"1"`)
@@ -180,10 +186,19 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 		t.Fatal(cresp.StatusCode, err)
 	}
 	_ = cresp.Body.Close() // only the status is asserted; the body is not needed
-	nc, _ := nats.Connect(natsURL)
+	nc, err := nats.Connect(natsURL)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer nc.Close()
-	js, _ := jetstream.New(nc)
-	stream, _ := js.Stream(context.Background(), natsbus.StreamName("test", "platform"))
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := js.Stream(context.Background(), natsbus.StreamName("test", "platform"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	subject := fmt.Sprintf("erp.test.platform.%s.operation_completed", ten.ID)
 	var relayed *jetstream.RawStreamMsg
 	pgtest.Eventually(t, 30*time.Second, func() bool {
@@ -302,7 +317,10 @@ func TestMaintenanceRetries(t *testing.T) {
 func TestStartupFailures(t *testing.T) {
 	is := authntest.New(t)
 	ctx := context.Background()
-	busy, _ := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	busy, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer func() { _ = busy.Close() }() // best-effort cleanup of the port the cases collide with
 	cases := map[string]func(t *testing.T, cfg *config.Config){
 		"otlp endpoint": func(_ *testing.T, c *config.Config) { c.OTLPEndpoint = "not a url" },
@@ -482,7 +500,10 @@ func limitedUser(t *testing.T) string {
 	t.Helper()
 	pgtest.Exec(t, `DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'erp_test_limited') THEN
 		CREATE ROLE erp_test_limited LOGIN PASSWORD 'limited'; END IF; END $$`)
-	u, _ := url.Parse(pgtest.EmptyDatabase(t))
+	u, err := url.Parse(pgtest.EmptyDatabase(t))
+	if err != nil {
+		t.Fatal(err)
+	}
 	u.User = url.UserPassword("erp_test_limited", "limited")
 	return u.String()
 }
@@ -634,7 +655,7 @@ func (s *devLogin) administratorToken(t *testing.T) {
 		t.Fatalf("mint: %d", mint.StatusCode)
 	}
 	s.minted = minted.Token
-	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://"+a[0]+"/v1/config-versions?is_active=true", nil)
+	req := request(t, "GET", "http://"+a[0]+"/v1/config-versions?is_active=true", "")
 	req.Header.Set("Authorization", "Bearer "+minted.Token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -659,7 +680,7 @@ func (s *devLogin) operatorToken(t *testing.T) {
 	var operator struct{ Token string }
 	readJSON(t, mint, &operator)
 	control := func(method, path, ifMatch string) (int, map[string]any) {
-		req, _ := http.NewRequestWithContext(t.Context(), method, "http://"+a[1]+"/control/v1"+path, nil)
+		req := request(t, method, "http://"+a[1]+"/control/v1"+path, "")
 		req.Header.Set("Authorization", "Bearer "+operator.Token)
 		if ifMatch != "" {
 			req.Header.Set("If-Match", ifMatch)
@@ -675,7 +696,7 @@ func (s *devLogin) operatorToken(t *testing.T) {
 	if code, m := control("GET", "/tenants/"+created.TenantID, ""); code != 200 || m["status"] != "active" {
 		t.Fatalf("control get: %d %v", code, m)
 	}
-	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://"+a[0]+"/v1/roles", nil)
+	req := request(t, "GET", "http://"+a[0]+"/v1/roles", "")
 	req.Header.Set("Authorization", "Bearer "+operator.Token)
 	if code := status(t, req); code != 401 {
 		t.Fatalf("operator on the public API: got %d, want 401", code)
@@ -683,7 +704,7 @@ func (s *devLogin) operatorToken(t *testing.T) {
 	if code, m := control("POST", "/tenants/"+created.TenantID+":suspend", `"1"`); code != 200 || m["status"] != "suspended" {
 		t.Fatalf("suspend: %d %v", code, m)
 	}
-	req, _ = http.NewRequestWithContext(t.Context(), "GET", "http://"+a[0]+"/v1/roles", nil)
+	req = request(t, "GET", "http://"+a[0]+"/v1/roles", "")
 	req.Header.Set("Authorization", "Bearer "+s.minted)
 	if code := status(t, req); code != 403 {
 		t.Fatalf("suspended tenant on the public API: got %d, want 403", code)
@@ -709,7 +730,11 @@ func (s *devLogin) anchoring(t *testing.T) {
 		}
 		return anchored > 0
 	}, "no anchor written")
-	if objects, _ := filepath.Glob(filepath.Join(env["ERP_OBJECT_DIR"], "tenants", created.TenantID, "audit", "anchors", "*.json")); len(objects) == 0 {
+	objects, err := filepath.Glob(filepath.Join(env["ERP_OBJECT_DIR"], "tenants", created.TenantID, "audit", "anchors", "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(objects) == 0 {
 		t.Fatal("no anchor object")
 	}
 }
@@ -776,7 +801,7 @@ func peerClient(t *testing.T, ca *tlstest.CA, id string) *http.Client {
 func checkAPIPeers(t *testing.T, ca *tlstest.CA, addr string) {
 	t.Helper()
 	url := "https://" + addr + "/v1/operations"
-	req, _ := http.NewRequestWithContext(t.Context(), "GET", url, nil)
+	req := request(t, "GET", url, "")
 	if resp, err := peerClient(t, ca, "").Do(req); err == nil {
 		_ = resp.Body.Close() // the failure is what is reported
 		t.Errorf("API without a certificate: got %d, want the handshake refused", resp.StatusCode)
@@ -789,7 +814,7 @@ func checkAPIPeers(t *testing.T, ca *tlstest.CA, addr string) {
 		{tlsconf.ID(trustDomain, "global", "erp-router"), http.StatusUnauthorized},
 	} {
 		t.Run("API from "+c.id, func(t *testing.T) {
-			req, _ := http.NewRequestWithContext(t.Context(), "GET", url, nil)
+			req := request(t, "GET", url, "")
 			if got := statusWith(t, peerClient(t, ca, c.id), req); got != c.want {
 				t.Errorf("got %d, want %d", got, c.want)
 			}
@@ -841,19 +866,19 @@ func TestProductionOperatorWithoutRoles(t *testing.T) {
 		t.Fatalf("stopped before serving: %d\n%s", code, logs.String())
 	}
 	get := func(extra map[string]any) int {
-		req, _ := http.NewRequestWithContext(t.Context(), "GET", base+uuid.NewString(), nil)
+		req := request(t, "GET", base+uuid.NewString(), "")
 		req.Header.Set("Authorization", "Bearer "+is.Token(t, uuid.Nil, "ops|alice", extra))
 		return statusWith(t, router, req)
 	}
 	// The admin listener serves TLS only; probes connect without a
 	// certificate, /control only as the global plane (ADR-0033).
-	livez, _ := http.NewRequestWithContext(t.Context(), "GET", strings.Replace(base, "/control/v1/tenants/", "/livez", 1), nil)
+	livez := request(t, "GET", strings.Replace(base, "/control/v1/tenants/", "/livez", 1), "")
 	if got := statusWith(t, peerClient(t, ca, ""), livez); got != http.StatusOK {
 		t.Errorf("a probe without a certificate: got %d, want 200", got)
 	}
 	for name, client := range map[string]*http.Client{"no certificate": peerClient(t, ca, ""), "another service": peerClient(t, ca, tlsconf.ID(trustDomain, "eu2", "erp-server"))} {
 		t.Run("/control from "+name, func(t *testing.T) {
-			req, _ := http.NewRequestWithContext(t.Context(), "GET", base+uuid.NewString(), nil)
+			req := request(t, "GET", base+uuid.NewString(), "")
 			req.Header.Set("Authorization", "Bearer "+is.Token(t, uuid.Nil, "ops|alice", map[string]any{"tenant_id": nil, "roles": []string{"erp:read"}}))
 			if got := statusWith(t, client, req); got != http.StatusForbidden {
 				t.Errorf("got %d, want 403", got)
@@ -1304,7 +1329,7 @@ func TestWorkflowEngine(t *testing.T) {
 	}
 	token := is.Token(t, f.Tenant.ID, f.Tenant.Human.Subject, nil)
 	call := func(method, path, body string) (int, map[string]any) {
-		req, _ := http.NewRequestWithContext(t.Context(), method, "http://"+addr+path, strings.NewReader(body))
+		req := request(t, method, "http://"+addr+path, body)
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 		if method == "POST" {
@@ -1342,7 +1367,7 @@ func TestWorkflowEngine(t *testing.T) {
 	}
 	// The release, by the approver, is a workflow too: the run has nothing to pay here, which the API says at once.
 	approver := is.Token(t, f.Tenant.ID, f.Approver.Subject, nil)
-	req, _ := http.NewRequestWithContext(t.Context(), "POST", "http://"+addr+op["resource"].(string)+":release", strings.NewReader(""))
+	req := request(t, "POST", "http://"+addr+op["resource"].(string)+":release", "")
 	req.Header.Set("Authorization", "Bearer "+approver)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Idempotency-Key", uuid.NewString())
@@ -1619,7 +1644,10 @@ func TestRegisteredProviderEndToEnd(t *testing.T) {
 		}
 	}()
 	a := <-addrs
-	doc, _ := json.Marshal(fixture.Document(t))
+	doc, err := json.Marshal(fixture.Document(t))
+	if err != nil {
+		t.Fatal(err)
+	}
 	body := `{"name": "Registered", "region": "eu-west", "group_currency": "EUR", "administrator": {"subject": "ada", "display_name": "Ada"},
 		"identity_provider": {"issuer": "` + idp.URL + `", "audience": "` + authntest.Audience + `"}, "configuration": ` + string(doc) + `}`
 	req := request(t, "POST", "http://"+a[1]+"/control/v1/tenants", body)
@@ -2175,7 +2203,10 @@ func TestAtRestStatedAndChecked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
 	_ = resp.Body.Close() // read whole
 	for _, want := range []string{`erp_at_rest_info{encryption="storage-kms",store="postgres"} 1`, `erp_at_rest_info{encryption="sse-kms",store="objects"} 1`,
 		`erp_operation_info{class="report",operation="listBalances"} 1`} {
@@ -2400,7 +2431,7 @@ func TestModelClient(t *testing.T) {
 		http.Redirect(w, r, "https://elsewhere.example.com/", http.StatusTemporaryRedirect)
 	}))
 	defer redirect.Close()
-	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, redirect.URL, nil)
+	req := request(t, http.MethodPost, redirect.URL, "")
 	resp, err := modelClient(plain).Do(req)
 	if err != nil {
 		t.Fatal(err)

@@ -156,8 +156,10 @@ gates on each pull request:
   gate, the signing round trip, the release scripts, the deploy workflow's
   jobs, the promotion self-test) run on the classes `scripts/ci-changes.sh`
   gives GitHub, so a change skips locally exactly what `main`'s push run
-  skips (the image reproducibility gate, which only the manual runs
-  hold, on the same classes); the report lists every step as
+  skips, except the image reproducibility gate: no push run holds it
+  (`main`'s manual runs build twice every time, as does `weekly.yml`'s
+  images job, on Sundays and on a dispatch of `all` or `images`), so
+  locally it runs on the same classes; the report lists every step as
   ok, skip or FAIL, with the classes it used, and is named after the tree
   it tested in the repository's git directory. The Go tools come from
   `scripts/ci-tools.sh`; the released binaries (terraform,
