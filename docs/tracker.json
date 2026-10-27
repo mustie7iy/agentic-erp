@@ -4364,7 +4364,7 @@
        },
        {
         "s": "T",
-        "t": "Remove the .grype.yaml exception for libssl3 3.0.20 in distroless/cc-debian12 (six CVEs; erp-analytics links no libssl) by its expiry on 2026-11-20: move to the fixed base digest when distroless publishes it, or to cc-debian13 by an ADR-0044 amendment",
+        "t": "Remove the .grype.yaml exception for libssl3 3.0.20 in distroless/cc-debian12 (seven CVEs; erp-analytics links no libssl) by its expiry on 2026-11-20: move to the fixed base digest when distroless publishes it, or to cc-debian13 by an ADR-0044 amendment",
         "r": ".grype.yaml · ADR-0044 · T55h follow-up",
         "src": "baseline",
         "c": []

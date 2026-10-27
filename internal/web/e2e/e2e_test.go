@@ -421,12 +421,21 @@ func checkPage(t *testing.T, browserCtx context.Context, s stack, src, header, l
 	}
 }
 
+// loaded waits until the page has finished loading. A wait for a page's
+// path and text after a click can end before the HTML is fully parsed
+// and before the deferred htmx has run (main's full run 40460447291);
+// the document is complete only after both. It polls on a timer, not on
+// animation frames, which a tab in the background may not get.
+var loaded = chromedp.Poll[chromedp.Void](`document.readyState === "complete"`,
+	chromedp.WithPollingInterval(50*time.Millisecond), chromedp.WithPollingTimeout(20*time.Second))
+
 // audit checks the page the tab shows as TestPagesInTheBrowser says: its
 // language and direction, htmx, no sideways scrolling at width, the skip
-// link as the first tab stop, and axe-core at zero violations.
+// link as the first tab stop, and axe-core at zero violations, once the
+// page has loaded.
 func audit(t *testing.T, ctx context.Context, src, lang, dir string, width int64) {
 	t.Helper()
-	if err := chromedp.Do(ctx, chromedp.KeyEvent("\t")); err != nil {
+	if err := chromedp.Do(ctx, loaded, chromedp.KeyEvent("\t")); err != nil {
 		t.Fatal(err)
 	}
 	got, err := chromedp.Run(ctx, chromedp.Evaluate[page](inspect))
