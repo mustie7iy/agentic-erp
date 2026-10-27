@@ -7332,9 +7332,9 @@
      },
      {
       "s": "D",
-      "t": "Main's full suite nightly and on demand instead of on every push (PO 2026-10-26): ci.yml's test job runs on schedule (06:00 UTC) and workflow_dispatch only, with a 240-minute limit, as it takes about three hours on the private repository's 2-CPU, 7.9 GB runner (run 40334507190 cancelled at 120 minutes, none failed); a push to main still runs fuzz, signing and release-scripts as before and its ci-ok passes with test skipped, a nightly or manual run's ci-ok is red when test fails, and pull requests are unchanged. Each merge still needs make ci-local and the pull request's short check (merge-pr.sh); the red-main rule applies to the latest nightly or manual full run: while it is red nothing merges but the fix forward",
+      "t": "Main's full suite on demand after each batch of merges instead of on every push (PO 2026-10-26, 2026-10-27): ci.yml's test job runs on workflow_dispatch only, with a 240-minute limit, as it takes about three hours (some 190 billable job-minutes) on the private repository's 2-CPU, 7.9 GB runner (run 40334507190 cancelled at 120 minutes, none failed); the nightly schedule of 2026-10-26 is gone, since it alone would cost about $35-45 a month once the Actions budget ran out (PO 2026-10-27), and with it ci-changes.sh's skip of a nightly at an unchanged, green main; the coordinator starts a manual full run on main after each batch merges, and a manual run never skips. A push to main still runs fuzz, signing and release-scripts as before and its ci-ok passes with test skipped, a manual run's ci-ok is red when test fails, and pull requests are unchanged. Each merge still needs make ci-local and the pull request's short check (merge-pr.sh); main is red while its latest push run or its latest manual full run is red, and then nothing merges but the fix forward",
       "r": ".github/workflows/ci.yml · scripts/ci-changes.sh · scripts/test-ci-changes.sh · scripts/ci-local.sh · CLAUDE.md · docs/testing.md · 06 §6.5",
-      "src": "po:2026-10-26",
+      "src": "po:2026-10-26 · po:2026-10-27",
       "c": []
      },
      {

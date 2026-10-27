@@ -163,9 +163,15 @@ func TestConsumerFailures(t *testing.T) {
 		t.Errorf("failed handler: handled %d, error %v; want 0 and an error", n, err)
 	}
 	// A consumer deleted under the reader answers the fetch with an error.
-	nc, _ := nats.Connect(url)
+	nc, err := nats.Connect(url)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer nc.Close()
-	js, _ := jetstream.New(nc)
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := js.DeleteConsumer(ctx, natsbus.StreamName("eu1", "ledger"), "nak"); err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +186,14 @@ func TestConsumerFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	event(t, b, "ledger")
-	if n, err := c.RunOnce(ctx); err == nil || n != 0 {
+	// As with the failed handler, a fetch can end before the event arrives
+	// (seen on CI, 2026-10-26: 0 handled, no error); the handler closes the
+	// bus, so the round that holds the event is the last one.
+	pgtest.Eventually(t, 10*time.Second, func() bool {
+		n, err = c.RunOnce(ctx)
+		return err != nil || n != 0
+	}, "lost acknowledgement: the event never arrived")
+	if err == nil || n != 0 {
 		t.Errorf("lost acknowledgement: handled %d, error %v; want 0 and an error", n, err)
 	}
 	if _, err := c.RunOnce(ctx); err == nil {

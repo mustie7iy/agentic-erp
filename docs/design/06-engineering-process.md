@@ -142,22 +142,22 @@ Every change passes, before it is merged:
 The checks are split between the author's machine and GitHub (the hybrid
 check, since 2026-10-18; since 2026-10-21 every check runs once before a
 merge, locally, and GitHub's pull request check is light — PO decision of
-2026-10-21; since 2026-10-26 the full suite runs on `main` nightly rather
-than on every push — PO decision of 2026-10-26), so runner minutes go to
-the second line on `main` rather than to repeating the slow gates on each
-pull request:
+2026-10-21; since 2026-10-26 the full suite runs on `main` on demand rather
+than on every push — PO decisions of 2026-10-26 and 2026-10-27), so runner
+minutes go to the second line on `main` rather than to repeating the slow
+gates on each pull request:
 
 - **Locally, before a pull request is merged:** `make ci-local`
   (`scripts/ci-local.sh`) runs every step of the table — every check
-  GitHub runs on `main`, nightly or on a push, the deploy workflow's
+  GitHub runs on `main`, on demand or on a push, the deploy workflow's
   included — at the versions the workflows pin, with the race suite
   three times in random order (07 §7.7), on a committed tree rebased on
   the latest `main`. The path-conditional steps (the image reproducibility
   gate, the signing round trip, the release scripts, the deploy workflow's
   jobs, the promotion self-test) run on the classes `scripts/ci-changes.sh`
   gives GitHub, so a change skips locally exactly what `main`'s push run
-  skips (the image reproducibility gate, which only the nightly and
-  manual runs hold, on the same classes); the report lists every step as
+  skips (the image reproducibility gate, which only the manual runs
+  hold, on the same classes); the report lists every step as
   ok, skip or FAIL, with the classes it used, and is named after the tree
   it tested in the repository's git directory. The Go tools come from
   `scripts/ci-tools.sh`; the released binaries (terraform,
@@ -200,37 +200,38 @@ pull request:
   workflow when its paths changed. A newer push cancels a running `ci`
   run, so merges in quick succession pay for one run; the deploy
   workflow's runs are not cancelled.
-- **On GitHub, nightly on `main` and on demand (the full suite, the second
-  line; PO decision of 2026-10-26):** the `test` job — the static checks
-  (staticcheck, govulncheck and gosec as well), the schema tests, the race
-  detector, the performance budgets, the coverage gate, the images on both
-  platforms built twice and their scan — with fuzzing, the signing round
-  trip and the release scripts, on the tree `main` really holds. It runs at
-  06:00 UTC (`schedule`) and whenever started by hand (`workflow_dispatch`, on
-  any branch: a change to the jobs is tried before it reaches `main`);
-  everything runs, except that a nightly run of a `main` whose latest full run
-  passed at that same commit runs nothing (`scripts/ci-changes.sh`): the
-  Actions budget is small, and a quiet night would otherwise cost three runner
-  hours. The latest finished full run decides, so an older green run never
-  hides a red or cancelled one. It no longer runs on every push: run
-  40334507190 (2026-10-26, on the private repository's 2-CPU, 7.9 GB runner)
-  was cancelled at its 120-minute limit with no test failed and the race step
-  unfinished, and the whole job takes about three hours, so its limit is 240
-  minutes. A nightly, a manual and a push run on `main` do not cancel each
-  other. After every merge the coordinator reads `main`'s latest push run and
-  its latest nightly or manual full run (coordinator/status.py), not only the
-  pull request's light check: from 2026-10-21 to 2026-10-25 the runner stopped
-  every run on `main`, unseen.
-- **A red `main`** (PO decisions, 2026-10-21 and 2026-10-26): `main` is
-  red while its latest push run, or its latest nightly or manual full run,
+- **On GitHub, on demand on `main` after each batch of merges (the full
+  suite, the second line; PO decisions of 2026-10-26 and 2026-10-27):** the
+  `test` job — the static checks (staticcheck, govulncheck and gosec as
+  well), the schema tests, the race detector, the performance budgets, the
+  coverage gate, the images on both platforms built twice and their scan —
+  with fuzzing, the signing round trip and the release scripts, on the tree
+  `main` really holds. It runs only when started by hand
+  (`workflow_dispatch`): the coordinator starts it on `main` after each
+  batch of merges, and on any other branch a change to the jobs is tried
+  before it reaches `main`. A manual run runs everything, whatever changed
+  (`scripts/ci-changes.sh`). It no longer runs on every push: run
+  40334507190 (2026-10-26, on the private repository's 2-CPU, 7.9 GB
+  runner) was cancelled at its 120-minute limit with no test failed and the
+  race step unfinished, and the whole job takes about three hours, so its
+  limit is 240 minutes. Nor does it run nightly (PO decision of
+  2026-10-27, after the Actions budget ran out): the run is about 190
+  billable job-minutes, so a nightly run alone would cost about $35-45 a
+  month. A manual and a push run on `main` do not cancel each other. After
+  every merge the coordinator reads `main`'s latest push run, and after
+  each batch its latest manual full run (coordinator/status.py), not only
+  the pull request's light check: from 2026-10-21 to 2026-10-25 the runner
+  stopped every run on `main`, unseen.
+- **A red `main`** (PO decisions, 2026-10-21, 2026-10-26 and 2026-10-27):
+  `main` is red while its latest push run, or its latest manual full run,
   is red. The merge that turned it red is reverted at once, or fixed
   forward within the hour when the fix is clear and small; nothing else
   merges meanwhile, and a release is cut only from a green `main`. A
-  nightly run covers every merge of the day before, so the merge to blame
-  is found among them. The local gates are the first line; the full suite
-  on `main` is the second, which catches what a laptop cannot (a clean
-  runner's timing, disk and platform), so a failure there is also a gap to
-  close in `ci-local.sh`.
+  manual full run covers every merge of the batch before it, so the merge
+  to blame is found among them. The local gates are the first line; the
+  full suite on `main` is the second, which catches what a laptop cannot
+  (a clean runner's timing, disk and platform), so a failure there is also
+  a gap to close in `ci-local.sh`.
 - Secret scanning runs on every event. Everything else is skipped when
   `scripts/ci-changes.sh` finds that only documentation changed (`docs/`,
   Markdown) since the base: a pull request's base, or for a push to `main`
@@ -240,7 +241,7 @@ pull request:
   `changes` job (the secret scan and the skip decision) succeeded and no
   job failed or was cancelled; on a pull request that is `changes` and
   `short`, the others skipped; on a push to `main`, `test` is skipped too
-  and the run passes without it; on a nightly or manual run every job but
+  and the run passes without it; on a manual run every job but
   `short` runs, so a failed `test` turns that run's `ci-ok` red. Jobs
   skipped on purpose pass; requiring them directly would let a failed
   `changes` skip them into a pass.
@@ -253,14 +254,14 @@ pull request:
   `scripts/verify-image.sh`, `scripts/provenance.sh`,
   `scripts/free-disk.sh`, `release/`, `ci.yml`, `weekly.yml`); otherwise
   the images are built once and scanned. On a push to `main` the signing
-  round trip runs on the same rule; the nightly and manual runs, with no
-  base to compare with, run both every time. `ci-local.sh` builds and
-  signs linux/amd64 only, as pull requests did on the runner; `main`'s
+  round trip runs on the same rule; a manual run, with no base to compare
+  with, runs both every time. `ci-local.sh` builds and signs linux/amd64
+  only, as pull requests did on the runner; `main`'s
   test job builds both platforms and its signing job linux/amd64, to fit
   the runner's disk (`scripts/free-disk.sh` clears unused toolchains
   first); both platforms are built twice and signed weekly. The release
   scripts' tests run when those scripts, `cliff.toml`, the `Makefile` or a
-  workflow that uses them change, nightly and weekly.
+  workflow that uses them change, on every manual run and weekly.
 - The tools run at pinned versions (`scripts/ci-tools.sh`), built once in
   the job that uses them and cached until that file or the Go version
   changes. They are saved to the cache right after they are built
