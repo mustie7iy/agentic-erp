@@ -83,6 +83,20 @@ func encodeApplyCountryPackRequest(
 	return nil
 }
 
+func encodeApplyPlanBatchRequest(
+	req *PlanBatchCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeApproveApprovalRequestRequest(
 	req OptDecisionInput,
 	r *http.Request,
@@ -538,6 +552,20 @@ func encodeCreateOrgUnitRequest(
 
 func encodeCreatePartnerChangeRequest(
 	req *PartnerChangeCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreatePlanCategoryRequest(
+	req *PlanCategoryCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"

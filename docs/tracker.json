@@ -1922,9 +1922,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Plan and plan/actual (P5): controlling context and schema; plan categories with a human-only lock; plan lines by upload and API, idempotent by batch; GET /v1/cost-center-plan-actual; actuals through ledger.AssignmentBalances",
-        "r": "T56g",
+        "s": "D",
+        "t": "Plan and plan/actual (P5): controlling context and schema (internal/controlling, controlling outbox; reads the ledger only through ledger.AssignmentBalances: PlanObjects, CostCenters, CostCenterActuals); plan categories (code, name, locked) with :lock/:unlock by a person (controlling.plan.lock, an approval permission, x-agent: false; FOR UPDATE with the caller's version), audited, PlanCategoryChanged; plan lines by batch (POST /v1/plan-batches, the upload; CSV/XLSX through T63's import), every line checked first, idempotent by batch key and digest (the same batch again, also late or concurrent, changes and publishes nothing; the key with other lines 409), replacing the plan of its category, company, year and centers (lines marked replaced, never deleted), refused on a locked category (409 and trigger); GET /v1/plan-lines; GET /v1/cost-center-plan-actual (category, company, period range, cost center or node; plan, leading ledger's actual exact at the read, variance, percent exact with big.Rat; controlling.plan.read and ledger.entry.read), paged by a cursor over center and account across both sources",
+        "r": "migration 000164 · internal/controlling · internal/ledger assignmentbalances.go · api/openapi.yaml, api/asyncapi.yaml (PlanCategoryChanged, PlanBatchApplied) · db/controlling_plan_test.go · ADR-0050 §8 as built · 03 §3.19 · 04 §4.6 · T56g",
         "src": "baseline",
         "c": []
        },
@@ -1973,7 +1973,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Plan vs actual",
       "r": "T56g",
       "src": "baseline",
@@ -8307,6 +8307,13 @@
       "t": "Main's full suite on demand after each batch of merges instead of on every push (PO 2026-10-26, 2026-10-27): ci.yml's test job runs on workflow_dispatch only, with a 240-minute limit, as it takes about three hours (some 190 billable job-minutes) on the private repository's 2-CPU, 7.9 GB runner (run 40334507190 cancelled at 120 minutes, none failed); the nightly schedule of 2026-10-26 is gone, since it alone would cost about $35-45 a month once the Actions budget ran out (PO 2026-10-27), and with it ci-changes.sh's skip of a nightly at an unchanged, green main; the coordinator starts a manual full run on main after each batch merges, and a manual run never skips. A push to main still runs fuzz, signing and release-scripts as before and its ci-ok passes with test skipped, a manual run's ci-ok is red when test fails, and pull requests are unchanged. Each merge still needs make ci-local and the pull request's short check (merge-pr.sh); main is red while its latest push run or its latest manual full run is red, and then nothing merges but the fix forward",
       "r": ".github/workflows/ci.yml · scripts/ci-changes.sh · scripts/test-ci-changes.sh · scripts/ci-local.sh · CLAUDE.md · docs/testing.md · 06 §6.5",
       "src": "po:2026-10-26 · po:2026-10-27",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "Pre-existing review findings on the natsbus fix forward (#58) and on main's full suite on demand (REVIEW.md, PO 2026-10-26): every discarded error in the touched tests is handled (natsbus_test.go, consumer_test.go, cmd/erp-server/main_test.go, internal/nfr/resilience_test.go; requests through the test's request helper); the consumer's failure checks assert the cause with errors.Is (nats.ErrConnectionClosed after the connection closes, the handler's own error, jetstream.ErrStreamNotFound), the deleted consumer still any error, as the library chooses which; 06 §6.5, ci-local.sh and ci.yml say that main's manual runs and weekly.yml's images job hold the image reproducibility gate, not the manual runs alone",
+      "r": "internal/platform/natsbus · cmd/erp-server/main_test.go · internal/nfr/resilience_test.go · scripts/ci-local.sh · .github/workflows/ci.yml · 06 §6.5",
+      "src": "po:2026-10-26",
       "c": []
      },
      {

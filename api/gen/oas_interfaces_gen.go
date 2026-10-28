@@ -29,6 +29,10 @@ type ApplyCountryPackRes interface {
 	applyCountryPackRes()
 }
 
+type ApplyPlanBatchRes interface {
+	applyPlanBatchRes()
+}
+
 type ApproveApprovalRequestRes interface {
 	approveApprovalRequestRes()
 }
@@ -171,6 +175,10 @@ type CreateOrgUnitRes interface {
 
 type CreatePartnerChangeRes interface {
 	createPartnerChangeRes()
+}
+
+type CreatePlanCategoryRes interface {
+	createPlanCategoryRes()
 }
 
 type CreatePrincipalRes interface {
@@ -437,6 +445,10 @@ type GetPaymentRunRes interface {
 	getPaymentRunRes()
 }
 
+type GetPlanCategoryRes interface {
+	getPlanCategoryRes()
+}
+
 type GetPrincipalRes interface {
 	getPrincipalRes()
 }
@@ -605,6 +617,10 @@ type ListCostCenterPathsRes interface {
 	listCostCenterPathsRes()
 }
 
+type ListCostCenterPlanActualRes interface {
+	listCostCenterPlanActualRes()
+}
+
 type ListCostCentersRes interface {
 	listCostCentersRes()
 }
@@ -713,6 +729,14 @@ type ListPaymentsRes interface {
 	listPaymentsRes()
 }
 
+type ListPlanCategoriesRes interface {
+	listPlanCategoriesRes()
+}
+
+type ListPlanLinesRes interface {
+	listPlanLinesRes()
+}
+
 type ListPrincipalNamesRes interface {
 	listPrincipalNamesRes()
 }
@@ -795,6 +819,10 @@ type LockCostCenterRes interface {
 
 type LockFiscalPeriodRes interface {
 	lockFiscalPeriodRes()
+}
+
+type LockPlanCategoryRes interface {
+	lockPlanCategoryRes()
 }
 
 type LockProfitCenterRes interface {
@@ -1043,6 +1071,10 @@ type UnblockOrgUnitRes interface {
 
 type UnlockFiscalPeriodRes interface {
 	unlockFiscalPeriodRes()
+}
+
+type UnlockPlanCategoryRes interface {
+	unlockPlanCategoryRes()
 }
 
 type UpdateAiPolicyRes interface {

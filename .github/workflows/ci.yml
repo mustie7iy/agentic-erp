@@ -427,7 +427,8 @@ jobs:
         # be checked against it. Nothing is pushed here; T39c's release
         # workflow pushes and signs. Only when the image inputs changed;
         # otherwise one build for the scan. A manual run has no base to
-        # compare with, so it always builds twice.
+        # compare with, so it always builds twice; so does weekly.yml's
+        # images job, on Sundays and on a dispatch of all or images.
         # Both platforms, as .ko.yaml lists them; a pull request's author
         # built linux/amd64 (scripts/ci-local.sh). ko builds one binary and
         # platform at a time (scripts/images.sh): with two at once, each

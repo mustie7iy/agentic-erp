@@ -157,7 +157,10 @@ func ledgerEvents(t *testing.T, url string, s *Stack) int {
 		t.Fatal(err)
 	}
 	defer nc.Close()
-	js, _ := jetstream.New(nc)
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatal(err)
+	}
 	stream, err := js.Stream(context.Background(), natsbus.StreamName(Cell, "ledger"))
 	if err != nil {
 		t.Fatal(err)

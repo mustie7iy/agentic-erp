@@ -122,39 +122,40 @@ func callbackOf(t *testing.T, b *browser) (string, string) {
 func TestCallbackRefusals(t *testing.T) {
 	s := newStack(t, stackOptions{})
 	for name, c := range map[string]struct {
-		change func(u *url.URL, b *browser)
+		change func(t *testing.T, u *url.URL, b *browser)
 		status int
 	}{
-		"no sign-in cookie":   {func(_ *url.URL, b *browser) { b.setCookie(signInCookie, "") }, 400},
-		"a cookie not sealed": {func(_ *url.URL, b *browser) { b.setCookie(signInCookie, "AAAA") }, 400},
-		"a cookie not base64": {func(_ *url.URL, b *browser) { b.setCookie(signInCookie, "%%%") }, 400},
-		"another state": {func(u *url.URL, _ *browser) {
+		"no sign-in cookie":   {func(_ *testing.T, _ *url.URL, b *browser) { b.setCookie(signInCookie, "") }, 400},
+		"a cookie not sealed": {func(_ *testing.T, _ *url.URL, b *browser) { b.setCookie(signInCookie, "AAAA") }, 400},
+		"a cookie not base64": {func(_ *testing.T, _ *url.URL, b *browser) { b.setCookie(signInCookie, "%%%") }, 400},
+		"another state": {func(t *testing.T, u *url.URL, _ *browser) {
+			t.Helper()
 			q := u.Query()
-			q.Set("state", "x"+q.Get("state")[1:])
+			q.Set("state", otherFirst(t, q.Get("state")))
 			u.RawQuery = q.Encode()
 		}, 400},
-		"the provider's error": {func(u *url.URL, _ *browser) {
+		"the provider's error": {func(_ *testing.T, u *url.URL, _ *browser) {
 			q := u.Query()
 			q.Del("code")
 			q.Set("error", "access_denied")
 			u.RawQuery = q.Encode()
 		}, 400},
-		"another issuer (RFC 9207)": {func(u *url.URL, _ *browser) {
+		"another issuer (RFC 9207)": {func(_ *testing.T, u *url.URL, _ *browser) {
 			q := u.Query()
 			q.Set("iss", "https://evil.example.com")
 			u.RawQuery = q.Encode()
 		}, 400},
-		"no iss from a provider that sends it": {func(u *url.URL, _ *browser) {
+		"no iss from a provider that sends it": {func(_ *testing.T, u *url.URL, _ *browser) {
 			q := u.Query()
 			q.Del("iss")
 			u.RawQuery = q.Encode()
 		}, 400},
-		"another code": {func(u *url.URL, _ *browser) {
+		"another code": {func(_ *testing.T, u *url.URL, _ *browser) {
 			q := u.Query()
 			q.Set("code", "forged")
 			u.RawQuery = q.Encode()
 		}, 400},
-		"expired": {func(*url.URL, *browser) { s.clock.Advance(signInTTL) }, 400},
+		"expired": {func(*testing.T, *url.URL, *browser) { s.clock.Advance(signInTTL) }, 400},
 	} {
 		t.Run(name, func(t *testing.T) {
 			b := s.browser()
@@ -164,7 +165,7 @@ func TestCallbackRefusals(t *testing.T) {
 				t.Fatal(err)
 			}
 			before := s.sessions()
-			c.change(u, b)
+			c.change(t, u, b)
 			if r := b.get(u.String()); r.status != c.status || !strings.Contains(r.body, "Sign-in could not be completed") {
 				t.Errorf("got %d %s, want %d and the failed sign-in", r.status, r.body, c.status)
 			}
@@ -186,6 +187,37 @@ func TestCallbackRefusals(t *testing.T) {
 			t.Errorf("replay: got %d, want 400 and no session", r.status)
 		}
 	})
+}
+
+// otherFirst is s with its first character changed. The state is random
+// base64url, so overwriting it with a fixed character would leave it
+// unchanged one time in 64; this always picks a different one.
+func otherFirst(t *testing.T, s string) string {
+	t.Helper()
+	if s == "" {
+		t.Fatal("no state to tamper with")
+	}
+	c := byte('x')
+	if s[0] == c {
+		c = 'y'
+	}
+	other := string(c) + s[1:]
+	if other == s {
+		t.Fatalf("tampered state %q equals the original", s)
+	}
+	return other
+}
+
+// TestOtherFirst: the tamper differs from the original even when the
+// original already starts with the character it would write.
+func TestOtherFirst(t *testing.T) {
+	for _, s := range []string{"xAbc", "yAbc", "AAbc", "x"} {
+		t.Run(s, func(t *testing.T) {
+			if got := otherFirst(t, s); got == s || got[1:] != s[1:] {
+				t.Errorf("got %q, want %q with only its first character changed", got, s)
+			}
+		})
+	}
 }
 
 // TestTokenRefusals: tokens that fail any check of OIDC Core §3.1.3.7, or
