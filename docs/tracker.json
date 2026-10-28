@@ -8290,13 +8290,6 @@
      },
      {
       "s": "D",
-      "t": "The rate-limit headers are declared once (PO 2026-10-26): RateLimit-Limit, RateLimit-Remaining and RateLimit-Reset are stated in the contract's info.description instead of on each of its responses, which made api/gen 1,129,193 lines (about 430,000 of them parsing those headers) and a race build of it peak at 6.6 GB while main's race suite on GitHub was stopped by its runner (since 2026-10-21); api/gen is now 611,245 lines and its race build peaks at 3.1 GB. The middleware still sends them on every response to an authenticated request, held by a test of a success, a problem and the 429, and a contract test holds that no response declares them; Retry-After stays declared on the responses that set it",
-      "r": "api/openapi.yaml · api/spec_test.go · internal/app/app_test.go · internal/web/refusal.go · 04 §4.11",
-      "src": "po:2026-10-26 · ci:batch15",
-      "c": []
-     },
-     {
-      "s": "D",
       "t": "Main's full run given the time to finish (PO 2026-10-25, fix and verify; the verifying run on main is still to come): the CI tools are saved to the cache right after they are built (actions/cache/restore and actions/cache/save, same key), since actions/cache saves only in its post step, which a failed or cancelled job skips, and the test job's limit is 180 minutes. Run 40334507190 (2026-10-26; 2 CPUs, 7938 MiB) was cancelled at 120 minutes with 109 of 116 packages passed and none failed: 32 minutes before the race step (14 of them the tools, a cache miss on every run since 2026-10-21, and 6 a cold vet), then 89 minutes of race tests, the slowest payments 1324 s, ledger 1043 s, payables 642 s",
       "r": ".github/workflows/ci.yml · 06 §6.5",
       "src": "ci:batch15 · po:2026-10-25",
@@ -8383,6 +8376,13 @@
       "s": "D",
       "t": "erp-server's main test reports a failed cancel request instead of reading the status of the response it did not get (pre-existing review finding on batch 16: a nil response dereferenced when Do fails); a search of every Go file for a response read in the branch its request's error takes found no other instance",
       "r": "cmd/erp-server/main_test.go",
+      "src": "review:batch16",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "The rate-limit headers item appears once in the tracker (pre-existing review finding on batch 16: added twice when batch 15b merged the fix forward of #57, the second copy with the older size figure); the copy kept names the size after batch 15 too, and no test counts the tracker's items but baseline ones",
+      "r": "docs/tracker.json",
       "src": "review:batch16",
       "c": []
      }
