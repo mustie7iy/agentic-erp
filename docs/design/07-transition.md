@@ -1654,7 +1654,8 @@ step stay planned until a later step is drafted for them.
 
 Every leaf item names its source in `src` (product owner, 2026-10-25): an
 accepted ADR (`adr:ADR-0052`), a product owner decision (`po:2026-10-25`), a
-reviewer finding in a step (`review:T73j`), a failed or measured check
+reviewer finding in a step or a batch (`review:T73j`, `review:batch17`,
+product owner 2026-10-28), a failed or measured check
 (`ci:batch6`, `ci:T73j`), the pilot walkthrough (`walkthrough:2026-10-22`), a
 split of an approved step (`split:T73j`) or a design section (`design:01
 §1.4`); several are joined by ` · `. A decision of the coordinator alone is not

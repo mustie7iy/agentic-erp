@@ -31,10 +31,15 @@ on:
 jobs:
   images:
     # Vulnerabilities are disclosed after a commit passed CI, and the base
-    # image moves under its tag: rescan main's images every week, and fail
-    # when the pinned distroless digest is no longer the tag's (ADR-0032).
-    # The reproducibility gate and the signing round trip, which pull
-    # requests run only when their inputs change, run here regardless.
+    # images move under their tags: rescan main's images every week, and
+    # fail when a pinned base's digest (.ko.yaml's distroless, and
+    # erp-analytics's builder and runtime base) is no longer its tag's
+    # (ADR-0032).
+    # The reproducibility gate and the signing round trip run here
+    # regardless, for both platforms. A pull request's GitHub check runs
+    # neither: its author ran them locally when their inputs changed
+    # (scripts/ci-local.sh); a push to main runs the signing round trip
+    # then, and a manual run on main runs both (ci.yml).
     if: github.event_name == 'schedule' || inputs.jobs == 'all' || inputs.jobs == 'images'
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -71,7 +76,7 @@ jobs:
         if: success() || failure()
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./... # the version scripts/ci-tools.sh pins
       - name: Base image still current
-        # Distroless is rebuilt often: this step goes red whenever the tag
+        # The bases are rebuilt often: this step goes red whenever a tag
         # moves, which asks for a reviewed digest bump, not a fix.
         if: success() || failure()
         run: ./scripts/base-image-current.sh

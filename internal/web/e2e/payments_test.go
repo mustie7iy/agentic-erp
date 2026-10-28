@@ -118,12 +118,13 @@ func TestPaymentsInPseudoLocalesInTheBrowser(t *testing.T) {
 	checkRunPages(t, newRuns(t, ""), []lang{{"en-XA", "en-XA", "ltr"}, {"ar-XB", "ar-XB", "rtl"}})
 }
 
-// waitForText waits until the tab's address holds part and it shows text.
+// waitForText waits until the tab's address holds part and it shows text,
+// and the page has loaded, as waitFor does.
 func waitForText(t *testing.T, ctx context.Context, part, text string) {
 	t.Helper()
 	var last string
 	pgtest.Eventually(t, 20*time.Second, func() bool {
-		got, err := chromedp.Run(ctx, chromedp.Evaluate[string](`location.pathname + location.search + " " + document.body.innerText`))
+		got, err := chromedp.Run(ctx, chromedp.Evaluate[string](shown))
 		last = got
 		return err == nil && strings.Contains(strings.SplitN(got, " ", 2)[0], part) && strings.Contains(got, text)
 	}, "the browser did not reach %s with %q: %s", part, text, lastSeen{&last})

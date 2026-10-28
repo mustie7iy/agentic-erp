@@ -106,12 +106,10 @@ func TestBankJobsInTheBrowser(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
+	// waitFor waits until the page has loaded: before that a script
+	// planted further down may not have run yet, and the check would pass
+	// on a live one.
 	waitFor(t, ctx, page+"/reject", "Enter the reason.")
-	// Until the page has loaded, a script planted further down may not
-	// have run yet, and the check would pass on a live one.
-	if err := chromedp.Do(ctx, loaded); err != nil {
-		t.Fatal(err)
-	}
 	if ran, err := chromedp.Run(ctx, chromedp.Evaluate[bool](`window.planted === 1 || document.querySelector("main a[href^='https:'], main a[href^='javascript:']") !== null`)); err != nil || ran {
 		t.Errorf("the agent's planted text is live: a script ran or a link was made (%v)", err)
 	}

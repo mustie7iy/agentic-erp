@@ -182,8 +182,11 @@ func TestServesTheAPIAndShutsDownCleanly(t *testing.T) {
 	req.Header.Set("Idempotency-Key", "key-server-test-1")
 	req.Header.Set("If-Match", `"1"`)
 	cresp, err := http.DefaultClient.Do(req)
-	if err != nil || cresp.StatusCode != 200 {
-		t.Fatal(cresp.StatusCode, err)
+	if err != nil {
+		t.Fatalf("cancel the operation: %v", err)
+	}
+	if cresp.StatusCode != 200 {
+		t.Fatalf("cancel the operation: got %d, want 200", cresp.StatusCode)
 	}
 	_ = cresp.Body.Close() // only the status is asserted; the body is not needed
 	nc, err := nats.Connect(natsURL)

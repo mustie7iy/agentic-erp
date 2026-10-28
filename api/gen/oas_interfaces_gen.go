@@ -753,6 +753,10 @@ type ListProfitCenterPathsRes interface {
 	listProfitCenterPathsRes()
 }
 
+type ListProfitCenterPlanActualRes interface {
+	listProfitCenterPlanActualRes()
+}
+
 type ListProfitCentersRes interface {
 	listProfitCentersRes()
 }

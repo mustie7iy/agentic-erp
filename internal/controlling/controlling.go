@@ -13,7 +13,11 @@
 // caller's version (ADR-0008). Plan lines are written by batches: a batch
 // replaces the plan of its category, company, fiscal year and centers, and
 // its key, once applied, makes the same batch again a no-op that publishes
-// nothing. Every change is audited (ADR-0011) and published through the
+// nothing. A batch that would write or replace a cost center's plan in a
+// period in which the center's period is locked for planning (cost_center_period.lock_plan,
+// ADR-0050 §3) is refused (T56g2); the ledger's port holds the centers
+// for the batch's transaction, so a lock cannot slip between the check and
+// the write. Every change is audited (ADR-0011) and published through the
 // controlling outbox (ADR-0007). Amounts are integer minor units of the
 // company's local currency (ADR-0005).
 package controlling
@@ -46,6 +50,8 @@ type Ledger interface {
 	PlanObjects(ctx context.Context, le uuid.UUID, year int16, costCenters, profitCenters, accounts []uuid.UUID) (ledger.PlanObjects, error)
 	CostCenters(ctx context.Context, center, node *uuid.UUID) ([]uuid.UUID, bool, error)
 	CostCenterActuals(ctx context.Context, q ledger.ActualsQuery) ([]ledger.AssignmentActual, error)
+	ProfitCenters(ctx context.Context, center, node *uuid.UUID) ([]uuid.UUID, bool, error)
+	ProfitCenterActuals(ctx context.Context, q ledger.ActualsQuery) ([]ledger.AssignmentActual, error)
 }
 
 // LegalEntities reads legal entities (tenancy context).

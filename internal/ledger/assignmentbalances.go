@@ -13,26 +13,38 @@ import (
 )
 
 // AssignmentBalances is what the ledger publishes to the controlling
-// context for plan values and plan against actual (ADR-0050 §7, §8, T56g):
-// what a plan may name, the cost centers of a hierarchy node, and the
-// actuals by cost center and account, read as the center reports read them
-// (costCenterBalances). It runs in the request's transaction under
-// row-level security (ADR-0003); controlling reads no ledger table itself.
+// context for plan values and plan against actual (ADR-0050 §7, §8, T56g,
+// T56g3): what a plan may name, the cost or profit centers of a hierarchy
+// node, and the actuals by cost or profit center and account, read as the
+// center reports read them (costCenterBalances, profitCenterBalances). It
+// runs in the request's transaction under row-level security (ADR-0003);
+// controlling reads no ledger table itself.
 type AssignmentBalances struct{}
 
 // PlanObjects are the objects among those asked for that a plan of a legal
 // entity's fiscal year may name: its active cost centers, the active
 // profit centers assigned to it, the profit and loss accounts set up in it
 // (a plan compares with the center reports, which have only those), and
-// the periods of the year in its calendar.
+// the periods of the year in its calendar. PlanLocked are, per cost
+// center asked for, the periods of the year in which it is locked for
+// planning (T56g2): a period sharing a day with one of the center's
+// periods whose lock_plan is set, in the calendar of any of the company's
+// ledgers.
 type PlanObjects struct {
 	CostCenters, ProfitCenters, Accounts map[uuid.UUID]bool
 	Periods                              map[int16]bool
+	PlanLocked                           map[uuid.UUID]map[int16]bool
 }
 
 // PlanObjects reads which of the cost centers, profit centers and accounts
-// a plan of the legal entity's fiscal year may name, and the year's
-// periods (none when the year is not set up).
+// a plan of the legal entity's fiscal year may name, the year's periods
+// (none when the year is not set up) and the cost centers' plan locks. It
+// holds the cost centers FOR KEY SHARE until the transaction ends, as a
+// posting does (assign), and reads their periods after that, in a later
+// statement: every change of a cost center's periods first holds the
+// center FOR UPDATE (decided, applyCostCenterChange), so a plan meeting a
+// lock under way waits for it and then reads the periods it wrote, and a
+// lock meeting a plan under way waits for the plan (ADR-0008, ADR-0050 §8).
 func (AssignmentBalances) PlanObjects(ctx context.Context, le uuid.UUID, year int16, costCenters, profitCenters, accounts []uuid.UUID) (PlanObjects, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -45,7 +57,8 @@ func (AssignmentBalances) PlanObjects(ctx context.Context, le uuid.UUID, year in
 		sql  string
 		ids  []uuid.UUID
 	}{
-		{"cost centers", &out.CostCenters, `SELECT id FROM ledger.cost_center WHERE legal_entity_id = $1 AND status = 'active' AND id = ANY($2)`, costCenters},
+		{"cost centers", &out.CostCenters, `SELECT id FROM ledger.cost_center WHERE legal_entity_id = $1 AND status = 'active' AND id = ANY($2)
+			ORDER BY id FOR KEY SHARE`, costCenters},
 		{"profit centers", &out.ProfitCenters, `SELECT p.id FROM ledger.profit_center p JOIN ledger.profit_center_company c
 			ON c.tenant_id = p.tenant_id AND c.profit_center_id = p.id AND c.legal_entity_id = $1 WHERE p.status = 'active' AND p.id = ANY($2)`, profitCenters},
 		{"accounts", &out.Accounts, `SELECT a.id FROM ledger.gl_account a JOIN ledger.company_account ca
@@ -70,7 +83,32 @@ func (AssignmentBalances) PlanObjects(ctx context.Context, le uuid.UUID, year in
 	for _, p := range periods {
 		out.Periods[p] = true
 	}
-	return out, nil
+	out.PlanLocked, err = planLocks(ctx, tx, le, year, costCenters)
+	return out, err
+}
+
+// planLocks are the periods of the legal entity's fiscal year in which
+// each of the cost centers is locked for planning: those sharing a day
+// with an active period of the center whose lock_plan is set (valid_to
+// exclusive, a fiscal period's end_date inclusive), in the calendar of any
+// of the company's ledgers, so a plan is never let in on a locked day.
+func planLocks(ctx context.Context, tx pgx.Tx, le uuid.UUID, year int16, costCenters []uuid.UUID) (map[uuid.UUID]map[int16]bool, error) {
+	rows, _ := tx.Query(ctx, `SELECT DISTINCT p.cost_center_id, s.period FROM ledger.cost_center_period p
+		JOIN ledger.period_status s ON s.tenant_id = p.tenant_id AND s.legal_entity_id = p.legal_entity_id AND s.fiscal_year = $2
+		JOIN ledger.fiscal_period f ON f.tenant_id = s.tenant_id AND f.calendar_id = s.calendar_id AND f.fiscal_year = s.fiscal_year AND f.period = s.period
+		WHERE p.legal_entity_id = $1 AND p.cost_center_id = ANY($3) AND p.retired_by_change_id IS NULL AND p.lock_plan
+			AND daterange(p.valid_from, p.valid_to) && daterange(f.start_date, f.end_date, '[]')`, le, year, costCenters)
+	out := map[uuid.UUID]map[int16]bool{}
+	var center uuid.UUID
+	var period int16
+	_, err := pgx.ForEachRow(rows, []any{&center, &period}, func() error {
+		if out[center] == nil {
+			out[center] = map[int16]bool{}
+		}
+		out[center][period] = true
+		return nil
+	})
+	return out, errs.Wrapf(err, "ledger: plan locks of the cost centers of %s in %d", le, year)
 }
 
 // CostCenters are the cost centers a plan against actual is limited to,
@@ -79,32 +117,44 @@ func (AssignmentBalances) PlanObjects(ctx context.Context, le uuid.UUID, year in
 // below it under today's tree; with both, the one if it is among them. ok
 // is false when none remain.
 func (AssignmentBalances) CostCenters(ctx context.Context, center, node *uuid.UUID) ([]uuid.UUID, bool, error) {
+	return assignmentCenters(ctx, costCenterBalances, center, node)
+}
+
+// ProfitCenters are the profit centers a plan against actual is limited
+// to, as the profit center report limits its rows: as CostCenters, with a
+// node of a profit center hierarchy (T56g3).
+func (AssignmentBalances) ProfitCenters(ctx context.Context, center, node *uuid.UUID) ([]uuid.UUID, bool, error) {
+	return assignmentCenters(ctx, profitCenterBalances, center, node)
+}
+
+func assignmentCenters(ctx context.Context, k reportKind, center, node *uuid.UUID) ([]uuid.UUID, bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, false, err
 	}
-	return reportCenters(ctx, tx, costCenterBalances, center, node)
+	return reportCenters(ctx, tx, k, center, node)
 }
 
-// CenterAccount is the key of a row of actuals: a cost center and an
-// account. Rows come in its order, by cost center, then account.
-type CenterAccount struct{ CostCenterID, AccountID uuid.UUID }
+// CenterAccount is the key of a row of actuals: a center (cost or profit,
+// as asked for) and an account. Rows come in its order, by center, then
+// account.
+type CenterAccount struct{ CenterID, AccountID uuid.UUID }
 
-// AssignmentActual is the actual of a cost center on an account over the
+// AssignmentActual is the actual of a center on an account over the
 // periods asked for, in local currency, debit positive.
 type AssignmentActual struct {
 	CenterAccount
 	Amount money.Minor
 }
 
-// ActualsQuery asks for the actuals of a legal entity's cost centers in a
+// ActualsQuery asks for the actuals of a legal entity's centers in a
 // range of periods of a fiscal year: of the centers given (nil: every
 // one), with keys after After (nil: from the first), at most Limit rows.
 type ActualsQuery struct {
 	LegalEntityID        uuid.UUID
 	FiscalYear           int16
 	PeriodFrom, PeriodTo int16
-	CostCenters          []uuid.UUID
+	Centers              []uuid.UUID
 	After                *CenterAccount
 	Limit                int
 }
@@ -115,6 +165,18 @@ type ActualsQuery struct {
 // entries still queued, so they are exact at the read. A tenant without a
 // leading ledger has none.
 func (AssignmentBalances) CostCenterActuals(ctx context.Context, q ActualsQuery) ([]AssignmentActual, error) {
+	return actuals(ctx, costCenterBalances, q)
+}
+
+// ProfitCenterActuals reads the leading ledger's actuals by profit center
+// and account as the profit center report reads them (T56g3): the profit
+// center each line carries, entered or derived at posting (§5), summed
+// over the segments, on profit and loss accounts only, exact at the read.
+func (AssignmentBalances) ProfitCenterActuals(ctx context.Context, q ActualsQuery) ([]AssignmentActual, error) {
+	return actuals(ctx, profitCenterBalances, q)
+}
+
+func actuals(ctx context.Context, k reportKind, q ActualsQuery) ([]AssignmentActual, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
@@ -125,19 +187,23 @@ func (AssignmentBalances) CostCenterActuals(ctx context.Context, q ActualsQuery)
 	}
 	var afterCenter, afterAccount *uuid.UUID
 	if q.After != nil {
-		afterCenter, afterAccount = &q.After.CostCenterID, &q.After.AccountID
+		afterCenter, afterAccount = &q.After.CenterID, &q.After.AccountID
+	}
+	pnl := ``
+	if k.pnlOnly {
+		pnl = ` AND ` + pnlAccount
 	}
 	// $1-$8 are the report's (rows); $9 and $10 the key the page starts after.
-	rows, _ := tx.Query(ctx, `SELECT center_id, account_id, sum(debit_lc - credit_lc)::bigint FROM (`+costCenterBalances.rows()+`) b
-		WHERE $9::uuid IS NULL OR (center_id, account_id) > ($9, $10::uuid)
+	rows, _ := tx.Query(ctx, `SELECT center_id, account_id, sum(debit_lc - credit_lc)::bigint FROM (`+k.rows()+`) b
+		WHERE ($9::uuid IS NULL OR (center_id, account_id) > ($9, $10::uuid))`+pnl+`
 		GROUP BY 1, 2 ORDER BY 1, 2 LIMIT $11`,
-		q.LegalEntityID, leading, q.FiscalYear, q.PeriodFrom, q.PeriodTo, q.CostCenters, nil, nil, afterCenter, afterAccount, q.Limit)
+		q.LegalEntityID, leading, q.FiscalYear, q.PeriodFrom, q.PeriodTo, q.Centers, nil, nil, afterCenter, afterAccount, q.Limit)
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (AssignmentActual, error) {
 		var a AssignmentActual
-		return a, errs.Wrapf(r.Scan(&a.CostCenterID, &a.AccountID, &a.Amount), "scan cost center actual")
+		return a, errs.Wrapf(r.Scan(&a.CenterID, &a.AccountID, &a.Amount), "scan "+k.table+" actual")
 	})
 	if err != nil {
-		return nil, fmt.Errorf("ledger: cost center actuals of %s in %d: %w", q.LegalEntityID, q.FiscalYear, err)
+		return nil, fmt.Errorf("ledger: %s actuals of %s in %d: %w", k.table, q.LegalEntityID, q.FiscalYear, err)
 	}
 	return out, nil
 }

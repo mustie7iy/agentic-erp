@@ -28,8 +28,8 @@ Every finding carries one label.
   three per round, the ones most worth the author's time.
 - **Pre-existing**: a bug the diff did not introduce, found while reading around it. It is
   never held against the step and the author does not fix it in the step. It is reported, and
-  the coordinator turns it into a tracker item with `"src": "review:<step>"` (07-transition
-  §7.5).
+  the coordinator turns it into a tracker item with `"src": "review:<step>"`, or
+  `"review:batch<N>"` for a batch (07-transition §7.5).
 
 ## Bug class
 
@@ -37,6 +37,24 @@ A finding names the class of the bug as well as the instance: "an activity that 
 without conflict handling", not only "line 42 inserts twice". The reviewer looks for other
 instances of the class in the diff and lists them; the author fixes every instance in the diff,
 not only the one cited. Instances outside the diff are Pre-existing.
+
+### Named bug classes
+
+Classes the product owner has named after they reached a gate. A reviewer checks every diff for
+them, beside whatever class a finding of its own names.
+
+- **A tamper that can leave the value unchanged** (PO 2026-10-28). A test that alters a token,
+  signature, ETag, HMAC, page token, state, nonce, hash or sealed value to prove it is refused
+  must guarantee the altered value differs from the original; otherwise the test fails, or
+  passes for the wrong reason, whenever the random original already holds what the tamper
+  writes. Overwriting a character or byte with a fixed one (`"x"+state[1:]`) is the instance:
+  a random base64url state starts with `x` one time in 64 (`internal/web/signin_test.go`,
+  `TestCallbackRefusals`, fixed in batch 16 with `otherFirst`). Derive the tamper from the
+  original so it cannot coincide (flip a bit with `^= 1`, pick a character the original does
+  not hold there, append, truncate), or fail the test when the result equals the original. A
+  constant that cannot have the original's form (`"!!"` for base64, a shorter value) is
+  different by construction; replacing a whole digest or secret of 128 bits or more with a
+  constant is accepted, since a collision is not a realistic event.
 
 ## Rounds
 
