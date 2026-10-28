@@ -44,7 +44,7 @@ func TestCorrectionsLoadByKind(t *testing.T) {
 		t.Fatalf("bad indicators status: got %v, want failed", got["status"])
 	}
 	quality := fmt.Sprint(got["report"].(map[string]any)["quality"])
-	for _, want := range []string{"5100000010/2026 message:XRECH (invoice or credit memo) is missing", `5100000011/2026 message:XRECH "Y"`, `item 000001: TBTKZ "Y"`} {
+	for _, want := range []string{"5100000010/2026 message:XRECH (invoice or credit memo) is missing", `5100000011/2026 message:XRECH "Y"`, `5100000012/2026 message:item 000001: TBTKZ "Y"`} {
 		if !strings.Contains(quality, want) {
 			t.Errorf("bad indicators quality: got %s, want it to report %q", quality, want)
 		}
