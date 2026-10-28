@@ -307,7 +307,9 @@ environment's home cell, after the add-ons and `erp-cluster`:
   seconds (`preStop` sleep, longer than the target group's 30-second
   deregistration) while its deregistration spreads, then drains within
   the 75-second grace period.
-- The directory's only login is its RDS-managed master user, whose
+- The directory's only login is its RDS-managed master user (until T72h,
+  which gave the router, the cells and erp-web logins of their own: the
+  amendment of 2026-10-28), whose
   password RDS rotates weekly. External Secrets refreshes it every five
   minutes into a mounted file, and the router reads it again for each new
   connection (`ERP_DIRECTORY_PASSWORD`, an `env:` or `file:` reference;
@@ -696,3 +698,79 @@ router's public listener out, under `helm-checks.sh` and the admission
 checks. `release.json` names `images.web`. The directory database's
 session login and the identity providers' egress arrive with sign-in
 (T73b).
+
+## Amendment (2026-10-28, T72h): the directory's logins
+
+The router, the cells and erp-web connect to the directory with logins of
+their own and least privilege, never as the RDS master user `erp_admin`
+(Phase 1 triage, product owner 2026-10-21; ADR-0052 D1).
+
+**As built.**
+
+- **Privilege roles** (`internal/directory/setup.go`, `NOLOGIN`), derived
+  from the statements each client runs:
+  - `erp_router` (the router and its global control plane): `SELECT` on
+    `directory.tenant`, `cell`, `issuer` and `placement`; `UPDATE` of
+    `tenant`'s `cell`, `api_url`, `status`, `version`, `updated_at`
+    (`SetStatus`, `Move`); `INSERT` of `placement`'s `idempotency_key`
+    and `cell` (`Place`).
+  - `erp_cell` (a cell's server and its commands): `SELECT` on `tenant`,
+    `cell` and `issuer`; `INSERT` and column `UPDATE` on `tenant`
+    (`Upsert`, `Reinstate`: never `tenant_id`) and `cell` (`UpsertCell`:
+    never `name`); `INSERT`, column `UPDATE` (never `issuer`, `audience`,
+    `tenant_id`) and `DELETE` on `issuer` (claims, web clients, release,
+    the rounds' prune). Nothing on `placement`.
+  - `erp_web` (erp-web, ADR-0052 §6, unchanged): the `web` schema's
+    `session` table and the `login_client` view alone.
+  None may truncate, reference, trigger, change the schema, make objects
+  or roles, or work as another role; `TestLoginsMayDoNothingMore` checks
+  each refusal and `TestTheRoutersLoginDoesWhatTheRouterDoes`, `TestTheCellsLoginDoesWhatACellDoes` and `TestErpWebsLoginDoesWhatErpWebDoes` each right, and the
+  router's, the server's and the session store's own tests run as the
+  logins.
+- **Logins**: `erp_router_login`, `erp_cell_login`, `erp_web_login`
+  (chart values `directory.logins.*`, erp-cell's `directory.user`), each
+  a member of its role alone. Setup refuses a login that is anything more
+  (a superuser, a right to create roles or databases, to replicate or
+  bypass row security, or membership of another role) rather than
+  quietly taking the right back, refuses the owner's own name and the
+  roles' names, and takes back on every run any right given by hand to
+  the roles on the directory's tables before granting them again.
+- **Setup**: `erp-router setup-directory` (`directory.Setup`) as the
+  owner makes the schema, the roles' grants and the logins, setting each
+  password again. In the erp-global chart it is a pre-install and
+  pre-upgrade hook Job (`templates/setup.yaml`) with the master URL's
+  ExternalSecret, the RDS bundle and a network policy (the directory in
+  the VPC alone) as hooks of lower weight, as erp-cell's migrations are;
+  the master credentials reach that hook alone (`helm-checks.sh`), not the
+  router, erp-web or the cell. `directory.OpenWith` makes nothing and fails
+  startup while the schema is missing.
+- **Secrets**: three more empty entries in the global module,
+  `erp/global/directory-router-password`, `directory-cell-password` and
+  `directory-web-password`, under the global tier's key, which the home
+  cell's External Secrets Operator reads; no value is in the charts or
+  Terraform's state.
+
+**Decided by default** (ADR-0053 d):
+
+- Password logins whose passwords operators set in Secrets Manager and
+  the setup hook gives the logins with each release, as erp-cell's
+  `erp-temporal-schema` does for the engine's login (T40c4 above). The
+  services read the password again for each new connection, refreshed
+  every five minutes, so a changed one reaches them without a restart;
+  new connections in the window between the hook and the refresh fail and
+  are retried, the window accepted for the master password above. To
+  change one: write the new value, release.
+- One login for the cells: only the home cell's VPC reaches the
+  directory today (`modules/global`, its security group).
+- On a first install erp-cell's server, synced in the same wave as
+  erp-global, fails startup until erp-global's hook has made the cells'
+  login and is restarted until then, as erp-web did while the schema was
+  missing. Before the first release with this change operators set the
+  three passwords.
+
+**Open (security posture, for the product owner):** whether the three
+logins' passwords should rotate on their own (a Secrets Manager rotation
+function, or RDS IAM database authentication in place of passwords),
+rather than when operators change them; the directory's master password
+keeps its RDS-managed weekly rotation either way.
+

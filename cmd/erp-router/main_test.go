@@ -28,10 +28,16 @@ import (
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
+// environment is the router's, working as a router's login of the
+// test's own (T72h), as the erp-global chart's router does.
 func environment(t *testing.T, is *authntest.Issuer) map[string]string {
 	t.Helper()
 	issuers, _ := json.Marshal([]any{is.Config()})
-	return map[string]string{"ERP_DIRECTORY_URL": pgtest.URL(t), "ERP_ENV": "development", "ERP_OIDC_ISSUERS": string(issuers), "ERP_OPERATOR_ISSUERS": string(issuers),
+	login := pgtest.NewLogin(t)
+	if err := directory.Setup(context.Background(), pgtest.URL(t), directory.Login{Name: login.Name, Password: login.Password, Role: directory.RouterRole}); err != nil {
+		t.Fatal(err)
+	}
+	return map[string]string{"ERP_DIRECTORY_URL": login.As(pgtest.URL(t)), "ERP_ENV": "development", "ERP_OIDC_ISSUERS": string(issuers), "ERP_OPERATOR_ISSUERS": string(issuers),
 		"ERP_PAGE_TOKEN_KEY": base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 32))),
 		"ERP_ROUTER_ADDR":    "127.0.0.1:0", "ERP_ROUTER_ADMIN_ADDR": "127.0.0.1:0", "ERP_SHUTDOWN_TIMEOUT": "5s"}
 }

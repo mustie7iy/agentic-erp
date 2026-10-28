@@ -1,0 +1,336 @@
+package directory_test
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/mustie7iy/agentic-erp/internal/directory"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+)
+
+// logins is a directory set up in a database of its own with a router's,
+// a cell's and erp-web's login, each opened as itself, and its owner's
+// store beside them.
+type logins struct {
+	url                      string
+	router, cell, web, owner *directory.Postgres
+	creds                    map[string]pgtest.Login
+}
+
+func setUpLogins(t *testing.T) logins {
+	t.Helper()
+	ctx := context.Background()
+	l := logins{url: pgtest.EmptyDatabase(t), creds: map[string]pgtest.Login{}}
+	if err := directory.Setup(ctx, l.url, l.all(t)...); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	open := func(u string) *directory.Postgres {
+		dir, err := directory.OpenWith(ctx, u, nil)
+		if err != nil {
+			t.Fatalf("open: %v", err)
+		}
+		t.Cleanup(dir.Close)
+		return dir
+	}
+	l.owner = open(l.url)
+	l.router, l.cell = open(l.creds[directory.RouterRole].As(l.url)), open(l.creds[directory.CellRole].As(l.url))
+	// erp-web's login opens no directory store (OpenWith reads
+	// directory.tenant, which it may not): a pool of its own.
+	pool, err := database.Open(ctx, l.creds[directory.WebRole].As(l.url), database.DefaultSettings)
+	if err != nil {
+		t.Fatalf("open as erp-web: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	l.web = &directory.Postgres{Pool: pool}
+	return l
+}
+
+// all names a login of the test's own for each role, the first time.
+func (l logins) all(t *testing.T) []directory.Login {
+	t.Helper()
+	var all []directory.Login
+	for _, role := range []string{directory.RouterRole, directory.CellRole, directory.WebRole} {
+		c, ok := l.creds[role]
+		if !ok {
+			c = pgtest.NewLogin(t)
+			l.creds[role] = c
+		}
+		all = append(all, directory.Login{Name: c.Name, Password: c.Password, Role: role})
+	}
+	return all
+}
+
+func exec(ctx context.Context, dir *directory.Postgres, scope database.Scope, sql string) error {
+	return dir.Pool.InTx(ctx, scope, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, sql)
+		return err
+	})
+}
+
+// TestTheCellsLoginDoesWhatACellDoes: a cell, as its login, records
+// itself, its tenants and its identity providers' claims, reinstates an
+// imported tenant and reads its tenants back (directory.Sync, erp-server).
+func TestTheCellsLoginDoesWhatACellDoes(t *testing.T) {
+	ctx := context.Background()
+	l := setUpLogins(t)
+	tenant := uuid.New()
+	is := directory.Issuer{Issuer: "https://idp.example.com", Audience: "erp", TenantID: tenant, Cell: "eu-1", ProviderID: uuid.New(),
+		Web: &directory.WebClient{LoginCode: "acme", ClientID: "erp-web", AuthMethod: "private_key_jwt", CredentialRef: "file:/k/acme.pem", Scope: "openid"}}
+	cell := directory.Cell{Name: "eu-1", Region: "eu-west", APIURL: "https://eu-1", ControlURL: "https://eu-1:9090", Accepting: true}
+	// In this order: each step builds on the one before.
+	steps := []struct {
+		name string
+		op   func() error
+	}{
+		{"record the cell", func() error { return l.cell.UpsertCell(ctx, cell) }},
+		{"record it again", func() error { cell.Accepting = false; return l.cell.UpsertCell(ctx, cell) }},
+		{"record a tenant", func() error {
+			return l.cell.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "eu-west", Cell: "eu-1", APIURL: "https://eu-1", Status: directory.Active})
+		}},
+		{"change it", func() error {
+			return l.cell.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "eu-west", Cell: "eu-1", APIURL: "https://eu-1b", Status: directory.Offboarded})
+		}},
+		{"reinstate it", func() error { return l.cell.Reinstate(ctx, tenant, "eu-1") }},
+		{"claim an issuer", func() error { return l.cell.ClaimIssuer(ctx, is) }},
+		{"claim it again", func() error { return l.cell.ClaimIssuer(ctx, is) }},
+		{"claim its web client", func() error { return l.cell.ClaimWebClient(ctx, is) }},
+		{"sync the claims", func() error { _, err := l.cell.SyncIssuers(ctx, "eu-1", []directory.Issuer{is}); return err }},
+		{"read the cell's tenants", func() error { _, err := l.cell.CellTenants(ctx, "eu-1"); return err }},
+		{"look the tenant up", func() error { _, err := l.cell.Lookup(ctx, tenant); return err }},
+		{"release the issuer", func() error { return l.cell.ReleaseIssuer(ctx, is) }},
+	}
+	for _, s := range steps {
+		if err := s.op(); err != nil {
+			t.Fatalf("%s: got %v, want it done", s.name, err)
+		}
+	}
+	got, err := l.owner.Lookup(ctx, tenant)
+	if err != nil || got.Status != directory.Active || got.APIURL != "https://eu-1b" {
+		t.Errorf("the tenant: got %+v, %v, want it active at https://eu-1b", got, err)
+	}
+}
+
+// TestTheRoutersLoginDoesWhatTheRouterDoes: the router, as its login,
+// looks tenants and issuers up, and its global control plane lists
+// tenants and cells, freezes a tenant, moves it and places a
+// provisioning (internal/globalplane).
+func TestTheRoutersLoginDoesWhatTheRouterDoes(t *testing.T) {
+	ctx := context.Background()
+	l := setUpLogins(t)
+	tenant := uuid.New()
+	for _, c := range []string{"eu-1", "eu-2"} {
+		if err := l.cell.UpsertCell(ctx, directory.Cell{Name: c, Region: "eu-west", APIURL: "https://" + c, ControlURL: "https://" + c + ":9090", Accepting: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := l.cell.Upsert(ctx, directory.Entry{TenantID: tenant, Region: "eu-west", Cell: "eu-1", APIURL: "https://eu-1", Status: directory.Active}); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.cell.ClaimIssuer(ctx, directory.Issuer{Issuer: "https://idp.example.com", Audience: "erp", TenantID: tenant, Cell: "eu-1", ProviderID: uuid.New()}); err != nil {
+		t.Fatal(err)
+	}
+	steps := []struct {
+		name string
+		op   func() error
+	}{
+		{"look the tenant up", func() error { _, err := l.router.Lookup(ctx, tenant); return err }},
+		{"resolve an issuer", func() error {
+			_, err := directory.IssuerRegistry{Directory: l.router}.Resolve(ctx, "https://idp.example.com", []string{"erp"})
+			return err
+		}},
+		{"list tenants", func() error { _, _, err := l.router.ListTenants(ctx, directory.Filter{}, mustKeyset(t)); return err }},
+		{"list cells", func() error { _, err := l.router.ListCells(ctx, "eu-west"); return err }},
+		{"read a cell's tenants", func() error { _, err := l.router.CellTenants(ctx, "eu-1"); return err }},
+		{"freeze the tenant", func() error { _, err := l.router.SetStatus(ctx, tenant, 0, directory.ReadOnly); return err }},
+		{"move it", func() error { _, err := l.router.Move(ctx, tenant, 0, "eu-2"); return err }},
+		{"place a provisioning", func() error { _, err := l.router.Place(ctx, "key-1", "eu-west", ""); return err }},
+		{"place it again", func() error { _, err := l.router.Place(ctx, "key-1", "eu-west", ""); return err }},
+	}
+	for _, s := range steps {
+		if err := s.op(); err != nil {
+			t.Fatalf("%s: got %v, want it done", s.name, err)
+		}
+	}
+	got, err := l.owner.Lookup(ctx, tenant)
+	if err != nil || got.Cell != "eu-2" || got.Status != directory.ReadOnly {
+		t.Errorf("the tenant: got %+v, %v, want it read-only in eu-2", got, err)
+	}
+}
+
+// TestErpWebsLoginDoesWhatErpWebDoes: erp-web, as its login working as
+// erp_web, keeps its sessions and reads the web clients
+// (internal/web/session runs the store itself the same way).
+func TestErpWebsLoginDoesWhatErpWebDoes(t *testing.T) {
+	ctx := context.Background()
+	l := setUpLogins(t)
+	// As erp-web runs, working as erp_web, and as the login itself.
+	for _, scope := range []database.Scope{{Role: directory.WebRole}, {}} {
+		for _, sql := range []string{
+			`INSERT INTO web.session (id_hash, tenant_id, issuer, subject, login_code, created_at, last_seen_at, expires_at, sealed)
+				VALUES (sha256('id'), gen_random_uuid(), 'https://i', 's', 'c', now(), now(), now() + interval '1 hour', '\x00')`,
+			`UPDATE web.session SET last_seen_at = now(), version = version + 1`,
+			`SELECT * FROM web.session`,
+			`SELECT * FROM web.login_client`,
+			`DELETE FROM web.session`,
+		} {
+			if err := exec(ctx, l.web, scope, sql); err != nil {
+				t.Errorf("as %q: %s: got %v, want it done", scope.Role, sql, err)
+			}
+		}
+	}
+}
+
+// ddl is what no client's login may do to the directory's database:
+// change its schema, make objects or roles, or work as another role.
+var ddl = []string{
+	`CREATE TABLE directory.mine (x int)`, `CREATE TABLE web.mine (x int)`, `CREATE TABLE public.mine (x int)`,
+	`CREATE SCHEMA mine`, `ALTER TABLE directory.tenant ADD COLUMN mine int`, `DROP TABLE directory.placement`,
+	`ALTER TABLE web.session ADD COLUMN mine int`, `DROP VIEW web.login_client`, `TRUNCATE directory.tenant`,
+	`TRUNCATE web.session`, `CREATE ROLE mine`, `GRANT erp_router TO CURRENT_USER`, `GRANT erp_cell TO CURRENT_USER`,
+}
+
+// TestLoginsMayDoNothingMore: each login is refused what its service
+// never does: another's tables or columns, deletes, key changes and any
+// DDL (T72h).
+func TestLoginsMayDoNothingMore(t *testing.T) {
+	ctx := context.Background()
+	l := setUpLogins(t)
+	refused := map[string][]string{
+		directory.RouterRole: append([]string{
+			`INSERT INTO directory.tenant (tenant_id, region, cell, api_url, status) VALUES (gen_random_uuid(), 'r', 'c', 'u', 'active')`,
+			`DELETE FROM directory.tenant`, `UPDATE directory.tenant SET region = 'r'`, `UPDATE directory.tenant SET tenant_id = gen_random_uuid()`,
+			`INSERT INTO directory.cell (name, region, api_url, control_url) VALUES ('c', 'r', 'u', 'u')`, `UPDATE directory.cell SET accepting = false`,
+			`DELETE FROM directory.cell`,
+			`INSERT INTO directory.issuer (issuer, audience, tenant_id, cell) VALUES ('i', 'a', gen_random_uuid(), 'c')`,
+			`UPDATE directory.issuer SET tenant_id = gen_random_uuid()`, `DELETE FROM directory.issuer`,
+			`INSERT INTO directory.placement (idempotency_key, cell, created_at) VALUES ('k', 'c', now())`,
+			`UPDATE directory.placement SET cell = 'c'`, `DELETE FROM directory.placement`,
+			`SELECT FROM web.session`, `SELECT FROM web.login_client`, `SET ROLE erp_cell`, `SET ROLE erp_web`,
+		}, ddl...),
+		directory.CellRole: append([]string{
+			`SELECT FROM directory.placement`, `INSERT INTO directory.placement (idempotency_key, cell) VALUES ('k', 'c')`,
+			`DELETE FROM directory.tenant`, `UPDATE directory.tenant SET tenant_id = gen_random_uuid()`,
+			`DELETE FROM directory.cell`, `UPDATE directory.cell SET name = 'c'`,
+			`UPDATE directory.issuer SET tenant_id = gen_random_uuid()`, `UPDATE directory.issuer SET issuer = 'i'`,
+			`SELECT FROM web.session`, `SELECT FROM web.login_client`, `SET ROLE erp_router`, `SET ROLE erp_web`,
+		}, ddl...),
+		directory.WebRole: append([]string{
+			`SELECT FROM directory.tenant`, `SELECT FROM directory.cell`, `SELECT FROM directory.issuer`, `SELECT FROM directory.placement`,
+			`INSERT INTO web.login_client (login_code) VALUES ('x')`, `DELETE FROM web.login_client`,
+			`SET ROLE erp_router`, `SET ROLE erp_cell`,
+		}, ddl...),
+	}
+	stores := map[string]*directory.Postgres{directory.RouterRole: l.router, directory.CellRole: l.cell, directory.WebRole: l.web}
+	for role, sqls := range refused {
+		for _, sql := range sqls {
+			t.Run(role+": "+sql, func(t *testing.T) {
+				err := exec(ctx, stores[role], database.Scope{}, sql)
+				if pg, ok := errors.AsType[*pgconn.PgError](err); !ok || pg.Code != "42501" {
+					t.Errorf("got %v, want it refused for want of the privilege (42501)", err)
+				}
+			})
+		}
+	}
+}
+
+// TestSetupAgain: a second run sets the logins' passwords again, so a
+// changed one takes effect, and takes back a right given by hand.
+func TestSetupAgain(t *testing.T) {
+	ctx := context.Background()
+	l := setUpLogins(t)
+	if err := exec(ctx, l.owner, database.Scope{}, `GRANT DELETE ON directory.tenant TO erp_router`); err != nil {
+		t.Fatal(err)
+	}
+	old := l.creds[directory.CellRole]
+	changed := pgtest.Login{Name: old.Name, Password: uuid.NewString()}
+	l.creds[directory.CellRole] = changed
+	if err := directory.Setup(ctx, l.url, l.all(t)...); err != nil {
+		t.Fatalf("again: %v", err)
+	}
+	if err := exec(ctx, l.router, database.Scope{}, `DELETE FROM directory.tenant`); err == nil {
+		t.Error("a right given by hand: got it kept, want it taken back")
+	}
+	if dir, err := directory.OpenWith(ctx, old.As(l.url), nil); err == nil {
+		dir.Close()
+		t.Error("the old password: got it taken, want it refused")
+	}
+	dir, err := directory.OpenWith(ctx, changed.As(l.url), nil)
+	if err != nil {
+		t.Fatalf("the new password: got %v, want it taken", err)
+	}
+	dir.Close()
+}
+
+// TestSetupRefusesLogins: a login is made least privileged or not at all.
+func TestSetupRefusesLogins(t *testing.T) {
+	ctx := context.Background()
+	u := pgtest.EmptyDatabase(t)
+	var owner string
+	pgtest.Scan(t, `SELECT current_user`, nil, &owner)
+	createdb, member := pgtest.NewLogin(t), pgtest.NewLogin(t)
+	pgtest.Exec(t, `CREATE ROLE `+pgx.Identifier{createdb.Name}.Sanitize()+` LOGIN CREATEDB`)
+	pgtest.Exec(t, `CREATE ROLE `+pgx.Identifier{member.Name}.Sanitize()+` LOGIN`)
+	if err := directory.Setup(ctx, u); err != nil { // the roles exist
+		t.Fatal(err)
+	}
+	pgtest.Exec(t, `GRANT erp_cell TO `+pgx.Identifier{member.Name}.Sanitize())
+	for name, c := range map[string]directory.Login{
+		"no name":                 {Password: "p", Role: directory.CellRole},
+		"no password":             {Name: "erp_x_login", Role: directory.CellRole},
+		"another role":            {Name: "erp_x_login", Password: "p", Role: "erp_app"},
+		"a privilege role's name": {Name: directory.WebRole, Password: "p", Role: directory.CellRole},
+		"the owner":               {Name: owner, Password: "p", Role: directory.CellRole},
+		"a right to create":       {Name: createdb.Name, Password: "p", Role: directory.CellRole},
+		"a member of another":     {Name: member.Name, Password: "p", Role: directory.RouterRole},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := directory.Setup(ctx, u, c); !errors.Is(err, directory.ErrLogin) {
+				t.Errorf("got %v, want ErrLogin", err)
+			}
+		})
+	}
+}
+
+// TestSetupDatabaseFailures: every statement of a setup failing in turn
+// is reported, and so is a database out of reach.
+func TestSetupDatabaseFailures(t *testing.T) {
+	ctx := context.Background()
+	u := pgtest.EmptyDatabase(t)
+	c := pgtest.NewLogin(t)
+	pool, err := database.Open(ctx, u, database.DefaultSettings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	logins := []directory.Login{{Name: c.Name, Password: c.Password, Role: directory.CellRole}}
+	for n := 1; ; n++ {
+		err := directory.SetupIn(ctx, func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
+			return pool.InTx(ctx, scope, func(ctx context.Context, tx pgx.Tx) error { return fn(ctx, &pgtest.FailingTx{Tx: tx, FailAt: n}) })
+		}, logins)
+		if err == nil {
+			if n == 1 {
+				t.Error("got success without a statement to fail")
+			}
+			break
+		}
+		if !errors.Is(err, pgtest.ErrInjected) {
+			t.Fatalf("statement %d: got %v, want %v", n, err, pgtest.ErrInjected)
+		}
+	}
+	if err := directory.Setup(ctx, "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"); err == nil {
+		t.Error("out of reach: got it set up, want an error")
+	}
+	empty := pgtest.EmptyDatabase(t)
+	if dir, err := directory.OpenWith(ctx, empty, nil); err == nil || !errors.As(err, new(*pgconn.PgError)) {
+		if dir != nil {
+			dir.Close()
+		}
+		t.Errorf("a database not set up: got %v, want the missing schema reported", err)
+	}
+}
