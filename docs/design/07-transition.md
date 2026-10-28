@@ -1809,35 +1809,35 @@ proven to work end to end; the web workspace is deferred and its existing tests
 keep passing.
 
 1. **Scope: a slice.** A step that adds or changes a capability is a slice
-   (ADR-0053): one capability a named user or API consumer can use end to end, closing one or more tracker leaves,
-   sized for one agent in about half a day. It carries its contract, domain
-   code, migration, tests, design document and ADR updates, and at least one
-   new or extended step of the pilot walkthrough (`scripts/walkthrough.sh`)
-   exercising it through the public API; a fix, refactoring, CI, process or
-   documentation step needs no walkthrough step. One step at a time per lane, on its
-   own branch from `main`, its exit criterion and tracker items written down
-   before the code. The agent decides by default: when an ADR, a design
-   document or existing behaviour settles a choice, it decides and records the
-   choice in the ADR's "As built" section (06 §6.2); when nothing settles it,
-   it writes a new ADR, accepted once `go-reviewer` has no blocking finding on
-   it. The batch's digest lists both for the product owner to overrule. Only
-   new scope, money or
-   tax rules, legal or regulatory facts and the security posture wait for the
-   product owner, batched into one question. A step too large for reviewable
-   commits (about 400 changed lines, unless mechanical) is split into T<n>a,
-   T<n>b.
+   (ADR-0053): one capability a named user or API consumer can use end to end,
+   closing one or more tracker leaves, sized for one agent in about half a day.
+   It carries its contract, domain code, migration, tests, design document and
+   ADR updates, and at least one new or extended step of the pilot walkthrough
+   (`scripts/walkthrough.sh`) exercising it through the public API; a fix,
+   refactoring, CI, process or documentation step needs no walkthrough step. One
+   step at a time per lane, on its own branch from `main`, its exit criterion
+   and tracker items written down before the code. The agent decides by default:
+   when an ADR, a design document or existing behaviour settles a choice, it
+   decides and records the choice in the ADR's "As built" section (06 §6.2);
+   when nothing settles it, it writes a new ADR, accepted once `go-reviewer` has
+   no blocking finding on it. The batch's digest lists both for the product
+   owner to overrule. Only new scope, money or tax rules, legal or regulatory
+   facts and the security posture wait for the product owner, batched into one
+   question. A step too large for reviewable commits (about 400 changed lines,
+   unless mechanical) is split into T<n>a, T<n>b.
 
-   From 2026-10-16 steps ran in four parallel lanes that touch different code: A
-   finance (T33, T34, T36: payables and payments, one after another), B ledger
-   (T35), C security (T37, T38), D operations and quality (fixes, performance,
-   T39 onwards). Lanes still touch different code, and each lane works in its own worktree. A migration takes its
-   number when its branch is rebased before merge, so numbers stay in merge
-   order; `api/gen` is regenerated after a rebase, never merged by hand. Since
-   2026-10-28 three lanes run at once (ADR-0053), and `make ci-local` runs one
-   batch at a time with the machine to itself, as the lanes share the test
-   database server. A pull request is merged with `scripts/merge-pr.sh` when the full
-   local gates passed (`make ci-local`), GitHub's short check is green and
-   the reviewer has no blocking finding (06 §6.5).
+   From 2026-10-16 steps ran in four parallel lanes on different code: A finance
+   (T33, T34, T36: payables and payments, one after another), B ledger (T35), C
+   security (T37, T38), D operations and quality (fixes, performance, T39
+   onwards). Lanes still touch different code, and each lane works in its own
+   worktree. A migration takes its number when its branch is rebased before
+   merge, so numbers stay in merge order; `api/gen` is regenerated after a
+   rebase, never merged by hand. Since 2026-10-28 three lanes run at once
+   (ADR-0053), and `make ci-local` runs one batch at a time with the machine to
+   itself, as the lanes share the test database server. A pull request is merged
+   with `scripts/merge-pr.sh` when the full local gates passed (`make
+   ci-local`), GitHub's short check is green and the reviewer has no blocking
+   finding (06 §6.5).
 2. **Behaviour and refactoring apart.** A refactoring commit never changes
    behaviour. A bug found on the way is noted and fixed as its own commit with a
    test that fails before the fix; the failing output is copied, not described.
@@ -1877,7 +1877,8 @@ keep passing.
      infrastructure checks; then GitHub's short check. The pilot walkthrough
      (`cmd/erp`'s `TestWalkthrough`, in `make ci-local`) runs on every batch
      and is each slice's acceptance evidence: the slice's step is among those
-     its summary lists as passed, not skipped.
+     its summary lists as passed, not skipped (the coordinator reads the
+     summary from a `make walkthrough` run on the batch for the digest).
    If more than one batch in three fails `make ci-local` on something the full
    lane gates would have caught (the coordinator records each cause), the lanes
    return to the full gates.

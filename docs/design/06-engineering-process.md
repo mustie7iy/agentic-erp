@@ -23,9 +23,11 @@ flowchart LR
 A change that touches only the inside of one context (no data model, contract
 or ADR impact) skips the design gate and goes straight to review.
 
-Since 2026-10-28 (ADR-0053 c) agents fill these roles on the product owner's
-behalf: `go-reviewer` signs off each gate, and is the API consumer's review
-under `REVIEW.md`'s API-consumer classes; the product owner is not a gate.
+Since 2026-10-28 (ADR-0053 c) agents fill the design and verification roles
+on the product owner's behalf: `go-reviewer` signs off those two gates and is
+the API consumer's review under `REVIEW.md`'s API-consumer classes; the product
+owner is not a gate. The release gate and the release approval of §6.9 are
+unchanged.
 
 ## 6.2 Decision records
 
@@ -35,10 +37,11 @@ under `REVIEW.md`'s API-consumer classes; the product owner is not a gate.
   never edited except to mark them superseded; a change of mind is a new ADR.
   When nothing settles a choice, the agent writes a new ADR, accepted once
   `go-reviewer` has no blocking finding on it, and the digest lists it the same
-  way (ADR-0053 d). The one addition to an accepted ADR is an "As built" section, where an agent records a choice it
-  took by default because the ADR, a design document or existing behaviour
-  settled it (ADR-0053 d); it details the decision and never changes it, and
-  the batch's digest lists it for the product owner to overrule after the fact.
+  way (ADR-0053 d). The one addition to an accepted ADR is an "As built"
+  section, where an agent records a choice it took by default because the ADR,
+  a design document or existing behaviour settled it (ADR-0053 d); it details
+  the decision and never changes it, and the batch's digest lists it for the
+  product owner to overrule after the fact.
 - Write an ADR when a decision is expensive to reverse, crosses contexts, adds
   a runtime dependency, or relaxes a rule in this design.
 
@@ -160,22 +163,24 @@ minutes go to the second line on `main` rather than to repeating the slow
 gates on each pull request:
 
 - **Lanes and batches (ADR-0053, PO decision of 2026-10-28):** a lane runs a
-  fast loop on each step (a slice), and the full gates run once per batch.
-  The lane's loop: `gofmt`, the build, `go vet`, the lint of changed code,
+  fast loop on each step (a slice), and the full gates run once per batch. The
+  lane's loop: `gofmt`, the build, `go vet`, the lint of changed code,
   staticcheck, gosec, gitleaks, `make generate` leaving no diff, the contract
   lint and the breaking-change check when the contract changes, the tests of
-  the changed packages and of the packages that import them directly against real
-  PostgreSQL with `-race` once, 100% statement coverage of the changed
+  the changed packages and of the packages that import them directly against
+  real PostgreSQL with `-race` once, 100% statement coverage of the changed
   packages, and the reviewer. The whole-suite race run three times in random
   order, the whole-repository coverage gate, fuzzing, the budgets, the images,
   the signing round trip and the infrastructure checks run in `make ci-local`
-  below, unchanged, on the batch before every pull request; `make ci-local`
-  has the machine to itself, and three lanes run beside each other otherwise.
-  The pilot walkthrough (`cmd/erp`'s `TestWalkthrough`, in `make ci-local`)
-  runs on every batch and is each slice's acceptance evidence: the slice's step
-  is among the steps its summary lists as passed, not skipped. The coordinator records the cause of every
-  `make ci-local` failure; if more than one batch in three fails on something
-  the full lane gates would have caught, the lanes return to them.
+  below, unchanged, on the batch before every pull request; `make ci-local` has
+  the machine to itself, and three lanes run beside each other otherwise. The
+  pilot walkthrough (`cmd/erp`'s `TestWalkthrough`, in `make ci-local`) runs on
+  every batch and is each slice's acceptance evidence: the slice's step is
+  among the steps the summary lists as passed, not skipped, which the
+  coordinator reads from a `make walkthrough` run on the batch for the digest
+  (the test prints the summary only when it fails). The coordinator records the
+  cause of every `make ci-local` failure; if more than one batch in three fails
+  on something the full lane gates would have caught, the lanes return to them.
 - **Locally, before a pull request is merged:** `make ci-local`
   (`scripts/ci-local.sh`) runs every step of the table — every check
   GitHub runs on `main`, on demand or on a push, the deploy workflow's

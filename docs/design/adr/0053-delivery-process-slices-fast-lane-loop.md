@@ -23,10 +23,10 @@ What batch 17 measured:
   caught: the gates proved the code correct, not that a consumer could use it.
 
 Until now a lane ran on its own step nearly every gate the batch runs again
-(07 §7.7 item 8, whole-suite race run and whole-repository coverage included), steps were sized by tracker leaf rather than by what a user can do,
-contract, migration and ADR changes waited for the product owner's approval
-(07 §7.7 item 1), and nothing reviewed a response as its consumer would read
-it.
+(07 §7.7 item 8, whole-suite race run and whole-repository coverage included),
+steps were sized by tracker leaf rather than by what a user can do, contract,
+migration and ADR changes waited for the product owner's approval (07 §7.7
+item 1), and nothing reviewed a response as its consumer would read it.
 
 ## Decision
 
@@ -56,16 +56,19 @@ the full gates.
 ### b. A step is a slice
 
 A step that adds or changes a capability is a slice: one capability that a
-named user, or an API consumer, can use end to end. It closes one or more tracker leaves and is sized for one
-agent in about half a day. It includes the contract, the domain code, the
-migration, the tests, the updates to the design documents and ADRs, and at
-least one new or extended step of the pilot walkthrough (`scripts/walkthrough.sh`)
-that exercises the capability through the public API.
+named user, or an API consumer, can use end to end. It closes one or more
+tracker leaves and is sized for one agent in about half a day. It includes the
+contract, the domain code, the migration, the tests, the updates to the design
+documents and ADRs, and at least one new or extended step of the pilot
+walkthrough (`scripts/walkthrough.sh`) that exercises the capability through
+the public API.
 
 The walkthrough runs in every batch, as it does now (`cmd/erp`'s
 `TestWalkthrough` in `make ci-local`), and is the slice's acceptance
 evidence: the slice's step is among the steps the run's summary lists as
-passed, not skipped, which the batch's digest shows.
+passed, not skipped, which the coordinator reads from a `make walkthrough`
+run on the batch for the digest (the test prints the summary only when it
+fails).
 
 A step that adds or changes no capability (a fix, a refactoring, a CI,
 process or documentation change) is held to everything else in this

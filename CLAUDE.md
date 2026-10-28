@@ -110,18 +110,18 @@ tenancy, auth or concurrency), run the **`go-reviewer`** agent on the diff and r
 blocking finding before telling the user the work is done. Report what it found and what you
 changed. For large branches the user may also run `/code-review high` or `/code-review ultra`.
 `REVIEW.md` sets the rules: findings labelled Blocking, Nit or Pre-existing; every instance of
-a named bug class in the diff fixed, the API-consumer classes included; after three rounds on one step with a blocking finding left,
-reconsider the approach and tell the coordinator.
+a named bug class in the diff fixed, the API-consumer classes included; after three rounds on
+one step with a blocking finding left, reconsider the approach and tell the coordinator.
 
 ### 4. Small, specific tasks
 
 - A step that adds or changes a capability is a slice (ADR-0053): one capability a named user
-  or API consumer can use end to end, closing one or more tracker leaves (T-numbers), sized for one agent in about half a day.
-  It carries its contract, domain code, migration, tests, doc and ADR updates, and at least one
-  new or extended step in `scripts/walkthrough.sh` exercising it through the public API, which
-  is its acceptance evidence (the step passes, not skipped, in the batch's run). A fix,
-  refactoring, CI, process or docs step needs no walkthrough step; everything else applies.
-  State its acceptance criteria up front. One slice at a time per
+  or API consumer can use end to end, closing one or more tracker leaves (T-numbers), sized for
+  one agent in about half a day. It carries its contract, domain code, migration, tests, doc
+  and ADR updates, and at least one new or extended step in `scripts/walkthrough.sh` exercising
+  it through the public API, which is its acceptance evidence (the step passes, not skipped, in
+  the batch's run). A fix, refactoring, CI, process or docs step needs no walkthrough step;
+  everything else applies. State its acceptance criteria up front. One slice at a time per
   lane; three lanes run in parallel on code that does not overlap (07-transition §7.7).
 - Every step is held to the bar the refactoring programme reached (9.5/10) and built with the
   loop in `docs/design/07-transition.md` §7.7; `docs/tracker.json` is the only plan (§7.6).
@@ -129,8 +129,8 @@ reconsider the approach and tell the coordinator.
 - Each step ends green in the lane's fast loop (ADR-0053, 06 §6.5): gofmt, build, vet, lint of
   changed code, staticcheck, gosec, gitleaks, `make generate` with no diff, contract lint and
   the breaking-change check when the contract changes, the tests of the changed packages and
-  of the packages that import them directly with `-race` against real PostgreSQL, 100% coverage of the
-  changed packages, and `go-reviewer`. The whole-suite race run ×3, whole-repository coverage,
+  of the packages that import them directly with `-race` against real PostgreSQL, 100%
+  coverage of the changed packages, and `go-reviewer`. The whole-suite race run ×3, whole-repository coverage,
   fuzzing, budgets, images, signing and infrastructure checks run once per batch in
   `make ci-local`, unchanged, before every pull request. Commit per step with a message naming
   the T-number, as the existing history does.
