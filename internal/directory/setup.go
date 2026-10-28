@@ -44,7 +44,9 @@ const (
 // columns written, never a key but the ones a new row needs; no role may
 // truncate, reference or trigger, and only the cell deletes (its issuers'
 // claims) and erp-web (its sessions). Nobody but the owner may make
-// temporary objects either: TEMPORARY is taken from PUBLIC.
+// temporary objects either, nor anything on the database: TEMPORARY is
+// taken from PUBLIC, and every right on the database from the roles
+// (PUBLIC's CONNECT stays).
 const Grants = `
 DO $$ BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'erp_router') THEN CREATE ROLE erp_router NOLOGIN; END IF;
@@ -54,7 +56,12 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'erp_cell') THEN CREATE ROLE erp_cell NOLOGIN; END IF;
 EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL;
 END $$;
-DO $$ BEGIN EXECUTE format('REVOKE TEMPORARY ON DATABASE %I FROM PUBLIC', current_database()); END $$;
+DO $$ BEGIN
+  EXECUTE format('REVOKE TEMPORARY ON DATABASE %I FROM PUBLIC', current_database());
+  EXECUTE format('REVOKE ALL ON DATABASE %I FROM erp_router, erp_cell, erp_web', current_database());
+END $$;
+-- The schemas hold tables and a view alone (no sequence or function): a
+-- later one needs its own revoke here.
 REVOKE ALL ON ALL TABLES IN SCHEMA directory, web FROM erp_router, erp_cell, erp_web;
 REVOKE ALL ON SCHEMA directory, web FROM erp_router, erp_cell, erp_web;
 GRANT USAGE ON SCHEMA directory TO erp_router, erp_cell;
@@ -143,6 +150,12 @@ func ensureLogin(ctx context.Context, tx pgx.Tx, l Login) error {
 		_, err = tx.Exec(ctx, "GRANT "+role+" TO "+login+"; REVOKE ALL ON ALL TABLES IN SCHEMA directory, web FROM "+login+
 			"; REVOKE ALL ON SCHEMA directory, web FROM "+login)
 	}
+	if err == nil {
+		err = tx.QueryRow(ctx, `SELECT format('REVOKE ALL ON DATABASE %I FROM %I', current_database(), $1::text)`, l.Name).Scan(&stmt)
+	}
+	if err == nil {
+		_, err = tx.Exec(ctx, stmt)
+	}
 	if err != nil {
 		return fmt.Errorf("login %s: %w", l.Name, err)
 	}
@@ -186,7 +199,8 @@ func verifier(password string) string {
 // operator made a superuser, gave a right to create roles or databases,
 // to replicate or to bypass row security, made a member of another role
 // or able to grant its own, or that owns objects in the directory's
-// database; and a privilege role made a member of any role. Setup does not
+// database or the database itself; and a privilege role made a member of
+// any role or the owner of anything there. Setup does not
 // take such rights back: someone gave them, and the release stops until
 // they look.
 func checkLogin(ctx context.Context, tx pgx.Tx, l Login) error {
@@ -194,11 +208,13 @@ func checkLogin(ctx context.Context, tx pgx.Tx, l Login) error {
 	var others []string
 	err := tx.QueryRow(ctx, `SELECT r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication OR r.rolbypassrls,
 		EXISTS (SELECT FROM pg_auth_members m WHERE m.member = r.oid AND m.admin_option),
-		EXISTS (SELECT FROM pg_class WHERE relowner = r.oid) OR EXISTS (SELECT FROM pg_namespace WHERE nspowner = r.oid)
-			OR EXISTS (SELECT FROM pg_proc WHERE proowner = r.oid) OR EXISTS (SELECT FROM pg_type WHERE typowner = r.oid),
+		EXISTS (SELECT FROM pg_class WHERE relowner = ANY(o.oids)) OR EXISTS (SELECT FROM pg_namespace WHERE nspowner = ANY(o.oids))
+			OR EXISTS (SELECT FROM pg_proc WHERE proowner = ANY(o.oids)) OR EXISTS (SELECT FROM pg_type WHERE typowner = ANY(o.oids))
+			OR EXISTS (SELECT FROM pg_database WHERE datname = current_database() AND datdba = ANY(o.oids)),
 		ARRAY(SELECT p.rolname || ' in ' || g.rolname FROM pg_auth_members m JOIN pg_roles g ON g.oid = m.roleid JOIN pg_roles p ON p.oid = m.member
 			WHERE (m.member = r.oid AND g.rolname <> $2) OR p.rolname = ANY($3) ORDER BY 1)
-		FROM pg_roles r WHERE r.rolname = $1`, l.Name, l.Role, []string{RouterRole, CellRole, WebRole}).Scan(&attributes, &admin, &owns, &others)
+		FROM pg_roles r, LATERAL (SELECT ARRAY(SELECT oid FROM pg_roles WHERE rolname = $1 OR rolname = ANY($3)) AS oids) o
+		WHERE r.rolname = $1`, l.Name, l.Role, []string{RouterRole, CellRole, WebRole}).Scan(&attributes, &admin, &owns, &others)
 	if err != nil {
 		return fmt.Errorf("login %s: read its rights: %w", l.Name, err)
 	}

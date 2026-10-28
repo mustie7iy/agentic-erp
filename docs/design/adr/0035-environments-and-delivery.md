@@ -734,12 +734,14 @@ their own and least privilege, never as the RDS master user `erp_admin`
   a member of its role alone. Setup refuses a login that is anything more
   (a superuser, a right to create roles or databases, to replicate or
   bypass row security, membership of another role, the admin option on
-  its own, objects it owns in the database) or a privilege role made a
-  member of any role, rather than quietly taking the right back; refuses
+  its own, objects it owns in the database or the database itself) or a
+  privilege role made a member of any role or the owner of anything there,
+  rather than quietly taking the right back; refuses
   the owner's own name and the roles' names, and a password other than
   printable ASCII (SASLprep would change it); and on every run takes back
-  any right given by hand to the roles or the logins on the `directory`
-  and `web` schemas and their tables before granting the roles' again.
+  any right given by hand to the roles or the logins on the database, the
+  `directory` and `web` schemas and their tables before granting the
+  roles' again.
   A password reaches the server only as its SCRAM-SHA-256 verifier,
   computed in Go, so no log or statistics of the statement (PostgreSQL
   logs a failed statement whole, `log_min_error_statement`, to

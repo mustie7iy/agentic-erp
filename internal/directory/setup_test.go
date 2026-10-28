@@ -3,6 +3,7 @@ package directory_test
 import (
 	"context"
 	"errors"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -249,9 +250,10 @@ func TestLoginsMayDoNothingMore(t *testing.T) {
 func TestSetupAgain(t *testing.T) {
 	ctx := context.Background()
 	l := setUpLogins(t)
-	router := pgx.Identifier{l.creds[directory.RouterRole].Name}.Sanitize()
+	router, cell := pgx.Identifier{l.creds[directory.RouterRole].Name}.Sanitize(), pgx.Identifier{l.creds[directory.CellRole].Name}.Sanitize()
+	db := dbName(t, l.url)
 	for _, sql := range []string{`GRANT DELETE ON directory.tenant TO erp_router`, `GRANT TRUNCATE ON web.session TO erp_web`,
-		`GRANT DELETE ON directory.cell TO ` + router} {
+		`GRANT DELETE ON directory.cell TO ` + router, `GRANT CREATE ON DATABASE ` + db + ` TO erp_router`, `GRANT CREATE ON DATABASE ` + db + ` TO ` + cell} {
 		if err := exec(ctx, l.owner, database.Scope{}, sql); err != nil {
 			t.Fatal(err)
 		}
@@ -265,7 +267,8 @@ func TestSetupAgain(t *testing.T) {
 	for _, c := range []struct {
 		dir *directory.Postgres
 		sql string
-	}{{l.router, `DELETE FROM directory.tenant`}, {l.web, `TRUNCATE web.session`}, {l.router, `DELETE FROM directory.cell`}} {
+	}{{l.router, `DELETE FROM directory.tenant`}, {l.web, `TRUNCATE web.session`}, {l.router, `DELETE FROM directory.cell`},
+		{l.router, `CREATE SCHEMA mine`}, {l.cell, `CREATE SCHEMA mine`}} {
 		err := exec(ctx, c.dir, database.Scope{}, c.sql)
 		if pg, ok := errors.AsType[*pgconn.PgError](err); !ok || pg.Code != "42501" {
 			t.Errorf("%s, given by hand: got %v, want it taken back (42501)", c.sql, err)
@@ -329,6 +332,77 @@ func TestSetupRefusesLogins(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSetupRefusesOwners: a login owning the database, or a privilege
+// role owning an object in it, is refused; each in a database of its own,
+// which the refusal leaves unusable.
+func TestSetupRefusesOwners(t *testing.T) {
+	ctx := context.Background()
+	for name, sql := range map[string]string{
+		"a login owning the database":     `ALTER DATABASE {db} OWNER TO {login}`,
+		"a privilege role owning a table": `CREATE TABLE public.owned (x int); ALTER TABLE public.owned OWNER TO erp_cell`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			login := pgtest.NewLogin(t) // before the database, so dropped after it
+			u := pgtest.EmptyDatabase(t)
+			pgtest.Exec(t, `CREATE ROLE `+pgx.Identifier{login.Name}.Sanitize()+` LOGIN`)
+			dir, err := directory.Open(ctx, u)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer dir.Close()
+			sql = strings.NewReplacer("{db}", dbName(t, u), "{login}", pgx.Identifier{login.Name}.Sanitize()).Replace(sql)
+			if err := exec(ctx, dir, database.Scope{}, sql); err != nil {
+				t.Fatal(err)
+			}
+			if err := directory.Setup(ctx, u, directory.Login{Name: login.Name, Password: "p", Role: directory.CellRole}); !errors.Is(err, directory.ErrLogin) {
+				t.Errorf("got %v, want ErrLogin", err)
+			}
+		})
+	}
+}
+
+// TestPrivilegeRoleInAnother: a privilege role made a member of another
+// role is refused. The roles are the server's, so the grant is never
+// committed: checked inside the transaction that makes it, then rolled
+// back, out of other packages' sight.
+func TestPrivilegeRoleInAnother(t *testing.T) {
+	ctx := context.Background()
+	u := pgtest.EmptyDatabase(t)
+	c := pgtest.NewLogin(t)
+	login := directory.Login{Name: c.Name, Password: c.Password, Role: directory.CellRole}
+	if err := directory.Setup(ctx, u, login); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := directory.OpenWith(ctx, u, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	errDone := errors.New("rolled back")
+	err = dir.Pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `GRANT erp_web TO erp_cell`); err != nil {
+			return err
+		}
+		if err := directory.CheckLogin(ctx, tx, login); !errors.Is(err, directory.ErrLogin) {
+			t.Errorf("got %v, want ErrLogin", err)
+		}
+		return errDone
+	})
+	if !errors.Is(err, errDone) {
+		t.Fatal(err)
+	}
+}
+
+// dbName is the quoted name of the database u names.
+func dbName(t *testing.T, u string) string {
+	t.Helper()
+	parsed, err := url.Parse(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pgx.Identifier{strings.TrimPrefix(parsed.Path, "/")}.Sanitize()
 }
 
 // TestSetupDatabaseFailures: every statement of a setup failing in turn
