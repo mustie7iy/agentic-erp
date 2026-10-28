@@ -8380,10 +8380,10 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "The image scan fails on main as on this step: grype reports GHSA-mgcc-cww5-fp2q (High, fixed in 4.1.6) in github.com/go-jose/go-jose/v4 v4.1.5, which internal/platform/authn imports, in every image but erp (erp-server, erp-router, erp-web, erp-analytics, both platforms; found 2026-10-28 with the old and the new builder alike); make image-scan, and so main's manual full run and the weekly run, stay red until go-jose is bumped in a reviewed step or the finding is accepted in .grype.yaml with a reason and an expiry",
-      "r": "go.mod · internal/platform/authn · scripts/image-scan.sh · .grype.yaml · ADR-0032",
-      "src": "ci:batch15",
+      "s": "D",
+      "t": "github.com/go-jose/go-jose/v4 bumped from v4.1.5 to v4.1.6 (PO 2026-10-28), which fixes GHSA-mgcc-cww5-fp2q (High), the finding grype reported in erp-server, erp-router, erp-web and erp-analytics; make image-scan passes on every image again. What v4.1.6 changes for us: ParseSigned checks the algorithm against the allowed list before it sanitizes the header (where jwk and x5c are parsed), and a jwk or epk header carrying private key material is refused; a key set naming an RSA key over 4096 bits (go-jose's MaxRSAModulusBits) no longer parses, so that issuer's key refreshes fail and its tokens get 503 once the cached keys expire or a token names a key not cached; JWE decryption checks the content key's size; parsing an RSA private JWK checks p·q = n. authn verifies compact JWS against an issuer's key set by kid and web signs client assertions with an RSA or P-256 key read from PEM; neither uses JWE, jwk or epk headers or private JWKs, so only the RSA size limit reaches them, and only for an issuer publishing an RSA key over 4096 bits (our tests use 2048); their tests pass unchanged",
+      "r": "go.mod · go.sum · internal/platform/authn/providers.go · internal/web/oidc.go · scripts/image-scan.sh · .grype.yaml · ADR-0032",
+      "src": "ci:batch15 · po:2026-10-28",
       "c": []
      }
     ]
