@@ -8385,6 +8385,13 @@
       "r": "docs/tracker.json",
       "src": "review:batch16",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "06 §6.5 lists the inputs that start the image reproducibility gate and the signing round trip as scripts/ci-changes.sh's images class has them, .dockerignore, deploy/images/, scripts/test-images and scripts/lib/sbom-root included, and names the script as the rule (pre-existing review finding on batch 17)",
+      "r": "06 §6.5 · scripts/ci-changes.sh",
+      "src": "review:batch17",
+      "c": []
      }
     ]
    },

@@ -272,11 +272,13 @@ gates on each pull request:
   `main`, and a newer manual run an older one on the same branch; the
   older commit then shows `ci-ok` failed, which is expected.
 - In `ci-local.sh`, the image reproducibility gate and the signing round
-  trip run when their inputs change (`go.mod`, `go.sum`, `.ko.yaml`,
-  `Makefile`, `cmd/`, `scripts/image*`, `scripts/sign*`,
-  `scripts/verify-image.sh`, `scripts/provenance.sh`,
-  `scripts/free-disk.sh`, `release/`, `ci.yml`, `weekly.yml`); otherwise
-  the images are built once and scanned. On a push to `main` the signing
+  trip run when their inputs change: the paths of the `images` class in
+  `scripts/ci-changes.sh`, which is the rule (`go.mod`, `go.sum`,
+  `.ko.yaml`, `.dockerignore`, `deploy/images/`, `Makefile`, `cmd/`,
+  `release/`, `scripts/image*`, `scripts/test-images*`,
+  `scripts/lib/sbom-root*`, `scripts/sign*`, `scripts/verify-image*`,
+  `scripts/provenance*`, `scripts/free-disk*`, `ci.yml`, `weekly.yml`);
+  otherwise the images are built once and scanned. On a push to `main` the signing
   round trip runs on the same rule; a manual run, with no base to compare
   with, runs both every time. `ci-local.sh` builds and signs linux/amd64
   only, as pull requests did on the runner; `main`'s
