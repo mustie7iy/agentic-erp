@@ -12,7 +12,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/mustie7iy/agentic-erp/internal/bankfile"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
@@ -201,12 +200,7 @@ func newSupplier(v sap.LFA1, in []partner.SupplierCompanyInput, banks map[string
 		np.TaxIdentifiers = []partner.TaxInput{{Scheme: v.LAND1 + "_TAX", Value: tax}}
 	}
 	if b, ok := banks[v.LIFNR]; ok {
-		scheme := "domestic"
-		if bankfile.ValidIBAN(b.BANKN) {
-			scheme = "iban"
-		}
-		np.BankAccounts = []partner.BankInput{{Purpose: "payments", AccountNumber: b.BANKN, AccountScheme: scheme, BankCountryCode: b.BANKS,
-			HolderName: v.NAME1, ValidFrom: today}}
+		np.BankAccounts = []partner.BankInput{supplierBank(v, b, today)}
 	}
 	return np
 }

@@ -54,6 +54,9 @@ They must be equal.
 - Total debits posted (`documents` mode)
 - Open payables, in total and per vendor
 - Vendor count per company code
+- Each vendor's payments bank account: SAP's first LFBK row as it loads
+  (scheme, bank country, Canadian routing, last four characters) against the
+  supplier's account valid today (differences listed by vendor; T72d)
 - Purchase order count and value
 - Parked supplier invoices (posted ones are carried by their FI documents)
 - Every SAP document in scope present on the platform (missing ones listed)
@@ -63,6 +66,14 @@ They must be equal.
 - OData services are activated (`/IWFND/MAINT_SERVICE`) and the technical user
   has read authorization only.
 - Entity and field names in `internal/sap/odata.go` match your release (check `$metadata`).
+- Canadian vendor bank accounts (LFBK, bank country CA) load as scheme `ca`
+  only with the bank key (BANKL) in the Canadian Payments Association's
+  electronic routing form, 0 + institution (3 digits) + transit (5 digits),
+  and an account number of 7 to 12 digits; the quality gate refuses others.
+  Check which form your system's bank keys for Canada are kept in (bank
+  master BNKA). A Canadian house bank (T012K without an IBAN, bank country CA)
+  is generated into the configuration from the same bank key and its account
+  number; another form is noted and left for the reviewers (T72d).
 - Amounts for currencies with no decimals or three decimals (JPY, KWD) come in
   external format.
 - **SAP digital-access licensing:** reading data is usually fine, but agents

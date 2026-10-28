@@ -426,3 +426,52 @@ suffices, as before. `:reject` needs the release role too (T72l).
   change the run only while it waits for that request, guarded in the
   update, so a decision is recorded once (a repeated rejection is a
   no-op, see above).
+
+## As built: the SAP load of Canadian accounts (T72d)
+
+The Canadian amendment (T45d) left the SAP load taking accounts as IBAN or
+domestic. T72d loads Canadian ones with their routing, decided by default
+under that amendment (ADR-0053 §d):
+
+- **Vendor bank accounts.** An LFBK row with bank country CA becomes a
+  scheme `ca` account: the institution and transit numbers from its bank
+  key (BANKL) and the account number from BANKN, through the same partner
+  checks as any `ca` account. SAP Help describes the vendor's bank as the
+  bank country, a bank key ("this may be the bank number", a
+  country-specific bank identification) and the account number ("Defining
+  Business Partner Banks", SAP Library 4.6C). The bank key is read only in
+  the Canadian Payments Association's electronic routing form this ADR
+  already writes into pain.001, 0 + institution + transit
+  (`cabank.SplitMemberID`, the inverse of `MemberID`): it is the one form of
+  the two numbers that is unambiguous, whereas eight digits could be
+  transit then institution, as on a cheque, or the reverse. Which form a
+  given SAP system keeps Canadian bank keys in is its bank master's, so it is
+  on the specialist list rather than assumed; a key in another form is
+  converted in the extract, not guessed at.
+- **Quality gate.** A vendor's Canadian account (its first LFBK row, the
+  one loaded) whose bank key is not that form, or whose account number is
+  not 7 to 12 digits, is an error of the gate (table LFBK), so the run
+  stops before it loads anything rather than refusing the supplier at
+  load. The issue repeats the bank key, which names a bank and is kept in
+  clear text, never the account number.
+- **Reconciliation.** A control "Vendor bank accounts: vendors with
+  differences" compares, per company code, each vendor's first LFBK row as
+  it loads (scheme, bank country, routing, last four characters) with the
+  supplier's payments account valid today (`partner.Suppliers.PaymentAccounts`);
+  a vendor without one in SAP must have none. It covers every scheme, not
+  only `ca`.
+- **House banks.** A T012K row without an IBAN whose bank country is CA is
+  generated into the configuration with `institution_number` and
+  `transit_number` from the house bank's bank key, read as for LFBK, and
+  `account_number` from BANKN. A key in another form is noted for the
+  reviewers and validation refuses the bank until they enter the routing.
+  The extract's T012K carries the house bank's bank country and key
+  (T012-BANKS/BANKL) flattened in, as it carries IBAN and SWIFT. A house bank
+  outside Canada without an IBAN is unchanged: validation refuses it.
+- **OData.** LFBK-BANKL is mapped to `A_BusinessPartnerBank`'s
+  `BankNumber`, to be checked against the system's `$metadata` as every
+  mapping is.
+- **Mock extract.** Company 3000, Maple Industries Canada in CAD, with six
+  Canadian vendors and two of company 1000's, and a Canadian house bank, is
+  generated after the others, so their data is unchanged; the pilot
+  walkthrough migrates it instead of relabelling company 1000.

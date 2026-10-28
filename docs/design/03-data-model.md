@@ -2323,7 +2323,7 @@ line or reservation. An agent's budget is identity's
 | SKA1/SKB1 | `ledger.gl_account`, `ledger.company_account` |
 | ACDOCA | `ledger.journal_entry` + `ledger.journal_line` (TC/LC/GC amounts) |
 | BSEG clearing (AUGBL) | `ledger.clearing` + `ledger.clearing_item` |
-| LFA1/LFB1/LFBK, BUT000 | `partner.business_partner`, `supplier_company`, `bank_account`, `tax_identifier` |
+| LFA1/LFB1/LFBK, BUT000 | `partner.business_partner`, `supplier_company`, `bank_account`, `tax_identifier`; a Canadian LFBK (BANKS CA) as scheme `ca`, its institution and transit from BANKL as 0 + institution + transit (T72d) |
 | FLQLITEM/FLQLITEMT liquidity items, T035 planning groups, LFB1-FDGRV | `cash.liquidity_item`, `cash.planning_group`, `supplier_company.planning_group` (T53b) |
 | EBAN | `procurement.requisition` |
 | EKKO/EKPO | `procurement.purchase_order` + items |
@@ -2336,7 +2336,7 @@ line or reservation. An agent's budget is identity's
 | Outline agreement validity end and follow-on contract (EKKO-KDATE, reference agreement) | `contract.valid_to`, `contract.renewal_of_id`, `expiry_alerted_on` and `ContractExpiring` (T47g) |
 | RBKP/RSEG | `payables.supplier_invoice` + items |
 | REGUH/REGUP (F110) | `payments.payment_run`, `payment`, `payment_item` |
-| T012K | `payments.house_bank` |
+| T012K | `payments.house_bank`; a Canadian one, without an IBAN, by `institution_number`, `transit_number` (from the bank key, as for LFBK) and `account_number` (BANKN) (T72d) |
 | T052 | `partner.payment_term` |
 | T007A, KONP/A003 (tax rates per condition), T030K (account keys MWS, VST, NVV, ESA/ESE) | `ledger.tax_code_definition`, `tax_component`, `tax_rate` (T61a) |
 | T030 | `ledger.account_determination` (VST, BNK, WRX, PRD, SKE) |

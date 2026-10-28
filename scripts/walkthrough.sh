@@ -34,6 +34,7 @@ ADMIN_ADDR="${WALKTHROUGH_ADMIN_ADDR:-127.0.0.1:19090}"
 PAUSE="${WALKTHROUGH_PAUSE:-0}"
 TODAY=$(date -u +%F)
 YEAR=${TODAY:0:4}
+CC=3000 # the pilot's SAP company code, Maple Industries Canada in the mock extract
 
 if [ -t 1 ]; then
   B=$'\033[1m' DIM=$'\033[2m' RED=$'\033[31m' GREEN=$'\033[32m' YELLOW=$'\033[33m' R=$'\033[0m'
@@ -233,11 +234,11 @@ approve() {
     -body "{\"comment\": \"${3:-Checked.}\"}"
 }
 
-# account NUMBER is the id of an account of company 1000.
+# account NUMBER is the id of an account of company $CC.
 account() {
   local id
   id=$(jq -r --arg n "$1" '.items[] | select(.number == $n) | .id' "$WORK/accounts.json")
-  [ -n "$id" ] || fail "no account $1 in company 1000"
+  [ -n "$id" ] || fail "no account $1 in company $CC"
   printf '%s' "$id"
 }
 
@@ -389,21 +390,22 @@ person() {
 
 step_tenant() {
   heading "Step 1 — A tenant for the Canadian pilot company, configured from its SAP system"
-  say "The mock SAP extract has a US company 1000 and a German 2000. For the pilot, 1000 becomes"
-  say "Maple Industries Canada in CAD: the extract's company record and its documents' currency are relabelled."
+  say "The mock SAP extract has a US company 1000, a German 2000 and the pilot, Maple Industries Canada,"
+  say "company $CC in CAD, with Canadian suppliers and a Canadian house bank (T72d)."
   # A fixed seed and month: the mock's documents are then the same every
   # run, whatever today is (its random draws depend on -through below 6).
   show erp gen-mock-sap -out data/extract.json -year "$YEAR" -through 9 -seed 42
-  "$ERP" gen-mock-sap -out "$WORK/data/sap.json" -year "$YEAR" -through 9 -seed 42 >/dev/null || fail "gen-mock-sap failed"
-  jq '(.T001[] | select(.BUKRS == "1000")) |= (.BUTXT = "Maple Industries Canada" | .WAERS = "CAD" | .LAND1 = "CA")
-    | (.EKKO[] | select(.BUKRS == "1000")) |= (.WAERS = "CAD") | (.RBKP[] | select(.BUKRS == "1000")) |= (.WAERS = "CAD")' \
-    "$WORK/data/sap.json" >"$WORK/data/extract.json"
+  "$ERP" gen-mock-sap -out "$WORK/data/extract.json" -year "$YEAR" -through 9 -seed 42 >/dev/null || fail "gen-mock-sap failed"
   jq -r '.T001[] | "     SAP company \(.BUKRS) \(.BUTXT), \(.WAERS), \(.LAND1)"' "$WORK/data/extract.json"
-  show erp config generate -source file:data/extract.json -company 1000 -year "$YEAR" -out config.yaml
-  "$ERP" config generate -source "file:$WORK/data/extract.json" -company 1000 -year "$YEAR" -out "$WORK/config.yaml" >"$WORK/generate.out" 2>&1 ||
+  show erp config generate -source file:data/extract.json -company "$CC" -year "$YEAR" -out config.yaml
+  "$ERP" config generate -source "file:$WORK/data/extract.json" -company "$CC" -year "$YEAR" -out "$WORK/config.yaml" >"$WORK/generate.out" 2>&1 ||
     { sed 's/^/     /' "$WORK/generate.out"; fail "config generate failed"; }
   grep -q 'Validation: no findings' "$WORK/generate.out" || { sed 's/^/     /' "$WORK/generate.out"; fail "the generated configuration has findings"; }
   say "  the configuration generated from SAP's customizing validates with no findings."
+  say "SAP's house bank (T012K) is Canadian: no IBAN, its account by institution, transit and account number:"
+  jq -r --arg cc "$CC" '.T012K[] | select(.BUKRS == $cc) | "     T012K \(.HBKID): bank \(.BANKS) \(.BANKL), account \(.BANKN), IBAN \(if .IBAN == "" then "none" else .IBAN end)"' "$WORK/data/extract.json"
+  grep -A 6 '^    house_bank:$' "$WORK/config.yaml" | sed 's/^/     /'
+  grep -A 6 '^    house_bank:$' "$WORK/config.yaml" | grep -q 'institution_number: "003"' || fail "the house bank was not generated with its institution number"
   say "A second ledger, 2L for local GAAP (ASPE), is added beside the leading IFRS ledger 0L before"
   say "provisioning: parallel ledgers are set up while the company has no postings (ADR-0045)."
   awk '{ print } /^    fiscal_year_start_month: 1$/ { print "    ledgers: [\"0L\", \"2L\"]" }' "$WORK/config.yaml" >"$WORK/config.tmp"
@@ -417,14 +419,14 @@ YAML
   show erp-server provision -name "Maple pilot" -region ca-central -currency CAD -admin-subject ada -admin-name "Ada Admin" -config config.yaml
   "$BIN/erp-server" provision -name "Maple pilot" -region ca-central -currency CAD -admin-subject ada -admin-name "Ada Admin" \
     -config "$WORK/config.yaml" >"$WORK/last.json" 2>"$WORK/stderr" || fail "provision failed: $(cat "$WORK/stderr")"
-  excerpt '"tenant \(.tenant_id), company 1000 is legal entity \(.legal_entities["1000"]), configuration version \(.configuration_version)"'
+  excerpt "\"tenant \\(.tenant_id), company $CC is legal entity \\(.legal_entities[\"$CC\"]), configuration version \\(.configuration_version)\""
   TENANT=$(field .tenant_id)
-  LE=$(field '.legal_entities["1000"]')
+  LE=$(field ".legal_entities[\"$CC\"]")
   printf '%s\tAda Admin\n' "$(field .administrator_id)" >"$WORK/names"
   token ada "Ada Admin"
   as ada
   api 200 '.items[] | "\(.code) \(.name): \(.country_code), \(.local_currency), \(.status)"' listLegalEntities
-  expect "company 1000's currency" "$(field '.items[0].local_currency')" CAD
+  expect "company $CC's currency" "$(field '.items[0].local_currency')" CAD
   api 200 '.items[] | "ledger \(.code) \(.name)\(if .is_leading then ", leading" else "" end)"' listLedgers
   expect "ledgers" "$(field '[.items[].code] | sort | join(" ")')" "0L 2L"
   people
@@ -456,10 +458,20 @@ step_migrate() {
     { sed 's/^/     /' "$WORK/migrate.out"; fail "the migration did not reconcile"; }
   sed 's/^/     /' "$WORK/migrate.out"
   grep -q ': reconciled$' "$WORK/migrate.out" || fail "the migration report does not say reconciled"
-  for check in 'Trial balance: accounts with differences' 'Open payables total' 'Open payables: vendors with differences'; do
+  for check in 'Trial balance: accounts with differences' 'Open payables total' 'Open payables: vendors with differences' \
+    'Vendor bank accounts: vendors with differences'; do
     grep "$check" "$WORK/migrate.out" | grep -q 'PASS$' || fail "the reconciliation check '$check' did not pass"
   done
-  say "The trial balance and the open payables agree with SAP's, recomputed from the raw extract."
+  say "The trial balance and the open payables agree with SAP's, recomputed from the raw extract, and so"
+  say "does each supplier's bank account. A Canadian supplier's account came over with its bank (T72d):"
+  say "scheme ca, the institution and transit numbers from SAP's bank key (LFBK-BANKL), the account sealed."
+  api 200 '.items[] | "supplier \(.number) \(.name), \(.country_code)"' listBusinessPartners -p name_prefix=Laurentian
+  local laurentian
+  laurentian=$(field '.items[0].id')
+  if [ -z "$laurentian" ] || [ "$laurentian" = null ]; then fail "the migrated supplier Laurentian Paper is not there"; fi
+  api 200 '.items[] | "bank account \(.purpose): \(.account_scheme), bank \(.bank_country_code) \(.institution_number)-\(.transit_number), account ending \(.account_last4), valid from \(.valid_from)"' \
+    listBankAccounts -p "id=$laurentian"
+  expect "the Canadian account's scheme and bank" "$(field '.items[0] | "\(.account_scheme) \(.institution_number) \(.transit_number)"')" "ca 001 00010"
   passed
 }
 
@@ -472,7 +484,7 @@ step_migrate() {
 # walkthrough's sales entry: GST at 5% (Excise Tax Act, Part IX, s. 165(1);
 # CRA, "Charge and collect the tax - Which rate to charge",
 # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html).
-# @YEAR@ is replaced with this year.
+# @YEAR@ is replaced with this year and @CC@ with the company code.
 PILOT_SETTINGS='
 .payment_terms += [{"key": "2/10N30", "description": "2% in 10 days, 30 days net", "net_days": 30,
     "discounts": [{"days": 10, "percent": "2"}]}]
@@ -482,7 +494,7 @@ PILOT_SETTINGS='
     {"code": "REC_CUSTOMERS", "name": "Customer receipts", "direction": "inflow", "parent": "OPERATING"},
     {"code": "OP_SUPPLIERS", "name": "Supplier payments", "direction": "outflow", "parent": "OPERATING"}],
     "derivation": {"defaults": {"outflow": "OP_SUPPLIERS", "inflow": "REC_CUSTOMERS"}}}
-| (.companies[] | select(.code == "1000")) |= (
+| (.companies[] | select(.code == "@CC@")) |= (
     .chart_of_accounts += [
       {"number": "1010", "name": "Bank clearing - RBC CAD", "type": "asset", "open_items": true},
       {"number": "1015", "name": "Bank incoming - RBC CAD", "type": "asset", "open_items": true},
@@ -508,10 +520,10 @@ step_pack() {
   api 200 '.items[] | "pack \(.country) \(.version): \(.contents.accounts) accounts, \(.contents.tax_codes) tax codes, \(.contents.holidays) holidays, \(.contents.number_ranges) number ranges; signed off: \(.signed_off)"' listCountryPacks
   local version
   version=$(field '[.items[] | select(.country == "CA") | .version] | sort_by(split(".") | map(tonumber)) | last')
-  say "Ada applies the latest Canada pack, $version, to company 1000. The merge keeps what the company"
+  say "Ada applies the latest Canada pack, $version, to company $CC. The merge keeps what the company"
   say "already has (SAP's chart and number ranges) and adds the rest; it becomes a draft change request."
   api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
-    -body "{\"country\": \"CA\", \"version\": \"$version\", \"company\": \"1000\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
+    -body "{\"country\": \"CA\", \"version\": \"$version\", \"company\": \"$CC\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
   local cr
   cr=$(field .id)
   say "The merge's notes for the reviewers include, outside production, that the pack is not signed off:"
@@ -522,7 +534,9 @@ step_pack() {
   say "at month end, bank statement rules (match by end-to-end id, approval above CAD 10,000), payment runs"
   say "above CAD 4,000 released only after a second person approves, a 2/10 net 30 cash discount term,"
   say "cost center categories, liquidity items and an output tax code for GST (step 11)."
-  jq "{title: \"Canada pack $version and the pilot's settings\", rationale: \"Pilot company set-up\", proposed: (.proposed | ${PILOT_SETTINGS//@YEAR@/$YEAR})}" \
+  local settings=${PILOT_SETTINGS//@YEAR@/$YEAR}
+  settings=${settings//@CC@/$CC}
+  jq "{title: \"Canada pack $version and the pilot's settings\", rationale: \"Pilot company set-up\", proposed: (.proposed | $settings)}" \
     "$WORK/last.json" >"$WORK/proposal.json"
   api 200 '"\(.number): \(.title)"' updateChangeRequest -p "id=$cr" -if-match "$ETAG" -body @proposal.json
   api 200 '"\(.status), tier \(.tier) (structural): \(.items | length) changes"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
@@ -670,10 +684,14 @@ step_payment() {
   expect "the payment of TY-5001 less TY-CM-77: amount, discount, credit memo in it" "$tyrell" "4136.00 94.00 true"
   api 200 '.items[] | "excluded: \(.reason_code), \(.amount.amount) \(.amount.currency), supplier \(.supplier_id)"' listPaymentExclusions -p "id=$RUN" |
     name_partners
+  expect "suppliers left out for want of a bank account" "$(field '[.items[] | select(.reason_code == "no_bank_account")] | length')" 0
+  say "The migrated Canadian suppliers are in the run, paid to their Canadian accounts:"
+  jq -r '.items[] | "\(.end_to_end_id) \(.supplier_id) \(.amount.amount) \(.amount.currency)"' "$WORK/payments.json" | name_partners |
+    grep -E 'Laurentian|Prairie|Rideau|Fundy|Muskoka|Cabot' | sed 's/^/     payment /' || fail "the run pays none of the migrated Canadian suppliers"
   say "Tom holds the release permission too, but whoever proposes a run can never release it:"
   refused 403 identity.sod_conflict releasePaymentRun -p "id=$RUN" -if-match "$version_etag" -body '{}'
   as tara
-  say "The run is above company 1000's release_dual_limit of CAD 4,000.00, so Tara cannot release it alone:"
+  say "The run is above company $CC's release_dual_limit of CAD 4,000.00, so Tara cannot release it alone:"
   refused 409 payments.release_approval_required releasePaymentRun -p "id=$RUN" -if-match "$version_etag" -body '{}'
   say "She asks for a second person's approval of the release."
   api 200 '"run \(.document_number): release approval \(.release_approval.status), \(.release_approval.requested_total.amount) \(.release_approval.requested_total.currency)"' \
@@ -706,7 +724,11 @@ step_payment() {
   api 200 '' getBankFileContent -p "id=$file" -out pain001.xml
   grep -q 'urn:iso:std:iso:20022:tech:xsd:pain.001.001.03' "$WORK/pain001.xml" || fail "the bank file is not pain.001"
   grep -E '<(MsgId|NbOfTxs|CtrlSum|ReqdExctnDt)>' "$WORK/pain001.xml" | sed -n '1,4p' | sed -E 's/^ */     /'
-  grep -A 12 '<EndToEndId>1000-' "$WORK/pain001.xml" | grep -E 'EndToEndId|InstdAmt|<Nm>' | sed -n '1,9p' | sed -E 's/^ */       /'
+  grep -A 12 "<EndToEndId>$CC-" "$WORK/pain001.xml" | grep -E 'EndToEndId|InstdAmt|<Nm>' | sed -n '1,9p' | sed -E 's/^ */       /'
+  say "A Canadian supplier's bank is named by its CACPA member id, 0 + institution + transit (its account goes in Othr):"
+  grep -B 12 '<Nm>Laurentian Paper</Nm>' "$WORK/pain001.xml" | grep -E '<EndToEndId>|<Cd>CACPA</Cd>|<MmbId>|<Nm>' | sed -E 's/^ */       /'
+  grep -B 12 '<Nm>Laurentian Paper</Nm>' "$WORK/pain001.xml" | grep -q '<MmbId>000100010</MmbId>' ||
+    fail "the bank file does not name Laurentian Paper's bank by its CACPA member id"
   passed
 }
 
@@ -961,14 +983,14 @@ step_reports() {
   balanced=$(jq '[.items[] | (.debit_lc.amount | sub("\\."; "") | tonumber) - (.credit_lc.amount | sub("\\."; "") | tonumber)] | add' "$WORK/last.json")
   expect "debits less credits" "$balanced" 0
   say "\"Revenue by year\": the governed revenue metric by fiscal year, read under Carla's access."
-  show erp query -measures revenue -by fiscal_year -companies 1000
-  "$ERP" query -measures revenue -by fiscal_year -companies 1000 >"$WORK/query.out" 2>&1 || { sed 's/^/     /' "$WORK/query.out"; fail "the query failed"; }
+  show erp query -measures revenue -by fiscal_year -companies "$CC"
+  "$ERP" query -measures revenue -by fiscal_year -companies "$CC" >"$WORK/query.out" 2>&1 || { sed 's/^/     /' "$WORK/query.out"; fail "the query failed"; }
   sed 's/^/     /' "$WORK/query.out"
   grep -q "$YEAR" "$WORK/query.out" || fail "the query has no row for $YEAR"
   say "Revenue is sales, SAP's 400000 and the pack's 4000 Sales of step 11; income adds what automatic postings"
   say "book on revenue accounts, such as the 94.00 cash discount of step 7 (account determination cash_discount):"
-  show erp query -measures revenue,income -by fiscal_year -companies 1000 -csv year.csv
-  "$ERP" query -measures revenue,income -by fiscal_year -companies 1000 -csv "$WORK/year.csv" >"$WORK/query.out" 2>&1 ||
+  show erp query -measures revenue,income -by fiscal_year -companies "$CC" -csv year.csv
+  "$ERP" query -measures revenue,income -by fiscal_year -companies "$CC" -csv "$WORK/year.csv" >"$WORK/query.out" 2>&1 ||
     { sed 's/^/     /' "$WORK/query.out"; fail "the query failed"; }
   sed 's/^/     /' "$WORK/query.out"
   local revenue income
@@ -976,8 +998,8 @@ step_reports() {
   income=$(awk -F, -v y="$YEAR" '$1 == y { print $3 }' "$WORK/year.csv")
   expect "income less revenue in $YEAR" "$(amount $(($(cents "$income") - $(cents "$revenue"))))" 94.00
   say "Expenses by month, SAP's months and the pilot's own: months come in their order, 9 before 10, not 1, 10, 2:"
-  show erp query -measures expenses -by fiscal_month -where "fiscal_year in $YEAR" -companies 1000 -csv months.csv
-  "$ERP" query -measures expenses -by fiscal_month -where "fiscal_year in $YEAR" -companies 1000 -csv "$WORK/months.csv" >"$WORK/query.out" 2>&1 ||
+  show erp query -measures expenses -by fiscal_month -where "fiscal_year in $YEAR" -companies "$CC" -csv months.csv
+  "$ERP" query -measures expenses -by fiscal_month -where "fiscal_year in $YEAR" -companies "$CC" -csv "$WORK/months.csv" >"$WORK/query.out" 2>&1 ||
     { sed 's/^/     /' "$WORK/query.out"; fail "the query failed"; }
   sed 's/^/     /' "$WORK/query.out"
   expect "the months' order" "$(awk -F, 'NR > 1 { printf "%s ", $1 }' "$WORK/months.csv")" "$(awk -F, 'NR > 1 { print $1 }' "$WORK/months.csv" | sort -n | tr '\n' ' ')"
