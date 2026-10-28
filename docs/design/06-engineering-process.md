@@ -23,13 +23,19 @@ flowchart LR
 A change that touches only the inside of one context (no data model, contract
 or ADR impact) skips the design gate and goes straight to review.
 
+Since 2026-10-28 (ADR-0053 c) agents fill these roles on the product owner's
+behalf: `go-reviewer` signs off each gate, and is the API consumer's review
+under `REVIEW.md`'s API-consumer classes; the product owner is not a gate.
+
 ## 6.2 Decision records
 
 - One ADR per significant decision in `docs/design/adr/`, numbered, with
   context, decision, alternatives and consequences.
 - Statuses: proposed → accepted → (superseded by ADR-NNNN). Accepted ADRs are
   never edited except to mark them superseded; a change of mind is a new ADR.
-  The one addition is an "As built" section, where an agent records a choice it
+  When nothing settles a choice, the agent writes a new ADR, accepted once
+  `go-reviewer` has no blocking finding on it, and the digest lists it the same
+  way (ADR-0053 d). The one addition to an accepted ADR is an "As built" section, where an agent records a choice it
   took by default because the ADR, a design document or existing behaviour
   settled it (ADR-0053 d); it details the decision and never changes it, and
   the batch's digest lists it for the product owner to overrule after the fact.
@@ -42,7 +48,9 @@ or ADR impact) skips the design gate and goes straight to review.
 2. CI lints the contracts, runs `api/spec_test.go` (permissions, idempotency,
    `If-Match`, no deletes, problem responses) and diffs against `main` for
    breaking changes.
-3. Review by a consumer (UI or integration) and the context owner.
+3. Review by a consumer (UI or integration) and the context owner: since
+   2026-10-28 `go-reviewer`, under `REVIEW.md`'s API-consumer classes
+   (ADR-0053 c).
 4. Merge; server interfaces and clients are regenerated (`make generate`)
    and checked in. Handlers that do not implement the new interface fail to
    compile.
@@ -156,15 +164,16 @@ gates on each pull request:
   The lane's loop: `gofmt`, the build, `go vet`, the lint of changed code,
   staticcheck, gosec, gitleaks, `make generate` leaving no diff, the contract
   lint and the breaking-change check when the contract changes, the tests of
-  the changed packages and of the packages that import them against real
+  the changed packages and of the packages that import them directly against real
   PostgreSQL with `-race` once, 100% statement coverage of the changed
   packages, and the reviewer. The whole-suite race run three times in random
   order, the whole-repository coverage gate, fuzzing, the budgets, the images,
   the signing round trip and the infrastructure checks run in `make ci-local`
   below, unchanged, on the batch before every pull request; `make ci-local`
   has the machine to itself, and three lanes run beside each other otherwise.
-  The pilot walkthrough (`make walkthrough`) runs on every batch and is each
-  slice's acceptance evidence. The coordinator records the cause of every
+  The pilot walkthrough (`cmd/erp`'s `TestWalkthrough`, in `make ci-local`)
+  runs on every batch and is each slice's acceptance evidence: the slice's step
+  is among the steps its summary lists as passed, not skipped. The coordinator records the cause of every
   `make ci-local` failure; if more than one batch in three fails on something
   the full lane gates would have caught, the lanes return to them.
 - **Locally, before a pull request is merged:** `make ci-local`
@@ -425,10 +434,12 @@ exceptions, each named at its query:
 
 A change is done when:
 
-- [ ] It is a slice (ADR-0053): a capability a named user or API consumer can
-      use end to end, with at least one new or extended step of the pilot
-      walkthrough (`scripts/walkthrough.sh`) exercising it through the public
-      API, which passes in the batch's run.
+- [ ] A change that adds or changes a capability is a slice (ADR-0053): a
+      capability a named user or API consumer can use end to end, with at least
+      one new or extended step of the pilot walkthrough
+      (`scripts/walkthrough.sh`) exercising it through the public API, which
+      passes, not skipped, in the batch's run. A fix, refactoring, CI, process
+      or documentation change needs no walkthrough step.
 - [ ] Acceptance criteria are covered by tests at the right level (§6.6).
 - [ ] The lane's fast loop (§6.5) passed and the reviewer has no blocking
       finding, the API-consumer classes of `REVIEW.md` included.
@@ -449,7 +460,8 @@ A change is done when:
   reviewer; two for migrations, contracts and security-sensitive code.
 - Review follows `REVIEW.md` (PO decision, 2026-10-26). A finding is
   labelled Blocking (correctness, money, tenancy, authorization,
-  concurrency, idempotency, a contract break, a `CLAUDE.md` convention), Nit
+  concurrency, idempotency, a contract break, an API-consumer class of
+  `REVIEW.md` (ADR-0053), a `CLAUDE.md` convention), Nit
   (never blocking, at most three a round) or Pre-existing (not introduced by
   the diff: never held against the step, tracked as `review:<step>` or
   `review:batch<N>`). It

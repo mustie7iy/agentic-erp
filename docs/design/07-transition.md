@@ -1808,25 +1808,29 @@ done. CLAUDE.md states the conventions; this is the loop that applies them. Sinc
 proven to work end to end; the web workspace is deferred and its existing tests
 keep passing.
 
-1. **Scope: a slice.** A step is a slice (ADR-0053): one capability a named
-   user or API consumer can use end to end, closing one or more tracker leaves,
+1. **Scope: a slice.** A step that adds or changes a capability is a slice
+   (ADR-0053): one capability a named user or API consumer can use end to end, closing one or more tracker leaves,
    sized for one agent in about half a day. It carries its contract, domain
    code, migration, tests, design document and ADR updates, and at least one
    new or extended step of the pilot walkthrough (`scripts/walkthrough.sh`)
-   exercising it through the public API. One slice at a time per lane, on its
+   exercising it through the public API; a fix, refactoring, CI, process or
+   documentation step needs no walkthrough step. One step at a time per lane, on its
    own branch from `main`, its exit criterion and tracker items written down
    before the code. The agent decides by default: when an ADR, a design
    document or existing behaviour settles a choice, it decides and records the
-   choice in the ADR's "As built" section (06 §6.2). Only new scope, money or
+   choice in the ADR's "As built" section (06 §6.2); when nothing settles it,
+   it writes a new ADR, accepted once `go-reviewer` has no blocking finding on
+   it. The batch's digest lists both for the product owner to overrule. Only
+   new scope, money or
    tax rules, legal or regulatory facts and the security posture wait for the
    product owner, batched into one question. A step too large for reviewable
    commits (about 400 changed lines, unless mechanical) is split into T<n>a,
    T<n>b.
 
-   Since 2026-10-16 steps run in parallel lanes that touch different code: A
+   From 2026-10-16 steps ran in four parallel lanes that touch different code: A
    finance (T33, T34, T36: payables and payments, one after another), B ledger
    (T35), C security (T37, T38), D operations and quality (fixes, performance,
-   T39 onwards). Each lane works in its own worktree. A migration takes its
+   T39 onwards). Lanes still touch different code, and each lane works in its own worktree. A migration takes its
    number when its branch is rebased before merge, so numbers stay in merge
    order; `api/gen` is regenerated after a rebase, never merged by hand. Since
    2026-10-28 three lanes run at once (ADR-0053), and `make ci-local` runs one
@@ -1862,7 +1866,7 @@ keep passing.
      without a linter and a specific reason) · staticcheck, gosec, gitleaks ·
      `make generate` leaving no diff · the contract lint and the
      breaking-change check when the contract changes · the tests of the changed
-     packages and of the packages that import them against real PostgreSQL
+     packages and of the packages that import them directly, against real PostgreSQL
      with `-race`, once · 100% statement coverage of the changed packages;
    - *the batch, green before every pull request:* `make ci-local` runs every
      gate, unchanged, at CI's pinned versions: `make lint-all` at 0 issues,
@@ -1871,8 +1875,9 @@ keep passing.
      gosec, govulncheck, gitleaks, the contract lint, the breaking-change check,
      the performance budgets, the images, the signing round trip and the
      infrastructure checks; then GitHub's short check. The pilot walkthrough
-     (`make walkthrough`) runs on every batch and is each slice's acceptance
-     evidence.
+     (`cmd/erp`'s `TestWalkthrough`, in `make ci-local`) runs on every batch
+     and is each slice's acceptance evidence: the slice's step is among those
+     its summary lists as passed, not skipped.
    If more than one batch in three fails `make ci-local` on something the full
    lane gates would have caught (the coordinator records each cause), the lanes
    return to the full gates.

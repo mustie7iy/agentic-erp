@@ -71,7 +71,7 @@ other instances of that class in the diff (REVIEW.md).
   the consumer cannot find from the response.
 - Check that the slice adds or extends a step of `scripts/walkthrough.sh` exercising it through
   the public API (ADR-0053 b); a step that adds or changes a capability without one is
-  Blocking.
+  Blocking. A fix, refactoring, CI, process or docs step needs none.
 
 **Nit (never blocking, at most three per round)**
 - Naming, comment quality (why, not what), package doc citing ADRs, small simplifications,

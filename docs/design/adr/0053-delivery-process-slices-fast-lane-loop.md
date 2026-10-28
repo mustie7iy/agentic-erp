@@ -38,8 +38,8 @@ A lane runs on its step:
   `gosec` and `gitleaks`;
 - `make generate` leaving no diff, and the contract lint and the
   breaking-change check when the contract changes;
-- the tests of the changed packages and of the packages that import them,
-  against real PostgreSQL, with `-race`, once;
+- the tests of the changed packages and of the packages that import them
+  directly, against real PostgreSQL, with `-race`, once;
 - 100% statement coverage of the changed packages;
 - the `go-reviewer` agent, under `REVIEW.md`.
 
@@ -55,15 +55,21 @@ the full gates.
 
 ### b. A step is a slice
 
-A step is a slice: one capability that a named user, or an API consumer, can
-use end to end. It closes one or more tracker leaves and is sized for one
+A step that adds or changes a capability is a slice: one capability that a
+named user, or an API consumer, can use end to end. It closes one or more tracker leaves and is sized for one
 agent in about half a day. It includes the contract, the domain code, the
 migration, the tests, the updates to the design documents and ADRs, and at
 least one new or extended step of the pilot walkthrough (`scripts/walkthrough.sh`)
 that exercises the capability through the public API.
 
-The walkthrough runs in every batch, as it does now, and is the slice's
-acceptance evidence.
+The walkthrough runs in every batch, as it does now (`cmd/erp`'s
+`TestWalkthrough` in `make ci-local`), and is the slice's acceptance
+evidence: the slice's step is among the steps the run's summary lists as
+passed, not skipped, which the batch's digest shows.
+
+A step that adds or changes no capability (a fix, a refactoring, a CI,
+process or documentation change) is held to everything else in this
+decision and needs no walkthrough step.
 
 ### c. Acceptance by agents
 
@@ -81,14 +87,19 @@ agent decides and records the choice in an "As built" section of the ADR
 concerned. The digest lists those decisions so that the product owner can
 overrule any of them after the fact; an overrule becomes a tracker item.
 
+When nothing settles the choice, the agent decides it too: a decision that
+needs an ADR (06 §6.2) is written as a new ADR, accepted once `go-reviewer`
+has no blocking finding on it, and listed in the digest in the same way.
+
 Only four kinds of question block on the product owner: new scope, money or
 tax rules, legal or regulatory facts, and the security posture. They are
 batched into one question.
 
 ### e. Three lanes
 
-Three lanes run at once (`lanegate.sh` slots: 3). `make ci-local` still has
-the machine to itself.
+Three lanes run at once; the coordinator's `lanegate.sh`, outside the
+repository, gives them three slots. `make ci-local` still has the machine to
+itself.
 
 ### f. Metrics per batch
 
