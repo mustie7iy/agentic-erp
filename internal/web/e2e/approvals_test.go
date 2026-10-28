@@ -130,12 +130,14 @@ func decide(t *testing.T, browserCtx context.Context, s approvals, src string, w
 	}
 }
 
-// waitFor waits until the tab is at path (with its query) showing text.
+// waitFor waits until the tab is at path (with its query) showing text,
+// and the page has loaded (shown): what a test reads next (the browser's
+// errors, a planted script's effect) is only complete then.
 func waitFor(t *testing.T, ctx context.Context, path, text string) {
 	t.Helper()
 	var last string
 	pgtest.Eventually(t, 20*time.Second, func() bool {
-		got, err := chromedp.Run(ctx, chromedp.Evaluate[string](`location.pathname + location.search + " " + document.body.innerText`))
+		got, err := chromedp.Run(ctx, chromedp.Evaluate[string](shown))
 		last = got
 		return err == nil && strings.HasPrefix(got, path+" ") && strings.Contains(got, text)
 	}, "the browser did not reach %s with %q: %s", path, text, lastSeen{&last})

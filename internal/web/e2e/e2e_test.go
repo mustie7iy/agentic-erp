@@ -429,6 +429,14 @@ func checkPage(t *testing.T, browserCtx context.Context, s stack, src, header, l
 var loaded = chromedp.Poll[chromedp.Void](`document.readyState === "complete"`,
 	chromedp.WithPollingInterval(50*time.Millisecond), chromedp.WithPollingTimeout(20*time.Second))
 
+// shown is the tab's address (with its query) and text once its page has
+// loaded, and "loading" until then, for waits that poll it. The check is
+// in the polled expression rather than a wait after it: a wait started
+// as a navigation through another origin ends can find its execution
+// context gone ("Cannot find context with specified id"), where a polled
+// expression is simply tried again.
+const shown = `document.readyState === "complete" ? location.pathname + location.search + " " + document.body.innerText : "loading"`
+
 // audit checks the page the tab shows as TestPagesInTheBrowser says: its
 // language and direction, htmx, no sideways scrolling at width, the skip
 // link as the first tab stop, and axe-core at zero violations, once the
@@ -529,9 +537,9 @@ func TestSignInInTheBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 	pgtest.Eventually(t, 20*time.Second, func() bool {
-		text, err := chromedp.Run(ctx, chromedp.Evaluate[string](`location.pathname + " " + document.body.innerText`))
+		text, err := chromedp.Run(ctx, chromedp.Evaluate[string](shown))
 		return err == nil && strings.HasPrefix(text, "/signed-out ") && strings.Contains(text, "You are signed out")
-	}, "the browser did not reach the signed-out page")
+	}, "the browser did not reach the signed-out page, loaded")
 	if n := len(s.is.Logouts()); n != 1 {
 		t.Errorf("the provider's logouts: got %d, want 1", n)
 	}

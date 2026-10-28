@@ -8304,13 +8304,6 @@
      },
      {
       "s": "D",
-      "t": "The rate-limit headers are declared once (PO 2026-10-26): RateLimit-Limit, RateLimit-Remaining and RateLimit-Reset are stated in the contract's info.description instead of on each of its responses, which made api/gen 1,129,193 lines (about 430,000 of them parsing those headers) and a race build of it peak at 6.6 GB while main's race suite on GitHub was stopped by its runner (since 2026-10-21); api/gen is now 611,245 lines and its race build peaks at 3.1 GB. The middleware still sends them on every response to an authenticated request, held by a test of a success, a problem and the 429, and a contract test holds that no response declares them; Retry-After stays declared on the responses that set it",
-      "r": "api/openapi.yaml · api/spec_test.go · internal/app/app_test.go · internal/web/refusal.go · 04 §4.11",
-      "src": "po:2026-10-26 · ci:batch15",
-      "c": []
-     },
-     {
-      "s": "D",
       "t": "Main's full run given the time to finish (PO 2026-10-25, fix and verify; the verifying run on main is still to come): the CI tools are saved to the cache right after they are built (actions/cache/restore and actions/cache/save, same key), since actions/cache saves only in its post step, which a failed or cancelled job skips, and the test job's limit is 180 minutes. Run 40334507190 (2026-10-26; 2 CPUs, 7938 MiB) was cancelled at 120 minutes with 109 of 116 packages passed and none failed: 32 minutes before the race step (14 of them the tools, a cache miss on every run since 2026-10-21, and 6 a cold vet), then 89 minutes of race tests, the slowest payments 1324 s, ledger 1043 s, payables 642 s",
       "r": ".github/workflows/ci.yml · 06 §6.5",
       "src": "ci:batch15 · po:2026-10-25",
@@ -8327,7 +8320,7 @@
       "s": "D",
       "t": "Pre-existing review findings on the natsbus fix forward (#58) and on main's full suite on demand (REVIEW.md, PO 2026-10-26): every discarded error in the touched tests is handled (natsbus_test.go, consumer_test.go, cmd/erp-server/main_test.go, internal/nfr/resilience_test.go; requests through the test's request helper); the consumer's failure checks assert the cause with errors.Is (nats.ErrConnectionClosed after the connection closes, the handler's own error, jetstream.ErrStreamNotFound), the deleted consumer still any error, as the library chooses which; 06 §6.5, ci-local.sh and ci.yml say that main's manual runs and weekly.yml's images job hold the image reproducibility gate, not the manual runs alone",
       "r": "internal/platform/natsbus · cmd/erp-server/main_test.go · internal/nfr/resilience_test.go · scripts/ci-local.sh · .github/workflows/ci.yml · 06 §6.5",
-      "src": "po:2026-10-26",
+      "src": "review:batch15 · po:2026-10-26",
       "c": []
      },
      {
@@ -8346,9 +8339,23 @@
      },
      {
       "s": "D",
+      "t": "A reviewer finding on a batch is a source, review:batch<N>, beside review:T<n> (PO 2026-10-28), in the shape of ci:batch<N>; TestSourcePattern holds the shapes; the pre-existing findings on the natsbus fix forward (#58, shipped with batch 15) given review:batch15 beside po:2026-10-26",
+      "r": "docs/tracker_test.go · TestSourcePattern · 07-transition §7.5 · REVIEW.md",
+      "src": "po:2026-10-28",
+      "c": []
+     },
+     {
+      "s": "D",
       "t": "Review rules (PO 2026-10-26): REVIEW.md at the root says what is blocking (correctness, money, tenancy and RLS, authorization, concurrency, idempotency, contract breaks, CLAUDE.md conventions), limits nits to three a round, never blocking, ignores generated code and asks for path:line findings under a summary counted by label or an explicit no issues; findings labelled Blocking, Nit or Pre-existing (not introduced by the diff, never held against the step, tracked as review:<step>); a finding names its bug class and the author fixes every instance in the diff; rounds after the first review only the changes since, and after three rounds the author reconsiders the approach and tells the coordinator; a gap in the gates gets a note of the layer that should have caught it and what changed, the first one main's unseen full-suite failures from 2026-10-21",
       "r": "REVIEW.md · .claude/agents/go-reviewer.md · CLAUDE.md · 06 §6.5 · 06 §6.9 · 07-transition §7.7",
       "src": "po:2026-10-26",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "A named bug class in REVIEW.md (PO 2026-10-28): a test that tampers with a token, signature, ETag, HMAC, page token, state, nonce, hash or sealed value to prove it is refused guarantees the tampered value differs from the original (from the 1-in-64 flake of TestCallbackRefusals' forged state, fixed in batch 16 with otherFirst); a sweep of every test that tampers by overwriting or flipping found no other instance that can leave the value unchanged",
+      "r": "REVIEW.md · internal/web/signin_test.go",
+      "src": "po:2026-10-28",
       "c": []
      },
      {
@@ -8405,6 +8412,34 @@
       "t": "golang.org/x/net bumped from v0.60.0 to v0.62.0 (PO 2026-10-28), which fixes GO-2026-6860 (CVE-2026-78661, quadratic time coalescing text nodes in html.Parse) and GO-2026-6866 (CVE-2026-97045, html.Render writing raw text literally under a foreign-namespace ancestor that is not an HTML integration point); govulncheck v1.9.0 no longer reports either. x/net v0.62.0 requires x/crypto v0.58.0, x/sys v0.49.0 and x/text v0.43.0, and x/sync moved to v0.24.0. What changes for us: x/net/html is imported only by internal/web's tests, which parse rendered pages, and is linked into no binary; http2, hpack and trace (grpc, so the Temporal client) and httpguts and idna (ogen's generated server) are unchanged, and the other packages that changed (ipv4, ipv6, quic, internal/socket) are linked into no binary. In x/text, the bidi rules W2, W5 and W7 and isolate matching became linear with the same results, and bidirule (pgx's SASLprep through precis) builds its ASCII table on first use; language, message, number and plural, which internal/web/i18n uses, are unchanged. x/crypto/ssh, which sftpclient uses with a pinned host key and the host key algorithms named after it, gains ML-DSA keys (built only with Go 1.27, so inert on our Go 1.26.10), encrypt-then-MAC for CBC ciphers (not negotiated: we set no ciphers and CBC is not a default) and ParseAuthorizedKey trimming only ASCII space and tab and dropping only a trailing carriage return: a well-formed host key line, with LF or CRLF, parses as before, but one with a vertical tab, form feed or non-ASCII space before the key type or straight after the key (when it has no comment) no longer parses, and since BankChannels.Endpoint re-parses a stored connector's settings, a bank_sftp connector saved with such a host_key would now be refused when it is used; chacha20, blake2b and salsa20 gain loong64 assembly only. x/sys adds x86 CPU feature flags and Linux syscalls and constants (Listns, PrctlArg5Ptr), aligns the Linux Getdents buffer to 8 bytes and moves darwin fcntl to a pointer call; go.sum also moves golang.org/x/term to v0.47.0, which only x/crypto's own tests import. Code and tests are unchanged. Still open: GO-2026-5932 (golang.org/x/crypto/openpgp is unmaintained and unsafe by design) has no fixed version (govulncheck: Fixed in N/A); govulncheck lists it in a required module only, since nothing we build imports openpgp, and nothing is to be done until x/crypto removes or fixes the package",
       "r": "go.mod · go.sum · internal/web/**/*_test.go (x/net/html) · internal/web/i18n · internal/platform/sftpclient · internal/integration/channels.go · internal/integration/connectors.go · scripts/ci-tools.sh (govulncheck v1.9.0) · scripts/image-scan.sh · ADR-0032",
       "src": "po:2026-10-28",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "The browser tests read the browser's errors, or what a planted script did, only once the page has loaded (pre-existing review finding on batch 16): waitFor and waitForText end when the document is complete, as audit has since main's full run 40460447291, so the approvals, reports, journal and close jobs, the bank and payments tabs not audited last, and the sign-out page no longer read a page still loading",
+      "r": "internal/web/e2e",
+      "src": "review:batch16",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "erp-server's main test reports a failed cancel request instead of reading the status of the response it did not get (pre-existing review finding on batch 16: a nil response dereferenced when Do fails); a search of every Go file for a response read in the branch its request's error takes found no other instance",
+      "r": "cmd/erp-server/main_test.go",
+      "src": "review:batch16",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "The rate-limit headers item appears once in the tracker (pre-existing review finding on batch 16: added twice when batch 15b merged the fix forward of #57, the second copy with the older size figure); the copy kept names the size after batch 15 too, and no test counts the tracker's items but baseline ones",
+      "r": "docs/tracker.json",
+      "src": "review:batch16",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "06 §6.5 lists the inputs that start the image reproducibility gate and the signing round trip as scripts/ci-changes.sh's images class has them, .dockerignore, deploy/images/, scripts/test-images and scripts/lib/sbom-root included, and names the script as the rule (pre-existing review finding on batch 17)",
+      "r": "06 §6.5 · scripts/ci-changes.sh",
+      "src": "review:batch17",
       "c": []
      }
     ]
