@@ -1803,23 +1803,35 @@ is drafted as steps when the one before it is under way.
 The refactoring programme raised the codebase to 9.5/10 (architecture, error
 handling, concurrency and tenancy, SQL, tests, readability, duplication, money).
 Every step from T30 on is held to the same bar; a step that would lower it is not
-done. CLAUDE.md states the conventions; this is the loop that applies them.
+done. CLAUDE.md states the conventions; this is the loop that applies them. Since
+2026-10-28 (ADR-0053) the priority is a headless ERP, the API and the back end,
+proven to work end to end; the web workspace is deferred and its existing tests
+keep passing.
 
-1. **Scope.** One step at a time per lane, on its own branch from `main`, its
-   exit criterion and tracker items written down before the code. Changes to
-   the API contract, a migration or an ADR are proposed to the product owner and
-   wait for approval; the proposals of the lanes are put to them together. A
-   step too large for reviewable commits (about 400 changed lines, unless
-   mechanical) is split into T<n>a, T<n>b.
+1. **Scope: a slice.** A step is a slice (ADR-0053): one capability a named
+   user or API consumer can use end to end, closing one or more tracker leaves,
+   sized for one agent in about half a day. It carries its contract, domain
+   code, migration, tests, design document and ADR updates, and at least one
+   new or extended step of the pilot walkthrough (`scripts/walkthrough.sh`)
+   exercising it through the public API. One slice at a time per lane, on its
+   own branch from `main`, its exit criterion and tracker items written down
+   before the code. The agent decides by default: when an ADR, a design
+   document or existing behaviour settles a choice, it decides and records the
+   choice in the ADR's "As built" section (06 §6.2). Only new scope, money or
+   tax rules, legal or regulatory facts and the security posture wait for the
+   product owner, batched into one question. A step too large for reviewable
+   commits (about 400 changed lines, unless mechanical) is split into T<n>a,
+   T<n>b.
 
    Since 2026-10-16 steps run in parallel lanes that touch different code: A
    finance (T33, T34, T36: payables and payments, one after another), B ledger
    (T35), C security (T37, T38), D operations and quality (fixes, performance,
    T39 onwards). Each lane works in its own worktree. A migration takes its
    number when its branch is rebased before merge, so numbers stay in merge
-   order; `api/gen` is regenerated after a rebase, never merged by hand. The
-   full gates run one lane at a time, as the lanes share the test database
-   server. A pull request is merged with `scripts/merge-pr.sh` when the full
+   order; `api/gen` is regenerated after a rebase, never merged by hand. Since
+   2026-10-28 three lanes run at once (ADR-0053), and `make ci-local` runs one
+   batch at a time with the machine to itself, as the lanes share the test
+   database server. A pull request is merged with `scripts/merge-pr.sh` when the full
    local gates passed (`make ci-local`), GitHub's short check is green and
    the reviewer has no blocking finding (06 §6.5).
 2. **Behaviour and refactoring apart.** A refactoring commit never changes
@@ -1843,16 +1855,32 @@ done. CLAUDE.md states the conventions; this is the loop that applies them.
    new operations are agent tools unless marked `x-agent: false`.
 7. **Performance.** New hot paths get a budget in the performance suite against
    the targets of 01 §1.3, run in CI; a budget is never raised to make a step pass.
-8. **Gates, all green before a step is done**, run with failures visible
-   (`set -o pipefail`, never hidden by a pipe):
-   `go build ./...` · `make lint-all` at 0 issues (no `//nolint` without a linter
-   and a specific reason) · `make test` (vet and `-race`) · `make coverage` at 100% ·
-   `make fuzz` · `go test -race -shuffle=on -count=3 ./...` · `make generate` leaving
-   no diff · staticcheck, gosec, govulncheck, gitleaks, contract lint, the
-   breaking-change check and the performance budgets; `make ci-local` runs them
-   all at CI's pinned versions, then GitHub's short check (06 §6.5).
-9. **Review.** The `go-reviewer` agent reviews the step's diff and is re-run until
-   it has no blocking finding, under `REVIEW.md` (06 §6.9): findings labelled
+8. **Gates**, run with failures visible (`set -o pipefail`, never hidden by a
+   pipe), in two places (ADR-0053, 06 §6.5):
+   - *the lane's fast loop, green before a step is done:* `gofmt` ·
+     `go build ./...` · `go vet` · the lint of changed code (no `//nolint`
+     without a linter and a specific reason) · staticcheck, gosec, gitleaks ·
+     `make generate` leaving no diff · the contract lint and the
+     breaking-change check when the contract changes · the tests of the changed
+     packages and of the packages that import them against real PostgreSQL
+     with `-race`, once · 100% statement coverage of the changed packages;
+   - *the batch, green before every pull request:* `make ci-local` runs every
+     gate, unchanged, at CI's pinned versions: `make lint-all` at 0 issues,
+     `make test`, `make coverage` at 100%, `make fuzz`,
+     `go test -race -shuffle=on -count=3 ./...`, `make generate`, staticcheck,
+     gosec, govulncheck, gitleaks, the contract lint, the breaking-change check,
+     the performance budgets, the images, the signing round trip and the
+     infrastructure checks; then GitHub's short check. The pilot walkthrough
+     (`make walkthrough`) runs on every batch and is each slice's acceptance
+     evidence.
+   If more than one batch in three fails `make ci-local` on something the full
+   lane gates would have caught (the coordinator records each cause), the lanes
+   return to the full gates.
+9. **Review and acceptance.** Agents accept a slice, acting for the product
+   owner, who is not a gate on stories or demonstrations (ADR-0053). The
+   `go-reviewer` agent reviews the step's diff, and the batch's merge, and is
+   re-run until it has no blocking finding, under `REVIEW.md` (06 §6.9), the
+   API-consumer classes included: findings labelled
    Blocking, Nit or Pre-existing, each bug class fixed wherever it occurs in
    the diff, rounds after the first reviewing only the changes since, and
    after three rounds on one step with a blocking finding left the approach
@@ -1862,4 +1890,12 @@ done. CLAUDE.md states the conventions; this is the loop that applies them.
 10. **Record.** Commits name the step (`<what> (T<n>)`) and end with the
     co-author line; the tracker, the design documents and any ADR change in the
     same commit as the code; `main` changes only through a reviewed pull request
-    merged with a merge commit; nothing is pushed without the product owner's say.
+    merged with a merge commit by `scripts/merge-pr.sh` (06 §6.5).
+11. **Digest.** After each batch the coordinator publishes a digest: what
+    changed, the walkthrough steps that passed, the decisions taken by default
+    (for the product owner to overrule after the fact; an overrule becomes a
+    tracker item) and the process metrics: escaped defects (`main` red after a
+    merge, target 0), `make ci-local` failures a full lane gate would have
+    caught, the reviewer's blocking findings per slice, the walkthrough steps
+    added and the lead time from a lane's start to the merge. Reading it is
+    optional.

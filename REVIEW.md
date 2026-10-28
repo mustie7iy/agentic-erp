@@ -23,7 +23,8 @@ Every finding carries one label.
   correctness, money (ADR-0005), tenancy and RLS (ADR-0003), authorization (ADR-0010),
   concurrency (ADR-0008), idempotency of requests or workflow activities (ADR-0008, ADR-0012),
   a contract break (an unaccepted breaking change, a spec and its generated code out of step),
-  or a `CLAUDE.md` convention (errors, structure, tests, coverage, schema, outbox and audit).
+  an API-consumer class below (ADR-0053), or a `CLAUDE.md` convention (errors, structure,
+  tests, coverage, schema, outbox and audit).
 - **Nit**: naming, wording, comment quality, a small simplification. Never blocking; at most
   three per round, the ones most worth the author's time.
 - **Pre-existing**: a bug the diff did not introduce, found while reading around it. It is
@@ -55,6 +56,30 @@ them, beside whatever class a finding of its own names.
   constant that cannot have the original's form (`"!!"` for base64, a shorter value) is
   different by construction; replacing a whole digest or secret of 128 bits or more with a
   constant is accepted, since a collision is not a realistic event.
+
+### API-consumer classes
+
+Named by the product owner on 2026-10-28 (ADR-0053): the product owner is not a gate on a
+slice, so the reviewer reads every response and report the slice adds or changes as its
+consumer would, an integration or an agent with only the contract in hand. Each class is
+**Blocking** when the diff introduces it; an instance the diff did not introduce is
+Pre-existing.
+
+- **An identifier without the name or reference its consumer needs.** A response returns an id
+  where the consumer also needs the name or reference of what it identifies, and would have to
+  make one more call per row to get it: a payment's payee given only as a partner id.
+- **An amount without its currency.** A money value in a response or a report that does not
+  carry, or sit beside, the currency it is in.
+- **A list without filters or paging where the collection can grow.** A list operation over
+  rows that accumulate without cursor paging (04 §4.5) or without filters to find a
+  consumer's rows.
+- **An error without a problem code.** A refusal that is not an RFC 9457 problem with a stable
+  `code` the consumer can branch on (04 §4.6).
+- **A report without its totals.** A report whose consumer must add up its rows to get the
+  totals.
+- **An action whose result the consumer cannot find.** A response to an action that does not
+  say what it created or started (the created object, or the `Operation` of a job, 04 §4.8)
+  or how to reach it.
 
 ## Rounds
 

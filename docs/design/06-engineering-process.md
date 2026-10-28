@@ -29,6 +29,10 @@ or ADR impact) skips the design gate and goes straight to review.
   context, decision, alternatives and consequences.
 - Statuses: proposed → accepted → (superseded by ADR-NNNN). Accepted ADRs are
   never edited except to mark them superseded; a change of mind is a new ADR.
+  The one addition is an "As built" section, where an agent records a choice it
+  took by default because the ADR, a design document or existing behaviour
+  settled it (ADR-0053 d); it details the decision and never changes it, and
+  the batch's digest lists it for the product owner to overrule after the fact.
 - Write an ADR when a decision is expensive to reverse, crosses contexts, adds
   a runtime dependency, or relaxes a rule in this design.
 
@@ -147,6 +151,22 @@ than on every push — PO decisions of 2026-10-26 and 2026-10-27), so runner
 minutes go to the second line on `main` rather than to repeating the slow
 gates on each pull request:
 
+- **Lanes and batches (ADR-0053, PO decision of 2026-10-28):** a lane runs a
+  fast loop on each step (a slice), and the full gates run once per batch.
+  The lane's loop: `gofmt`, the build, `go vet`, the lint of changed code,
+  staticcheck, gosec, gitleaks, `make generate` leaving no diff, the contract
+  lint and the breaking-change check when the contract changes, the tests of
+  the changed packages and of the packages that import them against real
+  PostgreSQL with `-race` once, 100% statement coverage of the changed
+  packages, and the reviewer. The whole-suite race run three times in random
+  order, the whole-repository coverage gate, fuzzing, the budgets, the images,
+  the signing round trip and the infrastructure checks run in `make ci-local`
+  below, unchanged, on the batch before every pull request; `make ci-local`
+  has the machine to itself, and three lanes run beside each other otherwise.
+  The pilot walkthrough (`make walkthrough`) runs on every batch and is each
+  slice's acceptance evidence. The coordinator records the cause of every
+  `make ci-local` failure; if more than one batch in three fails on something
+  the full lane gates would have caught, the lanes return to them.
 - **Locally, before a pull request is merged:** `make ci-local`
   (`scripts/ci-local.sh`) runs every step of the table — every check
   GitHub runs on `main`, on demand or on a push, the deploy workflow's
@@ -196,7 +216,9 @@ gates on each pull request:
   `merge-pr.sh` from an up-to-date `main` checkout, as its own rules are
   the copy run. It posts the report on the pull request as the record. It stands in for branch
   protection, which a private repository on the current plan does not
-  enforce.
+  enforce: the product owner approved branch protection on 2026-10-28 and
+  GitHub refused it, as it needs GitHub Pro or a public repository, so
+  `merge-pr.sh` enforces `ci-ok` by convention (ADR-0053).
 - **On GitHub, for a push to `main`:** fuzzing, and the signing round
   trip and the release scripts when their inputs changed, and the deploy
   workflow when its paths changed. A newer push cancels a running `ci`
@@ -403,9 +425,16 @@ exceptions, each named at its query:
 
 A change is done when:
 
+- [ ] It is a slice (ADR-0053): a capability a named user or API consumer can
+      use end to end, with at least one new or extended step of the pilot
+      walkthrough (`scripts/walkthrough.sh`) exercising it through the public
+      API, which passes in the batch's run.
 - [ ] Acceptance criteria are covered by tests at the right level (§6.6).
+- [ ] The lane's fast loop (§6.5) passed and the reviewer has no blocking
+      finding, the API-consumer classes of `REVIEW.md` included.
 - [ ] Contract, data model and ADRs match what was built.
-- [ ] CI is green, including 100% coverage and schema tests.
+- [ ] CI is green, including 100% coverage and schema tests: `make ci-local`
+      passes on the batch before it merges, and GitHub's `ci-ok`.
 - [ ] New permissions are seeded and mapped to roles; new rules have audit
       records and events.
 - [ ] Metrics, traces and structured logs exist for new operations, with

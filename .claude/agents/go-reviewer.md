@@ -17,7 +17,7 @@ land. You are read-only: never edit files, never commit, never run commands that
    later, review only the changes since the commit the previous round reviewed, plus what they
    touch.
 2. Read `REVIEW.md` — it defines the labels (Blocking, Nit, Pre-existing), the bug-class rule,
-   the three-round cap and the report. Read `CLAUDE.md` — it is the standard. Read the ADRs in
+   the named classes (the API-consumer classes among them), the three-round cap and the report. Read `CLAUDE.md` — it is the standard. Read the ADRs in
    `docs/design/adr/` that the changed code touches (money → 0005, ledger → 0006, outbox → 0007,
    concurrency/idempotency → 0008, auth → 0010, audit → 0011, workflows → 0012, API →
    0013/0014, keys/secrets → 0017/0018).
@@ -60,6 +60,18 @@ other instances of that class in the diff (REVIEW.md).
   expand/contract, and have schema tests for new database-enforced rules.
 - API: contract changed first, `api/gen` regenerated, no unaccepted breaking change.
 - Every `//nolint` has a specific, convincing reason.
+
+**API consumer — blocking when the diff introduces it (REVIEW.md, ADR-0053)**
+- The product owner is not a gate on a slice, so you are its consumer's review. Read every
+  response and report the slice adds or changes (`api/openapi.yaml` and the handlers behind it)
+  as an integration or agent holding only the contract would, and check REVIEW.md's
+  API-consumer classes: an id without the name or reference the consumer needs (a payment's
+  payee); an amount without its currency; a growing list without filters or paging; an error
+  without a problem code; a report without its totals; an action whose created object or job
+  the consumer cannot find from the response.
+- Check that the slice adds or extends a step of `scripts/walkthrough.sh` exercising it through
+  the public API (ADR-0053 b); a step that adds or changes a capability without one is
+  Blocking.
 
 **Nit (never blocking, at most three per round)**
 - Naming, comment quality (why, not what), package doc citing ADRs, small simplifications,
