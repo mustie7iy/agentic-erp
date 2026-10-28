@@ -1929,6 +1929,20 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Plan batches honour the cost center's plan lock: a batch that would change a cost center's plan in a fiscal period sharing a day with an active cost_center_period whose lock_plan is set (a line there, or the center's current line there, which the batch would replace) is refused as a whole (422 controlling.cost_center_plan_locked, naming the lines), checked in the service through the ledger's port (PlanObjects.PlanLocked), the cost centers held FOR KEY SHARE until the batch commits so a lock applied meanwhile waits for the batch or is seen by it (both orders tested); a batch already applied is still answered as replayed; no migration",
+        "r": "internal/controlling batches.go · internal/ledger assignmentbalances.go · api/openapi.yaml · ADR-0050 §8 as built · 03 §3.19 · 04 §4.6 · T56g2",
+        "src": "po:2026-10-27",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Profit center plan against actual: GET /v1/profit-center-plan-actual, the plan of profit center lines (which T56g stores and lists) against the leading ledger's actual by profit center, as the cost center plan/actual: category, company, year, period range, profit center or profit center hierarchy node (today's tree); actual as the profit center report reads it (the line's profit center, entered or derived, segments summed, P&L only, exact at the read) through ledger.AssignmentBalances (ProfitCenters, ProfitCenterActuals); controlling.plan.read and ledger.entry.read; paged by a cursor over profit center and account; no migration",
+        "r": "internal/controlling planactual.go · internal/ledger assignmentbalances.go · api/openapi.yaml · ADR-0050 §8 as built · 03 §3.19 · 04 §4.6 · T56g3",
+        "src": "po:2026-10-27",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "SAP migration: CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), CSKB categories, OKB9 defaults, sets 0101/0106 with ranges expanded; ACDOCA RCNTR/PRCTR/SEGMENT; quality-gate issues; mock generator extended; reconciliation of migrated center totals",
         "r": "T56h",

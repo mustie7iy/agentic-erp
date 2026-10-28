@@ -32,7 +32,7 @@ func TestVariancePercent(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if s := string(got.VariancePercent.Value); s != c.want {
+			if s := string(got.percent.Value); s != c.want {
 				t.Errorf("percent: got %q, want %q", s, c.want)
 			}
 		})
@@ -43,7 +43,7 @@ func TestVariancePercent(t *testing.T) {
 func TestMerge(t *testing.T) {
 	a, b := uuid.MustParse("00000000-0000-0000-0000-00000000000a"), uuid.MustParse("00000000-0000-0000-0000-00000000000b")
 	key := func(c, acct uuid.UUID) ledger.CenterAccount {
-		return ledger.CenterAccount{CostCenterID: c, AccountID: acct}
+		return ledger.CenterAccount{CenterID: c, AccountID: acct}
 	}
 	plans := []planActual{{CenterAccount: key(a, a), plan: 1}, {CenterAccount: key(a, b), plan: 2}, {CenterAccount: key(b, b), plan: 3}}
 	actuals := []ledger.AssignmentActual{{CenterAccount: key(a, b), Amount: 20}, {CenterAccount: key(b, a), Amount: 30}}

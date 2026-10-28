@@ -866,7 +866,8 @@ key: a batch replaces the plan of its category, year and centers) and
 listed; a category is locked by a person (`controlling.plan.lock`, human
 only) so a budget does not move after approval. Plan against actual: `GET
 /v1/cost-center-plan-actual` (category, company, periods, center or node:
-plan, actual, variance and percent). No planning functions, no
+plan, actual, variance and percent), and by profit center `GET
+/v1/profit-center-plan-actual` (product owner, 2026-10-27, T56g3). No planning functions, no
 availability control, no plan in transaction currency, no plan per
 parallel ledger (it compares with the leading ledger).
 
@@ -881,7 +882,9 @@ As built in T56g (migration 000164):
   hierarchy node (`CostCenters`, as the cost center report takes them,
   §7) and the actuals by cost center and account (`CostCenterActuals`:
   the leading ledger's local amounts, debit positive, projected plus
-  pending as the report reads them). No foreign key crosses into the
+  pending as the report reads them); for the profit center report
+  (T56g3) `ProfitCenters` and `ProfitCenterActuals` likewise, as the
+  profit center report reads them. No foreign key crosses into the
   ledger's schema.
 - **Categories.** `controlling.plan_category`: a code
   (`^[0-9A-Z_]{1,10}$`, as the cost center categories') unique in the
@@ -916,6 +919,48 @@ As built in T56g (migration 000164):
   `PlanBatchApplied` (the centers whose plan it replaced, the counts).
   `GET /v1/plan-lines` lists the current lines of a company and year
   (filters: category, center, account, batch).
+- **The cost center's plan lock** (T56g2, product owner 2026-10-27). The
+  lock that counts is the cost center period's `lock_plan`
+  (`ledger.cost_center_period`, migration 000128, set by `:lock` through a
+  center change, §3); `ledger.cost_center_category.lock_plan` (migration
+  000140) is only the lock a new cost center of the category starts with
+  (§4). A fiscal period is locked for a cost center when it shares a day
+  with an active period of the center whose `lock_plan` is set (valid_to
+  exclusive, the fiscal period's `end_date` inclusive, in the calendar of
+  any of the company's ledgers). A batch whose lines are otherwise valid is
+  refused as a whole when it would change a center's plan in a locked
+  period: a line planning the center there, or a current line of the
+  center there, which the batch would mark replaced, since a batch
+  replaces its centers' plan in every period of the year. 422
+  `controlling.cost_center_plan_locked` names each such line, and for a
+  replaced line the batch's first line on the center, as
+  `lines[N].cost_center_id` (code `plan_locked`, at most 100); nothing is
+  written, as the ledger refuses a posting on a center locked for actual
+  costs with 422 naming the line (§5). Leaving the locked periods' lines
+  out of the replacement instead was not built: it would change what a
+  batch replaces, which the product owner did not decide. Invalid lines
+  are reported first (`controlling.plan_batch_invalid`). Profit
+  center lines are not affected: `lock_plan` is the cost center's. The
+  check sits after the batch key's: a batch already applied is answered as
+  it was (`replayed`) after a later lock, as after a category lock.
+  *Where it is enforced:* in the service, through the ledger's port
+  (`PlanObjects` returns `PlanLocked`, the locked periods per cost
+  center), not by a trigger: the cost center periods are the ledger's, a
+  trigger on `controlling.plan_line` would read across the context
+  boundary that no foreign key crosses either (§8 above); the current
+  lines are read with the category held FOR UPDATE, so no other batch
+  changes them meanwhile; and the ledger
+  enforces its own actual-cost and revenue locks in the posting service
+  in the same way, not in the database. *Concurrency (ADR-0008):*
+  `PlanObjects` reads the cost centers `FOR KEY SHARE`, held until the
+  batch commits, and reads their periods in a later statement. Every
+  change of a cost center's periods is applied by `CenterChanges.Approved`,
+  which first locks the center `FOR UPDATE` (`decided`, then
+  `applyCostCenterChange`). So a batch meeting a lock being applied waits
+  for it and, read committed, reads the periods it wrote and is refused;
+  a lock meeting a batch under way waits for the batch, whose lines were
+  planned before the lock and stay (as a category lock waits for a batch).
+  `TestPlanLockAndBatchSerialize` drives both orders. No migration.
 - **Upload.** The batch is the upload: a client, or T63's import of
   CSV/XLSX files when it exists, sends the file's lines as a batch. No CSV
   endpoint of its own was built.
@@ -934,11 +979,32 @@ As built in T56g (migration 000164):
   account: each side reads its first keys after the page's start, one
   more than the page, and the page is the first keys of the two. An
   unknown category, or a company the caller cannot act in, has no rows.
-- **Not built:** plan against actual by profit center (profit center plan
-  lines are stored and listed; the operation §8 names is the cost
-  center's); the cost center's plan lock (`cost_center_period.lock_plan`,
-  §3) is not read by batches; agents' plan uploads as drafts (§12, T56j);
-  a category's rename.
+- **Plan against actual by profit center** (T56g3, product owner
+  2026-10-27). `GET /v1/profit-center-plan-actual` has the cost center
+  report's shape, permissions (`controlling.plan.read` and
+  `ledger.entry.read`), company access, paging and money handling, with
+  `profit_center_id` in place of `cost_center_id` and a node of a profit
+  center hierarchy (its subtree's profit centers under today's tree, as
+  `GET /v1/profit-center-balances` takes it). One row per profit center
+  and account: the category's profit center lines (a batch's cost center
+  lines are the cost center report's only; plan lines name one center,
+  never both) against the leading ledger's actual as the profit center
+  report reads it (§7): the profit center each journal line carries,
+  entered or derived at posting (§5: from the cost center, or the
+  company's default profit center), summed over the line's segments, on
+  profit and loss accounts only, so a balance sheet line with a profit
+  center entered is not counted (P3). The same code computes both
+  reports (`paKind`); the ledger reads both kinds' actuals with one query
+  (`actuals`), as its two center reports share one. Where ADR-0050 and 03
+  did not settle a point the cost center report's behaviour was taken
+  and is open to the product owner: actuals include derived profit
+  centers, the default (dummy) profit center among them; a node's rows
+  are its centers' rows, no subtotal (as decided for §7); no breakdown by
+  segment, as plan lines carry none. No budget test, as the cost center
+  report has none. No migration.
+- **Not built:** a profit center's `locked` is not read
+  by batches; agents' plan uploads as drafts (§12, T56j); a category's
+  rename.
 
 ### 9. Document splitting: not in T56 (decision P3)
 Decided (P3): no document splitting now. P&L by cost center, profit

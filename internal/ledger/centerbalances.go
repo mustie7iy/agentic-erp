@@ -83,6 +83,11 @@ func (k reportKind) rows() string {
 		GROUP BY 1, 2, 3, 4, 5`
 }
 
+// pnlAccount keeps a row of rows (aliased b) on a profit and loss account
+// only: the profit center report's rule, which its plan against actual
+// shares (actuals).
+const pnlAccount = `EXISTS (SELECT FROM ledger.gl_account a WHERE a.id = b.account_id AND NOT a.is_balance_sheet)`
+
 // selectRows is rows with each row's id (from center, segment, account,
 // period and currency, for paging), the center's and segment's codes and
 // the currency's exponent, on profit and loss accounts only. The codes
@@ -92,7 +97,7 @@ func (k reportKind) rows() string {
 func (k reportKind) selectRows() string {
 	pnl := ``
 	if k.pnlOnly {
-		pnl = ` WHERE EXISTS (SELECT FROM ledger.gl_account a WHERE a.id = b.account_id AND NOT a.is_balance_sheet)`
+		pnl = ` WHERE ` + pnlAccount
 	}
 	return `SELECT * FROM (SELECT md5(b.center_id::text || '/' || coalesce(b.segment_id::text, '-') || '/' || b.account_id || '/' || b.fiscal_period
 			|| '/' || b.currency_tc)::uuid AS id, b.center_id,

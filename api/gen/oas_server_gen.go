@@ -90,7 +90,13 @@ type Handler interface {
 	// 422 `controlling.plan_batch_invalid` names every wrong field as `lines[N].field` (at most 100): a
 	// cost center must be an active one of the legal entity, a profit center an active one assigned to it,
 	// the account a profit and loss account set up in it, the period one of the year in its calendar, and
-	// a center, account and period at most once in the batch. Idempotent by `batch_key`: a key already
+	// a center, account and period at most once in the batch. A batch whose lines are valid but would
+	// change a cost center's plan in a period sharing a day with one of the center's periods locked for
+	// planning (`lock_plan`) is refused as a whole (422 `controlling.cost_center_plan_locked`, at most 100
+	// errors): each line planning the center in such a period, and, for a current line of the center in
+	// such a period that the batch would mark replaced, the batch's first line on the center, both as
+	// `lines[N].cost_center_id`; the cost center is held until the batch commits, so a lock applied
+	// meanwhile either waits for the batch or is seen by it. Idempotent by `batch_key`: a key already
 	// applied to the category, legal entity and year with the same lines changes nothing, publishes
 	// nothing and returns the batch as it was applied (`replayed`), even after later batches; the key with
 	// other lines is refused (409 `controlling.plan_batch_reused`). A locked category is refused (409
@@ -1525,6 +1531,22 @@ type Handler interface {
 	//
 	// GET /v1/profit-centers/{id}/hierarchy-paths
 	ListProfitCenterPaths(ctx context.Context, params ListProfitCenterPathsParams) (ListProfitCenterPathsRes, error)
+	// ListProfitCenterPlanActual implements listProfitCenterPlanActual operation.
+	//
+	// Plan against actual per profit center and account of one legal entity, plan category and fiscal
+	// year, summed over a range of periods (ADR-0050 §8), in the legal entity's local currency: the
+	// category's profit center plan lines, the leading ledger's actuals on profit and loss accounts exact
+	// at the moment of the read as `GET /v1/profit-center-balances` reads them (ADR-0050 §7: the profit
+	// center each line carries, entered or derived at posting, summed over its segments), the variance
+	// (actual less plan) and the variance in percent of the plan (two decimals, rounded half away from
+	// zero; absent when the plan is zero). A profit center and account with a plan or an actual has a row,
+	// the other side zero. A legal entity the caller cannot act in, or a plan category that does not
+	// exist, has none. Rows are in the order of `profit_center_id`, then `account_id`. The actuals are
+	// ledger amounts, so besides `controlling.plan.read` the caller needs `ledger.entry.read`, as for the
+	// trial balance (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/profit-center-plan-actual
+	ListProfitCenterPlanActual(ctx context.Context, params ListProfitCenterPlanActualParams) (ListProfitCenterPlanActualRes, error)
 	// ListProfitCenters implements listProfitCenters operation.
 	//
 	// Profit centers of the tenant with their companies and active periods. Sortable by: `code`.
