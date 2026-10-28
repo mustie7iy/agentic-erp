@@ -8364,6 +8364,13 @@
       "r": ".github/workflows/ci.yml test job · scripts/ci-changes.sh · scripts/ci-local.sh · 06 §6.5",
       "src": "ci:batch15",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "weekly.yml's images job said pull requests run the reproducibility gate and the signing round trip when their inputs change, and that it fails when the distroless digest moves: a pull request's GitHub check runs neither (its author runs them in scripts/ci-local.sh; a push to main runs the signing round trip, a manual run both), and scripts/base-image-current.sh checks erp-analytics's builder and runtime base besides; the comments now say so",
+      "r": ".github/workflows/weekly.yml images job · .github/workflows/ci.yml · scripts/base-image-current.sh",
+      "src": "ci:batch15",
+      "c": []
      }
     ]
    },
