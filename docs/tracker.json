@@ -1930,7 +1930,7 @@
        },
        {
         "s": "D",
-        "t": "Plan batches honour the cost center's plan lock: a batch whose lines plan a cost center in a fiscal period sharing a day with an active cost_center_period whose lock_plan is set is refused as a whole (422 controlling.cost_center_plan_locked, naming each line), checked in the service through the ledger's port (PlanObjects.PlanLocked), the cost centers held FOR KEY SHARE until the batch commits so a lock applied meanwhile waits for the batch or is seen by it (both orders tested); a batch already applied is still answered as replayed; no migration",
+        "t": "Plan batches honour the cost center's plan lock: a batch that would change a cost center's plan in a fiscal period sharing a day with an active cost_center_period whose lock_plan is set (a line there, or the center's current line there, which the batch would replace) is refused as a whole (422 controlling.cost_center_plan_locked, naming the lines), checked in the service through the ledger's port (PlanObjects.PlanLocked), the cost centers held FOR KEY SHARE until the batch commits so a lock applied meanwhile waits for the batch or is seen by it (both orders tested); a batch already applied is still answered as replayed; no migration",
         "r": "internal/controlling batches.go · internal/ledger assignmentbalances.go · api/openapi.yaml · ADR-0050 §8 as built · 03 §3.19 · 04 §4.6 · T56g2",
         "src": "po:2026-10-27",
         "c": []

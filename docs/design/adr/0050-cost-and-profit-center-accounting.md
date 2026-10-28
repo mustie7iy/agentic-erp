@@ -921,15 +921,22 @@ As built in T56g (migration 000164):
   (`ledger.cost_center_period`, migration 000128, set by `:lock` through a
   center change, §3); `ledger.cost_center_category.lock_plan` (migration
   000140) is only the lock a new cost center of the category starts with
-  (§4). A batch whose lines are otherwise valid is refused as a whole when
-  a line plans a cost center in a fiscal period sharing a day with an
-  active period of the center whose `lock_plan` is set (valid_to
+  (§4). A fiscal period is locked for a cost center when it shares a day
+  with an active period of the center whose `lock_plan` is set (valid_to
   exclusive, the fiscal period's `end_date` inclusive, in the calendar of
-  any of the company's ledgers): 422 `controlling.cost_center_plan_locked`
-  naming each such line as `lines[N].cost_center_id` (code `plan_locked`,
-  at most 100), nothing written, as the ledger refuses a posting on a
-  center locked for actual costs with 422 naming the line (§5). Invalid
-  lines are reported first (`controlling.plan_batch_invalid`). Profit
+  any of the company's ledgers). A batch whose lines are otherwise valid is
+  refused as a whole when it would change a center's plan in a locked
+  period: a line planning the center there, or a current line of the
+  center there, which the batch would mark replaced, since a batch
+  replaces its centers' plan in every period of the year. 422
+  `controlling.cost_center_plan_locked` names each such line, and for a
+  replaced line the batch's first line on the center, as
+  `lines[N].cost_center_id` (code `plan_locked`, at most 100); nothing is
+  written, as the ledger refuses a posting on a center locked for actual
+  costs with 422 naming the line (§5). Leaving the locked periods' lines
+  out of the replacement instead was not built: it would change what a
+  batch replaces, which the product owner did not decide. Invalid lines
+  are reported first (`controlling.plan_batch_invalid`). Profit
   center lines are not affected: `lock_plan` is the cost center's. The
   check sits after the batch key's: a batch already applied is answered as
   it was (`replayed`) after a later lock, as after a category lock.
@@ -937,7 +944,9 @@ As built in T56g (migration 000164):
   (`PlanObjects` returns `PlanLocked`, the locked periods per cost
   center), not by a trigger: the cost center periods are the ledger's, a
   trigger on `controlling.plan_line` would read across the context
-  boundary that no foreign key crosses either (§8 above), and the ledger
+  boundary that no foreign key crosses either (§8 above); the current
+  lines are read with the category held FOR UPDATE, so no other batch
+  changes them meanwhile; and the ledger
   enforces its own actual-cost and revenue locks in the posting service
   in the same way, not in the database. *Concurrency (ADR-0008):*
   `PlanObjects` reads the cost centers `FOR KEY SHARE`, held until the

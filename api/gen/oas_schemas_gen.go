@@ -11201,7 +11201,8 @@ type CostCenterPeriod struct {
 	// Actual revenue may not be posted.
 	LockActualRevenue bool `json:"lock_actual_revenue"`
 	// Plan values may not be entered: a plan batch planning the cost center in a fiscal period sharing a
-	// day with this period is refused (422 `controlling.cost_center_plan_locked`).
+	// day with this period, or replacing its plan there, is refused (422
+	// `controlling.cost_center_plan_locked`).
 	LockPlan bool `json:"lock_plan"`
 }
 

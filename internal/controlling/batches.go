@@ -132,7 +132,11 @@ func (e *Endpoints) apply(ctx context.Context, tx pgx.Tx, p reqctx.Principal, ca
 	case cat.Locked:
 		return Batch{}, false, categoryLocked()
 	}
-	if err := e.checkObjects(ctx, le.ID, year, lines); err != nil {
+	locked, err := e.checkObjects(ctx, le.ID, year, lines)
+	if err != nil {
+		return Batch{}, false, err
+	}
+	if err := checkPlanLocks(ctx, tx, cat.ID, le.ID, year, lines, locked); err != nil {
 		return Batch{}, false, err
 	}
 	b, err = write(ctx, tx, p, Batch{ID: uuid.Must(uuid.NewV7()), CategoryID: cat.ID, LegalEntityID: le.ID, FiscalYear: year, Key: key, Digest: digest,
@@ -262,10 +266,10 @@ func centers(lines []planLine) (costCenters, profitCenters []uuid.UUID) {
 
 // checkObjects refuses lines naming a center, account or period the
 // ledger does not allow a plan of the legal entity's year to name, and
-// then lines planning a cost center in a period it is locked for planning
-// in (T56g2). The ledger holds the cost centers until the batch commits,
-// so no lock is applied between this check and the lines' insert.
-func (e *Endpoints) checkObjects(ctx context.Context, le uuid.UUID, year int16, lines []planLine) error {
+// returns the cost centers' plan locks (PlanObjects.PlanLocked). The ledger
+// holds the cost centers until the batch commits, so no plan lock is
+// applied between the check (checkPlanLocks) and the lines' write.
+func (e *Endpoints) checkObjects(ctx context.Context, le uuid.UUID, year int16, lines []planLine) (map[uuid.UUID]map[int16]bool, error) {
 	ccs, pcs := centers(lines)
 	accounts := []uuid.UUID{}
 	for _, l := range lines {
@@ -273,32 +277,71 @@ func (e *Endpoints) checkObjects(ctx context.Context, le uuid.UUID, year int16, 
 	}
 	ok, err := e.Ledger.PlanObjects(ctx, le, year, ccs, pcs, accounts)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	var bad, locked []problem.FieldError
+	var bad []problem.FieldError
 	for i, l := range lines {
 		bad = append(bad, objectErrors(i, l, ok)...)
-		if l.costCenter != nil && ok.PlanLocked[*l.costCenter][l.period] {
-			locked = append(locked, problem.FieldError{Field: fmt.Sprintf("lines[%d].cost_center_id", i), Code: "plan_locked",
-				Message: "a cost center not locked for planning in the period"})
-		}
 	}
 	if len(bad) > 0 {
-		return batchInvalid(bad...)
+		return nil, batchInvalid(bad...)
 	}
-	if len(locked) > 0 {
-		return planLocked(locked...)
+	return ok.PlanLocked, nil
+}
+
+// checkPlanLocks refuses a batch that would change a cost center's plan in
+// a period in which the center is locked for planning (T56g2, ADR-0050
+// §8): a line it writes there, or a current line there that it would mark
+// replaced, since a batch replaces its centers' plan in every period of
+// the year. The category is held FOR UPDATE, so no other batch changes its
+// current lines meanwhile.
+func checkPlanLocks(ctx context.Context, tx pgx.Tx, cat, le uuid.UUID, year int16, lines []planLine, locked map[uuid.UUID]map[int16]bool) error {
+	var refused []problem.FieldError
+	first, written := map[uuid.UUID]int{}, map[string]bool{}
+	for i, l := range lines {
+		if l.costCenter == nil {
+			continue
+		}
+		if _, ok := first[*l.costCenter]; !ok {
+			first[*l.costCenter] = i
+		}
+		if locked[*l.costCenter][l.period] {
+			written[fmt.Sprint(*l.costCenter, l.period)] = true
+			refused = append(refused, planLockedLine(i, "a cost center not locked for planning in the period"))
+		}
+	}
+	ccs, _ := centers(lines)
+	rows, _ := tx.Query(ctx, `SELECT DISTINCT cost_center_id, fiscal_period FROM controlling.plan_line WHERE category_id = $1 AND legal_entity_id = $2
+		AND fiscal_year = $3 AND cost_center_id = ANY($4) AND replaced_by_batch_id IS NULL ORDER BY cost_center_id, fiscal_period`, cat, le, year, ccs)
+	var center uuid.UUID
+	var period int16
+	if _, err := pgx.ForEachRow(rows, []any{&center, &period}, func() error {
+		// A period the batch writes in is refused on its own lines already.
+		if locked[center][period] && !written[fmt.Sprint(center, period)] {
+			refused = append(refused, planLockedLine(first[center], fmt.Sprintf("a cost center without a current plan in period %d, "+
+				"locked for planning, which the batch would replace", period)))
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("controlling: current plan of the batch's cost centers: %w", err)
+	}
+	if len(refused) > 0 {
+		return planLocked(refused...)
 	}
 	return nil
 }
 
-// planLocked refuses a batch planning a cost center in a period in which
-// the center's lock_plan is set (ADR-0050 §3, §8): unprocessable as the
-// ledger's refusal of a line on a center locked for actual costs, naming
-// each line.
+func planLockedLine(i int, message string) problem.FieldError {
+	return problem.FieldError{Field: fmt.Sprintf("lines[%d].cost_center_id", i), Code: "plan_locked", Message: message}
+}
+
+// planLocked refuses a batch changing a cost center's plan in a period in
+// which the center's lock_plan is set (ADR-0050 §3, §8): unprocessable as
+// the ledger's refusal of a line on a center locked for actual costs,
+// naming each line.
 func planLocked(fields ...problem.FieldError) error {
-	return problem.Unprocessable("controlling.cost_center_plan_locked", "A cost center is locked for planning in a period the batch plans it in; "+
-		"nothing was written. A center change lifts the lock first.", fields[:min(len(fields), maxLineErrors)]...)
+	return problem.Unprocessable("controlling.cost_center_plan_locked", "The batch would change a cost center's plan in a period the center is "+
+		"locked for planning in; nothing was written. A center change lifts the lock first.", fields[:min(len(fields), maxLineErrors)]...)
 }
 
 func objectErrors(i int, l planLine, ok ledger.PlanObjects) []problem.FieldError {

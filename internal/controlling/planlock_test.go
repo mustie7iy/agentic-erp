@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -33,11 +35,13 @@ func refusedFields(got map[string]any) []string {
 	return out
 }
 
-// TestPlanLockedCostCenter (T56g2): a batch planning a cost center in a
-// period sharing a day with a period of the center locked for planning is
-// refused, naming each such line, and writes nothing; the center's other
-// periods, other centers and profit centers are planned; a batch applied
-// before the lock is still answered as it was.
+// TestPlanLockedCostCenter (T56g2): a batch that would change a cost
+// center's plan in a period sharing a day with a period of the center
+// locked for planning is refused, naming each line, and writes nothing:
+// a line it writes there, or the center's current line there, which it
+// would replace. A locked center's other periods, other centers and
+// profit centers are planned; a batch applied before the lock is still
+// answered as it was.
 func TestPlanLockedCostCenter(t *testing.T) {
 	p := setup(t)
 	cat := p.category(t, "PLAN")
@@ -45,6 +49,7 @@ func TestPlanLockedCostCenter(t *testing.T) {
 	p.batch(t, cat, "before", before...)
 	// From 15 March: March shares days with the lock, so it is locked too.
 	p.Approve(t, p.requestPlanLock(t, p.c.Admin, "2026-03-15", "2026-05-01")["id"].(string))
+	p.Approve(t, p.requestPlanLock(t, p.c.Locked, "2026-03-01", "2026-04-01")["id"].(string))
 
 	lines := []string{line(p.c.Admin, p.office, 2, "20.00"), line(p.c.Admin, p.office, 3, "31.00"), line(p.c.Admin, p.office, 4, "40.00"),
 		line(p.c.Admin, p.office, 5, "50.00"), line(p.c.Sales, p.office, 3, "60.00"), pcLine(p.c.Profit, p.revenue, 3, "-70.00")}
@@ -52,6 +57,11 @@ func TestPlanLockedCostCenter(t *testing.T) {
 	wantList(t, "lines refused", refusedFields(got), []string{"lines[1].cost_center_id plan_locked", "lines[2].cost_center_id plan_locked"})
 	wantList(t, "plan after the refusal", p.lines(t, ""), []string{"1000/520000/3 30.00"})
 
+	t.Run("the plan of a locked period replaced", func(t *testing.T) {
+		got := p.in(t).Problem(422, "controlling.cost_center_plan_locked", "POST", "/v1/plan-batches",
+			p.batchBody(cat, "replacing", lines[4], lines[0], lines[3]), "")
+		wantList(t, "fields", refusedFields(got), []string{"lines[1].cost_center_id plan_locked"})
+	})
 	t.Run("an invalid line is named first", func(t *testing.T) {
 		got := p.in(t).Problem(422, "controlling.plan_batch_invalid", "POST", "/v1/plan-batches",
 			p.batchBody(cat, "invalid", lines[1], line(p.c.Admin, p.bank, 2, "1.00")), "")
@@ -64,21 +74,28 @@ func TestPlanLockedCostCenter(t *testing.T) {
 		p.in(t).Problem(422, "controlling.cost_center_plan_locked", "POST", "/v1/plan-batches", p.batchBody(cat, "again", before...), "")
 	})
 
-	open := []string{lines[0], lines[3], lines[4], lines[5]}
+	open := []string{line(p.c.Locked, p.office, 2, "2.00"), line(p.c.Locked, p.office, 4, "4.00"), lines[4], lines[5]}
 	want(t, "the unlocked periods and centers", p.batch(t, cat, "open", open...)["line_count"], any(float64(4)))
-	wantList(t, "plan", sorted(p.lines(t, "")), []string{"1000/520000/2 20.00", "1000/520000/5 50.00", "2000/520000/3 60.00", "PC1/400000/3 -70.00"})
+	wantList(t, "plan", sorted(p.lines(t, "")), []string{"1000/520000/3 30.00", "2000/520000/3 60.00", "3000/520000/2 2.00", "3000/520000/4 4.00",
+		"PC1/400000/3 -70.00"})
 	want(t, "events", len(p.events(t, "plan_batch_applied")), 2)
 
 	t.Run("at most a hundred errors", func(t *testing.T) {
-		p.Approve(t, p.in(t).requestPlanLock(t, p.c.Sales, "2026-01-01", "2027-01-01")["id"].(string))
+		p := p.in(t)
 		var many []string
-		for _, account := range []uuid.UUID{p.office, p.revenue} {
-			for period := 1; period <= 12; period++ {
-				many = append(many, line(p.c.Sales, account, period, "1.00"))
+		for _, center := range []uuid.UUID{p.c.Sales, p.c.Locked} {
+			p.Approve(t, p.requestPlanLock(t, center, "2026-01-01", "2027-01-01")["id"].(string))
+			for _, account := range plAccounts(t, p) {
+				for period := 1; period <= 12; period++ {
+					many = append(many, line(center, account, period, "1.00"))
+				}
 			}
 		}
-		got := p.in(t).Problem(422, "controlling.cost_center_plan_locked", "POST", "/v1/plan-batches", p.batchBody(cat, "many", many...), "")
-		want(t, "errors", len(got["errors"].([]any)), len(many))
+		if len(many) <= 100 {
+			t.Fatalf("%d lines, want more than a hundred", len(many))
+		}
+		got := p.Problem(422, "controlling.cost_center_plan_locked", "POST", "/v1/plan-batches", p.batchBody(cat, "many", many...), "")
+		want(t, "errors", len(got["errors"].([]any)), 100)
 	})
 }
 
@@ -124,4 +141,21 @@ func TestPlanLockAndBatchSerialize(t *testing.T) {
 		p.in(t).Problem(422, "controlling.cost_center_plan_locked", "POST", "/v1/plan-batches",
 			p.batchBody(cat.String(), "after", line(p.c.Admin, p.office, 7, "8.00")), "")
 	})
+}
+
+// plAccounts are the profit and loss accounts set up in company 2000, which
+// a plan may name.
+func plAccounts(t *testing.T, p plan) []uuid.UUID {
+	t.Helper()
+	rows, err := pgtest.Admin(t).Query(context.Background(), `SELECT a.id FROM ledger.gl_account a JOIN ledger.company_account ca
+		ON ca.tenant_id = a.tenant_id AND ca.account_id = a.id WHERE a.tenant_id = $1 AND ca.legal_entity_id = $2 AND NOT a.is_balance_sheet`,
+		p.Tenant.ID, p.DE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ids
 }
