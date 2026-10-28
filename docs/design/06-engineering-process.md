@@ -277,8 +277,8 @@ gates on each pull request:
   `scripts/verify-image.sh`, `scripts/provenance.sh`,
   `scripts/free-disk.sh`, `release/`, `ci.yml`, `weekly.yml`); otherwise
   the images are built once and scanned. On a push to `main` the signing
-  round trip runs on the same rule; a manual run, with no base to compare
-  with, runs both every time. `ci-local.sh` builds and signs linux/amd64
+  round trip runs on the same rule; a manual run runs everything
+  (`scripts/ci-changes.sh`), so it runs both every time. `ci-local.sh` builds and signs linux/amd64
   only, as pull requests did on the runner; `main`'s
   test job builds both platforms and its signing job linux/amd64, to fit
   the runner's disk (`scripts/free-disk.sh` clears unused toolchains

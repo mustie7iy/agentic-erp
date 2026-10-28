@@ -8357,6 +8357,13 @@
       "r": "scripts/images.sh · scripts/test-images.sh · .github/workflows/ci.yml · ADR-0032 · 06 §6.5",
       "src": "ci:batch15",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "Main's manual full run built the images twice behind a dead branch: ci.yml's test job runs only on a manual run, for which scripts/ci-changes.sh always writes images=true, so its single-build fallback (make images) and the buildx builder made for it never ran, and 06 §6.5 gave the wrong reason (no base to compare with, whereas a manual run runs everything); the step now always runs make images-reproducible, and 06 §6.5, ci.yml and scripts/ci-local.sh say why",
+      "r": ".github/workflows/ci.yml test job · scripts/ci-changes.sh · scripts/ci-local.sh · 06 §6.5",
+      "src": "ci:batch15",
+      "c": []
      }
     ]
    },

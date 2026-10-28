@@ -116,8 +116,9 @@ builder() {
   docker buildx inspect erp-images >/dev/null 2>&1 || docker buildx create --name erp-images --driver docker-container >/dev/null
 }
 
-# images builds the images as CI's test job does: twice with private
-# caches and builders when their inputs changed, once otherwise.
+# images builds the images twice with private caches and builders when
+# their inputs changed (as CI's test job does on every manual run), once
+# otherwise.
 images() {
   if [ "$(class images)" = false ]; then
     builder && KO_PLATFORMS=linux/amd64 BUILDX_BUILDER=erp-images make images
