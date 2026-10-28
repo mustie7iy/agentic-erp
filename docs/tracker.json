@@ -8371,6 +8371,20 @@
       "r": ".github/workflows/weekly.yml images job · .github/workflows/ci.yml · scripts/base-image-current.sh",
       "src": "ci:batch15",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "erp-analytics's builder pin bumped (ADR-0032 reviewed bump): docker.io/library/golang:1.26.10-bookworm moved from sha256:fe3da92a… to sha256:386f0cbb… (rebuilt 2026-10-28, still Go 1.26.10), which scripts/base-image-current.sh reported and the weekly run of 1 Nov would have failed on; it exits 0 again. Both platforms built twice gave the same 15 digests, and erp-analytics's per-platform digests are the same as with the old builder, so the scan's results did not change",
+      "r": "deploy/images/erp-analytics.Dockerfile ARG GO_IMAGE · scripts/base-image-current.sh · scripts/images-reproducible.sh · ADR-0032",
+      "src": "ci:batch15",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "The image scan fails on main as on this step: grype reports GHSA-mgcc-cww5-fp2q (High, fixed in 4.1.6) in github.com/go-jose/go-jose/v4 v4.1.5, which internal/platform/authn imports, in every image but erp (erp-server, erp-router, erp-web, erp-analytics, both platforms; found 2026-10-28 with the old and the new builder alike); make image-scan, and so main's manual full run and the weekly run, stay red until go-jose is bumped in a reviewed step or the finding is accepted in .grype.yaml with a reason and an expiry",
+      "r": "go.mod · internal/platform/authn · scripts/image-scan.sh · .grype.yaml · ADR-0032",
+      "src": "ci:batch15",
+      "c": []
      }
     ]
    },
