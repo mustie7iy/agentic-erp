@@ -50,6 +50,8 @@ type Ledger interface {
 	PlanObjects(ctx context.Context, le uuid.UUID, year int16, costCenters, profitCenters, accounts []uuid.UUID) (ledger.PlanObjects, error)
 	CostCenters(ctx context.Context, center, node *uuid.UUID) ([]uuid.UUID, bool, error)
 	CostCenterActuals(ctx context.Context, q ledger.ActualsQuery) ([]ledger.AssignmentActual, error)
+	ProfitCenters(ctx context.Context, center, node *uuid.UUID) ([]uuid.UUID, bool, error)
+	ProfitCenterActuals(ctx context.Context, q ledger.ActualsQuery) ([]ledger.AssignmentActual, error)
 }
 
 // LegalEntities reads legal entities (tenancy context).

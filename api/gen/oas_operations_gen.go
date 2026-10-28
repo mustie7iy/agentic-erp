@@ -194,6 +194,7 @@ const (
 	ListPrincipalsOperation                   OperationName = "ListPrincipals"
 	ListProfitCenterBalancesOperation         OperationName = "ListProfitCenterBalances"
 	ListProfitCenterPathsOperation            OperationName = "ListProfitCenterPaths"
+	ListProfitCenterPlanActualOperation       OperationName = "ListProfitCenterPlanActual"
 	ListProfitCentersOperation                OperationName = "ListProfitCenters"
 	ListPurchaseOrderChangesOperation         OperationName = "ListPurchaseOrderChanges"
 	ListPurchaseOrdersOperation               OperationName = "ListPurchaseOrders"

@@ -2468,7 +2468,10 @@ erDiagram
 | `controlling.plan_line` | A line of a batch: one center (`plan_line_one_center`), a period 1-16, a P&L account, the amount in the company's local currency, an optional positive quantity with its unit (`plan_line_quantity_unit`); of its batch's category, company and year (foreign key). Never deleted: a later batch of the same category, company and year naming its center sets `replaced_by_batch_id` once (`plan_line_replaced_once`, `plan_line_replaced_later`), so the plan is the lines not replaced, one per category, company, year, center, account and period (`plan_line_once`, a partial unique index), and every earlier plan stays readable. Nothing is written or replaced on a locked category (`plan_category_open`, the category read FOR SHARE). A batch that would write or replace a cost center's line in a period sharing a day with a period of the center whose `ledger.cost_center_period.lock_plan` is set is refused (T56g2; checked in the service through the ledger's port, the centers held FOR KEY SHARE; no trigger reads across the context boundary) |
 | `controlling.outbox`, `controlling.inbox` | The context's events (`PlanCategoryChanged`, `PlanBatchApplied`), relayed as every context's (`outbox.Contexts`) |
 
-Plan against actual (`GET /v1/cost-center-plan-actual`) stores nothing: the
-category's current lines are summed per cost center and account over the
-periods asked for and merged with the leading ledger's actuals, which the
-ledger reads as its cost center report does (§3.7, exact at the read).
+Plan against actual (`GET /v1/cost-center-plan-actual`, and `GET
+/v1/profit-center-plan-actual`, T56g3) stores nothing: the category's
+current lines are summed per cost center (or profit center) and account
+over the periods asked for and merged with the leading ledger's actuals,
+which the ledger reads as its cost center (or profit center) report does
+(§3.7, exact at the read; by profit center on profit and loss accounts
+only, the segments summed).

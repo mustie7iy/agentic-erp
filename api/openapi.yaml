@@ -7718,6 +7718,93 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/profit-center-plan-actual:
+    get:
+      operationId: listProfitCenterPlanActual
+      x-slo-class: report
+      tags:
+        - controlling
+      summary: List plan against actual by profit center
+      description: "Plan against actual per profit center and account of one legal entity, plan category and fiscal year, summed over a range of periods (ADR-0050 §8), in the legal entity's local currency: the category's profit center plan lines, the leading ledger's actuals on profit and loss accounts exact at the moment of the read as `GET /v1/profit-center-balances` reads them (ADR-0050 §7: the profit center each line carries, entered or derived at posting, summed over its segments), the variance (actual less plan) and the variance in percent of the plan (two decimals, rounded half away from zero; absent when the plan is zero). A profit center and account with a plan or an actual has a row, the other side zero. A legal entity the caller cannot act in, or a plan category that does not exist, has none. Rows are in the order of `profit_center_id`, then `account_id`. The actuals are ledger amounts, so besides `controlling.plan.read` the caller needs `ledger.entry.read`, as for the trial balance (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: controlling.plan.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: plan_category_id
+          in: query
+          required: true
+          description: Plan category (required).
+          schema:
+            type: string
+            format: uuid
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: Fiscal year (required).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: fiscal_period_from
+          in: query
+          required: false
+          description: "Periods from this one (default 1)."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: fiscal_period_to
+          in: query
+          required: false
+          description: "Periods up to this one (default 16); before `fiscal_period_from`: 400 `request.invalid_parameter`."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: profit_center_id
+          in: query
+          required: false
+          description: "Only this profit center."
+          schema:
+            type: string
+            format: uuid
+        - name: hierarchy_node_id
+          in: query
+          required: false
+          description: "Only the profit centers at this node of a profit center hierarchy (`GET /v1/hierarchies/{id}`) or below it, under today's tree (ADR-0050 decision P7), as `GET /v1/profit-center-balances` takes it; a node's total is the sum of their rows. A node of another kind's hierarchy, or one that is unknown or removed, has none."
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of plan against actual.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfitCenterPlanActualPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/ledger-reconciliation:
     get:
       operationId: listLedgerReconciliation
@@ -25076,6 +25163,106 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CostCenterPlanActual"
+          description: The rows on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+    ProfitCenterPlanActual:
+      type: object
+      description: "Plan against actual of a profit center on an account over a range of periods (ADR-0050 §8), in the legal entity's local currency, debit positive."
+      required:
+        - plan_category_id
+        - legal_entity_id
+        - fiscal_year
+        - fiscal_period_from
+        - fiscal_period_to
+        - profit_center_id
+        - account_id
+        - plan
+        - actual
+        - variance
+      properties:
+        plan_category_id:
+          type: string
+          format: uuid
+          description: The plan category.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The legal entity.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: The fiscal year.
+          readOnly: true
+        fiscal_period_from:
+          type: integer
+          format: int32
+          description: The first period summed.
+          readOnly: true
+        fiscal_period_to:
+          type: integer
+          format: int32
+          description: The last period summed.
+          readOnly: true
+        profit_center_id:
+          type: string
+          format: uuid
+          description: The profit center.
+          readOnly: true
+        account_id:
+          type: string
+          format: uuid
+          description: The account.
+          readOnly: true
+        plan:
+          $ref: "#/components/schemas/Money"
+          description: The category's plan.
+          readOnly: true
+        actual:
+          $ref: "#/components/schemas/Money"
+          description: "The leading ledger's actual."
+          readOnly: true
+        variance:
+          $ref: "#/components/schemas/Money"
+          description: The actual less the plan.
+          readOnly: true
+        variance_percent:
+          $ref: "#/components/schemas/Decimal"
+          description: "The variance in percent of the plan, two decimals, rounded half away from zero; absent when the plan is zero."
+          readOnly: true
+      additionalProperties: false
+      examples:
+        - plan_category_id: "0192a000-0000-7000-8000-000000000a01"
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          fiscal_year: 2027
+          fiscal_period_from: 1
+          fiscal_period_to: 3
+          profit_center_id: "0192a000-0000-7000-8000-000000000301"
+          account_id: "0192a000-0000-7000-8000-000000000501"
+          plan:
+            amount: "36000.00"
+            currency: EUR
+          actual:
+            amount: "37800.00"
+            currency: EUR
+          variance:
+            amount: "1800.00"
+            currency: EUR
+          variance_percent: "5.00"
+    ProfitCenterPlanActualPage:
+      type: object
+      description: One page of plan against actual.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProfitCenterPlanActual"
           description: The rows on this page.
         next_page_token:
           type: string

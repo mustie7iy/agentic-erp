@@ -1936,9 +1936,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Profit center plan against actual: GET /v1/profit-center-plan-actual, the plan of profit center lines (which T56g stores and lists) against the leading ledger's actual by profit center, as the cost center plan/actual",
-        "r": "T56g3",
+        "s": "D",
+        "t": "Profit center plan against actual: GET /v1/profit-center-plan-actual, the plan of profit center lines (which T56g stores and lists) against the leading ledger's actual by profit center, as the cost center plan/actual: category, company, year, period range, profit center or profit center hierarchy node (today's tree); actual as the profit center report reads it (the line's profit center, entered or derived, segments summed, P&L only, exact at the read) through ledger.AssignmentBalances (ProfitCenters, ProfitCenterActuals); controlling.plan.read and ledger.entry.read; paged by a cursor over profit center and account; no migration",
+        "r": "internal/controlling planactual.go · internal/ledger assignmentbalances.go · api/openapi.yaml · ADR-0050 §8 as built · 03 §3.19 · 04 §4.6 · T56g3",
         "src": "po:2026-10-27",
         "c": []
        },

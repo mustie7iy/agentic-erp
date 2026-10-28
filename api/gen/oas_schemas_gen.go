@@ -20379,6 +20379,14 @@ type ListProfitCenterPathsNotFound Problem
 
 func (*ListProfitCenterPathsNotFound) listProfitCenterPathsRes() {}
 
+type ListProfitCenterPlanActualBadRequest Problem
+
+func (*ListProfitCenterPlanActualBadRequest) listProfitCenterPlanActualRes() {}
+
+type ListProfitCenterPlanActualForbidden Problem
+
+func (*ListProfitCenterPlanActualForbidden) listProfitCenterPlanActualRes() {}
+
 type ListProfitCentersBadRequest Problem
 
 func (*ListProfitCentersBadRequest) listProfitCentersRes() {}
@@ -30799,6 +30807,176 @@ func (s *ProfitCenterPeriod) SetLocked(val bool) {
 	s.Locked = val
 }
 
+// Plan against actual of a profit center on an account over a range of periods (ADR-0050 §8), in the
+// legal entity's local currency, debit positive.
+// Ref: #/components/schemas/ProfitCenterPlanActual
+type ProfitCenterPlanActual struct {
+	// The plan category.
+	PlanCategoryID uuid.UUID `json:"plan_category_id"`
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The first period summed.
+	FiscalPeriodFrom int32 `json:"fiscal_period_from"`
+	// The last period summed.
+	FiscalPeriodTo int32 `json:"fiscal_period_to"`
+	// The profit center.
+	ProfitCenterID uuid.UUID `json:"profit_center_id"`
+	// The account.
+	AccountID uuid.UUID `json:"account_id"`
+	// The category's plan.
+	Plan Money `json:"plan"`
+	// The leading ledger's actual.
+	Actual Money `json:"actual"`
+	// The actual less the plan.
+	Variance Money `json:"variance"`
+	// The variance in percent of the plan, two decimals, rounded half away from zero; absent when the plan
+	// is zero.
+	VariancePercent OptDecimal `json:"variance_percent"`
+}
+
+// GetPlanCategoryID returns the value of PlanCategoryID.
+func (s *ProfitCenterPlanActual) GetPlanCategoryID() uuid.UUID {
+	return s.PlanCategoryID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ProfitCenterPlanActual) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *ProfitCenterPlanActual) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriodFrom returns the value of FiscalPeriodFrom.
+func (s *ProfitCenterPlanActual) GetFiscalPeriodFrom() int32 {
+	return s.FiscalPeriodFrom
+}
+
+// GetFiscalPeriodTo returns the value of FiscalPeriodTo.
+func (s *ProfitCenterPlanActual) GetFiscalPeriodTo() int32 {
+	return s.FiscalPeriodTo
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *ProfitCenterPlanActual) GetProfitCenterID() uuid.UUID {
+	return s.ProfitCenterID
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *ProfitCenterPlanActual) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetPlan returns the value of Plan.
+func (s *ProfitCenterPlanActual) GetPlan() Money {
+	return s.Plan
+}
+
+// GetActual returns the value of Actual.
+func (s *ProfitCenterPlanActual) GetActual() Money {
+	return s.Actual
+}
+
+// GetVariance returns the value of Variance.
+func (s *ProfitCenterPlanActual) GetVariance() Money {
+	return s.Variance
+}
+
+// GetVariancePercent returns the value of VariancePercent.
+func (s *ProfitCenterPlanActual) GetVariancePercent() OptDecimal {
+	return s.VariancePercent
+}
+
+// SetPlanCategoryID sets the value of PlanCategoryID.
+func (s *ProfitCenterPlanActual) SetPlanCategoryID(val uuid.UUID) {
+	s.PlanCategoryID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ProfitCenterPlanActual) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *ProfitCenterPlanActual) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriodFrom sets the value of FiscalPeriodFrom.
+func (s *ProfitCenterPlanActual) SetFiscalPeriodFrom(val int32) {
+	s.FiscalPeriodFrom = val
+}
+
+// SetFiscalPeriodTo sets the value of FiscalPeriodTo.
+func (s *ProfitCenterPlanActual) SetFiscalPeriodTo(val int32) {
+	s.FiscalPeriodTo = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *ProfitCenterPlanActual) SetProfitCenterID(val uuid.UUID) {
+	s.ProfitCenterID = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *ProfitCenterPlanActual) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetPlan sets the value of Plan.
+func (s *ProfitCenterPlanActual) SetPlan(val Money) {
+	s.Plan = val
+}
+
+// SetActual sets the value of Actual.
+func (s *ProfitCenterPlanActual) SetActual(val Money) {
+	s.Actual = val
+}
+
+// SetVariance sets the value of Variance.
+func (s *ProfitCenterPlanActual) SetVariance(val Money) {
+	s.Variance = val
+}
+
+// SetVariancePercent sets the value of VariancePercent.
+func (s *ProfitCenterPlanActual) SetVariancePercent(val OptDecimal) {
+	s.VariancePercent = val
+}
+
+// One page of plan against actual.
+// Ref: #/components/schemas/ProfitCenterPlanActualPage
+type ProfitCenterPlanActualPage struct {
+	// The rows on this page.
+	Items []ProfitCenterPlanActual `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ProfitCenterPlanActualPage) GetItems() []ProfitCenterPlanActual {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ProfitCenterPlanActualPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ProfitCenterPlanActualPage) SetItems(val []ProfitCenterPlanActual) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ProfitCenterPlanActualPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ProfitCenterPlanActualPage) listProfitCenterPlanActualRes() {}
+
 type ProposeBankStatementLineBadRequest Problem
 
 func (*ProposeBankStatementLineBadRequest) proposeBankStatementLineRes() {}
@@ -38994,6 +39172,7 @@ func (*TooManyRequestsHeaders) listPrincipalNamesRes()               {}
 func (*TooManyRequestsHeaders) listPrincipalsRes()                   {}
 func (*TooManyRequestsHeaders) listProfitCenterBalancesRes()         {}
 func (*TooManyRequestsHeaders) listProfitCenterPathsRes()            {}
+func (*TooManyRequestsHeaders) listProfitCenterPlanActualRes()       {}
 func (*TooManyRequestsHeaders) listProfitCentersRes()                {}
 func (*TooManyRequestsHeaders) listPurchaseOrderChangesRes()         {}
 func (*TooManyRequestsHeaders) listPurchaseOrdersRes()               {}
@@ -39335,6 +39514,7 @@ func (*UnauthorizedHeaders) listPrincipalNamesRes()               {}
 func (*UnauthorizedHeaders) listPrincipalsRes()                   {}
 func (*UnauthorizedHeaders) listProfitCenterBalancesRes()         {}
 func (*UnauthorizedHeaders) listProfitCenterPathsRes()            {}
+func (*UnauthorizedHeaders) listProfitCenterPlanActualRes()       {}
 func (*UnauthorizedHeaders) listProfitCentersRes()                {}
 func (*UnauthorizedHeaders) listPurchaseOrderChangesRes()         {}
 func (*UnauthorizedHeaders) listPurchaseOrdersRes()               {}

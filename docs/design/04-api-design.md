@@ -243,7 +243,11 @@ account, over a range of periods, the plan, the leading ledger's actual
 exact at the read, the variance (actual less plan) and the variance in
 percent of the plan as a decimal string with two decimals, computed
 exactly and rounded half away from zero, absent on a zero plan; it pages
-by a cursor over cost center and account.
+by a cursor over cost center and account. `GET
+/v1/profit-center-plan-actual` (T56g3) is the same by profit center (a
+profit center or a node of a profit center hierarchy), its actual as `GET
+/v1/profit-center-balances` reads it: profit and loss accounts only, the
+segments summed, paged by profit center and account.
 
 ## 4.7 Concurrency and idempotency
 
@@ -521,7 +525,7 @@ with the month's total against the tenant's cap.
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
 | payments | `payment-runs`, `bank-files` | `:propose` (202), `:submit`, `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
 | cash | `cash-position` (computed on read, ADR-0051), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
-| controlling | `plan-categories`, `plan-batches` (by batch key), `plan-lines`, `cost-center-plan-actual` (computed on read, ADR-0050 §8) | `:lock`, `:unlock` |
+| controlling | `plan-categories`, `plan-batches` (by batch key), `plan-lines`, `cost-center-plan-actual`, `profit-center-plan-actual` (computed on read, ADR-0050 §8) | `:lock`, `:unlock` |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |
 | audit | `audit-events` | `:verify` |
 | integration | `migration-runs`, `connectors` | `:start`, `:reconcile`, `:enable`, `:disable` |

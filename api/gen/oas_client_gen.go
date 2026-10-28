@@ -1552,6 +1552,22 @@ type Invoker interface {
 	//
 	// GET /v1/profit-centers/{id}/hierarchy-paths
 	ListProfitCenterPaths(ctx context.Context, params ListProfitCenterPathsParams) (ListProfitCenterPathsRes, error)
+	// ListProfitCenterPlanActual invokes listProfitCenterPlanActual operation.
+	//
+	// Plan against actual per profit center and account of one legal entity, plan category and fiscal
+	// year, summed over a range of periods (ADR-0050 §8), in the legal entity's local currency: the
+	// category's profit center plan lines, the leading ledger's actuals on profit and loss accounts exact
+	// at the moment of the read as `GET /v1/profit-center-balances` reads them (ADR-0050 §7: the profit
+	// center each line carries, entered or derived at posting, summed over its segments), the variance
+	// (actual less plan) and the variance in percent of the plan (two decimals, rounded half away from
+	// zero; absent when the plan is zero). A profit center and account with a plan or an actual has a row,
+	// the other side zero. A legal entity the caller cannot act in, or a plan category that does not
+	// exist, has none. Rows are in the order of `profit_center_id`, then `account_id`. The actuals are
+	// ledger amounts, so besides `controlling.plan.read` the caller needs `ledger.entry.read`, as for the
+	// trial balance (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/profit-center-plan-actual
+	ListProfitCenterPlanActual(ctx context.Context, params ListProfitCenterPlanActualParams) (ListProfitCenterPlanActualRes, error)
 	// ListProfitCenters invokes listProfitCenters operation.
 	//
 	// Profit centers of the tenant with their companies and active periods. Sortable by: `code`.
@@ -34664,6 +34680,277 @@ func (c *Client) sendListProfitCenterPaths(ctx context.Context, params ListProfi
 
 	stage = "DecodeResponse"
 	result, err := decodeListProfitCenterPathsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListProfitCenterPlanActual invokes listProfitCenterPlanActual operation.
+//
+// Plan against actual per profit center and account of one legal entity, plan category and fiscal
+// year, summed over a range of periods (ADR-0050 §8), in the legal entity's local currency: the
+// category's profit center plan lines, the leading ledger's actuals on profit and loss accounts exact
+// at the moment of the read as `GET /v1/profit-center-balances` reads them (ADR-0050 §7: the profit
+// center each line carries, entered or derived at posting, summed over its segments), the variance
+// (actual less plan) and the variance in percent of the plan (two decimals, rounded half away from
+// zero; absent when the plan is zero). A profit center and account with a plan or an actual has a row,
+// the other side zero. A legal entity the caller cannot act in, or a plan category that does not
+// exist, has none. Rows are in the order of `profit_center_id`, then `account_id`. The actuals are
+// ledger amounts, so besides `controlling.plan.read` the caller needs `ledger.entry.read`, as for the
+// trial balance (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/profit-center-plan-actual
+func (c *Client) ListProfitCenterPlanActual(ctx context.Context, params ListProfitCenterPlanActualParams) (ListProfitCenterPlanActualRes, error) {
+	res, err := c.sendListProfitCenterPlanActual(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListProfitCenterPlanActual(ctx context.Context, params ListProfitCenterPlanActualParams) (res ListProfitCenterPlanActualRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listProfitCenterPlanActual"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/profit-center-plan-actual"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListProfitCenterPlanActualOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/profit-center-plan-actual"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "plan_category_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "plan_category_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.PlanCategoryID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.Int32ToString(params.FiscalYear))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period_from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period_from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriodFrom.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period_to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period_to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriodTo.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "profit_center_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "profit_center_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.ProfitCenterID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "hierarchy_node_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "hierarchy_node_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.HierarchyNodeID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListProfitCenterPlanActualOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListProfitCenterPlanActualResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

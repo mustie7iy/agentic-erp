@@ -37,6 +37,11 @@ func TestPlanDatabaseFailures(t *testing.T) {
 	}
 	byCenter := gen.ListCostCenterPlanActualParams{PlanCategoryID: cat, LegalEntityID: c.DE, FiscalYear: 2026, CostCenterID: gen.NewOptUUID(c.c.Sales),
 		PageSize: gen.NewOptInt32(1)}
+	var pcRoot uuid.UUID
+	pgtest.Scan(t, `SELECT n.id FROM ledger.hierarchy h JOIN ledger.hierarchy_node n ON n.tenant_id = h.tenant_id AND n.hierarchy_id = h.id
+		WHERE h.tenant_id = $1 AND h.kind = 'profit_center' AND h.is_standard AND n.parent_id IS NULL`, []any{c.Tenant.ID}, &pcRoot)
+	byNode := gen.ListProfitCenterPlanActualParams{PlanCategoryID: cat, LegalEntityID: c.DE, FiscalYear: 2026, HierarchyNodeID: gen.NewOptUUID(pcRoot),
+		PageSize: gen.NewOptInt32(1)}
 	calls := map[string]func(ctx context.Context) error{
 		"create a category": func(ctx context.Context) error {
 			_, err := h.CreatePlanCategory(ctx, &gen.PlanCategoryCreate{Code: "NEW", Name: "N"}, gen.CreatePlanCategoryParams{})
@@ -89,6 +94,20 @@ func TestPlanDatabaseFailures(t *testing.T) {
 			_, err = h.ListCostCenterPlanActual(ctx, next)
 			return err
 		},
+		"list plan against actual by profit center": func(ctx context.Context) error {
+			_, err := h.ListProfitCenterPlanActual(ctx, gen.ListProfitCenterPlanActualParams{PlanCategoryID: cat, LegalEntityID: c.DE, FiscalYear: 2026})
+			return err
+		},
+		"list plan against actual by a profit center node, a page after the first": func(ctx context.Context) error {
+			res, err := h.ListProfitCenterPlanActual(ctx, byNode)
+			if err != nil {
+				return err
+			}
+			next := byNode
+			next.PageToken = gen.NewOptString(res.(*gen.ProfitCenterPlanActualPage).NextPageToken.Or("none"))
+			_, err = h.ListProfitCenterPlanActual(ctx, next)
+			return err
+		},
 		"the ledger's plan objects": func(ctx context.Context) error {
 			_, err := ledger.AssignmentBalances{}.PlanObjects(ctx, c.DE, 2026, []uuid.UUID{c.c.Admin}, nil, []uuid.UUID{c.office})
 			return err
@@ -99,6 +118,14 @@ func TestPlanDatabaseFailures(t *testing.T) {
 		},
 		"the ledger's actuals": func(ctx context.Context) error {
 			_, err := ledger.AssignmentBalances{}.CostCenterActuals(ctx, ledger.ActualsQuery{LegalEntityID: c.DE, FiscalYear: 2026, PeriodFrom: 1, PeriodTo: 16, Limit: 1})
+			return err
+		},
+		"the ledger's profit centers of a node": func(ctx context.Context) error {
+			_, _, err := ledger.AssignmentBalances{}.ProfitCenters(ctx, nil, &pcRoot)
+			return err
+		},
+		"the ledger's profit center actuals": func(ctx context.Context) error {
+			_, err := ledger.AssignmentBalances{}.ProfitCenterActuals(ctx, ledger.ActualsQuery{LegalEntityID: c.DE, FiscalYear: 2026, PeriodFrom: 1, PeriodTo: 16, Limit: 1})
 			return err
 		},
 	}
@@ -133,7 +160,7 @@ func TestPlanActualRefusals(t *testing.T) {
 	pgtest.Exec(t, `INSERT INTO controlling.plan_line (tenant_id, id, batch_id, category_id, legal_entity_id, fiscal_year, fiscal_period, cost_center_id,
 			account_id, amount, created_by)
 		SELECT tenant_id, gen_random_uuid(), id, category_id, legal_entity_id, fiscal_year, 1, $2, $3, -9223372036854775808, created_by
-		FROM controlling.plan_batch WHERE tenant_id = $1`, c.Tenant.ID, c.c.Locked, c.office)
+		FROM controlling.plan_batch WHERE tenant_id = $1 AND batch_key = 'budget'`, c.Tenant.ID, c.c.Locked, c.office)
 	err = in(func(ctx context.Context) error {
 		_, err := h.ListCostCenterPlanActual(ctx, params)
 		return err

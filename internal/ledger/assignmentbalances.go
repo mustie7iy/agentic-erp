@@ -13,10 +13,10 @@ import (
 )
 
 // AssignmentBalances is what the ledger publishes to the controlling
-// context for plan values and plan against actual (ADR-0050 §7, §8, T56g):
-// what a plan may name, the cost centers of a hierarchy node, and the
-// actuals by cost center and account, read as the center reports read them
-// (costCenterBalances). It runs in the request's transaction under
+// context for plan values and plan against actual (ADR-0050 §7, §8, T56g,
+// T56g3): what a plan may name, the cost or profit centers of a hierarchy
+// node, and the actuals by cost or profit center and account, read as the
+// center reports read them (costCenterBalances, profitCenterBalances). It runs in the request's transaction under
 // row-level security (ADR-0003); controlling reads no ledger table itself.
 type AssignmentBalances struct{}
 
@@ -116,32 +116,44 @@ func planLocks(ctx context.Context, tx pgx.Tx, le uuid.UUID, year int16, costCen
 // below it under today's tree; with both, the one if it is among them. ok
 // is false when none remain.
 func (AssignmentBalances) CostCenters(ctx context.Context, center, node *uuid.UUID) ([]uuid.UUID, bool, error) {
+	return assignmentCenters(ctx, costCenterBalances, center, node)
+}
+
+// ProfitCenters are the profit centers a plan against actual is limited
+// to, as the profit center report limits its rows: as CostCenters, with a
+// node of a profit center hierarchy (T56g3).
+func (AssignmentBalances) ProfitCenters(ctx context.Context, center, node *uuid.UUID) ([]uuid.UUID, bool, error) {
+	return assignmentCenters(ctx, profitCenterBalances, center, node)
+}
+
+func assignmentCenters(ctx context.Context, k reportKind, center, node *uuid.UUID) ([]uuid.UUID, bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, false, err
 	}
-	return reportCenters(ctx, tx, costCenterBalances, center, node)
+	return reportCenters(ctx, tx, k, center, node)
 }
 
-// CenterAccount is the key of a row of actuals: a cost center and an
-// account. Rows come in its order, by cost center, then account.
-type CenterAccount struct{ CostCenterID, AccountID uuid.UUID }
+// CenterAccount is the key of a row of actuals: a center (cost or profit,
+// as asked for) and an account. Rows come in its order, by center, then
+// account.
+type CenterAccount struct{ CenterID, AccountID uuid.UUID }
 
-// AssignmentActual is the actual of a cost center on an account over the
+// AssignmentActual is the actual of a center on an account over the
 // periods asked for, in local currency, debit positive.
 type AssignmentActual struct {
 	CenterAccount
 	Amount money.Minor
 }
 
-// ActualsQuery asks for the actuals of a legal entity's cost centers in a
+// ActualsQuery asks for the actuals of a legal entity's centers in a
 // range of periods of a fiscal year: of the centers given (nil: every
 // one), with keys after After (nil: from the first), at most Limit rows.
 type ActualsQuery struct {
 	LegalEntityID        uuid.UUID
 	FiscalYear           int16
 	PeriodFrom, PeriodTo int16
-	CostCenters          []uuid.UUID
+	Centers              []uuid.UUID
 	After                *CenterAccount
 	Limit                int
 }
@@ -152,6 +164,18 @@ type ActualsQuery struct {
 // entries still queued, so they are exact at the read. A tenant without a
 // leading ledger has none.
 func (AssignmentBalances) CostCenterActuals(ctx context.Context, q ActualsQuery) ([]AssignmentActual, error) {
+	return actuals(ctx, costCenterBalances, q)
+}
+
+// ProfitCenterActuals reads the leading ledger's actuals by profit center
+// and account as the profit center report reads them (T56g3): the profit
+// center each line carries, entered or derived at posting (§5), summed
+// over the segments, on profit and loss accounts only, exact at the read.
+func (AssignmentBalances) ProfitCenterActuals(ctx context.Context, q ActualsQuery) ([]AssignmentActual, error) {
+	return actuals(ctx, profitCenterBalances, q)
+}
+
+func actuals(ctx context.Context, k reportKind, q ActualsQuery) ([]AssignmentActual, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
@@ -162,19 +186,23 @@ func (AssignmentBalances) CostCenterActuals(ctx context.Context, q ActualsQuery)
 	}
 	var afterCenter, afterAccount *uuid.UUID
 	if q.After != nil {
-		afterCenter, afterAccount = &q.After.CostCenterID, &q.After.AccountID
+		afterCenter, afterAccount = &q.After.CenterID, &q.After.AccountID
+	}
+	pnl := ``
+	if k.pnlOnly {
+		pnl = ` AND EXISTS (SELECT FROM ledger.gl_account a WHERE a.id = b.account_id AND NOT a.is_balance_sheet)`
 	}
 	// $1-$8 are the report's (rows); $9 and $10 the key the page starts after.
-	rows, _ := tx.Query(ctx, `SELECT center_id, account_id, sum(debit_lc - credit_lc)::bigint FROM (`+costCenterBalances.rows()+`) b
-		WHERE $9::uuid IS NULL OR (center_id, account_id) > ($9, $10::uuid)
+	rows, _ := tx.Query(ctx, `SELECT center_id, account_id, sum(debit_lc - credit_lc)::bigint FROM (`+k.rows()+`) b
+		WHERE ($9::uuid IS NULL OR (center_id, account_id) > ($9, $10::uuid))`+pnl+`
 		GROUP BY 1, 2 ORDER BY 1, 2 LIMIT $11`,
-		q.LegalEntityID, leading, q.FiscalYear, q.PeriodFrom, q.PeriodTo, q.CostCenters, nil, nil, afterCenter, afterAccount, q.Limit)
+		q.LegalEntityID, leading, q.FiscalYear, q.PeriodFrom, q.PeriodTo, q.Centers, nil, nil, afterCenter, afterAccount, q.Limit)
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (AssignmentActual, error) {
 		var a AssignmentActual
-		return a, errs.Wrapf(r.Scan(&a.CostCenterID, &a.AccountID, &a.Amount), "scan cost center actual")
+		return a, errs.Wrapf(r.Scan(&a.CenterID, &a.AccountID, &a.Amount), "scan "+k.table+" actual")
 	})
 	if err != nil {
-		return nil, fmt.Errorf("ledger: cost center actuals of %s in %d: %w", q.LegalEntityID, q.FiscalYear, err)
+		return nil, fmt.Errorf("ledger: %s actuals of %s in %d: %w", k.table, q.LegalEntityID, q.FiscalYear, err)
 	}
 	return out, nil
 }

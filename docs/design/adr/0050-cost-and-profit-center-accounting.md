@@ -866,7 +866,8 @@ key: a batch replaces the plan of its category, year and centers) and
 listed; a category is locked by a person (`controlling.plan.lock`, human
 only) so a budget does not move after approval. Plan against actual: `GET
 /v1/cost-center-plan-actual` (category, company, periods, center or node:
-plan, actual, variance and percent). No planning functions, no
+plan, actual, variance and percent), and by profit center `GET
+/v1/profit-center-plan-actual` (product owner, 2026-10-27, T56g3). No planning functions, no
 availability control, no plan in transaction currency, no plan per
 parallel ledger (it compares with the leading ledger).
 
@@ -881,7 +882,9 @@ As built in T56g (migration 000164):
   hierarchy node (`CostCenters`, as the cost center report takes them,
   §7) and the actuals by cost center and account (`CostCenterActuals`:
   the leading ledger's local amounts, debit positive, projected plus
-  pending as the report reads them). No foreign key crosses into the
+  pending as the report reads them); for the profit center report
+  (T56g3) `ProfitCenters` and `ProfitCenterActuals` likewise, as the
+  profit center report reads them. No foreign key crosses into the
   ledger's schema.
 - **Categories.** `controlling.plan_category`: a code
   (`^[0-9A-Z_]{1,10}$`, as the cost center categories') unique in the
@@ -976,10 +979,30 @@ As built in T56g (migration 000164):
   account: each side reads its first keys after the page's start, one
   more than the page, and the page is the first keys of the two. An
   unknown category, or a company the caller cannot act in, has no rows.
-- **Not built:** plan against actual by profit center (profit center plan
-  lines are stored and listed; the operation §8 names is the cost
-  center's; the product owner asked for it on 2026-10-27 as T56g3, `GET
-  /v1/profit-center-plan-actual`); a profit center's `locked` is not read
+- **Plan against actual by profit center** (T56g3, product owner
+  2026-10-27). `GET /v1/profit-center-plan-actual` has the cost center
+  report's shape, permissions (`controlling.plan.read` and
+  `ledger.entry.read`), company access, paging and money handling, with
+  `profit_center_id` in place of `cost_center_id` and a node of a profit
+  center hierarchy (its subtree's profit centers under today's tree, as
+  `GET /v1/profit-center-balances` takes it). One row per profit center
+  and account: the category's profit center lines (a batch's cost center
+  lines are the cost center report's only; plan lines name one center,
+  never both) against the leading ledger's actual as the profit center
+  report reads it (§7): the profit center each journal line carries,
+  entered or derived at posting (§5: from the cost center, or the
+  company's default profit center), summed over the line's segments, on
+  profit and loss accounts only, so a balance sheet line with a profit
+  center entered is not counted (P3). The same code computes both
+  reports (`paKind`); the ledger reads both kinds' actuals with one query
+  (`actuals`), as its two center reports share one. Where ADR-0050 and 03
+  did not settle a point the cost center report's behaviour was taken
+  and is open to the product owner: actuals include derived profit
+  centers, the default (dummy) profit center among them; a node's rows
+  are its centers' rows, no subtotal (as decided for §7); no breakdown by
+  segment, as plan lines carry none. No budget test, as the cost center
+  report has none. No migration.
+- **Not built:** a profit center's `locked` is not read
   by batches; agents' plan uploads as drafts (§12, T56j); a category's
   rename.
 

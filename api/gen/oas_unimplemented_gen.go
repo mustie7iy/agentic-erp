@@ -2100,6 +2100,25 @@ func (UnimplementedHandler) ListProfitCenterPaths(ctx context.Context, params Li
 	return r, ht.ErrNotImplemented
 }
 
+// ListProfitCenterPlanActual implements listProfitCenterPlanActual operation.
+//
+// Plan against actual per profit center and account of one legal entity, plan category and fiscal
+// year, summed over a range of periods (ADR-0050 §8), in the legal entity's local currency: the
+// category's profit center plan lines, the leading ledger's actuals on profit and loss accounts exact
+// at the moment of the read as `GET /v1/profit-center-balances` reads them (ADR-0050 §7: the profit
+// center each line carries, entered or derived at posting, summed over its segments), the variance
+// (actual less plan) and the variance in percent of the plan (two decimals, rounded half away from
+// zero; absent when the plan is zero). A profit center and account with a plan or an actual has a row,
+// the other side zero. A legal entity the caller cannot act in, or a plan category that does not
+// exist, has none. Rows are in the order of `profit_center_id`, then `account_id`. The actuals are
+// ledger amounts, so besides `controlling.plan.read` the caller needs `ledger.entry.read`, as for the
+// trial balance (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/profit-center-plan-actual
+func (UnimplementedHandler) ListProfitCenterPlanActual(ctx context.Context, params ListProfitCenterPlanActualParams) (r ListProfitCenterPlanActualRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListProfitCenters implements listProfitCenters operation.
 //
 // Profit centers of the tenant with their companies and active periods. Sortable by: `code`.
