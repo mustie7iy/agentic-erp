@@ -710,10 +710,11 @@ their own and least privilege, never as the RDS master user `erp_admin`
 - **Privilege roles** (`internal/directory/setup.go`, `NOLOGIN`), derived
   from the statements each client runs:
   - `erp_router` (the router and its global control plane): `SELECT` on
-    `directory.tenant`, `cell`, `issuer` and `placement`; `UPDATE` of
-    `tenant`'s `cell`, `api_url`, `status`, `version`, `updated_at`
-    (`SetStatus`, `Move`); `INSERT` of `placement`'s `idempotency_key`
-    and `cell` (`Place`).
+    `directory.tenant`, `cell`, `issuer` and `placement`; `INSERT` of a
+    tenant and `UPDATE` of its `region`, `cell`, `api_url`, `status`,
+    `version`, `updated_at` (a provisioned tenant entered at once,
+    `SetStatus`, `Move`: never `tenant_id`); `INSERT` of `placement`'s
+    `idempotency_key` and `cell` (`Place`).
   - `erp_cell` (a cell's server and its commands): `SELECT` on `tenant`,
     `cell` and `issuer`; `INSERT` and column `UPDATE` on `tenant`
     (`Upsert`, `Reinstate`: never `tenant_id`) and `cell` (`UpsertCell`:
@@ -723,7 +724,8 @@ their own and least privilege, never as the RDS master user `erp_admin`
   - `erp_web` (erp-web, ADR-0052 §6, unchanged): the `web` schema's
     `session` table and the `login_client` view alone.
   None may truncate, reference, trigger, change the schema, make objects
-  or roles, or work as another role; `TestLoginsMayDoNothingMore` checks
+  (temporary ones included: `TEMPORARY` is taken from `PUBLIC` on the
+  database) or roles, or work as another role; `TestLoginsMayDoNothingMore` checks
   each refusal and `TestTheRoutersLoginDoesWhatTheRouterDoes`, `TestTheCellsLoginDoesWhatACellDoes` and `TestErpWebsLoginDoesWhatErpWebDoes` each right, and the
   router's, the server's and the session store's own tests run as the
   logins.
@@ -731,16 +733,27 @@ their own and least privilege, never as the RDS master user `erp_admin`
   (chart values `directory.logins.*`, erp-cell's `directory.user`), each
   a member of its role alone. Setup refuses a login that is anything more
   (a superuser, a right to create roles or databases, to replicate or
-  bypass row security, or membership of another role) rather than
-  quietly taking the right back, refuses the owner's own name and the
-  roles' names, and takes back on every run any right given by hand to
-  the roles on the directory's tables before granting them again.
+  bypass row security, membership of another role, the admin option on
+  its own, objects it owns in the database) or a privilege role made a
+  member of any role, rather than quietly taking the right back; refuses
+  the owner's own name and the roles' names, and a password other than
+  printable ASCII (SASLprep would change it); and on every run takes back
+  any right given by hand to the roles or the logins on the `directory`
+  and `web` schemas and their tables before granting the roles' again.
+  A password reaches the server only as its SCRAM-SHA-256 verifier,
+  computed in Go, so no log or statistics of the statement (PostgreSQL
+  logs a failed statement whole, `log_min_error_statement`, to
+  CloudWatch here) holds it.
 - **Setup**: `erp-router setup-directory` (`directory.Setup`) as the
   owner makes the schema, the roles' grants and the logins, setting each
   password again. In the erp-global chart it is a pre-install and
   pre-upgrade hook Job (`templates/setup.yaml`) with the master URL's
-  ExternalSecret, the RDS bundle and a network policy (the directory in
-  the VPC alone) as hooks of lower weight, as erp-cell's migrations are;
+  ExternalSecret, the RDS bundle and a network policy (the cluster's DNS,
+  since the default deny is not there yet on a first install, and the
+  directory in the VPC alone) as hooks of lower weight, as erp-cell's
+  migrations are; the secret holding the master URL is deleted once the
+  hooks succeed, and after a failure stays until the next release, for a
+  look at the failed Job;
   the master credentials reach that hook alone (`helm-checks.sh`), not the
   router, erp-web or the cell. `directory.OpenWith` makes nothing and fails
   startup while the schema is missing.

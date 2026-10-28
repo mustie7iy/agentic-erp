@@ -156,7 +156,8 @@ CREATE TABLE IF NOT EXISTS directory.placement (
 
 // WebSchema is the web workspace's part of the directory database
 // (ADR-0052 §6, T73b): its people's sessions, and the web clients by login
-// code. erp-web works as erp_web (WebRole), a role that sees the web schema alone:
+// code. erp-web works as erp_web (WebRole), a role that sees the web schema
+// alone (its grants are in Grants):
 // it reads the clients through the view, never directory.issuer, and no
 // tenant, cell or placement. A session holds no business data: who signed
 // in (tenant, issuer, subject), through which login code, when, and the
@@ -190,11 +191,7 @@ CREATE INDEX IF NOT EXISTS session_last_seen ON web.session (last_seen_at);
 CREATE INDEX IF NOT EXISTS session_expires ON web.session (expires_at);
 CREATE OR REPLACE VIEW web.login_client WITH (security_barrier) AS
   SELECT login_code, issuer, audience, tenant_id, client_id, auth_method, credential_ref, scope
-  FROM directory.issuer WHERE login_code IS NOT NULL;
-REVOKE ALL ON SCHEMA directory FROM erp_web;
-GRANT USAGE ON SCHEMA web TO erp_web;
-GRANT SELECT, INSERT, UPDATE, DELETE ON web.session TO erp_web;
-GRANT SELECT ON web.login_client TO erp_web;`
+  FROM directory.issuer WHERE login_code IS NOT NULL;`
 
 // Postgres keeps the directory in a database of its own (ERP_DIRECTORY_URL).
 type Postgres struct {

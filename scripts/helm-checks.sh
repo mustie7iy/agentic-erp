@@ -682,8 +682,10 @@ url = setup["spec"]["target"]["template"]["data"]["admin-url"]
 if "@erp-dev-directory.abc.eu-central-1.rds.amazonaws.com:5432/directory?sslmode=verify-full&sslrootcert=" not in url:
     sys.exit("helm-checks: the setup hook reaches %r, want the directory over verified TLS" % url)
 policy = next(d for d in glob if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "erp-directory-setup")
-if [([p["ipBlock"]["cidr"] for p in r["to"]], [x["port"] for x in r["ports"]]) for r in policy["spec"]["egress"]] != [(["10.16.0.0/16"], [5432])] or policy["spec"].get("ingress"):
-    sys.exit("helm-checks: the setup hook's network policy %r: want the directory in the VPC alone" % policy["spec"])
+to = [([p.get("ipBlock", {}).get("cidr") or p.get("podSelector", {}).get("matchLabels", {}).get("k8s-app") for p in r["to"]],
+       sorted((x["protocol"], x["port"]) for x in r["ports"])) for r in policy["spec"]["egress"]]
+if to != [(["kube-dns"], [("TCP", 53), ("UDP", 53)]), (["10.16.0.0/16"], [("TCP", 5432)])] or policy["spec"].get("ingress"):
+    sys.exit("helm-checks: the setup hook's network policy %r: want the cluster's DNS (the default deny is not there on a first install) and the directory in the VPC alone" % policy["spec"])
 PY
 echo "helm-checks: the router, erp-web and the cell reach the directory as logins of their own; its master credentials reach the setup hook alone"
 

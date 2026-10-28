@@ -7,8 +7,10 @@
 # changed one takes effect with the release (as erp-cell's
 # erp-temporal-schema does for the engine's login). The master URL's
 # ExternalSecret, the RDS bundle and the Job's network policy are hooks of
-# lower weight, there before it, and live only while the release's hooks
-# run.
+# lower weight, there before it. The secret holding the master URL is
+# deleted once the hooks succeed; after a failed setup it stays (refreshed
+# hourly) until the next release replaces it, as erp-cell's migrations'
+# does, for a look at the failed Job.
 {{- $prefix := required "secrets.prefix is required: erp/global" .Values.secrets.prefix }}
 {{- $master := required "directory.masterSecretArn is required: global.directory_master_secret_arn" .Values.directory.masterSecretArn }}
 {{- $directory := required "directory.endpoint is required: global.directory_endpoint" .Values.directory.endpoint }}
@@ -73,8 +75,9 @@ data:
     {{- required "directory.caBundle is required: the RDS certificate authorities' bundle" .Values.directory.caBundle | trim | nindent 4 }}
 ---
 # A hook, as its Job is: on an upgrade the default deny is already there,
-# and the Job runs before the release's other resources. The directory in
-# the VPC alone (and DNS, by the default deny's rule).
+# and the Job runs before the release's other resources, the default
+# deny among them on a first install, so the hook admits DNS itself: the
+# cluster's DNS and the directory in the VPC, nothing else.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -92,6 +95,16 @@ spec:
       app.kubernetes.io/instance: {{ .Release.Name }}
   policyTypes: [Ingress, Egress]
   egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
     - to:
         - ipBlock: {cidr: {{ $vpc | quote }}}
       ports:

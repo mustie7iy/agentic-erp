@@ -3,6 +3,7 @@ package directory_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -150,6 +151,9 @@ func TestTheRoutersLoginDoesWhatTheRouterDoes(t *testing.T) {
 		{"freeze the tenant", func() error { _, err := l.router.SetStatus(ctx, tenant, 0, directory.ReadOnly); return err }},
 		{"move it", func() error { _, err := l.router.Move(ctx, tenant, 0, "eu-2"); return err }},
 		{"place a provisioning", func() error { _, err := l.router.Place(ctx, "key-1", "eu-west", ""); return err }},
+		{"enter the provisioned tenant at once", func() error {
+			return l.router.Upsert(ctx, directory.Entry{TenantID: uuid.New(), Region: "eu-west", Cell: "eu-1", APIURL: "https://eu-1", Status: directory.Active})
+		}},
 		{"place it again", func() error { _, err := l.router.Place(ctx, "key-1", "eu-west", ""); return err }},
 	}
 	for _, s := range steps {
@@ -192,7 +196,7 @@ var ddl = []string{
 	`CREATE TABLE directory.mine (x int)`, `CREATE TABLE web.mine (x int)`, `CREATE TABLE public.mine (x int)`,
 	`CREATE SCHEMA mine`, `ALTER TABLE directory.tenant ADD COLUMN mine int`, `DROP TABLE directory.placement`,
 	`ALTER TABLE web.session ADD COLUMN mine int`, `DROP VIEW web.login_client`, `TRUNCATE directory.tenant`,
-	`TRUNCATE web.session`, `CREATE ROLE mine`, `GRANT erp_router TO CURRENT_USER`, `GRANT erp_cell TO CURRENT_USER`,
+	`TRUNCATE web.session`, `CREATE TEMP TABLE mine (x int)`, `CREATE ROLE mine`, `GRANT erp_router TO CURRENT_USER`, `GRANT erp_cell TO CURRENT_USER`,
 }
 
 // TestLoginsMayDoNothingMore: each login is refused what its service
@@ -203,8 +207,8 @@ func TestLoginsMayDoNothingMore(t *testing.T) {
 	l := setUpLogins(t)
 	refused := map[string][]string{
 		directory.RouterRole: append([]string{
-			`INSERT INTO directory.tenant (tenant_id, region, cell, api_url, status) VALUES (gen_random_uuid(), 'r', 'c', 'u', 'active')`,
-			`DELETE FROM directory.tenant`, `UPDATE directory.tenant SET region = 'r'`, `UPDATE directory.tenant SET tenant_id = gen_random_uuid()`,
+			`INSERT INTO directory.tenant (tenant_id, region, cell, api_url, status, version) VALUES (gen_random_uuid(), 'r', 'c', 'u', 'active', 9)`,
+			`DELETE FROM directory.tenant`, `UPDATE directory.tenant SET tenant_id = gen_random_uuid()`,
 			`INSERT INTO directory.cell (name, region, api_url, control_url) VALUES ('c', 'r', 'u', 'u')`, `UPDATE directory.cell SET accepting = false`,
 			`DELETE FROM directory.cell`,
 			`INSERT INTO directory.issuer (issuer, audience, tenant_id, cell) VALUES ('i', 'a', gen_random_uuid(), 'c')`,
@@ -240,12 +244,17 @@ func TestLoginsMayDoNothingMore(t *testing.T) {
 }
 
 // TestSetupAgain: a second run sets the logins' passwords again, so a
-// changed one takes effect, and takes back a right given by hand.
+// changed one takes effect, as SCRAM-SHA-256 verifiers alone, and takes
+// back the rights given by hand to a role or a login.
 func TestSetupAgain(t *testing.T) {
 	ctx := context.Background()
 	l := setUpLogins(t)
-	if err := exec(ctx, l.owner, database.Scope{}, `GRANT DELETE ON directory.tenant TO erp_router`); err != nil {
-		t.Fatal(err)
+	router := pgx.Identifier{l.creds[directory.RouterRole].Name}.Sanitize()
+	for _, sql := range []string{`GRANT DELETE ON directory.tenant TO erp_router`, `GRANT TRUNCATE ON web.session TO erp_web`,
+		`GRANT DELETE ON directory.cell TO ` + router} {
+		if err := exec(ctx, l.owner, database.Scope{}, sql); err != nil {
+			t.Fatal(err)
+		}
 	}
 	old := l.creds[directory.CellRole]
 	changed := pgtest.Login{Name: old.Name, Password: uuid.NewString()}
@@ -253,41 +262,66 @@ func TestSetupAgain(t *testing.T) {
 	if err := directory.Setup(ctx, l.url, l.all(t)...); err != nil {
 		t.Fatalf("again: %v", err)
 	}
-	if err := exec(ctx, l.router, database.Scope{}, `DELETE FROM directory.tenant`); err == nil {
-		t.Error("a right given by hand: got it kept, want it taken back")
+	for _, c := range []struct {
+		dir *directory.Postgres
+		sql string
+	}{{l.router, `DELETE FROM directory.tenant`}, {l.web, `TRUNCATE web.session`}, {l.router, `DELETE FROM directory.cell`}} {
+		err := exec(ctx, c.dir, database.Scope{}, c.sql)
+		if pg, ok := errors.AsType[*pgconn.PgError](err); !ok || pg.Code != "42501" {
+			t.Errorf("%s, given by hand: got %v, want it taken back (42501)", c.sql, err)
+		}
 	}
-	if dir, err := directory.OpenWith(ctx, old.As(l.url), nil); err == nil {
-		dir.Close()
-		t.Error("the old password: got it taken, want it refused")
+	dir, err := directory.OpenWith(ctx, old.As(l.url), nil)
+	if pg, ok := errors.AsType[*pgconn.PgError](err); !ok || pg.Code != "28P01" {
+		if dir != nil {
+			dir.Close()
+		}
+		t.Errorf("the old password: got %v, want it refused (28P01)", err)
 	}
-	dir, err := directory.OpenWith(ctx, changed.As(l.url), nil)
-	if err != nil {
+	if dir, err = directory.OpenWith(ctx, changed.As(l.url), nil); err != nil {
 		t.Fatalf("the new password: got %v, want it taken", err)
 	}
 	dir.Close()
+	var stored string
+	pgtest.Scan(t, `SELECT rolpassword FROM pg_authid WHERE rolname = $1`, []any{changed.Name}, &stored)
+	if !strings.HasPrefix(stored, "SCRAM-SHA-256$4096:") || strings.Contains(stored, changed.Password) {
+		t.Errorf("stored: got %q, want a SCRAM-SHA-256 verifier", stored)
+	}
 }
 
 // TestSetupRefusesLogins: a login is made least privileged or not at all.
 func TestSetupRefusesLogins(t *testing.T) {
 	ctx := context.Background()
+	// Made before the database, so dropped after it: one owns a table there.
+	createdb, member, admin, owner := pgtest.NewLogin(t), pgtest.NewLogin(t), pgtest.NewLogin(t), pgtest.NewLogin(t)
 	u := pgtest.EmptyDatabase(t)
-	var owner string
-	pgtest.Scan(t, `SELECT current_user`, nil, &owner)
-	createdb, member := pgtest.NewLogin(t), pgtest.NewLogin(t)
-	pgtest.Exec(t, `CREATE ROLE `+pgx.Identifier{createdb.Name}.Sanitize()+` LOGIN CREATEDB`)
-	pgtest.Exec(t, `CREATE ROLE `+pgx.Identifier{member.Name}.Sanitize()+` LOGIN`)
+	var me string
+	pgtest.Scan(t, `SELECT current_user`, nil, &me)
+	id := func(l pgtest.Login) string { return pgx.Identifier{l.Name}.Sanitize() }
+	pgtest.Exec(t, `CREATE ROLE `+id(createdb)+` LOGIN CREATEDB; CREATE ROLE `+id(member)+` LOGIN; CREATE ROLE `+id(admin)+` LOGIN; CREATE ROLE `+id(owner)+` LOGIN`)
 	if err := directory.Setup(ctx, u); err != nil { // the roles exist
 		t.Fatal(err)
 	}
-	pgtest.Exec(t, `GRANT erp_cell TO `+pgx.Identifier{member.Name}.Sanitize())
+	dir, err := directory.OpenWith(ctx, u, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	if err := exec(ctx, dir, database.Scope{}, `CREATE TABLE public.owned (x int); ALTER TABLE public.owned OWNER TO `+id(owner)); err != nil {
+		t.Fatal(err)
+	}
+	pgtest.Exec(t, `GRANT erp_cell TO `+id(member)+`; GRANT erp_cell TO `+id(admin)+` WITH ADMIN OPTION`)
 	for name, c := range map[string]directory.Login{
-		"no name":                 {Password: "p", Role: directory.CellRole},
-		"no password":             {Name: "erp_x_login", Role: directory.CellRole},
-		"another role":            {Name: "erp_x_login", Password: "p", Role: "erp_app"},
-		"a privilege role's name": {Name: directory.WebRole, Password: "p", Role: directory.CellRole},
-		"the owner":               {Name: owner, Password: "p", Role: directory.CellRole},
-		"a right to create":       {Name: createdb.Name, Password: "p", Role: directory.CellRole},
-		"a member of another":     {Name: member.Name, Password: "p", Role: directory.RouterRole},
+		"no name":                        {Password: "p", Role: directory.CellRole},
+		"no password":                    {Name: "erp_x_login", Role: directory.CellRole},
+		"another role":                   {Name: "erp_x_login", Password: "p", Role: "erp_app"},
+		"a privilege role's name":        {Name: directory.WebRole, Password: "p", Role: directory.CellRole},
+		"a password SASLprep may change": {Name: "erp_x_login", Password: "pässword", Role: directory.CellRole},
+		"the owner":                      {Name: me, Password: "p", Role: directory.CellRole},
+		"a right to create":              {Name: createdb.Name, Password: "p", Role: directory.CellRole},
+		"a member of another":            {Name: member.Name, Password: "p", Role: directory.RouterRole},
+		"able to grant its role":         {Name: admin.Name, Password: "p", Role: directory.CellRole},
+		"owning objects":                 {Name: owner.Name, Password: "p", Role: directory.CellRole},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := directory.Setup(ctx, u, c); !errors.Is(err, directory.ErrLogin) {
