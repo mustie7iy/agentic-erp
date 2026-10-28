@@ -8371,6 +8371,13 @@
       "r": "scripts/images.sh · scripts/test-images.sh · .github/workflows/ci.yml · ADR-0032 · 06 §6.5",
       "src": "ci:batch15",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "The browser tests read the browser's errors, or what a planted script did, only once the page has loaded (pre-existing review finding on batch 16): waitFor and waitForText end when the document is complete, as audit has since main's full run 40460447291, so the approvals, reports, journal and close jobs, the bank and payments tabs not audited last, and the sign-out page no longer read a page still loading",
+      "r": "internal/web/e2e",
+      "src": "review:batch16",
+      "c": []
      }
     ]
    },
