@@ -16,8 +16,9 @@ import (
 // context for plan values and plan against actual (ADR-0050 §7, §8, T56g,
 // T56g3): what a plan may name, the cost or profit centers of a hierarchy
 // node, and the actuals by cost or profit center and account, read as the
-// center reports read them (costCenterBalances, profitCenterBalances). It runs in the request's transaction under
-// row-level security (ADR-0003); controlling reads no ledger table itself.
+// center reports read them (costCenterBalances, profitCenterBalances). It
+// runs in the request's transaction under row-level security (ADR-0003);
+// controlling reads no ledger table itself.
 type AssignmentBalances struct{}
 
 // PlanObjects are the objects among those asked for that a plan of a legal
@@ -190,7 +191,7 @@ func actuals(ctx context.Context, k reportKind, q ActualsQuery) ([]AssignmentAct
 	}
 	pnl := ``
 	if k.pnlOnly {
-		pnl = ` AND EXISTS (SELECT FROM ledger.gl_account a WHERE a.id = b.account_id AND NOT a.is_balance_sheet)`
+		pnl = ` AND ` + pnlAccount
 	}
 	// $1-$8 are the report's (rows); $9 and $10 the key the page starts after.
 	rows, _ := tx.Query(ctx, `SELECT center_id, account_id, sum(debit_lc - credit_lc)::bigint FROM (`+k.rows()+`) b

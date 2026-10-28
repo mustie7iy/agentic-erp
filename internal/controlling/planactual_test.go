@@ -198,7 +198,7 @@ func TestProfitCenterPlanActual(t *testing.T) {
 	wantList(t, "a company the reader cannot act in", c.with(c.as(c.Reader(t, "outsider"))).compareBy(t, "profit", ""), nil)
 	other := c
 	other.Client = fixture.New(t, perms...).In(t)
-	wantList(t, "another tenant", other.compareBy(t, "profit", ""), nil)
+	wantList(t, "another tenant, which cannot see the company", other.compareBy(t, "profit", ""), nil)
 	pgtest.Exec(t, `DELETE FROM identity.role_permission WHERE tenant_id = $1 AND permission_code = 'ledger.entry.read'`, c.Tenant.ID)
 	c.Problem(403, "identity.permission_missing", "GET", path, "", "")
 }
