@@ -38,6 +38,24 @@ without conflict handling", not only "line 42 inserts twice". The reviewer looks
 instances of the class in the diff and lists them; the author fixes every instance in the diff,
 not only the one cited. Instances outside the diff are Pre-existing.
 
+### Named bug classes
+
+Classes the product owner has named after they reached a gate. A reviewer checks every diff for
+them, beside whatever class a finding of its own names.
+
+- **A tamper that can leave the value unchanged** (PO 2026-10-28). A test that alters a token,
+  signature, ETag, HMAC, page token, state, nonce, hash or sealed value to prove it is refused
+  must guarantee the altered value differs from the original; otherwise the test fails, or
+  passes for the wrong reason, whenever the random original already holds what the tamper
+  writes. Overwriting a character or byte with a fixed one (`"x"+state[1:]`) is the instance:
+  a random base64url state starts with `x` one time in 64 (`internal/web/signin_test.go`,
+  `TestCallbackRefusals`, fixed in batch 16 with `otherFirst`). Derive the tamper from the
+  original so it cannot coincide (flip a bit with `^= 1`, pick a character the original does
+  not hold there, append, truncate), or fail the test when the result equals the original. A
+  constant that cannot have the original's form (`"!!"` for base64, a shorter value) is
+  different by construction; replacing a whole digest or secret of 128 bits or more with a
+  constant is accepted, since a collision is not a realistic event.
+
 ## Rounds
 
 A round is one review of the step and the author's fixes for it. After three rounds on one

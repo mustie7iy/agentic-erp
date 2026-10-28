@@ -8338,6 +8338,13 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "A named bug class in REVIEW.md (PO 2026-10-28): a test that tampers with a token, signature, ETag, HMAC, page token, state, nonce, hash or sealed value to prove it is refused guarantees the tampered value differs from the original (from the 1-in-64 flake of TestCallbackRefusals' forged state, fixed in batch 16 with otherFirst); a sweep of every test that tampers by overwriting or flipping found no other instance that can leave the value unchanged",
+      "r": "REVIEW.md · internal/web/signin_test.go",
+      "src": "po:2026-10-28",
+      "c": []
+     },
+     {
       "s": "P",
       "t": "Main's full suite on GitHub, stopped by the runner (exit 143, \"received a shutdown signal\") about 8 minutes into the race step on every push from 2026-10-21 with no test failing: the generated API built alone first, then the packages tested two at a time, memory and disk logged every 30 s; workflow_dispatch runs the full jobs on any branch (PO 2026-10-25); verified by main's first run after it merges",
       "r": ".github/workflows/ci.yml test job",
