@@ -95,7 +95,20 @@ type RBKP struct {
 	WMWST1 string `json:"WMWST1"` // tax amount
 	// RBSTAT "A" = parked, "5" = posted.
 	RBSTAT string `json:"RBSTAT"`
+	// XRECH is the document's direction (data element XRECH, "Indicator:
+	// post invoice"): "X" an invoice, "" a credit memo. It is a pointer
+	// because an absent indicator and a credit memo's blank one differ: an
+	// extract without it (the OData mapping does not yet carry it) cannot
+	// tell an invoice from a credit memo, and the quality gate refuses its
+	// parked documents rather than guess (T72b). The field and its values
+	// are from the ABAP dictionary as published mirrors show it, still to be
+	// confirmed by an SAP specialist on the pilot's release.
+	XRECH *string `json:"XRECH,omitempty"`
 }
+
+// Indicator is an SAP one-character indicator as the extract holds an
+// optional one: XRECH: sap.Indicator("X").
+func Indicator(v string) *string { return &v }
 
 // RSEG - supplier invoice item referencing a PO item.
 type RSEG struct {
@@ -106,6 +119,13 @@ type RSEG struct {
 	EBELP string `json:"EBELP"`
 	MENGE string `json:"MENGE"`
 	WRBTR string `json:"WRBTR"`
+	// TBTKZ "X" marks a subsequent debit/credit item: a revaluation of what
+	// was invoiced that moves no quantity (SAP Help, "Subsequent
+	// Debits/Credits"); "" an ordinary item. SAP keeps the indicator per
+	// item, and a document whose items all carry it is a subsequent debit
+	// (XRECH "X") or credit (XRECH ""), as SAP Help, "Posting Subsequent
+	// Debit/Credits", describes entering one (T72b).
+	TBTKZ string `json:"TBTKZ,omitempty"`
 }
 
 // ACDOCA - Universal Journal line item.

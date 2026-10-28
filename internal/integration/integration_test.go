@@ -65,7 +65,7 @@ func tiny() *sap.Extract {
 		EKPO: []sap.EKPO{{EBELN: "4500000001", EBELP: "00010", MATNR: "MAT-1", MENGE: "2", NETPR: "50.00", PEINH: "1", SAKTO: "0000520000"}},
 		MSEG: []sap.MSEG{{MBLNR: "5000000001", MJAHR: "2026", ZEILE: "0001", BWART: "101", EBELN: "4500000001", EBELP: "00010", MENGE: "2", BUDAT: "20260305"}},
 		RBKP: []sap.RBKP{{BELNR: "5100000001", GJAHR: "2026", BUKRS: "2000", LIFNR: "0000000001", XBLNR: "T-1", BLDAT: "20260310", WAERS: "EUR",
-			RMWWR: "100.00", WMWST1: "0.00", RBSTAT: "A"}},
+			RMWWR: "100.00", WMWST1: "0.00", RBSTAT: "A", XRECH: sap.Indicator("X")}},
 		RSEG: []sap.RSEG{{BELNR: "5100000001", GJAHR: "2026", BUZEI: "000001", EBELN: "4500000001", EBELP: "00010", MENGE: "2", WRBTR: "100.00"}},
 		ACDOCA: []sap.ACDOCA{
 			{RLDNR: "0L", RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000001", DOCLN: "000001", RACCT: "0000520000", HSL: "80.00", BUDAT: "20260302", BLART: "RE", XBLNR: "P-1"},
@@ -237,7 +237,7 @@ func TestBalancesMode(t *testing.T) {
 	if got["status"] != "loaded" || got["report"].(map[string]any)["loaded"].(map[string]any)["journal_entries"] != float64(2) {
 		t.Fatalf("balances: %v", got["report"])
 	}
-	if _, got = e.act(t, run, "reconcile"); got["status"] != "reconciled" || strings.Contains(checks(got["report"].(map[string]any)), "debits") {
+	if _, got = e.act(t, run, "reconcile"); got["status"] != "reconciled" || strings.Contains(checks(got["report"].(map[string]any)), "Total debits posted") {
 		t.Fatalf("reconcile: %v", got["report"])
 	}
 	again := e.run(t, c, "balances", false, e.US.String(), e.DE.String())

@@ -335,13 +335,14 @@ func (q *qualityCheck) journalLine(l sap.ACDOCA, s *journalScan) {
 	}
 }
 
-// supplierInvoices checks that each invoice header agrees with its items
-// and tax.
+// supplierInvoices checks that each parked invoice document has a kind
+// (documentKind) and that its header agrees with its items and tax.
 func (q *qualityCheck) supplierInvoices() {
 	itemTotals := q.invoiceItemTotals()
 	dups := duplicateInvoices(q.e)
+	items := invoiceItems(q.e)
 	for _, h := range q.e.RBKP {
-		q.supplierInvoice(h, itemTotals, dups)
+		q.supplierInvoice(h, items[h.BELNR+"/"+h.GJAHR], itemTotals, dups)
 	}
 }
 
@@ -363,7 +364,7 @@ func (q *qualityCheck) invoiceItemTotals() map[string]money.Minor {
 	return itemTotals
 }
 
-func (q *qualityCheck) supplierInvoice(h sap.RBKP, itemTotals map[string]money.Minor, dups map[string]string) {
+func (q *qualityCheck) supplierInvoice(h sap.RBKP, items []sap.RSEG, itemTotals map[string]money.Minor, dups map[string]string) {
 	key := h.BELNR + "/" + h.GJAHR
 	gross, err1 := q.t.amount(h.RMWWR, h.WAERS)
 	tax, err2 := q.t.amount(h.WMWST1, h.WAERS)
@@ -379,6 +380,10 @@ func (q *qualityCheck) supplierInvoice(h sap.RBKP, itemTotals map[string]money.M
 		return
 	case dups[key] != "":
 		q.add(SevWarning, "RBKP", key, "supplier reference %q repeats invoice %s; it is not migrated", h.XBLNR, dups[key])
+		return
+	}
+	if _, issue := documentKind(h, items); issue != nil {
+		q.out = append(q.out, *issue)
 		return
 	}
 	if net := itemTotals[key]; net+tax != gross {

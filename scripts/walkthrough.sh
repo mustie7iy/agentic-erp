@@ -456,10 +456,19 @@ step_migrate() {
     { sed 's/^/     /' "$WORK/migrate.out"; fail "the migration did not reconcile"; }
   sed 's/^/     /' "$WORK/migrate.out"
   grep -q ': reconciled$' "$WORK/migrate.out" || fail "the migration report does not say reconciled"
-  for check in 'Trial balance: accounts with differences' 'Open payables total' 'Open payables: vendors with differences'; do
+  for check in 'Trial balance: accounts with differences' 'Open payables total' 'Open payables: vendors with differences' \
+    'Parked supplier invoices' 'Parked supplier credit memos' 'Parked subsequent debits' 'Parked subsequent credits'; do
     grep "$check" "$WORK/migrate.out" | grep -q 'PASS$' || fail "the reconciliation check '$check' did not pass"
   done
   say "The trial balance and the open payables agree with SAP's, recomputed from the raw extract."
+  say "SAP's parked corrections load as their kind (RBKP-XRECH, RSEG-TBTKZ; T72b), never as invoices to pay:"
+  say "amounts stay positive and the kind gives the direction; parked, they hold no open item until posted."
+  local kind
+  for kind in credit_memo subsequent_debit subsequent_credit; do
+    api 200 '.items[] | "\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), from \(.source), supplier \(.supplier_id)"' \
+      listSupplierInvoices -p "legal_entity_id=$LE" -p "kind=$kind" -p status=parked | name_partners
+    expect "parked migrated documents of kind $kind" "$(field '[.items[] | select(.source == "migration")] | length')" 1
+  done
   passed
 }
 

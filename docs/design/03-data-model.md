@@ -2334,7 +2334,7 @@ line or reservation. An agent's budget is identity's
 | Purchase order release strategy (T16FS/T16FC, EKKO-FRGKE/FRGZU) | `purchasing.order_release_approval` tiers, `purchase_order.status` `pending_approval`, `workflow.approval_request` (`purchase_order`) (T47c/d) |
 | PO change documents and versions (CDHDR/CDPOS EINKBELEG, EREV, EKKO-REVNO) | `procurement.purchase_order_change` (`proposed`, `previous`, `revision`), `purchase_order.revision`; increases approved as `order_change` (T47e/f) |
 | Outline agreement validity end and follow-on contract (EKKO-KDATE, reference agreement) | `contract.valid_to`, `contract.renewal_of_id`, `expiry_alerted_on` and `ContractExpiring` (T47g) |
-| RBKP/RSEG | `payables.supplier_invoice` + items |
+| RBKP/RSEG | `payables.supplier_invoice` + items; parked documents (RBSTAT A) by kind (T72b): RBKP-XRECH "X" an invoice, blank a credit memo; all items RSEG-TBTKZ "X" a subsequent debit (XRECH "X") or credit (blank), their items of quantity 0. An absent or unknown indicator stops the load; a document mixing subsequent and ordinary items is not migrated (warning) |
 | REGUH/REGUP (F110) | `payments.payment_run`, `payment`, `payment_item` |
 | T012K | `payments.house_bank` |
 | T052 | `partner.payment_term` |

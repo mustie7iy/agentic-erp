@@ -456,9 +456,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Load SAP credit memos and subsequent debits/credits by kind (RBKP XRECH/TBTKZ)",
-      "r": "T72b",
+      "r": "integration documentKind, parkedKinds · sap.RBKP XRECH, sap.RSEG TBTKZ · reconciliation Parked supplier credit memos / subsequent debits / subsequent credits · TestCorrectionsLoadByKind · TestDocumentKind · walkthrough step 3 · T72b",
       "src": "baseline",
       "c": []
      },
@@ -7983,7 +7983,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A parked SAP credit memo or subsequent debit/credit (RBKP XRECH/TBTKZ) loads as its kind, never as a positive invoice that gets paid",
       "r": "Phase 1 triage (PO 2026-10-21) · internal/integration load.go loader.invoices · sap.RBKP · T72b",
       "src": "baseline",

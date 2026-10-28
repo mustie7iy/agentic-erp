@@ -84,9 +84,9 @@ type Invoices interface {
 	CreateInvoice(ctx context.Context, in payables.Input, source string) (payables.Invoice, error)
 }
 
-// InvoiceCounts counts supplier invoices (payables).
+// InvoiceCounts counts supplier invoices by kind (payables).
 type InvoiceCounts interface {
-	Count(ctx context.Context, ids []uuid.UUID) (int, error)
+	Count(ctx context.Context, ids []uuid.UUID) (map[string]int, error)
 }
 
 // Postings posts journal entries and clears migrated open items (ledger).

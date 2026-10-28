@@ -336,37 +336,22 @@ func (l *loader) receipts(ctx context.Context) error {
 	return nil
 }
 
+// invoices enters the parked SAP invoice documents, each as its kind
+// (parkedKinds, T72b), so a credit memo is never a positive invoice that a
+// payment run pays.
 func (l *loader) invoices(ctx context.Context) error {
 	nos := l.itemNos()
-	items := map[string][]sap.RSEG{}
-	for _, it := range l.ext.RSEG {
-		items[it.BELNR+"/"+it.GJAHR] = append(items[it.BELNR+"/"+it.GJAHR], it)
-	}
-	dups := duplicateInvoices(l.ext)
+	items := invoiceItems(l.ext)
+	kinds := parkedKinds(l.ext)
 	heads := slices.Clone(l.ext.RBKP)
 	slices.SortFunc(heads, func(a, b sap.RBKP) int { return cmp.Compare(a.BELNR+"/"+a.GJAHR, b.BELNR+"/"+b.GJAHR) })
 	for _, h := range heads {
 		key := h.BELNR + "/" + h.GJAHR
-		if _, ok := l.refs["RBKP/"+key]; ok || h.RBSTAT != "A" || dups[key] != "" {
+		kind, ok := kinds[key]
+		if _, loaded := l.refs["RBKP/"+key]; loaded || !ok {
 			continue
 		}
-		date, _ := sapDate(h.BLDAT)              // checked by the quality gate
-		gross, _ := l.t.amount(h.RMWWR, h.WAERS) // checked by the quality gate
-		tax, _ := l.t.amount(h.WMWST1, h.WAERS)  // checked by the quality gate
-		in := payables.Input{LegalEntityID: l.t.entities[h.BUKRS].ID, SupplierID: l.vendors[h.LIFNR], SupplierReference: cmp.Or(h.XBLNR, h.BELNR),
-			InvoiceDate: date, Gross: payables.Amount{Value: l.plain(gross, h.WAERS), Currency: h.WAERS},
-			Tax: payables.Amount{Value: l.plain(tax, h.WAERS), Currency: h.WAERS}}
-		lines := items[key]
-		slices.SortFunc(lines, func(a, b sap.RSEG) int { return cmp.Compare(a.BUZEI, b.BUZEI) })
-		for _, it := range lines {
-			po, no := l.refs["EKKO/"+it.EBELN], nos[it.EBELN+"/"+it.EBELP]
-			amt, _ := l.t.amount(it.WRBTR, h.WAERS) // checked by the quality gate
-			if in.PurchaseOrderID == nil {
-				in.PurchaseOrderID = &po
-			}
-			in.Items = append(in.Items, payables.ItemInput{PurchaseOrderID: &po, POItemNo: &no, Quantity: it.MENGE, Unit: unit,
-				Amount: payables.Amount{Value: l.plain(amt, h.WAERS), Currency: h.WAERS}})
-		}
+		in := l.invoiceInput(h, kind, items[key], nos)
 		done, err := l.step(ctx, "RBKP", key, func() error {
 			v, err := l.e.Invoices.CreateInvoice(ctx, in, "migration")
 			if err != nil {
@@ -382,6 +367,35 @@ func (l *loader) invoices(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// invoiceInput is the payables document of one parked SAP document of the
+// kind. A subsequent debit or credit moves no quantity, so its items are
+// order items of quantity 0, as payables keeps them (03 §3.9), whatever
+// quantity SAP proposed for them; amounts stay as SAP holds them, not
+// negative, the kind giving the direction.
+func (l *loader) invoiceInput(h sap.RBKP, kind string, lines []sap.RSEG, nos map[string]int32) payables.Input {
+	date, _ := sapDate(h.BLDAT)              // checked by the quality gate
+	gross, _ := l.t.amount(h.RMWWR, h.WAERS) // checked by the quality gate
+	tax, _ := l.t.amount(h.WMWST1, h.WAERS)  // checked by the quality gate
+	in := payables.Input{LegalEntityID: l.t.entities[h.BUKRS].ID, SupplierID: l.vendors[h.LIFNR], SupplierReference: cmp.Or(h.XBLNR, h.BELNR),
+		InvoiceDate: date, Gross: payables.Amount{Value: l.plain(gross, h.WAERS), Currency: h.WAERS},
+		Tax: payables.Amount{Value: l.plain(tax, h.WAERS), Currency: h.WAERS}, Kind: kind}
+	slices.SortFunc(lines, func(a, b sap.RSEG) int { return cmp.Compare(a.BUZEI, b.BUZEI) })
+	for _, it := range lines {
+		po, no := l.refs["EKKO/"+it.EBELN], nos[it.EBELN+"/"+it.EBELP]
+		amt, _ := l.t.amount(it.WRBTR, h.WAERS) // checked by the quality gate
+		if in.PurchaseOrderID == nil {
+			in.PurchaseOrderID = &po
+		}
+		qty := it.MENGE
+		if kind == payables.KindSubsequentDebit || kind == payables.KindSubsequentCredit {
+			qty = "0"
+		}
+		in.Items = append(in.Items, payables.ItemInput{PurchaseOrderID: &po, POItemNo: &no, Quantity: qty, Unit: unit,
+			Amount: payables.Amount{Value: l.plain(amt, h.WAERS), Currency: h.WAERS}})
+	}
+	return in
 }
 
 // reconciliation reports whether the account is a vendor reconciliation
