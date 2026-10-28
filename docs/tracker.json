@@ -2504,9 +2504,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "GR/IR maintenance: clear residual positions on closed orders (SAP MR11)",
-      "r": "T72e",
+      "r": "POST/GET /v1/purchase-orders/{id}/gr-ir-clearings · procurement grir_clearing.go · approvals.GRIRClearing · ledger GRIRItem.Clears, gr_ir_position.cleared, gr_ir_clearing_entry (migration 000165) · event GrIrCleared · walkthrough step 15 · ADR-0034 As built · T72e",
       "src": "baseline",
       "c": []
      },
@@ -8004,9 +8004,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Residual GR/IR positions of closed orders can be cleared (SAP MR11) through the API, approved and audited, before the first month-end close",
-      "r": "Phase 1 triage (PO 2026-10-21) · 03-data-model GR/IR (not yet built) · T33a · T72e",
+      "r": "Phase 1 triage (PO 2026-10-21) · 03-data-model §3.8 GR/IR clearing · createGrIrClearing, approvals gr_ir_clearing · walkthrough step 15 · T72e",
       "src": "baseline",
       "c": []
      },

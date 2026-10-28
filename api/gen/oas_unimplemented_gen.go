@@ -145,12 +145,13 @@ func (UnimplementedHandler) ApplyPlanBatch(ctx context.Context, req *PlanBatchCr
 // is posted, a bank statement line is posted). A manual entry is checked again as it is posted: when
 // that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
 // fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
-// statement line's posting (`bank_clearing`), and whoever matched the line by hand cannot approve its
-// posting (403 `workflow.segregation_of_duties`). A payment run's release (`payment_run_release`) is
-// approved by a holder of the release role who did not propose the run (403
-// `workflow.segregation_of_duties`); the approval does not release it. A change request whose latest
-// regression evidence replayed no case (a suite captured with `allow_empty`) is approved only with a
-// comment acknowledging that (422 `workflow.acknowledgement_required`).
+// statement line's posting (`bank_clearing`) and a GR/IR clearing's (`gr_ir_clearing`, 409
+// `ledger.gr_ir_clearing_outdated` when a position moved since it was proposed), and whoever matched
+// the line by hand cannot approve its posting (403 `workflow.segregation_of_duties`). A payment run's
+// release (`payment_run_release`) is approved by a holder of the release role who did not propose the
+// run (403 `workflow.segregation_of_duties`); the approval does not release it. A change request whose
+// latest regression evidence replayed no case (a suite captured with `allow_empty`) is approved only
+// with a comment acknowledging that (422 `workflow.acknowledgement_required`).
 //
 // POST /v1/approval-requests/{id}:approve
 func (UnimplementedHandler) ApproveApprovalRequest(ctx context.Context, req OptDecisionInput, params ApproveApprovalRequestParams) (r ApproveApprovalRequestRes, _ error) {
@@ -480,6 +481,31 @@ func (UnimplementedHandler) CreateDownPaymentRequest(ctx context.Context, req *D
 //
 // POST /v1/exchange-rates
 func (UnimplementedHandler) CreateExchangeRate(ctx context.Context, req *ExchangeRateCreate, params CreateExchangeRateParams) (r CreateExchangeRateRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateGrIrClearing implements createGrIrClearing operation.
+//
+// Proposes clearing the GR/IR positions a closed order is left with (SAP MR11, GR/IR clearing account
+// maintenance): received and invoiced quantities that will not agree, since a closed order takes no
+// further receipts or invoices (`GET /v1/gr-ir-balances?purchase_order_id=`). The clearing takes each
+// open position of the order's items, or of the items named, as it stands now: its quantity and its
+// balance, cleared against the legal entity's `price_difference` account (with the item's cost center
+// when that is a primary cost account). It opens a `gr_ir_clearing` approval request, which a
+// controller holding `procurement.gr_ir.clear.approve` decides, never its requester and never an
+// agent. Approved, the clearing posts a WE entry dated `posting_date`: the GR/IR line of each item
+// clears its position, which the GR/IR balances then show as cleared (`cleared_quantity`), and event
+// `GrIrCleared` is published. The posting is checked again when it is approved: a position that moved
+// since, or a price difference account that changed, refuses the approval (409
+// `ledger.gr_ir_clearing_outdated`) and the request stays pending, to be rejected or withdrawn and
+// proposed again; so does a period not open on `posting_date` (409 `ledger.period_not_open`). Requires
+// status `closed` (409 `procurement.invalid_status`) on an order valued through GR/IR with an open
+// position (409 `procurement.nothing_to_clear`); an item named without an open position is refused
+// (422 `procurement.invalid_item_no`). One pending clearing per order (409
+// `procurement.gr_ir_clearing_pending`). Human-only.
+//
+// POST /v1/purchase-orders/{id}/gr-ir-clearings
+func (UnimplementedHandler) CreateGrIrClearing(ctx context.Context, req *GrIrClearingCreate, params CreateGrIrClearingParams) (r CreateGrIrClearingRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -1174,6 +1200,15 @@ func (UnimplementedHandler) GetGoodsReceipt(ctx context.Context, params GetGoods
 	return r, ht.ErrNotImplemented
 }
 
+// GetGrIrClearing implements getGrIrClearing operation.
+//
+// Returns one GR/IR clearing.
+//
+// GET /v1/purchase-orders/{id}/gr-ir-clearings/{clearing_id}
+func (UnimplementedHandler) GetGrIrClearing(ctx context.Context, params GetGrIrClearingParams) (r GetGrIrClearingRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetHierarchy implements getHierarchy operation.
 //
 // Returns the hierarchy with its whole tree: its nodes in tree order (each after its parent, siblings
@@ -1805,15 +1840,26 @@ func (UnimplementedHandler) ListGoodsReceipts(ctx context.Context, params ListGo
 
 // ListGrIrBalances implements listGrIrBalances operation.
 //
-// The GR/IR position of each purchase order item of a legal entity in the leading ledger: its received
-// and invoiced quantities and its balance on the GR/IR account (negative: received, not yet invoiced;
-// positive: invoiced, not yet received). A position is zero in every currency once its received and
-// invoiced quantities agree. Only orders valued through GR/IR have positions. With `posting_date_to`
-// the call reports one order's positions on that key date. Sortable by: `purchase_order_id`,
-// `last_posting_date`.
+// The GR/IR position of each purchase order item of a legal entity in the leading ledger: its
+// received, invoiced and cleared quantities and its balance on the GR/IR account (negative: received,
+// not yet invoiced; positive: invoiced, not yet received). A position is zero in every currency once
+// its received quantity equals its invoiced plus its cleared quantity; a closed order's residual
+// position is cleared by a GR/IR clearing (createGrIrClearing). Only orders valued through GR/IR have
+// positions. With `posting_date_to` the call reports one order's positions on that key date. Sortable
+// by: `purchase_order_id`, `last_posting_date`.
 //
 // GET /v1/gr-ir-balances
 func (UnimplementedHandler) ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (r ListGrIrBalancesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListGrIrClearings implements listGrIrClearings operation.
+//
+// The GR/IR clearings of a purchase order, newest first, with their status: pending approval, posted,
+// rejected or cancelled. Sortable by: `created_at`.
+//
+// GET /v1/purchase-orders/{id}/gr-ir-clearings
+func (UnimplementedHandler) ListGrIrClearings(ctx context.Context, params ListGrIrClearingsParams) (r ListGrIrClearingsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

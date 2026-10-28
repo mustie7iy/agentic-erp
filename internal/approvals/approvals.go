@@ -65,6 +65,7 @@ const (
 	OrderChange      = "order_change"   // a change that raises a released order's total (T47)
 	BankClearing     = "bank_clearing"  // the posting of a matched bank statement line (ADR-0047, T49f)
 	CenterChange     = "center_change"  // a change of a cost or profit center that needs a controller (T56a)
+	GRIRClearing     = "gr_ir_clearing" // the clearing of a closed order's residual GR/IR positions (T72e, SAP MR11)
 	// PaymentRunRelease is a second person's approval of a large payment
 	// run's release, before the releaser releases it (ADR-0038).
 	PaymentRunRelease = "payment_run_release"
@@ -104,6 +105,11 @@ const DefaultBankClearingRole = "controller"
 // are a controller's decision, a fixed role as for period unlocks.
 const DefaultCenterChangeRole = "controller"
 
+// DefaultGRIRClearingRole approves a GR/IR clearing (T72e): posting a
+// closed order's residual GR/IR positions to the price difference account
+// is a controller's decision, a fixed role as for period unlocks.
+const DefaultGRIRClearingRole = "controller"
+
 // ObjectPermissions is the approval permission of each object type
 // (x-object-permissions of approveApprovalRequest).
 var ObjectPermissions = map[string]string{
@@ -113,6 +119,7 @@ var ObjectPermissions = map[string]string{
 	PurchaseOrder: "procurement.order.approve", OrderChange: "procurement.order.approve",
 	BankClearing: "payments.statement.clearing.approve",
 	CenterChange: "ledger.cost_center.approve",
+	GRIRClearing: "procurement.gr_ir.clear.approve",
 	// The second person is a releaser too: the approval is half of the
 	// release step.
 	PaymentRunRelease: "payments.run.release",
@@ -437,6 +444,8 @@ func steps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) 
 		out = append(out, policyStep{DefaultPeriodUnlockRole, 1})
 	case CenterChange:
 		out = append(out, policyStep{DefaultCenterChangeRole, 1})
+	case GRIRClearing:
+		out = append(out, policyStep{DefaultGRIRClearingRole, 1})
 	case ManualEntry:
 		return manualEntrySteps(ctx, rates, doc, in)
 	case PurchaseOrder, OrderChange:

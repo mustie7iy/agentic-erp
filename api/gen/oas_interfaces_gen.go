@@ -153,6 +153,10 @@ type CreateExchangeRateRes interface {
 	createExchangeRateRes()
 }
 
+type CreateGrIrClearingRes interface {
+	createGrIrClearingRes()
+}
+
 type CreateHierarchyRes interface {
 	createHierarchyRes()
 }
@@ -391,6 +395,10 @@ type GetFiscalPeriodRes interface {
 
 type GetGoodsReceiptRes interface {
 	getGoodsReceiptRes()
+}
+
+type GetGrIrClearingRes interface {
+	getGrIrClearingRes()
 }
 
 type GetHierarchyNodeRes interface {
@@ -647,6 +655,10 @@ type ListGoodsReceiptsRes interface {
 
 type ListGrIrBalancesRes interface {
 	listGrIrBalancesRes()
+}
+
+type ListGrIrClearingsRes interface {
+	listGrIrClearingsRes()
 }
 
 type ListHierarchiesRes interface {

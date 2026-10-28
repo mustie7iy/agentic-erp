@@ -584,24 +584,13 @@ var changeSort = pagination.Sort{Default: "created_at", DefaultDesc: true, Field
 
 // ListPurchaseOrderChanges implements GET /v1/purchase-orders/{id}/changes.
 func (e *Endpoints) ListPurchaseOrderChanges(ctx context.Context, params gen.ListPurchaseOrderChangesParams) (gen.ListPurchaseOrderChangesRes, error) {
-	tx, _, err := reqctx.Request(ctx)
+	items, next, err := listOfOrder(ctx, e, params.ID, orderList[PurchaseOrderChange, gen.PurchaseOrderChange]{sort: changeSort,
+		scope: "listPurchaseOrderChanges", page: apitypes.Page(params.OrderBy, params.PageSize, params.PageToken),
+		query: changeSelect + ` WHERE ch.purchase_order_id = $1`, what: "changes", scan: scanChange,
+		key: func(ch PurchaseOrderChange) (string, uuid.UUID) { return timestamp(ch.CreatedAt), ch.ID }, toAPI: changeToAPI})
 	if err != nil {
 		return nil, err
 	}
-	if _, err := getOrder(ctx, tx, params.ID, false); err != nil { // 404 for an order the caller cannot see
-		return nil, err
-	}
-	ks, err := e.Pages.Keyset(changeSort, "listPurchaseOrderChanges|"+params.ID.String(), apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
-	if err != nil {
-		return nil, err
-	}
-	q, args := ks.SQL(changeSelect+` WHERE ch.purchase_order_id = $1`, []any{params.ID})
-	rows, _ := tx.Query(ctx, q, args...)
-	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (PurchaseOrderChange, error) { return scanChange(r) })
-	if err != nil {
-		return nil, fmt.Errorf("procurement: list changes of purchase order %s: %w", params.ID, err)
-	}
-	items, next := apitypes.PageOf(ks, list, func(ch PurchaseOrderChange) (string, uuid.UUID) { return timestamp(ch.CreatedAt), ch.ID }, changeToAPI)
 	return &gen.PurchaseOrderChangePage{Items: items, NextPageToken: next}, nil
 }
 
