@@ -151,11 +151,11 @@ func plAccounts(t *testing.T, p plan) []uuid.UUID {
 		ON ca.tenant_id = a.tenant_id AND ca.account_id = a.id WHERE a.tenant_id = $1 AND ca.legal_entity_id = $2 AND NOT a.is_balance_sheet`,
 		p.Tenant.ID, p.DE)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("P&L accounts of %s: %v", p.DE, err)
 	}
 	ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("P&L accounts of %s: %v", p.DE, err)
 	}
 	return ids
 }
