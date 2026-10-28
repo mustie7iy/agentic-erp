@@ -1284,10 +1284,12 @@ order's items, or of the items named, as it stands (`gr_ir_clearing_item`,
 insert-only: the position's quantity, invoiced plus cleared less received,
 and its balance in the order's currency), with the legal entity's
 `price_difference` account as shown then (id, number, name), and opens a
-`gr_ir_clearing` approval request, which a controller holding
+`gr_ir_clearing` approval request, whose object is the clearing (`GET
+/v1/gr-ir-clearings/{id}`; the order's are listed under it), which a controller holding
 `procurement.gr_ir.clear.approve` decides, never its requester (fixed role,
 `approvals.DefaultGRIRClearingRole`). It is refused unless the order is
-`closed` (409 `procurement.invalid_status`) and has an open position (409
+`closed` (409 `procurement.invalid_status`), with a reason (422
+`procurement.reason_required`), and has an open position (409
 `procurement.nothing_to_clear`); one is pending per order
 (`gr_ir_clearing_one_pending`, 409 `procurement.gr_ir_clearing_pending`).
 Approved, it posts a WE entry dated its `posting_date` through

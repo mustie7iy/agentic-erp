@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"reflect"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 )
 
@@ -72,7 +74,7 @@ func TestGRIRClearing(t *testing.T) {
 	e.Problem(422, "procurement.invalid_item_no", "POST", clearingsOf(order),
 		`{"reason": "r", "posting_date": "2026-03-20", "po_item_nos": [2]}`, "")
 	c, tag := e.Must(201, "POST", clearingsOf(order), clearingBody, "")
-	path := clearingsOf(order) + "/" + id(c)
+	path := "/v1/gr-ir-clearings/" + id(c)
 	t.Run("proposed", func(t *testing.T) {
 		e := e.in(t)
 		want(t, "clearing", c, map[string]any{"status": "pending", "purchase_order_id": order, "purchase_order_number": "PO100001",
@@ -192,7 +194,7 @@ func TestGRIRClearingOutdated(t *testing.T) {
 		t.Errorf("request after the refusal: got %v, want pending", got["status"])
 	}
 	e.As(e.Approver).Must(200, "POST", "/v1/approval-requests/"+id(r)+":reject", `{"comment": "The position moved"}`, version)
-	got, _ := e.Must(200, "GET", clearingsOf(order)+"/"+id(c), "", "")
+	got, _ := e.Must(200, "GET", "/v1/gr-ir-clearings/"+id(c), "", "")
 	want(t, "rejected clearing", got, map[string]any{"status": "rejected", "decision_comment": "The position moved"})
 	if _, ok := got["journal_entry"]; ok {
 		t.Errorf("rejected clearing's entry: got %v, want none", got["journal_entry"])
@@ -203,10 +205,24 @@ func TestGRIRClearingOutdated(t *testing.T) {
 	again, _ := e.Must(201, "POST", clearingsOf(order), clearingBody, "")
 	w := e.Pending(t, id(again))
 	e.Must(200, "POST", "/v1/approval-requests/"+id(w)+":cancel", `{"comment": "Not yet"}`, fmt.Sprintf(`"%v"`, w["version"]))
-	got, _ = e.Must(200, "GET", clearingsOf(order)+"/"+id(again), "", "")
+	got, _ = e.Must(200, "GET", "/v1/gr-ir-clearings/"+id(again), "", "")
 	want(t, "withdrawn clearing", got, map[string]any{"status": "cancelled", "decision_comment": "Not yet"})
 	last, _ := e.Must(201, "POST", clearingsOf(order), clearingBody, "")
 	e.Approve(t, id(last))
+	// The order's clearings, newest first, a page at a time.
+	var seen []any
+	for page, token := 0, ""; page == 0 || token != ""; page++ {
+		query := "?page_size=1"
+		if token != "" {
+			query += "&page_token=" + url.QueryEscape(token)
+		}
+		got, _ := e.Must(200, "GET", clearingsOf(order)+query, "", "")
+		seen = append(seen, got["items"].([]any)[0].(map[string]any)["id"])
+		token, _ = got["next_page_token"].(string)
+	}
+	if want := []any{id(last), id(again), id(c)}; !reflect.DeepEqual(seen, want) {
+		t.Errorf("clearings by page: got %v, want %v", seen, want)
+	}
 	if got := e.position(t, order, "&open_only=false"); got != "2 0 2 0.00" {
 		t.Errorf("position after the clearing: got %q, want 2 0 2 0.00", got)
 	}
@@ -229,8 +245,27 @@ func TestGRIRClearingRefusals(t *testing.T) {
 	agent := e.Client
 	agent.As = e.Tenant.Agent
 	agent.Problem(403, "identity.agent_not_allowed", "POST", clearingsOf(order), clearingBody, "")
-	e.Problem(404, "request.not_found", "GET", clearingsOf(order)+"/"+uuid.NewString(), "", "")
+	e.Problem(404, "request.not_found", "GET", "/v1/gr-ir-clearings/"+uuid.NewString(), "", "")
 	e.Problem(404, "request.not_found", "GET", clearingsOf(uuid.NewString()), "", "")
+	e.Problem(422, "procurement.reason_required", "POST", clearingsOf(order), `{"reason": "  ", "posting_date": "2026-03-20"}`, "")
+	// A policy that needs no approval would post without a decision.
+	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		h := endpoints()
+		h.Approvals = noApproval{}
+		_, err := h.CreateGrIrClearing(ctx, &gen.GrIrClearingCreate{Reason: "r", PostingDate: dateOf("2026-03-20")}, gen.CreateGrIrClearingParams{ID: uuid.MustParse(order)})
+		return err
+	}); err == nil || problem.From(err).Status != 500 {
+		t.Errorf("no approval required: got %v, want an internal error", err)
+	}
+	// Balances whose total is out of the range of an amount.
+	huge, _ := e.closedGRIROrder(t, "1:4:EA")
+	for _, no := range []int{2, 3} {
+		pgtest.Exec(t, `INSERT INTO ledger.gr_ir_position (tenant_id, legal_entity_id, purchase_order_id, po_item_no, account_id, currency_tc, currency_lc,
+			currency_gc, uom_code, received, invoiced, amount_tc, amount_lc, amount_gc, last_posting_date)
+			VALUES ($1, $2, $3, $4, $5, 'EUR', 'EUR', 'EUR', 'EA', 1, 0, 4611686018427387904, 0, 0, '2026-03-15')`,
+			e.Tenant.ID, e.DE, huge, no, e.Account(t, "2000", "219000"))
+	}
+	e.Problem(422, "procurement.amount_too_large", "POST", clearingsOf(huge), clearingBody, "")
 	pgtest.Exec(t, `DELETE FROM ledger.account_determination WHERE tenant_id = $1 AND legal_entity_id = $2 AND key = 'price_difference'`, e.Tenant.ID, e.DE)
 	e.Problem(422, "ledger.no_price_difference_account", "POST", clearingsOf(order), clearingBody, "")
 }
@@ -249,7 +284,7 @@ func TestGRIRClearingCostCenter(t *testing.T) {
 	e.act(t, "/v1/purchase-orders/"+id(o), "close", "")
 	c, _ := e.Must(201, "POST", clearingsOf(id(o)), clearingBody, "")
 	e.Approve(t, id(c))
-	posted, _ := e.Must(200, "GET", clearingsOf(id(o))+"/"+id(c), "", "")
+	posted, _ := e.Must(200, "GET", "/v1/gr-ir-clearings/"+id(c), "", "")
 	grir, diff := e.Account(t, "2000", "219000").String(), e.Account(t, "2000", "590000").String()
 	wantLines := sorted([]string{grir + ":-:-", diff + ":" + e.c.Admin.String() + ":" + e.c.Profit.String()})
 	if got := centersOn(t, posted["journal_entry"].(map[string]any)["id"]); fmt.Sprint(got) != fmt.Sprint(wantLines) {
@@ -292,7 +327,7 @@ func TestGRIRClearingFailures(t *testing.T) {
 			return err
 		},
 		"get": func(ctx context.Context) error {
-			_, err := h.GetGrIrClearing(ctx, gen.GetGrIrClearingParams{ID: o, ClearingID: cid})
+			_, err := h.GetGrIrClearing(ctx, gen.GetGrIrClearingParams{ID: cid})
 			return err
 		},
 		"approve": func(ctx context.Context) error { return decisions.Approved(ctx, cid, request) },

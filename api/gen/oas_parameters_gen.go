@@ -12718,8 +12718,6 @@ func decodeGetGoodsReceiptParams(args [1]string, argsEscaped bool, r *http.Reque
 type GetGrIrClearingParams struct {
 	// Resource identifier (UUIDv7).
 	ID uuid.UUID
-	// GR/IR clearing identifier (UUIDv7).
-	ClearingID uuid.UUID
 }
 
 func unpackGetGrIrClearingParams(packed middleware.Parameters) (params GetGrIrClearingParams) {
@@ -12730,17 +12728,10 @@ func unpackGetGrIrClearingParams(packed middleware.Parameters) (params GetGrIrCl
 		}
 		params.ID = packed[key].(uuid.UUID)
 	}
-	{
-		key := middleware.ParameterKey{
-			Name: "clearing_id",
-			In:   "path",
-		}
-		params.ClearingID = packed[key].(uuid.UUID)
-	}
 	return params
 }
 
-func decodeGetGrIrClearingParams(args [2]string, argsEscaped bool, r *http.Request) (params GetGrIrClearingParams, _ error) {
+func decodeGetGrIrClearingParams(args [1]string, argsEscaped bool, r *http.Request) (params GetGrIrClearingParams, _ error) {
 	// Decode path: id.
 	if err := func() error {
 		param := args[0]
@@ -12782,51 +12773,6 @@ func decodeGetGrIrClearingParams(args [2]string, argsEscaped bool, r *http.Reque
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "id",
-			In:   "path",
-			Err:  err,
-		}
-	}
-	// Decode path: clearing_id.
-	if err := func() error {
-		param := args[1]
-		if argsEscaped {
-			unescaped, err := url.PathUnescape(args[1])
-			if err != nil {
-				return errors.Wrap(err, "unescape path")
-			}
-			param = unescaped
-		}
-		if len(param) > 0 {
-			d := uri.NewPathDecoder(uri.PathDecoderConfig{
-				Param:   "clearing_id",
-				Value:   param,
-				Style:   uri.PathStyleSimple,
-				Explode: false,
-			})
-
-			if err := func() error {
-				val, err := d.DecodeValue()
-				if err != nil {
-					return err
-				}
-
-				c, err := conv.ToUUID(val)
-				if err != nil {
-					return err
-				}
-
-				params.ClearingID = c
-				return nil
-			}(); err != nil {
-				return err
-			}
-		} else {
-			return validate.ErrFieldRequired
-		}
-		return nil
-	}(); err != nil {
-		return params, &ogenerrors.DecodeParamError{
-			Name: "clearing_id",
 			In:   "path",
 			Err:  err,
 		}

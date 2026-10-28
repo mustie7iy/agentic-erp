@@ -14,7 +14,9 @@ package procurement
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -132,7 +134,7 @@ func scanClearing(row pgx.Row) (GRIRClearing, error) {
 }
 
 // GetGRIRClearing returns a clearing of an order the caller can see.
-func GetGRIRClearing(ctx context.Context, order, id uuid.UUID) (GRIRClearing, error) {
+func GetGRIRClearing(ctx context.Context, id uuid.UUID) (GRIRClearing, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return GRIRClearing{}, err
@@ -141,7 +143,7 @@ func GetGRIRClearing(ctx context.Context, order, id uuid.UUID) (GRIRClearing, er
 	if err != nil {
 		return GRIRClearing{}, err
 	}
-	c, err := scanClearing(tx.QueryRow(ctx, clearingSelect+` WHERE c.purchase_order_id = $1 AND c.id = $2`, order, id))
+	c, err := scanClearing(tx.QueryRow(ctx, clearingSelect+` WHERE c.id = $1`, id))
 	if err = authz.Visible(err, access, c.LegalEntityID, problem.NotFoundOf("GR/IR clearing"), "procurement: get GR/IR clearing %s", id); err != nil {
 		return GRIRClearing{}, err
 	}
@@ -164,6 +166,9 @@ func (e *Endpoints) createGRIRClearing(ctx context.Context, order uuid.UUID, in 
 	if o.Status != Closed {
 		return GRIRClearing{}, statusConflict("purchase order", o.Status, "a GR/IR clearing", Closed)
 	}
+	if in.Reason = strings.TrimSpace(in.Reason); in.Reason == "" {
+		return GRIRClearing{}, invalid("procurement.reason_required", "reason", "why the positions are cleared")
+	}
 	c, err := e.proposeClearing(ctx, o, in)
 	if err != nil {
 		return GRIRClearing{}, err
@@ -174,7 +179,7 @@ func (e *Endpoints) createGRIRClearing(ctx context.Context, order uuid.UUID, in 
 	if err := insertClearing(ctx, tx, p, c); err != nil {
 		return GRIRClearing{}, err
 	}
-	created, err := GetGRIRClearing(ctx, order, c.ID)
+	created, err := GetGRIRClearing(ctx, c.ID)
 	if err != nil {
 		return GRIRClearing{}, err
 	}
@@ -204,13 +209,7 @@ func (e *Endpoints) proposeClearing(ctx context.Context, o PurchaseOrder, in GRI
 	}
 	nos := in.Items
 	if nos == nil {
-		nos = slices.Sorted(func(yield func(int32) bool) {
-			for no := range open {
-				if !yield(no) {
-					return
-				}
-			}
-		})
+		nos = slices.Sorted(maps.Keys(open))
 	}
 	for _, no := range nos {
 		pos, ok := open[no]

@@ -29951,7 +29951,7 @@ func decodeCreateGrIrClearingResponse(resp *http.Response) (res CreateGrIrCleari
 			}(); err != nil {
 				return res, errors.Wrap(err, "validate")
 			}
-			var wrapper GrIrClearingHeaders
+			var wrapper CreateGrIrClearingCreatedHeaders
 			wrapper.Response = response
 			h := uri.NewHeaderDecoder(resp.Header)
 			// Parse "ETag" header.
@@ -66454,7 +66454,7 @@ func decodeGetGrIrClearingResponse(resp *http.Response) (res GetGrIrClearingRes,
 			}(); err != nil {
 				return res, errors.Wrap(err, "validate")
 			}
-			var wrapper GetGrIrClearingOKHeaders
+			var wrapper GrIrClearingHeaders
 			wrapper.Response = response
 			h := uri.NewHeaderDecoder(resp.Header)
 			// Parse "ETag" header.

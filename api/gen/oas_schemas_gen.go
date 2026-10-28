@@ -11964,6 +11964,56 @@ type CreateGrIrClearingBadRequest Problem
 
 func (*CreateGrIrClearingBadRequest) createGrIrClearingRes() {}
 
+// CreateGrIrClearingCreatedHeaders wraps GrIrClearing with response headers.
+type CreateGrIrClearingCreatedHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           GrIrClearing
+}
+
+// GetETag returns the value of ETag.
+func (s *CreateGrIrClearingCreatedHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CreateGrIrClearingCreatedHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CreateGrIrClearingCreatedHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *CreateGrIrClearingCreatedHeaders) GetResponse() GrIrClearing {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CreateGrIrClearingCreatedHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CreateGrIrClearingCreatedHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CreateGrIrClearingCreatedHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CreateGrIrClearingCreatedHeaders) SetResponse(val GrIrClearing) {
+	s.Response = val
+}
+
+func (*CreateGrIrClearingCreatedHeaders) createGrIrClearingRes() {}
+
 type CreateGrIrClearingForbidden Problem
 
 func (*CreateGrIrClearingForbidden) createGrIrClearingRes() {}
@@ -15059,34 +15109,6 @@ type GetGrIrClearingNotFound Problem
 
 func (*GetGrIrClearingNotFound) getGrIrClearingRes() {}
 
-// GetGrIrClearingOKHeaders wraps GrIrClearing with response headers.
-type GetGrIrClearingOKHeaders struct {
-	ETag     OptString
-	Response GrIrClearing
-}
-
-// GetETag returns the value of ETag.
-func (s *GetGrIrClearingOKHeaders) GetETag() OptString {
-	return s.ETag
-}
-
-// GetResponse returns the value of Response.
-func (s *GetGrIrClearingOKHeaders) GetResponse() GrIrClearing {
-	return s.Response
-}
-
-// SetETag sets the value of ETag.
-func (s *GetGrIrClearingOKHeaders) SetETag(val OptString) {
-	s.ETag = val
-}
-
-// SetResponse sets the value of Response.
-func (s *GetGrIrClearingOKHeaders) SetResponse(val GrIrClearing) {
-	s.Response = val
-}
-
-func (*GetGrIrClearingOKHeaders) getGrIrClearingRes() {}
-
 type GetHierarchyBadRequest Problem
 
 func (*GetHierarchyBadRequest) getHierarchyRes() {}
@@ -17244,25 +17266,13 @@ func (s *GrIrClearingEntry) SetDocumentNumber(val string) {
 
 // GrIrClearingHeaders wraps GrIrClearing with response headers.
 type GrIrClearingHeaders struct {
-	ETag               OptString
-	IdempotentReplayed OptBool
-	Location           OptString
-	Response           GrIrClearing
+	ETag     OptString
+	Response GrIrClearing
 }
 
 // GetETag returns the value of ETag.
 func (s *GrIrClearingHeaders) GetETag() OptString {
 	return s.ETag
-}
-
-// GetIdempotentReplayed returns the value of IdempotentReplayed.
-func (s *GrIrClearingHeaders) GetIdempotentReplayed() OptBool {
-	return s.IdempotentReplayed
-}
-
-// GetLocation returns the value of Location.
-func (s *GrIrClearingHeaders) GetLocation() OptString {
-	return s.Location
 }
 
 // GetResponse returns the value of Response.
@@ -17275,22 +17285,12 @@ func (s *GrIrClearingHeaders) SetETag(val OptString) {
 	s.ETag = val
 }
 
-// SetIdempotentReplayed sets the value of IdempotentReplayed.
-func (s *GrIrClearingHeaders) SetIdempotentReplayed(val OptBool) {
-	s.IdempotentReplayed = val
-}
-
-// SetLocation sets the value of Location.
-func (s *GrIrClearingHeaders) SetLocation(val OptString) {
-	s.Location = val
-}
-
 // SetResponse sets the value of Response.
 func (s *GrIrClearingHeaders) SetResponse(val GrIrClearing) {
 	s.Response = val
 }
 
-func (*GrIrClearingHeaders) createGrIrClearingRes() {}
+func (*GrIrClearingHeaders) getGrIrClearingRes() {}
 
 // One order item's GR/IR position a clearing clears.
 // Ref: #/components/schemas/GrIrClearingItem

@@ -1007,15 +1007,15 @@ step_grir() {
   clearing=$(field .id)
   request=$(field .approval_request_id)
   body="{\"reason\": \"Again\", \"posting_date\": \"$TODAY\"}"
-  say "While it waits, a second proposal for the order is refused, and Alex, who decides no approvals, cannot approve it"
-  say "(the proposer is never the approver: workflow.own_request, even for a controller):"
+  say "While it waits, a second proposal for the order is refused, and Alex, who holds no approver role, cannot approve it"
+  say "(nor could a controller who proposed it: the proposer is never the approver):"
   refused 409 procurement.gr_ir_clearing_pending createGrIrClearing -p "id=$PO" -body "$body"
   QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
   refused 403 identity.permission_missing approveApprovalRequest -p "id=$request" -if-match "$ETAG" -body '{}'
   approve carla "$request" "Cleared before the month-end close"
   as alex
   api 200 '"GR/IR clearing: \(.status), journal entry \(.journal_entry.document_number) of \(.journal_entry.fiscal_year)"' \
-    getGrIrClearing -p "id=$PO" -p "clearing_id=$clearing"
+    getGrIrClearing -p "id=$clearing"
   expect "clearing status" "$(field .status)" posted
   local entry
   entry=$(field .journal_entry.id)

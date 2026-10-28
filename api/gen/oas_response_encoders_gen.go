@@ -9615,7 +9615,7 @@ func encodeCreateExchangeRateResponse(response CreateExchangeRateRes, w http.Res
 
 func encodeCreateGrIrClearingResponse(response CreateGrIrClearingRes, w http.ResponseWriter, span trace.Span) error {
 	switch response := response.(type) {
-	case *GrIrClearingHeaders:
+	case *CreateGrIrClearingCreatedHeaders:
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Access-Control-Expose-Headers", "Etag,Idempotent-Replayed,Location")
 		// Encoding response headers.
@@ -21553,7 +21553,7 @@ func encodeGetGoodsReceiptResponse(response GetGoodsReceiptRes, w http.ResponseW
 
 func encodeGetGrIrClearingResponse(response GetGrIrClearingRes, w http.ResponseWriter, span trace.Span) error {
 	switch response := response.(type) {
-	case *GetGrIrClearingOKHeaders:
+	case *GrIrClearingHeaders:
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Access-Control-Expose-Headers", "Etag")
 		// Encoding response headers.

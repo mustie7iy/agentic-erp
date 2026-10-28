@@ -393,17 +393,18 @@ type Invoker interface {
 	// further receipts or invoices (`GET /v1/gr-ir-balances?purchase_order_id=`). The clearing takes each
 	// open position of the order's items, or of the items named, as it stands now: its quantity and its
 	// balance, cleared against the legal entity's `price_difference` account (with the item's cost center
-	// when that is a primary cost account). It opens a `gr_ir_clearing` approval request, which a
-	// controller holding `procurement.gr_ir.clear.approve` decides, never its requester and never an
-	// agent. Approved, the clearing posts a WE entry dated `posting_date`: the GR/IR line of each item
-	// clears its position, which the GR/IR balances then show as cleared (`cleared_quantity`), and event
-	// `GrIrCleared` is published. The posting is checked again when it is approved: a position that moved
-	// since, or a price difference account that changed, refuses the approval (409
-	// `ledger.gr_ir_clearing_outdated`) and the request stays pending, to be rejected or withdrawn and
-	// proposed again; so does a period not open on `posting_date` (409 `ledger.period_not_open`). Requires
-	// status `closed` (409 `procurement.invalid_status`) on an order valued through GR/IR with an open
-	// position (409 `procurement.nothing_to_clear`); an item named without an open position is refused
-	// (422 `procurement.invalid_item_no`). One pending clearing per order (409
+	// when that is a primary cost account). It opens a `gr_ir_clearing` approval request (its `object_id`
+	// is the clearing, `GET /v1/gr-ir-clearings/{id}`), which a controller holding
+	// `procurement.gr_ir.clear.approve` decides, never its requester and never an agent. Approved, the
+	// clearing posts a WE entry dated `posting_date`: the GR/IR line of each item clears its position,
+	// which the GR/IR balances then show as cleared (`cleared_quantity`), and event `GrIrCleared` is
+	// published. The posting is checked again when it is approved: a position that moved since, or a price
+	// difference account that changed, refuses the approval (409 `ledger.gr_ir_clearing_outdated`) and the
+	// request stays pending, to be rejected or withdrawn and proposed again; so does a period not open on
+	// `posting_date` (409 `ledger.period_not_open`). Requires status `closed` (409
+	// `procurement.invalid_status`) on an order valued through GR/IR with an open position (409
+	// `procurement.nothing_to_clear`); an item named without an open position is refused (422
+	// `procurement.invalid_item_no`). One pending clearing per order (409
 	// `procurement.gr_ir_clearing_pending`). Human-only.
 	//
 	// POST /v1/purchase-orders/{id}/gr-ir-clearings
@@ -921,9 +922,10 @@ type Invoker interface {
 	GetGoodsReceipt(ctx context.Context, params GetGoodsReceiptParams) (GetGoodsReceiptRes, error)
 	// GetGrIrClearing invokes getGrIrClearing operation.
 	//
-	// Returns one GR/IR clearing.
+	// Returns one GR/IR clearing, the object of a `gr_ir_clearing` approval request (its `object_id`):
+	// what it clears, against which account, and once posted its journal entry.
 	//
-	// GET /v1/purchase-orders/{id}/gr-ir-clearings/{clearing_id}
+	// GET /v1/gr-ir-clearings/{id}
 	GetGrIrClearing(ctx context.Context, params GetGrIrClearingParams) (GetGrIrClearingRes, error)
 	// GetHierarchy invokes getHierarchy operation.
 	//
@@ -8645,17 +8647,18 @@ func (c *Client) sendCreateExchangeRate(ctx context.Context, request *ExchangeRa
 // further receipts or invoices (`GET /v1/gr-ir-balances?purchase_order_id=`). The clearing takes each
 // open position of the order's items, or of the items named, as it stands now: its quantity and its
 // balance, cleared against the legal entity's `price_difference` account (with the item's cost center
-// when that is a primary cost account). It opens a `gr_ir_clearing` approval request, which a
-// controller holding `procurement.gr_ir.clear.approve` decides, never its requester and never an
-// agent. Approved, the clearing posts a WE entry dated `posting_date`: the GR/IR line of each item
-// clears its position, which the GR/IR balances then show as cleared (`cleared_quantity`), and event
-// `GrIrCleared` is published. The posting is checked again when it is approved: a position that moved
-// since, or a price difference account that changed, refuses the approval (409
-// `ledger.gr_ir_clearing_outdated`) and the request stays pending, to be rejected or withdrawn and
-// proposed again; so does a period not open on `posting_date` (409 `ledger.period_not_open`). Requires
-// status `closed` (409 `procurement.invalid_status`) on an order valued through GR/IR with an open
-// position (409 `procurement.nothing_to_clear`); an item named without an open position is refused
-// (422 `procurement.invalid_item_no`). One pending clearing per order (409
+// when that is a primary cost account). It opens a `gr_ir_clearing` approval request (its `object_id`
+// is the clearing, `GET /v1/gr-ir-clearings/{id}`), which a controller holding
+// `procurement.gr_ir.clear.approve` decides, never its requester and never an agent. Approved, the
+// clearing posts a WE entry dated `posting_date`: the GR/IR line of each item clears its position,
+// which the GR/IR balances then show as cleared (`cleared_quantity`), and event `GrIrCleared` is
+// published. The posting is checked again when it is approved: a position that moved since, or a price
+// difference account that changed, refuses the approval (409 `ledger.gr_ir_clearing_outdated`) and the
+// request stays pending, to be rejected or withdrawn and proposed again; so does a period not open on
+// `posting_date` (409 `ledger.period_not_open`). Requires status `closed` (409
+// `procurement.invalid_status`) on an order valued through GR/IR with an open position (409
+// `procurement.nothing_to_clear`); an item named without an open position is refused (422
+// `procurement.invalid_item_no`). One pending clearing per order (409
 // `procurement.gr_ir_clearing_pending`). Human-only.
 //
 // POST /v1/purchase-orders/{id}/gr-ir-clearings
@@ -17282,9 +17285,10 @@ func (c *Client) sendGetGoodsReceipt(ctx context.Context, params GetGoodsReceipt
 
 // GetGrIrClearing invokes getGrIrClearing operation.
 //
-// Returns one GR/IR clearing.
+// Returns one GR/IR clearing, the object of a `gr_ir_clearing` approval request (its `object_id`):
+// what it clears, against which account, and once posted its journal entry.
 //
-// GET /v1/purchase-orders/{id}/gr-ir-clearings/{clearing_id}
+// GET /v1/gr-ir-clearings/{id}
 func (c *Client) GetGrIrClearing(ctx context.Context, params GetGrIrClearingParams) (GetGrIrClearingRes, error) {
 	res, err := c.sendGetGrIrClearing(ctx, params)
 	return res, err
@@ -17294,7 +17298,7 @@ func (c *Client) sendGetGrIrClearing(ctx context.Context, params GetGrIrClearing
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("getGrIrClearing"),
 		semconv.HTTPRequestMethodKey.String("GET"),
-		semconv.URLTemplateKey.String("/v1/purchase-orders/{id}/gr-ir-clearings/{clearing_id}"),
+		semconv.URLTemplateKey.String("/v1/gr-ir-clearings/{id}"),
 	}
 	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
 
@@ -17327,8 +17331,8 @@ func (c *Client) sendGetGrIrClearing(ctx context.Context, params GetGrIrClearing
 
 	stage = "BuildURL"
 	u := uri.Clone(c.requestURL(ctx))
-	var pathParts [4]string
-	pathParts[0] = "/v1/purchase-orders/"
+	var pathParts [2]string
+	pathParts[0] = "/v1/gr-ir-clearings/"
 	{
 		// Encode "id" parameter.
 		e := uri.NewPathEncoder(uri.PathEncoderConfig{
@@ -17346,25 +17350,6 @@ func (c *Client) sendGetGrIrClearing(ctx context.Context, params GetGrIrClearing
 			return res, errors.Wrap(err, "encode path")
 		}
 		pathParts[1] = encoded
-	}
-	pathParts[2] = "/gr-ir-clearings/"
-	{
-		// Encode "clearing_id" parameter.
-		e := uri.NewPathEncoder(uri.PathEncoderConfig{
-			Param:   "clearing_id",
-			Style:   uri.PathStyleSimple,
-			Explode: false,
-		})
-		if err := func() error {
-			return e.EncodeValue(conv.UUIDToString(params.ClearingID))
-		}(); err != nil {
-			return res, errors.Wrap(err, "encode path")
-		}
-		encoded, err := e.Result()
-		if err != nil {
-			return res, errors.Wrap(err, "encode path")
-		}
-		pathParts[3] = encoded
 	}
 	uri.AddPathParts(u, pathParts[:]...)
 

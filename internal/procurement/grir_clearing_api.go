@@ -38,36 +38,40 @@ func (e *Endpoints) CreateGrIrClearing(ctx context.Context, req *gen.GrIrClearin
 	if err != nil {
 		return nil, err
 	}
-	return &gen.GrIrClearingHeaders{ETag: gen.NewOptString(etag.Format(c.Version)),
-		Location: gen.NewOptString("/v1/purchase-orders/" + params.ID.String() + "/gr-ir-clearings/" + c.ID.String()), Response: clearingToAPI(c)}, nil
+	return &gen.CreateGrIrClearingCreatedHeaders{ETag: gen.NewOptString(etag.Format(c.Version)),
+		Location: gen.NewOptString("/v1/gr-ir-clearings/" + c.ID.String()), Response: clearingToAPI(c)}, nil
 }
 
-// GetGrIrClearing implements GET /v1/purchase-orders/{id}/gr-ir-clearings/{clearing_id}.
+// GetGrIrClearing implements GET /v1/gr-ir-clearings/{id}.
 func (e *Endpoints) GetGrIrClearing(ctx context.Context, params gen.GetGrIrClearingParams) (gen.GetGrIrClearingRes, error) {
-	c, err := GetGRIRClearing(ctx, params.ID, params.ClearingID)
+	c, err := GetGRIRClearing(ctx, params.ID)
 	if err != nil {
 		return nil, err
 	}
-	return &gen.GetGrIrClearingOKHeaders{ETag: gen.NewOptString(etag.Format(c.Version)), Response: clearingToAPI(c)}, nil
+	return &gen.GrIrClearingHeaders{ETag: gen.NewOptString(etag.Format(c.Version)), Response: clearingToAPI(c)}, nil
 }
 
+// clearingList is clearingSelect as a table, so the keyset's condition on
+// its unqualified id names the clearing's.
+const clearingList = `SELECT * FROM (` + clearingSelect + `) c WHERE true`
+
 var clearingSort = pagination.Sort{Default: "created_at", DefaultDesc: true, Fields: []pagination.Field{
-	{Name: "created_at", Column: "c.created_at", Type: "timestamptz"},
+	{Name: "created_at", Column: "created_at", Type: "timestamptz"},
 }}
 
 // ListGrIrClearings implements GET /v1/purchase-orders/{id}/gr-ir-clearings.
 func (e *Endpoints) ListGrIrClearings(ctx context.Context, params gen.ListGrIrClearingsParams) (gen.ListGrIrClearingsRes, error) {
 	page := &gen.GrIrClearingPage{}
 	var err error
-	if page.Items, page.NextPageToken, err = listOfOrder(ctx, e, params.ID, clearingList(params)); err != nil {
+	if page.Items, page.NextPageToken, err = listOfOrder(ctx, e, params.ID, clearingListOf(params)); err != nil {
 		return nil, err
 	}
 	return page, nil
 }
 
-func clearingList(params gen.ListGrIrClearingsParams) orderList[GRIRClearing, gen.GrIrClearing] {
+func clearingListOf(params gen.ListGrIrClearingsParams) orderList[GRIRClearing, gen.GrIrClearing] {
 	return orderList[GRIRClearing, gen.GrIrClearing]{sort: clearingSort, scope: "listGrIrClearings",
-		page: apitypes.Page(params.OrderBy, params.PageSize, params.PageToken), query: clearingSelect + ` WHERE c.purchase_order_id = $1`,
+		page: apitypes.Page(params.OrderBy, params.PageSize, params.PageToken), query: clearingList + ` AND purchase_order_id = $1`,
 		what: "GR/IR clearings", scan: scanClearing, key: func(c GRIRClearing) (string, uuid.UUID) { return timestamp(c.CreatedAt), c.ID }, toAPI: clearingToAPI}
 }
 
