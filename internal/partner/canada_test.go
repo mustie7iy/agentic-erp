@@ -98,3 +98,27 @@ func TestCanadianBankAccounts(t *testing.T) {
 		t.Errorf("same account on another partner: got warnings %s, want partner.duplicate_bank_account", warnings)
 	}
 }
+
+// TestPaymentAccounts: the reconciliation of a migration reads each
+// partner's payments account valid today by scheme, bank and last four
+// (T72d); a partner whose account starts later has none yet.
+func TestPaymentAccounts(t *testing.T) {
+	e := setup(t)
+	now, later := uuid.MustParse(id(e.active(t, "Now", 0))), uuid.MustParse(id(e.active(t, "Later", 3)))
+	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+		got, err := partner.Suppliers{}.PaymentAccounts(ctx, []uuid.UUID{now, later})
+		if err != nil {
+			return err
+		}
+		if want := (partner.PaymentAccount{Scheme: "iban", BankCountryCode: "DE", Last4: "3000"}); got[now] != want {
+			t.Errorf("account valid today: got %+v, want %+v", got[now], want)
+		}
+		if a, ok := got[later]; ok {
+			t.Errorf("account from a later day: got %+v, want none", a)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

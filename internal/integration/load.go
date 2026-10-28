@@ -134,12 +134,7 @@ func (l *loader) partners(ctx context.Context) error {
 	for _, c := range l.ext.LFB1 {
 		companies[c.LIFNR] = append(companies[c.LIFNR], c)
 	}
-	banks := map[string]sap.LFBK{}
-	for _, b := range l.ext.LFBK {
-		if _, ok := banks[b.LIFNR]; !ok {
-			banks[b.LIFNR] = b
-		}
-	}
+	banks := firstBanks(l.ext)
 	vendors := slices.Clone(l.ext.LFA1)
 	slices.SortFunc(vendors, func(a, b sap.LFA1) int { return cmp.Compare(a.LIFNR, b.LIFNR) })
 	reason := "Migration run " + l.run.ID.String()

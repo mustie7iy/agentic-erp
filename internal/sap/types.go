@@ -189,9 +189,10 @@ type T012K struct {
 	HKONT string `json:"HKONT"` // G/L account of the bank
 	IBAN  string `json:"IBAN"`
 	SWIFT string `json:"SWIFT"`
-	// BANKS and BANKL are the house bank's bank country and bank key, kept
-	// with the house bank (T012) and flattened in here as IBAN and SWIFT
-	// are; BANKN is the account's bank account number. A house bank has a
+	// BANKS and BANKL are the house bank's bank country and bank key and
+	// BANKN the account's bank account number, flattened in here as IBAN
+	// and SWIFT are. That SAP keeps the first two with the house bank (T012)
+	// rather than its account is an assumption to confirm. A house bank has a
 	// bank country, a bank key (for Germany the bank number), an account ID
 	// and a bank account number, which is the company's account with the
 	// bank (SAP Help, "Necessary Customizing for the Electronic Bank

@@ -442,9 +442,9 @@ under that amendment (ADR-0053 §d):
   Business Partner Banks", SAP Library 4.6C). The bank key is read only in
   the Canadian Payments Association's electronic routing form this ADR
   already writes into pain.001, 0 + institution + transit
-  (`cabank.SplitMemberID`, the inverse of `MemberID`): it is the one form of
-  the two numbers that is unambiguous, whereas eight digits could be
-  transit then institution, as on a cheque, or the reverse. Which form a
+  (`cabank.SplitMemberID`, the inverse of `MemberID`): its leading zero and
+  fixed order make it unambiguous, where eight bare digits do not say which
+  number comes first. Which form a
   given SAP system keeps Canadian bank keys in is its bank master's, so it is
   on the specialist list rather than assumed; a key in another form is
   converted in the extract, not guessed at.

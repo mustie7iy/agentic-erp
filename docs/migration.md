@@ -73,7 +73,9 @@ They must be equal.
   Check which form your system's bank keys for Canada are kept in (bank
   master BNKA). A Canadian house bank (T012K without an IBAN, bank country CA)
   is generated into the configuration from the same bank key and its account
-  number; another form is noted and left for the reviewers (T72d).
+  number; another form is noted and left for the reviewers (T72d). Confirm
+  that the extract's T012K carries the house bank's bank country and key
+  (T012-BANKS/BANKL) and the account number (T012K-BANKN).
 - Amounts for currencies with no decimals or three decimals (JPY, KWD) come in
   external format.
 - **SAP digital-access licensing:** reading data is usually fine, but agents
