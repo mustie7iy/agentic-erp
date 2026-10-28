@@ -233,7 +233,9 @@ checked first (422 `controlling.plan_batch_invalid`, naming
 `Idempotency-Key`'s window: the key applied with the same lines answers the
 batch as it was (`replayed`) and publishes nothing, with other lines 409
 `controlling.plan_batch_reused`; a locked category is 409
-`controlling.plan_category_locked`. `GET /v1/plan-lines` lists the current
+`controlling.plan_category_locked`; a line planning a cost center in a
+period it is locked for planning in (`lock_plan`, T56g2) is 422
+`controlling.cost_center_plan_locked`, naming the line. `GET /v1/plan-lines` lists the current
 plan. `GET /v1/cost-center-plan-actual` (`controlling.plan.read` and
 `ledger.entry.read`, `x-slo-class: report`) gives per cost center and
 account, over a range of periods, the plan, the leading ledger's actual

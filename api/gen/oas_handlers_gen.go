@@ -1498,12 +1498,16 @@ func (s *Server) handleApplyCountryPackRequest(args [0]string, argsEscaped bool,
 // 422 `controlling.plan_batch_invalid` names every wrong field as `lines[N].field` (at most 100): a
 // cost center must be an active one of the legal entity, a profit center an active one assigned to it,
 // the account a profit and loss account set up in it, the period one of the year in its calendar, and
-// a center, account and period at most once in the batch. Idempotent by `batch_key`: a key already
-// applied to the category, legal entity and year with the same lines changes nothing, publishes
-// nothing and returns the batch as it was applied (`replayed`), even after later batches; the key with
-// other lines is refused (409 `controlling.plan_batch_reused`). A locked category is refused (409
-// `controlling.plan_category_locked`). Audited per batch, and published as PlanBatchApplied. Agents
-// may not upload a plan.
+// a center, account and period at most once in the batch. A batch whose lines are valid but plan a
+// cost center in a period sharing a day with one of the center's periods locked for planning
+// (`lock_plan`) is refused as a whole (422 `controlling.cost_center_plan_locked`, naming each such
+// line as `lines[N].cost_center_id`, at most 100); the cost center is held until the batch commits, so
+// a lock applied meanwhile either waits for the batch or is seen by it. Idempotent by `batch_key`: a
+// key already applied to the category, legal entity and year with the same lines changes nothing,
+// publishes nothing and returns the batch as it was applied (`replayed`), even after later batches;
+// the key with other lines is refused (409 `controlling.plan_batch_reused`). A locked category is
+// refused (409 `controlling.plan_category_locked`). Audited per batch, and published as
+// PlanBatchApplied. Agents may not upload a plan.
 //
 // POST /v1/plan-batches
 func (s *Server) handleApplyPlanBatchRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

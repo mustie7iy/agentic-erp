@@ -916,6 +916,39 @@ As built in T56g (migration 000164):
   `PlanBatchApplied` (the centers whose plan it replaced, the counts).
   `GET /v1/plan-lines` lists the current lines of a company and year
   (filters: category, center, account, batch).
+- **The cost center's plan lock** (T56g2, product owner 2026-10-27). The
+  lock that counts is the cost center period's `lock_plan`
+  (`ledger.cost_center_period`, migration 000128, set by `:lock` through a
+  center change, §3); `ledger.cost_center_category.lock_plan` (migration
+  000140) is only the lock a new cost center of the category starts with
+  (§4). A batch whose lines are otherwise valid is refused as a whole when
+  a line plans a cost center in a fiscal period sharing a day with an
+  active period of the center whose `lock_plan` is set (valid_to
+  exclusive, the fiscal period's `end_date` inclusive, in the calendar of
+  any of the company's ledgers): 422 `controlling.cost_center_plan_locked`
+  naming each such line as `lines[N].cost_center_id` (code `plan_locked`,
+  at most 100), nothing written, as the ledger refuses a posting on a
+  center locked for actual costs with 422 naming the line (§5). Invalid
+  lines are reported first (`controlling.plan_batch_invalid`). Profit
+  center lines are not affected: `lock_plan` is the cost center's. The
+  check sits after the batch key's: a batch already applied is answered as
+  it was (`replayed`) after a later lock, as after a category lock.
+  *Where it is enforced:* in the service, through the ledger's port
+  (`PlanObjects` returns `PlanLocked`, the locked periods per cost
+  center), not by a trigger: the cost center periods are the ledger's, a
+  trigger on `controlling.plan_line` would read across the context
+  boundary that no foreign key crosses either (§8 above), and the ledger
+  enforces its own actual-cost and revenue locks in the posting service
+  in the same way, not in the database. *Concurrency (ADR-0008):*
+  `PlanObjects` reads the cost centers `FOR KEY SHARE`, held until the
+  batch commits, and reads their periods in a later statement. Every
+  change of a cost center's periods is applied by `CenterChanges.Approved`,
+  which first locks the center `FOR UPDATE` (`decided`, then
+  `applyCostCenterChange`). So a batch meeting a lock being applied waits
+  for it and, read committed, reads the periods it wrote and is refused;
+  a lock meeting a batch under way waits for the batch, whose lines were
+  planned before the lock and stay (as a category lock waits for a batch).
+  `TestPlanLockAndBatchSerialize` drives both orders. No migration.
 - **Upload.** The batch is the upload: a client, or T63's import of
   CSV/XLSX files when it exists, sends the file's lines as a batch. No CSV
   endpoint of its own was built.
@@ -936,9 +969,10 @@ As built in T56g (migration 000164):
   unknown category, or a company the caller cannot act in, has no rows.
 - **Not built:** plan against actual by profit center (profit center plan
   lines are stored and listed; the operation §8 names is the cost
-  center's); the cost center's plan lock (`cost_center_period.lock_plan`,
-  §3) is not read by batches; agents' plan uploads as drafts (§12, T56j);
-  a category's rename.
+  center's; the product owner asked for it on 2026-10-27 as T56g3, `GET
+  /v1/profit-center-plan-actual`); a profit center's `locked` is not read
+  by batches; agents' plan uploads as drafts (§12, T56j); a category's
+  rename.
 
 ### 9. Document splitting: not in T56 (decision P3)
 Decided (P3): no document splitting now. P&L by cost center, profit

@@ -261,7 +261,10 @@ func centers(lines []planLine) (costCenters, profitCenters []uuid.UUID) {
 }
 
 // checkObjects refuses lines naming a center, account or period the
-// ledger does not allow a plan of the legal entity's year to name.
+// ledger does not allow a plan of the legal entity's year to name, and
+// then lines planning a cost center in a period it is locked for planning
+// in (T56g2). The ledger holds the cost centers until the batch commits,
+// so no lock is applied between this check and the lines' insert.
 func (e *Endpoints) checkObjects(ctx context.Context, le uuid.UUID, year int16, lines []planLine) error {
 	ccs, pcs := centers(lines)
 	accounts := []uuid.UUID{}
@@ -272,14 +275,30 @@ func (e *Endpoints) checkObjects(ctx context.Context, le uuid.UUID, year int16, 
 	if err != nil {
 		return err
 	}
-	var bad []problem.FieldError
+	var bad, locked []problem.FieldError
 	for i, l := range lines {
 		bad = append(bad, objectErrors(i, l, ok)...)
+		if l.costCenter != nil && ok.PlanLocked[*l.costCenter][l.period] {
+			locked = append(locked, problem.FieldError{Field: fmt.Sprintf("lines[%d].cost_center_id", i), Code: "plan_locked",
+				Message: "a cost center not locked for planning in the period"})
+		}
 	}
 	if len(bad) > 0 {
 		return batchInvalid(bad...)
 	}
+	if len(locked) > 0 {
+		return planLocked(locked...)
+	}
 	return nil
+}
+
+// planLocked refuses a batch planning a cost center in a period in which
+// the center's lock_plan is set (ADR-0050 §3, §8): unprocessable as the
+// ledger's refusal of a line on a center locked for actual costs, naming
+// each line.
+func planLocked(fields ...problem.FieldError) error {
+	return problem.Unprocessable("controlling.cost_center_plan_locked", "A cost center is locked for planning in a period the batch plans it in; "+
+		"nothing was written. A center change lifts the lock first.", fields[:min(len(fields), maxLineErrors)]...)
 }
 
 func objectErrors(i int, l planLine, ok ledger.PlanObjects) []problem.FieldError {

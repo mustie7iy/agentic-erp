@@ -24,15 +24,26 @@ type AssignmentBalances struct{}
 // entity's fiscal year may name: its active cost centers, the active
 // profit centers assigned to it, the profit and loss accounts set up in it
 // (a plan compares with the center reports, which have only those), and
-// the periods of the year in its calendar.
+// the periods of the year in its calendar. PlanLocked are, per cost
+// center asked for, the periods of the year in which it is locked for
+// planning (T56g2): a period sharing a day with one of the center's
+// periods whose lock_plan is set, in the calendar of any of the company's
+// ledgers.
 type PlanObjects struct {
 	CostCenters, ProfitCenters, Accounts map[uuid.UUID]bool
 	Periods                              map[int16]bool
+	PlanLocked                           map[uuid.UUID]map[int16]bool
 }
 
 // PlanObjects reads which of the cost centers, profit centers and accounts
-// a plan of the legal entity's fiscal year may name, and the year's
-// periods (none when the year is not set up).
+// a plan of the legal entity's fiscal year may name, the year's periods
+// (none when the year is not set up) and the cost centers' plan locks. It
+// holds the cost centers FOR KEY SHARE until the transaction ends, as a
+// posting does (assign), and reads their periods after that, in a later
+// statement: every change of a cost center's periods first holds the
+// center FOR UPDATE (decided, applyCostCenterChange), so a plan meeting a
+// lock under way waits for it and then reads the periods it wrote, and a
+// lock meeting a plan under way waits for the plan (ADR-0008, ADR-0050 §8).
 func (AssignmentBalances) PlanObjects(ctx context.Context, le uuid.UUID, year int16, costCenters, profitCenters, accounts []uuid.UUID) (PlanObjects, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -45,7 +56,8 @@ func (AssignmentBalances) PlanObjects(ctx context.Context, le uuid.UUID, year in
 		sql  string
 		ids  []uuid.UUID
 	}{
-		{"cost centers", &out.CostCenters, `SELECT id FROM ledger.cost_center WHERE legal_entity_id = $1 AND status = 'active' AND id = ANY($2)`, costCenters},
+		{"cost centers", &out.CostCenters, `SELECT id FROM ledger.cost_center WHERE legal_entity_id = $1 AND status = 'active' AND id = ANY($2)
+			ORDER BY id FOR KEY SHARE`, costCenters},
 		{"profit centers", &out.ProfitCenters, `SELECT p.id FROM ledger.profit_center p JOIN ledger.profit_center_company c
 			ON c.tenant_id = p.tenant_id AND c.profit_center_id = p.id AND c.legal_entity_id = $1 WHERE p.status = 'active' AND p.id = ANY($2)`, profitCenters},
 		{"accounts", &out.Accounts, `SELECT a.id FROM ledger.gl_account a JOIN ledger.company_account ca
@@ -70,7 +82,32 @@ func (AssignmentBalances) PlanObjects(ctx context.Context, le uuid.UUID, year in
 	for _, p := range periods {
 		out.Periods[p] = true
 	}
-	return out, nil
+	out.PlanLocked, err = planLocks(ctx, tx, le, year, costCenters)
+	return out, err
+}
+
+// planLocks are the periods of the legal entity's fiscal year in which
+// each of the cost centers is locked for planning: those sharing a day
+// with an active period of the center whose lock_plan is set (valid_to
+// exclusive, a fiscal period's end_date inclusive), in the calendar of any
+// of the company's ledgers, so a plan is never let in on a locked day.
+func planLocks(ctx context.Context, tx pgx.Tx, le uuid.UUID, year int16, costCenters []uuid.UUID) (map[uuid.UUID]map[int16]bool, error) {
+	rows, _ := tx.Query(ctx, `SELECT DISTINCT p.cost_center_id, s.period FROM ledger.cost_center_period p
+		JOIN ledger.period_status s ON s.tenant_id = p.tenant_id AND s.legal_entity_id = p.legal_entity_id AND s.fiscal_year = $2
+		JOIN ledger.fiscal_period f ON f.tenant_id = s.tenant_id AND f.calendar_id = s.calendar_id AND f.fiscal_year = s.fiscal_year AND f.period = s.period
+		WHERE p.legal_entity_id = $1 AND p.cost_center_id = ANY($3) AND p.retired_by_change_id IS NULL AND p.lock_plan
+			AND daterange(p.valid_from, p.valid_to) && daterange(f.start_date, f.end_date, '[]')`, le, year, costCenters)
+	out := map[uuid.UUID]map[int16]bool{}
+	var center uuid.UUID
+	var period int16
+	_, err := pgx.ForEachRow(rows, []any{&center, &period}, func() error {
+		if out[center] == nil {
+			out[center] = map[int16]bool{}
+		}
+		out[center][period] = true
+		return nil
+	})
+	return out, errs.Wrapf(err, "ledger: plan locks of the cost centers of %s in %d", le, year)
 }
 
 // CostCenters are the cost centers a plan against actual is limited to,

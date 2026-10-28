@@ -7505,10 +7505,11 @@ paths:
       tags:
         - controlling
       summary: Upload a batch of plan lines
-      description: "Uploads the plan of a category, legal entity and fiscal year for some of its centers (ADR-0050 §8): each line plans an amount in the legal entity's local currency (debit positive as on the journal: costs positive, revenue negative) on a cost center or a profit center and a profit and loss account in a period, with an optional quantity. The batch replaces the plan of its category, legal entity and year on every center it names: their earlier lines in the year, in every period and on every account, are marked replaced (never deleted: `replaced_by_batch_id`), and the batch's lines written; other centers' plans stay. Every line is checked first; if any is wrong nothing is written and the 422 `controlling.plan_batch_invalid` names every wrong field as `lines[N].field` (at most 100): a cost center must be an active one of the legal entity, a profit center an active one assigned to it, the account a profit and loss account set up in it, the period one of the year in its calendar, and a center, account and period at most once in the batch. Idempotent by `batch_key`: a key already applied to the category, legal entity and year with the same lines changes nothing, publishes nothing and returns the batch as it was applied (`replayed`), even after later batches; the key with other lines is refused (409 `controlling.plan_batch_reused`). A locked category is refused (409 `controlling.plan_category_locked`). Audited per batch, and published as PlanBatchApplied. Agents may not upload a plan."
+      description: "Uploads the plan of a category, legal entity and fiscal year for some of its centers (ADR-0050 §8): each line plans an amount in the legal entity's local currency (debit positive as on the journal: costs positive, revenue negative) on a cost center or a profit center and a profit and loss account in a period, with an optional quantity. The batch replaces the plan of its category, legal entity and year on every center it names: their earlier lines in the year, in every period and on every account, are marked replaced (never deleted: `replaced_by_batch_id`), and the batch's lines written; other centers' plans stay. Every line is checked first; if any is wrong nothing is written and the 422 `controlling.plan_batch_invalid` names every wrong field as `lines[N].field` (at most 100): a cost center must be an active one of the legal entity, a profit center an active one assigned to it, the account a profit and loss account set up in it, the period one of the year in its calendar, and a center, account and period at most once in the batch. A batch whose lines are valid but plan a cost center in a period sharing a day with one of the center's periods locked for planning (`lock_plan`) is refused as a whole (422 `controlling.cost_center_plan_locked`, naming each such line as `lines[N].cost_center_id`, at most 100); the cost center is held until the batch commits, so a lock applied meanwhile either waits for the batch or is seen by it. Idempotent by `batch_key`: a key already applied to the category, legal entity and year with the same lines changes nothing, publishes nothing and returns the batch as it was applied (`replayed`), even after later batches; the key with other lines is refused (409 `controlling.plan_batch_reused`). A locked category is refused (409 `controlling.plan_category_locked`). Audited per batch, and published as PlanBatchApplied. Agents may not upload a plan."
       x-permission: controlling.plan.write
       x-agent: false
       x-problem-codes:
+        - controlling.cost_center_plan_locked
         - controlling.plan_batch_invalid
         - controlling.plan_batch_reused
         - controlling.plan_category_locked
@@ -21045,7 +21046,7 @@ components:
           description: Actual revenue may not be posted.
         lock_plan:
           type: boolean
-          description: Plan values may not be entered.
+          description: "Plan values may not be entered: a plan batch planning the cost center in a fiscal period sharing a day with this period is refused (422 `controlling.cost_center_plan_locked`)."
       additionalProperties: false
       examples:
         - valid_from: "2026-01-01"
