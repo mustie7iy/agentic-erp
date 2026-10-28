@@ -27,14 +27,15 @@ const baselineItems = 953
 //	adr:ADR-0052           an accepted ADR asks for it
 //	po:2026-10-25          a product owner decision of that day
 //	review:T73j            a reviewer finding in that step
+//	review:batch17         a reviewer finding on that batch
 //	ci:batch6, ci:T73j     a failed or measured check in that batch or step
 //	walkthrough:2026-10-22 the pilot walkthrough of that day
 //	split:T73j             split from that approved step
 //	design:01 §1.4         a design document's section
-const accepted = `adr:ADR-NNNN, po:YYYY-MM-DD, review:Tn, ci:batchN or ci:Tn, walkthrough:YYYY-MM-DD, split:Tn or design:0N §n.n, joined by " · "`
+const accepted = `adr:ADR-NNNN, po:YYYY-MM-DD, review:Tn or review:batchN, ci:batchN or ci:Tn, walkthrough:YYYY-MM-DD, split:Tn or design:0N §n.n, joined by " · "`
 
 var (
-	sourcePattern = regexp.MustCompile(`^(adr:ADR-(\d{4})|(po|walkthrough):(\d{4}-\d{2}-\d{2})|(review|split|ci):(T\d+[a-z0-9]*)|ci:batch\d+|design:(0[1-7]) §(\d+(\.\d+)*))$`)
+	sourcePattern = regexp.MustCompile(`^(adr:ADR-(\d{4})|(po|walkthrough):(\d{4}-\d{2}-\d{2})|(review|split|ci):(T\d+[a-z0-9]*)|(?:ci|review):batch\d+|design:(0[1-7]) §(\d+(\.\d+)*))$`)
 	stepPattern   = regexp.MustCompile(`\bT\d+[a-z0-9]*\b`)
 	statusPattern = regexp.MustCompile(`(?m)^\*\*Status:\*\* accepted`)
 )
@@ -172,5 +173,25 @@ func TestTrackerItemsNameTheirSource(t *testing.T) {
 	}
 	if baseline != baselineItems {
 		t.Errorf("%d items carry src baseline, want %d: a new item names its source, and a removed one lowers baselineItems", baseline, baselineItems)
+	}
+}
+
+// TestSourcePattern: the shapes a source may take, and some it may not.
+func TestSourcePattern(t *testing.T) {
+	for src, want := range map[string]bool{
+		"review:T73j":    true,
+		"review:batch17": true,
+		"ci:batch6":      true,
+		"ci:T73j":        true,
+		"review:foo":     false,
+		"review:batch":   false,
+		"review:batch1b": false,
+		"split:batch17":  false,
+	} {
+		t.Run(src, func(t *testing.T) {
+			if got := sourcePattern.MatchString(src); got != want {
+				t.Errorf("got %v, want %v", got, want)
+			}
+		})
 	}
 }

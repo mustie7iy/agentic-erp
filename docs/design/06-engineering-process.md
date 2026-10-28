@@ -420,7 +420,8 @@ A change is done when:
   labelled Blocking (correctness, money, tenancy, authorization,
   concurrency, idempotency, a contract break, a `CLAUDE.md` convention), Nit
   (never blocking, at most three a round) or Pre-existing (not introduced by
-  the diff: never held against the step, tracked as `review:<step>`). It
+  the diff: never held against the step, tracked as `review:<step>` or
+  `review:batch<N>`). It
   cites `path:line` and names its bug class, and the author fixes every
   instance of the class in the diff. After the first round a round reviews
   only the changes since the previous one; after three rounds on one step

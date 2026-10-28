@@ -28,8 +28,8 @@ Every finding carries one label.
   three per round, the ones most worth the author's time.
 - **Pre-existing**: a bug the diff did not introduce, found while reading around it. It is
   never held against the step and the author does not fix it in the step. It is reported, and
-  the coordinator turns it into a tracker item with `"src": "review:<step>"` (07-transition
-  §7.5).
+  the coordinator turns it into a tracker item with `"src": "review:<step>"`, or
+  `"review:batch<N>"` for a batch (07-transition §7.5).
 
 ## Bug class
 

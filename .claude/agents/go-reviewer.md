@@ -86,7 +86,7 @@ Blocking
 Nit
 - path/file.go:LINE — suggestion.
 
-Pre-existing (not introduced by this diff; for the coordinator to track as review:<step>)
+Pre-existing (not introduced by this diff; for the coordinator to track as review:<step> or review:batch<N>)
 - path/file.go:LINE — what is wrong, and the scenario.
 
 Checks: build ✓/✗ · lint ✓/✗ (N issues) · tests ✓/✗/skipped

@@ -8313,7 +8313,7 @@
       "s": "D",
       "t": "Pre-existing review findings on the natsbus fix forward (#58) and on main's full suite on demand (REVIEW.md, PO 2026-10-26): every discarded error in the touched tests is handled (natsbus_test.go, consumer_test.go, cmd/erp-server/main_test.go, internal/nfr/resilience_test.go; requests through the test's request helper); the consumer's failure checks assert the cause with errors.Is (nats.ErrConnectionClosed after the connection closes, the handler's own error, jetstream.ErrStreamNotFound), the deleted consumer still any error, as the library chooses which; 06 §6.5, ci-local.sh and ci.yml say that main's manual runs and weekly.yml's images job hold the image reproducibility gate, not the manual runs alone",
       "r": "internal/platform/natsbus · cmd/erp-server/main_test.go · internal/nfr/resilience_test.go · scripts/ci-local.sh · .github/workflows/ci.yml · 06 §6.5",
-      "src": "po:2026-10-26",
+      "src": "review:batch15 · po:2026-10-26",
       "c": []
      },
      {
@@ -8328,6 +8328,13 @@
       "t": "Every tracker item names its source (PO 2026-10-25, against scope creep and invented items): src is an ADR, a product owner decision, a review finding, a failed or measured check, the pilot walkthrough, a split of an approved step or a design section; 958 of the 966 items of 2026-10-25 carried baseline at first, 955 once the product owner confirmed three, a count that may only fall; the eight whose references name their split or finding carry it",
       "r": "docs/tracker_test.go · TestTrackerItemsNameTheirSource · 07-transition §7.5",
       "src": "po:2026-10-25",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "A reviewer finding on a batch is a source, review:batch<N>, beside review:T<n> (PO 2026-10-28), in the shape of ci:batch<N>; TestSourcePattern holds the shapes; the pre-existing findings on the natsbus fix forward (#58, shipped with batch 15) given review:batch15 beside po:2026-10-26",
+      "r": "docs/tracker_test.go · TestSourcePattern · 07-transition §7.5 · REVIEW.md",
+      "src": "po:2026-10-28",
       "c": []
      },
      {
