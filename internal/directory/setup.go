@@ -44,9 +44,9 @@ const (
 // columns written, never a key but the ones a new row needs; no role may
 // truncate, reference or trigger, and only the cell deletes (its issuers'
 // claims) and erp-web (its sessions). Nobody but the owner may make
-// temporary objects either, nor anything on the database: TEMPORARY is
-// taken from PUBLIC, and every right on the database from the roles
-// (PUBLIC's CONNECT stays).
+// temporary objects either, nor anything on the database: CREATE and
+// TEMPORARY are taken from PUBLIC, every right on the database from the
+// roles (PUBLIC's CONNECT stays), and CREATE on schema public from all.
 const Grants = `
 DO $$ BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'erp_router') THEN CREATE ROLE erp_router NOLOGIN; END IF;
@@ -57,13 +57,16 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL;
 END $$;
 DO $$ BEGIN
-  EXECUTE format('REVOKE TEMPORARY ON DATABASE %I FROM PUBLIC', current_database());
+  EXECUTE format('REVOKE CREATE, TEMPORARY ON DATABASE %I FROM PUBLIC', current_database());
   EXECUTE format('REVOKE ALL ON DATABASE %I FROM erp_router, erp_cell, erp_web', current_database());
 END $$;
 -- The schemas hold tables and a view alone (no sequence or function): a
--- later one needs its own revoke here.
-REVOKE ALL ON ALL TABLES IN SCHEMA directory, web FROM erp_router, erp_cell, erp_web;
-REVOKE ALL ON SCHEMA directory, web FROM erp_router, erp_cell, erp_web;
+-- later one needs its own revoke here. PUBLIC is revoked too, since a
+-- right given to it is every login's; checkLogin refuses whatever else
+-- the roles or the logins hold.
+REVOKE ALL ON ALL TABLES IN SCHEMA directory, web FROM PUBLIC, erp_router, erp_cell, erp_web;
+REVOKE ALL ON SCHEMA directory, web FROM PUBLIC, erp_router, erp_cell, erp_web;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC, erp_router, erp_cell, erp_web;
 GRANT USAGE ON SCHEMA directory TO erp_router, erp_cell;
 GRANT SELECT ON directory.tenant, directory.cell, directory.issuer, directory.placement TO erp_router;
 GRANT INSERT (tenant_id, region, cell, api_url, status), UPDATE (region, cell, api_url, status, version, updated_at) ON directory.tenant TO erp_router;
@@ -195,32 +198,42 @@ func verifier(password string) string {
 	return fmt.Sprintf("SCRAM-SHA-256$%d:%s$%s:%s", iterations, b64(salt), b64(stored[:]), b64(mac(salted, []byte("Server Key"))))
 }
 
+// expectedACL are the objects Grants gives the privilege roles rights on:
+// the only dependencies of theirs that checkLogin lets stand.
+const expectedACL = `(d.classid = 'pg_class'::regclass AND d.objid IN ('directory.tenant'::regclass, 'directory.cell'::regclass,
+		'directory.issuer'::regclass, 'directory.placement'::regclass, 'web.session'::regclass, 'web.login_client'::regclass))
+	OR (d.classid = 'pg_namespace'::regclass AND d.objid IN ('directory'::regnamespace, 'web'::regnamespace))`
+
 // checkLogin refuses a login that may do more than its role: one an
 // operator made a superuser, gave a right to create roles or databases,
 // to replicate or to bypass row security, made a member of another role
-// or able to grant its own, or that owns objects in the directory's
-// database or the database itself; and a privilege role made a member of
-// any role or the owner of anything there. Setup does not
-// take such rights back: someone gave them, and the release stops until
-// they look.
+// or able to grant its own; a privilege role made a member of any role;
+// and any dependency PostgreSQL records on the login or a privilege role
+// (pg_shdepend: an owned object, the database included, a right on any
+// object, shared ones such as databases and parameters too, a policy) in
+// this database or the server's, but the rights Grants gives the roles.
+// Setup does not take such rights back: someone gave them, and the
+// release stops until they look.
 func checkLogin(ctx context.Context, tx pgx.Tx, l Login) error {
-	var attributes, admin, owns bool
-	var others []string
+	var attributes, admin bool
+	var others, deps []string
 	err := tx.QueryRow(ctx, `SELECT r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication OR r.rolbypassrls,
 		EXISTS (SELECT FROM pg_auth_members m WHERE m.member = r.oid AND m.admin_option),
-		EXISTS (SELECT FROM pg_class WHERE relowner = ANY(o.oids)) OR EXISTS (SELECT FROM pg_namespace WHERE nspowner = ANY(o.oids))
-			OR EXISTS (SELECT FROM pg_proc WHERE proowner = ANY(o.oids)) OR EXISTS (SELECT FROM pg_type WHERE typowner = ANY(o.oids))
-			OR EXISTS (SELECT FROM pg_database WHERE datname = current_database() AND datdba = ANY(o.oids)),
 		ARRAY(SELECT p.rolname || ' in ' || g.rolname FROM pg_auth_members m JOIN pg_roles g ON g.oid = m.roleid JOIN pg_roles p ON p.oid = m.member
-			WHERE (m.member = r.oid AND g.rolname <> $2) OR p.rolname = ANY($3) ORDER BY 1)
-		FROM pg_roles r, LATERAL (SELECT ARRAY(SELECT oid FROM pg_roles WHERE rolname = $1 OR rolname = ANY($3)) AS oids) o
-		WHERE r.rolname = $1`, l.Name, l.Role, []string{RouterRole, CellRole, WebRole}).Scan(&attributes, &admin, &owns, &others)
+			WHERE (m.member = r.oid AND g.rolname <> $2) OR p.rolname = ANY($3) ORDER BY 1),
+		ARRAY(SELECT o.rolname || ': ' || coalesce(pg_describe_object(d.classid, d.objid, d.objsubid), d.classid::regclass::text) || ' (' || d.deptype::text || ')'
+			FROM pg_shdepend d JOIN pg_roles o ON o.oid = d.refobjid
+			WHERE d.refclassid = 'pg_authid'::regclass AND (o.rolname = $1 OR o.rolname = ANY($3))
+				AND d.dbid IN (0, (SELECT oid FROM pg_database WHERE datname = current_database()))
+				AND NOT (d.deptype = 'a' AND o.rolname = ANY($3) AND (`+expectedACL+`))
+			ORDER BY 1)
+		FROM pg_roles r WHERE r.rolname = $1`, l.Name, l.Role, []string{RouterRole, CellRole, WebRole}).Scan(&attributes, &admin, &others, &deps)
 	if err != nil {
 		return fmt.Errorf("login %s: read its rights: %w", l.Name, err)
 	}
-	if attributes || admin || owns || len(others) > 0 {
-		return fmt.Errorf("%w %s: holds more than %s (role attributes %t, admin of its role %t, owns objects %t, memberships %v)",
-			ErrLogin, l.Name, l.Role, attributes, admin, owns, others)
+	if attributes || admin || len(others) > 0 || len(deps) > 0 {
+		return fmt.Errorf("%w %s: holds more than %s (role attributes %t, admin of its role %t, memberships %v, owned or granted %v)",
+			ErrLogin, l.Name, l.Role, attributes, admin, others, deps)
 	}
 	return nil
 }

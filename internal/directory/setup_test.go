@@ -253,7 +253,10 @@ func TestSetupAgain(t *testing.T) {
 	router, cell := pgx.Identifier{l.creds[directory.RouterRole].Name}.Sanitize(), pgx.Identifier{l.creds[directory.CellRole].Name}.Sanitize()
 	db := dbName(t, l.url)
 	for _, sql := range []string{`GRANT DELETE ON directory.tenant TO erp_router`, `GRANT TRUNCATE ON web.session TO erp_web`,
-		`GRANT DELETE ON directory.cell TO ` + router, `GRANT CREATE ON DATABASE ` + db + ` TO erp_router`, `GRANT CREATE ON DATABASE ` + db + ` TO ` + cell} {
+		`GRANT DELETE ON directory.cell TO ` + router, `GRANT CREATE ON DATABASE ` + db + ` TO erp_router`, `GRANT CREATE ON DATABASE ` + db + ` TO ` + cell,
+		// To PUBLIC, every login's: a table, a schema, the database and schema public.
+		`GRANT DELETE ON directory.placement TO PUBLIC`, `GRANT USAGE ON SCHEMA directory TO PUBLIC`, `GRANT SELECT ON directory.issuer TO PUBLIC`,
+		`GRANT CREATE ON DATABASE ` + db + ` TO PUBLIC`, `GRANT CREATE ON SCHEMA public TO PUBLIC`} {
 		if err := exec(ctx, l.owner, database.Scope{}, sql); err != nil {
 			t.Fatal(err)
 		}
@@ -268,7 +271,9 @@ func TestSetupAgain(t *testing.T) {
 		dir *directory.Postgres
 		sql string
 	}{{l.router, `DELETE FROM directory.tenant`}, {l.web, `TRUNCATE web.session`}, {l.router, `DELETE FROM directory.cell`},
-		{l.router, `CREATE SCHEMA mine`}, {l.cell, `CREATE SCHEMA mine`}} {
+		{l.router, `CREATE SCHEMA mine`}, {l.cell, `CREATE SCHEMA mine`},
+		{l.router, `DELETE FROM directory.placement`}, {l.web, `SELECT FROM directory.issuer`}, {l.web, `CREATE SCHEMA mine`},
+		{l.web, `CREATE TABLE public.mine (x int)`}} {
 		err := exec(ctx, c.dir, database.Scope{}, c.sql)
 		if pg, ok := errors.AsType[*pgconn.PgError](err); !ok || pg.Code != "42501" {
 			t.Errorf("%s, given by hand: got %v, want it taken back (42501)", c.sql, err)
@@ -334,14 +339,17 @@ func TestSetupRefusesLogins(t *testing.T) {
 	}
 }
 
-// TestSetupRefusesOwners: a login owning the database, or a privilege
-// role owning an object in it, is refused; each in a database of its own,
-// which the refusal leaves unusable.
+// TestSetupRefusesOwners: a login owning the database, a privilege role
+// owning an object in it, or either holding a right on an object Grants
+// does not name, is refused; each in a database of its own, which the
+// refusal leaves unusable.
 func TestSetupRefusesOwners(t *testing.T) {
 	ctx := context.Background()
 	for name, sql := range map[string]string{
 		"a login owning the database":     `ALTER DATABASE {db} OWNER TO {login}`,
 		"a privilege role owning a table": `CREATE TABLE public.owned (x int); ALTER TABLE public.owned OWNER TO erp_cell`,
+		"a stray right of a role":         `CREATE TABLE public.stray (x int); GRANT SELECT ON public.stray TO erp_cell`,
+		"a stray right of a login":        `CREATE TABLE public.stray (x int); GRANT SELECT ON public.stray TO {login}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			login := pgtest.NewLogin(t) // before the database, so dropped after it
