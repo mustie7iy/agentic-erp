@@ -5355,6 +5355,13 @@
         "c": []
        },
        {
+        "s": "T",
+        "t": "x-problem-codes' givenMade treats the calls the call graph shows as every call of a function (pre-existing finding on batch 24): code without SSA bodies (the standard library, third-party packages, api/gen) could also call a function whose value or receiver escapes to it, passing a function another operation made, and the cut would drop that function's codes. List the functions with a function-typed parameter whose function value or receiver type escapes to code outside the program; none: record the premise in ADR-0052 G7; some: keep their edges",
+        "r": "api/problemcodes_test.go givenMade · ADR-0052 G7",
+        "src": "review:batch24",
+        "c": []
+       },
+       {
         "s": "D",
         "t": "Approvals inbox: the requests decidable by me (pages read on while the API thins them), a request's page with summary, steps and decisions, approve with a comment and reject with a reason as forms with If-Match and a fresh idempotency key; SoD and permission refusals shown by code (barred permissions from /v1/me); requester and deciders by name and kind (names cached per session), agents' text inert; navigation and actions from /v1/me; amounts per currency and locale; EN and FR; usable at 390 px; scenarios as approver, requester and a person without the role",
         "r": "internal/web approvals.go · me.go · refusal.go · operations.go · ui/approvals.templ · i18n Money, Problems · TestInboxPage · TestDecide · TestDecideRefusals · TestSegregationOfDuties · TestScreensAgainstTheContract · TestApprovalsInTheBrowser · ADR-0052 Built in T73d · T73d",
