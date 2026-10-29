@@ -331,4 +331,214 @@ func TestGRIRDatabaseFailures(t *testing.T) {
 		_, err := h.ReconcileRun(ctx, uuid.MustParse(loaded["id"].(string)), yes)
 		return err
 	})
+	// A later run tops item 20's position up by a document SAP posted since.
+	later := partlyInvoiced()
+	line := sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", RWCUR: "EUR", GJAHR: "2026", BELNR: "0100000040", DOCLN: "000001", RACCT: "0000520000", HSL: "1.00",
+		BUDAT: "20260310", BLART: "WE", EBELN: "4500000001", EBELP: "00020"}
+	grir := line
+	grir.DOCLN, grir.RACCT, grir.HSL = "000002", "0000219000", "-1.00"
+	later.ACDOCA = append(later.ACDOCA, line, grir)
+	write(t, e.dir, "grir.json", later)
+	delta := uuid.MustParse(e.run(t, c, "documents", false, e.DE.String())["id"].(string))
+	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "top-up", func(ctx context.Context) error {
+		_, err := h.StartRun(ctx, delta, yes)
+		return err
+	})
+}
+
+// halfReceived is grirTiny with one of its 2 units received: the receipt
+// and its GR/IR line for 50.00, beside an order not received.
+func halfReceived() *sap.Extract {
+	x := grirTiny()
+	x.EKKO = append(x.EKKO, sap.EKKO{EBELN: "4500000002", BUKRS: "2000", LIFNR: "0000000001", WAERS: "EUR", BEDAT: "20260301"})
+	x.EKPO = append(x.EKPO, sap.EKPO{EBELN: "4500000002", EBELP: "00010", MATNR: "MAT-1", MENGE: "1", NETPR: "5.00", PEINH: "1", SAKTO: "0000520000"})
+	x.MSEG[0].MENGE = "1"
+	for i, l := range x.ACDOCA {
+		if l.BELNR == "0100000005" {
+			x.ACDOCA[i].HSL = strings.Replace(l.HSL, "100.00", "50.00", 1)
+		}
+	}
+	return x
+}
+
+// laterReceipt is halfReceived after SAP received the second unit: its
+// receipt (MSEG 5000000002) and the receipt's document crediting the GR/IR
+// account 50.00, both lines naming the order item.
+func laterReceipt() *sap.Extract {
+	x := halfReceived()
+	x.MSEG = append(x.MSEG, sap.MSEG{MBLNR: "5000000002", MJAHR: "2026", ZEILE: "0001", BWART: "101", EBELN: "4500000001", EBELP: "00010",
+		MENGE: "1", BUDAT: "20260306"})
+	for _, l := range x.ACDOCA {
+		if l.BELNR == "0100000005" {
+			l.BELNR, l.BUDAT = "0100000006", "20260306"
+			x.ACDOCA = append(x.ACDOCA, l)
+		}
+	}
+	return x
+}
+
+// grirReconciled reconciles the run and reports whether the open GR/IR
+// check passed, with the run's differences.
+func (e env) grirReconciled(t *testing.T, run map[string]any) (bool, string) {
+	t.Helper()
+	_, got := e.act(t, run, "reconcile")
+	report := got["report"].(map[string]any)
+	return strings.Contains(checks(report), "2000 Open GR/IR: order items with differences true"), fmt.Sprint(report["diffs"])
+}
+
+// TestGRIRTopUp: a later run whose extract carries a receipt SAP posted on
+// an order an earlier run loaded tops its migrated position up to SAP's
+// (review:batch21), and the open GR/IR check passes; without the top-up it
+// fails. Running the extract again changes nothing and publishes nothing,
+// and what the platform posts on the item stays beside what was taken over.
+func TestGRIRTopUp(t *testing.T) {
+	e := grirSetup(t, halfReceived())
+	c := e.connector(t, "grir.json")
+	first := e.run(t, c, "documents", false, e.DE.String())
+	if _, got := e.act(t, first, "start"); got["status"] != "loaded" {
+		t.Fatalf("first run: got %v, want loaded: %v", got["status"], got["report"])
+	}
+	order, number := e.orderOf(t, "4500000001")
+	write(t, e.dir, "grir.json", laterReceipt())
+	delta := e.run(t, c, "documents", false, e.DE.String())
+	_, got := e.act(t, delta, "start")
+	if got["status"] != "loaded" {
+		t.Fatalf("delta run: got %v, want loaded: %v", got["status"], got["report"])
+	}
+	if loaded := fmt.Sprint(got["report"].(map[string]any)["loaded"]); loaded != "map[goods_receipts:1 gr_ir_top_ups:1 journal_entries:1]" {
+		t.Errorf("loaded by the delta run: got %s, want the receipt, its document and the top-up", loaded)
+	}
+	if got, want := e.position(t, order, ""), "order "+number+" item 1: received 0, invoiced 0, cleared 0, migrated -2, balance -100.00"; got != want {
+		t.Errorf("topped up: got %s, want %s", got, want)
+	}
+
+	// Without the top-up (reversed), SAP's receipt loaded and the position
+	// not moved, the check fails; the next run tops it up again, and passes.
+	var topUp string
+	pgtest.Scan(t, `SELECT entity_id::text FROM integration.external_ref WHERE tenant_id = $1 AND object = 'GRIR' AND external_key = $2`,
+		[]any{e.Tenant.ID, "4500000001/" + delta["id"].(string)}, &topUp)
+	_, tag := e.Must(200, "GET", "/v1/journal-entries/"+topUp, "", "")
+	e.Must(200, "POST", "/v1/journal-entries/"+topUp+":reverse", `{}`, tag)
+	ok, diffs := e.grirReconciled(t, delta)
+	if want := "key:GR/IR of order item 4500000001/00010 platform:-50.00 EUR, quantity -1 sap:-100.00 EUR, quantity -2"; ok || !strings.Contains(diffs, want) {
+		t.Errorf("open GR/IR without the top-up: passed %t, differences %s, want %s", ok, diffs, want)
+	}
+	again := e.run(t, c, "documents", false, e.DE.String())
+	if _, got := e.act(t, again, "start"); fmt.Sprint(got["report"].(map[string]any)["loaded"]) != "map[gr_ir_top_ups:1]" {
+		t.Errorf("the run after the reversal: got %v, want the top-up alone", got["report"])
+	}
+	if ok, diffs := e.grirReconciled(t, again); !ok {
+		t.Errorf("open GR/IR topped up again: differences %s, want none", diffs)
+	}
+
+	// The same extract again: nothing to load, no entry, no event.
+	events := count(t, `SELECT count(*) FROM ledger.outbox WHERE tenant_id = $1`, e.Tenant.ID)
+	same := e.run(t, c, "documents", false, e.DE.String())
+	if _, got := e.act(t, same, "start"); got["status"] != "loaded" || len(got["report"].(map[string]any)["loaded"].(map[string]any)) != 0 {
+		t.Errorf("the same extract again: got %v, want nothing loaded", got["report"])
+	}
+	if n := count(t, `SELECT count(*) FROM ledger.outbox WHERE tenant_id = $1`, e.Tenant.ID); n != events {
+		t.Errorf("ledger events after the same extract again: got %d, want %d", n, events)
+	}
+
+	// The platform's invoice moves the position; a later run leaves it.
+	e.postMigratedInvoice(t)
+	after := e.run(t, c, "documents", false, e.DE.String())
+	if _, got := e.act(t, after, "start"); len(got["report"].(map[string]any)["loaded"].(map[string]any)) != 0 {
+		t.Errorf("a run after the platform's invoice: got %v, want nothing loaded", got["report"])
+	}
+	if got, want := e.position(t, order, "&open_only=false"), "order "+number+" item 1: received 0, invoiced 2, cleared 0, migrated -2, balance 0.00"; got != want {
+		t.Errorf("after the platform's invoice and a later run: got %s, want %s", got, want)
+	}
+}
+
+// TestGRIRTopUpDirectOrder: an order an earlier run loaded valued directly,
+// before SAP received it, is not moved onto GR/IR by a later run (the
+// optional tracker leaf): nothing is topped up, and its position stays a
+// difference in the reconciliation.
+func TestGRIRTopUpDirectOrder(t *testing.T) {
+	unreceived := tiny()
+	unreceived.MSEG = nil
+	e := grirSetup(t, unreceived)
+	c := e.connector(t, "grir.json")
+	if _, got := e.act(t, e.run(t, c, "documents", false, e.DE.String()), "start"); got["status"] != "loaded" {
+		t.Fatalf("first run: got %v, want loaded: %v", got["status"], got["report"])
+	}
+	write(t, e.dir, "grir.json", grirTiny())
+	delta := e.run(t, c, "documents", false, e.DE.String())
+	_, got := e.act(t, delta, "start")
+	if loaded := fmt.Sprint(got["report"].(map[string]any)["loaded"]); got["status"] != "loaded" || loaded != "map[goods_receipts:1 journal_entries:1]" {
+		t.Errorf("delta run: got %v %s, want the receipt and its document, no take-over", got["status"], loaded)
+	}
+	if ok, diffs := e.grirReconciled(t, delta); ok || !strings.Contains(diffs, "GR/IR of order item 4500000001/00010") {
+		t.Errorf("open GR/IR of the direct order: passed %t, differences %s, want the item's", ok, diffs)
+	}
+}
+
+// revalued is the extract with a document SAP posted since on item 10 of
+// order 4500000001, moving its GR/IR balance by 1.00.
+func revalued(x *sap.Extract) *sap.Extract {
+	line := sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", RWCUR: "EUR", GJAHR: "2026", BELNR: "0100000041", DOCLN: "000001", RACCT: "0000520000", HSL: "1.00",
+		BUDAT: "20260310", BLART: "WE", EBELN: "4500000001", EBELP: "00010"}
+	grir := line
+	grir.DOCLN, grir.RACCT, grir.HSL = "000002", "0000219000", "-1.00"
+	x.ACDOCA = append(x.ACDOCA, line, grir)
+	return x
+}
+
+// invoicedInFull is grirTiny with the receipt invoiced in full by an
+// invoice SAP posted, so no position is open, and nothing parked.
+func invoicedInFull() *sap.Extract {
+	x := grirTiny()
+	x.RBKP = []sap.RBKP{{BELNR: "5100000030", GJAHR: "2026", BUKRS: "2000", LIFNR: "0000000001", XBLNR: "P-30", BLDAT: "20260307", WAERS: "EUR",
+		RMWWR: "100.00", WMWST1: "0.00", RBSTAT: "5", XRECH: sap.Indicator("X")}}
+	x.RSEG = []sap.RSEG{{BELNR: "5100000030", GJAHR: "2026", BUZEI: "000001", EBELN: "4500000001", EBELP: "00010", MENGE: "2", WRBTR: "100.00"}}
+	x.ACDOCA = append(x.ACDOCA,
+		sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", RWCUR: "EUR", GJAHR: "2026", BELNR: "0100000030", DOCLN: "000001", RACCT: "0000219000", HSL: "100.00",
+			BUDAT: "20260307", BLART: "RE", EBELN: "4500000001", EBELP: "00010"},
+		sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", RWCUR: "EUR", GJAHR: "2026", BELNR: "0100000030", DOCLN: "000002", RACCT: "0000211000", HSL: "-100.00",
+			BUDAT: "20260307", BLART: "RE", LIFNR: "0000000001"})
+	return x
+}
+
+// TestGRIRTopUpLeftAlone: a later run does not top up a position whose
+// earlier run it cannot tell to be of its own fiscal year (review:batch21,
+// round 1): one taken over by a run of another fiscal year, whose extract
+// held another year's journal, and one an earlier run loaded with nothing
+// open, which has no take-over to tell its run by. Each is a warning, and
+// the position stays a difference in the reconciliation.
+func TestGRIRTopUpLeftAlone(t *testing.T) {
+	for _, c := range []struct {
+		name, want string
+		first      *sap.Extract
+		year       bool // the first run's scope is moved to 2025
+	}{
+		{"taken over by another year's run", "were taken over by a run of fiscal year 2025", halfReceived(), true},
+		{"loaded with nothing open", "has none taken over to tell the fiscal year of its run by", invoicedInFull(), false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := grirSetup(t, c.first)
+			conn := e.connector(t, "grir.json")
+			first := e.run(t, conn, "documents", false, e.DE.String())
+			if _, got := e.act(t, first, "start"); got["status"] != "loaded" {
+				t.Fatalf("first run: got %v, want loaded: %v", got["status"], got["report"])
+			}
+			if c.year {
+				pgtest.Exec(t, `UPDATE integration.migration_run SET scope = jsonb_set(scope, '{fiscal_year}', '2025'), version = version + 1 WHERE id = $1`, first["id"])
+			}
+			write(t, e.dir, "grir.json", revalued(c.first))
+			delta := e.run(t, conn, "documents", false, e.DE.String())
+			_, got := e.act(t, delta, "start")
+			report := got["report"].(map[string]any)
+			if _, ok := report["loaded"].(map[string]any)["gr_ir_top_ups"]; ok || got["status"] != "loaded" {
+				t.Errorf("delta run: got %v, %v, want loaded without a top-up", got["status"], report["loaded"])
+			}
+			if warnings := fmt.Sprint(report["load"]); !strings.Contains(warnings, c.want) {
+				t.Errorf("the load's warnings: got %s, want %q", warnings, c.want)
+			}
+			if ok, diffs := e.grirReconciled(t, delta); ok || !strings.Contains(diffs, "GR/IR of order item 4500000001/00010") {
+				t.Errorf("open GR/IR: passed %t, differences %s, want the item's", ok, diffs)
+			}
+		})
+	}
 }

@@ -520,7 +520,15 @@ func TestGRIRDatabaseFailures(t *testing.T) {
 	g.post(t, g.receiptPosting("2026-03-04", "EUR", order, "-1", p))
 	usd := uuid.New()
 	g.post(t, g.receiptPosting("2026-03-02", "USD", usd, "-100", price{100, 1}))
+	taken := uuid.New()
+	g.post(t, g.takeOverPosting(taken, "-1", -100))
+	topUp := g.takeOverPosting(taken, "-2", -200)
+	topUp.GRIR[0].TakenOver = &ledger.GRIRTakenOver{Quantity: "-1", Balance: -100}
 	for name, call := range map[string]func(ctx context.Context) error{
+		"take-over topped up": func(ctx context.Context) error {
+			_, err := postings().Post(ctx, topUp)
+			return err
+		},
 		"receipt": func(ctx context.Context) error {
 			_, err := postings().Post(ctx, g.receiptPosting("2026-03-05", "EUR", uuid.New(), "-1", p))
 			return err

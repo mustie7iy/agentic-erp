@@ -2623,10 +2623,17 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A later migration run tops up the GR/IR positions of orders an earlier run loaded (pre-existing finding on T72f): docs/migration.md's cutover runs a final delta migration after the parallel run, but a position is taken over only by the run that loads its order, so receipts or invoices SAP posted on an already loaded order fail the open GR/IR reconciliation check and the migration cannot correct it",
-      "r": "internal/integration/grir.go · docs/migration.md §Cut over · T72f",
+      "r": "internal/integration/grir.go · internal/ledger/grir_takeover.go · docs/migration.md · ADR-0034 As built (later runs) · walkthrough step 3 · T72f",
       "src": "review:batch21",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A later migration run tops up the GR/IR positions of an order an earlier run of the same fiscal year loaded with no position open: the top-up tells a take-over's run, and so its fiscal year, by the take-over entry's source document, and an order loaded with nothing open has none, so it is left with a warning and a reconciliation difference when SAP receives or invoices on it again before cutover",
+      "r": "internal/integration/grir.go cannotTopUp · ADR-0034 As built (later runs)",
+      "src": "review:batch23",
       "c": []
      },
      {
