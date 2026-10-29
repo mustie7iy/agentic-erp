@@ -163,13 +163,8 @@ minutes go to the second line on `main` rather than to repeating the slow
 gates on each pull request:
 
 - **Lanes and batches (ADR-0053, PO decision of 2026-10-28):** a lane runs a
-  fast loop on each step (a slice), and the full gates run once per batch. The
-  lane's loop: `gofmt`, the build, `go vet`, the lint of changed code,
-  staticcheck, gosec, gitleaks, `make generate` leaving no diff, the contract
-  lint and the breaking-change check when the contract changes, the tests of
-  the changed packages and of the packages that import them directly against
-  real PostgreSQL with `-race` once, 100% statement coverage of the changed
-  packages, and the reviewer. The whole-suite race run three times in random
+  fast loop on each step (a slice), the one 07 §7.7 lists, and the full gates
+  run once per batch. The whole-suite race run three times in random
   order, the whole-repository coverage gate, fuzzing, the budgets, the images,
   the signing round trip and the infrastructure checks run in `make ci-local`
   below, unchanged, on the batch before every pull request; `make ci-local` has
@@ -351,7 +346,10 @@ gates on each pull request:
     image, under its tag unless pushed under latest or several tags), and
     the test requires the five ko images, erp-temporal among them, listed
     from a local one-platform build with their SBOMs, and a ko run that
-    lists no erp-temporal image refused.
+    lists no erp-temporal image refused. What the gap hid: erp-temporal's
+    SBOM had never been scanned, so its golang.org/x/net v0.58.0 (one
+    Critical, four High) and go-jose v4.1.4 (High) went unreported; its
+    module took the main module's fixes in batch 21 (0e0ae539).
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
   documentation changed (`docs/`, Markdown) since the base: a pull

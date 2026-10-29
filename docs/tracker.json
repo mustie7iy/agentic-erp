@@ -893,6 +893,13 @@
         "r": "api/openapi.yaml listPaymentExclusions · internal/payments",
         "src": "review:batch19",
         "c": []
+       },
+       {
+        "s": "T",
+        "t": "A down payment request's exclusion names its request (pre-existing finding on exclnames, API-consumer classes): PaymentExclusion.down_payment_request_id gives the request by UUID only, without its document_number",
+        "r": "api/openapi.yaml PaymentExclusion · internal/payments",
+        "src": "review:batch22",
+        "c": []
        }
       ]
      },
@@ -5271,6 +5278,13 @@
         "c": []
        },
        {
+        "s": "T",
+        "t": "x-problem-codes lists codes an operation can never answer (pre-existing finding on batch 21): api/problemcodes_test.go derives codes from the call graph without branch conditions, so e.g. postGoodsReceipt lists ledger.gr_ir_position_exists, which only a migration take-over produces, and releasePurchaseOrder and approveApprovalRequest list procurement.no_gr_ir_account; ADR-0052 G7 accepts a superset: either an unreachable-from table in the test or the superset documented in G7",
+        "r": "api/problemcodes_test.go · ADR-0052 G7",
+        "src": "review:batch21",
+        "c": []
+       },
+       {
         "s": "D",
         "t": "Approvals inbox: the requests decidable by me (pages read on while the API thins them), a request's page with summary, steps and decisions, approve with a comment and reject with a reason as forms with If-Match and a fresh idempotency key; SoD and permission refusals shown by code (barred permissions from /v1/me); requester and deciders by name and kind (names cached per session), agents' text inert; navigation and actions from /v1/me; amounts per currency and locale; EN and FR; usable at 390 px; scenarios as approver, requester and a person without the role",
         "r": "internal/web approvals.go · me.go · refusal.go · operations.go · ui/approvals.templ · i18n Money, Problems · TestInboxPage · TestDecide · TestDecideRefusals · TestSegregationOfDuties · TestScreensAgainstTheContract · TestApprovalsInTheBrowser · ADR-0052 Built in T73d · T73d",
@@ -5317,6 +5331,13 @@
         "t": "Payment runs beyond T73f: suppliers named on a run's payments and exclusions (the API names none on them and listBusinessPartners filters by no id: contract change, an ids filter or expand=supplier), the run's company and house bank on its page within the six calls; an htmx request whose session ended answered with HX-Redirect to sign in (today a 303 the fragment follows: the progress' poll and every lazy section alike, found in T73f's review); the progress' poll answering 204 when nothing changed, so a screen reader is not read the same status again; walked through by a pilot treasurer and AP lead",
         "r": "T73f2 (split from T73f, 2026-10-25)",
         "src": "split:T73f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The workspace's payment run views name the supplier (pre-existing finding on exclnames): internal/web/payment_run.go:176 and :197 show the supplier as a UUID although the API gives supplier_name for payments and exclusions; waits for the UI rework (PO 2026-10-28: UI later)",
+        "r": "internal/web/payment_run.go",
+        "src": "review:batch22",
         "c": []
        },
        {
@@ -7980,6 +8001,13 @@
       "t": "Idempotent reruns; changed SAP documents reported",
       "r": "",
       "src": "baseline",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A vendor line SAP cleared stays open when its clearing spans runs or the extract (pre-existing finding on fxgate): internal/integration/load.go clearingItems returns false when one of the clearing's documents was loaded by an earlier run, and Postings.Clear refuses with ledger.clearing_not_balanced when the counter-item is outside the extract (e.g. a prior-year invoice paid this year); neither is retried and it shows only as a run issue or a reconciliation difference",
+      "r": "internal/integration/load.go clearings",
+      "src": "review:batch22",
       "c": []
      },
      {
