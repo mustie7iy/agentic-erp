@@ -65,6 +65,12 @@ expect "a last green commit that is not an ancestor" true EVENT=push FAKE_GREEN=
 # A manual run (the full suite on main, PO 2026-10-27) runs everything, even
 # when only documentation changed since the base it is given.
 expect "a manual run never skips" true EVENT=workflow_dispatch BASE="$code" HEAD="$tracker"
+# erp-temporal's module, and the script that runs the static checks in
+# every module, run them (scripts/each-module.sh, 06 §6.5).
+temporal="$(change temporal/spiffeauth/x.go)"
+expect "a pull request changing only erp-temporal's module" true EVENT=pull_request BASE="$tracker" HEAD="$temporal"
+modules="$(change scripts/each-module.sh)"
+expect "a pull request changing only each-module.sh" true EVENT=pull_request BASE="$temporal" HEAD="$modules"
 
 # expect_out checks one more output line ($3=$4) for the change $2.
 expect_out() {

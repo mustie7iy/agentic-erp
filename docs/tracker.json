@@ -489,9 +489,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Migrated entries in a foreign document currency (pre-existing finding on T72c): internal/integration/load.go journalPosting posts every migrated entry in company-code currency (HSL), so a down payment SAP made in a foreign document currency would load as a local-currency item and request and a final invoice in the original currency could not clear it (ledger.mixed_items); the quality gate should refuse such entries (sap.ACDOCA first carrying RWCUR/WSL) until they are migrated",
-        "r": "internal/integration/load.go journalPosting · T72c",
+        "r": "internal/integration/load.go journalPosting · T72c · quality.go documentCurrencies · sap.ACDOCA RWCUR/WSL · ADR-0005 As built",
         "src": "review:batch20",
         "c": []
        },
@@ -617,7 +617,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The SAP load's receipts step takes its locks in one order (pre-existing finding on T72b2): its first receipt takes the legal entity's goods_receipt number range (and journal_we), then a later receipt on an order an earlier run loaded locks that order's items, while a concurrent POST /v1/goods-receipts holds those items and waits on the range, so the two deadlock; e.g. every item lock is taken before the first receipt posts",
       "r": "internal/integration/load.go receipts",
       "src": "review:batch19",
@@ -888,10 +888,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Payment exclusions name their supplier (pre-existing finding on apinames, API-consumer classes: an identifier without the name its consumer needs): listPaymentExclusions gives the excluded supplier only as supplier_id and should give supplier_name beside it; the walkthrough's step 7 still calls name_partners for exclusions",
         "r": "api/openapi.yaml listPaymentExclusions · internal/payments",
         "src": "review:batch19",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A down payment request's exclusion names its request (pre-existing finding on exclnames, API-consumer classes): PaymentExclusion.down_payment_request_id gives the request by UUID only, without its document_number",
+        "r": "api/openapi.yaml PaymentExclusion · internal/payments",
+        "src": "review:batch22",
         "c": []
        }
       ]
@@ -5271,6 +5278,13 @@
         "c": []
        },
        {
+        "s": "T",
+        "t": "x-problem-codes lists codes an operation can never answer (pre-existing finding on batch 21): api/problemcodes_test.go derives codes from the call graph without branch conditions, so e.g. postGoodsReceipt lists ledger.gr_ir_position_exists, which only a migration take-over produces, and releasePurchaseOrder and approveApprovalRequest list procurement.no_gr_ir_account; ADR-0052 G7 accepts a superset: either an unreachable-from table in the test or the superset documented in G7",
+        "r": "api/problemcodes_test.go · ADR-0052 G7",
+        "src": "review:batch21",
+        "c": []
+       },
+       {
         "s": "D",
         "t": "Approvals inbox: the requests decidable by me (pages read on while the API thins them), a request's page with summary, steps and decisions, approve with a comment and reject with a reason as forms with If-Match and a fresh idempotency key; SoD and permission refusals shown by code (barred permissions from /v1/me); requester and deciders by name and kind (names cached per session), agents' text inert; navigation and actions from /v1/me; amounts per currency and locale; EN and FR; usable at 390 px; scenarios as approver, requester and a person without the role",
         "r": "internal/web approvals.go · me.go · refusal.go · operations.go · ui/approvals.templ · i18n Money, Problems · TestInboxPage · TestDecide · TestDecideRefusals · TestSegregationOfDuties · TestScreensAgainstTheContract · TestApprovalsInTheBrowser · ADR-0052 Built in T73d · T73d",
@@ -5317,6 +5331,13 @@
         "t": "Payment runs beyond T73f: suppliers named on a run's payments and exclusions (the API names none on them and listBusinessPartners filters by no id: contract change, an ids filter or expand=supplier), the run's company and house bank on its page within the six calls; an htmx request whose session ended answered with HX-Redirect to sign in (today a 303 the fragment follows: the progress' poll and every lazy section alike, found in T73f's review); the progress' poll answering 204 when nothing changed, so a screen reader is not read the same status again; walked through by a pilot treasurer and AP lead",
         "r": "T73f2 (split from T73f, 2026-10-25)",
         "src": "split:T73f",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The workspace's payment run views name the supplier (pre-existing finding on exclnames): internal/web/payment_run.go:176 and :197 show the supplier as a UUID although the API gives supplier_name for payments and exclusions; waits for the UI rework (PO 2026-10-28: UI later)",
+        "r": "internal/web/payment_run.go",
+        "src": "review:batch22",
         "c": []
        },
        {
@@ -6475,7 +6496,7 @@
        {
         "s": "T",
         "t": "Validation against a live system's $metadata",
-        "r": "(waits on: access to the pilot's SAP system)",
+        "r": "(waits on: access to the pilot's SAP system) · ACDOCA RWCUR/WSL not mapped yet, so an OData extract's open items are refused (review:batch20)",
         "src": "baseline",
         "c": []
        }
@@ -7983,6 +8004,13 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "A vendor line SAP cleared stays open when its clearing spans runs or the extract (pre-existing finding on fxgate): internal/integration/load.go clearingItems returns false when one of the clearing's documents was loaded by an earlier run, and Postings.Clear refuses with ledger.clearing_not_balanced when the counter-item is outside the extract (e.g. a prior-year invoice paid this year); neither is retried and it shows only as a run issue or a reconciliation difference",
+      "r": "internal/integration/load.go clearings",
+      "src": "review:batch22",
+      "c": []
+     },
+     {
       "s": "D",
       "t": "Platform-processed invoices keep their state",
       "r": "",
@@ -8622,6 +8650,13 @@
       "t": "06 §6.9 asks for two reviewers on migrations, contracts and security-sensitive code; every step has one agent reviewer (pre-existing finding on the process change): the rule and the practice are made to agree",
       "r": "docs/design/06-engineering-process.md §6.9 · REVIEW.md",
       "src": "review:batch18",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "govulncheck, staticcheck and gosec cover erp-temporal's own module (temporal/) as well as the root's, through scripts/each-module.sh, in ci-local, ci.yml's test job and weekly (govulncheck): every gate ran ./... from the root, which skips a module of its own, so nothing checked erp-temporal's standard-library or call-reachable vulnerabilities, and ko's SBOM, which grype scans, lists no standard library (pre-existing finding on batch 21)",
+      "r": "scripts/each-module.sh · scripts/test-each-module.sh · scripts/ci-local.sh · .github/workflows/ci.yml · .github/workflows/weekly.yml · 06 §6.5",
+      "src": "review:batch21",
       "c": []
      }
     ]

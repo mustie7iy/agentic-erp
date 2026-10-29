@@ -157,11 +157,11 @@ func (q *qualityCheck) grirChecks() {
 	for _, m := range q.e.MSEG {
 		movements[m.EBELN+"/"+m.EBELP] = append(movements[m.EBELN+"/"+m.EBELP], m)
 	}
-	positions := grirPositions(q.e, q.t)
-	for _, key := range sortedKeys(positions) {
-		q.grirPosition(positions[key], headers[positions[key].order], movements[key])
+	q.positions = grirPositions(q.e, q.t)
+	for _, key := range sortedKeys(q.positions) {
+		q.grirPosition(q.positions[key], headers[q.positions[key].order], movements[key])
 	}
-	q.grirReceipts(grirOrders(positions), positions)
+	q.grirReceipts(grirOrders(q.positions), q.positions)
 }
 
 // grirLine checks that a line on the GR/IR account names an order item of

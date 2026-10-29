@@ -77,6 +77,13 @@ type Orders interface {
 	PostLoadedReceipt(ctx context.Context, in procurement.ReceiptInput) (procurement.GoodsReceipt, error)
 }
 
+// OrderLocks locks a purchase order's items until the transaction ends,
+// in item order, as a goods movement locks them (procurement): the load
+// takes every item lock its receipts need before the first of them posts.
+type OrderLocks interface {
+	LockItems(ctx context.Context, id uuid.UUID, items []int32) error
+}
+
 // OrderValues reads purchase order totals (procurement).
 type OrderValues interface {
 	Value(ctx context.Context, ids []uuid.UUID) (int, money.Minor, error)
@@ -132,6 +139,7 @@ type Endpoints struct {
 	Partners      Partners
 	Suppliers     Suppliers
 	Orders        Orders
+	OrderLocks    OrderLocks
 	OrderValues   OrderValues
 	Invoices      Invoices
 	InvoiceCounts InvoiceCounts
