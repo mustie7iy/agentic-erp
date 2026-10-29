@@ -8849,7 +8849,6 @@ paths:
         - procurement.contract_exceeded
         - procurement.invalid_contract
         - procurement.invalid_status
-        - procurement.no_gr_ir_account
         - procurement.requisition_ordered
         - procurement.supplier_not_usable
         - request.version_mismatch
@@ -10000,9 +9999,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
-        - ledger.gr_ir_clearing_outdated
         - ledger.gr_ir_currency_mismatch
-        - ledger.gr_ir_position_exists
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -10013,7 +10010,6 @@ paths:
         - ledger.no_fiscal_period
         - ledger.no_fx_account
         - ledger.no_gr_ir_account
-        - ledger.no_price_difference_account
         - ledger.output_tax_mismatch
         - ledger.partner_not_allowed
         - ledger.partner_not_postable
@@ -10139,9 +10135,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
-        - ledger.gr_ir_clearing_outdated
         - ledger.gr_ir_currency_mismatch
-        - ledger.gr_ir_position_exists
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -10152,7 +10146,6 @@ paths:
         - ledger.no_fiscal_period
         - ledger.no_fx_account
         - ledger.no_gr_ir_account
-        - ledger.no_price_difference_account
         - ledger.output_tax_mismatch
         - ledger.partner_not_allowed
         - ledger.partner_not_postable
@@ -10852,9 +10845,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
-        - ledger.gr_ir_clearing_outdated
         - ledger.gr_ir_currency_mismatch
-        - ledger.gr_ir_position_exists
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -13998,7 +13989,6 @@ paths:
         - ledger.entry_reversed
         - ledger.gr_ir_clearing_outdated
         - ledger.gr_ir_currency_mismatch
-        - ledger.gr_ir_position_exists
         - ledger.hierarchy_change_invalid
         - ledger.hierarchy_exists
         - ledger.hierarchy_node_exists
@@ -14070,7 +14060,6 @@ paths:
         - procurement.invalid_change
         - procurement.invalid_contract
         - procurement.invalid_status
-        - procurement.no_gr_ir_account
         - procurement.requisition_ordered
         - procurement.supplier_not_usable
         - procurement.unknown_unit
@@ -15587,7 +15576,6 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.entry_reversed
-        - ledger.gr_ir_clearing_outdated
         - ledger.gr_ir_currency_mismatch
         - ledger.gr_ir_position_exists
         - ledger.invalid_clearing_entry
@@ -15603,7 +15591,6 @@ paths:
         - ledger.no_fiscal_period
         - ledger.no_fx_account
         - ledger.no_gr_ir_account
-        - ledger.no_price_difference_account
         - ledger.not_an_open_item
         - ledger.output_tax_mismatch
         - ledger.partner_not_allowed
@@ -15798,7 +15785,6 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.entry_reversed
-        - ledger.gr_ir_clearing_outdated
         - ledger.gr_ir_currency_mismatch
         - ledger.gr_ir_position_exists
         - ledger.invalid_clearing_entry
@@ -15814,7 +15800,6 @@ paths:
         - ledger.no_fiscal_period
         - ledger.no_fx_account
         - ledger.no_gr_ir_account
-        - ledger.no_price_difference_account
         - ledger.not_an_open_item
         - ledger.output_tax_mismatch
         - ledger.partner_not_allowed

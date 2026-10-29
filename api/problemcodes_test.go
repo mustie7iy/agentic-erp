@@ -33,6 +33,14 @@ package api
 // migrations). Codes built at run time, or set on a problem after
 // problem.New, cannot be traced; dynamicCodes declares them per function,
 // and the test fails on a site it does not declare.
+//
+// The graph knows no branch conditions, so an operation that reaches a
+// shared function gets every code it makes. untakenBranches narrows the
+// ones whose branch is taken only for an input a few functions make: such
+// a code is an operation's only when it reaches one of them. Each entry's
+// premise is checked: that no other function sets the field the branch
+// tests, or that no other value reaches the parameter it tests. Branches
+// it does not name stay a superset (ADR-0052, G7 as built).
 
 import (
 	"flag"
@@ -71,6 +79,42 @@ var dynamicCodes = map[string][]string{
 	module + "/internal/analytics/endpoint.apiError":        nil,
 }
 
+// untaken is a code its gate makes only on a branch taken for an input
+// that the functions in by alone make, with the premise the test checks:
+// fields, which no other function sets (package path, type, field), or
+// param, the gate's parameter, which no value but those by passes carries
+// taking.
+type untaken struct {
+	gate, code string
+	by         []string
+	fields     [][3]string
+	param      string
+	taking     string
+	why        string
+}
+
+// untakenBranches are the branches of shared code that only another
+// caller's input takes (pre-existing finding on batch 21).
+var untakenBranches = []untaken{
+	{gate: "(" + module + "/internal/ledger.grirPosting).takeOver", code: "ledger.gr_ir_position_exists",
+		by:     []string{"(*" + module + "/internal/integration.loader).grirPosting"},
+		fields: [][3]string{{module + "/internal/ledger", "GRIRItem", "TakesOver"}},
+		why:    "itemLines takes a position over only for a GRIRItem.TakesOver item, which a migration run's load alone makes"},
+	{gate: "(" + module + "/internal/ledger.grirPosting).checkClears", code: "ledger.gr_ir_clearing_outdated",
+		by:     []string{module + "/internal/procurement.clearingPosting"},
+		fields: [][3]string{{module + "/internal/ledger", "GRIRItem", "Clears"}},
+		why:    "checkClears refuses only a GRIRItem.Clears item, which a GR/IR clearing's approval alone makes"},
+	{gate: "(" + module + "/internal/ledger.Postings).prepareGRIR", code: "ledger.no_price_difference_account",
+		by:     []string{module + "/internal/payables.grirItem", module + "/internal/procurement.clearingPosting"},
+		fields: [][3]string{{module + "/internal/ledger", "GRIRItem", "Invoiced"}, {module + "/internal/ledger", "GRIRItem", "Clears"}},
+		why: "prepareGRIR looks the price difference account up only for an invoiced or a clearing item; a goods movement's items " +
+			"name their offset account"},
+	{gate: "(*" + module + "/internal/procurement.Endpoints).valuation", code: "procurement.no_gr_ir_account",
+		by:    []string{"(*" + module + "/internal/procurement.Endpoints).ReleaseLoadedOrder"},
+		param: "loaded", taking: "gr_ir",
+		why: "valuation refuses only an order a migration run loaded as valued through GR/IR; the API's and the approval's releases pass \"\""},
+}
+
 // outsideTheAPI are tables only other listeners write, whose constraints'
 // problems no public operation answers, with the writer.
 var outsideTheAPI = map[string]string{
@@ -93,6 +137,8 @@ type emission struct {
 // make.
 type codeAnalysis struct {
 	prog        *ssa.Program
+	all         map[*ssa.Function]bool
+	fns         map[string]*ssa.Function // by name
 	cg          *callgraph.Graph
 	from        *ssa.Function // problem.From
 	gated       map[*ssa.Function][]string
@@ -101,12 +147,14 @@ type codeAnalysis struct {
 	constraints map[string][]string         // codes of the constraints on each table
 	writes      map[*ssa.Function][]string  // the tables each function's statements write
 	unplaced    []string                    // registered constraints no migration names
+	narrowed    map[int][]string            // the operations each of untakenBranches takes its code from
 }
 
 func TestProblemCodes(t *testing.T) {
 	a := analyse(t)
 	spec := loadSpec(t)
-	common := keys(a.codesOf(a.reach(a.pipeline())))
+	common := keys(a.codesOf(a.reach(a.pipeline()), nil))
+	a.checkUntaken(t)
 	derived := a.operationCodes(t, spec, common)
 	if *update {
 		writeCodes(t, common, derived)
@@ -145,6 +193,11 @@ func TestProblemCodes(t *testing.T) {
 	for fn := range dynamicCodes {
 		if _, ok := a.unresolved[fn]; !ok {
 			t.Errorf("dynamicCodes declares %s, which builds no code at run time any more", fn)
+		}
+	}
+	for i, u := range untakenBranches {
+		if len(a.narrowed[i]) == 0 {
+			t.Errorf("untakenBranches: %s of %s is no operation's to leave out any more; remove the entry", u.code, u.gate)
 		}
 	}
 }
@@ -197,8 +250,12 @@ func analyse(t *testing.T) *codeAnalysis {
 	prog.Build()
 	fns := ssautil.AllFunctions(prog)
 	problem := prog.ImportedPackage(module + "/internal/platform/problem")
-	a := &codeAnalysis{prog: prog, cg: vta.CallGraph(fns, cha.CallGraph(prog)), from: problem.Func("From"), gated: map[*ssa.Function][]string{},
-		globals: map[*ssa.Global][]string{}, unresolved: map[string][]token.Position{}, constraints: map[string][]string{}, writes: map[*ssa.Function][]string{}}
+	a := &codeAnalysis{prog: prog, all: fns, fns: map[string]*ssa.Function{}, cg: vta.CallGraph(fns, cha.CallGraph(prog)), from: problem.Func("From"),
+		gated: map[*ssa.Function][]string{}, globals: map[*ssa.Global][]string{}, unresolved: map[string][]token.Position{},
+		constraints: map[string][]string{}, writes: map[*ssa.Function][]string{}, narrowed: map[int][]string{}}
+	for f := range fns {
+		a.fns[f.String()] = f
+	}
 	var emitted []emission
 	for _, e := range a.cg.Nodes[problem.Func("New")].In {
 		emitted = append(emitted, a.resolve(e.Caller.Func, e.Site, e.Site.Common().Args[1], map[ssa.Value]bool{})...)
@@ -264,23 +321,31 @@ func (a *codeAnalysis) resolve(gate *ssa.Function, site ssa.CallInstruction, v s
 
 // fromCallers resolves a parameter at every call of its function.
 func (a *codeAnalysis) fromCallers(p *ssa.Parameter, seen map[ssa.Value]bool) []emission {
+	var out []emission
+	a.eachArgument(p, func(e *callgraph.Edge, arg ssa.Value) {
+		out = append(out, a.resolve(e.Caller.Func, e.Site, arg, seen)...)
+	})
+	return out
+}
+
+// eachArgument calls do with the argument every call of p's function
+// passes for p; none when nothing calls it.
+func (a *codeAnalysis) eachArgument(p *ssa.Parameter, do func(*callgraph.Edge, ssa.Value)) {
 	fn := p.Parent()
 	idx := slices.Index(fn.Params, p)
 	node := a.cg.Nodes[fn]
 	if node == nil {
-		return nil // never called
+		return
 	}
-	var out []emission
 	for _, e := range node.In {
 		c, i := e.Site.Common(), idx
 		if c.IsInvoke() && fn.Signature.Recv() != nil {
 			i-- // an interface call's receiver is not among its arguments
 		}
 		if i >= 0 && i < len(c.Args) {
-			out = append(out, a.resolve(e.Caller.Func, e.Site, c.Args[i], seen)...)
+			do(e, c.Args[i])
 		}
 	}
-	return out
 }
 
 // fromClosures resolves a closure's free variable at the closure's making.
@@ -307,27 +372,42 @@ func (a *codeAnalysis) codeAssigned(f *ssa.Function, problem *ssa.Package) {
 	if f.Pkg == problem {
 		return
 	}
+	for _, pos := range fieldStores(f, problem.Pkg.Path(), "Problem", "Code") {
+		a.unresolved[f.String()] = append(a.unresolved[f.String()], a.prog.Fset.Position(pos))
+	}
+}
+
+// fieldStores is where f may set a field of a struct type of package
+// pkg: every use of the field's address but a load (a store, or the
+// address passed on, as to a row's Scan).
+func fieldStores(f *ssa.Function, pkg, typ, field string) []token.Pos {
+	var out []token.Pos
 	for _, b := range f.Blocks {
 		for _, in := range b.Instrs {
-			st, ok := in.(*ssa.Store)
-			if !ok {
+			fa, ok := in.(*ssa.FieldAddr)
+			if !ok || !isField(fa, pkg, typ, field) {
 				continue
 			}
-			fa, ok := st.Addr.(*ssa.FieldAddr)
-			if !ok {
-				continue
-			}
-			ptr, ok := fa.X.Type().Underlying().(*types.Pointer)
-			if !ok {
-				continue
-			}
-			named, ok := ptr.Elem().(*types.Named)
-			if ok && named.Obj().Pkg() == problem.Pkg && named.Obj().Name() == "Problem" &&
-				named.Underlying().(*types.Struct).Field(fa.Field).Name() == "Code" {
-				a.unresolved[f.String()] = append(a.unresolved[f.String()], a.prog.Fset.Position(st.Pos()))
+			for _, use := range *fa.Referrers() {
+				if load, ok := use.(*ssa.UnOp); !ok || load.Op != token.MUL {
+					out = append(out, use.Pos())
+				}
 			}
 		}
 	}
+	return out
+}
+
+// isField reports whether fa is the address of the field of the struct
+// type of package pkg.
+func isField(fa *ssa.FieldAddr, pkg, typ, field string) bool {
+	ptr, ok := fa.X.Type().Underlying().(*types.Pointer)
+	if !ok {
+		return false
+	}
+	named, ok := ptr.Elem().(*types.Named)
+	return ok && named.Obj().Pkg() != nil && named.Obj().Pkg().Path() == pkg && named.Obj().Name() == typ &&
+		named.Underlying().(*types.Struct).Field(fa.Field).Name() == field
 }
 
 // tablesWritten is the tables the statements in a function's own body
@@ -501,15 +581,17 @@ func constraintTables(t *testing.T) func(name string) []string {
 	}
 }
 
-// reached is what a traversal found: the functions and their codes.
+// reached is what a traversal found: the functions, their codes, and of
+// those the codes of the variables they read.
 type reached struct {
 	fns   map[*ssa.Function]bool
 	codes map[string]bool
+	kept  map[string]bool
 }
 
 // reach walks the call graph from roots, as the file's comment says.
 func (a *codeAnalysis) reach(roots []*ssa.Function) reached {
-	r := reached{fns: map[*ssa.Function]bool{}, codes: map[string]bool{}}
+	r := reached{fns: map[*ssa.Function]bool{}, codes: map[string]bool{}, kept: map[string]bool{}}
 	stack := slices.Clone(roots)
 	for len(stack) > 0 {
 		f := stack[len(stack)-1]
@@ -521,7 +603,7 @@ func (a *codeAnalysis) reach(roots []*ssa.Function) reached {
 		for _, c := range a.gated[f] {
 			r.codes[c] = true
 		}
-		stack = append(stack, a.referenced(f, r.codes)...)
+		stack = append(stack, a.referenced(f, r.kept)...)
 		if n := a.cg.Nodes[f]; n != nil {
 			for _, e := range n.Out {
 				if !a.cut(f, e) {
@@ -529,6 +611,9 @@ func (a *codeAnalysis) reach(roots []*ssa.Function) reached {
 				}
 			}
 		}
+	}
+	for c := range r.kept {
+		r.codes[c] = true
 	}
 	return r
 }
@@ -597,7 +682,14 @@ func (a *codeAnalysis) operationCodes(t *testing.T, spec node, common []string) 
 		if !ok {
 			t.Fatalf("%s: no method on the API's handler", id)
 		}
-		codes := a.codesOf(a.reach([]*ssa.Function{m}))
+		r := a.reach([]*ssa.Function{m})
+		skip := a.untakenIn(r)
+		codes := a.codesOf(r, skip)
+		for i, u := range untakenBranches {
+			if skip[a.fns[u.gate]][u.code] && !codes[u.code] {
+				a.narrowed[i] = append(a.narrowed[i], id)
+			}
+		}
 		for _, c := range common {
 			delete(codes, c)
 		}
@@ -606,11 +698,17 @@ func (a *codeAnalysis) operationCodes(t *testing.T, spec node, common []string) 
 	return out
 }
 
-// codesOf is a traversal's codes with those of the constraints on the
+// codesOf is a traversal's codes, but those skip says a gate makes on a
+// branch the traversal never takes, with those of the constraints on the
 // tables its functions write.
-func (a *codeAnalysis) codesOf(r reached) map[string]bool {
-	codes := maps.Clone(r.codes)
+func (a *codeAnalysis) codesOf(r reached, skip map[*ssa.Function]map[string]bool) map[string]bool {
+	codes := maps.Clone(r.kept)
 	for f := range r.fns {
+		for _, c := range a.gated[f] {
+			if !skip[f][c] {
+				codes[c] = true
+			}
+		}
 		for _, tbl := range a.writes[f] {
 			for _, c := range a.constraints[tbl] {
 				codes[c] = true
@@ -618,6 +716,140 @@ func (a *codeAnalysis) codesOf(r reached) map[string]bool {
 		}
 	}
 	return codes
+}
+
+// untakenIn is, by gate, the codes of untakenBranches a traversal reaches
+// the gate of but none of the functions that make the input taking the
+// branch.
+func (a *codeAnalysis) untakenIn(r reached) map[*ssa.Function]map[string]bool {
+	skip := map[*ssa.Function]map[string]bool{}
+	for _, u := range untakenBranches {
+		gate := a.fns[u.gate]
+		if gate == nil || !r.fns[gate] || r.any(u.by) {
+			continue
+		}
+		if skip[gate] == nil {
+			skip[gate] = map[string]bool{}
+		}
+		skip[gate][u.code] = true
+	}
+	return skip
+}
+
+// any reports whether the traversal reached one of the functions named,
+// or a closure in one.
+func (r reached) any(names []string) bool {
+	for f := range r.fns {
+		if within(f, names) {
+			return true
+		}
+	}
+	return false
+}
+
+// within reports whether f is one of the functions named, or a closure in
+// one.
+func within(f *ssa.Function, names []string) bool {
+	for ; f != nil; f = f.Parent() {
+		if slices.Contains(names, f.String()) {
+			return true
+		}
+	}
+	return false
+}
+
+// checkUntaken checks each of untakenBranches against the program: its
+// gate still makes its code, the functions it names exist, and its
+// premise holds.
+func (a *codeAnalysis) checkUntaken(t *testing.T) {
+	t.Helper()
+	for _, u := range untakenBranches {
+		gate := a.fns[u.gate]
+		sites := 0
+		if gate != nil {
+			sites = len(slices.DeleteFunc(slices.Clone(a.gated[gate]), func(c string) bool { return c != u.code }))
+		}
+		switch {
+		case sites == 0:
+			t.Errorf("untakenBranches: %s no longer makes %s", u.gate, u.code)
+			continue
+		case sites > 1:
+			t.Errorf("untakenBranches: %s makes %s at %d sites, which the entry cannot tell apart", u.gate, u.code, sites)
+		}
+		for _, fn := range u.by {
+			if a.fns[fn] == nil {
+				t.Errorf("untakenBranches, %s: %s no longer exists", u.code, fn)
+			}
+		}
+		if len(u.fields) == 0 && u.param == "" {
+			t.Errorf("untakenBranches, %s: no premise the test can check (fields or param)", u.code)
+		}
+		for _, fl := range u.fields {
+			a.checkFieldPremise(t, u, fl)
+		}
+		if u.param != "" {
+			a.checkParamPremise(t, u, gate)
+		}
+	}
+}
+
+// checkFieldPremise checks that the functions of u alone set the field.
+func (a *codeAnalysis) checkFieldPremise(t *testing.T, u untaken, fl [3]string) {
+	t.Helper()
+	set := false
+	for f := range a.all {
+		if pos := fieldStores(f, fl[0], fl[1], fl[2]); len(pos) > 0 {
+			set = true
+			if !within(f, u.by) {
+				t.Errorf("untakenBranches, %s: %s sets %s.%s (%v), so %v are not alone in taking the branch", u.code, f, fl[1], fl[2],
+					a.prog.Fset.Position(pos[0]), u.by)
+			}
+		}
+	}
+	if !set {
+		t.Errorf("untakenBranches, %s: nothing sets %s.%s any more", u.code, fl[1], fl[2])
+	}
+}
+
+// checkParamPremise checks that every value reaching the gate's
+// parameter is a constant other than the one taking the branch, or comes
+// from a parameter of a function of u.
+func (a *codeAnalysis) checkParamPremise(t *testing.T, u untaken, gate *ssa.Function) {
+	t.Helper()
+	i := slices.IndexFunc(gate.Params, func(p *ssa.Parameter) bool { return p.Name() == u.param })
+	if i < 0 {
+		t.Errorf("untakenBranches, %s: %s has no parameter %s", u.code, u.gate, u.param)
+		return
+	}
+	seen := map[ssa.Value]bool{}
+	var check func(v ssa.Value, in *ssa.Function)
+	check = func(v ssa.Value, in *ssa.Function) {
+		if seen[v] {
+			return
+		}
+		seen[v] = true
+		switch v := v.(type) {
+		case *ssa.Const:
+			if v.Value != nil && v.Value.Kind() == constant.String && constant.StringVal(v.Value) != u.taking {
+				return
+			}
+		case *ssa.Phi:
+			for _, e := range v.Edges {
+				check(e, in)
+			}
+			return
+		case *ssa.ChangeType:
+			check(v.X, in)
+			return
+		case *ssa.Parameter:
+			if !within(v.Parent(), u.by) {
+				a.eachArgument(v, func(e *callgraph.Edge, arg ssa.Value) { check(arg, e.Caller.Func) })
+			}
+			return
+		}
+		t.Errorf("untakenBranches, %s: %s's %s may be %q, as %s passes it", u.code, u.gate, u.param, u.taking, in)
+	}
+	check(gate.Params[i], gate)
 }
 
 // allCodes is every code the server can make.

@@ -5278,9 +5278,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "x-problem-codes lists codes an operation can never answer (pre-existing finding on batch 21): api/problemcodes_test.go derives codes from the call graph without branch conditions, so e.g. postGoodsReceipt lists ledger.gr_ir_position_exists, which only a migration take-over produces, and releasePurchaseOrder and approveApprovalRequest list procurement.no_gr_ir_account; ADR-0052 G7 accepts a superset: either an unreachable-from table in the test or the superset documented in G7",
-        "r": "api/problemcodes_test.go · ADR-0052 G7",
+        "r": "api/problemcodes_test.go untakenBranches, checkUntaken · api/openapi.yaml x-problem-codes · TestProblemCodes · ADR-0052 G7: branches only another caller takes",
         "src": "review:batch21",
         "c": []
        },
