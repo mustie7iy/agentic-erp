@@ -31,8 +31,9 @@ import (
 // TestProblemCodesEscapes proves escapes on testdata/fieldcalls: callE's
 // value goes to a sync.Map and a *Runner to fmt.Sprint, so both escape;
 // callQ is only called by name and a *Keeper's interface stays in the
-// program, so neither does. And that outsideImports refuses a package
-// outside the program importing one of it.
+// program, so neither does; the other ways the flow goes, each with its
+// fixture function. And that outsideImports refuses a package outside the
+// program importing one of it, and templateData data it cannot follow.
 func TestProblemCodesEscapes(t *testing.T) {
 	const fixture = module + "/api/testdata/fieldcalls"
 	a, _ := build(t, fixture)
@@ -55,8 +56,20 @@ func TestProblemCodesEscapes(t *testing.T) {
 			}
 		})
 	}
-	if got := a.index().problems; len(got) != 1 || !strings.Contains(got[0], "fieldcalls.Render executes a template with data whose type") {
-		t.Errorf("got %q, want Render refused for data of no known type", got)
+	for name, want := range map[string]string{
+		"Render":     "fieldcalls.Render executes a template with data whose type",
+		"RenderAny":  "anyData.P is of interface type any",
+		"RenderFunc": "funcData.F is a function",
+	} {
+		if got := a.index().problems; !slices.ContainsFunc(got, func(p string) bool { return strings.Contains(p, want) }) {
+			t.Errorf("%s: got %q, want a problem saying %q", name, got, want)
+		}
+	}
+	if got := len(a.index().problems); got != 3 {
+		t.Errorf("got %d template problems, want 3 (Render, RenderAny, RenderFunc)", got)
+	}
+	if got := a.escapes(a.fns["(*"+fixture+".Sub).Do"]); !strings.Contains(got, "a template executed in") {
+		t.Errorf("Sub.Do: got %q, want it escaping through RenderChain's template, by Book.Child's result", got)
 	}
 	if got := a.escapes(a.fns["(*"+fixture+".Page).Title"]); !strings.Contains(got, "a template executed in") {
 		t.Errorf("Page.Title: got %q, want it escaping through RenderPage's template", got)
@@ -242,8 +255,10 @@ func (a *codeAnalysis) exportedMethods(t types.Type) []*ssa.Function {
 // templateData is every execution in the program of a text/template or
 // html/template template, whose text may call any exported method of any
 // value nested in its data, with the data's type: the types reflection
-// reaches from it (reachableTypes) give templated their methods. Data
-// whose type the call does not show (an interface value handed on) is
+// reaches from it (templateReach) give templated their methods. Data
+// whose type the call does not show (an interface value handed on), or
+// reaching a value the template could call that the index does not see
+// (an interface or function in a field or a method's result), is
 // returned as a problem.
 func (a *codeAnalysis) templateData(x *flowIndex) []string {
 	var out []string
@@ -263,7 +278,13 @@ func (a *codeAnalysis) templateData(x *flowIndex) []string {
 					out = append(out, fmt.Sprintf("%s executes a template with data whose type the call does not show (%s)", f, a.prog.Fset.Position(in.Pos())))
 					continue
 				}
-				for _, t := range reachableTypes(mi.X.Type(), map[string]bool{}) {
+				r := &templateReach{prog: a.prog, seen: map[string]bool{}}
+				r.reach(mi.X.Type(), "the data")
+				for _, p := range r.problems {
+					out = append(out, fmt.Sprintf("%s executes a template whose data reaches what the test cannot follow: %s (%s)", f, p,
+						a.prog.Fset.Position(in.Pos())))
+				}
+				for _, t := range r.types {
 					for _, m := range append(a.exportedMethods(t), a.exportedMethods(types.NewPointer(t))...) {
 						x.templated[m] = append(x.templated[m], c)
 					}
@@ -275,39 +296,82 @@ func (a *codeAnalysis) templateData(x *flowIndex) []string {
 	return out
 }
 
-// reachableTypes is t, without a pointer, and the types reflection can
-// reach from a value of it: through pointers, exported fields, and the
-// elements and keys of containers. An interface's dynamic value is
-// another conversion, indexed where it is made.
-func reachableTypes(t types.Type, seen map[string]bool) []types.Type {
+// templateReach is what a template can reach from its data: the types,
+// and what it could call that the index cannot follow.
+type templateReach struct {
+	prog     *ssa.Program
+	seen     map[string]bool
+	types    []types.Type
+	problems []string
+}
+
+// reach adds t, without a pointer, and the types a template can reach
+// from a value of it: through pointers, exported fields and the fields an
+// embedded one promotes, the elements and keys of containers, and the
+// results of exported methods (a template chains through them). A field
+// or result of an interface type other than error, or of a function type,
+// holds a value the template can call into or call (its call builtin)
+// that the index does not see, so it is a problem.
+func (r *templateReach) reach(t types.Type, at string) {
 	t = types.Unalias(t)
 	if p, ok := t.(*types.Pointer); ok {
-		return reachableTypes(p.Elem(), seen)
+		r.reach(p.Elem(), at)
+		return
+	}
+	switch {
+	case types.Identical(t, types.Universe.Lookup("error").Type()):
+		return
+	case types.IsInterface(t):
+		r.problems = append(r.problems, fmt.Sprintf("%s is of interface type %s, whose value the template may call into", at, t))
+		return
+	}
+	if _, ok := t.Underlying().(*types.Signature); ok {
+		r.problems = append(r.problems, fmt.Sprintf("%s is a function (%s), which the template may call", at, t))
+		return
 	}
 	k := types.TypeString(t, nil)
-	if seen[k] || types.IsInterface(t) {
-		return nil
+	if r.seen[k] {
+		return
 	}
-	seen[k] = true
-	out := []types.Type{t}
+	r.seen[k] = true
+	r.types = append(r.types, t)
+	r.reachParts(t, k)
+	for _, mt := range []types.Type{t, types.NewPointer(t)} {
+		if hasTypeParam(mt) {
+			continue
+		}
+		mset := r.prog.MethodSets.MethodSet(mt)
+		for i := range mset.Len() {
+			sig, ok := mset.At(i).Type().(*types.Signature)
+			if !ok || !token.IsExported(mset.At(i).Obj().Name()) {
+				continue
+			}
+			for v := range sig.Results().Variables() {
+				r.reach(v.Type(), k+"."+mset.At(i).Obj().Name()+"'s result")
+			}
+		}
+	}
+}
+
+// reachParts reaches t's fields a template can name and its elements.
+func (r *templateReach) reachParts(t types.Type, k string) {
 	switch u := t.Underlying().(type) {
 	case *types.Struct:
-		for i := range u.NumFields() {
-			if u.Field(i).Exported() {
-				out = append(out, reachableTypes(u.Field(i).Type(), seen)...)
+		for f := range u.Fields() {
+			if f.Exported() || f.Embedded() {
+				r.reach(f.Type(), k+"."+f.Name())
 			}
 		}
 	case *types.Slice:
-		out = append(out, reachableTypes(u.Elem(), seen)...)
+		r.reach(u.Elem(), k+"'s element")
 	case *types.Array:
-		out = append(out, reachableTypes(u.Elem(), seen)...)
+		r.reach(u.Elem(), k+"'s element")
 	case *types.Chan:
-		out = append(out, reachableTypes(u.Elem(), seen)...)
+		r.reach(u.Elem(), k+"'s element")
 	case *types.Map:
-		out = append(out, reachableTypes(u.Key(), seen)...)
-		out = append(out, reachableTypes(u.Elem(), seen)...)
+		r.reach(u.Key(), k+"'s key")
+		r.reach(u.Elem(), k+"'s element")
 	}
-	return out
 }
 
 func isTemplate(path string) bool { return path == "text/template" || path == "html/template" }
@@ -523,7 +587,7 @@ func (a *codeAnalysis) declaredHere(t types.Type) bool {
 	n, ok := types.Unalias(t).(*types.Named)
 	if !ok {
 		st, isStruct := t.Underlying().(*types.Struct)
-		return !isStruct || !slices.ContainsFunc(fieldsOf(st), (*types.Var).Exported)
+		return !isStruct || !slices.ContainsFunc(slices.Collect(st.Fields()), (*types.Var).Exported)
 	}
 	return n.Obj().Pkg() != nil && a.program[n.Obj().Pkg().Path()]
 }
@@ -544,13 +608,5 @@ func outsideImports(deps []*packages.Package, program map[string]bool) []string 
 		}
 	})
 	slices.Sort(out)
-	return out
-}
-
-func fieldsOf(st *types.Struct) []*types.Var {
-	out := make([]*types.Var, st.NumFields())
-	for i := range out {
-		out[i] = st.Field(i)
-	}
 	return out
 }

@@ -251,3 +251,31 @@ type Gen struct{}
 func (*Gen) Run(f func() error) error { return f() }
 
 func Generic() bool { return slices.Contains([]*Gen{}, nil) }
+
+// A template's data holding a value of interface type, or a function, in
+// a field could reach anything: RenderAny and RenderFunc are refused.
+// RenderChain's template reaches a *Sub through Book.Child's result, so
+// Sub's Do escapes.
+type anyData struct{ P any }
+
+type funcData struct{ F func(func() error) error }
+
+func RenderAny(w io.Writer) error {
+	return template.Must(template.New("a").Parse("{{.P}}")).Execute(w, anyData{P: &Page{}})
+}
+
+func RenderFunc(w io.Writer) error {
+	return template.Must(template.New("f").Parse("{{.F}}")).Execute(w, funcData{F: callQ})
+}
+
+type Book struct{}
+
+type Sub struct{}
+
+func (*Book) Child() *Sub { return &Sub{} }
+
+func (*Sub) Do(f func() error) error { return f() }
+
+func RenderChain(w io.Writer) error {
+	return template.Must(template.New("c").Parse("{{.Child}}")).Execute(w, &Book{})
+}

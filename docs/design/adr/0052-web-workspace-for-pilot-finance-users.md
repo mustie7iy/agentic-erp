@@ -1349,10 +1349,13 @@ What the API gaps settled, and where they depart from §3:
   escapes with all its exported methods; the API's handler gives api/gen
   only the served methods once `sealHandler` holds (the index is built
   after the seal). A template (text/template, html/template) may call any
-  exported method of anything its data holds, so every type reflection
+  exported method of anything its data holds, so every type a template
   reaches from an execution's data (through pointers, exported fields and
-  container elements) escapes with its exported methods, and data whose
-  type the call does not show fails the test. Two premises are stated, not
+  those an embedded one promotes, container elements and exported methods'
+  results) escapes with its exported methods; data whose type the call
+  does not show, or reaching an interface (other than error) or a function
+  in a field or a result, which the template could call into or call and
+  the flow does not see, fails the test. Two premises are stated, not
   checked, since the analysis does not read the dependencies' code: code
   outside does not read a function from a field of a struct of the program
   it is given and call it, which only reflection could do; and the methods
@@ -1378,12 +1381,14 @@ What the API gaps settled, and where they depart from §3:
   of the program, is cut to each caller's own; `TestProblemCodesEscapes`
   checks the reasons, each way the flow goes (a field read back to be
   called, a function's result, a variable of code outside, a literal
-  struct, an outside generic, a template's data) and the refusals of
-  `outsideImports` and of untyped template data. Not done, as precision
-  rather than soundness: a function nothing in the program calls and that
-  does not escape is never called, so its parameters could count as made,
-  which would cut through a value method's pointer wrapper; such a
-  function still proves nothing, but for the two wrapper kinds above.
+  struct, an outside generic, a template's data, a method's result it
+  chains through) and the refusals of `outsideImports` and of template
+  data it cannot follow (untyped, an `any` field, a function field). Not
+  done, as precision rather than soundness: a function nothing in the
+  program calls and that does not escape is never called, so its
+  parameters could count as made, which would cut through a value method's
+  pointer wrapper; such a function still proves nothing, but for the two
+  wrapper kinds above.
 - **Client addresses in the API's audit trail (D2, PO 2026-10-21).**
   - erp-web forwards the signed-in person's address, as its own load
     balancer's PROXY header names it, in `Erp-Client-Address` on every
