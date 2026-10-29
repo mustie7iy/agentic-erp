@@ -56,17 +56,21 @@ func TestProblemCodesEscapes(t *testing.T) {
 			}
 		})
 	}
+	problems := a.index().problems
 	for name, want := range map[string]string{
 		"Render":     "fieldcalls.Render executes a template with data whose type",
 		"RenderAny":  "anyData.P is of interface type any",
 		"RenderFunc": "funcData.F is a function",
+		"RenderErr":  "errData.E is of interface type error",
 	} {
-		if got := a.index().problems; !slices.ContainsFunc(got, func(p string) bool { return strings.Contains(p, want) }) {
-			t.Errorf("%s: got %q, want a problem saying %q", name, got, want)
-		}
+		t.Run(name, func(t *testing.T) {
+			if !slices.ContainsFunc(problems, func(p string) bool { return strings.Contains(p, want) }) {
+				t.Errorf("got %q, want a problem saying %q", problems, want)
+			}
+		})
 	}
-	if got := len(a.index().problems); got != 3 {
-		t.Errorf("got %d template problems, want 3 (Render, RenderAny, RenderFunc)", got)
+	if got := len(problems); got != 4 {
+		t.Errorf("got %d template problems, want 4 (Render, RenderAny, RenderFunc, RenderErr)", got)
 	}
 	if got := a.escapes(a.fns["(*"+fixture+".Sub).Do"]); !strings.Contains(got, "a template executed in") {
 		t.Errorf("Sub.Do: got %q, want it escaping through RenderChain's template, by Book.Child's result", got)
@@ -279,7 +283,7 @@ func (a *codeAnalysis) templateData(x *flowIndex) []string {
 					continue
 				}
 				r := &templateReach{prog: a.prog, seen: map[string]bool{}}
-				r.reach(mi.X.Type(), "the data")
+				r.reach(mi.X.Type(), "the data", false)
 				for _, p := range r.problems {
 					out = append(out, fmt.Sprintf("%s executes a template whose data reaches what the test cannot follow: %s (%s)", f, p,
 						a.prog.Fset.Position(in.Pos())))
@@ -308,18 +312,20 @@ type templateReach struct {
 // reach adds t, without a pointer, and the types a template can reach
 // from a value of it: through pointers, exported fields and the fields an
 // embedded one promotes, the elements and keys of containers, and the
-// results of exported methods (a template chains through them). A field
-// or result of an interface type other than error, or of a function type,
+// results of exported methods (a template chains through them). A field,
+// element, key or result of an interface type, or of a function type,
 // holds a value the template can call into or call (its call builtin)
-// that the index does not see, so it is a problem.
-func (r *templateReach) reach(t types.Type, at string) {
+// that the index does not see, so it is a problem; but for an error a
+// method returns (result): the method escapes through templated, and a
+// value it returns goes with it (returnLeaks).
+func (r *templateReach) reach(t types.Type, at string, result bool) {
 	t = types.Unalias(t)
 	if p, ok := t.(*types.Pointer); ok {
-		r.reach(p.Elem(), at)
+		r.reach(p.Elem(), at, result)
 		return
 	}
 	switch {
-	case types.Identical(t, types.Universe.Lookup("error").Type()):
+	case result && types.Identical(t, types.Universe.Lookup("error").Type()):
 		return
 	case types.IsInterface(t):
 		r.problems = append(r.problems, fmt.Sprintf("%s is of interface type %s, whose value the template may call into", at, t))
@@ -347,7 +353,7 @@ func (r *templateReach) reach(t types.Type, at string) {
 				continue
 			}
 			for v := range sig.Results().Variables() {
-				r.reach(v.Type(), k+"."+mset.At(i).Obj().Name()+"'s result")
+				r.reach(v.Type(), k+"."+mset.At(i).Obj().Name()+"'s result", true)
 			}
 		}
 	}
@@ -359,18 +365,18 @@ func (r *templateReach) reachParts(t types.Type, k string) {
 	case *types.Struct:
 		for f := range u.Fields() {
 			if f.Exported() || f.Embedded() {
-				r.reach(f.Type(), k+"."+f.Name())
+				r.reach(f.Type(), k+"."+f.Name(), false)
 			}
 		}
 	case *types.Slice:
-		r.reach(u.Elem(), k+"'s element")
+		r.reach(u.Elem(), k+"'s element", false)
 	case *types.Array:
-		r.reach(u.Elem(), k+"'s element")
+		r.reach(u.Elem(), k+"'s element", false)
 	case *types.Chan:
-		r.reach(u.Elem(), k+"'s element")
+		r.reach(u.Elem(), k+"'s element", false)
 	case *types.Map:
-		r.reach(u.Key(), k+"'s key")
-		r.reach(u.Elem(), k+"'s element")
+		r.reach(u.Key(), k+"'s key", false)
+		r.reach(u.Elem(), k+"'s element", false)
 	}
 }
 
