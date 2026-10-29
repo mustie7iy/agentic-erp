@@ -259,3 +259,29 @@ func TestPostedInvoicesRefused(t *testing.T) {
 		t.Errorf("load issues: got %s, want the take-over refused", load)
 	}
 }
+
+// TestPostedInvoicesOfTwoSystems: two SAP systems of one tenant may both
+// have posted a document 5100000020/2026; each is taken over under its
+// system (T72b2).
+func TestPostedInvoicesOfTwoSystems(t *testing.T) {
+	e := setup(t)
+	write(t, e.dir, "posted.json", postedSAP())
+	for _, system := range []string{"SAP_EU", "SAP_US"} {
+		t.Run(system, func(t *testing.T) {
+			c, _ := e.Must(201, "POST", "/v1/connectors", fmt.Sprintf(`{"kind": "sap_file", "name": %q, "settings": {"path": "posted.json", "system": %q}}`,
+				system, system), "")
+			_, got := e.act(t, e.run(t, c["id"].(string), "documents", false, e.DE.String()), "start")
+			report := got["report"].(map[string]any)
+			if got["status"] != "loaded" {
+				t.Fatalf("start status: got %v, want loaded: %v", got["status"], report)
+			}
+			if n := report["loaded"].(map[string]any)["posted_invoices_invoiced"]; n != float64(3) {
+				t.Errorf("posted documents taken over: got %v, want 3", n)
+			}
+			if n := count(t, `SELECT count(*) FROM payables.migrated_invoice_item WHERE tenant_id = $1 AND reference = $2`, e.Tenant.ID,
+				system+" 5100000020/2026"); n != 1 {
+				t.Errorf("items of %s 5100000020/2026: got %d, want 1", system, n)
+			}
+		})
+	}
+}

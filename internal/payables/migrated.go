@@ -31,7 +31,7 @@ func init() {
 // the documents posted here (invoicedQuantities). Only items that move
 // quantity are taken over: a subsequent debit's or credit's revalue none.
 type MigratedInvoice struct {
-	Reference string // the source document, unique per tenant: "SAP 5100000001/2026"
+	Reference string // the source system and document, unique per tenant: "SAP_PRD 5100000001/2026"
 	Kind      string // KindInvoice or KindCreditMemo, the document's direction
 	Items     []MigratedItem
 }

@@ -107,12 +107,9 @@ func (l *loader) plain(minor money.Minor, currency string) string {
 	return minor.Plain(l.t.exponents[currency])
 }
 
-// load brings the extract over: suppliers, purchase orders, goods
-// receipts, parked invoices, the quantities posted invoices invoiced
-// (before the journal: its gapless number ranges stay locked until the
-// load commits, and an invoice's posting on a migrated order takes the
-// order items, which the take-over locks, before its journal range), then
-// the journal (every document, or one
+// load brings the extract over: suppliers, purchase orders, the
+// quantities posted invoices invoiced, goods receipts, parked invoices,
+// then the journal (every document, or one
 // opening entry per company) with the clearings SAP recorded, and last the
 // posting blocks, which would refuse the postings before them.
 //
@@ -120,12 +117,19 @@ func (l *loader) plain(minor money.Minor, currency string) string {
 // them one clearing at a time, so it would take the ledger's entry locks
 // after its number-range locks and in several sets; it takes all of the
 // tenant's entry locks first instead (Postings.LockAllEntries), so it never
-// deadlocks with a payment proposal's reservation or a reversal.
+// deadlocks with a payment proposal's reservation or a reversal. The
+// take-over of invoiced quantities locks the items of orders an earlier
+// run may have loaded, so it comes before the receipts and the journal:
+// their gapless number ranges (goods_receipt, journal_we, the journal's)
+// stay locked until the load commits, and a goods movement or an
+// invoice's posting takes the order items first and those ranges after.
+// Before it the load holds only the partner and purchase order ranges,
+// which nothing that locks order items takes.
 func (l *loader) load(ctx context.Context) error {
 	if err := l.e.Postings.LockAllEntries(ctx); err != nil {
 		return err
 	}
-	for _, fn := range []func(context.Context) error{l.partners, l.orders, l.receipts, l.invoices, l.invoiced, l.journal, l.clearings, l.blocked} {
+	for _, fn := range []func(context.Context) error{l.partners, l.orders, l.invoiced, l.receipts, l.invoices, l.journal, l.clearings, l.blocked} {
 		if err := fn(ctx); err != nil {
 			return err
 		}
@@ -365,7 +369,8 @@ func (l *loader) invoices(ctx context.Context) error {
 // invoiced takes over what SAP's posted invoice documents invoiced and
 // credited on the orders on the platform (T72b2), so that matching a
 // migrated credit memo or subsequent debit/credit, or a later invoice,
-// counts it. A document is taken over whole, once (its RBKP reference):
+// counts it. A document is taken over whole, once (its RBKP reference of
+// the source system, which also names it to payables):
 // it waits until every order of the extract it names is loaded, and its
 // items on orders outside the extract, none of the platform's, are left
 // out. Documents the quality gate refused are not taken over.
@@ -404,7 +409,7 @@ func (l *loader) invoiced(ctx context.Context) error {
 // migratedInvoice is what a posted document takes over, and whether every
 // order of the extract it names is on the platform.
 func (l *loader) migratedInvoice(d postedDocument, nos map[string]int32, inExtract map[string]bool) (payables.MigratedInvoice, bool) {
-	in := payables.MigratedInvoice{Reference: "SAP " + d.key, Kind: d.kind}
+	in := payables.MigratedInvoice{Reference: l.system + " " + d.key, Kind: d.kind}
 	for _, it := range d.items {
 		if !inExtract[it.EBELN] {
 			continue

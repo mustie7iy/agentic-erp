@@ -102,7 +102,7 @@ func TestPostedInvoiced(t *testing.T) {
 // outside the extract (T72b2).
 func TestMigratedInvoiceWaits(t *testing.T) {
 	loaded := uuid.New()
-	l := &loader{refs: refs{"EKKO/4500000001": loaded}}
+	l := &loader{refs: refs{"EKKO/4500000001": loaded}, system: "SAP_EU"}
 	inExtract := map[string]bool{"4500000001": true, "4500000002": true}
 	nos := map[string]int32{"4500000001/00010": 1}
 	doc := func(orders ...string) postedDocument {
@@ -116,8 +116,8 @@ func TestMigratedInvoiceWaits(t *testing.T) {
 	if !ready {
 		t.Error("document on a loaded order: got waiting, want ready")
 	}
-	if in.Reference != "SAP 5100000001/2026" {
-		t.Errorf("reference: got %s, want SAP 5100000001/2026", in.Reference)
+	if in.Reference != "SAP_EU 5100000001/2026" {
+		t.Errorf("reference: got %s, want SAP_EU 5100000001/2026", in.Reference)
 	}
 	want := []payables.MigratedItem{{ItemNo: 1, PurchaseOrderID: loaded, POItemNo: 1, Quantity: "1"}}
 	if !slices.Equal(in.Items, want) {

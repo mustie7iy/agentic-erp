@@ -1566,7 +1566,8 @@ invoiced or credited: `payables.migrated_invoice_item`, one row per ordinary
 item (RSEG-TBTKZ blank; a subsequent debit/credit item moves no quantity and
 is left out), its `kind` the document's direction (RBKP-XRECH: `invoice` or
 `credit_memo`), a positive `quantity`, the source document as `reference`
-("SAP BELNR/GJAHR") and the item's place in it as `item_no`. Rows are
+(the connector's source system and BELNR/GJAHR, "SAP_PRD 5100000001/2026",
+as its external references name it) and the item's place in it as `item_no`. Rows are
 insert-only and taken over once per document and item
 (`migrated_invoice_item_once`, 409 `payables.already_taken_over`); the order
 item is checked through procurement's published API, with no foreign key,

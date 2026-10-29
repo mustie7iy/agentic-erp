@@ -398,15 +398,18 @@ func (rc *reconciler) invoicedQuantities(ctx context.Context, s companyScope) er
 	return nil
 }
 
-// sapInvoiced is the net quantity the posted documents of the company
-// invoiced per item of its orders, keyed "order item EBELN/EBELP". A
+// sapInvoiced is the net quantity the posted documents invoiced per item
+// of the company's orders, keyed "order item EBELN/EBELP". A
 // document whose kind or quantities cannot be told is refused, as the
 // quality gate refuses it.
 func (rc *reconciler) sapInvoiced(cc string, orders map[string]bool) map[string]*big.Rat {
-	docs, issues := postedDocuments(rc.ext, cc)
+	_, issues := postedDocuments(rc.ext, cc)
 	for _, i := range issues {
 		rc.refuse(i.Table, i.Key, "%s", i.Message)
 	}
+	// Every company's documents, on the company's orders: the platform's
+	// side counts what was taken over on the orders, whichever document.
+	docs, _ := postedDocuments(rc.ext, "") // each company's issues are refused with its own checks
 	out := map[string]*big.Rat{}
 	for _, d := range docs {
 		for _, it := range d.items {
