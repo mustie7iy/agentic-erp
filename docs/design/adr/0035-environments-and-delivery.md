@@ -797,6 +797,39 @@ their own and least privilege, never as the RDS master user `erp_admin`
   missing. Before the first release with this change operators set the
   three passwords.
 
+**As built (2026-10-29, review of T72h): erp-cell's hook Jobs resolve
+the writer on a first install.** erp-cell's `erp-migrate` and
+`erp-temporal-schema` hook network policies isolated their Jobs' egress and
+admitted the writer alone, counting on the default deny's DNS rule. Helm
+runs a pre-install hook "after templates are rendered, but before any
+resources are created in Kubernetes" (Helm, Chart Hooks), and Argo CD runs
+it as PreSync (Argo CD, Helm: hooks), so on a first install the default
+deny, a resource of the release, is not there yet and the Jobs could not
+resolve the writer; on an upgrade it is, and they could. Each policy now,
+as erp-global's `erp-directory-setup` does, isolates its Job both ways,
+takes nothing in, and admits the cluster's DNS (kube-system's `kube-dns`,
+UDP and TCP 53: the default deny's rule, one helper `erp-cell.dnsEgress`)
+and the writer in the VPC, nothing else.
+
+- *Decided by default:* ordering was not the cause and is unchanged. The
+  policies are hooks of weight -10 and the Jobs of weight 0, and Helm sorts
+  hooks by weight ascending (Argo CD: the weight is the sync wave), so each
+  policy is there before its Job's Pods. The default deny stays a release
+  resource rather than a hook, since Helm does not track or manage hook
+  resources as part of the release and the deny must outlive every
+  release's hooks.
+- *Checks:* `deploy/helm/policy` (conftest, every chart) refuses a
+  pre-install hook Job not held, before the default deny exists, by
+  pre-install hook policies of a lower weight selecting its Pods that
+  isolate them both ways, take nothing in and admit the cluster's DNS;
+  `helm-checks.sh`'s `reach` holds each chart's pre-install hook Jobs, on
+  a first install and on an upgrade, to the cluster's DNS and the
+  database's port in the VPC alone.
+- Sources: Helm, Chart Hooks, https://helm.sh/docs/topics/charts_hooks/
+  (the hook lifecycle, weights, "not tracked or managed as part of the
+  release"); Argo CD, Helm, https://argo-cd.readthedocs.io/en/stable/user-guide/helm/
+  (pre-install and pre-upgrade as PreSync, the weight as the sync wave).
+
 **Rotation (product owner, 2026-10-28):** the passwords stay as built for
 now; before production the three logins move to RDS IAM database
 authentication, a tracker step of its own (src po:2026-10-28). The
