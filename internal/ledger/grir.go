@@ -84,7 +84,7 @@ func positions(ctx context.Context, tx pgx.Tx, le uuid.UUID, tc string, keys []o
 	for i, k := range keys {
 		orders[i], items[i] = k.order, k.item
 	}
-	rows, _ := tx.Query(ctx, `SELECT x.o, x.n, coalesce(trim_scale(p.invoiced + p.cleared - p.received), 0)::text, coalesce(p.amount_tc, 0), coalesce(p.amount_lc, 0),
+	rows, _ := tx.Query(ctx, `SELECT x.o, x.n, coalesce(trim_scale(p.invoiced + p.cleared + p.migrated - p.received), 0)::text, coalesce(p.amount_tc, 0), coalesce(p.amount_lc, 0),
 			coalesce(p.amount_gc, 0), coalesce(p.currency_tc = $4, true)
 		FROM unnest($2::uuid[], $3::int[]) AS x(o, n)
 		LEFT JOIN ledger.gr_ir_position p ON p.legal_entity_id = $1 AND p.purchase_order_id = x.o AND p.po_item_no = x.n`, le, orders, items, tc)
@@ -284,11 +284,14 @@ func (g grirPosting) lines(ctx context.Context, tx pgx.Tx) ([]Line, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := checkTakeOver(g.in); err != nil {
+		return nil, err
+	}
 	keys := make([]orderItem, len(g.in.GRIR))
 	for i, it := range g.in.GRIR {
-		if kinds := btoi(it.OffsetAccountID != nil) + btoi(it.Invoiced != nil) + btoi(it.Clears != nil); kinds != 1 {
+		if kinds := btoi(it.OffsetAccountID != nil) + btoi(it.Invoiced != nil) + btoi(it.Clears != nil) + btoi(it.TakesOver != nil); kinds != 1 {
 			return nil, fmt.Errorf("ledger: GR/IR item %d of order %s: a goods movement names the offset account, an invoice its amount, a clearing "+
-				"the position it clears; got %d of them", it.POItemNo, it.PurchaseOrderID, kinds)
+				"the position it clears, a take-over the balance it takes over; got %d of them", it.POItemNo, it.PurchaseOrderID, kinds)
 		}
 		keys[i] = orderItem{it.PurchaseOrderID, it.POItemNo}
 	}
@@ -332,6 +335,14 @@ func (g grirPosting) itemLines(pos map[orderItem]*position, keys []orderItem) ([
 	var lines []Line
 	var kept []bool
 	for i, it := range g.in.GRIR {
+		if it.TakesOver != nil {
+			taken, err := g.takeOver(pos[keys[i]], i)
+			if err != nil {
+				return nil, nil, err
+			}
+			lines, kept = append(lines, taken...), append(kept, true, true)
+			continue
+		}
 		if err := g.checkClears(pos[keys[i]], it); err != nil {
 			return nil, nil, err
 		}
@@ -408,6 +419,49 @@ func (g grirPosting) checkClears(p *position, it GRIRItem) error {
 			"or the price difference account is no longer the one, that the clearing was approved for; propose the clearing again.", it.POItemNo, it.PurchaseOrderID))
 	}
 	return nil
+}
+
+// checkTakeOver refuses an entry that mixes take-over items with others,
+// or that is not a migration run's: only an integration entry's line on
+// the GR/IR account may go without its order item (ledger.check_gr_ir_line),
+// and that line is what a take-over posts against.
+func checkTakeOver(in Posting) error {
+	if !slices.ContainsFunc(in.GRIR, func(it GRIRItem) bool { return it.TakesOver != nil }) {
+		return nil
+	}
+	if in.SourceContext != "integration" || slices.ContainsFunc(in.GRIR, func(it GRIRItem) bool { return it.TakesOver == nil }) {
+		return fmt.Errorf("ledger: a GR/IR take-over is an integration entry of take-over items only; got source context %q", in.SourceContext)
+	}
+	return nil
+}
+
+// takeOver is the pair of lines that takes over the source system's
+// position of item i (GRIRItem.TakesOver) onto an order item without one:
+// the item's GR/IR line with the balance and the open quantity, and a line
+// on the GR/IR account without an order item that offsets it, both
+// converted at the posting's rates and kept so they net to zero in every
+// currency. An item that has a position is refused, so a position is taken
+// over once, and an item listed twice in the entry is too.
+func (g grirPosting) takeOver(p *position, i int) ([]Line, error) {
+	it := &g.in.GRIR[i]
+	if p.qty.Sign() != 0 || p.tc != 0 || p.lc != 0 || p.gc != 0 {
+		return nil, problem.Conflict("ledger.gr_ir_position_exists", fmt.Sprintf("Item %d of purchase order %s already has a GR/IR position; "+
+			"a source system's position is taken over once, onto an item without one.", it.POItemNo, it.PurchaseOrderID))
+	}
+	q, err := signedQuantity(it.Quantity)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: GR/IR quantity %q: %w", it.Quantity, err)
+	}
+	tc := *it.TakesOver
+	lc, gc, err := g.rates.local(tc)
+	if err != nil {
+		return nil, convertErr(err)
+	}
+	p.qty, p.tc, p.lc, p.gc = q, tc, lc, gc
+	// A source system's amount, parsed, is never -2^63: negating cannot overflow,
+	// and its conversions are bounded by it.
+	return []Line{{AccountID: g.grir, TC: tc, LC: lc, GC: gc, Quantity: &it.Quantity, Unit: &it.Unit, Text: it.Text, PurchaseOrderID: &it.PurchaseOrderID,
+		POItemNo: &it.POItemNo}, {AccountID: g.grir, TC: -tc, LC: -lc, GC: -gc, Text: it.Text}}, nil
 }
 
 func btoi(b bool) int {
@@ -620,24 +674,25 @@ func appendAdjustments(ctx context.Context, le uuid.UUID, lines []Line, keys []o
 // transaction that posts them and under the orders' GR/IR locks, which
 // the caller holds: receipts' quantities to received (negated), invoices'
 // to invoiced, a clearing's (ledger.gr_ir_clearing_entry, T72e) to
-// cleared, every line's amounts to the balance. An entry without an order
+// cleared, a migration run's take-over's (integration, T72f) to migrated,
+// every line's amounts to the balance. An entry without an order
 // item on its lines has nothing to add.
 func project(ctx context.Context, tx pgx.Tx, e Entry) error {
 	if !slices.ContainsFunc(e.Lines, func(l Line) bool { return l.PurchaseOrderID != nil }) {
 		return nil
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.gr_ir_position AS p (tenant_id, legal_entity_id, purchase_order_id, po_item_no, account_id,
-			currency_tc, currency_lc, currency_gc, uom_code, received, invoiced, cleared, amount_tc, amount_lc, amount_gc, last_posting_date)
+			currency_tc, currency_lc, currency_gc, uom_code, received, invoiced, cleared, migrated, amount_tc, amount_lc, amount_gc, last_posting_date)
 		SELECT l.tenant_id, l.legal_entity_id, l.purchase_order_id, l.po_item_no, l.account_id, $3, $4, $5, min(l.uom_code),
 			CASE WHEN $6 = 'procurement' AND NOT c.clearing THEN -sum(l.quantity) ELSE 0 END, CASE WHEN $6 = 'payables' THEN sum(l.quantity) ELSE 0 END,
-			CASE WHEN c.clearing THEN sum(l.quantity) ELSE 0 END, sum(l.amount_tc), sum(l.amount_lc), sum(l.amount_gc), max(l.posting_date)
+			CASE WHEN c.clearing THEN sum(l.quantity) ELSE 0 END, CASE WHEN $6 = 'integration' THEN sum(l.quantity) ELSE 0 END, sum(l.amount_tc), sum(l.amount_lc), sum(l.amount_gc), max(l.posting_date)
 		FROM ledger.journal_line l
 		JOIN ledger.account_determination d ON d.tenant_id = l.tenant_id AND d.legal_entity_id = l.legal_entity_id AND d.key = 'gr_ir' AND d.account_id = l.account_id
 		CROSS JOIN (SELECT EXISTS (SELECT FROM ledger.gr_ir_clearing_entry WHERE fiscal_year = $1 AND journal_entry_id = $2) AS clearing) c
 		WHERE l.fiscal_year = $1 AND l.journal_entry_id = $2 AND l.purchase_order_id IS NOT NULL
 		GROUP BY l.tenant_id, l.legal_entity_id, l.purchase_order_id, l.po_item_no, l.account_id, c.clearing
 		ON CONFLICT (tenant_id, legal_entity_id, purchase_order_id, po_item_no) DO UPDATE SET received = p.received + EXCLUDED.received,
-			invoiced = p.invoiced + EXCLUDED.invoiced, cleared = p.cleared + EXCLUDED.cleared, amount_tc = p.amount_tc + EXCLUDED.amount_tc, amount_lc = p.amount_lc + EXCLUDED.amount_lc,
+			invoiced = p.invoiced + EXCLUDED.invoiced, cleared = p.cleared + EXCLUDED.cleared, migrated = p.migrated + EXCLUDED.migrated, amount_tc = p.amount_tc + EXCLUDED.amount_tc, amount_lc = p.amount_lc + EXCLUDED.amount_lc,
 			amount_gc = p.amount_gc + EXCLUDED.amount_gc, last_posting_date = greatest(p.last_posting_date, EXCLUDED.last_posting_date),
 			version = p.version + 1`, e.FiscalYear, e.ID, e.CurrencyTC, e.CurrencyLC, e.CurrencyGC, e.SourceContext); err != nil {
 		return fmt.Errorf("ledger: project the GR/IR positions of entry %s: %w", e.ID, err)

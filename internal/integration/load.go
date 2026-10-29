@@ -60,6 +60,11 @@ type loader struct {
 	// downPayments are the documents holding an open down payment, which
 	// load as entries of their own in either mode (downPaymentDocs).
 	downPayments map[string][]sap.ACDOCA
+	// grir are the extract's GR/IR positions by EBELN/EBELP, and viaGRIR
+	// the orders this run released valued through GR/IR, whose open
+	// positions it takes over (T72f, takeOverGRIR).
+	grir    map[string]*grirPosition
+	viaGRIR map[string]bool
 }
 
 type loadedEntry struct {
@@ -111,7 +116,8 @@ func (l *loader) plain(minor money.Minor, currency string) string {
 }
 
 // load brings the extract over: suppliers, purchase orders, the
-// quantities posted invoices invoiced, goods receipts, parked invoices,
+// quantities posted invoices invoiced, goods receipts, the open GR/IR
+// positions of the orders SAP valued through GR/IR, parked invoices,
 // then the journal (every document, or one
 // opening entry per company) with the clearings SAP recorded, and last the
 // posting blocks, which would refuse the postings before them.
@@ -133,7 +139,9 @@ func (l *loader) load(ctx context.Context) error {
 		return err
 	}
 	l.downPayments = downPaymentDocs(l.ext)
-	for _, fn := range []func(context.Context) error{l.partners, l.orders, l.invoiced, l.receipts, l.invoices, l.journal, l.clearings, l.blocked} {
+	l.grir, l.viaGRIR = grirPositions(l.ext, l.t), map[string]bool{}
+	for _, fn := range []func(context.Context) error{l.partners, l.orders, l.invoiced, l.receipts, l.takeOverGRIR, l.invoices, l.journal, l.clearings,
+		l.blocked} {
 		if err := fn(ctx); err != nil {
 			return err
 		}
@@ -256,9 +264,14 @@ func (l *loader) orders(ctx context.Context) error {
 	}
 	heads := slices.Clone(l.ext.EKKO)
 	slices.SortFunc(heads, func(a, b sap.EKKO) int { return cmp.Compare(a.EBELN, b.EBELN) })
+	via := grirOrders(l.grir)
 	for _, h := range heads {
 		if _, ok := l.refs["EKKO/"+h.EBELN]; ok {
 			continue
+		}
+		valuation := procurement.ValuationDirect
+		if via[h.EBELN] {
+			valuation = procurement.ValuationGRIR
 		}
 		date, _ := sapDate(h.BEDAT) // checked by the quality gate
 		in := procurement.NewOrder{LegalEntityID: l.t.entities[h.BUKRS].ID, SupplierID: l.vendors[h.LIFNR], Currency: h.WAERS, OrderDate: date}
@@ -276,7 +289,7 @@ func (l *loader) orders(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			if _, err := l.e.Orders.ReleaseLoadedOrder(ctx, o.ID, func(int32) error { return nil }); err != nil {
+			if _, err := l.e.Orders.ReleaseLoadedOrder(ctx, o.ID, func(int32) error { return nil }, valuation); err != nil {
 				return err
 			}
 			return l.addRef(ctx, "procurement.purchase_order", o.ID, "EKKO", h.EBELN)
@@ -286,6 +299,7 @@ func (l *loader) orders(ctx context.Context) error {
 		}
 		if done {
 			l.counts["purchase_orders"]++
+			l.viaGRIR[h.EBELN] = valuation == procurement.ValuationGRIR
 		}
 	}
 	return nil
@@ -321,7 +335,7 @@ func (l *loader) receipts(ctx context.Context) error {
 				Quantity: m.MENGE, Unit: unit})
 		}
 		done, err := l.step(ctx, "MSEG", key, func() error {
-			g, err := l.e.Orders.PostReceipt(ctx, in)
+			g, err := l.e.Orders.PostLoadedReceipt(ctx, in)
 			if err != nil {
 				return err
 			}

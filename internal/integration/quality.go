@@ -120,6 +120,7 @@ func checkQuality(e *sap.Extract, t target) []Issue {
 	q.movements()
 	q.journal()
 	q.downPayments()
+	q.grirChecks()
 	q.supplierInvoices()
 	return q.out
 }

@@ -583,8 +583,10 @@ func orderEvent(o PurchaseOrder, extra map[string]any) map[string]any {
 // requisition, or above its requisition's total, is released by the
 // release strategy (T47d): it waits for a purchase_order approval request
 // when the order tiers ask for one, and its approval releases it
-// (OrderReleases). A migration run's order is released as loaded.
-func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, loaded bool) (PurchaseOrder, error) {
+// (OrderReleases). A migration run's order is released as loaded, valued
+// as the run says (loaded: its valuation; "" for a release of the
+// platform's own).
+func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, loaded string) (PurchaseOrder, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return PurchaseOrder{}, err
@@ -600,7 +602,7 @@ func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func
 	// the ledger refuses; the approval checks again (OrderReleases). A
 	// migration run's order is released as loaded: valued directly, its
 	// invoices' lines are derived and checked as they post.
-	if !loaded {
+	if loaded == "" {
 		if err := e.checkAssignments(ctx, o.LegalEntityID, o.OrderDate, assignments(o.Items, 0)); err != nil {
 			return PurchaseOrder{}, err
 		}
@@ -612,7 +614,7 @@ func (e *Endpoints) releaseOrder(ctx context.Context, id uuid.UUID, ifMatch func
 	if _, err := coveringContract(ctx, tx, o, value); err != nil {
 		return PurchaseOrder{}, err
 	}
-	strategy, err := releaseStrategy(ctx, tx, o, value, loaded)
+	strategy, err := releaseStrategy(ctx, tx, o, value, loaded != "")
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
@@ -665,7 +667,7 @@ func releaseStrategy(ctx context.Context, tx pgx.Tx, o PurchaseOrder, value mone
 // items (procurement.value_released_items, T47a) and clears the request it
 // waited for. It reads the order back without the caller's company
 // filter: the caller may release it, or decided its request.
-func (e *Endpoints) release(ctx context.Context, tx pgx.Tx, p reqctx.Principal, o PurchaseOrder, value money.Minor, loaded bool) (PurchaseOrder, error) {
+func (e *Endpoints) release(ctx context.Context, tx pgx.Tx, p reqctx.Principal, o PurchaseOrder, value money.Minor, loaded string) (PurchaseOrder, error) {
 	if err := consumeContract(ctx, tx, p, o, value); err != nil {
 		return PurchaseOrder{}, err
 	}
@@ -742,10 +744,12 @@ func coveringContract(ctx context.Context, tx pgx.Tx, o PurchaseOrder, value mon
 }
 
 // valuation is how an order released now is valued: through GR/IR when
-// the legal entity has a GR/IR account, directly when it has none or a
-// migration run loaded the order.
-func (e *Endpoints) valuation(ctx context.Context, le uuid.UUID, loaded bool) (string, error) {
-	if loaded {
+// the legal entity has a GR/IR account, directly when it has none; a
+// migration run's order as the run says (loaded), directly unless SAP
+// valued it through GR/IR (T72f), which needs the legal entity's GR/IR
+// account as well.
+func (e *Endpoints) valuation(ctx context.Context, le uuid.UUID, loaded string) (string, error) {
+	if loaded == ValuationDirect {
 		return ValuationDirect, nil
 	}
 	_, grir, err := e.Accounts.Determination(ctx, le, "gr_ir")
@@ -754,6 +758,9 @@ func (e *Endpoints) valuation(ctx context.Context, le uuid.UUID, loaded bool) (s
 		return "", err
 	case grir:
 		return ValuationGRIR, nil
+	case loaded == ValuationGRIR:
+		return "", problem.Unprocessable("procurement.no_gr_ir_account", "The order was valued through GR/IR in the source system, "+
+			"and its legal entity has no gr_ir account in its account determination to take its positions over onto.")
 	}
 	return ValuationDirect, nil
 }

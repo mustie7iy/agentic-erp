@@ -2588,9 +2588,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Migrate open GR/IR positions from SAP (ACDOCA EBELN/EBELP)",
-      "r": "T72f",
+      "r": "internal/integration grir.go · ledger GRIRItem.TakesOver, gr_ir_position.migrated (migration 000167) · procurement PostLoadedReceipt, ReleaseLoadedOrder valuation · listGrIrBalances migrated_quantity · ADR-0034 As built (T72f) · TestOpenGRIRPositions · TestGRIRQuality · T72f",
       "src": "baseline",
       "c": []
      },
@@ -8116,9 +8116,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Open GR/IR positions migrate with their order item (ACDOCA EBELN/EBELP): an invoice after cutover for goods received in SAP clears the GR/IR credit instead of booking the expense again; optionally, open direct-valued orders can be moved onto GR/IR",
-      "r": "Phase 1 triage (PO 2026-10-21) · procurement purchase_orders.go valuation(loaded) · 03-data-model migrated GR/IR lines · T72f",
+      "r": "Phase 1 triage (PO 2026-10-21) · procurement purchase_orders.go valuation(loaded) · 03-data-model migrated GR/IR lines · T72f · internal/integration grir.go · ADR-0034 As built (T72f) · walkthrough steps 3 and 5; the optional part stays open as its own leaf (Move open direct-valued orders onto GR/IR)",
       "src": "baseline",
       "c": []
      },

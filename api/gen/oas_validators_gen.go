@@ -17093,6 +17093,17 @@ func (s *GrIrBalance) Validate() error {
 		})
 	}
 	if err := func() error {
+		if err := s.MigratedQuantity.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "migrated_quantity",
+			Error: err,
+		})
+	}
+	if err := func() error {
 		if err := s.Balance.Validate(); err != nil {
 			return err
 		}

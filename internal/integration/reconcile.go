@@ -31,7 +31,7 @@ type Check struct {
 // quantity invoiced in SAP (invoicedQuantities).
 type Diff struct {
 	CompanyCode string `json:"company_code"`
-	Key         string `json:"key"` // account number, "vendor <LIFNR>", "down payments of vendor <LIFNR>", "bank account of vendor <LIFNR>" or "order item <EBELN>/<EBELP>"
+	Key         string `json:"key"` // account number, "vendor <LIFNR>", "down payments of vendor <LIFNR>", "bank account of vendor <LIFNR>", "order item <EBELN>/<EBELP>" or "GR/IR of order item <EBELN>/<EBELP>"
 	SAP         string `json:"sap"`
 	Platform    string `json:"platform"`
 }
@@ -155,7 +155,10 @@ func (rc *reconciler) company(ctx context.Context, cc, cur string) error {
 	if err := rc.parkedInvoices(ctx, s); err != nil {
 		return err
 	}
-	return rc.invoicedQuantities(ctx, s)
+	if err := rc.invoicedQuantities(ctx, s); err != nil {
+		return err
+	}
+	return rc.grir(ctx, s)
 }
 
 // sapJournal is the SAP side of the journal controls of a company code.
@@ -408,11 +411,7 @@ func (rc *reconciler) invoicedQuantities(ctx context.Context, s companyScope) er
 	if err != nil {
 		return err
 	}
-	ebelp := map[string]string{} // EBELN/item no -> EBELP
-	for key, no := range itemNos(rc.ext) {
-		order, item, _ := strings.Cut(key, "/")
-		ebelp[order+"/"+strconv.Itoa(int(no))] = item
-	}
+	ebelp := itemsByNo(rc.ext)
 	platform := map[string]*big.Rat{}
 	for id, items := range taken {
 		for no, qty := range items {
@@ -446,19 +445,10 @@ func (rc *reconciler) sapInvoiced(cc string, orders map[string]bool) map[string]
 	}
 	// Every company's documents, on the company's orders: the platform's
 	// side counts what was taken over on the orders, whichever document.
-	docs, _ := postedDocuments(rc.ext, "") // each company's issues are refused with its own checks
 	out := map[string]*big.Rat{}
-	for _, d := range docs {
-		for _, it := range d.items {
-			if !orders[it.EBELN] {
-				continue
-			}
-			q := money.ParseRat(it.MENGE) // a positive quantity (postedInvoiced)
-			if d.kind == payables.KindCreditMemo {
-				q.Neg(q)
-			}
-			key := "order item " + it.EBELN + "/" + it.EBELP
-			out[key] = new(big.Rat).Add(orZero(out[key]), q)
+	for key, q := range invoicedNet(rc.ext) {
+		if order, _, _ := strings.Cut(key, "/"); orders[order] {
+			out["order item "+key] = q
 		}
 	}
 	return out

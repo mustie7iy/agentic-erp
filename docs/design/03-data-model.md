@@ -764,8 +764,9 @@ Rules enforced in the database:
   `gr_ir`) names its order item (trigger `ledger.check_gr_ir_line`,
   constraint `journal_line_gr_ir_order_item`, 422 `ledger.automatic_account`):
   only goods receipts and invoices post it, never a manual entry. Entries a
-  migration run loaded (`integration`) are exempt, as SAP's GR/IR lines
-  arrive without their order items. The ledger's `IsPostable` answers false
+  migration run loaded (`integration`) are exempt, as SAP's documents'
+  GR/IR lines load without their order items; the run takes each open
+  position over onto its order item (below). The ledger's `IsPostable` answers false
   for the GR/IR account too, so no order or invoice item names it.
 - An order item's GR/IR position is the sum of its lines: quantity
   (invoiced plus cleared less received; a receipt's line is negative) and
@@ -817,11 +818,22 @@ Rules enforced in the database:
   and `price_difference` is still the account, that were approved. A
   clearing entry is procurement's (WE), so the ledger's `:reverse`
   refuses it; no path reverses one yet.
+  A migration run takes the GR/IR positions SAP holds open over (T72f,
+  migration 000167, ADR-0034 As built): an integration entry per order of
+  `GRIRItem.TakesOver` items, each the item's GR/IR line with SAP's balance
+  and open quantity (what SAP invoiced less what it received) against a
+  line on the GR/IR account without an order item, which offsets SAP's
+  documents' lines there; refused (409 `ledger.gr_ir_position_exists`) onto
+  an item that has a position. The projection adds an integration entry's
+  quantities to the position's `migrated`, neither received nor invoiced
+  (and the key-date report likewise), so a position's quantity is invoiced
+  + cleared + migrated - received and `is_open` reads all four.
   `GET /v1/gr-ir-balances` (T33e) pages the current positions from it by an
   index range scan (partial indexes `WHERE is_open` for the default,
   open-only listing); together they are the leading ledger's GR/IR balance
   from goods receipts and invoices (lines a migration run loaded without an
-  order item are on the account but in no position). A key date
+  order item are on the account but in no position; once the run has taken
+  SAP's open positions over, they net to zero). A key date
   (`posting_date_to`) is a report summed from one order's lines, so it
   needs `purchase_order_id`.
   A reversal mirrors its entry; where it brings an order item's quantity to
@@ -1322,7 +1334,9 @@ pending_approval -> draft, draft -> released, released -> closed, and to
 cancelled from draft, pending_approval or released (trigger
 `purchase_order_transition`); an order waiting for approval is direct
 (`purchase_order_draft_direct`). A migration run's order is released as
-loaded.
+loaded, valued as SAP valued it: `gr_ir` when a line on SAP's GR/IR account
+names it (T72f), `direct` otherwise; its receipts are recorded without a WE
+entry, as the migrated journal carries their value.
 
 The lifecycle of a released order (valuation price, release strategy,
 order changes, returns, contract renewal and alerts) is ADR-0034.
@@ -2399,6 +2413,7 @@ line or reservation. An agent's budget is identity's
 | SKA1/SKB1 | `ledger.gl_account`, `ledger.company_account` |
 | ACDOCA | `ledger.journal_entry` + `ledger.journal_line` (TC/LC/GC amounts) |
 | BSEG clearing (AUGBL) | `ledger.clearing` + `ledger.clearing_item` |
+| ACDOCA lines on the GR/IR account (T030 WRX) with EBELN/EBELP | the order valued `gr_ir`; per open order item, SAP's balance and open quantity (posted RSEG invoiced less MSEG 101 received) taken over onto `ledger.gr_ir_position` (`migrated`) by an integration entry of `GRIRItem.TakesOver` items (T72f) |
 | LFA1/LFB1/LFBK, BUT000 | `partner.business_partner`, `supplier_company`, `bank_account`, `tax_identifier`; a Canadian LFBK (BANKS CA) as scheme `ca`, its institution and transit from BANKL as 0 + institution + transit (T72d) |
 | FLQLITEM/FLQLITEMT liquidity items, T035 planning groups, LFB1-FDGRV | `cash.liquidity_item`, `cash.planning_group`, `supplier_company.planning_group` (T53b) |
 | EBAN | `procurement.requisition` |

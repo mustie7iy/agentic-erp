@@ -217,3 +217,68 @@ object a consumer could not reach, and a change history that failed on page
   2 (500). Its select is wrapped as the other joined listings are
   (`SELECT * FROM (…) ch WHERE true`). Every other keyset listing over a join
   was checked: none other was ambiguous, and each now has a page-2 test.
+
+## As built (T72f): open GR/IR positions migrated from SAP
+
+A migration run loaded every order valued directly, so an invoice after
+cutover for goods SAP received booked the expense a second time, while
+SAP's GR/IR credit stayed on the account with no order item to clear it
+(03-data-model §3.7, §3.17; migration 000167). Decisions taken by default
+(ADR-0053 §d), each settled by an existing rule:
+
+- **Which orders load valued through GR/IR.** Those a line on SAP's GR/IR
+  account names (ACDOCA EBELN/EBELP), whether or not a position is still
+  open: SAP valued them through GR/IR, and the platform values an order
+  through GR/IR whole (this ADR, valuation fixed at release). Others load
+  directly, as before. The legal entity needs its `gr_ir` account (422
+  `procurement.no_gr_ir_account`). Moving an order an earlier run loaded
+  directly onto GR/IR is the optional tracker leaf, not built.
+- **Receipts are not posted again.** The migrated journal carries their
+  value, so the load records them without a WE entry
+  (`procurement.PostLoadedReceipt`); a reversal on the platform posts its
+  entry as any does.
+- **The take-over, an entry of its own** (the pattern of T72c's down
+  payments, ADR-0037): one per order, document type WE (`journal_we`, which
+  a GR/IR account requires), source integration, a `GRIRItem.TakesOver` per
+  open item: the item's GR/IR line with SAP's balance (HSL) and open
+  quantity, against a line on the GR/IR account without an order item that
+  offsets the lines SAP's documents, or the opening entry, loaded without
+  theirs. It nets to zero on the account, so the trial balance is SAP's, and
+  the total debits of the reconciliation leave it out. The ledger takes a
+  position over once, onto an item that has none (409
+  `ledger.gr_ir_position_exists`).
+- **The open quantity** is what SAP's posted invoice documents invoiced on
+  the item (credit memos negative; the quantities T72b2 takes over for
+  matching) less what SAP received (MSEG 101), the figures the load already
+  takes over for receipts and matching, rather than a quantity field of
+  ACDOCA. It is kept apart, as a clearing's is: `migrated` beside received,
+  invoiced and cleared, which the GR/IR balances report
+  (`migrated_quantity`); received and invoiced stay what the platform posted.
+- **What the gate refuses** (T72b's never-guess rule): a GR/IR line without
+  its order item or naming one outside the extract; SAP's GR/IR account
+  (T030 WRX) with lines when it is not the legal entity's `gr_ir`; an order
+  in another currency than the company's (the extract has the company code
+  amount only); a movement other than a receipt, or a receipt quantity that
+  does not parse, on an item with a position; an open quantity without a
+  balance; and an item received without a GR/IR line on an order whose other
+  items post one, which an invoice after cutover would clear a position it
+  never had.
+- **Reconciliation.** Open GR/IR per order item, balance and quantity, in
+  total and per item, shown when either side has a position.
+- **Several companies and OData extracts.** A GR/IR line naming an order of
+  another company of the scope is refused, so a position is taken over in
+  its order's legal entity. An extract without T030 (the OData mapping does
+  not carry it, nor EBELN/EBELP) cannot tell SAP's GR/IR account: lines on
+  the legal entity's `gr_ir` account are refused without their order items,
+  and a company with receipts is warned about, since lines on SAP's GR/IR
+  account are recognised only when it is the legal entity's `gr_ir`.
+- **Later runs.** A position is taken over by the run that loads its order;
+  receipts or invoices SAP posts on an order already loaded are not taken
+  over by a later run: a delta run after a receipt or invoice SAP posted on
+  an order already loaded fails the reconciliation's open GR/IR check, which
+  the migration cannot then correct. Whether later delta runs must top such
+  positions up is a question for the product owner.
+
+For an SAP specialist: that ACDOCA carries the order item under EBELN and
+EBELP on every GR/IR line, and the OData properties for them and for T030
+(not mapped).

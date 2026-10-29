@@ -69,7 +69,7 @@ type GRIRClearing struct {
 }
 
 // GRIRClearingItem is one order item's position a clearing clears, as it
-// stood when proposed: invoiced + cleared - received, and the balance in
+// stood when proposed: invoiced + cleared + migrated - received, and the balance in
 // the order's currency.
 type GRIRClearingItem struct {
 	POItemNo    int32       `json:"po_item_no"`

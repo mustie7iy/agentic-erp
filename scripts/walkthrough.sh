@@ -461,7 +461,7 @@ step_migrate() {
   for check in 'Trial balance: accounts with differences' 'Open payables total' 'Open payables: vendors with differences' \
     'Parked supplier invoices' 'Parked supplier credit memos' 'Parked subsequent debits' 'Parked subsequent credits' \
     'Vendor bank accounts: vendors with differences' 'Quantities invoiced in SAP: order items with differences' \
-    'Open down payments total' 'Open down payments: vendors with differences'; do
+    'Open down payments total' 'Open down payments: vendors with differences' 'Open GR/IR total' 'Open GR/IR: order items with differences'; do
     grep "$check" "$WORK/migrate.out" | grep -q 'PASS$' || fail "the reconciliation check '$check' did not pass"
   done
   say "The trial balance and the open payables agree with SAP's, recomputed from the raw extract, and so"
@@ -499,7 +499,39 @@ step_migrate() {
     expect "the migrated $kind's status" "$(field .status)" posted
   done
   migrated_down_payment
+  migrated_grir
   passed
+}
+
+# migrated_grir shows the GR/IR position SAP held open for an order item it
+# received and was not yet invoiced for (T72f), as the load took it over:
+# the order valued through GR/IR and the position on the platform's order
+# item. It keeps the order (GRIR_PO), its supplier (GRIR_SUPPLIER,
+# GRIR_NAME) and SAP's balance (GRIR_BALANCE) for step 5.
+migrated_grir() {
+  local ebeln lifnr grir
+  grir=$(jq -r --arg cc "$CC" '.T030[] | select(.BUKRS == $cc and .KTOSL == "WRX") | .KONTS' "$WORK/data/extract.json")
+  ebeln=$(jq -r --arg cc "$CC" --arg a "$grir" '[.ACDOCA[] | select(.RBUKRS == $cc and .RACCT == $a) | .EBELN] | first' "$WORK/data/extract.json")
+  lifnr=$(jq -r --arg o "$ebeln" '.EKKO[] | select(.EBELN == $o) | .LIFNR' "$WORK/data/extract.json")
+  GRIR_NAME=$(jq -r --arg v "$lifnr" '.LFA1[] | select(.LIFNR == $v) | .NAME1' "$WORK/data/extract.json")
+  say "SAP received $GRIR_NAME's shelving units on order $ebeln and has no invoice for them yet: the receipt's document"
+  say "debited the item's account and credited SAP's GR/IR account (T030 WRX $grir), both lines naming the order item"
+  say "(ACDOCA EBELN/EBELP):"
+  jq -r --arg cc "$CC" --arg o "$ebeln" '.ACDOCA[] | select(.RBUKRS == $cc and .EBELN == $o)
+    | "     ACDOCA \(.BELNR)/\(.DOCLN) \(.BLART): account \(.RACCT) \(.HSL), order item \(.EBELN)/\(.EBELP)"' "$WORK/data/extract.json"
+  say "The order came over valued through GR/IR, its receipt recorded without posting it again (SAP's journal carries"
+  say "it), and the open credit taken over onto the platform's order item in an entry of its own, reconciled per order"
+  say "item with SAP's above. The GR/IR balances show it beside the order, by number:"
+  api 200 "$GRIR_POSITION" listGrIrBalances -p "legal_entity_id=$LE"
+  expect "open GR/IR positions after the migration" "$(field '.items | length')" 1
+  expect "the migrated quantity" "$(field '.items[0].migrated_quantity.value')" -8
+  GRIR_BALANCE=$(field '.items[0].balance.amount')
+  expect "the migrated balance" "$GRIR_BALANCE" -1200.00
+  GRIR_PO=$(field '.items[0].purchase_order_id')
+  api 200 '"purchase order \(.document_number): \(.status), valued through \(.valuation)\([.items[] | ", item \(.item_no) \(.description): ordered \(.quantity.value), received \(.received_quantity.value)"] | join(""))"' \
+    getPurchaseOrder -p "id=$GRIR_PO"
+  expect "the migrated order's valuation" "$(field .valuation)" gr_ir
+  GRIR_SUPPLIER=$(field .supplier_id)
 }
 
 # migrated_down_payment shows SAP's open down payment as the AP clerk sees
@@ -715,7 +747,7 @@ invoice() {
 MATCHED='"match: \(if .is_clean then "clean" else "issues" end)\(if .decision then ", \(.decision.outcome): \(.decision.reason)" else "" end)\([.issues[] | "\n  issue \(.code): \(.message)"] | join(""))"'
 
 step_invoices() {
-  heading "Step 5 — The invoice is matched and posted; a second one for more than was received is refused"
+  heading "Step 5 — The invoice is matched and posted; a second one for more than was received is refused; an invoice for SAP's receipt clears its migrated GR/IR"
   as alex
   say "Tyrell's invoice for the ten chairs, and then the same invoice again under another reference."
   say "Alex matches both before posting either: each looks clean on its own (10 received, nothing invoiced yet)."
@@ -739,7 +771,31 @@ step_invoices() {
   expect "the duplicate's status" "$(field .status)" on_hold
   api 200 '"\(.document_number): \(.status)"' cancelSupplierInvoice -p "id=$dup" -if-match "$ETAG" -body '{"reason": "Duplicate of TY-5001"}'
   DUPLICATE=$dup
+  migrated_grir_invoice
   passed
+}
+
+# migrated_grir_invoice posts the invoice for the shelving units SAP
+# received before cutover (step 3): it clears the migrated GR/IR credit at
+# the order price, and books no expense, which SAP's receipt booked.
+migrated_grir_invoice() {
+  say "$GRIR_NAME invoices the eight shelving units SAP received before cutover (step 3), CAD 1,200.00. Alex enters it"
+  say "on the migrated order, matches it (8 received in SAP, none invoiced) and posts it:"
+  local body doc entry
+  body="{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$GRIR_SUPPLIER\", \"supplier_reference\": \"SHELF-8\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"1200.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"0.00\", \"currency\": \"CAD\"}, \"purchase_order_id\": \"$GRIR_PO\", \"items\": [{\"purchase_order_id\": \"$GRIR_PO\", \"po_item_no\": 1, \"quantity\": {\"value\": \"8\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"1200.00\", \"currency\": \"CAD\"}}]}"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice -body "$body"
+  doc=$(field .id)
+  api 200 "$MATCHED" matchSupplierInvoice -p "id=$doc" -if-match '"1"'
+  expect "the match of the invoice for SAP's receipt" "$(field .is_clean)" true
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$doc" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the invoice's status" "$(field .status)" posted
+  entry=$(field .journal_entry_id)
+  say "Its entry debits the GR/IR account, clearing SAP's credit, and books no expense again:"
+  api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$entry"
+  expect "the invoice's lines" "$(field '.lines | length')" 2
+  expect "the invoice's GR/IR line" "$(field "[.lines[] | select(.purchase_order_id == \"$GRIR_PO\") | .amount.amount] | join(\" \")")" 1200.00
+  api 200 "$GRIR_POSITION" listGrIrBalances -p "legal_entity_id=$LE" -p "purchase_order_id=$GRIR_PO" -p open_only=false
+  expect "the migrated position after the invoice" "$(field '.items[0].balance.amount')" 0.00
 }
 
 step_credit() {
@@ -1104,7 +1160,7 @@ step_reports() {
 }
 
 # GR/IR position of an order as the balances list it.
-GRIR_POSITION='(.items[] | "order \(.purchase_order_number) item \(.po_item_no) on \(.account_number) \(.account_name): received \(.received_quantity.value), invoiced \(.invoiced_quantity.value), cleared \(.cleared_quantity.value), balance \(.balance.amount) \(.balance.currency)"), "totals: \(.totals.positions) position(s), \(.totals.balance_lc.amount) \(.totals.balance_lc.currency)"'
+GRIR_POSITION='(.items[] | "order \(.purchase_order_number) item \(.po_item_no) on \(.account_number) \(.account_name): received \(.received_quantity.value), invoiced \(.invoiced_quantity.value), cleared \(.cleared_quantity.value), migrated \(.migrated_quantity.value), balance \(.balance.amount) \(.balance.currency)"), "totals: \(.totals.positions) position(s), \(.totals.balance_lc.amount) \(.totals.balance_lc.currency)"'
 
 step_grir() {
   heading "Step 15 — GR/IR maintenance before the month-end close: the closed order's residual position is cleared (SAP MR11)"

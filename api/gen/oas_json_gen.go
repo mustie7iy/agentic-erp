@@ -48712,6 +48712,10 @@ func (s *GrIrBalance) encodeFields(e *jx.Encoder) {
 		s.ClearedQuantity.Encode(e)
 	}
 	{
+		e.FieldStart("migrated_quantity")
+		s.MigratedQuantity.Encode(e)
+	}
+	{
 		e.FieldStart("balance")
 		s.Balance.Encode(e)
 	}
@@ -48729,7 +48733,7 @@ func (s *GrIrBalance) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfGrIrBalance = [14]string{
+var jsonFieldsNameOfGrIrBalance = [15]string{
 	0:  "legal_entity_id",
 	1:  "purchase_order_id",
 	2:  "purchase_order_number",
@@ -48740,10 +48744,11 @@ var jsonFieldsNameOfGrIrBalance = [14]string{
 	7:  "received_quantity",
 	8:  "invoiced_quantity",
 	9:  "cleared_quantity",
-	10: "balance",
-	11: "balance_lc",
-	12: "balance_gc",
-	13: "last_posting_date",
+	10: "migrated_quantity",
+	11: "balance",
+	12: "balance_lc",
+	13: "balance_gc",
+	14: "last_posting_date",
 }
 
 // Decode decodes GrIrBalance from json.
@@ -48867,8 +48872,18 @@ func (s *GrIrBalance) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"cleared_quantity\"")
 			}
-		case "balance":
+		case "migrated_quantity":
 			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				if err := s.MigratedQuantity.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"migrated_quantity\"")
+			}
+		case "balance":
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				if err := s.Balance.Decode(d); err != nil {
 					return err
@@ -48878,7 +48893,7 @@ func (s *GrIrBalance) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"balance\"")
 			}
 		case "balance_lc":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				if err := s.BalanceLc.Decode(d); err != nil {
 					return err
@@ -48888,7 +48903,7 @@ func (s *GrIrBalance) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"balance_lc\"")
 			}
 		case "balance_gc":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				if err := s.BalanceGc.Decode(d); err != nil {
 					return err
@@ -48898,7 +48913,7 @@ func (s *GrIrBalance) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"balance_gc\"")
 			}
 		case "last_posting_date":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.LastPostingDate = v
@@ -48920,7 +48935,7 @@ func (s *GrIrBalance) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11111011,
-		0b00111111,
+		0b01111111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
