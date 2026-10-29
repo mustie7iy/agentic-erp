@@ -23145,11 +23145,13 @@ func (s *MigrationCheck) SetPass(val bool) {
 type MigrationDiff struct {
 	// SAP company code (T001 BUKRS).
 	CompanyCode string `json:"company_code"`
-	// What differs: an account number, `vendor <LIFNR>`, `down payments of vendor <LIFNR>`,
+	// What differs: an account number, `vendor <LIFNR>`, `down payments of vendor <LIFNR>`, `partner <id>`
+	// or `down payments of partner <id>` (a platform supplier that is no migrated vendor),
 	// `bank account of vendor <LIFNR>`, `order item <EBELN>/<EBELP>` or
 	// `GR/IR of order item <EBELN>/<EBELP>`.
 	Key string `json:"key"`
-	// SAP's value: an amount with its currency code, a quantity, or a bank account as the load writes it.
+	// SAP's value: an amount with its currency code (`1250.00 EUR`), a quantity, a GR/IR position as its
+	// balance and quantity (`750.00 EUR, quantity 5`), or a bank account as the load writes it.
 	Sap string `json:"sap"`
 	// The platform's value, in the same form.
 	Platform string `json:"platform"`
@@ -23448,8 +23450,11 @@ type MigrationIssue struct {
 	Severity string `json:"severity"`
 	// SAP table of the row, for example `ACDOCA`, or `platform` for a figure the platform holds.
 	Table string `json:"table"`
-	// The row's SAP key within the table, for example `<BUKRS>/<GJAHR>/<BELNR>/<DOCLN>` for a journal line
-	// or the vendor number for LFA1.
+	// What the finding is about, within the table: SAP's key of the row (for example
+	// `<BUKRS>/<GJAHR>/<BELNR>/<DOCLN>` for a journal line, a vendor number, or several joined by commas
+	// for possible duplicates), what the load was doing (`GR/IR <EBELN>`, `clearing <BUKRS>/<AUGBL>`, a
+	// platform partner id for a supplier being blocked), or for the reconciliation the company code with
+	// what it was adding up (`<BUKRS>/vendor <LIFNR>`). A free-form text, not to be parsed.
 	Key string `json:"key"`
 	// What is wrong and, where it applies, how to fix it.
 	Message string `json:"message"`
@@ -23495,8 +23500,10 @@ func (s *MigrationIssue) SetMessage(val string) {
 	s.Message = val
 }
 
-// What a migration run's load created, by kind; a kind the run loaded none of is absent. Loading the
-// same extract again counts nothing.
+// What a migration run's load created, by kind; a kind it created none of is absent. A rehearsal, and
+// a load with an `error` refusal, are rolled back: their counts are what the load created before the
+// rollback, and nothing of it stays. A kept load counts only what no earlier kept run loaded, so a run
+// of the same extract again counts nothing.
 // Ref: #/components/schemas/MigrationLoadedCounts
 type MigrationLoadedCounts struct {
 	// Suppliers created from SAP vendors (LFA1, LFB1).
@@ -23999,7 +24006,8 @@ type MigrationRunReport struct {
 	Quality []MigrationIssue `json:"quality"`
 	// Rows the load refused (`error`, and then nothing stays loaded) or noted (`warning`).
 	Load []MigrationIssue `json:"load"`
-	// What the load created, by kind.
+	// What the load created, by kind; for a rehearsal, or a load with an `error` refusal, what it created
+	// before it was rolled back.
 	Loaded OptMigrationLoadedCounts `json:"loaded"`
 	// The reconciliation controls, each figure computed from the raw SAP extract and from the platform
 	// (docs/migration.md, Reconciliation controls).

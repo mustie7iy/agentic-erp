@@ -2,6 +2,7 @@ package integration
 
 import (
 	"encoding/json"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -10,13 +11,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
 
-// fullReport is a report with every field the code can write set to a
-// value of its own: every SAP table extracted, every count loaded, and each
-// list holding a row.
+// fullReport is a report with every field set, by reflection, to a value
+// of its own: every SAP table extracted, every string, count and flag set,
+// every list holding a row, every part present. A field added to the
+// report or to any type in it is set too, so the contract test sees it.
 func fullReport(t *testing.T) Report {
 	t.Helper()
 	var ext sap.Extract
@@ -26,20 +27,44 @@ func fullReport(t *testing.T) Report {
 			f.Set(reflect.MakeSlice(f.Type(), i+1, i+1))
 		}
 	}
-	var loaded LoadedCounts
-	l := reflect.ValueOf(&loaded).Elem()
-	for i := range l.NumField() {
-		l.Field(i).SetInt(int64(i + 1))
+	r := Report{Extract: ext.Counts()}
+	n := 0
+	fill(t, reflect.ValueOf(&r).Elem(), &n)
+	return r
+}
+
+// fill sets v and everything in it to values that differ from each other
+// and from the zero value; a map must already be set.
+func fill(t *testing.T, v reflect.Value, n *int) {
+	t.Helper()
+	*n++
+	switch v.Kind() {
+	case reflect.Pointer:
+		v.Set(reflect.New(v.Type().Elem()))
+		fill(t, v.Elem(), n)
+	case reflect.Struct:
+		for i := range v.NumField() {
+			if v.Type().Field(i).IsExported() {
+				fill(t, v.Field(i), n)
+			}
+		}
+	case reflect.Slice:
+		s := reflect.MakeSlice(v.Type(), 1, 1)
+		fill(t, s.Index(0), n)
+		v.Set(s)
+	case reflect.String:
+		v.SetString(fmt.Sprintf("value %d", *n))
+	case reflect.Int:
+		v.SetInt(int64(*n))
+	case reflect.Bool:
+		v.SetBool(true)
+	case reflect.Map:
+		if v.IsNil() {
+			t.Fatalf("fill %s: got a nil map, want it set before", v.Type())
+		}
+	default:
+		t.Fatalf("fill: got a field of kind %s, want fill to know how to set it", v.Kind())
 	}
-	issue := func(table string) Issue {
-		return Issue{Severity: SevWarning, Table: table, Key: table + "/1", Message: "about " + table}
-	}
-	return Report{Extract: ext.Counts(), Quality: []Issue{issue("LFA1")},
-		LoadResult: &LoadResult{Refusals: []Issue{issue("EKKO")}, Loaded: loaded},
-		Reconciliation: &Reconciliation{
-			Checks:  []Check{{CompanyCode: "1000", Name: "Vendors", SAP: "2", Platform: "3", Pass: true}},
-			Diffs:   []Diff{{CompanyCode: "1000", Key: "vendor 4711", SAP: "1.00 EUR", Platform: "2.00 EUR"}},
-			Missing: []string{"1000/2026/0100000001"}, Issues: []Issue{issue("ACDOCA")}, Passed: true}}
 }
 
 // decoded is a JSON document decoded into plain values.
@@ -122,7 +147,10 @@ func TestReportParts(t *testing.T) {
 			}
 			api := reportToAPI(r)
 			answer, err := api.MarshalJSON()
-			got := decoded(t, answer, err).(map[string]any)
+			got, ok := decoded(t, answer, err).(map[string]any)
+			if !ok {
+				t.Fatalf("the response's report: got %s, want an object", answer)
+			}
 			delete(got, "extract") // every table, compared in TestReportMatchesContract
 			if want := decoded(t, []byte(c.want), nil); !reflect.DeepEqual(got, want) {
 				t.Errorf("got %s, want %s", answer, c.want)
@@ -131,41 +159,90 @@ func TestReportParts(t *testing.T) {
 	}
 }
 
-// TestEveryLoadedCountIsCounted: each count the contract declares has a
-// field in LoadedCounts (TestReportMatchesContract), and the loader counts
-// each field somewhere, so the contract names no count that is never
-// written.
-func TestEveryLoadedCountIsCounted(t *testing.T) {
+// written collects, from the package's code outside tests and report.go
+// (which only reads the report), the fields of the report's types the code
+// writes: the keys of a keyed literal of the type, and the fields
+// assigned, incremented or taken the address of through report, rc.rec or
+// l.counts.
+func written(t *testing.T) map[string]map[string]bool {
+	t.Helper()
 	entries, err := os.ReadDir(".")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("read the package directory: %v", err)
 	}
-	counted := map[string]bool{}
+	out := map[string]map[string]bool{}
+	add := func(typ, field string) {
+		if out[typ] == nil {
+			out[typ] = map[string]bool{}
+		}
+		out[typ][field] = true
+	}
+	through := func(e ast.Expr) {
+		s, ok := e.(*ast.SelectorExpr)
+		if !ok {
+			return
+		}
+		switch x := s.X.(type) {
+		case *ast.Ident:
+			if x.Name == "report" {
+				add("Report", s.Sel.Name)
+			}
+		case *ast.SelectorExpr:
+			if typ := map[string]string{"rec": "Reconciliation", "counts": "LoadedCounts"}[x.Sel.Name]; typ != "" {
+				add(typ, s.Sel.Name)
+			}
+		}
+	}
 	fset := token.NewFileSet()
 	for _, e := range entries {
-		if !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+		if name := e.Name(); !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || name == "report.go" {
 			continue
 		}
 		f, err := parser.ParseFile(fset, e.Name(), nil, 0)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("parse %s: %v", e.Name(), err)
 		}
-		ast.Inspect(f, func(n ast.Node) bool {
-			if s, ok := n.(*ast.SelectorExpr); ok {
-				if x, ok := s.X.(*ast.SelectorExpr); ok && x.Sel.Name == "counts" {
-					counted[s.Sel.Name] = true
+		ast.Inspect(f, func(node ast.Node) bool {
+			switch n := node.(type) {
+			case *ast.CompositeLit:
+				if typ, ok := n.Type.(*ast.Ident); ok {
+					for _, el := range n.Elts {
+						if kv, ok := el.(*ast.KeyValueExpr); ok {
+							if k, ok := kv.Key.(*ast.Ident); ok {
+								add(typ.Name, k.Name)
+							}
+						}
+					}
+				}
+			case *ast.AssignStmt:
+				for _, l := range n.Lhs {
+					through(l)
+				}
+			case *ast.IncDecStmt:
+				through(n.X)
+			case *ast.UnaryExpr:
+				if n.Op == token.AND {
+					through(n.X)
 				}
 			}
 			return true
 		})
 	}
-	fields := reflect.VisibleFields(reflect.TypeFor[LoadedCounts]())
-	for _, f := range fields {
-		if !counted[f.Name] {
-			t.Errorf("LoadedCounts.%s: got no l.counts.%s in the loader, want it counted", f.Name, f.Name)
+	return out
+}
+
+// TestEveryReportFieldIsWritten: every field of the report's types, each of
+// which the contract declares (TestReportMatchesContract), is written by
+// the code that runs a migration, so the contract names no key a run never
+// writes.
+func TestEveryReportFieldIsWritten(t *testing.T) {
+	got := written(t)
+	for _, typ := range []reflect.Type{reflect.TypeFor[Report](), reflect.TypeFor[LoadResult](), reflect.TypeFor[LoadedCounts](),
+		reflect.TypeFor[Reconciliation](), reflect.TypeFor[Issue](), reflect.TypeFor[Check](), reflect.TypeFor[Diff]()} {
+		for i := range typ.NumField() {
+			if f := typ.Field(i).Name; !got[typ.Name()][f] {
+				t.Errorf("%s.%s: got it never written outside tests, want the run to write it", typ.Name(), f)
+			}
 		}
-	}
-	if n := reflect.TypeFor[gen.MigrationLoadedCounts]().NumField(); n != len(fields) {
-		t.Errorf("counts: got %d in LoadedCounts, want the contract's %d", len(fields), n)
 	}
 }

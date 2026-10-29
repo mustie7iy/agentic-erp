@@ -153,8 +153,11 @@ grows with the run:
   `suppliers_extended`, `suppliers_blocked`, `purchase_orders`,
   `goods_receipts`, `supplier_invoices`, `posted_invoices_invoiced`,
   `journal_entries`, `down_payments`, `clearings`, `gr_ir_positions` and
-  `gr_ir_top_ups`. A kind it created none of is absent, so a run of the same
-  extract again shows `loaded` empty.
+  `gr_ir_top_ups`. A kind it created none of is absent. A rehearsal, and a
+  load with an `error` refusal, are rolled back: their counts are what the
+  load created before the rollback, and nothing of it stays. A kept load
+  counts only what no earlier kept run loaded, so a run of the same extract
+  again shows `loaded` empty.
 - Once the run is reconciled (a rehearsal reconciles in its start):
   `checks`, the controls above, each with SAP's figure, the platform's and
   whether they agree; `diffs`, the differences behind failed checks;

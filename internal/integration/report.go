@@ -25,7 +25,7 @@ type LoadResult struct {
 
 // LoadedCounts counts what a run's load created, by kind. A kind it created none
 // of is left out of the report, as the contract says; the loader names
-// every field (TestEveryLoadedCountIsCounted).
+// every field (TestEveryReportFieldIsWritten).
 type LoadedCounts struct {
 	Suppliers              int `json:"suppliers,omitempty"`
 	SuppliersExtended      int `json:"suppliers_extended,omitempty"`

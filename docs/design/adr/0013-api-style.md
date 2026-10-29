@@ -57,10 +57,12 @@ rule, are recorded here:
   (`integration.Report`), stored as JSONB and decoded leniently with
   encoding/json, so a report written before a key existed still reads;
   `reportToAPI` converts it to the generated types, so the contract cannot
-  be answered with an undeclared key. `TestReportMatchesContract` encodes a
-  report with every field set both ways and requires the same document and
-  every declared field set, and `TestEveryLoadedCountIsCounted` requires
-  the loader to count every declared count. Generating the stored form from
+  be answered with an undeclared key. `TestReportMatchesContract` sets
+  every field of a report by reflection (a field added later included),
+  encodes it both ways and requires the same document with every declared
+  field set; `TestEveryReportFieldIsWritten` requires the run's code to
+  write every field of the report's types (a keyed literal, an assignment,
+  an increment), so a declared key nothing writes fails. Generating the stored form from
   the ogen types was not chosen: their decoder refuses the `null` lists
   stored reports hold and any report missing a key a later contract
   requires.
