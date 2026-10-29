@@ -7068,10 +7068,17 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "The pilot light made runnable: a DR node group at zero the runbook scales up, the workload roles trusting the DR cluster's OIDC provider, their permissions on the DR bucket and keys, Argo CD synced there on failover; confirmed on staging that replicate_source_db takes the cluster's ARN (the API's SourceDBClusterIdentifier), the cluster's engine version pinned so the replica is upgraded first, the master credentials after promotion (RDS-managed in the home region)",
-        "r": "T41b3 · T72j",
+        "s": "D",
+        "t": "The pilot light made runnable: a DR node group at zero the runbook scales up, the workload roles trusting the DR cluster's OIDC provider, their permissions on the DR bucket and keys, Argo CD synced there on failover",
+        "r": "deploy/terraform/modules/cell pilot_light.tf, pilot_light_workloads.tf (aws_eks_node_group.dr, aws_iam_openid_connect_provider.dr, aws_iam_role.dr_workload, output pilot_light) · tests/cell.tftest.hcl · Argo CD by ADR-0035's bootstrap on the DR cluster (runbook step 6) · ADR-0040 as built 2026-10-29 · T41b3 · T72j",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Confirmed on AWS staging before the failover rehearsal: replicate_source_db takes the cluster's ARN (the API's SourceDBClusterIdentifier); the cluster's engine version pinned so the replica is upgraded first; the master credentials after promotion (RDS-managed in the home region; the runbook has RDS manage one in the DR region under the DR key, tagged aws:rds:primaryDBInstanceArn); a replica secret's ARN is its primary's with the region changed; a node group created at zero and the VPC CNI add-on active without nodes; the EBS CSI add-on added after the scale-up; Argo CD bootstrapped on the DR cluster",
+        "r": "ADR-0040 runbook (steps marked staging) and as built 2026-10-29 · deploy/terraform/modules/cell pilot_light.tf, pilot_light_workloads.tf · T41b3 · T72j (waits on: the AWS staging account)",
+        "src": "split:T72j",
         "c": []
        },
        {
@@ -8158,9 +8165,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The pilot light is runnable (DR node group, IRSA trust of the DR cluster's OIDC provider, Argo CD in Terraform), so the region failover rehearsal (T41g) can run; its confirmation needs AWS staging",
-      "r": "Phase 1 triage (PO 2026-10-21) · T41b3 · ADR-0040 · T72j",
+      "r": "Phase 1 triage (PO 2026-10-21) · T41b3 · ADR-0040 as built 2026-10-29 (Argo CD bootstrapped on the DR cluster by ADR-0035's runbook, Terraform defining what it needs) · deploy/terraform/modules/cell pilot_light.tf, pilot_light_workloads.tf · the AWS staging confirmation is its own leaf (split:T72j) · T72j",
       "src": "baseline",
       "c": []
      },

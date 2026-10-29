@@ -6,7 +6,8 @@
 #     role wraps and unwraps tenant keys with it and nothing else does:
 #     administrators and the account administer it but cannot use it or
 #     grant its use, so unwrapping a tenant key outside the server takes
-#     a change of the key policy, which CloudTrail records.
+#     a change of the key policy, which CloudTrail records. Its replica in
+#     a pilot light's DR region holds the same for the DR server's role.
 
 locals {
   administer = {
@@ -29,6 +30,59 @@ locals {
     ]
     Resource = "*"
   }
+  # Node groups launch encrypted volumes through Auto Scaling's
+  # service-linked role, which must exist before KMS accepts it as a
+  # principal: the environment root creates it (autoscaling_role_arn). The
+  # role is the account's, so the pilot light's nodes use it too.
+  autoscaling_volumes = [
+    {
+      Sid       = "AutoScalingVolumes"
+      Effect    = "Allow"
+      Principal = { AWS = var.autoscaling_role_arn }
+      Action    = ["kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"]
+      Resource  = "*"
+    },
+    {
+      Sid       = "AutoScalingVolumeGrants"
+      Effect    = "Allow"
+      Principal = { AWS = var.autoscaling_role_arn }
+      Action    = "kms:CreateGrant"
+      Resource  = "*"
+      Condition = { Bool = { "kms:GrantIsForAWSResource" = "true" } }
+    },
+  ]
+  # The field key's policy by where its server runs: the key at home names
+  # the home server's role, its replica in the DR region the DR server's
+  # (pilot_light_workloads.tf), each role trusting its own cluster alone.
+  field_key_servers = merge(
+    { home = aws_iam_role.workload["server"].arn },
+    { for k in local.pilot : k => aws_iam_role.dr_workload["server"].arn },
+  )
+  field_key_policies = { for side, server in local.field_key_servers : side => jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      local.administer_only,
+      {
+        # ADR-0019 wraps each tenant key with the context {tenant: <id>}.
+        Sid       = "ServerWrapsTenantKeys"
+        Effect    = "Allow"
+        Principal = { AWS = server }
+        Action    = ["kms:Encrypt", "kms:Decrypt"]
+        Resource  = "*"
+        Condition = {
+          "ForAllValues:StringEquals" = { "kms:EncryptionContextKeys" = ["tenant"] }
+          Null                        = { "kms:EncryptionContext:tenant" = "false" }
+        }
+      },
+      {
+        Sid       = "ServerDescribes"
+        Effect    = "Allow"
+        Principal = { AWS = server }
+        Action    = "kms:DescribeKey"
+        Resource  = "*"
+      },
+    ]
+  }) }
 }
 
 resource "aws_kms_key" "data" {
@@ -55,7 +109,7 @@ resource "aws_kms_key" "cluster" {
   deletion_window_in_days = 30
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
+    Statement = concat([
       local.administer,
       {
         Sid       = "CloudWatchLogs"
@@ -67,25 +121,7 @@ resource "aws_kms_key" "cluster" {
           ArnLike = { "kms:EncryptionContext:aws:logs:arn" = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:*" }
         }
       },
-      {
-        # Node groups launch encrypted volumes through Auto Scaling's
-        # service-linked role, which must exist before KMS accepts it as a
-        # principal: the environment root creates it (autoscaling_role_arn).
-        Sid       = "AutoScalingVolumes"
-        Effect    = "Allow"
-        Principal = { AWS = var.autoscaling_role_arn }
-        Action    = ["kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"]
-        Resource  = "*"
-      },
-      {
-        Sid       = "AutoScalingVolumeGrants"
-        Effect    = "Allow"
-        Principal = { AWS = var.autoscaling_role_arn }
-        Action    = "kms:CreateGrant"
-        Resource  = "*"
-        Condition = { Bool = { "kms:GrantIsForAWSResource" = "true" } }
-      },
-    ]
+    ], local.autoscaling_volumes)
   })
   lifecycle {
     prevent_destroy = true
@@ -104,31 +140,7 @@ resource "aws_kms_key" "fields" {
   multi_region            = var.pilot_light
   enable_key_rotation     = true
   deletion_window_in_days = 30
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      local.administer_only,
-      {
-        # ADR-0019 wraps each tenant key with the context {tenant: <id>}.
-        Sid       = "ServerWrapsTenantKeys"
-        Effect    = "Allow"
-        Principal = { AWS = aws_iam_role.workload["server"].arn }
-        Action    = ["kms:Encrypt", "kms:Decrypt"]
-        Resource  = "*"
-        Condition = {
-          "ForAllValues:StringEquals" = { "kms:EncryptionContextKeys" = ["tenant"] }
-          Null                        = { "kms:EncryptionContext:tenant" = "false" }
-        }
-      },
-      {
-        Sid       = "ServerDescribes"
-        Effect    = "Allow"
-        Principal = { AWS = aws_iam_role.workload["server"].arn }
-        Action    = "kms:DescribeKey"
-        Resource  = "*"
-      },
-    ]
-  })
+  policy                  = local.field_key_policies.home
   lifecycle {
     prevent_destroy = true
   }
