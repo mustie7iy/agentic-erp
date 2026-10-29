@@ -74,26 +74,45 @@ cutover clears it at the order price instead of booking the expense again, and
 a closed order's residual is cleared by a GR/IR clearing (SAP MR11). The
 quality gate refuses what it cannot read rather than guess: a line on the
 GR/IR account without its order item or naming one outside the extract, SAP's
-GR/IR account (T030 WRX) with lines when it is not the legal entity's
-`gr_ir` account, an order in another currency than the company's (the
-extract carries the company code amount, HSL, only), a movement other than a
-receipt or a receipt quantity that does not parse on an item with a position,
-an open quantity without a balance, and an item received without a GR/IR
-line on an order whose other items post one; a GR/IR line naming an order of
-another company of the scope is refused too. A later run, such as the final
-delta run at cutover, tops the positions of orders an earlier run loaded up to
-SAP's: each item's take-over moves what earlier runs took over of it to SAP's
-balance and open quantity, in an entry of its own per order (counted as
+GR/IR account (T030 WRX) with lines when it is not the legal entity's `gr_ir`
+account, an order in another currency than the company's (the extract carries
+the company code amount, HSL, only), a movement other than a receipt or a
+receipt quantity that does not parse on an item with a position, an open
+quantity without a balance, and an item received without a GR/IR line on an
+order whose other items post one; a GR/IR line naming an order of another
+company of the scope is refused too. A later run, such as the final delta run
+at cutover, tops the positions of orders an earlier run loaded up to SAP's:
+each item's take-over moves what earlier runs took over of it to SAP's balance
+and open quantity, in an entry of its own per order (counted as
 `gr_ir_top_ups`), so the open GR/IR check passes after SAP posted a receipt or
 an invoice on a loaded order, and a run of the same extract again posts
-nothing. It tops up only an order whose take-overs are all a run's of its own
-fiscal year (its extract holds that year's journal only): an order taken over
-by another year's run, or loaded with no position open, is warned about and
-stays a difference. What the platform posted on the item after the load (a receipt, an
-invoice, a GR/IR clearing) stays beside what was taken over, and shows as a
-difference from SAP in the reconciliation. Moving an order already loaded
-valued directly onto GR/IR is not done (tracker: "Move open direct-valued
-orders onto GR/IR (optional)"): its position stays a difference.
+nothing. It tops up only an order loaded by a run of its own fiscal year and
+whose take-overs are all such a run's (its extract holds that year's journal
+only); every external reference names the run that loaded it, so an order
+loaded with no position open is topped up too. An order loaded or taken over
+by another year's run, or loaded with no position open before references named
+their run (migration 000168), is warned about and stays a difference. What the
+platform posted on the item after the load (a receipt, an invoice, a GR/IR
+clearing) stays beside what was taken over, and shows as a difference from SAP
+in the reconciliation. Moving an order already loaded valued directly onto
+GR/IR is not done (tracker: "Move open direct-valued orders onto GR/IR
+(optional)"): its position stays a difference.
+
+In `documents` mode the load clears the vendor items SAP cleared (AUGBL) by
+SAP's clearing document, or by the latest document of the clearing when the
+clearing document is not in the extract, once every document of the
+clearing is on the platform: a later run, such as the final delta run at
+cutover, clears an open item an earlier run loaded with the payment it
+loads. It also clears a clearing whose documents earlier runs all loaded.
+A clearing already done is left as it is, so a run of the same extract
+again clears nothing; an item the platform has cleared or reversed since,
+or that a payment proposal holds, is refused and fails the run rather than
+being cleared twice. A clearing whose counter-item is
+another fiscal year's (a prior-year invoice paid this year) is not in the
+extract, which holds the scope's fiscal year only and not SAP's clearing
+date (AUGDT): its clearing does not net to zero and fails the run, as the
+cleared items of such a year do in `balances` mode. How such items migrate
+waits for a decision (tracker).
 
 In either mode every migrated line posts in company code currency (ACDOCA HSL),
 so the quality gate refuses an open item whose document currency (ACDOCA RWCUR,
@@ -116,6 +135,10 @@ They must be equal.
 - Trial balance per account (differences listed by account)
 - Total debits posted (`documents` mode)
 - Open payables, in total and per vendor, without the down payments
+- Open payable items: the number of open vendor items (without the down
+  payments and lines of amount 0), in total and per vendor. A clearing SAP
+  recorded and the platform did not leaves both of its items open, which
+  the open payables net to zero and the count shows
 - Open down payments (special G/L A), in total and per vendor, where either
   side has any (T72c)
 - Vendor count per company code

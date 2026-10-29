@@ -2651,9 +2651,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A later migration run tops up the GR/IR positions of an order an earlier run of the same fiscal year loaded with no position open: the top-up tells a take-over's run, and so its fiscal year, by the take-over entry's source document, and an order loaded with nothing open has none, so it is left with a warning and a reconciliation difference when SAP receives or invoices on it again before cutover",
-      "r": "internal/integration/grir.go cannotTopUp · ADR-0034 As built (later runs)",
+      "r": "internal/integration/grir.go cannotTopUp, loadedBy · load.go addRef · migrations 000168-000169 (integration.external_ref.migration_run_id) · ADR-0034 As built (an order loaded with no position open) · walkthrough step 3",
       "src": "review:batch23",
       "c": []
      },
@@ -8095,9 +8095,16 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A vendor line SAP cleared stays open when its clearing spans runs or the extract (pre-existing finding on fxgate): internal/integration/load.go clearingItems returns false when one of the clearing's documents was loaded by an earlier run, and Postings.Clear refuses with ledger.clearing_not_balanced when the counter-item is outside the extract (e.g. a prior-year invoice paid this year); neither is retried and it shows only as a run issue or a reconciliation difference",
-      "r": "internal/integration/load.go clearings",
+      "r": "internal/integration/load.go clearings, earlierEntries · ledger Postings.EntryYears, ClearedTogether, Reports.OpenPayableItems · reconcile.go openPayableItems · ADR-0034 As built (review:batch22) · walkthrough step 3: across runs built; the counter-item outside the extract is the next item",
+      "src": "review:batch22",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A vendor item SAP cleared against an item of another fiscal year fails the migration run (split from the item before, waits for the product owner): the extract holds the scope's fiscal year only and AUGBL without SAP's clearing date and year (AUGDT, AUGGJ), so a prior-year invoice paid this year fails documents mode (ledger.clearing_not_balanced) in either year's run and balances mode (cleared vendor items do not net to zero). Decide which items a year's migration holds open: open at the extract's date (today) or at the fiscal year's end (SAP's key-date reading by AUGDT), and with it how the later year's run clears the earlier year's item",
+      "r": "internal/sap FilterScope, ACDOCA · internal/integration/load.go clearings, openingLines · reconcile.go journal",
       "src": "review:batch22",
       "c": []
      },

@@ -2335,7 +2335,7 @@ activate, and orders under them are refused.
 
 | Table | Purpose |
 |---|---|
-| `external_ref` | Maps any entity to its key in an external system (SAP object and key); unique per system/object/key |
+| `external_ref` | Maps any entity to its key in an external system (SAP object and key); unique per system/object/key; names the migration run that loaded it (`migration_run_id`, NULL for references recorded before 000168) |
 | `connector` | Configured connections (SAP OData, bank SFTP, EDI VAN, email); secrets by reference to the vault |
 | `message` | Inbound and outbound messages with status, attempts, payload reference |
 | `output_message` | Business output (purchase orders to suppliers) per channel, written when it is transmitted (post-pilot); not written yet. The printed form, `GET /v1/purchase-orders/{id}/document`, is rendered on read and not stored (ADR-0054) |

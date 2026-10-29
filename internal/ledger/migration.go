@@ -88,6 +88,47 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 		Detail: map[string]any{"items": len(items), "clearing_entry_id": by.EntryID, "migrated": true}})
 }
 
+// EntryYears returns the fiscal year of each of the entries that exists,
+// by id: a migration keeps only the id of an entry an earlier run posted
+// (its external reference), and names the entry's lines to Clear by year
+// and id.
+func (Postings) EntryYears(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]int16, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT id, fiscal_year FROM ledger.journal_entry WHERE id = ANY($1)`, ids)
+	out := map[uuid.UUID]int16{}
+	var id uuid.UUID
+	var year int16
+	if _, err := pgx.ForEachRow(rows, []any{&id, &year}, func() error { out[id] = year; return nil }); err != nil {
+		return out, fmt.Errorf("ledger: fiscal years of %d entries: %w", len(ids), err)
+	}
+	return out, nil
+}
+
+// ClearedTogether reports whether one clearing cleared every one of the
+// items, so a migration run that finds a source system's clearing done
+// already (an earlier run of the same extract cleared it) records nothing
+// again. Items open, or cleared by different clearings, report false;
+// Clear then refuses what is not open.
+func (Postings) ClearedTogether(ctx context.Context, items []ItemRef) (bool, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return false, err
+	}
+	years, entries, nos := columns(items)
+	var together bool
+	err = tx.QueryRow(ctx, `SELECT count(DISTINCT ci.clearing_id) = 1 AND count(ci.clearing_id) = count(*)
+		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) AS x(y, je, n)
+		LEFT JOIN ledger.clearing_item ci ON ci.fiscal_year = x.y AND ci.journal_entry_id = x.je AND ci.line_no = x.n`,
+		years, entries, nos).Scan(&together)
+	if err != nil {
+		return false, fmt.Errorf("ledger: clearing of %d items: %w", len(items), err)
+	}
+	return together, nil
+}
+
 // clearingPeriod requires the clearing entry to be one of the legal
 // entity's, the first entry of its posting group (the one a clearing is
 // shown by; its copies are cleared with it, clearCopies) and in the
@@ -235,14 +276,24 @@ func (Reports) Totals(ctx context.Context, legalEntity uuid.UUID, fiscalYear int
 // special G/L items (down payments), which OpenDownPayments sums: like a
 // payment run, the open payables do not net them (ADR-0037, T72c).
 func (Reports) OpenPayables(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error) {
-	return openSupplierItems(ctx, legalEntity, fiscalYear, false)
+	sums, _, err := openSupplierItems(ctx, legalEntity, fiscalYear, false)
+	return sums, err
+}
+
+// OpenPayableItems counts the items OpenPayables sums, per partner: a
+// migrated clearing the platform did not record leaves both of its items
+// open, which the sums net away and the counts show (review:batch22).
+func (Reports) OpenPayableItems(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]int, error) {
+	_, counts, err := openSupplierItems(ctx, legalEntity, fiscalYear, false)
+	return counts, err
 }
 
 // OpenDownPayments sums the legal entity's open down payments (special G/L
 // A) of the fiscal year in local currency per partner, in the leading
 // ledger.
 func (Reports) OpenDownPayments(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error) {
-	return openSupplierItems(ctx, legalEntity, fiscalYear, true)
+	sums, _, err := openSupplierItems(ctx, legalEntity, fiscalYear, true)
+	return sums, err
 }
 
 // OpenGRIR is an order item's open GR/IR position as the migration
@@ -279,26 +330,27 @@ func (Reports) OpenGRIR(ctx context.Context, legalEntity uuid.UUID, orders []uui
 	return out, nil
 }
 
-// openSupplierItems sums open supplier items per partner: the special G/L
-// items, or the ordinary ones.
-func openSupplierItems(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16, special bool) (map[uuid.UUID]money.Minor, error) {
+// openSupplierItems sums and counts open supplier items per partner: the
+// special G/L items, or the ordinary ones.
+func openSupplierItems(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16, special bool) (map[uuid.UUID]money.Minor, map[uuid.UUID]int, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT l.partner_id, sum(l.amount_lc) FROM ledger.journal_line l
+	rows, _ := tx.Query(ctx, `SELECT l.partner_id, sum(l.amount_lc), count(*) FROM ledger.journal_line l
 		JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id AND g.is_leading
 		JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id AND a.reconciliation_kind = 'supplier'
 		WHERE l.legal_entity_id = $1 AND l.fiscal_year = $2 AND (l.special_gl IS NOT NULL) = $3
 			AND NOT EXISTS (SELECT FROM ledger.clearing_item c WHERE c.tenant_id = l.tenant_id AND c.fiscal_year = l.fiscal_year
 				AND c.journal_entry_id = l.journal_entry_id AND c.line_no = l.line_no)
 		GROUP BY l.partner_id`, legalEntity, fiscalYear, special)
-	out := map[uuid.UUID]money.Minor{}
+	sums, counts := map[uuid.UUID]money.Minor{}, map[uuid.UUID]int{}
 	var partner uuid.UUID
 	var sum money.Minor
-	_, err = pgx.ForEachRow(rows, []any{&partner, &sum}, func() error { out[partner] = sum; return nil })
+	var n int
+	_, err = pgx.ForEachRow(rows, []any{&partner, &sum, &n}, func() error { sums[partner], counts[partner] = sum, n; return nil })
 	if err != nil {
-		return out, fmt.Errorf("ledger: open supplier items of %s %d: %w", legalEntity, fiscalYear, err)
+		return sums, counts, fmt.Errorf("ledger: open supplier items of %s %d: %w", legalEntity, fiscalYear, err)
 	}
-	return out, nil
+	return sums, counts, nil
 }
