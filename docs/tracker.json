@@ -8658,6 +8658,13 @@
       "r": "scripts/each-module.sh · scripts/test-each-module.sh · scripts/ci-local.sh · .github/workflows/ci.yml · .github/workflows/weekly.yml · 06 §6.5",
       "src": "review:batch21",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "The deploy checks run when the files they read change, not only their scripts and deploy/: temporal-checks.sh's lint rules (.golangci.yml) and the golangci-lint ci-local.sh runs it with (scripts/ci-tools.sh), the module nats-checks.sh builds its nats-server from (go.mod, go.sum), and the ko and signing configurations test-mirror-images.sh reads through provenance.sh and sign-images.sh (.ko.yaml, release/signing-config.json); a change to any of them alone skipped those checks locally and on main (finding of the batch 21 review)",
+      "r": "scripts/ci-changes.sh deploy class · .github/workflows/deploy.yml on.push.paths · scripts/test-ci-changes.sh · 06 §6.5",
+      "src": "review:batch21",
+      "c": []
      }
     ]
    },

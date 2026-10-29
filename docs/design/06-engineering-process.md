@@ -150,7 +150,7 @@ Every change passes, before it is merged:
 | Image signing round trip | `make signing-roundtrip` against a registry service: push, sign and attest (SBOM, provenance) with a key pair made for the job, verify, and the refusals (another key, another commit, a tag, no signature, attestations without a signature, uncommitted changes) (ADR-0032). When signing or image inputs change, and weekly |
 | Release scripts | `scripts/test-release-scripts.sh`: the version rules and the changelog's grouping on throwaway repositories, with the pinned git-cliff (ADR-0032). When those scripts or their inputs change, and weekly |
 | Build and container images | `make build`; `make image-scan`: grype on each SBOM and the pinned base, failing on a fixable high or critical vulnerability; `make images-reproducible` (the four ko images, erp-temporal (ko, from `temporal/`) and erp-analytics built twice, with private caches, and their digests compared; one build at a time, as the three ko binaries that import `api/gen` and erp-analytics each compile it: measured cold, ko peaks at 3843 MiB and erp-analytics's buildx builder at 3784 MiB) when image inputs change, and weekly (ADR-0032) |
-| Infrastructure (when the deploy workflow's paths change: `deploy/` but promotions, its scripts, `temporal/`, `scripts/lib/`, any workflow) | `scripts/deploy-checks.sh`: actionlint on the workflows, `terraform fmt`, `validate` and `test` in every module with tests (mock provider, no credentials), tflint, and the encryption-at-rest policy with conftest: unit tests, every root and module, and a fixture it must refuse (ADR-0035) |
+| Infrastructure (when the deploy workflow's paths change: `deploy/` but promotions, its scripts, `temporal/`, `scripts/lib/`, any workflow, and the other files its scripts read: `.golangci.yml`, `scripts/ci-tools.sh`, `go.mod`, `go.sum`, `.ko.yaml`, `release/signing-config.json`) | `scripts/deploy-checks.sh`: actionlint on the workflows, `terraform fmt`, `validate` and `test` in every module with tests (mock provider, no credentials), tflint, and the encryption-at-rest policy with conftest: unit tests, every root and module, and a fixture it must refuse (ADR-0035) |
 | Cluster content (the same paths) | `scripts/helm-checks.sh`: the pinned add-ons, the charts and their policies with helm, kubeconform, promtool and conftest, then `scripts/admission-checks.sh` (Kyverno's CLI against images signed in a local zot registry); `scripts/test-mirror-images.sh` (the upstream images' copy, a dry run of the real list, and the copies signed and verified as the release does, with their refusals, ADR-0032 amendment of 2026-10-28; it also runs when `sign-images.sh`, `verify-image.sh` or `provenance.sh` change); `scripts/nats-checks.sh` (NATS authorization by SPIFFE identity); `scripts/temporal-checks.sh` (the temporal module's vet, lint, `-race` tests and 100% coverage) |
 | Promotion checks' own tests (when they change) | `scripts/test-promotion-checks.sh`, `test-promotion-approvals.sh`, `test-rollback-drill.sh`, `test-restore-drill.sh` |
 
@@ -368,11 +368,18 @@ gates on each pull request:
     walks the whole tree, `temporal/` included; `go vet`, `make lint-all`,
     the race suite and `scripts/coverage.sh` stop at the root module, and
     `scripts/temporal-checks.sh` gives `temporal/` all four whenever
-    `temporal/` or that script changes (the deploy class); a change to
-    `.golangci.yml` or to the tools' pins alone does not run it, a gap
-    the batch 21 review reported for the tracker. The first run found no
-    vulnerability in either module that the code calls (govulncheck
-    v1.9.0).
+    `temporal/`, that script, `.golangci.yml` or the tools' pins
+    (`scripts/ci-tools.sh`) change (the deploy class, entry below). The
+    first run found no vulnerability in either module that the code
+    calls (govulncheck v1.9.0).
+  - 2026-10-29 (batch21 review): the deploy class started the deploy
+    checks only on their scripts, `deploy/`, `temporal/`, `scripts/lib/`
+    and the workflows, not on the other files they read (`.golangci.yml`,
+    `scripts/ci-tools.sh`, `go.mod`, `go.sum`, `.ko.yaml`,
+    `release/signing-config.json`). Layer: the machine checks
+    (`scripts/ci-changes.sh` and `deploy.yml`'s path filter, whose test
+    held only the scripts). Changed: both include them, and
+    `scripts/test-ci-changes.sh` holds that each starts the class.
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
   documentation changed (`docs/`, Markdown) since the base: a pull
