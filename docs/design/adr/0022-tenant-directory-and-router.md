@@ -14,7 +14,8 @@ of ADR-0015 managed that cell's tenants only.
 **The directory is one table in a database of its own.** `directory.tenant`
 holds tenant id, region, cell, the cell's public API URL and a status. It
 holds no business data, lives outside every cell's database
-(`ERP_DIRECTORY_URL`), and is created by whoever opens it.
+(`ERP_DIRECTORY_URL`), and is created by whoever opens it (since T72h, by
+its owner's setup alone: amendment of 2026-10-28).
 
 **Cells write their own entries.** Every cell with a directory configured
 keeps its tenants' entries current: the control plane registers a tenant
@@ -85,3 +86,15 @@ accept. The router's network policy gains one rule admitting `erp-web`'s
 pods on its public port (`erp-router-from-web`); those connections carry
 no PROXY header, coming from no balancer subnet. Cells still accept the
 router alone.
+
+## Amendment (2026-10-28, T72h)
+
+The directory's schema is no longer made by whoever opens it: the router,
+the cells and erp-web connect as logins of their own that may not change
+it (ADR-0035, amendment of 2026-10-28). `directory.Setup`, run as the
+database's owner by `erp-router setup-directory` (the erp-global chart's
+hook before each release; development and tests before their first
+opener), makes the schema, the privilege roles `erp_router`, `erp_cell`
+and `erp_web` with their grants, and the logins. `directory.OpenWith`
+only checks the schema is there and fails startup while it is not, as
+erp-web's store already did.

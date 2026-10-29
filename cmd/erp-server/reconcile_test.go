@@ -39,7 +39,7 @@ func TestDRReconcileCommand(t *testing.T) {
 	}
 	env := environment(t, authntest.New(t), "")
 	env["DATABASE_URL"] = u
-	withDirectory := map[string]string{"ERP_DIRECTORY_URL": dirURL, "ERP_CELL_API_URL": "https://test.api.example.com", "ERP_CELL_REGION": "eu-west",
+	withDirectory := map[string]string{"ERP_DIRECTORY_URL": cellLogin(t, dirURL), "ERP_CELL_API_URL": "https://test.api.example.com", "ERP_CELL_REGION": "eu-west",
 		"ERP_CELL_CONTROL_URL": "http://test-admin.internal:9090"}
 	unreachable := "postgres://postgres@127.0.0.1:1/x?connect_timeout=1"
 	for _, c := range []struct {

@@ -101,7 +101,13 @@ func newStore(t *testing.T) (*session.Store, *clock, *directory.Postgres) {
 	t.Helper()
 	ctx := context.Background()
 	dirURL := pgtest.EmptyDatabase(t)
-	dir, err := directory.Open(ctx, dirURL)
+	// The store runs as erp-web's own login (T72h); the directory's
+	// owner sets up and seeds what the tests read.
+	login := pgtest.NewLogin(t)
+	if err := directory.Setup(ctx, dirURL, directory.Login{Name: login.Name, Password: login.Password, Role: directory.WebRole}); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := directory.OpenWith(ctx, dirURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +116,7 @@ func newStore(t *testing.T) (*session.Store, *clock, *directory.Postgres) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st, err := session.Open(ctx, dirURL, nil, sealer)
+	st, err := session.Open(ctx, login.As(dirURL), nil, sealer)
 	if err != nil {
 		t.Fatal(err)
 	}

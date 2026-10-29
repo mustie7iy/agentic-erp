@@ -110,9 +110,9 @@ spec:
             - {name: ERP_LOG_LEVEL, value: {{ .Values.router.logLevel | quote }}}
             - {name: ERP_DIRECTORY_CACHE, value: {{ .Values.router.cacheTtl | quote }}}
             - {name: ERP_SHUTDOWN_TIMEOUT, value: "20s"}
-            # The directory over verified TLS as its master user, whose
-            # rotating password is read again for each new connection.
-            - {name: ERP_DIRECTORY_URL, value: {{ printf "postgres://%s@%s/%s?sslmode=verify-full&sslrootcert=/etc/erp/trust/rds-ca.pem" (.Values.directory.user | urlquery) $directory .Values.directory.name | quote }}}
+            # The directory over verified TLS as the router's login
+            # (T72h), whose password is read again for each new connection.
+            - {name: ERP_DIRECTORY_URL, value: {{ printf "postgres://%s@%s/%s?sslmode=verify-full&sslrootcert=/etc/erp/trust/rds-ca.pem" ((required "directory.logins.router is required: the router's login" .Values.directory.logins.router) | urlquery) $directory .Values.directory.name | quote }}}
             - {name: ERP_DIRECTORY_PASSWORD, value: file:/etc/erp/secrets/directory-password}
             - {name: ERP_OPERATOR_ISSUERS, value: {{ required "router.operatorIssuers is required" .Values.router.operatorIssuers | quote }}}
             - {name: ERP_PAGE_TOKEN_KEY, value: file:/etc/erp/secrets/page-token-key}

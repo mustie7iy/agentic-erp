@@ -4,7 +4,7 @@ output "directory_endpoint" {
 }
 
 output "directory_master_secret_arn" {
-  description = "The RDS-managed master credentials of the directory in Secrets Manager."
+  description = "The RDS-managed master credentials of the directory in Secrets Manager: the erp-global chart's setup hook's alone (T72h)."
   value       = one(aws_db_instance.directory.master_user_secret[*].secret_arn)
 }
 

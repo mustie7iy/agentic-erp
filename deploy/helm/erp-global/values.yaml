@@ -93,18 +93,34 @@ directory:
   # The directory database, host:port (global.directory_endpoint).
   endpoint: ""
   name: directory
-  # Its RDS-managed master user (modules/global), whose password RDS
-  # rotates and the router reads again for each new connection.
-  user: erp_admin
-  # The master credentials in Secrets Manager (global.directory_master_secret_arn).
+  # The clients' logins (T72h), each a member of its privilege role alone
+  # (internal/directory: erp_router, erp_cell, erp_web), which the setup
+  # hook makes and gives the passwords operators set in
+  # <prefix>/directory-router-password, directory-cell-password and
+  # directory-web-password. The router and erp-web connect as theirs; the
+  # cells' is erp-cell's directory.user.
+  logins:
+    router: erp_router_login
+    cell: erp_cell_login
+    web: erp_web_login
+  # The RDS-managed master credentials in Secrets Manager
+  # (global.directory_master_secret_arn): the setup hook's alone, which
+  # makes the schema and the logins before each release; no service
+  # holds them.
   masterSecretArn: ""
   # The RDS certificate authorities' bundle (PEM, AWS's published bundle
-  # for the region), which the router verifies the directory with.
+  # for the region), which the router, erp-web and the setup hook verify
+  # the directory with.
   caBundle: ""
+  # How long the setup hook may take before it fails.
+  setupDeadlineSeconds: 600
 
 secrets:
   # The global tier's entries in Secrets Manager (modules/global):
-  # <prefix>/page-token-key (base64 of at least 32 random bytes),
+  # <prefix>/page-token-key (base64 of at least 32 random bytes), the
+  # directory logins' passwords (directory-router-password,
+  # directory-cell-password, directory-web-password: e.g. `openssl rand
+  # -hex 32`),
   # router-public-certificate (the public listener's chain, PEM, from a
   # public CA) and router-public-key (its key, PEM), and the same pair for
   # the web workspace (web-public-certificate, web-public-key), which

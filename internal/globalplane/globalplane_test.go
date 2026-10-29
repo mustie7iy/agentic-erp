@@ -31,31 +31,46 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 
 // plane is the global control plane on a listener, over a fresh directory.
 type plane struct {
-	t   *testing.T
-	dir *directory.Postgres
-	is  *authntest.Issuer
-	srv *httptest.Server
-	s   *globalplane.Service
+	t      *testing.T
+	dir    *directory.Postgres // the owner's, seeding
+	router *directory.Postgres // the plane's, as a router's login
+	is     *authntest.Issuer
+	srv    *httptest.Server
+	s      *globalplane.Service
 }
 
 func newPlane(t *testing.T) *plane {
 	t.Helper()
 	ctx := context.Background()
-	dir, err := directory.Open(ctx, pgtest.URL(t))
+	// The plane works as a router's login of the test's own (T72h); the
+	// owner's store seeds what the cells would write.
+	// A directory database of its own: Setup refuses a login in one that
+	// holds the cell's schemas, as the package database does.
+	u := pgtest.EmptyDatabase(t)
+	dir, err := directory.Open(ctx, u)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(dir.Close)
+	login := pgtest.NewLogin(t)
+	if err := directory.Setup(ctx, u, directory.Login{Name: login.Name, Password: login.Password, Role: directory.RouterRole}); err != nil {
+		t.Fatal(err)
+	}
+	asRouter, err := directory.OpenWith(ctx, login.As(u), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(asRouter.Close)
 	is := authntest.New(t)
 	v, err := authn.New(ctx, authn.Development, []authn.Issuer{is.Config()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("k", 32)))
-	s := &globalplane.Service{Directory: dir, Pages: pages}
+	s := &globalplane.Service{Directory: asRouter, Pages: pages}
 	srv := httptest.NewServer(globalplane.Handler(s, v, slog.New(slog.NewTextHandler(io.Discard, nil))))
 	t.Cleanup(srv.Close)
-	return &plane{t: t, dir: dir, is: is, srv: srv, s: s}
+	return &plane{t: t, dir: dir, router: asRouter, is: is, srv: srv, s: s}
 }
 
 // in is the plane for a subtest: its failures stop the subtest.
@@ -498,7 +513,7 @@ func (s *globalScenario) contractServed(t *testing.T) {
 func (s *globalScenario) directoryDown(t *testing.T) {
 	p := s.p.in(t)
 	id, body := s.id, s.body
-	p.dir.Close()
+	p.router.Close()
 	for _, path := range []string{"/directory/v1/tenants", "/directory/v1/cells", "/directory/v1/tenants/" + id.String()} {
 		t.Run("directory down GET "+path, func(t *testing.T) {
 			if status, _, _ := p.in(t).as("ops|alice", "GET", path, ""); status != 500 {
@@ -686,17 +701,17 @@ func TestVerifyTenant(t *testing.T) {
 	}
 	// The directory failing after the entry was read, and down.
 	calls := 0
-	p.dir.InTx = func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
+	p.router.InTx = func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
 		if calls++; calls == 2 {
 			return errors.New("directory lost")
 		}
-		return p.dir.Pool.InTx(ctx, scope, fn)
+		return p.router.Pool.InTx(ctx, scope, fn)
 	}
 	if status, _, _ := p.as("ops|alice", "POST", path, to("b")); status != 500 {
 		t.Errorf("verify with the cells unreadable: %d", status)
 	}
-	p.dir.InTx = nil
-	p.dir.Close()
+	p.router.InTx = nil
+	p.router.Close()
 	if status, _, _ := p.as("ops|alice", "POST", path, to("b")); status != 500 {
 		t.Errorf("verify with the directory down: %d", status)
 	}

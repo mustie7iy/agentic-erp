@@ -302,3 +302,37 @@ func Route(tb testing.TB, tenant uuid.UUID, alias, model string) {
 	Exec(tb, `INSERT INTO agents.ai_policy (tenant_id, routes) VALUES ($1, jsonb_build_object($2::text, $3::text))
 		ON CONFLICT (tenant_id) DO UPDATE SET routes = agents.ai_policy.routes || EXCLUDED.routes, version = agents.ai_policy.version + 1`, tenant, alias, model)
 }
+
+// Login is a login of a test's own, its name random (roles are the
+// server's, shared by every package binary running at once) and dropped
+// when the test ends, after what the test opened later is closed. The
+// test creates it (directory.Setup does); As gives the URL connecting as
+// it.
+type Login struct {
+	Name, Password string
+}
+
+// NewLogin names a login for the test and drops it when the test ends.
+func NewLogin(tb testing.TB) Login {
+	tb.Helper()
+	l := Login{Name: "erp_test_" + strings.ReplaceAll(uuid.NewString(), "-", ""), Password: uuid.NewString()}
+	tb.Cleanup(func() {
+		c, err := pgx.Connect(context.Background(), URL(tb))
+		if err != nil {
+			tb.Errorf("drop %s: %v", l.Name, err)
+			return
+		}
+		defer func() { _ = c.Close(context.Background()) }() // the drop's outcome is checked; closing the admin connection is best-effort
+		if _, err := c.Exec(context.Background(), "DROP ROLE IF EXISTS "+pgx.Identifier{l.Name}.Sanitize()); err != nil {
+			tb.Errorf("drop %s: %v", l.Name, err)
+		}
+	})
+	return l
+}
+
+// As is the database URL raw connecting as the login.
+func (l Login) As(raw string) string {
+	u, _ := url.Parse(raw) // raw is a URL this package made
+	u.User = url.UserPassword(l.Name, l.Password)
+	return u.String()
+}

@@ -6557,9 +6557,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Logins of their own in the directory for the router and the cells, in place of its master user; erp-web too needs its own directory login before production (T73b review D1: it connects as the master login, working as the erp_web role, which keeps it to its schema against its own code but not against a stolen credential), with T73m at the latest",
-        "r": "deploy/helm/erp-global · deploy/helm/erp-cell · T72h · ADR-0052 D1",
+        "r": "deploy/helm/erp-global · deploy/helm/erp-cell · T72h · ADR-0052 D1 · internal/directory setup.go · erp-router setup-directory · erp-global templates/setup.yaml · ADR-0035 amendment 2026-10-28",
         "src": "baseline",
         "c": []
        },
@@ -8081,10 +8081,24 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The router and the cells connect to the directory with logins of their own and least privilege, never as the RDS master user erp_admin",
-      "r": "Phase 1 triage (PO 2026-10-21) · deploy/helm/erp-global values.yaml · deploy/helm/erp-cell values.yaml · T72h",
+      "r": "Phase 1 triage (PO 2026-10-21) · deploy/helm/erp-global values.yaml · deploy/helm/erp-cell values.yaml · T72h · erp_router_login, erp_cell_login, erp_web_login · ADR-0035 amendment 2026-10-28",
       "src": "baseline",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "The router's, the cells' and erp-web's directory logins authenticate with RDS IAM database authentication in place of their operator-set passwords, before production",
+      "r": "T72h · ADR-0035 amendment 2026-10-28 · internal/directory setup.go · deploy/helm/erp-global · deploy/helm/erp-cell · modules/global",
+      "src": "po:2026-10-28",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "erp-cell's erp-migrate and erp-temporal-schema hook network policies admit the cluster's DNS: on a first install the default deny is not there yet and the hook Jobs cannot resolve the writer",
+      "r": "deploy/helm/erp-cell/templates/network-policy.yaml · scripts/helm-checks.sh · T72h",
+      "src": "review:T72h",
       "c": []
      },
      {

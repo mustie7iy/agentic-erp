@@ -46,6 +46,5 @@ database:
     -----END CERTIFICATE-----
 directory:
   endpoint: erp-dev-directory.abc.eu-central-1.rds.amazonaws.com:5432
-  masterSecretArn: "arn:aws:secretsmanager:eu-central-1:222222222222:secret:rds!db-2"
 secrets:
   prefix: erp/dev1
