@@ -1202,6 +1202,45 @@ What the API gaps settled, and where they depart from §3:
   constraint so their tables can be told. Not in this step: the UI's
   check that each code has a message (T73l), and the control plane's
   contracts (T50).
+- **G7: branches only another caller takes (fix, batch 23).** The call
+  graph knows no branch conditions, so an operation reaching shared code
+  got every code it makes: `postGoodsReceipt` listed
+  `ledger.gr_ir_position_exists`, which only a migration run's take-over
+  produces, and `releasePurchaseOrder` and `approveApprovalRequest`
+  listed `procurement.no_gr_ir_account` (review of batch 21). Of the two
+  ways G7 left open, a table of exclusions or a superset documented
+  here, the table was taken, since the UI and agents read the lists as
+  what an operation can answer and the translations are checked per
+  code. It is keyed by the branch, not by operation, so it stays right as
+  operations are added: `untakenBranches` in `api/problemcodes_test.go`
+  names a code, the function making it (its gate) and the functions that
+  alone make the input taking the branch, and an operation gets the code
+  only when it reaches one of them. Each entry's premise is checked
+  against the program, not trusted: that no other function sets the
+  field the branch tests (`ledger.GRIRItem.TakesOver`, `Clears`,
+  `Invoiced`), or that no other value reaching the parameter it tests
+  can carry the value taking it (`procurement` `valuation`'s `loaded`
+  is `gr_ir` only from `ReleaseLoadedOrder`), a value from a function
+  nothing in the program calls (a method value handed to a worker)
+  counting as one that can. The field check sees the program's own
+  stores and address uses, not a value a decoder fills by reflection
+  or one converted from a twin struct type; none is made today. The
+  test proves each check refuses a broken premise. The test fails when an
+  entry's gate no longer makes its code, a function it names is gone,
+  its premise breaks, or it leaves the code out of no operation; a list
+  naming an excluded code fails as any wrong list does. Four branches,
+  fifteen codes left out: the take-over's `ledger.gr_ir_position_exists`
+  (goods receipts and their reversals, supplier invoices, approvals),
+  the clearing's `ledger.gr_ir_clearing_outdated` (goods receipts and
+  their reversals, supplier invoices, both migration operations), the
+  price difference account's `ledger.no_price_difference_account`, looked
+  up only for invoiced and clearing items (goods receipts and their
+  reversals, both migration operations), and the loaded valuation's
+  `procurement.no_gr_ir_account` (`releasePurchaseOrder`,
+  `approveApprovalRequest`). Removing a code from an `x-` extension is
+  not a breaking change (oasdiff reports none). Other branch conditions
+  stay a superset: a code a shared function makes only for an input an
+  operation never sends is still listed until a branch entry names it.
 - **Client addresses in the API's audit trail (D2, PO 2026-10-21).**
   - erp-web forwards the signed-in person's address, as its own load
     balancer's PROXY header names it, in `Erp-Client-Address` on every
