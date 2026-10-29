@@ -2602,6 +2602,13 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "A later migration run tops up the GR/IR positions of orders an earlier run loaded (pre-existing finding on T72f): docs/migration.md's cutover runs a final delta migration after the parallel run, but a position is taken over only by the run that loads its order, so receipts or invoices SAP posted on an already loaded order fail the open GR/IR reconciliation check and the migration cannot correct it",
+      "r": "internal/integration/grir.go · docs/migration.md §Cut over · T72f",
+      "src": "review:batch21",
+      "c": []
+     },
+     {
       "s": "D",
       "t": "A purchase order's change history answers page 2 (pre-existing finding on T72e): its select joins purchase_order, so the keyset's unqualified id is ambiguous and page 2 answers 500; its test never asks for page 2",
       "r": "internal/procurement/order_changes.go · api.go",

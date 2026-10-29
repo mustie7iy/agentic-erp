@@ -302,6 +302,13 @@ gates on each pull request:
     that cmd/erp's TestWalkthrough asserts. Layer: the lane fast loop.
     Changed: a step that renumbers walkthrough steps runs
     `go test ./cmd/erp -run TestWalkthrough`.
+  - 2026-10-29 (T72i follow-ups): the release tooling had no test that the
+    registry the release pushes to is the one promotion and admission
+    accept, nor that every image `release/release.json` names is built.
+    Layer: the machine checks (the release scripts' own tests). Changed:
+    `scripts/test-images.sh`'s consistency check holds the release's push
+    target and built images, `modules/ecr`'s repositories and
+    `release.json`'s names to each other.
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
   documentation changed (`docs/`, Markdown) since the base: a pull
