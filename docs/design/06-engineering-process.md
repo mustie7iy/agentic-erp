@@ -369,9 +369,10 @@ gates on each pull request:
     `weekly.yml` run them only through it. Left as they are: `gofmt -l .`
     walks the whole tree, `temporal/` included; `go vet`, `make lint-all`,
     the race suite and `scripts/coverage.sh` stop at the root module, and
-    `scripts/temporal-checks.sh` gives `temporal/` all four whenever its
-    code changes (the deploy class), which is when their result can
-    change. The first run found no vulnerability in either module that
+    `scripts/temporal-checks.sh` gives `temporal/` all four whenever
+    `temporal/` or that script changes (the deploy class); a change to
+    `.golangci.yml` or to the tools' pins alone does not run it, a gap
+    recorded for the tracker. The first run found no vulnerability in either module that
     the code calls (govulncheck v1.9.0).
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only

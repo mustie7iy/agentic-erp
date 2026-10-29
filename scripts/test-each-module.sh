@@ -60,9 +60,10 @@ rc=0
 check "a tree without the root's go.mod is refused rather than half checked" "$rc" 2
 
 # No gate that must see every module runs from the root alone. A line that
-# runs one of them names each-module.sh.
+# runs one of them, with any arguments, has each-module.sh as its command.
 for f in scripts/ci-local.sh .github/workflows/ci.yml .github/workflows/weekly.yml; do
-  bare="$(grep -nE '(^|[ /])(govulncheck|staticcheck|gosec)(@[^ ]*)? .*\./\.\.\.' "$root/$f" | grep -v 'each-module\.sh' || true)"
+  bare="$(grep -nE '(^|[ /])(govulncheck|staticcheck|gosec)(@[^ ]*)? +[-.]' "$root/$f" |
+    grep -vE '^[0-9]+: *(step [a-z-]+ |run: )\./scripts/each-module\.sh ' || true)"
   check "$f runs govulncheck, staticcheck and gosec through each-module.sh" "$bare" ""
 done
 for f in scripts/ci-local.sh .github/workflows/ci.yml .github/workflows/weekly.yml; do

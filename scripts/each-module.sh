@@ -21,7 +21,10 @@ set -euo pipefail
 }
 cd "$(dirname "$0")/.."
 # Go ignores testdata directories, so a go.mod there is a fixture.
-modules="$(git ls-files -- ':(glob)**/go.mod' | grep -Ev '(^|/)testdata/' | sort)" || true
+# git's own failure (no repository, an ownership refusal) stops the run
+# with its message; only an empty result from the filter is let through.
+tracked="$(git ls-files -- ':(glob)**/go.mod')"
+modules="$(grep -Ev '(^|/)testdata/' <<<"$tracked" | sort)" || true
 if ! grep -qx go.mod <<<"$modules"; then
   echo "each-module: git tracks no go.mod at the repository's root" >&2
   exit 2
