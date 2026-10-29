@@ -47,7 +47,9 @@ read the public key. Both roles are assumed with GitHub's OIDC token, each
 trusting exactly `repo:mustie7iy/agentic-erp:environment:<release|delivery>`
 and the STS audience. The release role also pushes to ECR. The tooling
 root's outputs are the release environment's `ERP_COSIGN_KEY`
-(`awskms:///<key ARN>`) and `ERP_RELEASE_ROLE_ARN`.
+(`awskms:///<key ARN>`) and `ERP_RELEASE_ROLE_ARN`, and the host of its
+`repository_urls` is `ERP_RELEASE_REGISTRY`, where the release copies the
+upstream images (T72i).
 
 **Registry (from T39).** One ECR repository per binary in tooling's primary
 region, replicated by ECR to every region a cell runs in, pulled by the
@@ -273,11 +275,14 @@ Kubernetes' restricted Pod Security profile):
   `erp-nats` with their SBOM by `scripts/mirror-images.sh`, which the
   release runs before `sign-images.sh`, so they are signed and attested
   like the platform's own. Their provenance says what they are, a copy of
-  `source@digest` by the release, not a build from this repository: the
-  script writes it, and `sign-images.sh` attests it in place of the build
-  provenance once T39's release and T40 meet. The script refuses an index,
-  another platform, a source that serves another manifest and a release
-  tag that names another image.
+  `source:tag@digest` by the release at its commit, not a build from this
+  repository: the script writes the copy's part, and `sign-images.sh`
+  completes it with the release's commit and run and attests it in place of
+  the build provenance (as built in T72i: ADR-0032's amendment of
+  2026-10-28, which also says how `verify-image.sh` checks a copy). The
+  script refuses an index, another platform, a source that serves another
+  manifest and a release tag that names another image; `DRY_RUN=true`
+  plans the copies without a registry.
 - The migrations' time is bounded by the installer's timeout as much as
   by the Job's deadline: Helm's `--timeout`, or Argo CD's sync limit of
   90 minutes, which `helm-checks.sh` holds above the Jobs' deadline

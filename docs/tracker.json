@@ -6585,9 +6585,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Wire mirror-images into the release before signing, with copy provenance for mirrored images",
-        "r": "scripts/mirror-images.sh · .github/workflows/release.yml · T72i",
+        "r": "scripts/mirror-images.sh · .github/workflows/release.yml · ADR-0032 amendment 2026-10-28 · T72i",
         "src": "baseline",
         "c": []
        },
@@ -8130,9 +8130,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The release mirrors the PgBouncer and NATS images (scripts/mirror-images.sh) before signing, with copy provenance, so Kyverno's erp-release-signed admits them in production",
-      "r": "Phase 1 triage (PO 2026-10-21) · scripts/mirror-images.sh · .github/workflows/release.yml · erp-cluster image-policy.yaml · T72i",
+      "r": "Phase 1 triage (PO 2026-10-21) · scripts/mirror-images.sh · .github/workflows/release.yml · erp-cluster image-policy.yaml · scripts/sign-images.sh · scripts/verify-image.sh · scripts/test-mirror-images.sh · ADR-0032 amendment 2026-10-28 · T72i",
       "src": "baseline",
       "c": []
      },

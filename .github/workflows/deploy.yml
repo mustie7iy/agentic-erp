@@ -25,6 +25,10 @@ on:
       - scripts/admission-checks.sh
       - scripts/mirror-images.sh
       - scripts/test-mirror-images.sh
+      # test-mirror-images.sh signs and verifies the copies with these.
+      - scripts/sign-images.sh
+      - scripts/verify-image.sh
+      - scripts/provenance.sh
       - scripts/nats-checks.sh
       - scripts/temporal-checks.sh
       - temporal/**

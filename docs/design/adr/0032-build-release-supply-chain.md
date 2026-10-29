@@ -192,3 +192,54 @@ Its static files (the stylesheet and the one vendored script, htmx, pinned
 by SHA-256 and checked at startup and in a test) are embedded in the
 binary, served under content-hashed names; the image holds nothing else.
 It takes no part in the cgo exception.
+
+## Amendment (2026-10-28, T72i): the release signs the upstream images it copies
+
+The upstream images the cells run in the platform's namespaces (PgBouncer,
+NATS: `deploy/images/upstream.txt`, ADR-0035) are copied by every release
+and signed like the platform's own. Decided by this ADR's signing design;
+no new mechanism:
+
+- **Where in the release.** After the pushed images are checked against the
+  scanned build, the release logs in to tooling's ECR and runs
+  `scripts/mirror-images.sh` with `ERP_RELEASE_REGISTRY` (the registry's
+  host, a variable of the `release` environment): each pinned digest is
+  copied into `erp-<name>`, tagged with its upstream tag, its SBOM written
+  by syft, and appended to `images.txt`, so `sign-images.sh` signs it and
+  attests its SBOM and provenance, `verify-image.sh` checks it before the
+  release goes on, and the GitHub Release lists it with its SBOM. crane and
+  syft are `images.sh`'s versions, installed outside the checkout.
+- **Copy provenance.** The image is a copy, not a build, so its SLSA v1
+  provenance says so: build type
+  `https://github.com/mustie7iy/agentic-erp/mirror-images@v1`, the source,
+  tag and digest copied and the reference it was copied to as external
+  parameters, the source `oci://<source>:<tag>` by digest as a resolved
+  dependency. `mirror-images.sh` writes that part; `sign-images.sh`
+  completes it with what the build provenance says of the release (its
+  commit as the other resolved dependency, whether the checkout was clean,
+  the workflow, the run and the version) and attests it in place of the
+  build provenance, type `slsaprovenance1`, as for any image. The statement's
+  subject is the image's digest, which is the source's: the copy keeps it.
+- **Verification.** `verify-image.sh` tells a copy from a build by the build
+  type. A copy's provenance must name the image's own digest. Every release
+  pinning the same upstream digest attests the same image again, so a copy
+  passes when one of its provenances names the expected commit (and none
+  was made from uncommitted changes), while a built image, whose digest
+  changes with every commit, must still name that commit alone. An image
+  whose provenances say both copy and build is refused. So a promotion
+  (`verify-image.sh` on each image of `release.json` with its commit)
+  accepts a cell's `images.pgbouncer` and `images.nats` only as the copies
+  the release at that commit made of its pins.
+- **Checked by** `scripts/test-mirror-images.sh` (the deploy checks), against
+  a local registry with a key made for the test: the copy signed with its
+  copy provenance at the release's commit beside a built image with its
+  build provenance, two releases verifying for either commit and not a
+  third, and refusals of a copy naming another digest, an image both copy
+  and build, a build attested at two commits and two copies of one digest.
+  `mirror-images.sh DRY_RUN=true` plans the real list's copies without a
+  registry, which the test runs on `deploy/images/upstream.txt`.
+
+The upstream images are not scanned by grype in the release: their pins are
+reviewed as code changes (ADR-0035), and whether a release should also fail
+on a fixable vulnerability in them is left to the product owner (T72i's
+report).

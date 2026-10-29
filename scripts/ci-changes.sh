@@ -80,7 +80,7 @@ images="$(changed '^(go\.(mod|sum)|\.ko\.yaml|\.dockerignore|deploy/images/|Make
 release="$(changed '^(scripts/(next-version|changelog|test-release-scripts)\.sh|cliff\.toml|Makefile|\.github/workflows/(ci|release|weekly)\.yml)')"
 # deploy.yml's paths: deploy/ but its environments (promotion.yml's), the
 # scripts it runs, temporal/, scripts/lib/ and the workflows it lints.
-deploy="$(changed '^(deploy/|temporal/|scripts/lib/|scripts/(deploy-checks|helm-checks|admission-checks|mirror-images|test-mirror-images|nats-checks|temporal-checks)\.sh$|\.github/workflows/)' "$(grep -v '^deploy/environments/' <<<"$files" || true)")"
+deploy="$(changed '^(deploy/|temporal/|scripts/lib/|scripts/(deploy-checks|helm-checks|admission-checks|mirror-images|test-mirror-images|sign-images|verify-image|provenance|nats-checks|temporal-checks)\.sh$|\.github/workflows/)' "$(grep -v '^deploy/environments/' <<<"$files" || true)")"
 promotion="$(changed '^(scripts/(promotion-checks|test-promotion-checks|promotion-approvals|test-promotion-approvals|verify-image|rollback-drill|test-rollback-drill|restore-drill|test-restore-drill)\.sh|\.github/approvers|\.github/workflows/promotion(-self-test|-review)?\.yml)$')"
 code="$(grep -Ev '^docs/|\.md$' <<<"$files" || true)"
 if [ -n "$files" ] && [ -z "$code" ]; then

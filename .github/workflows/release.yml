@@ -3,7 +3,10 @@ name: release
 # A release (ADR-0032, 06 §6.9): dispatched by hand from a green main, it
 # waits for a second person's approval in the `release` environment, then
 # builds the images at that commit with the version stamped in, scans them,
-# pushes them (tagged with the version only), signs them and attests their
+# pushes them (tagged with the version only), copies the pinned upstream
+# images (deploy/images/upstream.txt: PgBouncer, NATS) by digest into the
+# release registry with their SBOMs and copy provenance
+# (scripts/mirror-images.sh, ADR-0035), signs them all and attests their
 # SBOM and provenance with the KMS key, verifies what it pushed, tags the
 # commit, publishes the GitHub Release with the generated notes and opens a
 # pull request adding them to CHANGELOG.md (main is protected; the tag
@@ -18,6 +21,9 @@ name: release
 #                                        key only, its trust policy pinned to
 #                                        sub repo:<owner>/agentic-erp:environment:release
 #                  ERP_AWS_REGION        the key's region
+#                  ERP_RELEASE_REGISTRY  tooling's ECR registry host (the host of envs/tooling
+#                                        repository_urls), which the upstream images are
+#                                        copied into and the clusters admit images from
 #                  ERP_RELEASE_APP_ID    a GitHub App that may push a branch and open
 #                                        a pull request (contents and pull requests:
 #                                        write), so the changelog pull request runs CI
@@ -137,6 +143,22 @@ jobs:
             echo "the pushed images are not the scanned ones" >&2
             exit 1
           fi
+      - name: Login to the release registry
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Upstream images, mirrored into the release registry
+        # After the pushed images' check, which compares images.txt with
+        # the scanned build: the copies are appended to it, so the next
+        # step signs and attests them with the platform's images, each
+        # with its copy provenance (ADR-0032 amendment of 2026-10-28), and
+        # the clusters' erp-release-signed admits them. The tools, at
+        # images.sh's versions, go outside the checkout, which the
+        # provenance must find clean.
+        env:
+          REGISTRY: ${{ vars.ERP_RELEASE_REGISTRY }}
+        run: |
+          GOBIN="$RUNNER_TEMP/bin" go install github.com/google/go-containerregistry/cmd/crane@v0.21.7
+          GOBIN="$RUNNER_TEMP/bin" go install github.com/anchore/syft/cmd/syft@v1.52.0
+          CRANE="$RUNNER_TEMP/bin/crane" SYFT="$RUNNER_TEMP/bin/syft" ./scripts/mirror-images.sh dist/images
       - name: Sign and attest
         env:
           ERP_COSIGN_KEY: ${{ vars.ERP_COSIGN_KEY }}

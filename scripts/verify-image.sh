@@ -4,9 +4,14 @@
 # and a build provenance attestation signed by the same key. The
 # provenance must name ERP_EXPECTED_COMMIT and a clean checkout;
 # ERP_EXPECTED_COMMIT=any skips that check and has to be asked for, so a
-# caller cannot forget it. It exits non-zero at the first image that
-# fails. The release workflow runs it on what it pushed; delivery runs it
-# again before a rollout (T40).
+# caller cannot forget it. An upstream image the release copied
+# (scripts/mirror-images.sh) carries a copy's provenance instead, naming
+# the digest it copied, which must be the image's: the same copy is
+# attested again by every release that pins it, so such an image passes
+# when one of its copies names ERP_EXPECTED_COMMIT; a built image must
+# name that commit alone (ADR-0032 amendment of 2026-10-28, T72i). It
+# exits non-zero at the first image that fails. The release workflow runs
+# it on what it pushed; delivery runs it again before a rollout (T40).
 #
 # ERP_COSIGN_PUBLIC_KEY verifies: the KMS key reference
 # (awskms:///arn:...), whose public half cosign fetches, or a public key
@@ -22,6 +27,7 @@ if [ $# -eq 0 ]; then
   exit 2
 fi
 verify=(--key "$key" --insecure-ignore-tlog=true)
+copy=https://github.com/mustie7iy/agentic-erp/mirror-images@v1
 for ref in "$@"; do
   if [[ "$ref" != *@sha256:* ]]; then
     echo "verify-image: $ref: name images by digest, not by tag" >&2
@@ -36,10 +42,24 @@ for ref in "$@"; do
   fi
   $COSIGN verify-attestation "${verify[@]}" --type spdxjson "$ref" >/dev/null
   provenance="$($COSIGN verify-attestation "${verify[@]}" --type slsaprovenance1 "$ref")"
+  predicates="$(printf '%s\n' "$provenance" | jq -c '.payload | @base64d | fromjson | .predicate')"
+  # A copy's provenance names the digest it copied; any other image's
+  # provenance is a build's. One image is one or the other.
+  kinds="$(printf '%s\n' "$predicates" | jq -r --arg copy "$copy" 'if .buildDefinition.buildType == $copy then "copy" else "build" end' | sort -u)"
+  if [ "$kinds" = copy ]; then
+    if printf '%s\n' "$predicates" | jq -e --arg digest "${ref##*@}" 'select(.buildDefinition.externalParameters.digest != $digest)' >/dev/null; then
+      echo "verify-image: $ref: a copy's provenance names another digest than the image's" >&2
+      exit 1
+    fi
+  elif [ "$kinds" != build ]; then
+    echo "verify-image: $ref: its provenance says both copy and build" >&2
+    exit 1
+  fi
   if [ "$expected" != any ]; then
-    predicates="$(printf '%s\n' "$provenance" | jq -c '.payload | @base64d | fromjson | .predicate')"
     commits="$(printf '%s\n' "$predicates" | jq -r '.buildDefinition.resolvedDependencies[] | .digest.gitCommit // empty' | sort -u)"
-    if [ "$commits" != "$expected" ]; then
+    if [ "$kinds" = copy ] && grep -qxF "$expected" <<<"$commits"; then
+      : # copied by the release at the expected commit, and by others too
+    elif [ "$commits" != "$expected" ]; then
       echo "verify-image: $ref was built from ${commits:-no commit}, want $expected" >&2
       exit 1
     fi
