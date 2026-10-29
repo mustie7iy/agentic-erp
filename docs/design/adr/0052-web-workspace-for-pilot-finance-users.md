@@ -1241,6 +1241,40 @@ What the API gaps settled, and where they depart from §3:
   not a breaking change (oasdiff reports none). Other branch conditions
   stay a superset: a code a shared function makes only for an input an
   operation never sends is still listed until a branch entry names it.
+- **G7: function values in a parameter's fields (fix, batch 23).**
+  `reconcileMigrationRun` listed about 150 codes only a load answers
+  (`partner.*`, `payables.*`, `ledger.gr_ir_position_exists`,
+  `procurement.no_gr_ir_account`, ...): `integration`'s `runStep` calls
+  the work its caller put in `step.work`, and the call graph joins every
+  value of that type, so reconciling reached the load. This is the call
+  graph's imprecision, not a branch condition, so `untakenBranches` was
+  not the tool. Decided by the rule G7 already applied to a function
+  value given as a parameter (`InTx`'s work), whose call is cut and whose
+  values count where their callers make them: the cut now also covers a
+  function value read from a field of a struct parameter, when the test
+  can prove that every call of the function fills the field with a
+  function or closure the caller makes, or one a function it calls
+  returns made, through phis, composite literals, the parameter's own
+  copy and the caller's own parameters, which are checked against their
+  callers' arguments in turn, not trusted. Where it cannot, the edge
+  stays and the operation keeps the joined codes: a value read through
+  a pointer (anything holding the pointer may have set it), from a
+  variable or a closure's capture, or given by a function nothing in the program calls
+  other than an unexported method's promotion wrapper. The change is
+  general, keyed by the call, not by `runStep`; it changes one list,
+  `reconcileMigrationRun`'s, which loses 155 codes and keeps the nine
+  of `runStep`, `prepare`, `reconcileRun` and the operation's finish
+  (the reconciliation's reads through `Reports`, `Suppliers`,
+  `OrderValues`, `InvoiceCounts` and `Invoiced` make none).
+  `TestProblemCodesFieldCalls` proves it on `api/testdata/fieldcalls`:
+  two callers' work, joined by the graph, answer each its own code, as do
+  work a phi chooses and work set on the callee's copy, and work read from
+  a variable, through a pointer or a closure's capture, or handed on from
+  a variable through a parameter or a function's result, is still
+  followed. The parameter cut itself still trusts that the callers make
+  what they pass; the test does not prove it, and a direct call of a
+  parameter given a variable's function loses that function's codes
+  (pre-existing, reported in batch 23).
 - **Client addresses in the API's audit trail (D2, PO 2026-10-21).**
   - erp-web forwards the signed-in person's address, as its own load
     balancer's PROXY header names it, in `Erp-Client-Address` on every

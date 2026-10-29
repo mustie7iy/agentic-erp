@@ -25,9 +25,13 @@ package api
 // work); and a call of a function value a function was given as a
 // parameter (database.Pool.InTx's work: the graph would join every
 // caller's), whose values the callers make, so they count where their
-// callers are reached. A problem made by a package initializer and kept
-// in a variable is an operation's when the operation's code reads that
-// variable. A code a constraint's problem (problem.RegisterConstraint)
+// callers are reached. So is a call of a function value in a field of a
+// struct parameter (integration's step.work) when every caller fills the
+// field with a function it makes, or one a function it calls returns made
+// (callersMake); a value read through a pointer, from a variable or from
+// a closure's capture keeps its edge. A problem made by a package
+// initializer and kept in a variable is an operation's when the
+// operation's code reads that variable. A code a constraint's problem (problem.RegisterConstraint)
 // carries is an operation's when a function it reaches runs a statement
 // writing the constraint's table (constraint and table read from the
 // migrations). Codes built at run time, or set on a problem after
@@ -151,6 +155,7 @@ type codeAnalysis struct {
 	writes      map[*ssa.Function][]string  // the tables each function's statements write
 	unplaced    []string                    // registered constraints no migration names
 	narrowed    map[int][]string            // the operations each of untakenBranches takes its code from
+	made        map[ssa.Value]bool          // callersMake's answers
 }
 
 func TestProblemCodes(t *testing.T) {
@@ -244,6 +249,52 @@ func checkPremisesRefuse(t *testing.T, a *codeAnalysis) {
 	}
 }
 
+// TestProblemCodesFieldCalls proves the cut of a call of a function value
+// held in a struct parameter's field (callersMake) on testdata/fieldcalls:
+// the graph joins the work Load and Reconcile give run, and each still
+// answers only its own code, as do work chosen by a phi and work set on
+// the callee's copy; work read from a variable, through a pointer or a
+// closure's capture, or handed on through a parameter or a function's
+// result from a variable, is followed, so no operation loses a code it
+// can answer.
+func TestProblemCodesFieldCalls(t *testing.T) {
+	const fixture = module + "/api/testdata/fieldcalls"
+	a, _ := build(t, fixture)
+	run, reconcile := a.fns[fixture+".run"], a.fns[fixture+".reconcile"]
+	if !slices.ContainsFunc(a.cg.Nodes[run].Out, func(e *callgraph.Edge) bool { return e.Callee.Func == reconcile }) {
+		t.Fatalf("the call graph has no edge from run to reconcile: the fixture no longer shows the join")
+	}
+	for _, c := range []struct {
+		root      string
+		want, not []string
+	}{
+		{"Load", []string{"fixture.load"}, []string{"fixture.reconcile"}},
+		{"Reconcile", []string{"fixture.reconcile"}, []string{"fixture.load"}},
+		{"Wired", []string{"fixture.wired"}, nil},
+		{"Direct", []string{"fixture.direct", "fixture.wired"}, nil},
+		{"Pointer", []string{"fixture.pointer"}, nil},
+		{"Chosen", []string{"fixture.first", "fixture.second"}, []string{"fixture.load", "fixture.reconcile"}},
+		{"Spilled", []string{"fixture.spilled"}, []string{"fixture.load", "fixture.reconcile"}},
+		{"Returned", []string{"fixture.returned"}, nil},
+		{"Passed", []string{"fixture.passed"}, nil},
+		{"Captured", []string{"fixture.captured"}, nil},
+	} {
+		t.Run(c.root, func(t *testing.T) {
+			codes := a.codesOf(a.reach([]*ssa.Function{a.fns[fixture+"."+c.root]}), nil)
+			for _, code := range c.want {
+				if !codes[code] {
+					t.Errorf("got %v, want %s among them", keys(codes), code)
+				}
+			}
+			for _, code := range c.not {
+				if codes[code] {
+					t.Errorf("got %v, want no %s", keys(codes), code)
+				}
+			}
+		})
+	}
+}
+
 // checkList checks a listed x-problem-codes against the derived codes:
 // equal, sorted, each a code the server makes.
 func checkList(t *testing.T, what string, listed any, want []string, known map[string]bool) {
@@ -280,13 +331,35 @@ func analyse(t *testing.T) *codeAnalysis {
 			paths = append(paths, p.PkgPath)
 		}
 	})
+	a, emitted := build(t, paths...)
+	problem := a.prog.ImportedPackage(module + "/internal/platform/problem")
+	for fn, codes := range dynamicCodes {
+		for f := range a.all {
+			if f.String() == fn {
+				a.gated[f] = append(a.gated[f], codes...)
+			}
+		}
+	}
+	for f := range a.all {
+		a.writes[f] = tablesWritten(f)
+		a.codeAssigned(f, problem)
+	}
+	a.keptInVariables(emitted)
+	a.registered(t, problem.Func("RegisterConstraint"))
+	return a
+}
+
+// build loads the packages, builds their program and its call graph (VTA
+// over CHA), and traces the codes problem.New is given.
+func build(t *testing.T, paths ...string) (*codeAnalysis, []emission) {
+	t.Helper()
 	pkgs, err := packages.Load(&packages.Config{Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes |
 		packages.NeedTypesInfo | packages.NeedImports, Dir: ".."}, paths...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if packages.PrintErrors(pkgs) > 0 {
-		t.Fatal("erp-server's packages do not load")
+		t.Fatalf("%v do not load", paths)
 	}
 	prog, _ := ssautil.Packages(pkgs, ssa.InstantiateGenerics)
 	prog.Build()
@@ -294,7 +367,8 @@ func analyse(t *testing.T) *codeAnalysis {
 	problem := prog.ImportedPackage(module + "/internal/platform/problem")
 	a := &codeAnalysis{prog: prog, all: fns, fns: map[string]*ssa.Function{}, cg: vta.CallGraph(fns, cha.CallGraph(prog)), from: problem.Func("From"),
 		gated: map[*ssa.Function][]string{}, globals: map[*ssa.Global][]string{}, unresolved: map[string][]token.Position{},
-		constraints: map[string][]string{}, writes: map[*ssa.Function][]string{}, narrowed: map[int][]string{}}
+		constraints: map[string][]string{}, writes: map[*ssa.Function][]string{}, narrowed: map[int][]string{},
+		made: map[ssa.Value]bool{}}
 	for f := range fns {
 		a.fns[f.String()] = f
 	}
@@ -305,20 +379,7 @@ func analyse(t *testing.T) *codeAnalysis {
 	for _, e := range emitted {
 		a.gated[e.gate] = append(a.gated[e.gate], e.code)
 	}
-	for fn, codes := range dynamicCodes {
-		for f := range fns {
-			if f.String() == fn {
-				a.gated[f] = append(a.gated[f], codes...)
-			}
-		}
-	}
-	for f := range fns {
-		a.writes[f] = tablesWritten(f)
-		a.codeAssigned(f, problem)
-	}
-	a.keptInVariables(emitted)
-	a.registered(t, problem.Func("RegisterConstraint"))
-	return a
+	return a, emitted
 }
 
 // resolve traces a code value to its constants, each with the function
@@ -686,18 +747,154 @@ func (a *codeAnalysis) referenced(f *ssa.Function, codes map[string]bool) []*ssa
 
 // cut reports the edges the traversal does not follow: problem.From's
 // constraint lookup, http.Handler.ServeHTTP through the interface, and a
-// call of a function its caller was given (a callback: the graph does not
-// tell one caller's from another's, and the functions each caller passes
-// are taken as called where it is reached).
+// call of a function value its caller was given (a callback: the graph
+// does not tell one caller's from another's, and the functions each caller
+// makes are taken as called where it is reached), as a parameter or as a
+// field of a struct parameter every caller provably fills with a function
+// it makes (callersMake).
 func (a *codeAnalysis) cut(f *ssa.Function, e *callgraph.Edge) bool {
 	c := e.Site.Common()
 	if c.StaticCallee() != nil {
 		return false
 	}
-	if _, param := c.Value.(*ssa.Parameter); param && !c.IsInvoke() {
+	if f == a.from || (c.IsInvoke() && c.Method.Name() == "ServeHTTP") {
 		return true
 	}
-	return f == a.from || (c.IsInvoke() && c.Method.Name() == "ServeHTTP")
+	return !c.IsInvoke() && a.callersMake(c.Value)
+}
+
+// callersMake reports whether v, a function value called, is its
+// function's parameter (taken as its callers', the cut above), or is made
+// where it is called (holdsMade): a field of a struct parameter
+// (integration's step.work) that every call of the function fills with a
+// function or closure its caller makes. Anything else, a value read
+// through a pointer, from a variable or a closure's capture, or given by a
+// function nothing in the program calls, keeps its edge.
+func (a *codeAnalysis) callersMake(v ssa.Value) bool {
+	if ok, done := a.made[v]; done {
+		return ok
+	}
+	_, param := v.(*ssa.Parameter)
+	made := param || a.holdsMade(v, nil, map[heldAt]bool{})
+	a.made[v] = made
+	return made
+}
+
+// heldAt is a value and the path of fields within it that a function value
+// is read from.
+type heldAt struct {
+	v    ssa.Value
+	path string
+}
+
+// givenMade reports whether every call of p's function passes, at path
+// within p, a function value its caller makes (holdsMade).
+func (a *codeAnalysis) givenMade(p *ssa.Parameter, path []int, seen map[heldAt]bool) bool {
+	fn := p.Parent()
+	idx := slices.Index(fn.Params, p)
+	n := a.cg.Nodes[fn]
+	if n == nil || len(n.In) == 0 {
+		return unexportedPromotion(fn) // which nothing can call but by name
+	}
+	for _, e := range n.In {
+		c, i := e.Site.Common(), idx
+		if c.IsInvoke() && fn.Signature.Recv() != nil {
+			i-- // an interface call's receiver is not among its arguments
+		}
+		if i < 0 || i >= len(c.Args) || !a.holdsMade(c.Args[i], path, seen) {
+			return false
+		}
+	}
+	return true
+}
+
+// holdsMade reports whether the function value at path within v is made
+// where v is: a function or closure, nil, or traced to those through
+// phis, fields, static calls' results, the stores into a local composite
+// literal and a parameter's arguments at every call (givenMade). A
+// parameter met on the way is checked, not trusted: only the call of a
+// parameter itself is taken as its callers' (callersMake).
+func (a *codeAnalysis) holdsMade(v ssa.Value, path []int, seen map[heldAt]bool) bool {
+	k := heldAt{v, fmt.Sprint(path)}
+	if seen[k] {
+		return true
+	}
+	seen[k] = true
+	switch x := v.(type) {
+	case *ssa.Function, *ssa.MakeClosure:
+		return len(path) == 0
+	case *ssa.Const:
+		return true // nil, or a zero struct: no function
+	case *ssa.Phi:
+		return !slices.ContainsFunc(x.Edges, func(e ssa.Value) bool { return !a.holdsMade(e, path, seen) })
+	case *ssa.ChangeType:
+		return a.holdsMade(x.X, path, seen)
+	case *ssa.Parameter:
+		return a.givenMade(x, path, seen)
+	case *ssa.Field:
+		return a.holdsMade(x.X, append([]int{x.Field}, path...), seen)
+	case *ssa.Call:
+		return a.returnsMade(x, 0, path, seen)
+	case *ssa.Extract:
+		call, ok := x.Tuple.(*ssa.Call)
+		return ok && a.returnsMade(call, x.Index, path, seen)
+	case *ssa.UnOp:
+		return x.Op == token.MUL && a.loadedMade(x.X, path, seen)
+	}
+	return false
+}
+
+// loadedMade reports whether the function value at path within what addr
+// points to is made: addr must be a local variable, or a field of one.
+func (a *codeAnalysis) loadedMade(addr ssa.Value, path []int, seen map[heldAt]bool) bool {
+	for fa, ok := addr.(*ssa.FieldAddr); ok; fa, ok = addr.(*ssa.FieldAddr) {
+		path, addr = append([]int{fa.Field}, path...), fa.X
+	}
+	_, local := addr.(*ssa.Alloc)
+	return local && a.storedMade(addr, path, seen)
+}
+
+// returnsMade reports whether a static call's result i holds, at path, a
+// function value the callee makes (it is reached, called by name) or is
+// given made.
+func (a *codeAnalysis) returnsMade(call *ssa.Call, i int, path []int, seen map[heldAt]bool) bool {
+	g := call.Call.StaticCallee()
+	if g == nil || len(g.Blocks) == 0 {
+		return false
+	}
+	for _, b := range g.Blocks {
+		if r, ok := b.Instrs[len(b.Instrs)-1].(*ssa.Return); ok && !a.holdsMade(r.Results[i], path, seen) {
+			return false
+		}
+	}
+	return true
+}
+
+// storedMade reports whether every value stored at path within a local
+// variable (a composite literal) holds a made function value there. A use
+// of an address on the path other than a store or a load (passed on,
+// captured) could store anything, so it fails.
+func (a *codeAnalysis) storedMade(addr ssa.Value, path []int, seen map[heldAt]bool) bool {
+	for _, r := range *addr.Referrers() {
+		switch r := r.(type) {
+		case *ssa.Store:
+			if r.Addr != addr || !a.holdsMade(r.Val, path, seen) {
+				return false
+			}
+		case *ssa.FieldAddr:
+			if len(path) > 0 && r.Field == path[0] && !a.storedMade(r, path[1:], seen) {
+				return false
+			}
+		case *ssa.UnOp:
+			if r.Op != token.MUL {
+				return false
+			}
+		case *ssa.DebugRef:
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // pipeline is what every request runs before and after its handler:
