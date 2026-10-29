@@ -201,20 +201,3 @@ func TestOpenDownPaymentsInBalances(t *testing.T) {
 		t.Errorf("diffs: got %s, want the vendor's down payments among them", d)
 	}
 }
-
-// TestOpenDownPaymentRefused: a down payment that payables refuses to take
-// over (here, no down payment request range for 2026) fails the load and
-// leaves neither the request nor its entry, which the same savepoint
-// posted.
-func TestOpenDownPaymentRefused(t *testing.T) {
-	e := dpSetup(t)
-	pgtest.Exec(t, `DELETE FROM config.number_range WHERE tenant_id = $1 AND legal_entity_id = $2 AND document_type = 'down_payment_request' AND fiscal_year = 2026`,
-		e.Tenant.ID, e.DE)
-	_, got := e.act(t, e.run(t, e.connector(t, "dp.json"), "documents", false, e.DE.String()), "start")
-	if got["status"] != "failed" || !strings.Contains(fmt.Sprint(got["report"].(map[string]any)["load"]), "config.no_number_range") {
-		t.Fatalf("start: got %v, want failed on the request range: %v", got["status"], got["report"])
-	}
-	if n := e.entries(t); n != 0 {
-		t.Errorf("journal entries after the failed load: got %d, want 0", n)
-	}
-}

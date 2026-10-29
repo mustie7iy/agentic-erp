@@ -53,7 +53,9 @@ recorded as a paid down payment request. A payment run never nets it, and the
 supplier's final invoice clears it and reverses its input tax
 (`supplier-invoices/{id}:clearDownPayments`). The quality gate refuses what it
 cannot read rather than guess: another special G/L indicator, an indicator off
-the down payment account or a line on it without one, more than one open down
+the down payment account or a line on it without one, a vendor line without
+one on an account T074 names or no vendor has as its reconciliation account
+(LFB1-AKONT), more than one open down
 payment in a document, a credit, a tax code that is not one deductible input
 tax, and a tax that is not the code's rate of the down payment (SAP's gross
 display, where the down payment includes its tax). A down payment SAP cleared

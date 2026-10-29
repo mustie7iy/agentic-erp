@@ -86,7 +86,7 @@ func TestTakeOverDownPaymentRefusals(t *testing.T) {
 		"unknown supplier":        {func(m *payables.MigratedDownPayment) { m.SupplierID = uuid.New() }, "request.reference_not_found"},
 		"unknown currency":        {func(m *payables.MigratedDownPayment) { m.Currency = "XXQ" }, "payables.unknown_currency"},
 		"blank reference":         {func(m *payables.MigratedDownPayment) { m.Reference = " " }, "payables.invalid_reference"},
-		"long reference":          {func(m *payables.MigratedDownPayment) { m.Reference = strings.Repeat("x", 101) }, "payables.invalid_reference"},
+		"long reference":          {func(m *payables.MigratedDownPayment) { m.Reference = strings.Repeat("x", payables.ReferenceLength+1) }, "payables.invalid_reference"},
 		"zero":                    {func(m *payables.MigratedDownPayment) { m.Amount, m.Tax = 0, 0 }, "payables.invalid_amount"},
 		"negative tax":            {func(m *payables.MigratedDownPayment) { m.Tax = -1 }, "payables.invalid_tax_amount"},
 		"tax of the whole amount": {func(m *payables.MigratedDownPayment) { m.Tax = m.Amount }, "payables.invalid_tax_amount"},

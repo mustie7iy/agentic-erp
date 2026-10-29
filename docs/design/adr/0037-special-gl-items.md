@@ -101,7 +101,9 @@ Decided by default under ADR-0053 §d, each from this ADR or T46's code:
   one; no other migrated line carries a tax code. Payables records it as a
   paid down payment request naming the entry (`TakeOverDownPayment`; number
   from the request range of its posting date's year, due date its posting
-  date, reference the source document), so it is listed with the supplier's
+  date, reference the source system and document, or the document alone
+  when both exceed the request reference's 40 characters; the external
+  reference keeps the system), so it is listed with the supplier's
   requests, never paid again, and cleared against the final invoice, which
   finds a down payment by its request, reversing its input tax (T46d). The
   take-over is audited and publishes no event, as the quantities of
@@ -120,7 +122,14 @@ Decided by default under ADR-0053 §d, each from this ADR or T46's code:
   documents mode, since SAP's clearing of it is not taken over (a migrated
   clearing refuses special items); balances mode leaves cleared items out.
   In balances mode the down payment's document may hold no cleared vendor
-  line and needs a number range for its type.
+  line and needs a number range for its type; the request needs the
+  down payment request range of the year. A vendor line without an
+  indicator on a vendor reconciliation account that T074 names, or that no
+  vendor has as its reconciliation account (LFB1-AKONT), is refused as a
+  possible special G/L item whose indicator the extract lacks (the OData
+  mapping does not carry UMSKZ yet), rather than loaded as a payable a run
+  would net. An open item SAP left on a vendor's former reconciliation
+  account is refused by the same rule until a specialist confirms it.
 - **Reconciled apart.** The migration's open payables leave special G/L
   items out on both sides, as a payment run does, and the open down
   payments are a check of their own, in total and per vendor, shown when

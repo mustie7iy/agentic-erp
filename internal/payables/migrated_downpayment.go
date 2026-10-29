@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
@@ -32,6 +33,10 @@ type MigratedDownPayment struct {
 	EntryID       uuid.UUID
 }
 
+// ReferenceLength is the most characters a down payment request's
+// reference holds (the contract's DownPaymentRequest.reference).
+const ReferenceLength = 40
+
 // TakeOverDownPayment records a migrated down payment as a paid down
 // payment request naming the entry that posted it, so it is one as a
 // payment run leaves it: listed with the supplier's requests, never paid
@@ -47,7 +52,7 @@ func (e *Endpoints) TakeOverDownPayment(ctx context.Context, in MigratedDownPaym
 	if err != nil {
 		return DownPaymentRequest{}, err
 	}
-	if err := e.checkMigratedDownPayment(ctx, in); err != nil {
+	if err := e.checkMigratedDownPayment(ctx, tx, in); err != nil {
 		return DownPaymentRequest{}, err
 	}
 	number, err := e.requestNumber(ctx, DownPaymentInput{LegalEntityID: in.LegalEntityID, DueDate: in.PostingDate})
@@ -81,11 +86,7 @@ func (e *Endpoints) TakeOverDownPayment(ctx context.Context, in MigratedDownPaym
 // code of the legal entity on the posting date, with one deductible
 // component as a down payment's payment posts (T46c), and a tax of 0 or
 // more below the amount.
-func (e *Endpoints) checkMigratedDownPayment(ctx context.Context, in MigratedDownPayment) error {
-	tx, _, err := reqctx.Request(ctx)
-	if err != nil {
-		return err
-	}
+func (e *Endpoints) checkMigratedDownPayment(ctx context.Context, tx pgx.Tx, in MigratedDownPayment) error {
 	if _, _, err := e.invoiceParties(ctx, Input{LegalEntityID: in.LegalEntityID, SupplierID: in.SupplierID}); err != nil {
 		return err
 	}
@@ -93,8 +94,8 @@ func (e *Endpoints) checkMigratedDownPayment(ctx context.Context, in MigratedDow
 		return err
 	}
 	switch {
-	case strings.TrimSpace(in.Reference) == "" || len(in.Reference) > 100:
-		return invalid("payables.invalid_reference", "reference", "The source document's reference has 1 to 100 characters.")
+	case strings.TrimSpace(in.Reference) == "" || len(in.Reference) > ReferenceLength:
+		return invalid("payables.invalid_reference", "reference", fmt.Sprintf("The source document's reference has 1 to %d characters.", ReferenceLength))
 	case in.Amount <= 0:
 		return problem.Unprocessable("payables.invalid_amount", "A down payment is more than zero.",
 			problem.FieldError{Field: "amount", Code: "not_positive", Message: "an amount above 0"})

@@ -72,9 +72,15 @@ func downPaymentTaxLines(dp sap.ACDOCA, lines []sap.ACDOCA) []sap.ACDOCA {
 // specialGL checks each journal line's special G/L indicator against the
 // account it is on: only A (down payments) is migrated, a line with A is
 // on the legal entity's down_payment account and a line on that account
-// carries A, which is never inferred from the account (an extract that
-// does not carry UMSKZ, as the OData mapping does not yet, is refused).
-// SAP's clearing of a down payment against its invoice is not taken over,
+// carries A, which is never inferred from the account. A vendor line
+// without an indicator on a vendor reconciliation account that T074 names
+// as a special G/L account, or that no vendor of the company has as its
+// reconciliation account (LFB1-AKONT), is refused too: in SAP such an
+// account is an alternative reconciliation account, which special G/L
+// items post to (SAP Help, "Special G/L Accounts"), so the line may be a
+// down payment whose indicator the extract does not carry (the OData
+// mapping does not yet), and loaded as an ordinary payable a payment run
+// would net it. SAP's clearing of a down payment against its invoice is not taken over,
 // so a cleared one loads in balances mode only, where cleared items are
 // left out.
 func (q *qualityCheck) specialGL(l sap.ACDOCA, key string) {
@@ -82,6 +88,10 @@ func (q *qualityCheck) specialGL(l sap.ACDOCA, key string) {
 	switch {
 	case l.UMSKZ != "" && l.UMSKZ != specialDownPayment:
 		q.add(SevError, "ACDOCA", key, "special G/L indicator %q is not migrated; only down payments (A) are", l.UMSKZ)
+	case l.UMSKZ == "" && !onAccount && q.specialAccount(l):
+		q.add(SevError, "ACDOCA", key, "vendor line without a special G/L indicator (UMSKZ) on account %s, which %s: it may be a special G/L item "+
+			"such as a down payment, which is not loaded as an ordinary payable; extract UMSKZ, or have an SAP specialist confirm the account",
+			sap.Alpha(l.RACCT), q.specialWhy(l))
 	case l.UMSKZ == specialDownPayment && !onAccount:
 		q.add(SevError, "ACDOCA", key, "down payment (special G/L A) on account %s, which is not the legal entity's down_payment account", sap.Alpha(l.RACCT))
 	case l.UMSKZ != specialDownPayment && onAccount:
@@ -90,6 +100,21 @@ func (q *qualityCheck) specialGL(l sap.ACDOCA, key string) {
 	case l.UMSKZ == specialDownPayment && l.AUGBL != "" && !q.t.balances:
 		q.add(SevError, "ACDOCA", key, "down payment cleared in SAP by %s: its clearing is not migrated in documents mode; load the year in balances mode", l.AUGBL)
 	}
+}
+
+// specialAccount reports whether a vendor line is on a vendor
+// reconciliation account that is a special G/L account of T074 or no
+// vendor's reconciliation account in the company.
+func (q *qualityCheck) specialAccount(l sap.ACDOCA) bool {
+	key := l.RBUKRS + "/" + sap.Alpha(l.RACCT)
+	return l.LIFNR != "" && q.account[l.RBUKRS+"/"+l.RACCT].MITKZ == "K" && (q.specialAccounts[key] || !q.vendorAccounts[key])
+}
+
+func (q *qualityCheck) specialWhy(l sap.ACDOCA) string {
+	if q.specialAccounts[l.RBUKRS+"/"+sap.Alpha(l.RACCT)] {
+		return "T074 names as a special G/L account"
+	}
+	return "no vendor of the company has as its reconciliation account (LFB1-AKONT)"
 }
 
 // downPayments checks each document holding an open down payment: one
@@ -117,6 +142,9 @@ func (q *qualityCheck) downPayments() {
 			continue
 		}
 		q.downPaymentTax(key, dp, amt, lines)
+		if !q.t.hasRange(dp.RBUKRS, payables.RequestNumbers) {
+			q.add(SevError, "ACDOCA", key, "the configuration has no %s number range in %d for the down payment's request", payables.RequestNumbers, q.t.year)
+		}
 		if q.t.balances {
 			q.downPaymentDocument(key, lines)
 		}
@@ -174,7 +202,11 @@ func (q *qualityCheck) downPaymentTax(key string, dp sap.ACDOCA, amt money.Minor
 	}
 	tax, errSum := money.Sum(taxes...)
 	want, errScale := money.Scale(amt, rate, 100)
-	if errSum != nil || errScale != nil || tax != want {
+	if errSum != nil || errScale != nil {
+		q.add(SevError, "ACDOCA", key, "the down payment's tax on %s cannot be checked at %s%%: its tax lines or the rate are out of range", dp.MWSKZ, rate)
+		return
+	}
+	if tax != want {
 		q.add(SevError, "ACDOCA", key, "the down payment's tax on %s is %s, not %s%% of the down payment, %s: only SAP's net display, the down payment "+
 			"without its tax, is migrated", dp.MWSKZ, tax.Plain(q.t.exponents[q.currency[dp.RBUKRS]]), rate, want.Plain(q.t.exponents[q.currency[dp.RBUKRS]]))
 	}
@@ -230,10 +262,15 @@ func (l *loader) takeOverDownPayment(ctx context.Context, key string, lines []sa
 	tax, _ := money.Sum(taxes...)   // bounded by the company's lines (journal)
 	gross, _ := money.Sum(net, tax) // likewise
 	date, _ := sapDate(dp.BUDAT)    // checked by the quality gate
+	// The reference names the source system and document, or the document
+	// alone when both do not fit the request's reference.
 	in := payables.MigratedDownPayment{LegalEntityID: l.t.entities[dp.RBUKRS].ID, SupplierID: l.vendors[dp.LIFNR], Currency: cur, Amount: gross,
 		Tax: tax, PostingDate: date, Reference: l.system + " " + key, EntryYear: entry.FiscalYear, EntryID: entry.ID}
 	if dp.MWSKZ != "" {
 		in.TaxCode = &dp.MWSKZ
+	}
+	if len(in.Reference) > payables.ReferenceLength {
+		in.Reference = key // the system is kept with the external reference
 	}
 	r, err := l.e.Invoices.TakeOverDownPayment(ctx, in)
 	if err != nil {

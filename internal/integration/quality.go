@@ -134,6 +134,10 @@ type qualityCheck struct {
 	currency map[string]string   // by company code
 	account  map[string]sap.SKB1 // by company code/account
 	vendor   map[string]sap.LFA1 // by vendor number
+	// vendorAccounts are the company/account of each vendor's
+	// reconciliation account (LFB1-AKONT), specialAccounts those T074 names
+	// as special G/L accounts (specialGL).
+	vendorAccounts, specialAccounts map[string]bool
 }
 
 func (q *qualityCheck) add(sev, table, key, format string, args ...any) {
@@ -191,7 +195,12 @@ func (q *qualityCheck) vendors() {
 // vendorCompanies checks each vendor's company data: master, reconciliation
 // account and payment terms.
 func (q *qualityCheck) vendorCompanies() {
+	q.vendorAccounts, q.specialAccounts = map[string]bool{}, map[string]bool{}
+	for _, r := range q.e.T074 {
+		q.specialAccounts[r.BUKRS+"/"+sap.Alpha(r.SKONT)] = true
+	}
 	for _, v := range q.e.LFB1 {
+		q.vendorAccounts[v.BUKRS+"/"+sap.Alpha(v.AKONT)] = true
 		if _, ok := q.vendor[v.LIFNR]; !ok {
 			q.add(SevError, "LFB1", v.LIFNR, "company data without vendor master (LFA1)")
 		}

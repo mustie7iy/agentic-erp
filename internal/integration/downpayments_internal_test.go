@@ -1,11 +1,17 @@
 package integration
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/google/uuid"
+
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -44,7 +50,7 @@ func dpTarget() target {
 		charts: map[string]map[string]ledger.ChartAccount{"2000": {"100000": {}, "140000": {}, "170000": {},
 			"211000": {ReconciliationKind: "supplier"}, "159000": {ReconciliationKind: "supplier", DownPayment: true}}},
 		terms:     map[string]bool{"NT30": true},
-		ranges:    map[string]bool{"2000/journal_kz/2026": true, "2000/journal_ob/2026": true},
+		ranges:    map[string]bool{"2000/journal_kz/2026": true, "2000/journal_ob/2026": true, "2000/down_payment_request/2026": true},
 		exponents: map[string]int{"EUR": 2},
 		taxes: map[string]map[string]config.TaxCode{"2000": {
 			"V1": {Code: "V1", RatePercent: "19", Account: "140000"},
@@ -56,6 +62,43 @@ func dpTarget() target {
 				{Key: "tax", AccountKey: config.KeyInput, Account: "140000", Rates: []config.TaxRate{{RatePercent: "19", ValidFrom: "2027-01-01"}}}}},
 		}},
 		year: 2026,
+	}
+}
+
+// recordedInvoices is the payables port of a loader test: it records the
+// down payment it is given and answers err.
+type recordedInvoices struct {
+	Invoices
+	got *payables.MigratedDownPayment
+	err error
+}
+
+func (r recordedInvoices) TakeOverDownPayment(_ context.Context, in payables.MigratedDownPayment) (payables.DownPaymentRequest, error) {
+	*r.got = in
+	return payables.DownPaymentRequest{}, r.err
+}
+
+// TestTakeOverDownPayment: the loader hands payables the down payment
+// with its tax, refused or not, and names the source system and document
+// in the reference when both fit its 40 characters, else the document.
+func TestTakeOverDownPayment(t *testing.T) {
+	refused := errors.New("refused")
+	for _, c := range []struct{ system, reference string }{{"SAP", "SAP 2000/2026/0100000009"}, {"SAP_PRODUCTION_EU_01", "2000/2026/0100000009"}} {
+		t.Run(c.system, func(t *testing.T) {
+			var got payables.MigratedDownPayment
+			l := &loader{e: &Endpoints{Invoices: recordedInvoices{got: &got, err: refused}}, t: dpTarget(), system: c.system,
+				vendors: map[string]uuid.UUID{"0000000001": uuid.New()}}
+			err := l.takeOverDownPayment(context.Background(), "2000/2026/0100000009", dpExtract().ACDOCA, ledger.Entry{FiscalYear: 2026, ID: uuid.New()})
+			if !errors.Is(err, refused) {
+				t.Errorf("error: got %v, want the refusal", err)
+			}
+			if got.Reference != c.reference {
+				t.Errorf("reference: got %q, want %q", got.Reference, c.reference)
+			}
+			if s := fmt.Sprintf("%d %d %s", got.Amount, got.Tax, *got.TaxCode); s != "119000 19000 V1" {
+				t.Errorf("amount, tax and code: got %s, want 119000 19000 V1", s)
+			}
+		})
 	}
 }
 
@@ -102,14 +145,24 @@ func TestDownPaymentQuality(t *testing.T) {
 			line(e, 0).HSL, line(e, 2).HSL = "1190.00", "-1190.00"
 			e.ACDOCA = append(e.ACDOCA, dpLine("000004", "0000170000", "-190.00", "", "", ""), dpLine("000005", "0000100000", "190.00", "", "", ""))
 		}, "the down payment's tax on V1 is 190.00, not 19% of the down payment, 226.10"},
-		{"a tax out of range", func(e *sap.Extract, _ *target) {
-			line(e, 0).HSL, line(e, 2).HSL = "92233720368547758.07", "-92233720368547758.07"
-			line(e, 1).HSL = "0.00"
-		}, "not 19% of the down payment"},
+		{"a rate out of range", func(_ *sap.Extract, t *target) { t.taxes["2000"]["V1"] = config.TaxCode{Code: "V1", RatePercent: "x", Account: "140000"} },
+			"cannot be checked at x%: its tax lines or the rate are out of range"},
 		{"taxes out of range", func(e *sap.Extract, _ *target) {
 			line(e, 1).HSL = "92233720368547758.07"
 			e.ACDOCA = append(e.ACDOCA, dpLine("000004", "0000140000", "92233720368547758.07", "", "", "V1"))
-		}, "not 19% of the down payment"},
+		}, "cannot be checked at 19%: its tax lines or the rate are out of range"},
+		{"no request number range", func(_ *sap.Extract, t *target) { delete(t.ranges, "2000/down_payment_request/2026") },
+			"no down_payment_request number range in 2026 for the down payment's request"},
+		{"an alternative reconciliation account without an indicator", func(e *sap.Extract, t *target) {
+			line(e, 0).UMSKZ = ""
+			t.charts["2000"]["159000"] = ledger.ChartAccount{ReconciliationKind: "supplier"} // no down_payment account configured
+		}, "on account 159000, which no vendor of the company has as its reconciliation account (LFB1-AKONT)"},
+		{"a T074 account without an indicator", func(e *sap.Extract, t *target) {
+			line(e, 0).UMSKZ = ""
+			t.charts["2000"]["159000"] = ledger.ChartAccount{ReconciliationKind: "supplier"}
+			e.T074 = []sap.T074{{BUKRS: "2000", KOART: "K", UMSKZ: "A", HKONT: "0000211000", SKONT: "0000159000"}}
+			e.LFB1 = append(e.LFB1, sap.LFB1{LIFNR: "0000000001", BUKRS: "2000", AKONT: "0000159000", ZTERM: "NT30"})
+		}, "on account 159000, which T074 names as a special G/L account"},
 		{"a cleared vendor line beside it in balances mode", func(e *sap.Extract, t *target) {
 			t.balances = true
 			e.ACDOCA = append(e.ACDOCA, dpLine("000004", "0000211000", "10.00", "0000000001", "", ""), dpLine("000005", "0000100000", "-10.00", "", "", ""))
