@@ -31,7 +31,7 @@ func Kept() {
 	NewServer(h)
 }
 
-// Printed gives it to fmt as any, which the test does not see into.
+// Printed converts it to any, which the test does not follow.
 func Printed() {
 	var h Handler = handler{}
 	println(any(h))
@@ -46,4 +46,16 @@ func Registered() {
 	var h Handler = handler{}
 	register(h)
 	NewServer(h)
+}
+
+// twice hands its first parameter on and keeps its second.
+func twice(h, k Handler) {
+	kept = k
+	NewServer(h)
+}
+
+// Doubled passes the handler as both.
+func Doubled() {
+	var h Handler = handler{}
+	twice(h, h)
 }

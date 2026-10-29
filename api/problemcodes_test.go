@@ -282,6 +282,9 @@ func checkSealRefuses(t *testing.T, a *codeAnalysis) {
 			"\treturn &Server{h: h}\n}\n", "the handler h is used other than"},
 		"the handler held elsewhere": {head + newServer + "var held any\n\nfunc (s *Server) keep() { held = s.h }\n", "the handler h is used other than"},
 		"Handler embedded":           {head + newServer + "type wrap struct{ Handler }\n", "embeds Handler"},
+		"a map's value":              {head + newServer + "var m = map[string]any{}\n\nfunc (s *Server) keep() { m = map[string]any{\"h\": s.h} }\n", "the handler h is used other than"},
+		"a map's key":                {head + newServer + "var m = map[Handler]bool{}\n\nfunc (s *Server) keep() { m = map[Handler]bool{s.h: true} }\n", "the handler h is used other than"},
+		"a field of type any":        {head + newServer + "type opts struct{ v any }\n\nfunc (s *Server) keep() opts { return opts{v: s.h} }\n", "the handler h is used other than"},
 		"no call to check":           {strings.Replace(head, "_ = s.h.GetMe()", "", 1) + newServer, "finds nothing to check"},
 		"only calls of Handler":      {head + newServer, ""},
 	} {
@@ -328,14 +331,15 @@ func typedGen(t *testing.T, src string) []string {
 }
 
 // checkFlowRefuses proves flowsTo on testdata/handlerflow: the handler
-// handed to NewServer through a parameter passes; kept in a variable,
-// converted to any or given to a function value fails.
+// handed to NewServer through a parameter passes; kept in a variable
+// (also when passed twice, once to be kept), converted to any or given to
+// a function value fails.
 func checkFlowRefuses(t *testing.T) {
 	t.Helper()
 	const fixture = module + "/api/testdata/handlerflow"
 	a, _ := build(t, fixture)
 	for root, want := range map[string]string{"Wired": "", "Kept": "goes to *", "Printed": "goes to change interface",
-		"Registered": "outside what the test sees"} {
+		"Registered": "outside what the test sees", "Doubled": "goes to *"} {
 		t.Run(root, func(t *testing.T) {
 			var got []string
 			for _, b := range a.fns[fixture+"."+root].Blocks {
@@ -1344,11 +1348,26 @@ func (a *codeAnalysis) flowsTo(v ssa.Value, sink string, seen map[ssa.Value]bool
 			out = append(out, fmt.Sprintf("%s: the handler goes to %s (%s)", v.Parent(), r, a.prog.Fset.Position(r.Pos())))
 			continue
 		}
-		g, i := call.Call.StaticCallee(), slices.Index(call.Call.Args, v)
+		out = append(out, a.callFlows(v, call, sink, seen)...)
+	}
+	return out
+}
+
+// callFlows is where v goes through call, at every argument it is: the
+// sink's first, or a parameter of a function in the program, followed.
+func (a *codeAnalysis) callFlows(v ssa.Value, call *ssa.Call, sink string, seen map[ssa.Value]bool) []string {
+	g := call.Call.StaticCallee()
+	outside := []string{fmt.Sprintf("%s: the handler goes to %s, outside what the test sees (%s)", v.Parent(), call, a.prog.Fset.Position(call.Pos()))}
+	if g == nil || !slices.Contains(call.Call.Args, v) {
+		return outside // a function value, or a call of the handler's method
+	}
+	var out []string
+	for i, arg := range call.Call.Args {
 		switch {
-		case g != nil && g.String() == sink && i == 0:
-		case g == nil || i < 0 || len(g.Blocks) == 0 || i >= len(g.Params):
-			out = append(out, fmt.Sprintf("%s: the handler goes to %s, outside what the test sees (%s)", v.Parent(), call, a.prog.Fset.Position(call.Pos())))
+		case arg != v:
+		case g.String() == sink && i == 0:
+		case g.String() == sink || len(g.Blocks) == 0 || i >= len(g.Params):
+			return outside
 		default:
 			out = append(out, a.flowsTo(g.Params[i], sink, seen)...)
 		}
@@ -1398,6 +1417,17 @@ func genHandlerUses(fset *token.FileSet, files []*ast.File, info *types.Info, pk
 	return out
 }
 
+// isHandlerField reports whether key names a struct field of type
+// Handler in a composite literal.
+func isHandlerField(key ast.Expr, info *types.Info, handler types.Type) bool {
+	id, ok := key.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	v, ok := info.Uses[id].(*types.Var)
+	return ok && v.IsField() && types.Identical(v.Type(), handler)
+}
+
 // handlerUse classifies id, the last node of stack: "" when it is no
 // variable of type Handler, or one declared or naming a field in a
 // composite literal; "call" when it is the receiver of a call of a method
@@ -1424,7 +1454,7 @@ func handlerUse(id *ast.Ident, stack []ast.Node, info *types.Info, handler types
 	if sel, ok := at(1).(*ast.SelectorExpr); ok && sel.Sel == id {
 		value, up = sel, 2 // s.h
 	}
-	if kv, ok := at(up).(*ast.KeyValueExpr); ok && (kv.Key == value || kv.Value == value) {
+	if kv, ok := at(up).(*ast.KeyValueExpr); ok && (kv.Key == id && v.IsField() || kv.Value == value && isHandlerField(kv.Key, info, handler)) {
 		return "" // Server{h: h}: the field's own uses are checked
 	}
 	if sel, ok := at(up).(*ast.SelectorExpr); ok && sel.X == value && served[sel.Sel.Name] {
