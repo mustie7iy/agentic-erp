@@ -97,43 +97,6 @@ func (e entries) Numbers(context.Context, []uuid.UUID) (map[uuid.UUID]string, er
 	return e.numbers, e.err
 }
 
-// TestResolve: a row is never shown without the number of a document it
-// references, nor another object without its name. An object its context
-// does not hold fails the page rather than leave its name out, as the
-// context's failure does; a page that references none asks nothing.
-func TestResolve(t *testing.T) {
-	known, unknown := uuid.New(), uuid.New()
-	failed := errors.New("payables down")
-	for name, c := range map[string]struct {
-		requests requests
-		kind     refKind
-		ids      []uuid.UUID
-		want     string // the error
-		number   string // the known document's number
-	}{
-		"every document numbered": {requests{numbers: map[uuid.UUID]string{known: "DP1"}}, requestRef, []uuid.UUID{known}, "", "DP1"},
-		"none referenced":         {requests{err: failed}, requestRef, nil, "", ""},
-		"a document unknown":      {requests{numbers: map[uuid.UUID]string{known: "DP1"}}, requestRef, []uuid.UUID{known, unknown}, "down payment request " + unknown.String() + " is not held by the payables context", ""},
-		"the context failing":     {requests{err: failed}, requestRef, []uuid.UUID{known}, failed.Error(), ""},
-		"a journal entry unknown": {requests{numbers: map[uuid.UUID]string{}}, entryRef, []uuid.UUID{unknown}, "journal entry " + unknown.String() + " is not held by the ledger context", ""},
-		"a house bank unknown":    {requests{numbers: map[uuid.UUID]string{}}, houseBankRef, []uuid.UUID{unknown}, "house bank " + unknown.String() + " is not held by the payments context", ""},
-	} {
-		t.Run(name, func(t *testing.T) {
-			numbers, err := resolve(context.Background(), c.requests.Numbers, c.ids, c.kind)
-			got := ""
-			if err != nil {
-				got = err.Error()
-			}
-			if got != c.want {
-				t.Fatalf("error: got %q, want %q", got, c.want)
-			}
-			if numbers[known] != c.number {
-				t.Errorf("number: got %q, want %q", numbers[known], c.number)
-			}
-		})
-	}
-}
-
 // TestPaymentNumbers: a page's payments are given the numbers of the
 // requests they pay, of their postings and of their items' journal
 // entries, from each context in turn; either failing, or not holding a

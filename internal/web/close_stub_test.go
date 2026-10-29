@@ -150,7 +150,7 @@ func TestChecksStubbed(t *testing.T) {
 func statementJSON(id uuid.UUID, status string) string {
 	u := uuid.NewString
 	return fmt.Sprintf(`{"id":%q,"version":1,"created_at":"2026-10-22T10:00:00Z","created_by":%q,"updated_at":"2026-10-22T10:00:00Z",
-		"house_bank_id":%q,"legal_entity_id":%q,"format":"mt940","file_sha256":"%s","file_position":1,"statement_ref":"S9","sequence":"9",
+		"house_bank_id":%q,"house_bank_code":"MAIN","legal_entity_id":%q,"format":"mt940","file_sha256":"%s","file_position":1,"statement_ref":"S9","sequence":"9",
 		"account":"DE89370400440532013000","opening_balance":%s,"opening_date":"2026-04-16","closing_balance":%s,"closing_date":"2026-04-17",
 		"line_count":0,"status":%q}`, id, u(), u(), u(), strings.Repeat("a", 64), moneyJSON("1.00"), moneyJSON("1.00"), status)
 }

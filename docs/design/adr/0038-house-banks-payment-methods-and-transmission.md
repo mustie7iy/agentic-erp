@@ -625,3 +625,42 @@ reference its consumer needs). Decided by default:
   the payment of TY-5001 its posting's number as `getJournalEntry` gives it,
   and Laurentian Paper's account its scheme `ca`, institution 001 and
   transit 00010, the bank its pain.001 names.
+
+## As built: every resource that names a house bank gives its code (review:batch24)
+
+The review of paybank found `house_bank_id` alone on `PaymentRun`,
+`BankStatement`, `BankReconciliation`, `MemoRecord` and `BankFile` (REVIEW.md,
+an identifier without the name or reference its consumer needs): an
+integration listing a run's bank files called `getHouseBank` once per file.
+A search of `api/openapi.yaml` found no other response with the id alone
+(`CashPositionBank` already gives `code`; the rest are request bodies and
+query parameters). Decided by default, as for `Payment` above:
+
+- **The field.** Each gains `house_bank_code`, the `HouseBank` resource's
+  `code`, beside `house_bank_id`: optional and present exactly when the id is
+  on `PaymentRun` (absent for a run proposed without one), `MemoRecord`
+  (absent for a forecast-only record) and `BankFile`; required on
+  `BankStatement` and `BankReconciliation`, whose id is required. Response
+  fields only, so the change is additive (oasdiff: no breaking change).
+- **Read once.** A page or a single read asks `payments.house_bank` once for
+  the codes of the banks its rows name, and not at all when none does
+  (`bankCodes`, `withBank`); the report reads the code with the bank it
+  already loads. An id the table does not hold fails the response (500),
+  never a row without its bank's code. Pages use a new
+  `apitypes.PageWith`, `PageOf` with what the page's rows reference read for
+  the page's rows alone, never the row past the page.
+- **One helper, moved.** `resolve` and `idsOf` moved from payments to
+  `internal/platform/idref` (`Resolve`, `Of`, `Kind`), since the cash
+  context needs them too (CLAUDE.md: a helper two contexts need lives in
+  platform, never copied).
+- **Memo records.** They are the cash context's (ADR-0051 §7), which reads
+  house banks only through its `Payments` port: the port gains
+  `HouseBankCodes`, adapted from `payments.CashPosition.HouseBankCodes`, by
+  id and active or not (a record may name a bank deactivated since). Cash
+  already reads payments through that port, so no dependency direction
+  changes and no ADR is needed.
+- **Events.** The event payloads (`api/asyncapi.yaml`) that carry
+  `house_bank_id` are not responses and are left as they are.
+- **The walkthrough.** Step 7 expects RBC's code on the proposed run and on
+  every bank file, step 8 on the reconciled statement and the reconciliation
+  report, and step 13 on the memo record Tom creates.

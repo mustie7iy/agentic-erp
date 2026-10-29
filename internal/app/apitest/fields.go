@@ -1,6 +1,11 @@
 package apitest
 
-import "testing"
+import (
+	"context"
+	"testing"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+)
 
 // Object, List and String read one field of a decoded JSON body and fail
 // the test when it is missing or of another type. A test that goes on after
@@ -36,4 +41,29 @@ func String(tb testing.TB, m map[string]any, key string) string {
 		tb.Fatalf("%s: got %v, want a string", key, m[key])
 	}
 	return v
+}
+
+// HouseBankCode reads a house bank's code, for WantNamed.
+const HouseBankCode = `SELECT code FROM payments.house_bank WHERE id = $1`
+
+// WantNamed checks that obj, a decoded resource (what names it in a
+// failure), gives nameField exactly when it gives idField, and as query
+// reads it for the id ($1) from the owning table: a response names what it
+// references by id (ADR-0038 As built).
+func WantNamed(tb testing.TB, what string, obj map[string]any, idField, nameField, query string) {
+	tb.Helper()
+	ref, ok := obj[idField]
+	if !ok {
+		if name, has := obj[nameField]; has {
+			tb.Errorf("%s %v without %s: got %s %v, want none", what, obj["id"], idField, nameField, name)
+		}
+		return
+	}
+	var want string
+	if err := pgtest.Admin(tb).QueryRow(context.Background(), query, ref).Scan(&want); err != nil {
+		tb.Fatalf("%s %v: %s %v: %v", what, obj["id"], idField, ref, err)
+	}
+	if obj[nameField] != want {
+		tb.Errorf("%s %v: got %s %v, want %s", what, obj["id"], nameField, obj[nameField], want)
+	}
 }

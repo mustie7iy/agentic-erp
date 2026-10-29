@@ -516,6 +516,11 @@ As built (T53d):
   ports (`Payments.HouseBanks`, `Payments.StatementLine` adapted from
   `payments.CashPosition`, `agents.Sessions`), and a record's house bank is
   an active one of its company in the record's currency.
+- **The house bank's code (review:batch24).** A memo record gives
+  `house_bank_code` beside `house_bank_id`, present exactly when it is,
+  read through the port's `HouseBankCodes` (by id, active or not) once per
+  page or single read (ADR-0038 As built, "every resource that names a
+  house bank gives its code").
 - **Series.** `recurrence` is `weekly`, `monthly` on the value date's day
   (the month's last day when shorter: 31 January, 28 February, 31 March) or
   `quarterly`, until a day or for 2-520 occurrences, or neither (expanded

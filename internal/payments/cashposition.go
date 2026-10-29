@@ -173,6 +173,13 @@ func (CashPosition) HouseBanks(ctx context.Context, legalEntity uuid.UUID) ([]Ca
 	return out, nil
 }
 
+// HouseBankCodes are the codes of the house banks among the ids, active or
+// not, keyed by id: what a memo record shows beside its house bank's id
+// (ADR-0051 §7). An id that names no house bank is left out.
+func (CashPosition) HouseBankCodes(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	return houseBankCodes(ctx, ids)
+}
+
 // CashStatementLine is a bank statement line as a memo record's
 // realisation or an agent's evidence reads it: its statement's legal
 // entity, house bank and currency, its signed amount and value date.

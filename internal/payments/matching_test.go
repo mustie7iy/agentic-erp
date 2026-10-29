@@ -170,6 +170,7 @@ func TestMatchStatementLines(t *testing.T) {
 	t.Run("again", func(t *testing.T) {
 		_, tag := e.in(t).Must(200, "GET", "/v1/bank-statements/"+sc.statement, "", "")
 		s, after := e.in(t).Must(200, "POST", "/v1/bank-statements/"+sc.statement+":match", "", tag)
+		wantBankCodes(t, "bank statement", s)
 		if len(s["lines"].([]any)) != 9 || after != tag {
 			t.Errorf("statement: got %v %s, want its 9 lines and still %s", s, after, tag)
 		}

@@ -78,7 +78,7 @@ func TestRunsStubbed(t *testing.T) {
 		"GET /v1/principal-names": answer(500, problemJSON(500, "platform.internal")),
 		"GET /v1/legal-entities":  answer(200, fmt.Sprintf(`{"items":[{"id":%q,"code":"3000","name":"Acme FZE","country_code":"AE","local_currency":"AED","status":"active"}]}`, uuid.New())),
 		"GET /v1/house-banks":     answer(500, problemJSON(500, "platform.internal")),
-		"GET /v1/payment-runs":    answer(200, `{"items":[`+runJSON(releasing, "on_hold", fmt.Sprintf(`,"house_bank_id":%q`, uuid.New()))+`],"next_page_token":"r2"}`),
+		"GET /v1/payment-runs":    answer(200, `{"items":[`+runJSON(releasing, "on_hold", fmt.Sprintf(`,"house_bank_id":%q,"house_bank_code":"MAIN"`, uuid.New()))+`],"next_page_token":"r2"}`),
 		"GET /v1/payment-runs/" + releasing.String(): func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("ETag", `"3"`)
 			answer(200, runJSON(releasing, "releasing", fmt.Sprintf(`,"release_operation_id":%q`, op)))(w, r)

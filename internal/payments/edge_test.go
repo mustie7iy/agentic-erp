@@ -255,6 +255,7 @@ func TestListsAndAccess(t *testing.T) {
 		return out
 	}
 	page := list("/v1/payment-runs?page_size=1")
+	wantPageBankCodes(t, "payment run", page)
 	if got, want := fmt.Sprint(ids(page)), fmt.Sprint([]string{id(first)}); got != want {
 		t.Errorf("first page: got %s, want %s", got, want)
 	}
@@ -262,6 +263,7 @@ func TestListsAndAccess(t *testing.T) {
 		t.Fatalf("first page token: got none, want one: %v", page)
 	}
 	page = list("/v1/payment-runs?page_size=1&page_token=" + url.QueryEscape(page["next_page_token"].(string)))
+	wantPageBankCodes(t, "payment run", page)
 	if got, want := fmt.Sprint(ids(page)), fmt.Sprint([]string{id(second)}); got != want {
 		t.Errorf("second page: got %s, want %s", got, want)
 	}
@@ -332,9 +334,11 @@ func TestListsAndAccess(t *testing.T) {
 	if files["next_page_token"] == nil {
 		t.Fatalf("files page: %v", files)
 	}
-	if more := list("/v1/bank-files?page_size=1&page_token=" + url.QueryEscape(files["next_page_token"].(string))); len(more["items"].([]any)) != 1 {
+	more := list("/v1/bank-files?page_size=1&page_token=" + url.QueryEscape(files["next_page_token"].(string)))
+	if len(more["items"].([]any)) != 1 {
 		t.Fatalf("files second page: %v", more)
 	}
+	wantPageBankCodes(t, "bank file", created, files, more)
 
 	// People without access to company 2000 see none of it.
 	us := pgtest.Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
@@ -481,26 +485,10 @@ func wantPaymentRefs(t *testing.T, pages ...map[string]any) {
 	for _, page := range pages {
 		for _, it := range page["items"].([]any) {
 			p := it.(map[string]any)
-			wantNamed(t, p, "journal_entry_id", "journal_entry_number", `SELECT document_number FROM ledger.journal_entry WHERE id = $1`)
-			wantNamed(t, p, "house_bank_id", "house_bank_code", `SELECT code FROM payments.house_bank WHERE id = $1`)
+			apitest.WantNamed(t, "payment", p, "journal_entry_id", "journal_entry_number", `SELECT document_number FROM ledger.journal_entry WHERE id = $1`)
+			apitest.WantNamed(t, "payment", p, "house_bank_id", "house_bank_code", apitest.HouseBankCode)
 			wantBankAccount(t, p)
 		}
-	}
-}
-
-// wantNamed: payment p gives the name field, as query reads it for its id
-// field, exactly when it gives the id.
-func wantNamed(t *testing.T, p map[string]any, idField, nameField, query string) {
-	t.Helper()
-	ref, ok := p[idField]
-	if !ok {
-		if name, has := p[nameField]; has {
-			t.Errorf("payment %v without %s: got %s %v, want none", p["id"], idField, nameField, name)
-		}
-		return
-	}
-	if want := documentNumber(t, query, ref); p[nameField] != want {
-		t.Errorf("payment %v: got %s %v, want %s", p["id"], nameField, p[nameField], want)
 	}
 }
 

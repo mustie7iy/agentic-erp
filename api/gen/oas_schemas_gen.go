@@ -3733,6 +3733,8 @@ type BankFile struct {
 	// House bank whose account the file pays from; a run writes one file per house bank and payment method
 	// (T45c).
 	HouseBankID OptUUID `json:"house_bank_id"`
+	// The house bank's `code`, its name in the configuration; present exactly when `house_bank_id` is.
+	HouseBankCode OptString `json:"house_bank_code"`
 	// Payment method of the file's payments; absent for a run proposed for one house bank.
 	PaymentMethod OptString `json:"payment_method"`
 	// ISO 20022 message format. Open enumeration: clients must accept and preserve values not listed here;
@@ -3781,6 +3783,11 @@ func (s *BankFile) GetPaymentRunID() uuid.UUID {
 // GetHouseBankID returns the value of HouseBankID.
 func (s *BankFile) GetHouseBankID() OptUUID {
 	return s.HouseBankID
+}
+
+// GetHouseBankCode returns the value of HouseBankCode.
+func (s *BankFile) GetHouseBankCode() OptString {
+	return s.HouseBankCode
 }
 
 // GetPaymentMethod returns the value of PaymentMethod.
@@ -3836,6 +3843,11 @@ func (s *BankFile) SetPaymentRunID(val uuid.UUID) {
 // SetHouseBankID sets the value of HouseBankID.
 func (s *BankFile) SetHouseBankID(val OptUUID) {
 	s.HouseBankID = val
+}
+
+// SetHouseBankCode sets the value of HouseBankCode.
+func (s *BankFile) SetHouseBankCode(val OptString) {
+	s.HouseBankCode = val
 }
 
 // SetPaymentMethod sets the value of PaymentMethod.
@@ -3932,6 +3944,8 @@ func (*BankFilePage) listBankFilesRes() {}
 type BankReconciliation struct {
 	// The house bank.
 	HouseBankID uuid.UUID `json:"house_bank_id"`
+	// The house bank's `code`, its name in the configuration.
+	HouseBankCode string `json:"house_bank_code"`
 	// The house bank's legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// The house bank's currency (ISO 4217), its statements' and the ledger balances'.
@@ -3950,6 +3964,11 @@ type BankReconciliation struct {
 // GetHouseBankID returns the value of HouseBankID.
 func (s *BankReconciliation) GetHouseBankID() uuid.UUID {
 	return s.HouseBankID
+}
+
+// GetHouseBankCode returns the value of HouseBankCode.
+func (s *BankReconciliation) GetHouseBankCode() string {
+	return s.HouseBankCode
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -3990,6 +4009,11 @@ func (s *BankReconciliation) GetNextPageToken() OptString {
 // SetHouseBankID sets the value of HouseBankID.
 func (s *BankReconciliation) SetHouseBankID(val uuid.UUID) {
 	s.HouseBankID = val
+}
+
+// SetHouseBankCode sets the value of HouseBankCode.
+func (s *BankReconciliation) SetHouseBankCode(val string) {
+	s.HouseBankCode = val
 }
 
 // SetLegalEntityID sets the value of LegalEntityID.
@@ -4587,6 +4611,8 @@ type BankStatement struct {
 	UpdatedBy OptUUID `json:"updated_by"`
 	// House bank whose account the statement is of.
 	HouseBankID uuid.UUID `json:"house_bank_id"`
+	// The house bank's `code`, its name in the configuration.
+	HouseBankCode string `json:"house_bank_code"`
 	// The house bank's legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// The file's format and version. Open enumeration: clients must accept and preserve values not listed
@@ -4667,6 +4693,11 @@ func (s *BankStatement) GetUpdatedBy() OptUUID {
 // GetHouseBankID returns the value of HouseBankID.
 func (s *BankStatement) GetHouseBankID() uuid.UUID {
 	return s.HouseBankID
+}
+
+// GetHouseBankCode returns the value of HouseBankCode.
+func (s *BankStatement) GetHouseBankCode() string {
+	return s.HouseBankCode
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -4792,6 +4823,11 @@ func (s *BankStatement) SetUpdatedBy(val OptUUID) {
 // SetHouseBankID sets the value of HouseBankID.
 func (s *BankStatement) SetHouseBankID(val uuid.UUID) {
 	s.HouseBankID = val
+}
+
+// SetHouseBankCode sets the value of HouseBankCode.
+func (s *BankStatement) SetHouseBankCode(val string) {
+	s.HouseBankCode = val
 }
 
 // SetLegalEntityID sets the value of LegalEntityID.
@@ -21904,7 +21940,9 @@ type MemoRecord struct {
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// The house bank it is expected on; absent: forecast only.
 	HouseBankID OptUUID `json:"house_bank_id"`
-	Amount      Money   `json:"amount"`
+	// The house bank's `code`, its name in the configuration; present exactly when `house_bank_id` is.
+	HouseBankCode OptString `json:"house_bank_code"`
+	Amount        Money     `json:"amount"`
 	// `inflow` for a positive amount, `outflow` for a negative one. Open enumeration: clients must accept
 	// and preserve values not listed here; values may be added within /v1.
 	Direction string `json:"direction"`
@@ -21990,6 +22028,11 @@ func (s *MemoRecord) GetLegalEntityID() uuid.UUID {
 // GetHouseBankID returns the value of HouseBankID.
 func (s *MemoRecord) GetHouseBankID() OptUUID {
 	return s.HouseBankID
+}
+
+// GetHouseBankCode returns the value of HouseBankCode.
+func (s *MemoRecord) GetHouseBankCode() OptString {
+	return s.HouseBankCode
 }
 
 // GetAmount returns the value of Amount.
@@ -22135,6 +22178,11 @@ func (s *MemoRecord) SetLegalEntityID(val uuid.UUID) {
 // SetHouseBankID sets the value of HouseBankID.
 func (s *MemoRecord) SetHouseBankID(val OptUUID) {
 	s.HouseBankID = val
+}
+
+// SetHouseBankCode sets the value of HouseBankCode.
+func (s *MemoRecord) SetHouseBankCode(val OptString) {
+	s.HouseBankCode = val
 }
 
 // SetAmount sets the value of Amount.
@@ -29069,6 +29117,8 @@ type PaymentRun struct {
 	// House bank paying, for a run proposed for one bank; absent when each payment names the bank that
 	// pays it (T45c).
 	HouseBankID OptUUID `json:"house_bank_id"`
+	// The house bank's `code`, its name in the configuration; present exactly when `house_bank_id` is.
+	HouseBankCode OptString `json:"house_bank_code"`
 	// Run (payment) date.
 	RunDate time.Time `json:"run_date"`
 	// Items due on or before this date are included.
@@ -29137,6 +29187,11 @@ func (s *PaymentRun) GetLegalEntityID() uuid.UUID {
 // GetHouseBankID returns the value of HouseBankID.
 func (s *PaymentRun) GetHouseBankID() OptUUID {
 	return s.HouseBankID
+}
+
+// GetHouseBankCode returns the value of HouseBankCode.
+func (s *PaymentRun) GetHouseBankCode() OptString {
+	return s.HouseBankCode
 }
 
 // GetRunDate returns the value of RunDate.
@@ -29232,6 +29287,11 @@ func (s *PaymentRun) SetLegalEntityID(val uuid.UUID) {
 // SetHouseBankID sets the value of HouseBankID.
 func (s *PaymentRun) SetHouseBankID(val OptUUID) {
 	s.HouseBankID = val
+}
+
+// SetHouseBankCode sets the value of HouseBankCode.
+func (s *PaymentRun) SetHouseBankCode(val OptString) {
+	s.HouseBankCode = val
 }
 
 // SetRunDate sets the value of RunDate.
