@@ -24,12 +24,14 @@ package api
 // the model gateway, the loopback API: other routes, not this operation's
 // work); and a call of a function value a function was given as a
 // parameter (database.Pool.InTx's work: the graph would join every
-// caller's), whose values the callers make, so they count where their
-// callers are reached. So is a call of a function value in a field of a
-// struct parameter (integration's step.work) when every caller fills the
-// field with a function it makes, or one a function it calls returns made
-// (callersMake); a value read through a pointer, from a variable or from
-// a closure's capture keeps its edge. A problem made by a package
+// caller's) or in a field of a struct parameter (integration's step.work),
+// when every caller passes or fills it with a function it makes, or one a
+// function it calls returns made (callersMake): those count where their
+// callers are reached. A value read through a pointer, from a variable or
+// from a closure's capture, or given by a function nothing in the program
+// calls, keeps its edge, but for a promotion wrapper nothing can call (an
+// unexported method's, or a method of the API's handler that is not an
+// operation, sealHandler). A problem made by a package
 // initializer and kept in a variable is an operation's when the
 // operation's code reads that variable. A code a constraint's problem (problem.RegisterConstraint)
 // carries is an operation's when a function it reaches runs a statement
@@ -57,6 +59,7 @@ import (
 	"go/types"
 	"maps"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -156,6 +159,8 @@ type codeAnalysis struct {
 	unplaced    []string                    // registered constraints no migration names
 	narrowed    map[int][]string            // the operations each of untakenBranches takes its code from
 	made        map[ssa.Value]bool          // callersMake's answers
+	served      map[string]bool             // gen.Handler's methods, once sealHandler holds
+	sealed      []string                    // what sealHandler found not to hold
 }
 
 func TestProblemCodes(t *testing.T) {
@@ -165,7 +170,11 @@ func TestProblemCodes(t *testing.T) {
 	for _, e := range a.checkUntaken(untakenBranches) {
 		t.Error(e)
 	}
+	for _, e := range a.sealed {
+		t.Errorf("the API's handler: %s", e)
+	}
 	t.Run("premises", func(t *testing.T) { checkPremisesRefuse(t, a) })
+	t.Run("handler", func(t *testing.T) { checkSealRefuses(t, a) })
 	derived := a.operationCodes(t, spec, common)
 	if *update {
 		writeCodes(t, common, derived)
@@ -249,9 +258,51 @@ func checkPremisesRefuse(t *testing.T, a *codeAnalysis) {
 	}
 }
 
+// checkSealRefuses proves sealHandler's source check fails a reflection
+// import, the handler used other than to call a method of gen.Handler and
+// a source with no call, and that a promotion wrapper of the handler is
+// uncallable only when it is no operation and the seal holds.
+func checkSealRefuses(t *testing.T, a *codeAnalysis) {
+	t.Helper()
+	served := map[string]bool{"GetMe": true}
+	for name, c := range map[string]struct {
+		src  string
+		want string
+	}{
+		"reflection":        {"import (\n\t\"reflect\"\n)\nfunc f() { s.h.GetMe(ctx) }", "imports reflect"},
+		"the handler held":  {"func f() { g(s.h) }", `uses the handler as "s.h"`},
+		"another method":    {"func f() { s.h.UpdateMemo(ctx) }", `uses the handler as "s.h.UpdateMemo("`},
+		"no call to check":  {"func f() {}", "finds nothing to check"},
+		"only served calls": {"func f() { s.h.GetMe(ctx) }", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := handlerUses(map[string][]byte{"gen/x.go": []byte(c.src)}, served)
+			if c.want == "" && len(got) > 0 {
+				t.Errorf("got %q, want nothing wrong", got)
+			}
+			if c.want != "" && !slices.ContainsFunc(got, func(e string) bool { return strings.Contains(e, c.want) }) {
+				t.Errorf("got %q, want a problem saying %q", got, c.want)
+			}
+		})
+	}
+	wrapper := func(name string) *ssa.Function { return a.fns["("+module+"/internal/app.handler)."+name] }
+	if got := a.uncallable(wrapper("UpdateMemo")); !got {
+		t.Errorf("handler.UpdateMemo, no operation: got uncallable %v, want true", got)
+	}
+	if got := a.uncallable(wrapper("UpdateMemoRecord")); got {
+		t.Errorf("handler.UpdateMemoRecord, an operation: got uncallable %v, want false", got)
+	}
+	unsealed := *a
+	unsealed.served = nil
+	if got := unsealed.uncallable(wrapper("UpdateMemo")); got {
+		t.Errorf("handler.UpdateMemo without the seal: got uncallable %v, want false", got)
+	}
+}
+
 // TestProblemCodesFieldCalls proves the cut of a call of a function value
-// held in a struct parameter's field (callersMake) on testdata/fieldcalls:
-// the graph joins the work Load and Reconcile give run, and each still
+// given as a parameter or held in a struct parameter's field (callersMake)
+// on testdata/fieldcalls: the graph joins the work Load and Reconcile give
+// run, and the functions CallQA and CallQB give callQ, and each still
 // answers only its own code, as do work chosen by a phi and work set on
 // the callee's copy; work read from a variable, through a pointer or a
 // closure's capture, or handed on through a parameter or a function's
@@ -260,9 +311,11 @@ func checkPremisesRefuse(t *testing.T, a *codeAnalysis) {
 func TestProblemCodesFieldCalls(t *testing.T) {
 	const fixture = module + "/api/testdata/fieldcalls"
 	a, _ := build(t, fixture)
-	run, reconcile := a.fns[fixture+".run"], a.fns[fixture+".reconcile"]
-	if !slices.ContainsFunc(a.cg.Nodes[run].Out, func(e *callgraph.Edge) bool { return e.Callee.Func == reconcile }) {
-		t.Fatalf("the call graph has no edge from run to reconcile: the fixture no longer shows the join")
+	for _, join := range [][2]string{{"run", "reconcile"}, {"callQ", "qb"}} {
+		from, to := a.fns[fixture+"."+join[0]], a.fns[fixture+"."+join[1]]
+		if !slices.ContainsFunc(a.cg.Nodes[from].Out, func(e *callgraph.Edge) bool { return e.Callee.Func == to }) {
+			t.Fatalf("the call graph has no edge from %s to %s: the fixture no longer shows the join", join[0], join[1])
+		}
 	}
 	for _, c := range []struct {
 		root      string
@@ -278,6 +331,10 @@ func TestProblemCodesFieldCalls(t *testing.T) {
 		{"Returned", []string{"fixture.returned"}, nil},
 		{"Passed", []string{"fixture.passed"}, nil},
 		{"Captured", []string{"fixture.captured"}, nil},
+		{"CallVar", []string{"fixture.var"}, nil},
+		{"CallMade", []string{"fixture.made", "fixture.var"}, nil},
+		{"CallQA", []string{"fixture.qa"}, []string{"fixture.qb"}},
+		{"CallQB", []string{"fixture.qb"}, []string{"fixture.qa"}},
 	} {
 		t.Run(c.root, func(t *testing.T) {
 			codes := a.codesOf(a.reach([]*ssa.Function{a.fns[fixture+"."+c.root]}), nil)
@@ -332,6 +389,7 @@ func analyse(t *testing.T) *codeAnalysis {
 		}
 	})
 	a, emitted := build(t, paths...)
+	a.sealed = a.sealHandler()
 	problem := a.prog.ImportedPackage(module + "/internal/platform/problem")
 	for fn, codes := range dynamicCodes {
 		for f := range a.all {
@@ -750,8 +808,8 @@ func (a *codeAnalysis) referenced(f *ssa.Function, codes map[string]bool) []*ssa
 // call of a function value its caller was given (a callback: the graph
 // does not tell one caller's from another's, and the functions each caller
 // makes are taken as called where it is reached), as a parameter or as a
-// field of a struct parameter every caller provably fills with a function
-// it makes (callersMake).
+// field of a struct parameter, that every caller provably passes or fills
+// with a function it makes (callersMake).
 func (a *codeAnalysis) cut(f *ssa.Function, e *callgraph.Edge) bool {
 	c := e.Site.Common()
 	if c.StaticCallee() != nil {
@@ -763,19 +821,18 @@ func (a *codeAnalysis) cut(f *ssa.Function, e *callgraph.Edge) bool {
 	return !c.IsInvoke() && a.callersMake(c.Value)
 }
 
-// callersMake reports whether v, a function value called, is its
-// function's parameter (taken as its callers', the cut above), or is made
-// where it is called (holdsMade): a field of a struct parameter
-// (integration's step.work) that every call of the function fills with a
-// function or closure its caller makes. Anything else, a value read
-// through a pointer, from a variable or a closure's capture, or given by a
-// function nothing in the program calls, keeps its edge.
+// callersMake reports whether v, a function value called, is made where
+// it is called (holdsMade): a parameter (database.Pool.InTx's work) or a
+// field of a struct parameter (integration's step.work) that every call of
+// the function passes or fills with a function or closure its caller
+// makes. Anything else, a value read through a pointer, from a variable or
+// a closure's capture, or given by a function nothing in the program calls
+// but one nothing can call (uncallable), keeps its edge.
 func (a *codeAnalysis) callersMake(v ssa.Value) bool {
 	if ok, done := a.made[v]; done {
 		return ok
 	}
-	_, param := v.(*ssa.Parameter)
-	made := param || a.holdsMade(v, nil, map[heldAt]bool{})
+	made := a.holdsMade(v, nil, map[heldAt]bool{})
 	a.made[v] = made
 	return made
 }
@@ -788,13 +845,14 @@ type heldAt struct {
 }
 
 // givenMade reports whether every call of p's function passes, at path
-// within p, a function value its caller makes (holdsMade).
+// within p, a function value its caller makes (holdsMade); with no call in
+// the graph, whether the function is one nothing can call (uncallable).
 func (a *codeAnalysis) givenMade(p *ssa.Parameter, path []int, seen map[heldAt]bool) bool {
 	fn := p.Parent()
 	idx := slices.Index(fn.Params, p)
 	n := a.cg.Nodes[fn]
 	if n == nil || len(n.In) == 0 {
-		return unexportedPromotion(fn) // which nothing can call but by name
+		return a.uncallable(fn)
 	}
 	for _, e := range n.In {
 		c, i := e.Site.Common(), idx
@@ -812,8 +870,8 @@ func (a *codeAnalysis) givenMade(p *ssa.Parameter, path []int, seen map[heldAt]b
 // where v is: a function or closure, nil, or traced to those through
 // phis, fields, static calls' results, the stores into a local composite
 // literal and a parameter's arguments at every call (givenMade). A
-// parameter met on the way is checked, not trusted: only the call of a
-// parameter itself is taken as its callers' (callersMake).
+// parameter, the called value's own or one met on the way, is checked
+// against its callers' arguments, not trusted.
 func (a *codeAnalysis) holdsMade(v ssa.Value, path []int, seen map[heldAt]bool) bool {
 	k := heldAt{v, fmt.Sprint(path)}
 	if seen[k] {
@@ -1087,7 +1145,7 @@ func (a *codeAnalysis) checkParamPremise(u untaken, gate *ssa.Function) []string
 			if within(v.Parent(), u.by) {
 				return
 			}
-			if n := a.cg.Nodes[v.Parent()]; (n == nil || len(n.In) == 0) && !unexportedPromotion(v.Parent()) {
+			if n := a.cg.Nodes[v.Parent()]; (n == nil || len(n.In) == 0) && !a.uncallable(v.Parent()) {
 				out = append(out, fmt.Sprintf("untakenBranches, %s: %s's %s comes from %s, which nothing in the program calls (%s)", u.code, u.gate,
 					u.param, v.Parent(), u.why))
 				return
@@ -1101,12 +1159,147 @@ func (a *codeAnalysis) checkParamPremise(u untaken, gate *ssa.Function) []string
 	return out
 }
 
-// unexportedPromotion reports whether f is the wrapper promoting an
-// unexported method of an embedded field: only its own package can call
-// it, by name (which the graph shows) or as a method value (whose bound
-// wrapper is then the function nothing calls).
-func unexportedPromotion(f *ssa.Function) bool {
-	return strings.HasPrefix(f.Synthetic, "wrapper for ") && !token.IsExported(f.Name())
+// uncallable reports whether f, which the graph shows no call of, cannot
+// be called at all, so that its parameters carry nothing: the wrapper
+// promoting an unexported method of an embedded field, which only its own
+// package can call, by name (which the graph shows) or as a method value
+// (whose bound wrapper is then the function nothing calls); or one
+// promoting to the API's handler a method of a context's endpoints that
+// is not an operation (handler.UpdateMemo, beside the operation
+// UpdateMemoRecord). The handler leaves the program only as gen.Handler,
+// whose methods alone api/gen calls (sealHandler checks both), and any
+// call inside the program is the graph's.
+func (a *codeAnalysis) uncallable(f *ssa.Function) bool {
+	if !strings.HasPrefix(f.Synthetic, "wrapper for ") {
+		return false
+	}
+	if !token.IsExported(f.Name()) {
+		return true
+	}
+	return a.served != nil && isHandler(f.Signature.Recv().Type()) && !a.served[f.Name()]
+}
+
+// isHandler reports whether t is the API's handler, or a pointer to it.
+func isHandler(t types.Type) bool {
+	if p, ok := t.(*types.Pointer); ok {
+		t = p.Elem()
+	}
+	n, ok := t.(*types.Named)
+	return ok && n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == module+"/internal/app" && n.Obj().Name() == "handler"
+}
+
+// The API's handler as api/gen uses it (Server.h), and reflection, which
+// sealHandler looks for in api/gen's source.
+var (
+	handlerUse    = regexp.MustCompile(`\bs\.h\b(\.([A-Za-z0-9_]+)\()?`)
+	reflectImport = regexp.MustCompile(`(?m)^\s*(?:import\s+)?(?:[a-z_]+\s+)?"reflect"\s*$`)
+)
+
+// sealHandler sets served, the methods of gen.Handler, once it has
+// checked that code outside the program can call no other method of the
+// API's handler: every conversion of the handler to an interface is to
+// gen.Handler, no type embeds it, and api/gen (outside the analysis)
+// calls only gen.Handler's methods on it and imports no reflection. It
+// returns what does not hold, and leaves served nil then, so that no
+// promotion wrapper of the handler counts as uncallable.
+func (a *codeAnalysis) sealHandler() []string {
+	app := a.prog.ImportedPackage(module + "/internal/app").Pkg
+	gen := app.Imports()[slices.IndexFunc(app.Imports(), func(p *types.Package) bool { return p.Path() == module+"/api/gen" })]
+	handler := gen.Scope().Lookup("Handler").Type()
+	iface := handler.Underlying().(*types.Interface)
+	served := map[string]bool{}
+	for i := range iface.NumMethods() {
+		served[iface.Method(i).Name()] = true
+	}
+	out := a.handlerConversions(handler)
+	for _, name := range app.Scope().Names() {
+		if st, ok := app.Scope().Lookup(name).Type().Underlying().(*types.Struct); ok {
+			for i := range st.NumFields() {
+				if st.Field(i).Embedded() && isHandler(st.Field(i).Type()) {
+					out = append(out, fmt.Sprintf("app.%s embeds the API's handler, whose methods it then serves", name))
+				}
+			}
+		}
+	}
+	out = append(out, genUses(served)...)
+	if len(out) == 0 {
+		a.served = served
+	}
+	return out
+}
+
+// handlerConversions is every conversion of the API's handler to an
+// interface other than gen.Handler, or that there is none at all (the
+// check would see nothing).
+func (a *codeAnalysis) handlerConversions(handler types.Type) []string {
+	var out []string
+	served := 0
+	for f := range a.all {
+		for _, b := range f.Blocks {
+			for _, in := range b.Instrs {
+				mi, ok := in.(*ssa.MakeInterface)
+				switch {
+				case !ok || !isHandler(mi.X.Type()):
+				case types.Identical(mi.Type(), handler):
+					served++
+				default:
+					out = append(out, fmt.Sprintf("%s converts the API's handler to %s, not gen.Handler (%s)", f, mi.Type(), a.prog.Fset.Position(mi.Pos())))
+				}
+			}
+		}
+	}
+	if served == 0 {
+		out = append(out, "nothing converts the API's handler to gen.Handler: the check finds no conversion to check")
+	}
+	return out
+}
+
+// genSource is api/gen's source, by file.
+func genSource() (map[string][]byte, error) {
+	files, err := filepath.Glob("gen/*.go")
+	if err != nil {
+		return nil, err
+	}
+	src := map[string][]byte{}
+	for _, name := range files {
+		if src[name], err = os.ReadFile(name); err != nil {
+			return nil, err
+		}
+	}
+	return src, nil
+}
+
+// genUses checks api/gen's source: the handler is used only as s.h, to
+// call a method of gen.Handler, and nothing imports reflect. A source
+// with no call at all fails, as the check would see nothing.
+func genUses(served map[string]bool) []string {
+	src, err := genSource()
+	if err != nil {
+		return []string{"api/gen's source: " + err.Error()}
+	}
+	return handlerUses(src, served)
+}
+
+// handlerUses is what genUses finds wrong in src.
+func handlerUses(src map[string][]byte, served map[string]bool) []string {
+	var out []string
+	calls := 0
+	for _, name := range slices.Sorted(maps.Keys(src)) {
+		if reflectImport.Match(src[name]) {
+			out = append(out, name+" imports reflect, which can call any method of the handler")
+		}
+		for _, m := range handlerUse.FindAllSubmatch(src[name], -1) {
+			if !served[string(m[2])] {
+				out = append(out, fmt.Sprintf("%s uses the handler as %q, not to call a method of gen.Handler", name, m[0]))
+				continue
+			}
+			calls++
+		}
+	}
+	if calls == 0 {
+		out = append(out, "api/gen calls no method of the handler as s.h: the check finds nothing to check")
+	}
+	return out
 }
 
 // allCodes is every code the server can make.

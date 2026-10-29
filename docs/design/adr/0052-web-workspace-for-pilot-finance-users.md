@@ -1271,10 +1271,47 @@ What the API gaps settled, and where they depart from §3:
   work a phi chooses and work set on the callee's copy, and work read from
   a variable, through a pointer or a closure's capture, or handed on from
   a variable through a parameter or a function's result, is still
-  followed. The parameter cut itself still trusts that the callers make
-  what they pass; the test does not prove it, and a direct call of a
-  parameter given a variable's function loses that function's codes
-  (pre-existing, reported in batch 23).
+  followed. The parameter cut itself trusted that the callers make what
+  they pass until batch 24 (next entry).
+- **G7: function values given as a parameter (fix, batch 24).** The cut of
+  a direct call of a function value a function was given as a parameter
+  (`InTx`'s work, the endpoints' `ifMatch`) trusted that every caller
+  passes a function it makes, so a parameter given a variable's function
+  would have lost that function's codes: 61 of the 165 such call sites in
+  the server's packages were unproven (review of batch 23). Soundness
+  first, since a consumer is not told of a code a list omits: the call is
+  now cut only where `holdsMade` proves, through `givenMade`, that every
+  caller passes a function or closure it makes, and the edge is followed
+  elsewhere. The callers' own parameters are checked against their
+  callers in turn, and a parameter of a function nothing in the program
+  calls proves nothing, but for a promotion wrapper nothing can call. Two
+  kinds: an unexported method's (as before), and the method of a
+  context's endpoints promoted to the API's handler that is not an
+  operation (`handler.UpdateMemo`, beside the operation
+  `UpdateMemoRecord`; most of the 61 sites were the endpoints' `ifMatch`,
+  `fits`, `check` and `build` reached that way). Nothing calls such a
+  wrapper: the program would show a call, and the handler leaves it only
+  as `gen.Handler`, whose methods alone api/gen calls. That premise is
+  checked, not trusted (`sealHandler`): every conversion of the handler
+  to an interface is to `gen.Handler`, no type embeds it, and api/gen's
+  source (outside the analysis) uses it only as `s.h` to call a method of
+  `gen.Handler` and imports no reflection; otherwise no handler wrapper
+  counts as uncallable. The test proves the check refuses each broken
+  premise. Now 129 of the 165 sites are proven and cut, and the other 36
+  (shared platform helpers such as `uow.Act`, `uow.Job.Tx`,
+  `database.BeginOr`, `pagination.Page`, `clock.Now`, `worker.Recover`,
+  functions read from struct fields through a pointer, generic bodies
+  nothing calls but through their instances) are followed. No list
+  changes: the functions those edges reach are ones the operations reach
+  already, or make no code. Without the seal, 104 sites are proven, and
+  following the other 25 would have added `request.version_mismatch` to
+  `importBankStatements`, unreachable there (the import matches
+  statements with no If-Match check: `matchFile` passes `nil`, and
+  `lockStatement` calls `ifMatch` only when it is given), which the seal
+  keeps out. `TestProblemCodesFieldCalls` proves it on
+  `api/testdata/fieldcalls`: a function read from a package variable,
+  passed beside a made one (`callP`), keeps its code, and two made ones
+  alone (`callQ`), joined by the graph, are each cut to their own.
 - **Client addresses in the API's audit trail (D2, PO 2026-10-21).**
   - erp-web forwards the signed-in person's address, as its own load
     balancer's PROXY header names it, in `Erp-Client-Address` on every
