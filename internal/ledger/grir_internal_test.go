@@ -105,3 +105,46 @@ func TestGRIRBalancesOutOfRange(t *testing.T) {
 		t.Errorf("position total: got %v, want ledger.amount_too_large", err)
 	}
 }
+
+// TestGRIRClearingItems: a clearing item's quantity that is not a plain
+// decimal, an item that is a goods movement's and a clearing's at once,
+// and an entry mixing clearing items with others are internal errors; a
+// clearing item whose position still holds what it clears passes, and one
+// whose position moved, or whose price difference account changed, is
+// refused.
+func TestGRIRClearingItems(t *testing.T) {
+	account := uuid.New()
+	g := grirPosting{diff: account}
+	held := &position{qty: big.NewRat(-4, 1), tc: -1000}
+	clears := func(qty string, balance money.Minor, account uuid.UUID) GRIRItem {
+		return GRIRItem{Quantity: qty, UnitPrice: 250, PriceUnit: 1, Clears: &GRIRClearing{Balance: balance, Account: account}}
+	}
+	for name, c := range map[string]struct {
+		it   GRIRItem
+		code string
+		ok   bool
+	}{
+		"held":            {clears("4", -1000, account), "", true},
+		"not a clearing":  {GRIRItem{Quantity: "x"}, "", true},
+		"quantity":        {clears("x", -1000, account), "", false},
+		"quantity moved":  {clears("2", -1000, account), "ledger.gr_ir_clearing_outdated", false},
+		"balance moved":   {clears("4", -999, account), "ledger.gr_ir_clearing_outdated", false},
+		"account changed": {clears("4", -1000, uuid.New()), "ledger.gr_ir_clearing_outdated", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := g.checkClears(held, c.it)
+			if (err == nil) != c.ok || problemCode(err) != c.code {
+				t.Errorf("got %v, want ok %t with code %q", err, c.ok, c.code)
+			}
+		})
+	}
+	both := clears("4", -1000, account)
+	both.OffsetAccountID = &account
+	if _, err := (grirPosting{in: Posting{GRIR: []GRIRItem{both}}}).lines(context.Background(), nil); err == nil || problemCode(err) != "" {
+		t.Errorf("a movement's and a clearing's item: got %v, want an internal error", err)
+	}
+	mixed := Posting{GRIR: []GRIRItem{clears("4", -1000, account), {Quantity: "1", OffsetAccountID: &account}}}
+	if err := recordGRIRClearing(context.Background(), nil, Entry{ID: uuid.New()}, mixed); err == nil || problemCode(err) != "" {
+		t.Errorf("mixed items: got %v, want an internal error", err)
+	}
+}

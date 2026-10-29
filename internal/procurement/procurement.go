@@ -143,6 +143,9 @@ func (e *Endpoints) extensions() extensions.Writes {
 // through GR/IR (ledger context, T33).
 type Postings interface {
 	Post(ctx context.Context, in ledger.Posting) (ledger.Entry, error)
+	// GRIROrder reads an order's GR/IR positions and the price difference
+	// account a GR/IR clearing proposes from (T72e).
+	GRIROrder(ctx context.Context, legalEntity, order uuid.UUID) (ledger.GRIROrder, error)
 }
 
 // Invoices tells whether supplier invoices refer to a purchase order

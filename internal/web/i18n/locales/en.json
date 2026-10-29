@@ -82,6 +82,7 @@
   "object.order_change": "Purchase order change",
   "object.bank_clearing": "Bank statement clearing",
   "object.center_change": "Cost or profit center change",
+  "object.gr_ir_clearing": "GR/IR clearing of a closed order",
   "object.payment_run_release": "Payment run release",
   "approval.status.pending": "Waiting",
   "approval.status.approved": "Approved",

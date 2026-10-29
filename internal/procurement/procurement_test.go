@@ -14,7 +14,8 @@ import (
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
 var perms = []string{"procurement.requisition.read", "procurement.requisition.create", "procurement.order.read", "procurement.order.create",
-	"procurement.order.release", "procurement.contract.read", "procurement.contract.manage", "procurement.receipt.read", "procurement.receipt.post"}
+	"procurement.order.release", "procurement.contract.read", "procurement.contract.manage", "procurement.receipt.read", "procurement.receipt.post",
+	"procurement.gr_ir.clear", "ledger.entry.read"}
 
 type env struct {
 	fixture.Env

@@ -84,7 +84,7 @@ func positions(ctx context.Context, tx pgx.Tx, le uuid.UUID, tc string, keys []o
 	for i, k := range keys {
 		orders[i], items[i] = k.order, k.item
 	}
-	rows, _ := tx.Query(ctx, `SELECT x.o, x.n, coalesce(trim_scale(p.invoiced - p.received), 0)::text, coalesce(p.amount_tc, 0), coalesce(p.amount_lc, 0),
+	rows, _ := tx.Query(ctx, `SELECT x.o, x.n, coalesce(trim_scale(p.invoiced + p.cleared - p.received), 0)::text, coalesce(p.amount_tc, 0), coalesce(p.amount_lc, 0),
 			coalesce(p.amount_gc, 0), coalesce(p.currency_tc = $4, true)
 		FROM unnest($2::uuid[], $3::int[]) AS x(o, n)
 		LEFT JOIN ledger.gr_ir_position p ON p.legal_entity_id = $1 AND p.purchase_order_id = x.o AND p.po_item_no = x.n`, le, orders, items, tc)
@@ -252,7 +252,7 @@ func (p Postings) prepareGRIR(ctx context.Context, tx pgx.Tx, in Posting) (grirP
 	if g.grir, err = determined(ctx, g.le.ID, "gr_ir", "ledger.no_gr_ir_account"); err != nil {
 		return g, err
 	}
-	if !slices.ContainsFunc(in.GRIR, func(it GRIRItem) bool { return it.Invoiced != nil }) {
+	if !slices.ContainsFunc(in.GRIR, func(it GRIRItem) bool { return it.Invoiced != nil || it.Clears != nil }) {
 		return g, nil
 	}
 	if g.diff, err = determined(ctx, g.le.ID, "price_difference", "ledger.no_price_difference_account"); err != nil {
@@ -286,9 +286,9 @@ func (g grirPosting) lines(ctx context.Context, tx pgx.Tx) ([]Line, error) {
 	}
 	keys := make([]orderItem, len(g.in.GRIR))
 	for i, it := range g.in.GRIR {
-		if (it.OffsetAccountID == nil) == (it.Invoiced == nil) {
-			return nil, fmt.Errorf("ledger: GR/IR item %d of order %s: a goods movement names the offset account, an invoice its amount; got both or neither",
-				it.POItemNo, it.PurchaseOrderID)
+		if kinds := btoi(it.OffsetAccountID != nil) + btoi(it.Invoiced != nil) + btoi(it.Clears != nil); kinds != 1 {
+			return nil, fmt.Errorf("ledger: GR/IR item %d of order %s: a goods movement names the offset account, an invoice its amount, a clearing "+
+				"the position it clears; got %d of them", it.POItemNo, it.PurchaseOrderID, kinds)
 		}
 		keys[i] = orderItem{it.PurchaseOrderID, it.POItemNo}
 	}
@@ -332,6 +332,9 @@ func (g grirPosting) itemLines(pos map[orderItem]*position, keys []orderItem) ([
 	var lines []Line
 	var kept []bool
 	for i, it := range g.in.GRIR {
+		if err := g.checkClears(pos[keys[i]], it); err != nil {
+			return nil, nil, err
+		}
 		tc, lc, gc, err := g.rates.move(pos[keys[i]], it)
 		if err != nil {
 			return nil, nil, err
@@ -349,6 +352,12 @@ func (g grirPosting) itemLines(pos map[orderItem]*position, keys []orderItem) ([
 		case it.OffsetAccountID != nil && (tc != 0 || lc != 0 || gc != 0):
 			lines, kept = append(lines, Line{AccountID: *it.OffsetAccountID, TC: -tc, LC: -lc, GC: -gc, Text: it.Text, CostCenterID: it.CostCenterID}),
 				append(kept, true)
+		case it.Clears != nil && (tc != 0 || lc != 0 || gc != 0):
+			line := Line{AccountID: g.diff, TC: -tc, LC: -lc, GC: -gc, Text: it.Text}
+			if g.diffCosts {
+				line.CostCenterID = it.CostCenterID
+			}
+			lines, kept = append(lines, line), append(kept, true)
 		case it.Invoiced != nil:
 			diff, err := money.Diff(*it.Invoiced, tc)
 			if err != nil {
@@ -364,6 +373,31 @@ func (g grirPosting) itemLines(pos map[orderItem]*position, keys []orderItem) ([
 		}
 	}
 	return lines, kept, nil
+}
+
+// checkClears refuses a clearing item unless the position still holds
+// what was approved: the quantity it clears, the balance in transaction
+// currency and the price difference account it posts to. Other items pass.
+func (g grirPosting) checkClears(p *position, it GRIRItem) error {
+	if it.Clears == nil {
+		return nil
+	}
+	q, err := signedQuantity(it.Quantity)
+	if err != nil {
+		return fmt.Errorf("ledger: GR/IR quantity %q: %w", it.Quantity, err)
+	}
+	if new(big.Rat).Add(p.qty, q).Sign() != 0 || p.tc != it.Clears.Balance || g.diff != it.Clears.Account {
+		return problem.Conflict("ledger.gr_ir_clearing_outdated", fmt.Sprintf("Item %d of purchase order %s no longer holds the GR/IR position, "+
+			"or the price difference account is no longer the one, that the clearing was approved for; propose the clearing again.", it.POItemNo, it.PurchaseOrderID))
+	}
+	return nil
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // convert converts the lines at the posting's rates, keeps the local and
@@ -433,6 +467,9 @@ func (p Postings) postGRIR(ctx context.Context, in Posting) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
+	if err := recordGRIRClearing(ctx, tx, posted, in); err != nil {
+		return Entry{}, err
+	}
 	if err := project(ctx, tx, posted); err != nil {
 		return Entry{}, err
 	}
@@ -442,6 +479,25 @@ func (p Postings) postGRIR(ctx context.Context, in Posting) (Entry, error) {
 	return posted, audit.Add(ctx, audit.Entry{Action: "ledger.journal_entry.post", ObjectType: "ledger.journal_entry", ObjectID: posted.ID,
 		Outcome: "succeeded", Detail: map[string]any{"document_number": posted.DocumentNumber, "fiscal_year": posted.FiscalYear, "lines": len(lines),
 			"source_context": posted.SourceContext}})
+}
+
+// recordGRIRClearing records an entry of clearing items as a GR/IR clearing
+// (ledger.gr_ir_clearing_entry), before it is projected: its GR/IR lines'
+// quantities are cleared, neither received nor invoiced. Clearing items
+// are never mixed with others, whose quantities would then read cleared.
+func recordGRIRClearing(ctx context.Context, tx pgx.Tx, e Entry, in Posting) error {
+	clears := slices.ContainsFunc(in.GRIR, func(it GRIRItem) bool { return it.Clears != nil })
+	if !clears {
+		return nil
+	}
+	if slices.ContainsFunc(in.GRIR, func(it GRIRItem) bool { return it.Clears == nil }) {
+		return fmt.Errorf("ledger: entry %s mixes GR/IR clearing items with others", e.ID)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO ledger.gr_ir_clearing_entry (tenant_id, fiscal_year, journal_entry_id) VALUES (platform.require_tenant(), $1, $2)`,
+		e.FiscalYear, e.ID); err != nil {
+		return fmt.Errorf("ledger: record entry %s as a GR/IR clearing: %w", e.ID, err)
+	}
+	return nil
 }
 
 // grirAdjustments are what a reversal adds to its mirrored lines: where
@@ -546,23 +602,25 @@ func appendAdjustments(ctx context.Context, le uuid.UUID, lines []Line, keys []o
 // to their order items' positions (ledger.gr_ir_position, T33f), in the
 // transaction that posts them and under the orders' GR/IR locks, which
 // the caller holds: receipts' quantities to received (negated), invoices'
-// to invoiced, every line's amounts to the balance. An entry without an
-// order item on its lines has nothing to add.
+// to invoiced, a clearing's (ledger.gr_ir_clearing_entry, T72e) to
+// cleared, every line's amounts to the balance. An entry without an order
+// item on its lines has nothing to add.
 func project(ctx context.Context, tx pgx.Tx, e Entry) error {
 	if !slices.ContainsFunc(e.Lines, func(l Line) bool { return l.PurchaseOrderID != nil }) {
 		return nil
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.gr_ir_position AS p (tenant_id, legal_entity_id, purchase_order_id, po_item_no, account_id,
-			currency_tc, currency_lc, currency_gc, uom_code, received, invoiced, amount_tc, amount_lc, amount_gc, last_posting_date)
+			currency_tc, currency_lc, currency_gc, uom_code, received, invoiced, cleared, amount_tc, amount_lc, amount_gc, last_posting_date)
 		SELECT l.tenant_id, l.legal_entity_id, l.purchase_order_id, l.po_item_no, l.account_id, $3, $4, $5, min(l.uom_code),
-			CASE WHEN $6 = 'procurement' THEN -sum(l.quantity) ELSE 0 END, CASE WHEN $6 = 'payables' THEN sum(l.quantity) ELSE 0 END,
-			sum(l.amount_tc), sum(l.amount_lc), sum(l.amount_gc), max(l.posting_date)
+			CASE WHEN $6 = 'procurement' AND NOT c.clearing THEN -sum(l.quantity) ELSE 0 END, CASE WHEN $6 = 'payables' THEN sum(l.quantity) ELSE 0 END,
+			CASE WHEN c.clearing THEN sum(l.quantity) ELSE 0 END, sum(l.amount_tc), sum(l.amount_lc), sum(l.amount_gc), max(l.posting_date)
 		FROM ledger.journal_line l
 		JOIN ledger.account_determination d ON d.tenant_id = l.tenant_id AND d.legal_entity_id = l.legal_entity_id AND d.key = 'gr_ir' AND d.account_id = l.account_id
+		CROSS JOIN (SELECT EXISTS (SELECT FROM ledger.gr_ir_clearing_entry WHERE fiscal_year = $1 AND journal_entry_id = $2) AS clearing) c
 		WHERE l.fiscal_year = $1 AND l.journal_entry_id = $2 AND l.purchase_order_id IS NOT NULL
-		GROUP BY l.tenant_id, l.legal_entity_id, l.purchase_order_id, l.po_item_no, l.account_id
+		GROUP BY l.tenant_id, l.legal_entity_id, l.purchase_order_id, l.po_item_no, l.account_id, c.clearing
 		ON CONFLICT (tenant_id, legal_entity_id, purchase_order_id, po_item_no) DO UPDATE SET received = p.received + EXCLUDED.received,
-			invoiced = p.invoiced + EXCLUDED.invoiced, amount_tc = p.amount_tc + EXCLUDED.amount_tc, amount_lc = p.amount_lc + EXCLUDED.amount_lc,
+			invoiced = p.invoiced + EXCLUDED.invoiced, cleared = p.cleared + EXCLUDED.cleared, amount_tc = p.amount_tc + EXCLUDED.amount_tc, amount_lc = p.amount_lc + EXCLUDED.amount_lc,
 			amount_gc = p.amount_gc + EXCLUDED.amount_gc, last_posting_date = greatest(p.last_posting_date, EXCLUDED.last_posting_date),
 			version = p.version + 1`, e.FiscalYear, e.ID, e.CurrencyTC, e.CurrencyLC, e.CurrencyGC, e.SourceContext); err != nil {
 		return fmt.Errorf("ledger: project the GR/IR positions of entry %s: %w", e.ID, err)

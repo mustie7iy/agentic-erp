@@ -1015,8 +1015,56 @@ step_reports() {
   passed
 }
 
+# GR/IR position of an order as the balances list it.
+GRIR_POSITION='.items[] | "item \(.po_item_no): received \(.received_quantity.value), invoiced \(.invoiced_quantity.value), cleared \(.cleared_quantity.value), balance \(.balance.amount) \(.balance.currency)"'
+
+step_grir() {
+  heading "Step 15 — GR/IR maintenance before the month-end close: the closed order's residual position is cleared (SAP MR11)"
+  as ben
+  say "Tyrell credited the damaged chair (step 6) and the buyer keeps it: nothing more will be delivered or invoiced,"
+  say "so Ben closes the order."
+  QUIET=1 api 200 '' getPurchaseOrder -p "id=$PO"
+  api 200 '"purchase order \(.document_number): \(.status)"' closePurchaseOrder -p "id=$PO" -if-match "$ETAG"
+  expect "order status" "$(field .status)" closed
+  as alex
+  say "Before the close Alex reviews the open GR/IR positions: the order is left with ten chairs received and nine"
+  say "invoiced net of the credit memo, a credit on the GR/IR account that no invoice will clear."
+  api 200 "$GRIR_POSITION" listGrIrBalances -p "legal_entity_id=$LE" -p "purchase_order_id=$PO"
+  expect "the residual balance" "$(field '.items[0].balance.amount')" -470.00
+  say "She proposes clearing it to the price difference account; the controller decides."
+  api 201 '"GR/IR clearing of \(.purchase_order_number): \(.status), \(.total.amount) \(.total.currency) against \(.offset_account.number) \(.offset_account.name)\([.items[] | "\n  item \(.po_item_no) \(.description): \(.quantity.value) \(.quantity.unit), \(.amount.amount) \(.amount.currency)"] | join(""))"' \
+    createGrIrClearing -p "id=$PO" -body "{\"reason\": \"Damaged chair credited by Tyrell and kept; no further delivery or invoice\", \"posting_date\": \"$TODAY\"}"
+  local clearing request body
+  clearing=$(field .id)
+  request=$(field .approval_request_id)
+  body="{\"reason\": \"Again\", \"posting_date\": \"$TODAY\"}"
+  say "While it waits, a second proposal for the order is refused, and Alex, who holds no approver role, cannot approve it"
+  say "(nor could a controller who proposed it: the proposer is never the approver):"
+  refused 409 procurement.gr_ir_clearing_pending createGrIrClearing -p "id=$PO" -body "$body"
+  QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
+  refused 403 identity.permission_missing approveApprovalRequest -p "id=$request" -if-match "$ETAG" -body '{}'
+  approve carla "$request" "Cleared before the month-end close"
+  as alex
+  api 200 '"GR/IR clearing: \(.status), journal entry \(.journal_entry.document_number) of \(.journal_entry.fiscal_year)"' \
+    getGrIrClearing -p "id=$clearing"
+  expect "clearing status" "$(field .status)" posted
+  local entry
+  entry=$(field .journal_entry.id)
+  api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$entry"
+  say "The GR/IR report shows the position cleared and no longer open:"
+  api 200 "$GRIR_POSITION" listGrIrBalances -p "legal_entity_id=$LE" -p "purchase_order_id=$PO" -p open_only=false
+  expect "the balance after clearing" "$(field '.items[0].balance.amount')" 0.00
+  expect "the quantity cleared" "$(field '.items[0].cleared_quantity.value')" 1
+  api 200 '"open positions of the order: \(.items | length)"' listGrIrBalances -p "legal_entity_id=$LE" -p "purchase_order_id=$PO"
+  expect "open positions" "$(field '.items | length')" 0
+  say "Proposing it again changes nothing: there is nothing left to clear."
+  refused 409 procurement.nothing_to_clear createGrIrClearing -p "id=$PO" -body "$body"
+  api 200 '.items | reverse | .[] | "\(.occurred_at)  \(.actor_id)  \(.action)  \(.outcome)"' listAuditEvents -p "object_id=$clearing" | name_actors
+  passed
+}
+
 step_audit() {
-  heading "Step 15 — The audit trail: who did what to Tyrell's invoices"
+  heading "Step 16 — The audit trail: who did what to Tyrell's invoices"
   as ada
   local inv
   for inv in "$INVOICE" "$DUPLICATE" "$CREDIT"; do
@@ -1053,7 +1101,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_audit'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_audit'
 
 main() {
   start

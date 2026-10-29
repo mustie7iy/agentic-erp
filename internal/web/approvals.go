@@ -40,6 +40,7 @@ var (
 		"invoice_exception": i18n.ObjectInvoice, "period_unlock": i18n.ObjectPeriodUnlock, "manual_entry": i18n.ObjectManualEntry,
 		"purchase_order": i18n.ObjectOrder, "order_change": i18n.ObjectOrderChange, "bank_clearing": i18n.ObjectBankClearing,
 		"center_change": i18n.ObjectCenterChange, "payment_run_release": i18n.ObjectRunRelease,
+		"gr_ir_clearing": i18n.ObjectGRIRClearing,
 	}
 	statuses = map[string]i18n.Key{"pending": i18n.StatusPending, "approved": i18n.StatusApproved, "rejected": i18n.StatusRejected,
 		"cancelled": i18n.StatusCancelled}

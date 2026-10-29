@@ -126,3 +126,55 @@ notice and "refused, `workflow.no_policy`" for the release tiers.
 - An approval (of a release or a change) at the same moment as a close or
   cancel of the same order can answer 503 to one of the two people; their
   retry succeeds or is refused for the state the other left.
+
+## As built (T72e): GR/IR clearing of closed orders (SAP MR11)
+
+A closed order takes no further receipts or invoices, so a GR/IR position
+it is left with stays open until it is cleared (03-data-model §3.7, §3.8;
+migration 000165). Decisions taken by default (ADR-0053 §d), each settled
+by an existing rule:
+
+- **What a clearing posts against.** The legal entity's `price_difference`
+  account, with the order item's cost center when that is a primary cost
+  account: the account the ledger already uses for what GR/IR leaves (an
+  invoice's price difference; the residual a reversal leaves, T33b). SAP's
+  documentation of GR/IR clearing account maintenance posts the offsetting
+  entry to a price difference account for a material at standard price and
+  to the stock account for one at moving average price with stock to cover
+  it ([SAP Help, GR/IR Clearing Account Maintenance](https://help.sap.com/saphelp_46C/helpdata/EN/47/6100f249f011d1894c0000e829fbbd/content.htm));
+  this system values no stock, so the price difference account is the one
+  that applies. Account-assigned items in SAP are a specialist's question
+  (below).
+- **Which orders.** Closed orders valued through GR/IR, as the tracker's
+  leaf and 03 §3.8 say ("a closed order's position waits for a GR/IR
+  clearing"). An open order's position is still expected to clear by a
+  receipt or an invoice.
+- **Who owns it.** The procurement context, which owns the order, its status
+  and its items' valuation prices and cost centers, and already posts GR/IR
+  through `ledger.Postings`; the ledger keeps the positions and refuses a
+  clearing whose position moved (`GRIRItem.Clears`, 409
+  `ledger.gr_ir_clearing_outdated`), so what posts is what was approved. No
+  new dependency between contexts.
+- **Approval.** A `gr_ir_clearing` approval request decided by the fixed
+  `controller` role, as period unlocks and center changes are
+  (`approvals.DefaultGRIRClearingRole`): posting to P&L outside an invoice is
+  a controller's decision, never the proposer's (`workflow.own_request`)
+  and never an agent's (the permission is an approval permission). The
+  request's amount is what the clearing posts to the price difference
+  account.
+- **The entry.** Document type WE, from the `journal_we` range every company
+  with a GR/IR account already has (config validation), so no new number
+  range is required of a configuration; source procurement, the clearing as
+  its source document, so the ledger's `:reverse` refuses it.
+- **Cleared quantities apart.** The quantity a clearing posts is neither
+  received nor invoiced: the ledger records clearing entries
+  (`ledger.gr_ir_clearing_entry`) and keeps `cleared` beside them, which the
+  GR/IR balances report (`cleared_quantity`), so received and invoiced stay
+  what the receipts and invoices say.
+- **Idempotency.** The request's `Idempotency-Key` replays the answer; a new
+  proposal while one is pending is refused (one pending per order), and one
+  after the posting finds nothing to clear (409 `procurement.nothing_to_clear`).
+
+Not built, for the product owner: reversing a posted clearing (no path
+here yet), and clearing positions of orders that are fully invoiced but
+not closed.
