@@ -166,7 +166,7 @@ type codeAnalysis struct {
 	served      map[string]bool             // gen.Handler's methods, once sealHandler holds
 	sealed      []string                    // what sealHandler found not to hold
 	program     map[string]bool             // the paths of the packages analysed, with their bodies
-	outside     []string                    // packages outside the program importing it (outsideImports)
+	outside     []string                    // packages outside the program importing it, templates it executes
 	flow        *flowIndex                  // escapes' index, built on first use
 	escaped     map[*ssa.Function]string    // escapes' answers
 	pending     map[*ssa.Function]bool      // the functions escapes is answering
@@ -384,12 +384,10 @@ func checkFlowRefuses(t *testing.T) {
 func TestProblemCodesFieldCalls(t *testing.T) {
 	const fixture = module + "/api/testdata/fieldcalls"
 	a, _ := build(t, fixture)
-	for _, join := range [][2]string{{"run", "reconcile"}, {"callQ", "qb"}, {"callE", "eb"}, {"(*" + fixture + ".Runner).Run", "rb"},
-		{"(*" + fixture + ".Keeper).Keep", "kb"}} {
-		from, to := a.fns[join[0]], a.fns[fixture+"."+join[1]]
-		if from == nil {
-			from = a.fns[fixture+"."+join[0]]
-		}
+	for _, join := range [][2]string{{fixture + ".run", fixture + ".reconcile"}, {fixture + ".callQ", fixture + ".qb"},
+		{fixture + ".callE", fixture + ".eb"}, {"(*" + fixture + ".Runner).Run", fixture + ".rb"},
+		{"(*" + fixture + ".Keeper).Keep", fixture + ".kb"}} {
+		from, to := a.fns[join[0]], a.fns[join[1]]
 		if !slices.ContainsFunc(a.cg.Nodes[from].Out, func(e *callgraph.Edge) bool { return e.Callee.Func == to }) {
 			t.Fatalf("the call graph has no edge from %s to %s: the fixture no longer shows the join", join[0], join[1])
 		}
@@ -470,8 +468,8 @@ func analyse(t *testing.T) *codeAnalysis {
 		}
 	})
 	a, emitted := build(t, paths...)
-	a.outside = outsideImports(deps, a.program)
 	a.sealed = a.sealHandler()
+	a.outside = append(outsideImports(deps, a.program), a.index().problems...) // the index after the seal: the handler's methods api/gen calls
 	problem := a.prog.ImportedPackage(module + "/internal/platform/problem")
 	for fn, codes := range dynamicCodes {
 		for f := range a.all {

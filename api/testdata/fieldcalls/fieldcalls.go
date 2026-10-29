@@ -6,8 +6,12 @@
 package fieldcalls
 
 import (
+	"flag"
 	"fmt"
+	"io"
+	"slices"
 	"sync"
+	"text/template"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
@@ -191,3 +195,59 @@ func CallKB() error { return (&Keeper{}).Keep(kb) }
 
 func ka() error { return problem.New(409, "fixture.ka", "KA", "") }
 func kb() error { return problem.New(409, "fixture.kb", "KB", "") }
+
+// Render executes a template with data whose type it does not show:
+// TestProblemCodesEscapes' templateData refuses it.
+func Render(w io.Writer, data any) error {
+	return template.Must(template.New("t").Parse("{{.}}")).Execute(w, data)
+}
+
+// RenderPage's template may call any exported method of what its data
+// holds: a *Page in an exported field, whose Title then escapes.
+type Page struct{}
+
+func (*Page) Title(f func() error) error { return f() }
+
+type pageData struct{ P *Page }
+
+func RenderPage(w io.Writer) error {
+	return template.Must(template.New("p").Parse("{{.P}}")).Execute(w, pageData{P: &Page{}})
+}
+
+// The ways escapes follows a value, each in TestProblemCodesEscapes:
+// callF is stored in a field of the program's struct and read back into
+// fmt.Sprint's arguments (a slice); callS is stored in another struct's,
+// read back only to be called (every value of a struct type shares its
+// fields, so a second type keeps them apart); callR is
+// returned by giveR, whose result goes to the sync.Map; Hook's closure is
+// stored in flag.Usage, a variable of code outside; callL is stored in a
+// literal struct with an exported field, which code outside can spell; a
+// *Gen instantiates slices.Contains, which has no body here.
+type slot struct{ f func(func() error) error }
+
+type keptSlot struct{ f func(func() error) error }
+
+func callF(f func() error) error { return f() }
+func callS(f func() error) error { return f() }
+func callR(f func() error) error { return f() }
+func callL(f func() error) error { return f() }
+
+func Slots() string {
+	held, kept := slot{f: callF}, keptSlot{f: callS}
+	_ = kept.f(qa)
+	return fmt.Sprint(held.f)
+}
+
+func giveR() func(func() error) error { return callR }
+
+func RegisterR() { registry.Store("r", giveR()) }
+
+func Hook() { flag.Usage = func() { _ = callQ(qa) } }
+
+func Literal() string { return fmt.Sprint(struct{ F func(func() error) error }{F: callL}) }
+
+type Gen struct{}
+
+func (*Gen) Run(f func() error) error { return f() }
+
+func Generic() bool { return slices.Contains([]*Gen{}, nil) }

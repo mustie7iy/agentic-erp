@@ -11,7 +11,10 @@ package api
 // reflection. escapes finds those, and givenMade proves nothing for them.
 // Not checked, since the dependencies' code is not read: that code outside
 // reads no function from a field of a program's struct it is given and
-// calls it, which only reflection could do.
+// calls it, which only reflection could do, and calls by reflection on
+// values nested in what it is given only the methods of the interfaces it
+// checks for (exportedMethods); a template, which calls any, is checked
+// (templateData).
 
 import (
 	"fmt"
@@ -37,6 +40,12 @@ func TestProblemCodesEscapes(t *testing.T) {
 		fixture + ".callE":               "which has no body here",
 		"(*" + fixture + ".Runner).Run":  "converted to any",
 		fixture + ".callQ":               "",
+		fixture + ".callF":               "is stored at &t",
+		fixture + ".callS":               "",
+		fixture + ".callR":               "which has no body here",
+		fixture + ".Hook$1":              "a variable of code outside",
+		fixture + ".callL":               "which code outside declares",
+		"(*" + fixture + ".Gen).Run":     "instantiates slices.Contains",
 		"(*" + fixture + ".Keeper).Keep": "",
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -45,6 +54,12 @@ func TestProblemCodesEscapes(t *testing.T) {
 				t.Errorf("got %q, want %q", got, want)
 			}
 		})
+	}
+	if got := a.index().problems; len(got) != 1 || !strings.Contains(got[0], "fieldcalls.Render executes a template with data whose type") {
+		t.Errorf("got %q, want Render refused for data of no known type", got)
+	}
+	if got := a.escapes(a.fns["(*"+fixture+".Page).Title"]); !strings.Contains(got, "a template executed in") {
+		t.Errorf("Page.Title: got %q, want it escaping through RenderPage's template", got)
 	}
 	program := map[string]bool{module + "/internal/app": true}
 	deps := []*packages.Package{{PkgPath: module + "/api/gen", Imports: map[string]*packages.Package{module + "/internal/app": {PkgPath: module + "/internal/app"}}}}
@@ -65,6 +80,8 @@ type flowIndex struct {
 	fields     map[string][]ssa.Instruction // *ssa.Field and *ssa.FieldAddr, by fieldKey
 	converted  map[*ssa.Function][]*ssa.MakeInterface
 	typeArgs   map[*ssa.Function][]ssa.CallInstruction // calls of a generic function outside the program instantiated with a type having the method
+	templated  map[*ssa.Function][]ssa.CallInstruction // template executions whose data reaches a type having the method
+	problems   []string                                // template data the index cannot type (templateData)
 }
 
 // escapes reports whether code outside the program can call f, and why:
@@ -119,6 +136,9 @@ func (a *codeAnalysis) receiverEscapes(f *ssa.Function) string {
 	if calls := x.typeArgs[f]; len(calls) > 0 {
 		return fmt.Sprintf("its receiver's type instantiates %s, outside the program, in %s", calls[0].Common().StaticCallee(), calls[0].Parent())
 	}
+	if calls := x.templated[f]; len(calls) > 0 {
+		return fmt.Sprintf("a template executed in %s reaches its receiver's type in its data", calls[0].Parent())
+	}
 	seen := map[ssa.Value]bool{}
 	for _, mi := range x.converted[f] {
 		if why := a.valueLeaks(mi, seen); why != "" {
@@ -136,7 +156,7 @@ func (a *codeAnalysis) index() *flowIndex {
 	}
 	x := &flowIndex{funcUses: map[*ssa.Function][]ssa.Instruction{}, globalUses: map[*ssa.Global][]ssa.Instruction{},
 		fields: map[string][]ssa.Instruction{}, converted: map[*ssa.Function][]*ssa.MakeInterface{},
-		typeArgs: map[*ssa.Function][]ssa.CallInstruction{}}
+		typeArgs: map[*ssa.Function][]ssa.CallInstruction{}, templated: map[*ssa.Function][]ssa.CallInstruction{}}
 	for f := range a.all {
 		for _, b := range f.Blocks {
 			for _, in := range b.Instrs {
@@ -144,6 +164,7 @@ func (a *codeAnalysis) index() *flowIndex {
 			}
 		}
 	}
+	x.problems = a.templateData(x)
 	a.flow = x
 	return x
 }
@@ -189,7 +210,13 @@ func (a *codeAnalysis) indexInstr(x *flowIndex, in ssa.Instruction) {
 // can call: its exported methods, each with the method it promotes or
 // wraps (a pointer's wrapper of a value method, an embedded field's
 // method), which the wrapper calls with the same arguments. The API's
-// handler gives only gen.Handler's methods once the seal holds.
+// handler gives only gen.Handler's methods once the seal holds. Methods of
+// values nested in it (an exported field, an element) code outside can
+// reach only by reflection, which calls them only through the interfaces
+// the walking package checks for (fmt's Stringer and Formatter, error,
+// the encoders' Marshalers), none of which takes a function; the one
+// standard package calling any method it is told to, a template, gets
+// every method reflection reaches in its data (templateData).
 func (a *codeAnalysis) exportedMethods(t types.Type) []*ssa.Function {
 	if types.IsInterface(t) || hasTypeParam(t) {
 		return nil
@@ -211,6 +238,79 @@ func (a *codeAnalysis) exportedMethods(t types.Type) []*ssa.Function {
 	}
 	return out
 }
+
+// templateData is every execution in the program of a text/template or
+// html/template template, whose text may call any exported method of any
+// value nested in its data, with the data's type: the types reflection
+// reaches from it (reachableTypes) give templated their methods. Data
+// whose type the call does not show (an interface value handed on) is
+// returned as a problem.
+func (a *codeAnalysis) templateData(x *flowIndex) []string {
+	var out []string
+	for f := range a.all {
+		for _, b := range f.Blocks {
+			for _, in := range b.Instrs {
+				c, ok := in.(ssa.CallInstruction)
+				if !ok {
+					continue
+				}
+				g := c.Common().StaticCallee()
+				if g == nil || g.Pkg == nil || !isTemplate(g.Pkg.Pkg.Path()) || !strings.HasPrefix(g.Name(), "Execute") {
+					continue
+				}
+				mi, ok := c.Common().Args[len(c.Common().Args)-1].(*ssa.MakeInterface)
+				if !ok {
+					out = append(out, fmt.Sprintf("%s executes a template with data whose type the call does not show (%s)", f, a.prog.Fset.Position(in.Pos())))
+					continue
+				}
+				for _, t := range reachableTypes(mi.X.Type(), map[string]bool{}) {
+					for _, m := range append(a.exportedMethods(t), a.exportedMethods(types.NewPointer(t))...) {
+						x.templated[m] = append(x.templated[m], c)
+					}
+				}
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// reachableTypes is t, without a pointer, and the types reflection can
+// reach from a value of it: through pointers, exported fields, and the
+// elements and keys of containers. An interface's dynamic value is
+// another conversion, indexed where it is made.
+func reachableTypes(t types.Type, seen map[string]bool) []types.Type {
+	t = types.Unalias(t)
+	if p, ok := t.(*types.Pointer); ok {
+		return reachableTypes(p.Elem(), seen)
+	}
+	k := types.TypeString(t, nil)
+	if seen[k] || types.IsInterface(t) {
+		return nil
+	}
+	seen[k] = true
+	out := []types.Type{t}
+	switch u := t.Underlying().(type) {
+	case *types.Struct:
+		for i := range u.NumFields() {
+			if u.Field(i).Exported() {
+				out = append(out, reachableTypes(u.Field(i).Type(), seen)...)
+			}
+		}
+	case *types.Slice:
+		out = append(out, reachableTypes(u.Elem(), seen)...)
+	case *types.Array:
+		out = append(out, reachableTypes(u.Elem(), seen)...)
+	case *types.Chan:
+		out = append(out, reachableTypes(u.Elem(), seen)...)
+	case *types.Map:
+		out = append(out, reachableTypes(u.Key(), seen)...)
+		out = append(out, reachableTypes(u.Elem(), seen)...)
+	}
+	return out
+}
+
+func isTemplate(path string) bool { return path == "text/template" || path == "html/template" }
 
 // hasTypeParam reports whether t is, points to or instantiates with a
 // type parameter: a generic body's conversion, whose instances the index
@@ -352,16 +452,19 @@ func (a *codeAnalysis) returnLeaks(f *ssa.Function, seen map[ssa.Value]bool) str
 }
 
 // storeLeaks follows a value stored at addr to every read of the place:
-// a local variable's loads, a global's, or a field's anywhere (the field
-// of every value of the struct type, as the graph's VTA joins them). A
-// place whose address is handed on, a field of a type declared outside
-// the program, or any other place, leaks it.
+// a local variable's loads, a global's of the program, or a field's
+// anywhere (the field of every value of the struct type, as the graph's
+// VTA joins them). A place whose address is handed on, a variable or a
+// field of a type code outside declares, or any other place, leaks it.
 func (a *codeAnalysis) storeLeaks(addr ssa.Value, seen map[ssa.Value]bool) string {
 	x := a.index()
 	switch ad := addr.(type) {
 	case *ssa.Alloc:
 		return a.loadsLeak(ad, *ad.Referrers(), seen)
 	case *ssa.Global:
+		if ad.Pkg == nil || !a.program[ad.Pkg.Pkg.Path()] {
+			return fmt.Sprintf("is stored in %s, a variable of code outside", ad)
+		}
 		return a.loadsLeak(ad, x.globalUses[ad], seen)
 	case *ssa.FieldAddr:
 		if !a.declaredHere(ad.X.Type()) {
@@ -410,14 +513,17 @@ func (a *codeAnalysis) loadsLeak(place ssa.Value, uses []ssa.Instruction, seen m
 }
 
 // declaredHere reports whether t, or what it points to, is a struct type
-// the program declares (a literal type counts as its user's).
+// the program declares. A literal struct type with an exported field
+// counts as outside's: code outside can spell the same type and read the
+// field, from an interface or a parameter, without reflection.
 func (a *codeAnalysis) declaredHere(t types.Type) bool {
 	if p, ok := t.Underlying().(*types.Pointer); ok {
 		t = p.Elem()
 	}
 	n, ok := types.Unalias(t).(*types.Named)
 	if !ok {
-		return true
+		st, isStruct := t.Underlying().(*types.Struct)
+		return !isStruct || !slices.ContainsFunc(fieldsOf(st), (*types.Var).Exported)
 	}
 	return n.Obj().Pkg() != nil && a.program[n.Obj().Pkg().Path()]
 }
@@ -438,5 +544,13 @@ func outsideImports(deps []*packages.Package, program map[string]bool) []string 
 		}
 	})
 	slices.Sort(out)
+	return out
+}
+
+func fieldsOf(st *types.Struct) []*types.Var {
+	out := make([]*types.Var, st.NumFields())
+	for i := range out {
+		out[i] = st.Field(i)
+	}
 	return out
 }

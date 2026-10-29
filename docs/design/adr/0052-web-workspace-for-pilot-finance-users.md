@@ -1337,30 +1337,49 @@ What the API gaps settled, and where they depart from §3:
   such value forward through the program: calls of it and methods invoked
   on it stay inside; phis, conversions and assertions, closures capturing
   it, the parameters of functions with bodies it is given, the callers of
-  a function returning it, and stores into a local variable, a global or a
-  field of a struct type the program declares (every read of that field,
-  as VTA joins them) are followed; a function without a body here, a call
-  of a function value or interface method (whose callee code outside may
-  have provided), an element of a slice or map, a channel, a field of a
-  type declared outside the program, or any other use counts as escaping.
-  A type given to a generic function outside the program escapes with all
-  its exported methods; the API's handler gives api/gen only the served
-  methods once `sealHandler` holds. One premise is stated, not checked,
-  since the analysis does not read the dependencies' code: code outside
-  does not read a function from a field of a struct of the program it is
-  given and call it, which only reflection could do. `checkParamPremise`
-  applies the same rule to `untakenBranches`' parameter premises. The
-  check runs on every run, inside `givenMade`, so a change that hands such
-  a function to code outside keeps its edges rather than cutting them.
-  Today none of the 176 functions whose calls a cut relies on escapes
-  (1,130 of the functions the graph shows called do: the operations'
-  methods api/gen calls, the generated server's, standard-library types'),
-  and no list changes. `TestProblemCodesFieldCalls` proves it on
+  a function returning it, and stores into a local variable, a global of
+  the program or a field of a struct type the program declares (every read
+  of that field, as VTA joins them) are followed; a function without a
+  body here, a call of a function value or interface method (whose callee
+  code outside may have provided), an element of a slice or map, a
+  channel, a variable of code outside (`flag.Usage`), a field of a type
+  declared outside the program or of a literal struct type with an
+  exported field (which code outside can spell), or any other use counts
+  as escaping. A type given to a generic function outside the program
+  escapes with all its exported methods; the API's handler gives api/gen
+  only the served methods once `sealHandler` holds (the index is built
+  after the seal). A template (text/template, html/template) may call any
+  exported method of anything its data holds, so every type reflection
+  reaches from an execution's data (through pointers, exported fields and
+  container elements) escapes with its exported methods, and data whose
+  type the call does not show fails the test. Two premises are stated, not
+  checked, since the analysis does not read the dependencies' code: code
+  outside does not read a function from a field of a struct of the program
+  it is given and call it, which only reflection could do; and the methods
+  it calls by reflection on values nested in what it is given (an exported
+  field, an element) are those of the interfaces the walking package
+  checks for (fmt's Stringer and Formatter, error, the encoders'
+  Marshalers), none of which takes a function. Following nested values for
+  every conversion instead would have made 13 functions a cut relies on
+  escape, through activity structs Temporal registers
+  (`workflows.Payments` holds `*payments.Endpoints`), a `*agents.Gateway`
+  handed to net/http and approval and secret handlers kept in maps, and
+  added codes no outside caller can produce. `checkParamPremise` applies
+  the same rule to `untakenBranches`' parameter premises. The check runs
+  on every run, inside `givenMade`, so a change that hands such a function
+  to code outside keeps its edges rather than cutting them. Today none of
+  the 176 functions whose calls a cut relies on escapes (1,130 of the
+  functions the graph shows called do: the operations' methods api/gen
+  calls, the generated server's, standard-library types'), and no list
+  changes. `TestProblemCodesFieldCalls` proves it on
   `api/testdata/fieldcalls`: `callE`, whose value goes to a `sync.Map`,
   and a `*Runner`'s `Run`, which goes to `fmt.Sprint`, keep their joined
   codes, while a `*Keeper`'s `Keep`, whose interface stays in a variable
   of the program, is cut to each caller's own; `TestProblemCodesEscapes`
-  checks the reasons and `outsideImports`' refusal. Not done, as precision
+  checks the reasons, each way the flow goes (a field read back to be
+  called, a function's result, a variable of code outside, a literal
+  struct, an outside generic, a template's data) and the refusals of
+  `outsideImports` and of untyped template data. Not done, as precision
   rather than soundness: a function nothing in the program calls and that
   does not escape is never called, so its parameters could count as made,
   which would cut through a value method's pointer wrapper; such a
