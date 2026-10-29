@@ -110,6 +110,7 @@ type LegalEntities interface {
 type OpenItems interface {
 	Payable(ctx context.Context, legalEntity uuid.UUID, currency string, documentDateTo time.Time) ([]ledger.PayableItem, error)
 	References(ctx context.Context, entries []uuid.UUID) (map[uuid.UUID]string, error)
+	Numbers(ctx context.Context, entries []uuid.UUID) (map[uuid.UUID]string, error) // what a payment's item shows beside its entry's id
 	Unpayable(ctx context.Context, items []ledger.ItemRef) (map[ledger.ItemRef]string, error)
 }
 
@@ -188,10 +189,12 @@ type Endpoints struct {
 // DownPayments is what payments reads and records about down payment
 // requests (payables context, through the adapter in internal/app, so
 // neither context imports the other): the open requests due by a date,
-// one request, and that a released run's payment paid it.
+// one request, the requests' document numbers, and that a released run's
+// payment paid it.
 type DownPayments interface {
 	Due(ctx context.Context, legalEntity uuid.UUID, currency string, by time.Time) ([]DownPayment, error)
 	Request(ctx context.Context, id uuid.UUID) (DownPayment, error)
+	Numbers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) // what a payment or an exclusion shows beside its request's id
 	Paid(ctx context.Context, id uuid.UUID, fiscalYear int16, entryID uuid.UUID) error
 }
 

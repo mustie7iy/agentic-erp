@@ -28453,6 +28453,8 @@ type Payment struct {
 	Kind OptString `json:"kind"`
 	// The down payment request a payment of kind `down_payment` pays.
 	DownPaymentRequestID OptUUID `json:"down_payment_request_id"`
+	// The request's document number; present exactly when `down_payment_request_id` is.
+	DownPaymentRequestNumber OptString `json:"down_payment_request_number"`
 	// House bank that pays it: the run's, or for a run proposed without one, the first ranked for its
 	// payment method and currency (T45c).
 	HouseBankID OptUUID `json:"house_bank_id"`
@@ -28535,6 +28537,11 @@ func (s *Payment) GetKind() OptString {
 // GetDownPaymentRequestID returns the value of DownPaymentRequestID.
 func (s *Payment) GetDownPaymentRequestID() OptUUID {
 	return s.DownPaymentRequestID
+}
+
+// GetDownPaymentRequestNumber returns the value of DownPaymentRequestNumber.
+func (s *Payment) GetDownPaymentRequestNumber() OptString {
+	return s.DownPaymentRequestNumber
 }
 
 // GetHouseBankID returns the value of HouseBankID.
@@ -28627,6 +28634,11 @@ func (s *Payment) SetDownPaymentRequestID(val OptUUID) {
 	s.DownPaymentRequestID = val
 }
 
+// SetDownPaymentRequestNumber sets the value of DownPaymentRequestNumber.
+func (s *Payment) SetDownPaymentRequestNumber(val OptString) {
+	s.DownPaymentRequestNumber = val
+}
+
 // SetHouseBankID sets the value of HouseBankID.
 func (s *Payment) SetHouseBankID(val OptUUID) {
 	s.HouseBankID = val
@@ -28653,16 +28665,18 @@ type PaymentExclusion struct {
 	// here; values may be added within /v1. A release also excludes, with `item_reversed` or
 	// `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid.
 	// `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run
-	// date (T46c); a request's exclusion names it (`down_payment_request_id`), and the supplier's items
-	// may still be paid. `no_house_bank` leaves out a supplier, or a request, of a run proposed without a
-	// house bank when none of the supplier's payment methods has a house bank ranked for the run currency
-	// (T45c).
+	// date (T46c); a request's exclusion names it (`down_payment_request_id`,
+	// `down_payment_request_number`), and the supplier's items may still be paid. `no_house_bank` leaves
+	// out a supplier, or a request, of a run proposed without a house bank when none of the supplier's
+	// payment methods has a house bank ranked for the run currency (T45c).
 	ReasonCode string `json:"reason_code"`
 	// The down payment request left out, when the exclusion is a request's (T46c): a run lists one
 	// exclusion per supplier for its items and one per request left out, so a supplier may appear more
 	// than once, not necessarily next to each other (the listing is ordered by supplier for items and by
 	// request for requests).
 	DownPaymentRequestID OptUUID `json:"down_payment_request_id"`
+	// The request's document number; present exactly when `down_payment_request_id` is.
+	DownPaymentRequestNumber OptString `json:"down_payment_request_number"`
 	// Amount that would otherwise have been paid.
 	Amount Money `json:"amount"`
 }
@@ -28685,6 +28699,11 @@ func (s *PaymentExclusion) GetReasonCode() string {
 // GetDownPaymentRequestID returns the value of DownPaymentRequestID.
 func (s *PaymentExclusion) GetDownPaymentRequestID() OptUUID {
 	return s.DownPaymentRequestID
+}
+
+// GetDownPaymentRequestNumber returns the value of DownPaymentRequestNumber.
+func (s *PaymentExclusion) GetDownPaymentRequestNumber() OptString {
+	return s.DownPaymentRequestNumber
 }
 
 // GetAmount returns the value of Amount.
@@ -28710,6 +28729,11 @@ func (s *PaymentExclusion) SetReasonCode(val string) {
 // SetDownPaymentRequestID sets the value of DownPaymentRequestID.
 func (s *PaymentExclusion) SetDownPaymentRequestID(val OptUUID) {
 	s.DownPaymentRequestID = val
+}
+
+// SetDownPaymentRequestNumber sets the value of DownPaymentRequestNumber.
+func (s *PaymentExclusion) SetDownPaymentRequestNumber(val OptString) {
+	s.DownPaymentRequestNumber = val
 }
 
 // SetAmount sets the value of Amount.
@@ -28768,6 +28792,9 @@ type PaymentItem struct {
 	FiscalYear int32 `json:"fiscal_year"`
 	// Journal entry of the open item.
 	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// Document number of the open item's journal entry, as the open item gives it
+	// (`OpenItem.document_number`).
+	DocumentNumber string `json:"document_number"`
 	// Line of the open item.
 	LineNo int32 `json:"line_no"`
 	// The item's open amount the payment settles, before the discount; negative on a credit memo.
@@ -28794,6 +28821,11 @@ func (s *PaymentItem) GetFiscalYear() int32 {
 // GetJournalEntryID returns the value of JournalEntryID.
 func (s *PaymentItem) GetJournalEntryID() uuid.UUID {
 	return s.JournalEntryID
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *PaymentItem) GetDocumentNumber() string {
+	return s.DocumentNumber
 }
 
 // GetLineNo returns the value of LineNo.
@@ -28834,6 +28866,11 @@ func (s *PaymentItem) SetFiscalYear(val int32) {
 // SetJournalEntryID sets the value of JournalEntryID.
 func (s *PaymentItem) SetJournalEntryID(val uuid.UUID) {
 	s.JournalEntryID = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *PaymentItem) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
 }
 
 // SetLineNo sets the value of LineNo.

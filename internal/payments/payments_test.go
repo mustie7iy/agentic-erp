@@ -325,12 +325,15 @@ func (e env) run(t *testing.T, runDate, dueBy string) map[string]any {
 func (e env) payments(t *testing.T, run map[string]any) []any {
 	t.Helper()
 	page, _ := e.Must(200, "GET", "/v1/payment-runs/"+id(run)+"/payments", "", "")
+	wantRequestNumbers(t, "payment", page)
+	wantItemNumbers(t, page)
 	return page["items"].([]any)
 }
 
 func (e env) exclusions(t *testing.T, run map[string]any) map[string]string {
 	t.Helper()
 	page, _ := e.Must(200, "GET", "/v1/payment-runs/"+id(run)+"/exclusions", "", "")
+	wantRequestNumbers(t, "exclusion", page)
 	out := map[string]string{}
 	for _, x := range page["items"].([]any) {
 		m := x.(map[string]any)

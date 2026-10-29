@@ -2,6 +2,7 @@ package ledger_test
 
 import (
 	"context"
+	"maps"
 	"testing"
 
 	"github.com/google/uuid"
@@ -139,6 +140,10 @@ func (s *settleScenario) outsideAUnitOfWork(t *testing.T) {
 			_, err := ledger.OpenItems{}.References(ctx, []uuid.UUID{eur.EntryID})
 			return err
 		},
+		"numbers": func(ctx context.Context) error {
+			_, err := ledger.OpenItems{}.Numbers(ctx, []uuid.UUID{eur.EntryID})
+			return err
+		},
 		"settle": func(ctx context.Context) error {
 			_, err := postings().Settle(ctx, settlementOf(t, e, e.us, "1000", "USD", "2026-04-15", usd))
 			return err
@@ -226,6 +231,7 @@ func (s *settleScenario) openItems(t *testing.T) {
 		if refs[usd.EntryID] != "INV-3" {
 			t.Errorf("reference of the USD item: got %q, want INV-3", refs[usd.EntryID])
 		}
+		s.numbers(ctx, t)
 		entry, err := postings().Settle(ctx, settlementOf(t, e, e.de, "2000", "EUR", "2026-04-15", eur))
 		switch {
 		case err != nil:
@@ -381,5 +387,26 @@ func TestMigrationPorts(t *testing.T) {
 			}
 			apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
 		})
+	}
+}
+
+// numbers checks OpenItems.Numbers: each entry's document number as the
+// ledger holds it, an id that names no entry left out.
+func (s *settleScenario) numbers(ctx context.Context, t *testing.T) {
+	t.Helper()
+	want := map[uuid.UUID]string{}
+	for _, entry := range []uuid.UUID{s.eur.EntryID, s.usd.EntryID} {
+		var number string
+		if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT document_number FROM ledger.journal_entry WHERE id = $1`, entry).Scan(&number); err != nil {
+			t.Fatal(err)
+		}
+		want[entry] = number
+	}
+	got, err := ledger.OpenItems{}.Numbers(ctx, []uuid.UUID{s.eur.EntryID, s.usd.EntryID, uuid.New()})
+	if err != nil {
+		t.Errorf("numbers: %v", err)
+	}
+	if !maps.Equal(got, want) {
+		t.Errorf("numbers: got %v, want %v", got, want)
 	}
 }

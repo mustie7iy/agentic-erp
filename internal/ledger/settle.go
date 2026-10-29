@@ -120,17 +120,31 @@ func (OpenItems) Unpayable(ctx context.Context, refs []ItemRef) (map[ItemRef]str
 // References returns the reference of each entry, or its document number
 // when it has none: what a payment tells the supplier it settles.
 func (OpenItems) References(ctx context.Context, entries []uuid.UUID) (map[uuid.UUID]string, error) {
+	return entryTexts(ctx, `SELECT id, coalesce(reference, document_number) FROM ledger.journal_entry WHERE id = ANY($1)`, "references", entries)
+}
+
+// Numbers returns the entries' document numbers, keyed by id: what a
+// payment's open item shows beside its entry's id. An id that names no
+// entry is left out.
+func (OpenItems) Numbers(ctx context.Context, entries []uuid.UUID) (map[uuid.UUID]string, error) {
+	return entryTexts(ctx, `SELECT id, document_number FROM ledger.journal_entry WHERE id = ANY($1)`, "document numbers", entries)
+}
+
+// entryTexts runs query, which selects an entry's id and a text of it for
+// the entries in $1, and keys the texts by id; what names the texts in the
+// error.
+func entryTexts(ctx context.Context, query, what string, entries []uuid.UUID) (map[uuid.UUID]string, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT id, coalesce(reference, document_number) FROM ledger.journal_entry WHERE id = ANY($1)`, entries)
+	rows, _ := tx.Query(ctx, query, entries)
 	out := map[uuid.UUID]string{}
 	var id uuid.UUID
-	var ref string
-	_, err = pgx.ForEachRow(rows, []any{&id, &ref}, func() error { out[id] = ref; return nil })
+	var text string
+	_, err = pgx.ForEachRow(rows, []any{&id, &text}, func() error { out[id] = text; return nil })
 	if err != nil {
-		return out, fmt.Errorf("ledger: references of %d entries: %w", len(entries), err)
+		return nil, fmt.Errorf("ledger: %s of %d entries: %w", what, len(entries), err)
 	}
 	return out, nil
 }
