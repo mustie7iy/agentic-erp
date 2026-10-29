@@ -6604,6 +6604,20 @@
         "r": "temporal/cmd/erp-temporal schema.go (post-pilot, PO 2026-10-21)",
         "src": "baseline",
         "c": []
+       },
+       {
+        "s": "T",
+        "t": "PUBLIC's rights on object kinds pg_shdepend does not record are taken back or refused by the directory's Setup (follow-up of T72h's review, the class: a right given by hand that Setup neither takes back nor refuses): large objects, foreign servers and wrappers, languages, and server-wide parameter ACLs",
+        "r": "internal/directory/setup.go",
+        "src": "review:T72h",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The directory's logins reach no other database on the directory's server (follow-up of T72h's review): PUBLIC's CONNECT and TEMPORARY defaults and hand grants on other databases (e.g. postgres) stay usable by every login; refuse or document a server holding other databases, or take PUBLIC's CONNECT on them with the IAM authentication step",
+        "r": "internal/directory/setup.go · ADR-0035",
+        "src": "review:T72h",
+        "c": []
        }
       ]
      },
