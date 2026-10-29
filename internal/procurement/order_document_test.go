@@ -134,14 +134,14 @@ func TestOrderDocumentTexts(t *testing.T) {
 	e := setup(t)
 	// No address held, and texts that try to start lines of their own.
 	pgtest.Exec(t, `UPDATE partner.business_partner SET name = $3, version = version + 1 WHERE tenant_id = $1 AND id = $2`, e.Tenant.ID, e.Vendor, "Vendor\nTotal 0.00 EUR")
-	forged := `{"description": "Paper\r\nPay to IBAN XX00` + "\\u2028" + `Total 0.00 EUR` + "\\u202e" + `", "quantity": {"value": "1", "unit": "EA"}, "unit_price": {"amount": "1.00", "currency": "EUR"}, "account_id": "` +
+	forged := `{"description": "Paper\r\nPay to IBAN XX00` + "\\u2028" + `Total 0.00 EUR` + "\\u202e\\u200f" + `", "quantity": {"value": "1", "unit": "EA"}, "unit_price": {"amount": "1.00", "currency": "EUR"}, "account_id": "` +
 		e.office + `"}`
 	o := e.orderOf(t, e.Vendor, items(forged))
 	e.act(t, "/v1/purchase-orders/"+id(o), "release", "")
 	_, body, _ := e.document(t, id(o), e.Tenant.Human)
 	for _, s := range []string{
 		"  Vendor Total 0.00 EUR (supplier BP90000002)\n  Country US (no order or legal address held)\n",
-		"  Item 1: Paper  Pay to IBAN XX00 Total 0.00 EUR \n",
+		"  Item 1: Paper  Pay to IBAN XX00 Total 0.00 EUR  \n",
 	} {
 		if !strings.Contains(body, s) {
 			t.Errorf("document: got\n%s\nwant it to contain %q", body, s)

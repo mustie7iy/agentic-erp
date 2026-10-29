@@ -189,9 +189,12 @@ func line(b *strings.Builder, format string, args ...any) {
 	b.WriteByte('\n')
 }
 
-// bidiControls are the Unicode embeddings, overrides and isolates
-// (U+202A-U+202E, U+2066-U+2069).
-var bidiControls = &unicode.RangeTable{R16: []unicode.Range16{{Lo: 0x202a, Hi: 0x202e, Stride: 1}, {Lo: 0x2066, Hi: 0x2069, Stride: 1}}}
+// bidiControls are the Unicode bidirectional formatting characters: the
+// Arabic letter mark (U+061C), the left-to-right and right-to-left marks
+// (U+200E, U+200F), the embeddings and overrides (U+202A-U+202E) and the
+// isolates (U+2066-U+2069). Joiners (ZWJ, ZWNJ) stay: names need them.
+var bidiControls = &unicode.RangeTable{R16: []unicode.Range16{{Lo: 0x061c, Hi: 0x061c, Stride: 1}, {Lo: 0x200e, Hi: 0x200f, Stride: 1},
+	{Lo: 0x202a, Hi: 0x202e, Stride: 1}, {Lo: 0x2066, Hi: 0x2069, Stride: 1}}}
 
 func plain(r rune) rune {
 	if unicode.IsControl(r) || unicode.In(r, unicode.Zl, unicode.Zp, bidiControls) {

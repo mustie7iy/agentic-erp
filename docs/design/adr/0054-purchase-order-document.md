@@ -43,8 +43,9 @@ stored, or whether producing it is audited.
    answers the order's document as `text/plain; charset=utf-8`, as
    `GET /v1/supplier-invoices/{id}/document` and `GET
    /v1/bank-files/{id}/content` answer theirs as files (04 §4.11). It
-   needs `procurement.order.read` and the order's company, as reading the
-   order does: a caller without it gets 404, so the order's existence
+   needs `procurement.order.read` (403 `identity.permission_missing`
+   without it) and the order's company, as reading the order does: a
+   caller without the order's company gets 404, so the order's existence
    does not leak.
 2. **Only an order that may go to the supplier.** A `released` or
    `closed` order has a document; a `draft`, `pending_approval` or
@@ -74,8 +75,9 @@ stored, or whether producing it is audited.
    printed with a wrong total.
 6. **Texts cannot forge lines.** Names, addresses and item descriptions
    are typed by people or migrated. Control characters, Unicode line and
-   paragraph separators and bidirectional embeddings, overrides and
-   isolates in them are printed as spaces, so no value starts a line of
+   paragraph separators and the bidirectional formatting characters
+   (marks, embeddings, overrides and isolates) in them are printed as
+   spaces, so no value starts a line of
    its own (a second "Total", a bank account) or reorders one.
 7. **The channel is not consulted.** The document is the printed form
    whatever `output.purchase_order_channel` says; the channel will choose
@@ -111,6 +113,10 @@ stored, or whether producing it is audited.
   needs, and not held anywhere: the buyer company's postal address and
   tax registration, a delivery date and address per item, and a contact
   person. Adding them is new master data, a product owner decision.
+- The contract an order is placed against, and a contract item's
+  material key (often the supplier's own part number), are held but not
+  printed: T72g's acceptance does not name them. Printing them is a small
+  addition if suppliers ask for it.
 - A reprint after the supplier's address changed shows the new address;
   the order's own fields are its current revision.
 
