@@ -56,9 +56,9 @@ and T72b's never-guess rule:
   invoice, credit or down payment) and a line of a GR/IR position the load
   takes over. An open item without RWCUR is refused too (an OData extract's
   are), rather than assumed to be in the company's currency. Lines SAP
-  cleared, lines of no amount and lines on other accounts carry no open item
-  and are not checked: their foreign-currency history posts in local
-  currency, as before.
+  reports as cleared (AUGBL), lines of no amount and lines on other
+  accounts are not checked: they post in local currency, as before, and a
+  cleared line the run's clearing completes is cleared on the platform too.
 - **Not built.** Migrating foreign-currency open items in their document
   currency (WSL, with their rate) is not this step, and no tracker item asks
   for it yet.

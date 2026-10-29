@@ -96,8 +96,9 @@ open GR/IR position, named by its document and line. Loaded in local currency
 only, it could not be cleared in its own currency (`ledger.mixed_items`).
 Foreign-currency open items are not migrated yet. An open item without a
 document currency is refused too, rather than assumed to be in the company's
-(an OData extract does not carry RWCUR yet); lines SAP cleared and lines of no
-amount leave no open item and are not checked (ADR-0005, As built).
+(an OData extract does not carry RWCUR yet). Lines SAP reports as cleared
+(AUGBL), lines of no amount and lines on other accounts are not checked
+(ADR-0005, As built).
 
 ## Reconciliation controls
 

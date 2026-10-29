@@ -140,6 +140,9 @@ type qualityCheck struct {
 	// reconciliation account (LFB1-AKONT), specialAccounts those T074 names
 	// as special G/L accounts (specialGL).
 	vendorAccounts, specialAccounts map[string]bool
+	// positions are the extract's GR/IR positions (grirChecks), whose
+	// open ones documentCurrencies checks too.
+	positions map[string]*grirPosition
 }
 
 func (q *qualityCheck) add(sev, table, key, format string, args ...any) {
@@ -357,13 +360,13 @@ func (q *qualityCheck) journalLine(l sap.ACDOCA, s *journalScan) {
 // posts every line in company code currency (HSL): a foreign-currency
 // open item, an invoice, a down payment or a GR/IR position, would load
 // as a local-currency item that could not be cleared in its own currency
-// (review:batch20). Such items are not migrated yet; lines SAP cleared
-// and lines of no amount leave no open item and are not checked.
+// (review:batch20). Such items are not migrated yet. Lines SAP reports as
+// cleared (AUGBL) and lines of no amount are not checked. It runs after
+// grirChecks, which reads the positions.
 func (q *qualityCheck) documentCurrencies() {
-	positions := grirPositions(q.e, q.t)
 	for _, l := range q.e.ACDOCA {
 		cur := q.currency[l.RBUKRS]
-		if l.RWCUR == cur || !q.openItem(l, positions) {
+		if l.RWCUR == cur || !q.openItem(l) {
 			continue
 		}
 		key := documentKey(l) + "/" + l.DOCLN
@@ -383,7 +386,7 @@ func (q *qualityCheck) documentCurrencies() {
 // ordinary payable or a down payment, as the load gives it its partner),
 // or a line of a GR/IR position the load takes over. A line that does not
 // parse is journalLine's to refuse.
-func (q *qualityCheck) openItem(l sap.ACDOCA, positions map[string]*grirPosition) bool {
+func (q *qualityCheck) openItem(l sap.ACDOCA) bool {
 	amt, err := q.t.amount(l.HSL, q.currency[l.RBUKRS])
 	if err != nil || amt == 0 {
 		return false
@@ -392,7 +395,7 @@ func (q *qualityCheck) openItem(l sap.ACDOCA, positions map[string]*grirPosition
 	if account.ReconciliationKind == "supplier" {
 		return l.AUGBL == ""
 	}
-	p := positions[l.EBELN+"/"+l.EBELP]
+	p := q.positions[l.EBELN+"/"+l.EBELP]
 	return account.GRIR && p != nil && p.open()
 }
 

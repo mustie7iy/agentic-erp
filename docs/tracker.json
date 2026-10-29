@@ -6475,7 +6475,7 @@
        {
         "s": "T",
         "t": "Validation against a live system's $metadata",
-        "r": "(waits on: access to the pilot's SAP system)",
+        "r": "(waits on: access to the pilot's SAP system) · ACDOCA RWCUR/WSL not mapped yet, so an OData extract's open items are refused (review:batch20)",
         "src": "baseline",
         "c": []
        }
