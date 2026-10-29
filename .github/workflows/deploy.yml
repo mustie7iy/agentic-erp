@@ -33,13 +33,11 @@ on:
       - scripts/temporal-checks.sh
       - temporal/**
       - scripts/lib/**
-      # The other files the scripts read: temporal-checks.sh's lint rules,
-      # and the golangci-lint scripts/ci-local.sh runs it with (the temporal
-      # job pins the same version); the module nats-checks.sh builds its
-      # nats-server from; the ko and signing configurations
-      # test-mirror-images.sh reads through provenance.sh and sign-images.sh.
+      # The other files the scripts read: temporal-checks.sh's lint rules;
+      # the module nats-checks.sh builds its nats-server from; the ko and
+      # signing configurations test-mirror-images.sh reads through
+      # provenance.sh and sign-images.sh.
       - .golangci.yml
-      - scripts/ci-tools.sh
       - go.mod
       - go.sum
       - .ko.yaml

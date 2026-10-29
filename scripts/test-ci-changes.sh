@@ -145,14 +145,14 @@ prev="$c"
 c="$(change .github/workflows/weekly.yml)"
 expect_out "any workflow runs the deploy checks (actionlint)" "$c" deploy true
 # The other files the deploy checks read (review:batch21): each starts them.
-for input in .golangci.yml scripts/ci-tools.sh go.mod go.sum .ko.yaml release/signing-config.json; do
+for input in .golangci.yml go.mod go.sum .ko.yaml release/signing-config.json; do
   prev="$c"
   c="$(change "$input")"
   expect_out "$input, which a deploy check reads, runs the deploy checks" "$c" deploy true
 done
 prev="$c"
-c="$(change internal/x/go.mod release/cosign.pub)"
-expect_out "a go.mod outside the root and another release file leave the deploy checks out" "$c" deploy false
+c="$(change internal/x/go.mod release/cosign.pub scripts/ci-tools.sh)"
+expect_out "a go.mod outside the root, another release file and the Go tools' pins leave the deploy checks out" "$c" deploy false
 prev="$c"
 c="$(change scripts/test-rollback-drill.sh)"
 expect_out "a promotion check's test runs the promotion self-test" "$c" promotion true
