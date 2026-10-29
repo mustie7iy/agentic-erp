@@ -594,6 +594,20 @@
       "r": "follow-up of the overpayment fix · 03 §3.9",
       "src": "baseline",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "Migrated SAP corrections pass matching (pre-existing finding on T72b): invoicedQuantities counts only invoices posted in the platform, so every migrated credit memo is held with quantity_exceeds_invoiced and every subsequent debit/credit with nothing_invoiced until a person releases it; the quantities SAP already invoiced (posted RSEG) are taken over at migration",
+      "r": "internal/payables/match.go invoicedQuantities · internal/integration load",
+      "src": "review:T72b",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "The contract describes SupplierInvoiceItem.quantity as positive, but subsequent debit/credit items carry quantity 0 (pre-existing finding on T72b)",
+      "r": "api/openapi.yaml SupplierInvoiceItem",
+      "src": "review:T72b",
+      "c": []
      }
     ]
    },
@@ -836,6 +850,27 @@
         "t": "SAP load of Canadian accounts: vendor bank accounts (LFBK) as scheme ca with institution and transit numbers, and Canadian house banks (T012K) without an IBAN",
         "r": "integration/banks.go (load, quality gate LFBK, reconciliation check of vendor bank accounts) · delivery/sapconfig canadianAccount · cabank.SplitMemberID · partner.Suppliers.PaymentAccounts · ADR-0038 As built (T72d) · T72d",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "SAP bank accounts attach to the right vendor (pre-existing finding on T72d): the OData mapping takes LFBK's vendor from A_BusinessPartnerBank.BusinessPartner, assuming business partner and vendor numbers are equal; where the ranges differ, accounts attach to no vendor or the wrong one; checked against the pilot's set-up",
+        "r": "internal/sap/odata.go",
+        "src": "review:T72d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "House banks show their Canadian routing (pre-existing finding on T72d, API-consumer classes): listHouseBanks returns institution and transit numbers, and account_last4 is not described as of the IBAN",
+        "r": "api/openapi.yaml HouseBank · internal/payments",
+        "src": "review:T72d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Payments name their supplier (pre-existing finding on T72d, API-consumer classes): listPayments items give the supplier's name beside supplier_id",
+        "r": "api/openapi.yaml Payment · internal/payments",
+        "src": "review:T72d",
         "c": []
        }
       ]
@@ -2529,6 +2564,27 @@
       "t": "Move open direct-valued orders onto GR/IR (optional)",
       "r": "T72f",
       "src": "baseline",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A purchase order's change history answers page 2 (pre-existing finding on T72e): its select joins purchase_order, so the keyset's unqualified id is ambiguous and page 2 answers 500; its test never asks for page 2",
+      "r": "internal/procurement/order_changes.go · api.go",
+      "src": "review:T72e",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "GR/IR balances name what they count (pre-existing finding on T72e, API-consumer classes): rows give the order's number beside purchase_order_id and the account's number and name beside account_id, and the report gives totals",
+      "r": "internal/ledger/grir_list.go · api/openapi.yaml listGrIrBalances",
+      "src": "review:T72e",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Approval requests lead to their object (pre-existing finding on T72e): ApprovalRequest.object_type lists payment_run_release, and an order_change request carries what a consumer needs to reach the change",
+      "r": "api/openapi.yaml ApprovalRequest · internal/approvals",
+      "src": "review:T72e",
       "c": []
      }
     ]
@@ -8447,6 +8503,20 @@
       "t": "06 §6.5 lists the inputs that start the image reproducibility gate and the signing round trip as scripts/ci-changes.sh's images class has them, .dockerignore, deploy/images/, scripts/test-images and scripts/lib/sbom-root included, and names the script as the rule (pre-existing review finding on batch 17)",
       "r": "06 §6.5 · scripts/ci-changes.sh",
       "src": "review:batch17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "scripts/coverage.sh sets a go test timeout (finding on T72b): under load internal/analytics/extract and internal/web hit go test's default 10 minutes and make coverage fails though nothing is wrong",
+      "r": "scripts/coverage.sh",
+      "src": "review:T72b",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "06 §6.9 asks for two reviewers on migrations, contracts and security-sensitive code; every step has one agent reviewer (pre-existing finding on the process change): the rule and the practice are made to agree",
+      "r": "docs/design/06-engineering-process.md §6.9 · REVIEW.md",
+      "src": "review:batch18",
       "c": []
      }
     ]
