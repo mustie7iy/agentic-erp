@@ -5286,6 +5286,13 @@
        },
        {
         "s": "D",
+        "t": "reconcileMigrationRun's x-problem-codes lists about 150 codes only the load can answer (partner.*, payables.*, ledger.gr_ir_position_exists, procurement.no_gr_ir_account, ...; pre-existing finding on batch 23): api/problemcodes_test.go's call graph joins the work functions integration.Endpoints.runStep calls through step.work, a field of its struct parameter, so reconciling reached the load (runStep, load$bound, load); call-graph imprecision, not a branch condition, so untakenBranches does not fit",
+        "r": "api/problemcodes_test.go callersMake, holdsMade · api/testdata/fieldcalls · TestProblemCodesFieldCalls · api/openapi.yaml x-problem-codes · ADR-0052 G7: function values in a parameter's fields",
+        "src": "review:batch23",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "Approvals inbox: the requests decidable by me (pages read on while the API thins them), a request's page with summary, steps and decisions, approve with a comment and reject with a reason as forms with If-Match and a fresh idempotency key; SoD and permission refusals shown by code (barred permissions from /v1/me); requester and deciders by name and kind (names cached per session), agents' text inert; navigation and actions from /v1/me; amounts per currency and locale; EN and FR; usable at 390 px; scenarios as approver, requester and a person without the role",
         "r": "internal/web approvals.go · me.go · refusal.go · operations.go · ui/approvals.templ · i18n Money, Problems · TestInboxPage · TestDecide · TestDecideRefusals · TestSegregationOfDuties · TestScreensAgainstTheContract · TestApprovalsInTheBrowser · ADR-0052 Built in T73d · T73d",
         "src": "baseline",
