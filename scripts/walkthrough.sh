@@ -460,7 +460,8 @@ step_migrate() {
   grep -q ': reconciled$' "$WORK/migrate.out" || fail "the migration report does not say reconciled"
   for check in 'Trial balance: accounts with differences' 'Open payables total' 'Open payables: vendors with differences' \
     'Parked supplier invoices' 'Parked supplier credit memos' 'Parked subsequent debits' 'Parked subsequent credits' \
-    'Vendor bank accounts: vendors with differences' 'Quantities invoiced in SAP: order items with differences'; do
+    'Vendor bank accounts: vendors with differences' 'Quantities invoiced in SAP: order items with differences' \
+    'Open down payments total' 'Open down payments: vendors with differences'; do
     grep "$check" "$WORK/migrate.out" | grep -q 'PASS$' || fail "the reconciliation check '$check' did not pass"
   done
   say "The trial balance and the open payables agree with SAP's, recomputed from the raw extract, and so"
@@ -497,10 +498,47 @@ step_migrate() {
       postSupplierInvoice -p "id=$doc" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
     expect "the migrated $kind's status" "$(field .status)" posted
   done
+  migrated_down_payment
   passed
 }
 
-# The pilot's own settings, proposed with the pack: a CAD and a USD house
+# migrated_down_payment shows SAP's open down payment as the AP clerk sees
+# it after the load (T72c): a paid down payment request of the supplier and
+# its open special G/L item A, reconciled apart from the open payables. It
+# keeps the supplier (DP_SUPPLIER, DP_NAME), the item and the supplier's
+# ordinary open items (DP_PAYABLE, what a run owes it) for steps 7 and 16.
+migrated_down_payment() {
+  local lifnr owed
+  lifnr=$(jq -r --arg cc "$CC" '.ACDOCA[] | select(.RBUKRS == $cc and .UMSKZ == "A" and .AUGBL == "") | .LIFNR' "$WORK/data/extract.json")
+  DP_NAME=$(jq -r --arg v "$lifnr" '.LFA1[] | select(.LIFNR == $v) | .NAME1' "$WORK/data/extract.json")
+  say "SAP had paid $DP_NAME a down payment it has not yet invoiced: a vendor line with special G/L indicator A"
+  say "(UMSKZ) on the down payment account T074 names, its input tax on V1 beside it in SAP's net display:"
+  jq -r --arg cc "$CC" '(.ACDOCA[] | select(.RBUKRS == $cc and .UMSKZ == "A")) as $d | .ACDOCA[] | select(.RBUKRS == $cc and .BELNR == $d.BELNR)
+    | "     ACDOCA \(.BELNR)/\(.DOCLN): account \(.RACCT) \(.HSL)\(if .UMSKZ then ", special G/L \(.UMSKZ)" else "" end)\(if .MWSKZ then ", tax code \(.MWSKZ)" else "" end)"' \
+    "$WORK/data/extract.json"
+  say "It came over as the platform's own down payments are posted: its document an entry of its own, the down"
+  say "payment net of tax as the supplier's special G/L item A, and a paid down payment request naming the entry."
+  QUIET=1 api 200 '' listBusinessPartners -p "name_prefix=$DP_NAME"
+  DP_SUPPLIER=$(field '.items[0].id')
+  api 200 '.items[] | "down payment request \(.document_number): \(.status), \(.amount.amount) \(.amount.currency) with tax \(.tax_amount.amount) on \(.tax_code), from \(.reference), journal entry \(.journal_entry_id)"' \
+    listDownPaymentRequests -p "legal_entity_id=$LE" -p status=paid -p "supplier_id=$DP_SUPPLIER"
+  expect "the migrated down payment requests of $DP_NAME" "$(field '.items | length')" 1
+  expect "the migrated down payment's tax" "$(field '.items[0].tax_amount.amount')" 100.00
+  DP_ENTRY=$(field '.items[0].journal_entry_id')
+  DP_REQUEST=$(field '.items[0].id')
+  api 200 '.items[] | "open item \(.document_number): \(.amount.amount) \(.amount.currency)\(if .special_gl then ", special G/L \(.special_gl)" else "" end)"' \
+    listOpenItems -p "partner_id=$DP_SUPPLIER" -p page_size=100
+  expect "the open down payment of $DP_NAME" "$(jq -r --arg e "$DP_ENTRY" '[.items[] | select(.special_gl == "A" and .journal_entry_id == $e) | .amount.amount] | join(" ")' "$WORK/last.json")" 2000.00
+  DP_LINE=$(jq -r --arg e "$DP_ENTRY" '.items[] | select(.journal_entry_id == $e) | "\(.fiscal_year) \(.line_no)"' "$WORK/last.json")
+  owed=$(jq -r '[.items[] | select(.special_gl == null) | .amount.amount | sub("\\."; "") | tonumber] | add // 0' "$WORK/last.json")
+  DP_PAYABLE=$(amount "$((0 - owed))")
+  say "A payment run nets the supplier's ordinary items only, $DP_PAYABLE CAD; the down payment waits for its invoice."
+}
+
+# The pilot's own settings, proposed with the pack. The company keeps
+# SAP's down payment account (T074, 159000; T72c), which the merge kept
+# over the pack's, so the pack's own, 1400, is left out: a company has one
+# down payment account (ADR-0037). Then a CAD and a USD house
 # bank at a Canadian bank with their accounts, the USD accounts revalued
 # at period end, statements matched by end-to-end id or amount and posted
 # with the controller's approval, a cash discount term, the cost center
@@ -520,7 +558,8 @@ PILOT_SETTINGS='
     {"code": "OP_SUPPLIERS", "name": "Supplier payments", "direction": "outflow", "parent": "OPERATING"}],
     "derivation": {"defaults": {"outflow": "OP_SUPPLIERS", "inflow": "REC_CUSTOMERS"}}}
 | (.companies[] | select(.code == "@CC@")) |= (
-    .chart_of_accounts += [
+    .chart_of_accounts |= map(select(.number != "1400"))
+    | .chart_of_accounts += [
       {"number": "1010", "name": "Bank clearing - RBC CAD", "type": "asset", "open_items": true},
       {"number": "1015", "name": "Bank incoming - RBC CAD", "type": "asset", "open_items": true},
       {"number": "1020", "name": "Bank clearing - RBC USD", "type": "asset", "open_items": true, "revalue_foreign_currency": true},
@@ -558,7 +597,8 @@ step_pack() {
   say "Ada adds the pilot's own settings to the proposal: RBC house banks in CAD and USD, USD accounts revalued"
   say "at month end, bank statement rules (match by end-to-end id, approval above CAD 10,000), payment runs"
   say "above CAD 4,000 released only after a second person approves, a 2/10 net 30 cash discount term,"
-  say "cost center categories, liquidity items and an output tax code for GST (step 11)."
+  say "cost center categories, liquidity items and an output tax code for GST (step 11). The company keeps SAP's"
+  say "down payment account (T074), so the pack's own, 1400, is left out: a company has one (ADR-0037)."
   local settings=${PILOT_SETTINGS//@YEAR@/$YEAR}
   settings=${settings//@CC@/$CC}
   jq "{title: \"Canada pack $version and the pilot's settings\", rationale: \"Pilot company set-up\", proposed: (.proposed | $settings)}" \
@@ -713,6 +753,8 @@ step_payment() {
   api 200 '.items[] | "excluded: \(.reason_code), \(.amount.amount) \(.amount.currency), supplier \(.supplier_id)"' listPaymentExclusions -p "id=$RUN" |
     name_partners
   expect "suppliers left out for want of a bank account" "$(field '[.items[] | select(.reason_code == "no_bank_account")] | length')" 0
+  say "$DP_NAME's open down payment from SAP is not netted: the run pays the supplier's open invoices in full (T72c)."
+  expect "the payment to $DP_NAME" "$(jq -r --arg n "$DP_NAME" '[.items[] | select(.supplier_name == $n) | .amount.amount] | join(" ")' "$WORK/payments.json")" "$DP_PAYABLE"
   say "The migrated Canadian suppliers are in the run, paid to their Canadian accounts, each payment naming its payee:"
   jq -r '.items[] | "\(.end_to_end_id) \(.supplier_name) \(.amount.amount) \(.amount.currency)"' "$WORK/payments.json" |
     grep -E 'Laurentian|Prairie|Rideau|Fundy|Muskoka|Cabot' | sed 's/^/     payment /' || fail "the run pays none of the migrated Canadian suppliers"
@@ -1091,8 +1133,36 @@ step_grir() {
   passed
 }
 
+step_downpayment() {
+  heading "Step 16 — SAP's open down payment is cleared against the supplier's final invoice (SAP F-54)"
+  as alex
+  say "$DP_NAME's final invoice arrives: CAD 5,000.00 plus 250.00 GST on V1. Alex enters and posts it."
+  local item invoice fy line
+  item="{\"account_id\": \"$(account 6000)\", \"description\": \"Machine, final invoice\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"5000.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$DP_SUPPLIER\", \"supplier_reference\": \"FINAL-DP\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"5250.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"250.00\", \"currency\": \"CAD\"}, \"items\": [$item]}"
+  invoice=$(field .id)
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the final invoice's status" "$(field .status)" posted
+  say "She clears the migrated down payment against it, as she would one the platform paid: the transfer credits"
+  say "the down payment account, reverses the 100.00 input tax SAP claimed on it (the invoice claims the whole tax)"
+  say "and debits the supplier's payables with the down payment, netted against the invoice in the next run."
+  read -r fy line <<<"$DP_LINE"
+  api 200 '"\(.document_number): \(.status)"' clearSupplierInvoiceDownPayments -p "id=$invoice" -if-match "$ETAG" \
+    -body "{\"posting_date\": \"$TODAY\", \"items\": [{\"fiscal_year\": $fy, \"journal_entry_id\": \"$DP_ENTRY\", \"line_no\": $line}]}"
+  api 200 '"down payment request \(.document_number): \(.status), cleared against \(.cleared_invoice_id) by entry \(.clearing_entry_id)"' \
+    getDownPaymentRequest -p "id=$DP_REQUEST"
+  expect "the migrated down payment request" "$(field .status)" cleared
+  api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)\(if .tax_code then ", tax code \(.tax_code)" else "" end)\(if .special_gl then ", special G/L \(.special_gl)" else "" end)"' \
+    getJournalEntry -p "id=$(field .clearing_entry_id)"
+  expect "the input tax reversed" "$(field '[.lines[] | select(.tax_code == "V1" and .special_gl == null) | .amount.amount] | join(" ")')" -100.00
+  api 200 '"open down payments of the supplier: \([.items[] | select(.special_gl == "A")] | length)"' listOpenItems -p "partner_id=$DP_SUPPLIER" -p page_size=100
+  expect "open down payments left" "$(field '[.items[] | select(.special_gl == "A")] | length')" 0
+  passed
+}
+
 step_audit() {
-  heading "Step 16 — The audit trail: who did what to Tyrell's invoices"
+  heading "Step 17 — The audit trail: who did what to Tyrell's invoices"
   as ada
   local inv
   for inv in "$INVOICE" "$DUPLICATE" "$CREDIT"; do
@@ -1129,7 +1199,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_audit'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit'
 
 main() {
   start

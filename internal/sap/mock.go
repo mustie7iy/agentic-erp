@@ -29,7 +29,10 @@ import (
 // bank accounts by institution, transit and account number, and two of
 // 1000's, and its house bank is Canadian, without an IBAN (T72d). Being
 // generated as 1000 is, it has the same scenarios and corrections, the
-// corrections numbered on after 1000's.
+// corrections numbered on after 1000's. It also has an open down payment
+// to the supplier of its second order, whose invoice SAP posted and did not
+// pay (special G/L A on its down payment account 0000159000, T074, with
+// input tax V1 in SAP's net display; T72c).
 //
 // Revenue follows a monthly trend that grows about 7% a year, so extracts
 // for consecutive years support year-over-year analytics.
@@ -52,6 +55,7 @@ func GenerateMockThrough(seed uint64, fiscalYear string, throughMonth int) *Extr
 	g.company("1000", 8, g.vendorsFor("1000"), true)
 	g.company("2000", 19, g.vendorsFor("2000"), false)
 	g.company("3000", 5, g.vendorsFor("3000"), true)
+	g.downPayment("3000", 5)
 	g.customizing()
 	return g.e
 }
@@ -107,6 +111,11 @@ var vendorNames = []string{
 
 const blockedVendor = "0000100012"
 
+// downPaymentAccount is company 3000's alternative reconciliation account
+// of down payments (special G/L A, T074): an asset on the vendors'
+// reconciliation (MITKZ K).
+const downPaymentAccount = "0000159000"
+
 func vendorID(i int) string { return fmt.Sprintf("%010d", 100001+i) }
 
 func (g *mockGen) masterData() {
@@ -117,6 +126,7 @@ func (g *mockGen) masterData() {
 			g.e.SKB1 = append(g.e.SKB1, a)
 		}
 	}
+	g.e.SKB1 = append(g.e.SKB1, SKB1{BUKRS: "3000", SAKNR: downPaymentAccount, TXT50: "Down payments made", XBILK: "X", MITKZ: "K"})
 	terms := []string{"NT30", "NT45", "NT14", "NT60"}
 	for i, name := range vendorNames {
 		id := vendorID(i)
@@ -192,6 +202,8 @@ type fiLine struct {
 	acct   string
 	amount money.Minor
 	vendor string
+	umskz  string // special G/L indicator of a vendor line
+	mwskz  string // tax code
 }
 
 // fiDoc appends a balanced FI document to ACDOCA and returns its number.
@@ -203,6 +215,7 @@ func (g *mockGen) fiDoc(cc, budat, blart, xblnr string, lines []fiLine) string {
 		g.e.ACDOCA = append(g.e.ACDOCA, ACDOCA{
 			RLDNR: "0L", RBUKRS: cc, GJAHR: g.gj, BELNR: belnr, DOCLN: fmt.Sprintf("%06d", i+1),
 			RACCT: l.acct, HSL: l.amount.Plain(mockDecimals), BUDAT: budat, BLART: blart, LIFNR: l.vendor, XBLNR: xblnr,
+			UMSKZ: l.umskz, MWSKZ: l.mwskz,
 		})
 	}
 	if total != 0 {
@@ -468,6 +481,31 @@ func (g *mockGen) invoice(cc, ebeln, vendor string, month, i int, lines []mockPO
 		g.clear(cc, fiInv, vendor, pay)
 		g.clear(cc, pay, vendor, pay)
 	}
+}
+
+// downPayment posts an open down payment of 2,000.00 plus input tax at
+// taxPct to the supplier of the company's second order, which SAP
+// invoiced and did not pay (purchaseOrder: order 1 is posted, an odd one
+// unpaid), in SAP's net display: Dr the down payment account as special
+// G/L A on tax code V1, Dr input tax on V1, Cr bank. It draws nothing from
+// the generator and comes after the company's documents, so the rest of
+// the extract is the same as without it.
+func (g *mockGen) downPayment(cc string, taxPct int64) {
+	var orders []EKKO
+	for _, h := range g.e.EKKO {
+		if h.BUKRS == cc {
+			orders = append(orders, h)
+		}
+	}
+	vendor := orders[1].LIFNR
+	net := money.Minor(200000)
+	tax, _ := money.Percent(net, taxPct) // mock amounts are far from the range
+	g.fiDoc(cc, g.date(3, 5), "KZ", "DP-"+vendor[len(vendor)-4:], []fiLine{
+		{acct: downPaymentAccount, amount: net, vendor: vendor, umskz: "A", mwskz: "V1"},
+		{acct: "0000140000", amount: tax, mwskz: "V1"},
+		{acct: "0000100000", amount: -(net + tax)},
+	})
+	g.e.T074 = append(g.e.T074, T074{BUKRS: cc, KOART: "K", UMSKZ: "A", HKONT: "0000211000", SKONT: downPaymentAccount})
 }
 
 // mockHouseBank is a company's house bank MAIN: by IBAN, or for company

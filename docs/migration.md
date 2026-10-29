@@ -44,6 +44,23 @@ and every reconciliation check passing.
 | `documents` | Every Universal Journal document, with SAP numbers kept in the IDs | The current fiscal year, when auditors want document-level history in the new system |
 | `balances` | One opening entry per company, with open vendor items kept as individual lines | Closed years, or when history stays in archived SAP |
 
+In either mode an open SAP down payment (a vendor line with special G/L
+indicator A, UMSKZ, not cleared) loads as the platform posts its own down
+payments (T72c, ADR-0037): its SAP document is an entry of its own, the down
+payment on the legal entity's `down_payment` account (from T074) as the
+supplier's special G/L item A on its tax code, beside its input tax, and it is
+recorded as a paid down payment request. A payment run never nets it, and the
+supplier's final invoice clears it and reverses its input tax
+(`supplier-invoices/{id}:clearDownPayments`). The quality gate refuses what it
+cannot read rather than guess: another special G/L indicator, an indicator off
+the down payment account or a line on it without one, a vendor line without
+one on an account T074 names or no vendor has as its reconciliation account
+(LFB1-AKONT), more than one open down
+payment in a document, a credit, a tax code that is not one deductible input
+tax, and a tax that is not the code's rate of the down payment (SAP's gross
+display, where the down payment includes its tax). A down payment SAP cleared
+loads in `balances` mode only, since SAP's clearing of it is not taken over.
+
 ## Reconciliation controls
 
 Each control is computed twice: from the raw SAP extract and from the
@@ -52,7 +69,9 @@ They must be equal.
 
 - Trial balance per account (differences listed by account)
 - Total debits posted (`documents` mode)
-- Open payables, in total and per vendor
+- Open payables, in total and per vendor, without the down payments
+- Open down payments (special G/L A), in total and per vendor, where either
+  side has any (T72c)
 - Vendor count per company code
 - Each vendor's payments bank account: SAP's first LFBK row as it loads
   (scheme, bank country, Canadian routing, last four characters) against the

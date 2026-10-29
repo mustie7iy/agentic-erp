@@ -12955,12 +12955,14 @@ type DownPaymentRequest struct {
 	// Reference, such as the supplier's down payment request number.
 	Reference OptString `json:"reference"`
 	// Lifecycle status: `open`, `paid` by a payment run (whose payment posted the down payment on the down
-	// payment account, T46c), `cleared` against the supplier's final invoice
-	// (`supplier-invoices/{id}:clearDownPayments`, T46d), or `cancelled` (`:cancel`, refused while a live
-	// run pays it). Open enumeration: clients must accept and preserve values not listed here; values may
-	// be added within /v1.
+	// payment account, T46c) or, for a down payment migrated open from the source system, by the migration
+	// entry that posted it (its `reference` names the source document, T72c), `cleared` against the
+	// supplier's final invoice (`supplier-invoices/{id}:clearDownPayments`, T46d), or `cancelled`
+	// (`:cancel`, refused while a live run pays it). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
 	Status string `json:"status"`
-	// The journal entry of the payment that paid the request; set from status `paid` on.
+	// The journal entry that posted the down payment, the payment's or a migration's; set from status
+	// `paid` on.
 	JournalEntryID OptUUID `json:"journal_entry_id"`
 	// The supplier invoice the down payment was cleared against; set with status `cleared`.
 	ClearedInvoiceID OptUUID `json:"cleared_invoice_id"`

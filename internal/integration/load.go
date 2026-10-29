@@ -57,6 +57,9 @@ type loader struct {
 	vendors map[string]uuid.UUID // LIFNR -> partner
 	blocks  []uuid.UUID
 	entries map[string]loadedEntry // ACDOCA document key -> entry posted by this run
+	// downPayments are the documents holding an open down payment, which
+	// load as entries of their own in either mode (downPaymentDocs).
+	downPayments map[string][]sap.ACDOCA
 }
 
 type loadedEntry struct {
@@ -129,6 +132,7 @@ func (l *loader) load(ctx context.Context) error {
 	if err := l.e.Postings.LockAllEntries(ctx); err != nil {
 		return err
 	}
+	l.downPayments = downPaymentDocs(l.ext)
 	for _, fn := range []func(context.Context) error{l.partners, l.orders, l.invoiced, l.receipts, l.invoices, l.journal, l.clearings, l.blocked} {
 		if err := fn(ctx); err != nil {
 			return err
@@ -460,13 +464,22 @@ func (l *loader) reconciliation(company, account string) bool {
 
 func documentKey(l sap.ACDOCA) string { return l.RBUKRS + "/" + l.GJAHR + "/" + l.BELNR }
 
+// journal posts the extract's documents, each as a journal entry, or in
+// balances mode one opening entry per company and the documents holding an
+// open down payment, which the opening entry leaves out: each is posted as
+// the platform posts a down payment, an entry of its own whose tax the
+// final invoice's clearing reverses (T72c).
 func (l *loader) journal(ctx context.Context) error {
 	if l.t.balances {
-		return l.openingEntries(ctx)
+		if err := l.openingEntries(ctx); err != nil {
+			return err
+		}
 	}
 	docs := map[string][]sap.ACDOCA{}
 	for _, line := range l.ext.ACDOCA {
-		docs[documentKey(line)] = append(docs[documentKey(line)], line)
+		if key := documentKey(line); !l.t.balances || l.downPayments[key] != nil {
+			docs[key] = append(docs[key], line)
+		}
 	}
 	currency := map[string]string{}
 	for _, c := range l.ext.T001 {
@@ -484,16 +497,28 @@ func (l *loader) journal(ctx context.Context) error {
 }
 
 // journalDocument posts one SAP document as a journal entry and keeps its
-// line numbers for the clearings that follow.
+// line numbers for the clearings that follow. A document holding an open
+// down payment is also taken over as a paid down payment request, in the
+// same savepoint, so a refusal of either leaves neither. The quality gate
+// refuses every take-over refusal that comes from the extract first, so
+// the shared savepoint is defence in depth (TestTakeOverDownPayment shows
+// the refusal propagating).
 func (l *loader) journalDocument(ctx context.Context, key string, lines []sap.ACDOCA, currency map[string]string) error {
 	in, posted := l.journalPosting(lines, currency)
+	_, downPayment := l.downPayments[key]
 	done, err := l.step(ctx, "ACDOCA", key, func() error {
 		entry, err := l.e.Postings.Post(ctx, in)
 		if err != nil {
 			return err
 		}
 		posted.ref = ledger.ItemRef{FiscalYear: entry.FiscalYear, EntryID: entry.ID}
-		return l.addRef(ctx, "ledger.journal_entry", entry.ID, "ACDOCA", key)
+		if err := l.addRef(ctx, "ledger.journal_entry", entry.ID, "ACDOCA", key); err != nil {
+			return err
+		}
+		if downPayment {
+			return l.takeOverDownPayment(ctx, key, lines, entry)
+		}
+		return nil
 	})
 	if err != nil {
 		return err
@@ -501,6 +526,9 @@ func (l *loader) journalDocument(ctx context.Context, key string, lines []sap.AC
 	if done {
 		l.entries[key] = posted
 		l.counts["journal_entries"]++
+		if downPayment {
+			l.counts["down_payments"]++
+		}
 	}
 	return nil
 }
@@ -519,6 +547,10 @@ func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) 
 		in.Reference = &first.XBLNR
 	}
 	posted := loadedEntry{lines: map[string]int32{}, date: date}
+	var dp *sap.ACDOCA
+	if open := openDownPayments(lines); len(open) == 1 {
+		dp = &open[0]
+	}
 	for _, line := range lines {
 		amt, _ := l.t.amount(line.HSL, in.Currency) // checked by the quality gate (journal)
 		if amt == 0 {
@@ -529,6 +561,7 @@ func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) 
 			partnerID := l.vendors[line.LIFNR]
 			pl.PartnerID = &partnerID
 		}
+		downPaymentPosting(&pl, line, dp)
 		in.Lines = append(in.Lines, pl)
 		posted.lines[line.DOCLN] = int32(len(in.Lines))
 	}
@@ -581,7 +614,9 @@ func (l *loader) openingEntry(ctx context.Context, c sap.T001, key string) error
 }
 
 // openingLines are a company's opening entry lines: account balances in
-// account order, then the open vendor items. It also returns the latest
+// account order, then the open vendor items; the documents holding an
+// open down payment are left out, posted on their own (journal). It also
+// returns the latest
 // posting date, the entry's date, and the sum of the cleared vendor items,
 // which must be zero.
 func (l *loader) openingLines(c sap.T001) ([]ledger.PostingLine, string, money.Minor) {
@@ -590,7 +625,7 @@ func (l *loader) openingLines(c sap.T001) ([]ledger.PostingLine, string, money.M
 	var cleared money.Minor
 	var last string
 	for _, line := range l.ext.ACDOCA {
-		if line.RBUKRS != c.BUKRS {
+		if line.RBUKRS != c.BUKRS || l.downPayments[documentKey(line)] != nil {
 			continue
 		}
 		// Parsed and in range: the quality gate refuses an extract whose

@@ -267,6 +267,7 @@ func (g *gen) company(t sap.T001) config.Company {
 		}
 	}
 	co.AccountDetermination.APReconciliation = g.apReconciliation(p, t.BUKRS)
+	co.AccountDetermination.DownPayment = g.downPayment(p+".account_determination.down_payment", t.BUKRS)
 	for _, tx := range g.e.T007A {
 		if tx.BUKRS == t.BUKRS {
 			co.TaxCodes = append(co.TaxCodes, config.TaxCode{Code: tx.MWSKZ, Description: tx.TEXT1, RatePercent: tx.KBETR, Account: sap.Alpha(tx.KONTS)})
@@ -361,6 +362,27 @@ func (g *gen) oneAccount(path string, r sap.T030, taken string) string {
 	}
 	if account != taken {
 		g.note(path, fmt.Sprintf("T030 %s names accounts %s and %s; %s taken", r.KTOSL, taken, account, taken))
+	}
+	return taken
+}
+
+// downPayment is the company's alternative reconciliation account of
+// vendor down payments (T074 KOART K, UMSKZ A; ADR-0037, T72c), none when
+// T074 has none. SAP keeps one per reconciliation account, the platform one
+// per company: the first is taken and another noted.
+func (g *gen) downPayment(path, company string) string {
+	taken := ""
+	for _, r := range g.e.T074 {
+		if r.BUKRS != company || r.KOART != "K" || r.UMSKZ != "A" {
+			continue
+		}
+		account := sap.Alpha(r.SKONT)
+		switch {
+		case taken == "":
+			taken = account
+		case account != taken:
+			g.note(path, fmt.Sprintf("T074 names down payment accounts %s and %s; %s taken", taken, account, taken))
+		}
 	}
 	return taken
 }

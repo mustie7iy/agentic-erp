@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
@@ -217,7 +218,7 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 		return target{}, nil, c, problem.Conflict("integration.connector_disabled", "The run's connector is disabled.")
 	}
 	t := target{charts: map[string]map[string]ledger.ChartAccount{}, terms: map[string]bool{}, ranges: map[string]bool{},
-		year: r.Scope.FiscalYear, balances: r.Mode == "balances"}
+		taxes: map[string]map[string]config.TaxCode{}, year: r.Scope.FiscalYear, balances: r.Mode == "balances"}
 	if t.entities, err = e.entities(ctx, r.Scope); err != nil {
 		return t, nil, c, err
 	}
@@ -237,6 +238,12 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 	}
 	for _, n := range doc.NumberRanges {
 		t.ranges[n.Key()] = true
+	}
+	for _, co := range doc.Companies {
+		t.taxes[co.Code] = map[string]config.TaxCode{}
+		for _, code := range co.TaxCodes {
+			t.taxes[co.Code][code.Code] = code
+		}
 	}
 	if t.exponents, err = currency.Load(ctx, tx); err != nil {
 		return t, nil, c, fmt.Errorf("integration: read the currency exponents for run %s: %w", r.ID, err)
