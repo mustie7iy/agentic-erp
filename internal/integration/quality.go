@@ -121,6 +121,7 @@ func checkQuality(e *sap.Extract, t target) []Issue {
 	q.journal()
 	q.downPayments()
 	q.grirChecks()
+	q.documentCurrencies()
 	q.supplierInvoices()
 	return q.out
 }
@@ -348,6 +349,51 @@ func (q *qualityCheck) journalLine(l sap.ACDOCA, s *journalScan) {
 		s.noRange[l.RBUKRS+documentType] = true
 		q.add(SevError, "ACDOCA", key, "the configuration has no %s number range for company %s in %d", documentType, l.RBUKRS, q.t.year)
 	}
+}
+
+// documentCurrencies refuses an open item whose document currency (ACDOCA
+// RWCUR) is not its company's, and one without a document currency (T72b's
+// never-guess rule; an OData extract does not carry it yet). The load
+// posts every line in company code currency (HSL): a foreign-currency
+// open item, an invoice, a down payment or a GR/IR position, would load
+// as a local-currency item that could not be cleared in its own currency
+// (review:batch20). Such items are not migrated yet; lines SAP cleared
+// and lines of no amount leave no open item and are not checked.
+func (q *qualityCheck) documentCurrencies() {
+	positions := grirPositions(q.e, q.t)
+	for _, l := range q.e.ACDOCA {
+		cur := q.currency[l.RBUKRS]
+		if l.RWCUR == cur || !q.openItem(l, positions) {
+			continue
+		}
+		key := documentKey(l) + "/" + l.DOCLN
+		if l.RWCUR == "" {
+			q.add(SevError, "ACDOCA", key, "open item of SAP document %s has no document currency (RWCUR): it is not migrated unless it is "+
+				"in company %s's currency %s, which cannot be told; extract RWCUR", l.BELNR, l.RBUKRS, cur)
+			continue
+		}
+		q.add(SevError, "ACDOCA", key, "open item of SAP document %s is in document currency %s, not company %s's currency %s: open items "+
+			"in a foreign document currency are not migrated yet, since it would load in %s only and could not be cleared in %s",
+			l.BELNR, l.RWCUR, l.RBUKRS, cur, cur, l.RWCUR)
+	}
+}
+
+// openItem reports whether a journal line loads as an open item: a vendor
+// item SAP has not cleared, on a supplier reconciliation account (an
+// ordinary payable or a down payment, as the load gives it its partner),
+// or a line of a GR/IR position the load takes over. A line that does not
+// parse is journalLine's to refuse.
+func (q *qualityCheck) openItem(l sap.ACDOCA, positions map[string]*grirPosition) bool {
+	amt, err := q.t.amount(l.HSL, q.currency[l.RBUKRS])
+	if err != nil || amt == 0 {
+		return false
+	}
+	account := q.t.charts[l.RBUKRS][sap.Alpha(l.RACCT)]
+	if account.ReconciliationKind == "supplier" {
+		return l.AUGBL == ""
+	}
+	p := positions[l.EBELN+"/"+l.EBELP]
+	return account.GRIR && p != nil && p.open()
 }
 
 // supplierInvoices checks that each parked invoice document has a kind

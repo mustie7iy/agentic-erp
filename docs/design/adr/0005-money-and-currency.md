@@ -34,3 +34,31 @@ costs are `money.Micro`: integer millionths of the currency's minor unit,
 summed exactly and shown in minor units rounded half up. They are never
 mixed with `money.Minor` amounts without that conversion, and never
 floats.
+
+## As built: SAP open items in a foreign document currency (review:batch20, 2026-10-29)
+Decided by default under ADR-0053 §d, from the load as built (T72, T72c, T72f)
+and T72b's never-guess rule:
+- **What the extract carries.** Each Universal Journal line (ACDOCA) carries
+  its document currency and amount in it, RWCUR and WSL, beside the company
+  code amount HSL, in the SAP file extract and the mock (every mock document
+  is in its company's currency). SAP names WSL "Amount in Transaction
+  Currency" (SAP KBA 3788925); that RWCUR is its currency key is from the
+  ABAP dictionary as published mirrors show it, for an SAP specialist to
+  confirm. The OData mapping does not carry them until the API's properties
+  are confirmed against a system's `$metadata`.
+- **Refused, not converted.** The load posts every migrated line in company
+  code currency (transaction currency = local currency), so an open item in
+  another document currency would become a local-currency item that a
+  payment or final invoice in its own currency could not clear
+  (`ledger.mixed_items`). The quality gate refuses an open item whose RWCUR
+  is not the company's currency, naming its document and line: a vendor
+  line SAP has not cleared on a supplier reconciliation account (an open
+  invoice, credit or down payment) and a line of a GR/IR position the load
+  takes over. An open item without RWCUR is refused too (an OData extract's
+  are), rather than assumed to be in the company's currency. Lines SAP
+  cleared, lines of no amount and lines on other accounts carry no open item
+  and are not checked: their foreign-currency history posts in local
+  currency, as before.
+- **Not built.** Migrating foreign-currency open items in their document
+  currency (WSL, with their rate) is not this step, and no tracker item asks
+  for it yet.

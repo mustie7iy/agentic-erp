@@ -146,11 +146,24 @@ type ACDOCA struct {
 	DOCLN  string `json:"DOCLN"`
 	RACCT  string `json:"RACCT"`
 	HSL    string `json:"HSL"` // company code currency, signed: debit positive
-	BUDAT  string `json:"BUDAT"`
-	BLART  string `json:"BLART"`
-	LIFNR  string `json:"LIFNR"`
-	XBLNR  string `json:"XBLNR"`
-	AUGBL  string `json:"AUGBL"` // clearing document, empty if open
+	// RWCUR is the line's transaction (document) currency and WSL its
+	// amount in it, signed as HSL. SAP names WSL "Amount in Transaction
+	// Currency" (SAP KBA 3788925,
+	// https://userapps.support.sap.com/sap/support/knowledge/en/3788925);
+	// that RWCUR is its currency key, the original transaction currency, is
+	// from the ABAP dictionary as published mirrors show it, still to be
+	// confirmed by an SAP specialist on the pilot's release. The load posts
+	// HSL only, so the quality gate refuses an open item whose RWCUR is not
+	// the company's currency, or is absent (the OData mapping does not
+	// carry it yet), rather than load it in local currency. WSL is carried
+	// for the migration of such items and is not read yet.
+	RWCUR string `json:"RWCUR,omitempty"`
+	WSL   string `json:"WSL,omitempty"`
+	BUDAT string `json:"BUDAT"`
+	BLART string `json:"BLART"`
+	LIFNR string `json:"LIFNR"`
+	XBLNR string `json:"XBLNR"`
+	AUGBL string `json:"AUGBL"` // clearing document, empty if open
 	// UMSKZ is a vendor line's special G/L indicator, "" on an ordinary
 	// line; in the standard system "A" marks a general down payment (SAP
 	// Help, "Posting Keys and Special G/L Indicators",

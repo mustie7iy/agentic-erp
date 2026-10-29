@@ -54,7 +54,7 @@ func TestQualityGateRefusesJournalOutOfRange(t *testing.T) {
 	e := setup(t)
 	x := tiny()
 	line := func(no, account, amount string) sap.ACDOCA {
-		return sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000009", DOCLN: no, RACCT: account, HSL: amount, BUDAT: "20260301", BLART: "SA"}
+		return sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", RWCUR: "EUR", GJAHR: "2026", BELNR: "0100000009", DOCLN: no, RACCT: account, HSL: amount, BUDAT: "20260301", BLART: "SA"}
 	}
 	x.ACDOCA = append(x.ACDOCA, line("000001", "0000100000", "92233720368547758.07"), line("000002", "0000100000", "92233720368547758.07"),
 		line("000003", "0000520000", "0.02"))
@@ -84,7 +84,7 @@ func TestReconciliationRefusesSumsOutOfRange(t *testing.T) {
 	}
 	x := tiny()
 	line := func(no, amount string) sap.ACDOCA {
-		return sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000009", DOCLN: no, RACCT: "0000100000", HSL: amount, BUDAT: "20260301", BLART: "SA"}
+		return sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", RWCUR: "EUR", GJAHR: "2026", BELNR: "0100000009", DOCLN: no, RACCT: "0000100000", HSL: amount, BUDAT: "20260301", BLART: "SA"}
 	}
 	x.ACDOCA = append(x.ACDOCA, line("000001", "92233720368547758.07"), line("000002", "92233720368547758.07"), line("000003", "0.02"),
 		line("000004", "92233720368547758.08"))

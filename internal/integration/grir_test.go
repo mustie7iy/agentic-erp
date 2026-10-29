@@ -40,14 +40,14 @@ func grirSetup(t *testing.T, x *sap.Extract) env {
 func grirTiny(grir ...sap.ACDOCA) *sap.Extract {
 	x := tiny()
 	x.SKB1 = append(x.SKB1, sap.SKB1{BUKRS: "2000", SAKNR: "0000219000", TXT50: "GR/IR clearing", XBILK: "X"})
-	x.ACDOCA = append(x.ACDOCA, sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000005", DOCLN: "000001", RACCT: "0000520000",
+	x.ACDOCA = append(x.ACDOCA, sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", RWCUR: "EUR", GJAHR: "2026", BELNR: "0100000005", DOCLN: "000001", RACCT: "0000520000",
 		HSL: "100.00", BUDAT: "20260305", BLART: "WE", EBELN: "4500000001", EBELP: "00010"})
 	return withGRIR(x, grir...)
 }
 
 // grirLine is the receipt's GR/IR line of grirTiny, crediting the order item.
 func grirLine() sap.ACDOCA {
-	return sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000005", DOCLN: "000002", RACCT: "0000219000", HSL: "-100.00",
+	return sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", RWCUR: "EUR", GJAHR: "2026", BELNR: "0100000005", DOCLN: "000002", RACCT: "0000219000", HSL: "-100.00",
 		BUDAT: "20260305", BLART: "WE", EBELN: "4500000001", EBELP: "00010"}
 }
 
@@ -185,7 +185,7 @@ func TestMigratedGRIRClearing(t *testing.T) {
 func partlyInvoiced() *sap.Extract {
 	x := grirTiny()
 	line := func(belnr, docln, account, hsl, item, blart string) sap.ACDOCA {
-		return sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", GJAHR: "2026", BELNR: belnr, DOCLN: docln, RACCT: account, HSL: hsl, BUDAT: "20260306",
+		return sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", RWCUR: "EUR", GJAHR: "2026", BELNR: belnr, DOCLN: docln, RACCT: account, HSL: hsl, BUDAT: "20260306",
 			BLART: blart, EBELN: "4500000001", EBELP: item}
 	}
 	for _, it := range []struct{ item, qty, price, value string }{{"00020", "2", "5.00", "10.00"}, {"00030", "1", "7.00", "7.00"}, {"00040", "1", "3.00", "3.00"}} {

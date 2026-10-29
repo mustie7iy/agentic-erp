@@ -6,7 +6,9 @@
 # and grades that the agent still rehearses the scope. Version 1.
 #
 # extract.json is the mock SAP extract of 2026 (sap.GenerateMockThrough(43,
-# "2026", 1)); a live run needs the local cell's ERP_EXTRACT_DIR to be this
+# "2026", 1)) as batch 18 generated it, with each journal line's document
+# currency and amount (ACDOCA RWCUR, WSL) added, which the quality gate needs
+# on open items; a live run needs the local cell's ERP_EXTRACT_DIR to be this
 # directory.
 agent: migration
 version: 1

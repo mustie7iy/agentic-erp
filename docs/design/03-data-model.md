@@ -2411,7 +2411,7 @@ line or reservation. An agent's budget is identity's
 |---|---|
 | T001 company code | `tenancy.legal_entity` |
 | SKA1/SKB1 | `ledger.gl_account`, `ledger.company_account` |
-| ACDOCA | `ledger.journal_entry` + `ledger.journal_line` (TC/LC/GC amounts) |
+| ACDOCA | `ledger.journal_entry` + `ledger.journal_line` (TC/LC/GC amounts); migrated lines post HSL in company code currency, so an open item (vendor item, down payment, GR/IR position line) whose RWCUR is not the company's currency, or is absent, stops the load until foreign-currency open items are migrated (WSL is carried, not yet read) |
 | BSEG clearing (AUGBL) | `ledger.clearing` + `ledger.clearing_item` |
 | ACDOCA lines on the GR/IR account (T030 WRX) with EBELN/EBELP | the order valued `gr_ir`; per open order item, SAP's balance and open quantity (posted RSEG invoiced less MSEG 101 received) taken over onto `ledger.gr_ir_position` (`migrated`) by an integration entry of `GRIRItem.TakesOver` items (T72f) |
 | LFA1/LFB1/LFBK, BUT000 | `partner.business_partner`, `supplier_company`, `bank_account`, `tax_identifier`; a Canadian LFBK (BANKS CA) as scheme `ca`, its institution and transit from BANKL as 0 + institution + transit (T72d) |

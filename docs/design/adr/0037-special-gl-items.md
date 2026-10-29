@@ -139,3 +139,8 @@ Decided by default under ADR-0053 §d, each from this ADR or T46's code:
   out the items of migrated entries (source context `integration`) or of
   dates SAP reported, so the claim is not made twice; the clearing's
   negated items, dated on the platform, are the platform's to report.
+- **Document currency (review:batch20).** A down payment SAP made in a
+  foreign document currency (ACDOCA RWCUR other than the company's), or
+  one whose extract has no document currency, is refused by the quality
+  gate with every other such open item, until they are migrated in their
+  own currency (ADR-0005, As built).
