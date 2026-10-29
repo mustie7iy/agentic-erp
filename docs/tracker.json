@@ -2644,9 +2644,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A migration run's report has a schema (pre-existing finding on grirtop): MigrationRun.report is an object with additionalProperties: true, so its loaded-count keys (gr_ir_positions, gr_ir_top_ups and the others) are documented only in docs/migration.md and a consumer of the contract cannot know them",
-      "r": "api/openapi.yaml MigrationRun.report · internal/integration · docs/migration.md",
+      "r": "api/openapi.yaml MigrationRunReport · internal/integration/report.go · docs/migration.md · ADR-0013 As built",
       "src": "review:batch23",
       "c": []
      },

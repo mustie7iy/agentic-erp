@@ -23073,6 +23073,583 @@ func (s *MemoRecurrence) SetCount(val OptInt32) {
 	s.Count = val
 }
 
+// One reconciliation control for a company code.
+// Ref: #/components/schemas/MigrationCheck
+type MigrationCheck struct {
+	// SAP company code (T001 BUKRS) of the legal entity.
+	CompanyCode string `json:"company_code"`
+	// The control, for example `Trial balance: accounts with differences`, `Open payables total` or
+	// `Open GR/IR: order items with differences` (docs/migration.md, Reconciliation controls).
+	Name string `json:"name"`
+	// The figure computed from the SAP extract: a count, or an amount with its currency code
+	// (`1250.00 EUR`).
+	Sap string `json:"sap"`
+	// The same figure computed from the platform.
+	Platform string `json:"platform"`
+	// Whether the two figures agree.
+	Pass bool `json:"pass"`
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *MigrationCheck) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetName returns the value of Name.
+func (s *MigrationCheck) GetName() string {
+	return s.Name
+}
+
+// GetSap returns the value of Sap.
+func (s *MigrationCheck) GetSap() string {
+	return s.Sap
+}
+
+// GetPlatform returns the value of Platform.
+func (s *MigrationCheck) GetPlatform() string {
+	return s.Platform
+}
+
+// GetPass returns the value of Pass.
+func (s *MigrationCheck) GetPass() bool {
+	return s.Pass
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *MigrationCheck) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetName sets the value of Name.
+func (s *MigrationCheck) SetName(val string) {
+	s.Name = val
+}
+
+// SetSap sets the value of Sap.
+func (s *MigrationCheck) SetSap(val string) {
+	s.Sap = val
+}
+
+// SetPlatform sets the value of Platform.
+func (s *MigrationCheck) SetPlatform(val string) {
+	s.Platform = val
+}
+
+// SetPass sets the value of Pass.
+func (s *MigrationCheck) SetPass(val bool) {
+	s.Pass = val
+}
+
+// A difference behind a failed check.
+// Ref: #/components/schemas/MigrationDiff
+type MigrationDiff struct {
+	// SAP company code (T001 BUKRS).
+	CompanyCode string `json:"company_code"`
+	// What differs: an account number, `vendor <LIFNR>`, `down payments of vendor <LIFNR>`,
+	// `bank account of vendor <LIFNR>`, `order item <EBELN>/<EBELP>` or
+	// `GR/IR of order item <EBELN>/<EBELP>`.
+	Key string `json:"key"`
+	// SAP's value: an amount with its currency code, a quantity, or a bank account as the load writes it.
+	Sap string `json:"sap"`
+	// The platform's value, in the same form.
+	Platform string `json:"platform"`
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *MigrationDiff) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetKey returns the value of Key.
+func (s *MigrationDiff) GetKey() string {
+	return s.Key
+}
+
+// GetSap returns the value of Sap.
+func (s *MigrationDiff) GetSap() string {
+	return s.Sap
+}
+
+// GetPlatform returns the value of Platform.
+func (s *MigrationDiff) GetPlatform() string {
+	return s.Platform
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *MigrationDiff) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetKey sets the value of Key.
+func (s *MigrationDiff) SetKey(val string) {
+	s.Key = val
+}
+
+// SetSap sets the value of Sap.
+func (s *MigrationDiff) SetSap(val string) {
+	s.Sap = val
+}
+
+// SetPlatform sets the value of Platform.
+func (s *MigrationDiff) SetPlatform(val string) {
+	s.Platform = val
+}
+
+// Rows read from the source system per SAP table (internal/sap describes each table).
+// Ref: #/components/schemas/MigrationExtractCounts
+type MigrationExtractCounts struct {
+	// Rows of T001 (company codes).
+	T001 int `json:"T001"`
+	// Rows of SKB1 (G/L account master per company code).
+	SKB1 int `json:"SKB1"`
+	// Rows of LFA1 (vendor general data).
+	LFA1 int `json:"LFA1"`
+	// Rows of LFB1 (vendor company code data).
+	LFB1 int `json:"LFB1"`
+	// Rows of LFBK (vendor bank details).
+	LFBK int `json:"LFBK"`
+	// Rows of EKKO (purchasing document headers).
+	EKKO int `json:"EKKO"`
+	// Rows of EKPO (purchasing document items).
+	EKPO int `json:"EKPO"`
+	// Rows of MSEG (goods movements).
+	MSEG int `json:"MSEG"`
+	// Rows of RBKP (supplier invoice headers).
+	RBKP int `json:"RBKP"`
+	// Rows of RSEG (supplier invoice items).
+	RSEG int `json:"RSEG"`
+	// Rows of ACDOCA (Universal Journal line items).
+	ACDOCA int `json:"ACDOCA"`
+	// Rows of T052 (payment terms).
+	T052 int `json:"T052"`
+	// Rows of T007A (tax codes).
+	T007A int `json:"T007A"`
+	// Rows of T030 (automatic account determination).
+	T030 int `json:"T030"`
+	// Rows of T169G (invoice verification tolerance limits).
+	T169G int `json:"T169G"`
+	// Rows of T012K (house bank accounts).
+	T012K int `json:"T012K"`
+	// Rows of T074 (special G/L accounts).
+	T074 int `json:"T074"`
+	// Rows of AGR_DEFINE (roles).
+	AGRDEFINE int `json:"AGR_DEFINE"`
+	// Rows of AGR_TCODES (transactions in a role).
+	AGRTCODES int `json:"AGR_TCODES"`
+	// Rows of AGR_USERS (role assignments).
+	AGRUSERS int `json:"AGR_USERS"`
+}
+
+// GetT001 returns the value of T001.
+func (s *MigrationExtractCounts) GetT001() int {
+	return s.T001
+}
+
+// GetSKB1 returns the value of SKB1.
+func (s *MigrationExtractCounts) GetSKB1() int {
+	return s.SKB1
+}
+
+// GetLFA1 returns the value of LFA1.
+func (s *MigrationExtractCounts) GetLFA1() int {
+	return s.LFA1
+}
+
+// GetLFB1 returns the value of LFB1.
+func (s *MigrationExtractCounts) GetLFB1() int {
+	return s.LFB1
+}
+
+// GetLFBK returns the value of LFBK.
+func (s *MigrationExtractCounts) GetLFBK() int {
+	return s.LFBK
+}
+
+// GetEKKO returns the value of EKKO.
+func (s *MigrationExtractCounts) GetEKKO() int {
+	return s.EKKO
+}
+
+// GetEKPO returns the value of EKPO.
+func (s *MigrationExtractCounts) GetEKPO() int {
+	return s.EKPO
+}
+
+// GetMSEG returns the value of MSEG.
+func (s *MigrationExtractCounts) GetMSEG() int {
+	return s.MSEG
+}
+
+// GetRBKP returns the value of RBKP.
+func (s *MigrationExtractCounts) GetRBKP() int {
+	return s.RBKP
+}
+
+// GetRSEG returns the value of RSEG.
+func (s *MigrationExtractCounts) GetRSEG() int {
+	return s.RSEG
+}
+
+// GetACDOCA returns the value of ACDOCA.
+func (s *MigrationExtractCounts) GetACDOCA() int {
+	return s.ACDOCA
+}
+
+// GetT052 returns the value of T052.
+func (s *MigrationExtractCounts) GetT052() int {
+	return s.T052
+}
+
+// GetT007A returns the value of T007A.
+func (s *MigrationExtractCounts) GetT007A() int {
+	return s.T007A
+}
+
+// GetT030 returns the value of T030.
+func (s *MigrationExtractCounts) GetT030() int {
+	return s.T030
+}
+
+// GetT169G returns the value of T169G.
+func (s *MigrationExtractCounts) GetT169G() int {
+	return s.T169G
+}
+
+// GetT012K returns the value of T012K.
+func (s *MigrationExtractCounts) GetT012K() int {
+	return s.T012K
+}
+
+// GetT074 returns the value of T074.
+func (s *MigrationExtractCounts) GetT074() int {
+	return s.T074
+}
+
+// GetAGRDEFINE returns the value of AGRDEFINE.
+func (s *MigrationExtractCounts) GetAGRDEFINE() int {
+	return s.AGRDEFINE
+}
+
+// GetAGRTCODES returns the value of AGRTCODES.
+func (s *MigrationExtractCounts) GetAGRTCODES() int {
+	return s.AGRTCODES
+}
+
+// GetAGRUSERS returns the value of AGRUSERS.
+func (s *MigrationExtractCounts) GetAGRUSERS() int {
+	return s.AGRUSERS
+}
+
+// SetT001 sets the value of T001.
+func (s *MigrationExtractCounts) SetT001(val int) {
+	s.T001 = val
+}
+
+// SetSKB1 sets the value of SKB1.
+func (s *MigrationExtractCounts) SetSKB1(val int) {
+	s.SKB1 = val
+}
+
+// SetLFA1 sets the value of LFA1.
+func (s *MigrationExtractCounts) SetLFA1(val int) {
+	s.LFA1 = val
+}
+
+// SetLFB1 sets the value of LFB1.
+func (s *MigrationExtractCounts) SetLFB1(val int) {
+	s.LFB1 = val
+}
+
+// SetLFBK sets the value of LFBK.
+func (s *MigrationExtractCounts) SetLFBK(val int) {
+	s.LFBK = val
+}
+
+// SetEKKO sets the value of EKKO.
+func (s *MigrationExtractCounts) SetEKKO(val int) {
+	s.EKKO = val
+}
+
+// SetEKPO sets the value of EKPO.
+func (s *MigrationExtractCounts) SetEKPO(val int) {
+	s.EKPO = val
+}
+
+// SetMSEG sets the value of MSEG.
+func (s *MigrationExtractCounts) SetMSEG(val int) {
+	s.MSEG = val
+}
+
+// SetRBKP sets the value of RBKP.
+func (s *MigrationExtractCounts) SetRBKP(val int) {
+	s.RBKP = val
+}
+
+// SetRSEG sets the value of RSEG.
+func (s *MigrationExtractCounts) SetRSEG(val int) {
+	s.RSEG = val
+}
+
+// SetACDOCA sets the value of ACDOCA.
+func (s *MigrationExtractCounts) SetACDOCA(val int) {
+	s.ACDOCA = val
+}
+
+// SetT052 sets the value of T052.
+func (s *MigrationExtractCounts) SetT052(val int) {
+	s.T052 = val
+}
+
+// SetT007A sets the value of T007A.
+func (s *MigrationExtractCounts) SetT007A(val int) {
+	s.T007A = val
+}
+
+// SetT030 sets the value of T030.
+func (s *MigrationExtractCounts) SetT030(val int) {
+	s.T030 = val
+}
+
+// SetT169G sets the value of T169G.
+func (s *MigrationExtractCounts) SetT169G(val int) {
+	s.T169G = val
+}
+
+// SetT012K sets the value of T012K.
+func (s *MigrationExtractCounts) SetT012K(val int) {
+	s.T012K = val
+}
+
+// SetT074 sets the value of T074.
+func (s *MigrationExtractCounts) SetT074(val int) {
+	s.T074 = val
+}
+
+// SetAGRDEFINE sets the value of AGRDEFINE.
+func (s *MigrationExtractCounts) SetAGRDEFINE(val int) {
+	s.AGRDEFINE = val
+}
+
+// SetAGRTCODES sets the value of AGRTCODES.
+func (s *MigrationExtractCounts) SetAGRTCODES(val int) {
+	s.AGRTCODES = val
+}
+
+// SetAGRUSERS sets the value of AGRUSERS.
+func (s *MigrationExtractCounts) SetAGRUSERS(val int) {
+	s.AGRUSERS = val
+}
+
+// A finding of the quality gate, the load or the reconciliation on a row of the extract.
+// Ref: #/components/schemas/MigrationIssue
+type MigrationIssue struct {
+	// `error` blocks the run; `warning` migrates but needs a business decision. Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	Severity string `json:"severity"`
+	// SAP table of the row, for example `ACDOCA`, or `platform` for a figure the platform holds.
+	Table string `json:"table"`
+	// The row's SAP key within the table, for example `<BUKRS>/<GJAHR>/<BELNR>/<DOCLN>` for a journal line
+	// or the vendor number for LFA1.
+	Key string `json:"key"`
+	// What is wrong and, where it applies, how to fix it.
+	Message string `json:"message"`
+}
+
+// GetSeverity returns the value of Severity.
+func (s *MigrationIssue) GetSeverity() string {
+	return s.Severity
+}
+
+// GetTable returns the value of Table.
+func (s *MigrationIssue) GetTable() string {
+	return s.Table
+}
+
+// GetKey returns the value of Key.
+func (s *MigrationIssue) GetKey() string {
+	return s.Key
+}
+
+// GetMessage returns the value of Message.
+func (s *MigrationIssue) GetMessage() string {
+	return s.Message
+}
+
+// SetSeverity sets the value of Severity.
+func (s *MigrationIssue) SetSeverity(val string) {
+	s.Severity = val
+}
+
+// SetTable sets the value of Table.
+func (s *MigrationIssue) SetTable(val string) {
+	s.Table = val
+}
+
+// SetKey sets the value of Key.
+func (s *MigrationIssue) SetKey(val string) {
+	s.Key = val
+}
+
+// SetMessage sets the value of Message.
+func (s *MigrationIssue) SetMessage(val string) {
+	s.Message = val
+}
+
+// What a migration run's load created, by kind; a kind the run loaded none of is absent. Loading the
+// same extract again counts nothing.
+// Ref: #/components/schemas/MigrationLoadedCounts
+type MigrationLoadedCounts struct {
+	// Suppliers created from SAP vendors (LFA1, LFB1).
+	Suppliers OptInt `json:"suppliers"`
+	// Suppliers an earlier run created that this run extended to more company codes (LFB1).
+	SuppliersExtended OptInt `json:"suppliers_extended"`
+	// Suppliers blocked for posting because SAP blocks the vendor (LFA1-SPERR).
+	SuppliersBlocked OptInt `json:"suppliers_blocked"`
+	// Purchase orders (EKKO, EKPO).
+	PurchaseOrders OptInt `json:"purchase_orders"`
+	// Goods receipts (MSEG).
+	GoodsReceipts OptInt `json:"goods_receipts"`
+	// Parked supplier documents (RBKP, RSEG), each as its kind: invoices, credit memos, subsequent debits
+	// and subsequent credits.
+	SupplierInvoices OptInt `json:"supplier_invoices"`
+	// SAP's posted invoice documents whose invoiced quantities were taken over for matching (T72b2); their
+	// amounts come over as journal entries.
+	PostedInvoicesInvoiced OptInt `json:"posted_invoices_invoiced"`
+	// Journal entries: SAP's documents in `documents` mode, one opening entry per company in `balances`
+	// mode, and each open down payment's document in either mode.
+	JournalEntries OptInt `json:"journal_entries"`
+	// Open down payments (special G/L indicator A) loaded as paid down payment requests (T72c); their
+	// entries count under `journal_entries` too.
+	DownPayments OptInt `json:"down_payments"`
+	// Clearings SAP made of vendor items (ACDOCA AUGBL), one per clearing document, in `documents` mode.
+	Clearings OptInt `json:"clearings"`
+	// Order items whose open GR/IR position this run took over, in an entry per order (T72f).
+	GrIrPositions OptInt `json:"gr_ir_positions"`
+	// Order items whose GR/IR position, taken over by an earlier run, this run topped up to SAP's balance
+	// and open quantity, in an entry per order.
+	GrIrTopUps OptInt `json:"gr_ir_top_ups"`
+}
+
+// GetSuppliers returns the value of Suppliers.
+func (s *MigrationLoadedCounts) GetSuppliers() OptInt {
+	return s.Suppliers
+}
+
+// GetSuppliersExtended returns the value of SuppliersExtended.
+func (s *MigrationLoadedCounts) GetSuppliersExtended() OptInt {
+	return s.SuppliersExtended
+}
+
+// GetSuppliersBlocked returns the value of SuppliersBlocked.
+func (s *MigrationLoadedCounts) GetSuppliersBlocked() OptInt {
+	return s.SuppliersBlocked
+}
+
+// GetPurchaseOrders returns the value of PurchaseOrders.
+func (s *MigrationLoadedCounts) GetPurchaseOrders() OptInt {
+	return s.PurchaseOrders
+}
+
+// GetGoodsReceipts returns the value of GoodsReceipts.
+func (s *MigrationLoadedCounts) GetGoodsReceipts() OptInt {
+	return s.GoodsReceipts
+}
+
+// GetSupplierInvoices returns the value of SupplierInvoices.
+func (s *MigrationLoadedCounts) GetSupplierInvoices() OptInt {
+	return s.SupplierInvoices
+}
+
+// GetPostedInvoicesInvoiced returns the value of PostedInvoicesInvoiced.
+func (s *MigrationLoadedCounts) GetPostedInvoicesInvoiced() OptInt {
+	return s.PostedInvoicesInvoiced
+}
+
+// GetJournalEntries returns the value of JournalEntries.
+func (s *MigrationLoadedCounts) GetJournalEntries() OptInt {
+	return s.JournalEntries
+}
+
+// GetDownPayments returns the value of DownPayments.
+func (s *MigrationLoadedCounts) GetDownPayments() OptInt {
+	return s.DownPayments
+}
+
+// GetClearings returns the value of Clearings.
+func (s *MigrationLoadedCounts) GetClearings() OptInt {
+	return s.Clearings
+}
+
+// GetGrIrPositions returns the value of GrIrPositions.
+func (s *MigrationLoadedCounts) GetGrIrPositions() OptInt {
+	return s.GrIrPositions
+}
+
+// GetGrIrTopUps returns the value of GrIrTopUps.
+func (s *MigrationLoadedCounts) GetGrIrTopUps() OptInt {
+	return s.GrIrTopUps
+}
+
+// SetSuppliers sets the value of Suppliers.
+func (s *MigrationLoadedCounts) SetSuppliers(val OptInt) {
+	s.Suppliers = val
+}
+
+// SetSuppliersExtended sets the value of SuppliersExtended.
+func (s *MigrationLoadedCounts) SetSuppliersExtended(val OptInt) {
+	s.SuppliersExtended = val
+}
+
+// SetSuppliersBlocked sets the value of SuppliersBlocked.
+func (s *MigrationLoadedCounts) SetSuppliersBlocked(val OptInt) {
+	s.SuppliersBlocked = val
+}
+
+// SetPurchaseOrders sets the value of PurchaseOrders.
+func (s *MigrationLoadedCounts) SetPurchaseOrders(val OptInt) {
+	s.PurchaseOrders = val
+}
+
+// SetGoodsReceipts sets the value of GoodsReceipts.
+func (s *MigrationLoadedCounts) SetGoodsReceipts(val OptInt) {
+	s.GoodsReceipts = val
+}
+
+// SetSupplierInvoices sets the value of SupplierInvoices.
+func (s *MigrationLoadedCounts) SetSupplierInvoices(val OptInt) {
+	s.SupplierInvoices = val
+}
+
+// SetPostedInvoicesInvoiced sets the value of PostedInvoicesInvoiced.
+func (s *MigrationLoadedCounts) SetPostedInvoicesInvoiced(val OptInt) {
+	s.PostedInvoicesInvoiced = val
+}
+
+// SetJournalEntries sets the value of JournalEntries.
+func (s *MigrationLoadedCounts) SetJournalEntries(val OptInt) {
+	s.JournalEntries = val
+}
+
+// SetDownPayments sets the value of DownPayments.
+func (s *MigrationLoadedCounts) SetDownPayments(val OptInt) {
+	s.DownPayments = val
+}
+
+// SetClearings sets the value of Clearings.
+func (s *MigrationLoadedCounts) SetClearings(val OptInt) {
+	s.Clearings = val
+}
+
+// SetGrIrPositions sets the value of GrIrPositions.
+func (s *MigrationLoadedCounts) SetGrIrPositions(val OptInt) {
+	s.GrIrPositions = val
+}
+
+// SetGrIrTopUps sets the value of GrIrTopUps.
+func (s *MigrationLoadedCounts) SetGrIrTopUps(val OptInt) {
+	s.GrIrTopUps = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/MigrationRun
 type MigrationRun struct {
@@ -23100,7 +23677,8 @@ type MigrationRun struct {
 	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
 	Status string `json:"status"`
-	// Reconciliation report.
+	// What the run extracted, checked, loaded and reconciled (docs/migration.md); absent while the run is
+	// queued and has not finished a step.
 	Report OptMigrationRunReport `json:"report"`
 	// Current or last operation.
 	OperationID OptUUID `json:"operation_id"`
@@ -23408,16 +23986,124 @@ func (s *MigrationRunPage) SetTotalEstimate(val OptInt64) {
 
 func (*MigrationRunPage) listMigrationRunsRes() {}
 
-// Reconciliation report.
-type MigrationRunReport map[string]jx.Raw
+// A migration run's report (docs/migration.md). `extract` and `quality` are written when the run
+// starts; `load` and `loaded` once the quality gate passed and the load ran; `checks`, `diffs`,
+// `passed` and, when there are any, `missing_documents` and `issues` once the run is reconciled (a
+// rehearsal reconciles in its start). Fields may be added within /v1.
+// Ref: #/components/schemas/MigrationRunReport
+type MigrationRunReport struct {
+	// Rows read from the source system, per SAP table.
+	Extract MigrationExtractCounts `json:"extract"`
+	// The data-quality gate's findings on the extract: an `error` stops the run before anything loads, a
+	// `warning` loads but needs a business sign-off.
+	Quality []MigrationIssue `json:"quality"`
+	// Rows the load refused (`error`, and then nothing stays loaded) or noted (`warning`).
+	Load []MigrationIssue `json:"load"`
+	// What the load created, by kind.
+	Loaded OptMigrationLoadedCounts `json:"loaded"`
+	// The reconciliation controls, each figure computed from the raw SAP extract and from the platform
+	// (docs/migration.md, Reconciliation controls).
+	Checks []MigrationCheck `json:"checks"`
+	// The differences behind the failed checks.
+	Diffs []MigrationDiff `json:"diffs"`
+	// SAP documents of the scope not on the platform (`documents` mode), the first 100; absent when there
+	// are none.
+	MissingDocuments []string `json:"missing_documents"`
+	// SAP values the reconciliation could not use: amounts that do not parse, or sums out of the range of
+	// an amount; absent when there are none. Any one fails the reconciliation.
+	Issues []MigrationIssue `json:"issues"`
+	// Whether every check passed and the reconciliation had no issue; the run is then `reconciled`.
+	Passed OptBool `json:"passed"`
+}
 
-func (s *MigrationRunReport) init() MigrationRunReport {
-	m := *s
-	if m == nil {
-		m = map[string]jx.Raw{}
-		*s = m
-	}
-	return m
+// GetExtract returns the value of Extract.
+func (s *MigrationRunReport) GetExtract() MigrationExtractCounts {
+	return s.Extract
+}
+
+// GetQuality returns the value of Quality.
+func (s *MigrationRunReport) GetQuality() []MigrationIssue {
+	return s.Quality
+}
+
+// GetLoad returns the value of Load.
+func (s *MigrationRunReport) GetLoad() []MigrationIssue {
+	return s.Load
+}
+
+// GetLoaded returns the value of Loaded.
+func (s *MigrationRunReport) GetLoaded() OptMigrationLoadedCounts {
+	return s.Loaded
+}
+
+// GetChecks returns the value of Checks.
+func (s *MigrationRunReport) GetChecks() []MigrationCheck {
+	return s.Checks
+}
+
+// GetDiffs returns the value of Diffs.
+func (s *MigrationRunReport) GetDiffs() []MigrationDiff {
+	return s.Diffs
+}
+
+// GetMissingDocuments returns the value of MissingDocuments.
+func (s *MigrationRunReport) GetMissingDocuments() []string {
+	return s.MissingDocuments
+}
+
+// GetIssues returns the value of Issues.
+func (s *MigrationRunReport) GetIssues() []MigrationIssue {
+	return s.Issues
+}
+
+// GetPassed returns the value of Passed.
+func (s *MigrationRunReport) GetPassed() OptBool {
+	return s.Passed
+}
+
+// SetExtract sets the value of Extract.
+func (s *MigrationRunReport) SetExtract(val MigrationExtractCounts) {
+	s.Extract = val
+}
+
+// SetQuality sets the value of Quality.
+func (s *MigrationRunReport) SetQuality(val []MigrationIssue) {
+	s.Quality = val
+}
+
+// SetLoad sets the value of Load.
+func (s *MigrationRunReport) SetLoad(val []MigrationIssue) {
+	s.Load = val
+}
+
+// SetLoaded sets the value of Loaded.
+func (s *MigrationRunReport) SetLoaded(val OptMigrationLoadedCounts) {
+	s.Loaded = val
+}
+
+// SetChecks sets the value of Checks.
+func (s *MigrationRunReport) SetChecks(val []MigrationCheck) {
+	s.Checks = val
+}
+
+// SetDiffs sets the value of Diffs.
+func (s *MigrationRunReport) SetDiffs(val []MigrationDiff) {
+	s.Diffs = val
+}
+
+// SetMissingDocuments sets the value of MissingDocuments.
+func (s *MigrationRunReport) SetMissingDocuments(val []string) {
+	s.MissingDocuments = val
+}
+
+// SetIssues sets the value of Issues.
+func (s *MigrationRunReport) SetIssues(val []MigrationIssue) {
+	s.Issues = val
+}
+
+// SetPassed sets the value of Passed.
+func (s *MigrationRunReport) SetPassed(val OptBool) {
+	s.Passed = val
 }
 
 // What a migration run covers.
@@ -25895,6 +26581,52 @@ func (o OptMemoRecurrence) Get() (v MemoRecurrence, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptMemoRecurrence) Or(d MemoRecurrence) MemoRecurrence {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptMigrationLoadedCounts returns new OptMigrationLoadedCounts with value set to v.
+func NewOptMigrationLoadedCounts(v MigrationLoadedCounts) OptMigrationLoadedCounts {
+	return OptMigrationLoadedCounts{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptMigrationLoadedCounts is optional MigrationLoadedCounts.
+type OptMigrationLoadedCounts struct {
+	Value MigrationLoadedCounts
+	Set   bool
+}
+
+// IsSet returns true if OptMigrationLoadedCounts was set.
+func (o OptMigrationLoadedCounts) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptMigrationLoadedCounts) Reset() {
+	var v MigrationLoadedCounts
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptMigrationLoadedCounts) SetTo(v MigrationLoadedCounts) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptMigrationLoadedCounts) Get() (v MigrationLoadedCounts, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptMigrationLoadedCounts) Or(d MigrationLoadedCounts) MigrationLoadedCounts {
 	if v, ok := o.Get(); ok {
 		return v
 	}

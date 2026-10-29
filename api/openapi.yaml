@@ -31414,9 +31414,8 @@ components:
                 - failed
               readOnly: true
             report:
-              type: object
-              additionalProperties: true
-              description: Reconciliation report.
+              $ref: "#/components/schemas/MigrationRunReport"
+              description: "What the run extracted, checked, loaded and reconciled (docs/migration.md); absent while the run is queued and has not finished a step."
               readOnly: true
             operation_id:
               type: string
@@ -31447,6 +31446,294 @@ components:
           mode: documents
           is_rehearsal: false
           status: queued
+    MigrationRunReport:
+      type: object
+      description: "A migration run's report (docs/migration.md). `extract` and `quality` are written when the run starts; `load` and `loaded` once the quality gate passed and the load ran; `checks`, `diffs`, `passed` and, when there are any, `missing_documents` and `issues` once the run is reconciled (a rehearsal reconciles in its start). Fields may be added within /v1."
+      required:
+        - extract
+        - quality
+      properties:
+        extract:
+          $ref: "#/components/schemas/MigrationExtractCounts"
+          description: Rows read from the source system, per SAP table.
+        quality:
+          type: array
+          items:
+            $ref: "#/components/schemas/MigrationIssue"
+          description: "The data-quality gate's findings on the extract: an `error` stops the run before anything loads, a `warning` loads but needs a business sign-off."
+        load:
+          type: array
+          items:
+            $ref: "#/components/schemas/MigrationIssue"
+          description: "Rows the load refused (`error`, and then nothing stays loaded) or noted (`warning`)."
+        loaded:
+          $ref: "#/components/schemas/MigrationLoadedCounts"
+          description: What the load created, by kind.
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/MigrationCheck"
+          description: "The reconciliation controls, each figure computed from the raw SAP extract and from the platform (docs/migration.md, Reconciliation controls)."
+        diffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/MigrationDiff"
+          description: The differences behind the failed checks.
+        missing_documents:
+          type: array
+          items:
+            type: string
+            description: "SAP document, as `<BUKRS>/<GJAHR>/<BELNR>`."
+          maxItems: 100
+          description: "SAP documents of the scope not on the platform (`documents` mode), the first 100; absent when there are none."
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/MigrationIssue"
+          description: "SAP values the reconciliation could not use: amounts that do not parse, or sums out of the range of an amount; absent when there are none. Any one fails the reconciliation."
+        passed:
+          type: boolean
+          description: Whether every check passed and the reconciliation had no issue; the run is then `reconciled`.
+      examples:
+        - extract: {T001: 1, SKB1: 42, LFA1: 3, LFB1: 3, LFBK: 2, EKKO: 2, EKPO: 3, MSEG: 2, RBKP: 2, RSEG: 2, ACDOCA: 61, T052: 2, T007A: 3, T030: 4, T169G: 1, T012K: 1, T074: 1, AGR_DEFINE: 0, AGR_TCODES: 0, AGR_USERS: 0}
+          quality: []
+          load: []
+          loaded: {suppliers: 3, purchase_orders: 2, goods_receipts: 2, supplier_invoices: 2, journal_entries: 14, gr_ir_positions: 1}
+          checks:
+            - company_code: "1000"
+              name: "Trial balance: accounts with differences"
+              sap: "0"
+              platform: "0"
+              pass: true
+          diffs: []
+          passed: true
+    MigrationExtractCounts:
+      type: object
+      description: Rows read from the source system per SAP table (internal/sap describes each table).
+      required:
+        - T001
+        - SKB1
+        - LFA1
+        - LFB1
+        - LFBK
+        - EKKO
+        - EKPO
+        - MSEG
+        - RBKP
+        - RSEG
+        - ACDOCA
+        - T052
+        - T007A
+        - T030
+        - T169G
+        - T012K
+        - T074
+        - AGR_DEFINE
+        - AGR_TCODES
+        - AGR_USERS
+      properties:
+        T001:
+          type: integer
+          minimum: 0
+          description: "Rows of T001 (company codes)."
+        SKB1:
+          type: integer
+          minimum: 0
+          description: "Rows of SKB1 (G/L account master per company code)."
+        LFA1:
+          type: integer
+          minimum: 0
+          description: "Rows of LFA1 (vendor general data)."
+        LFB1:
+          type: integer
+          minimum: 0
+          description: "Rows of LFB1 (vendor company code data)."
+        LFBK:
+          type: integer
+          minimum: 0
+          description: "Rows of LFBK (vendor bank details)."
+        EKKO:
+          type: integer
+          minimum: 0
+          description: "Rows of EKKO (purchasing document headers)."
+        EKPO:
+          type: integer
+          minimum: 0
+          description: "Rows of EKPO (purchasing document items)."
+        MSEG:
+          type: integer
+          minimum: 0
+          description: "Rows of MSEG (goods movements)."
+        RBKP:
+          type: integer
+          minimum: 0
+          description: "Rows of RBKP (supplier invoice headers)."
+        RSEG:
+          type: integer
+          minimum: 0
+          description: "Rows of RSEG (supplier invoice items)."
+        ACDOCA:
+          type: integer
+          minimum: 0
+          description: "Rows of ACDOCA (Universal Journal line items)."
+        T052:
+          type: integer
+          minimum: 0
+          description: "Rows of T052 (payment terms)."
+        T007A:
+          type: integer
+          minimum: 0
+          description: "Rows of T007A (tax codes)."
+        T030:
+          type: integer
+          minimum: 0
+          description: "Rows of T030 (automatic account determination)."
+        T169G:
+          type: integer
+          minimum: 0
+          description: "Rows of T169G (invoice verification tolerance limits)."
+        T012K:
+          type: integer
+          minimum: 0
+          description: "Rows of T012K (house bank accounts)."
+        T074:
+          type: integer
+          minimum: 0
+          description: "Rows of T074 (special G/L accounts)."
+        AGR_DEFINE:
+          type: integer
+          minimum: 0
+          description: "Rows of AGR_DEFINE (roles)."
+        AGR_TCODES:
+          type: integer
+          minimum: 0
+          description: "Rows of AGR_TCODES (transactions in a role)."
+        AGR_USERS:
+          type: integer
+          minimum: 0
+          description: "Rows of AGR_USERS (role assignments)."
+    MigrationLoadedCounts:
+      type: object
+      description: What a migration run's load created, by kind; a kind the run loaded none of is absent. Loading the same extract again counts nothing.
+      properties:
+        suppliers:
+          type: integer
+          minimum: 1
+          description: "Suppliers created from SAP vendors (LFA1, LFB1)."
+        suppliers_extended:
+          type: integer
+          minimum: 1
+          description: "Suppliers an earlier run created that this run extended to more company codes (LFB1)."
+        suppliers_blocked:
+          type: integer
+          minimum: 1
+          description: "Suppliers blocked for posting because SAP blocks the vendor (LFA1-SPERR)."
+        purchase_orders:
+          type: integer
+          minimum: 1
+          description: "Purchase orders (EKKO, EKPO)."
+        goods_receipts:
+          type: integer
+          minimum: 1
+          description: "Goods receipts (MSEG)."
+        supplier_invoices:
+          type: integer
+          minimum: 1
+          description: "Parked supplier documents (RBKP, RSEG), each as its kind: invoices, credit memos, subsequent debits and subsequent credits."
+        posted_invoices_invoiced:
+          type: integer
+          minimum: 1
+          description: "SAP's posted invoice documents whose invoiced quantities were taken over for matching (T72b2); their amounts come over as journal entries."
+        journal_entries:
+          type: integer
+          minimum: 1
+          description: "Journal entries: SAP's documents in `documents` mode, one opening entry per company in `balances` mode, and each open down payment's document in either mode."
+        down_payments:
+          type: integer
+          minimum: 1
+          description: "Open down payments (special G/L indicator A) loaded as paid down payment requests (T72c); their entries count under `journal_entries` too."
+        clearings:
+          type: integer
+          minimum: 1
+          description: "Clearings SAP made of vendor items (ACDOCA AUGBL), one per clearing document, in `documents` mode."
+        gr_ir_positions:
+          type: integer
+          minimum: 1
+          description: "Order items whose open GR/IR position this run took over, in an entry per order (T72f)."
+        gr_ir_top_ups:
+          type: integer
+          minimum: 1
+          description: "Order items whose GR/IR position, taken over by an earlier run, this run topped up to SAP's balance and open quantity, in an entry per order."
+    MigrationIssue:
+      type: object
+      description: A finding of the quality gate, the load or the reconciliation on a row of the extract.
+      required:
+        - severity
+        - table
+        - key
+        - message
+      properties:
+        severity:
+          type: string
+          description: "`error` blocks the run; `warning` migrates but needs a business decision. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - error
+            - warning
+        table:
+          type: string
+          description: "SAP table of the row, for example `ACDOCA`, or `platform` for a figure the platform holds."
+        key:
+          type: string
+          description: "The row's SAP key within the table, for example `<BUKRS>/<GJAHR>/<BELNR>/<DOCLN>` for a journal line or the vendor number for LFA1."
+        message:
+          type: string
+          description: What is wrong and, where it applies, how to fix it.
+    MigrationCheck:
+      type: object
+      description: One reconciliation control for a company code.
+      required:
+        - company_code
+        - name
+        - sap
+        - platform
+        - pass
+      properties:
+        company_code:
+          type: string
+          description: SAP company code (T001 BUKRS) of the legal entity.
+        name:
+          type: string
+          description: "The control, for example `Trial balance: accounts with differences`, `Open payables total` or `Open GR/IR: order items with differences` (docs/migration.md, Reconciliation controls)."
+        sap:
+          type: string
+          description: "The figure computed from the SAP extract: a count, or an amount with its currency code (`1250.00 EUR`)."
+        platform:
+          type: string
+          description: The same figure computed from the platform.
+        pass:
+          type: boolean
+          description: Whether the two figures agree.
+    MigrationDiff:
+      type: object
+      description: A difference behind a failed check.
+      required:
+        - company_code
+        - key
+        - sap
+        - platform
+      properties:
+        company_code:
+          type: string
+          description: SAP company code (T001 BUKRS).
+        key:
+          type: string
+          description: "What differs: an account number, `vendor <LIFNR>`, `down payments of vendor <LIFNR>`, `bank account of vendor <LIFNR>`, `order item <EBELN>/<EBELP>` or `GR/IR of order item <EBELN>/<EBELP>`."
+        sap:
+          type: string
+          description: "SAP's value: an amount with its currency code, a quantity, or a bank account as the load writes it."
+        platform:
+          type: string
+          description: The platform's value, in the same form.
     MigrationRunCreate:
       type: object
       description: "Define a migration run (status `queued`)."

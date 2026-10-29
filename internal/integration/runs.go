@@ -1,8 +1,8 @@
 package integration
 
 import (
+	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -56,7 +56,7 @@ type Run struct {
 	Mode        string
 	IsRehearsal bool
 	Status      string
-	Report      map[string]any
+	Report      *Report // nil until the run finished a step
 	OperationID *uuid.UUID
 	StartedAt   *time.Time
 	FinishedAt  *time.Time
@@ -259,17 +259,10 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 	return t, ext, c, nil
 }
 
-func asMap(v any) map[string]any {
-	b, _ := json.Marshal(v) // reports are plain data
-	var m map[string]any
-	_ = json.Unmarshal(b, &m) // b was just encoded from plain data
-	return m
-}
-
 // finish records a run's new status and report, with MigrationRunCompleted
 // when the status is final, and completes its operation: failed when the
 // run failed.
-func finish(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, op operations.Operation, status, action string, report map[string]any) (operations.Operation, error) {
+func finish(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, op operations.Operation, status, action string, report Report) (operations.Operation, error) {
 	final := status == Reconciled || status == Failed
 	updated, err := scanRun(tx.QueryRow(ctx, `UPDATE integration.migration_run SET status = $2, report = $3, operation_id = $4,
 		started_at = coalesce(started_at, now()), finished_at = CASE WHEN $5 THEN now() END, version = version + 1 WHERE id = $1 RETURNING `+runColumns,
@@ -279,7 +272,13 @@ func finish(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, op operat
 	}
 	var events []outbox.Event
 	if final {
-		summary := map[string]any{"passed": report["passed"], "loaded": report["loaded"]}
+		summary := map[string]any{"passed": nil, "loaded": nil}
+		if report.Reconciliation != nil {
+			summary["passed"] = report.Passed
+		}
+		if report.LoadResult != nil {
+			summary["loaded"] = report.Loaded
+		}
 		events = append(events, outbox.Event{Context: "integration", Name: "migration_run_completed", AggregateType: "integration.migration_run",
 			AggregateID: r.ID, Payload: map[string]any{"migration_run_id": r.ID, "connector_id": r.ConnectorID, "mode": r.Mode,
 				"is_rehearsal": r.IsRehearsal, "scope": r.Scope, "status": status, "operation_id": op.ID,
@@ -449,7 +448,7 @@ func (e *Endpoints) Execute(ctx context.Context, id uuid.UUID) (operations.Opera
 // load checks the extract and loads it under the operation.
 func (e *Endpoints) load(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, op operations.Operation, t target, ext *sap.Extract, c Connector) (operations.Operation, error) {
 	quality := checkQuality(ext, t)
-	report := map[string]any{"extract": ext.Counts(), "quality": asList(quality)}
+	report := Report{Extract: ext.Counts(), Quality: asList(quality)}
 	if hasErrors(quality) {
 		return finish(ctx, tx, p, r, op, Failed, "integration.migration_run.start", report)
 	}
@@ -464,21 +463,19 @@ func (e *Endpoints) load(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r R
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	l := &loader{e: e, tx: tx, p: p, run: r, system: system(c), ext: ext, t: t, refs: existing, today: today, counts: map[string]int{},
+	l := &loader{e: e, tx: tx, p: p, run: r, system: system(c), ext: ext, t: t, refs: existing, today: today,
 		vendors: map[string]uuid.UUID{}, entries: map[string]loadedEntry{}}
 	if err := l.load(ctx); err != nil {
 		return operations.Operation{}, err
 	}
-	report["load"], report["loaded"] = asList(l.issues), l.counts
+	report.LoadResult = &LoadResult{Refusals: asList(l.issues), Loaded: l.counts}
 	status := Loaded
 	if !hasErrors(l.issues) && r.IsRehearsal {
 		rec, err := e.reconcile(ctx, ext, t, l.refs)
 		if err != nil {
 			return operations.Operation{}, err
 		}
-		for k, v := range asMap(rec) {
-			report[k] = v
-		}
+		report.Reconciliation = &rec
 		status = Failed
 		if rec.Passed {
 			status = Reconciled
@@ -521,10 +518,8 @@ func (e *Endpoints) reconcileRun(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	report := r.Report
-	for k, v := range asMap(rec) {
-		report[k] = v
-	}
+	report := *cmp.Or(r.Report, &Report{}) // a loaded run holds the report its start wrote
+	report.Reconciliation = &rec
 	status := Failed
 	if rec.Passed {
 		status = Reconciled
@@ -537,7 +532,7 @@ func runToAPI(r Run) gen.MigrationRun {
 		ConnectorID: r.ConnectorID, Scope: gen.MigrationScope{LegalEntityIds: r.Scope.LegalEntityIDs, FiscalYear: r.Scope.FiscalYear},
 		Mode: r.Mode, IsRehearsal: r.IsRehearsal, Status: r.Status}
 	if r.Report != nil {
-		out.Report.SetTo(apitypes.EncodeObject(r.Report))
+		out.Report.SetTo(reportToAPI(*r.Report))
 	}
 	if r.OperationID != nil {
 		out.OperationID.SetTo(*r.OperationID)

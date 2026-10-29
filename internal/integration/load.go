@@ -53,7 +53,7 @@ type loader struct {
 	refs    refs
 	today   time.Time
 	issues  []Issue
-	counts  map[string]int
+	counts  LoadedCounts
 	vendors map[string]uuid.UUID // LIFNR -> partner
 	blocks  []uuid.UUID
 	entries map[string]loadedEntry // ACDOCA document key -> entry posted by this run
@@ -207,7 +207,7 @@ func (l *loader) extendSupplier(ctx context.Context, v sap.LFA1, id uuid.UUID, i
 		return err
 	}
 	if done {
-		l.counts["suppliers_extended"]++
+		l.counts.SuppliersExtended++
 	}
 	return nil
 }
@@ -242,7 +242,7 @@ func (l *loader) createSupplier(ctx context.Context, np partner.NewPartner, v sa
 	}
 	if done {
 		l.vendors[v.LIFNR] = id
-		l.counts["suppliers"]++
+		l.counts.Suppliers++
 		if v.SPERR == "X" {
 			l.blocks = append(l.blocks, id)
 		}
@@ -304,7 +304,7 @@ func (l *loader) orders(ctx context.Context) error {
 			return err
 		}
 		if done {
-			l.counts["purchase_orders"]++
+			l.counts.PurchaseOrders++
 			l.viaGRIR[h.EBELN] = valuation == procurement.ValuationGRIR
 		}
 	}
@@ -348,7 +348,7 @@ func (l *loader) receipts(ctx context.Context) error {
 			return err
 		}
 		if done {
-			l.counts["goods_receipts"]++
+			l.counts.GoodsReceipts++
 		}
 	}
 	return nil
@@ -381,7 +381,7 @@ func (l *loader) invoices(ctx context.Context) error {
 			return err
 		}
 		if done {
-			l.counts["supplier_invoices"]++
+			l.counts.SupplierInvoices++
 		}
 	}
 	return nil
@@ -421,7 +421,7 @@ func (l *loader) invoiced(ctx context.Context) error {
 			return err
 		}
 		if done {
-			l.counts["posted_invoices_invoiced"]++
+			l.counts.PostedInvoicesInvoiced++
 		}
 	}
 	return nil
@@ -542,9 +542,9 @@ func (l *loader) journalDocument(ctx context.Context, key string, lines []sap.AC
 	}
 	if done {
 		l.entries[key] = posted
-		l.counts["journal_entries"]++
+		l.counts.JournalEntries++
 		if downPayment {
-			l.counts["down_payments"]++
+			l.counts.DownPayments++
 		}
 	}
 	return nil
@@ -625,7 +625,7 @@ func (l *loader) openingEntry(ctx context.Context, c sap.T001, key string) error
 		return err
 	}
 	if done {
-		l.counts["journal_entries"]++
+		l.counts.JournalEntries++
 	}
 	return nil
 }
@@ -696,7 +696,7 @@ func (l *loader) clearings(ctx context.Context) error {
 			return err
 		}
 		if done {
-			l.counts["clearings"]++
+			l.counts.Clearings++
 		}
 	}
 	return nil
@@ -737,7 +737,7 @@ func (l *loader) blocked(ctx context.Context) error {
 			return err
 		}
 		if done {
-			l.counts["suppliers_blocked"]++
+			l.counts.SuppliersBlocked++
 		}
 	}
 	return nil

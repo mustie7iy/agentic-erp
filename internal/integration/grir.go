@@ -301,9 +301,9 @@ func (l *loader) takeOverGRIR(ctx context.Context) error {
 			l.issues = append(l.issues, Issue{Severity: SevWarning, Table: "EKKO", Key: order, Message: why})
 			continue
 		}
-		key, count := order, "gr_ir_positions"
+		key, count := order, &l.counts.GRIRPositions
 		if !l.viaGRIR[order] {
-			key, count = order+"/"+l.run.ID.String(), "gr_ir_top_ups"
+			key, count = order+"/"+l.run.ID.String(), &l.counts.GRIRTopUps
 		}
 		in := l.grirPosting(order, items)
 		done, err := l.step(ctx, "ACDOCA", "GR/IR "+order, func() error {
@@ -317,7 +317,7 @@ func (l *loader) takeOverGRIR(ctx context.Context) error {
 			return err
 		}
 		if done {
-			l.counts[count] += len(items)
+			*count += len(items)
 		}
 	}
 	return nil
