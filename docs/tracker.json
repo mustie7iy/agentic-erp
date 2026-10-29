@@ -5356,7 +5356,7 @@
        },
        {
         "s": "T",
-        "t": "x-problem-codes' givenMade treats the calls the call graph shows as every call of a function (pre-existing finding on batch 24): code without SSA bodies (the standard library, third-party packages, api/gen) could also call a function whose value or receiver escapes to it, passing a function another operation made, and the cut would drop that function's codes. List the functions with a function-typed parameter whose function value or receiver type escapes to code outside the program; none: record the premise in ADR-0052 G7; some: keep their edges",
+        "t": "x-problem-codes' givenMade treats the calls the call graph shows as every call of a function (pre-existing finding of the pcsound review, batch 24): code without SSA bodies (the standard library, third-party packages, api/gen) could also call a function whose value or receiver escapes to it, passing a function another operation made, and the cut would drop that function's codes. List the functions with a function-typed parameter whose function value or receiver type escapes to code outside the program; none: record the premise in ADR-0052 G7; some: keep their edges",
         "r": "api/problemcodes_test.go givenMade · ADR-0052 G7",
         "src": "review:batch24",
         "c": []
