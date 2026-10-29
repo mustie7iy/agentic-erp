@@ -6,8 +6,8 @@ import (
 
 // TestRunsNameTheirConnector: a migration run gives its connector's name
 // beside its id, on create, read and every list page, as the connector is
-// named now (ADR-0038 As built, review:batch24); an empty page asks for no
-// names.
+// named now (ADR-0038 As built, review:batch24); an empty page answers
+// (that it asks for no names is idref's TestResolve, "none referenced").
 func TestRunsNameTheirConnector(t *testing.T) {
 	e := setup(t)
 	empty, _ := e.Must(200, "GET", "/v1/migration-runs", "", "")

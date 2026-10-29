@@ -679,8 +679,10 @@ expose its channel's connector). Decided by default, as above:
   `Connector` resource's `name` as it is now (a renamed connector shows its
   new name on its old runs), required as `connector_id` is: the foreign key
   to `integration.connector` and connectors never being deleted mean every
-  run has one. A page or a single read asks `integration.connector` once for
-  the names of the page's connectors (`connectorsOf`, through
+  run has one. The guarantee is the foreign key (no `ON DELETE`, so
+  restrict, 000010): a step that adds a connector delete must keep it, or
+  `idref.Resolve` would answer 500 for its runs. A page or a single read
+  asks `integration.connector` once for the names of the page's connectors (`connectorsOf`, through
   `idref.Resolve` and `apitypes.PageWith`, in the request's transaction);
   the create answer uses the connector it has just checked, with no query.
   The connectors are integration's own, so no port is involved.
