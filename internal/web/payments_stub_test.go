@@ -25,7 +25,7 @@ func runJSON(id uuid.UUID, status, extra string) string {
 // payment with a cash discount and withholding tax, paid by a method.
 func stubPaymentsJSON(run uuid.UUID) string {
 	u := uuid.NewString
-	return fmt.Sprintf(`{"items":[{"id":%q,"created_at":"2026-10-22T10:00:00Z","created_by":%q,"payment_run_id":%q,"supplier_id":%q,
+	return fmt.Sprintf(`{"items":[{"id":%q,"created_at":"2026-10-22T10:00:00Z","created_by":%q,"payment_run_id":%q,"supplier_id":%q,"supplier_name":"Tyrell",
 		"bank_account_id":%q,"amount":{"amount":"1250.00","currency":"AED"},"discount_amount":{"amount":"25.00","currency":"AED"},
 		"withholding_amount":{"amount":"12.50","currency":"AED"},"end_to_end_id":"E2E-1","kind":"down_payment","down_payment_request_id":%q,
 		"payment_method":"T","journal_entry_id":%q,"items":[]}],"next_page_token":"p2"}`, u(), u(), run, u(), u(), u(), u())
