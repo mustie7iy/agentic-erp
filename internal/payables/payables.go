@@ -780,15 +780,19 @@ func event(v Invoice, name string, payload map[string]any) outbox.Event {
 	return outbox.Event{Context: "payables", Name: name, AggregateType: "payables.supplier_invoice", AggregateID: v.ID, Payload: payload}
 }
 
-// Count is how many of the invoices exist.
-func (Invoices) Count(ctx context.Context, ids []uuid.UUID) (int, error) {
+// Count is how many of the invoices exist, by kind; a kind none of them
+// is has no entry.
+func (Invoices) Count(ctx context.Context, ids []uuid.UUID) (map[string]int, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
+	rows, _ := tx.Query(ctx, `SELECT kind, count(*) FROM payables.supplier_invoice WHERE id = ANY($1) GROUP BY kind`, ids)
+	out := map[string]int{}
+	var kind string
 	var n int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM payables.supplier_invoice WHERE id = ANY($1)`, ids).Scan(&n); err != nil {
-		return 0, fmt.Errorf("payables: count %d invoices: %w", len(ids), err)
+	if _, err := pgx.ForEachRow(rows, []any{&kind, &n}, func() error { out[kind] = n; return nil }); err != nil {
+		return nil, fmt.Errorf("payables: count %d invoices by kind: %w", len(ids), err)
 	}
-	return n, nil
+	return out, nil
 }

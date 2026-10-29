@@ -70,6 +70,11 @@ var DefaultEntities = []EntityMapping{
 		Fields: map[string]string{"MBLNR": "MaterialDocument", "MJAHR": "MaterialDocumentYear", "ZEILE": "MaterialDocumentItem",
 			"BWART": "GoodsMovementType", "EBELN": "PurchaseOrder", "EBELP": "PurchaseOrderItem",
 			"MENGE": "QuantityInEntryUnit", "BUDAT": "PostingDate"}},
+	// RBKP-XRECH and RSEG-TBTKZ (the document's kind, T72b) are not mapped:
+	// the API's properties for them are still to be confirmed against a
+	// system's $metadata. Until they are, the quality gate refuses the
+	// parked invoices of an OData extract, whose XRECH is absent, rather
+	// than load a credit memo as an invoice.
 	{Table: "RBKP", Service: "API_SUPPLIERINVOICE_PROCESS_SRV", Entity: "A_SupplierInvoice", CompanyField: "CompanyCode", YearField: "FiscalYear",
 		Fields: map[string]string{"BELNR": "SupplierInvoice", "GJAHR": "FiscalYear", "BUKRS": "CompanyCode",
 			"LIFNR": "InvoicingParty", "XBLNR": "SupplierInvoiceIDByInvcgParty", "BLDAT": "DocumentDate",
@@ -105,7 +110,8 @@ func (o *ODataSource) Extract(ctx context.Context, scope Scope) (*Extract, error
 	}
 	// Assemble via JSON so each SAP field lands in its struct field by tag.
 	// Every row is a map of strings and every Extract field is a slice of
-	// string-only structs, so this round trip cannot fail.
+	// structs of strings (and optional strings), so this round trip cannot
+	// fail.
 	data, _ := json.Marshal(tables)
 	var e Extract
 	_ = json.Unmarshal(data, &e)

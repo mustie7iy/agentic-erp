@@ -55,7 +55,10 @@ They must be equal.
 - Open payables, in total and per vendor
 - Vendor count per company code
 - Purchase order count and value
-- Parked supplier invoices (posted ones are carried by their FI documents)
+- Parked supplier documents by kind: invoices, and credit memos, subsequent
+  debits and subsequent credits where either side has one (posted ones are
+  carried by their FI documents). The kind comes from RBKP-XRECH and
+  RSEG-TBTKZ (T72b), so a credit memo loaded as an invoice fails two checks
 - Every SAP document in scope present on the platform (missing ones listed)
 
 ## What to check on a real SAP system
@@ -63,6 +66,10 @@ They must be equal.
 - OData services are activated (`/IWFND/MAINT_SERVICE`) and the technical user
   has read authorization only.
 - Entity and field names in `internal/sap/odata.go` match your release (check `$metadata`).
+- The supplier invoice indicators RBKP-XRECH (invoice or credit memo) and
+  RSEG-TBTKZ (subsequent debit/credit item) are in the extract. The OData
+  mapping does not carry them yet, so the quality gate refuses an OData
+  extract's parked invoices until their properties are mapped (T72b).
 - Amounts for currencies with no decimals or three decimals (JPY, KWD) come in
   external format.
 - **SAP digital-access licensing:** reading data is usually fine, but agents

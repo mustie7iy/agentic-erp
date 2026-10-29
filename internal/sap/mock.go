@@ -19,7 +19,9 @@ import (
 //
 // Parked invoices in company 1000 exercise each invoice-matching outcome:
 // clean, price variance, quantity over goods receipt, duplicate reference,
-// above the auto-post limit, and a gross/tax mismatch.
+// above the auto-post limit, and a gross/tax mismatch. Its first three
+// orders' invoices are followed by a parked credit memo, subsequent debit
+// and subsequent credit (corrections, T72b).
 //
 // Revenue follows a monthly trend that grows about 7% a year, so extracts
 // for consecutive years support year-over-year analytics.
@@ -52,6 +54,7 @@ type mockGen struct {
 	fi    map[string]int // FI document counter per company
 	poSeq int
 	ivSeq int
+	cmSeq int // corrections, numbered apart so the invoices keep their numbers
 	grSeq int
 	ref   map[string]string // PO -> vendor reference of its posted invoice
 
@@ -266,6 +269,45 @@ func (g *mockGen) purchaseOrder(cc string, i int, taxPct int64, vendors []string
 
 	posted := i < 12
 	g.invoice(cc, ebeln, vendor, month, i, lines, taxPct, posted, scenarios)
+	if scenarios && i < len(corrections) {
+		g.correction(cc, ebeln, vendor, month, corrections[i], lines[0], taxPct)
+	}
+}
+
+// corrections are the parked documents that follow the posted invoices of
+// company 1000's first three orders, one of each kind other than an
+// invoice, by RBKP-XRECH and RSEG-TBTKZ (types.go).
+type mockCorrection struct{ prefix, xrech, tbtkz string }
+
+var corrections = []mockCorrection{
+	{"CM", "", ""},   // credit memo: one unit of the first item returned
+	{"SD", "X", "X"}, // subsequent debit: the first item revalued up
+	{"SC", "", "X"},  // subsequent credit: the first item revalued down
+}
+
+// correction appends a parked correction of an order's first item. It
+// draws nothing from the generator, so the rest of the extract is the same
+// as without it. A credit memo credits one unit at the order price; a
+// subsequent debit or credit revalues the item by 25.00, with the item's
+// quantity as SAP proposes it, which moves none (SAP Help, "Subsequent
+// Debits/Credits").
+func (g *mockGen) correction(cc, ebeln, vendor string, month int, c mockCorrection, l mockPOLine, taxPct int64) {
+	g.cmSeq++
+	belnr := fmt.Sprintf("52%08d", g.cmSeq)
+	qty, net := milli(perUnit), money.Minor(2500)
+	if c.tbtkz == "" {
+		net, _ = money.Scale(l.price, qty.String(), l.peinh) // mock prices are far from the range
+	} else {
+		qty = l.qty
+	}
+	g.e.RSEG = append(g.e.RSEG, RSEG{BELNR: belnr, GJAHR: g.gj, BUZEI: "000001", EBELN: ebeln, EBELP: l.item,
+		MENGE: qty.String(), WRBTR: net.Plain(mockDecimals), TBTKZ: c.tbtkz})
+	tax, _ := money.Percent(net, taxPct) // mock amounts are far from the range
+	g.e.RBKP = append(g.e.RBKP, RBKP{
+		BELNR: belnr, GJAHR: g.gj, BUKRS: cc, LIFNR: vendor, XBLNR: fmt.Sprintf("%s-%s-%04d", c.prefix, vendor[len(vendor)-4:], g.cmSeq),
+		BLDAT: g.date(month, 20), WAERS: mockCurrency(cc), RMWWR: (net + tax).Plain(mockDecimals), WMWST1: tax.Plain(mockDecimals),
+		RBSTAT: "A", XRECH: Indicator(c.xrech),
+	})
 }
 
 // poLine generates item j of the i-th order, with the scenario overrides
@@ -364,7 +406,7 @@ func (g *mockGen) invoice(cc, ebeln, vendor string, month, i int, lines []mockPO
 	}
 	g.e.RBKP = append(g.e.RBKP, RBKP{
 		BELNR: belnr, GJAHR: g.gj, BUKRS: cc, LIFNR: vendor, XBLNR: xblnr, BLDAT: g.date(month, 15),
-		WAERS: mockCurrency(cc), RMWWR: gross.Plain(mockDecimals), WMWST1: tax.Plain(mockDecimals), RBSTAT: status,
+		WAERS: mockCurrency(cc), RMWWR: gross.Plain(mockDecimals), WMWST1: tax.Plain(mockDecimals), RBSTAT: status, XRECH: Indicator("X"),
 	})
 	if !posted {
 		return
