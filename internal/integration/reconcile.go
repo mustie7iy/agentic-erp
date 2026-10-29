@@ -31,7 +31,7 @@ type Check struct {
 // quantity invoiced in SAP (invoicedQuantities).
 type Diff struct {
 	CompanyCode string `json:"company_code"`
-	Key         string `json:"key"` // account number, "vendor <LIFNR>", "down payments of vendor <LIFNR>", "bank account of vendor <LIFNR>", "order item <EBELN>/<EBELP>" or "GR/IR of order item <EBELN>/<EBELP>"
+	Key         string `json:"key"` // account number, "vendor <LIFNR>", "down payments of vendor <LIFNR>", "partner <id>" or "down payments of partner <id>" (a platform supplier that is no migrated vendor), "bank account of vendor <LIFNR>", "order item <EBELN>/<EBELP>" or "GR/IR of order item <EBELN>/<EBELP>"
 	SAP         string `json:"sap"`
 	Platform    string `json:"platform"`
 }
