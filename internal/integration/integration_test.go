@@ -386,7 +386,10 @@ func TestQualityGateAndRefusedLoads(t *testing.T) {
 	conforms(t, completed)
 	forms := map[string]bool{}
 	for _, p := range completed {
-		s := p["summary"].(map[string]any)
+		s, ok := p["summary"].(map[string]any)
+		if !ok {
+			t.Fatalf("completed summary: got %v, want an object", p["summary"])
+		}
 		forms[fmt.Sprintf("passed %v, loaded %t", s["passed"], s["loaded"] != nil)] = true
 	}
 	for _, want := range []string{"passed <nil>, loaded false", "passed <nil>, loaded true", "passed false, loaded true"} {

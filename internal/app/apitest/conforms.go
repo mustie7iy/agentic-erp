@@ -63,8 +63,10 @@ func parseEventSchemas(b []byte) (eventSchemas, error) {
 // Conforms fails tb where payload, an event of e's type as Published
 // returns it, departs from the payload schema api/asyncapi.yaml declares:
 // at any depth, a value of another type, a required field missing, a field
-// not declared, a value out of range or not of the pattern, or a value
-// matching not exactly one of a oneOf. Published checks the top level of
+// not declared, a value out of an integer minimum or maximum or not of the
+// pattern, or a value matching not exactly one of a oneOf. Those are the
+// keywords it reads; enum, const, format, minItems, allOf and anyOf are not
+// checked. Published checks the top level of
 // every payload; Conforms is for an event whose nested values carry the
 // contract.
 func Conforms(tb testing.TB, e outbox.Event, payload map[string]any) {
@@ -138,9 +140,24 @@ func (s eventSchemas) check(path string, v any, schema map[string]any, depth int
 	case json.Number:
 		return bounds(path, x, schema)
 	case string:
-		if p, ok := schema["pattern"].(string); ok && !regexp.MustCompile(p).MatchString(x) {
-			return []string{fmt.Sprintf("%s: got %q, want it to match %s", path, x, p)}
-		}
+		return matches(path, x, schema)
+	}
+	return nil
+}
+
+// matches lists a string not of the schema's pattern, or a pattern Go's
+// regexp cannot read (JSON Schema's are ECMA 262).
+func matches(path, x string, schema map[string]any) []string {
+	p, ok := schema["pattern"].(string)
+	if !ok {
+		return nil
+	}
+	re, err := regexp.Compile(p)
+	if err != nil {
+		return []string{fmt.Sprintf("%s: pattern %s: %v", path, p, err)}
+	}
+	if !re.MatchString(x) {
+		return []string{fmt.Sprintf("%s: got %q, want it to match %s", path, x, p)}
 	}
 	return nil
 }

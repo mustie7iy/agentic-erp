@@ -19,6 +19,7 @@ components:
   schemas:
     Count: {type: integer, minimum: 1, maximum: 9}
     Code: {type: string, pattern: '^[A-Z]+$'}
+    Ahead: {type: string, pattern: '^(?=a)'}
     Loop: {$ref: '#/components/schemas/Loop'}
     ThingV1:
       type: object
@@ -35,6 +36,7 @@ components:
         ratio: {type: number}
         loop: {$ref: '#/components/schemas/Loop'}
         elsewhere: {$ref: 'other.yaml#/X'}
+        ahead: {$ref: '#/components/schemas/Ahead'}
 `
 
 func TestConformance(t *testing.T) {
@@ -61,6 +63,7 @@ func TestConformance(t *testing.T) {
 		{"an item of another type", map[string]any{"code": "AB", "tags": []any{1}}, "payload.tags[0]: got 1, want string or null"},
 		{"an additional value of another type", map[string]any{"code": "AB", "labels": map[string]any{"k": 1}}, "payload.labels.k: got 1, want string"},
 		{"a ref loop", map[string]any{"code": "AB", "loop": 1}, "payload.loop: $ref chain longer than 32"},
+		{"a pattern RE2 cannot read", map[string]any{"code": "AB", "ahead": "a"}, "payload.ahead: pattern ^(?=a): error parsing regexp"},
 		{"a ref elsewhere", map[string]any{"code": "AB", "elsewhere": 1}, `payload.elsewhere: unresolved $ref "other.yaml#/X"`},
 	}
 	for _, c := range cases {
