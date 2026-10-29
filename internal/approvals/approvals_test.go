@@ -19,6 +19,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -401,11 +402,27 @@ func TestOpenRefusals(t *testing.T) {
 	}
 }
 
+// locating is a recorder that places its objects with a statement of the
+// request's transaction, so a failing statement fails the rendering of
+// every request it places.
+type locating struct{ recorder }
+
+func (locating) Resources(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `SELECT 1`); err != nil {
+		return nil, fmt.Errorf("locate: %w", err)
+	}
+	return approvals.Paths("/v1/requisitions/%s", ids), nil
+}
+
 func TestDatabaseFailures(t *testing.T) {
 	f := setup(t)
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
 	var calls []string
-	handlers := map[string]approvals.Handler{approvals.Requisition: recorder{&calls}}
+	handlers := map[string]approvals.Handler{approvals.Requisition: locating{recorder{&calls}}}
 	e := &approvals.Endpoints{Pages: pages, Decider: approvals.Decider{Roles: identity.Directory{}, Handlers: handlers}}
 	eur, amount := "EUR", money.Minor(100)
 	newRequest := func(ctx context.Context) (uuid.UUID, error) {
@@ -434,6 +451,10 @@ func TestDatabaseFailures(t *testing.T) {
 		}},
 		"list": {f.Approver, func(ctx context.Context) error {
 			_, err := e.ListApprovalRequests(ctx, gen.ListApprovalRequestsParams{ObjectID: gen.NewOptUUID(uuid.New())})
+			return err
+		}},
+		"list placed": {f.Approver, func(ctx context.Context) error {
+			_, err := e.ListApprovalRequests(ctx, gen.ListApprovalRequestsParams{Status: gen.NewOptString("pending")})
 			return err
 		}},
 		"inbox": {f.Approver, func(ctx context.Context) error {

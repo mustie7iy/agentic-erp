@@ -94,6 +94,10 @@ func TestOrderChangeApproval(t *testing.T) {
 	want(t, "request", r, map[string]any{"object_type": "order_change", "id": pending["approval_request_id"], "requester_id": e.Tenant.Agent.ID.String()})
 	// The change is read through its order: the request says where.
 	want(t, "request's object", r, map[string]any{"object_resource": cpath})
+	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "place the change", func(ctx context.Context) error {
+		_, err := procurement.OrderChanges{}.Resources(ctx, []uuid.UUID{uuid.MustParse(id(ch))})
+		return err
+	})
 	want(t, "request amount", r["amount"].(map[string]any), map[string]any{"amount": "1500.00", "currency": "EUR"})
 	e.Problem(409, "procurement.invalid_status", "PATCH", cpath, `{"reason": "x"}`, tag)
 	order, _ := e.Must(200, "GET", path, "", "")

@@ -19,6 +19,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
@@ -26,6 +27,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
+	"github.com/mustie7iy/agentic-erp/internal/procurement"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -205,5 +207,26 @@ func TestApprovalObjectsLocated(t *testing.T) {
 	}
 	if got, want := len(handlers), len(approvals.ObjectPermissions); got != want {
 		t.Errorf("handlers: got %d, want one per object type (%d)", got, want)
+	}
+}
+
+// TestNamingPortsNeedARequest: the ports that name what responses refer to
+// read in the request's transaction, and refuse to run outside one.
+func TestNamingPortsNeedARequest(t *testing.T) {
+	for name, call := range map[string]func() error{
+		"supplier names": func() error {
+			_, err := partner.Payees{}.Names(context.Background(), []uuid.UUID{uuid.New()})
+			return err
+		},
+		"order numbers": func() error {
+			_, err := procurement.Orders{}.Numbers(context.Background(), []uuid.UUID{uuid.New()})
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := call(); err == nil {
+				t.Error("outside a unit of work: got no error, want one")
+			}
+		})
 	}
 }

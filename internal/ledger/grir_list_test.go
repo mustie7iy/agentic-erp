@@ -253,14 +253,15 @@ func TestGRIRBalancesBudget(t *testing.T) {
 	}
 	t.Logf("seeded 20,050 positions in %v", time.Since(start))
 	pgtest.Exec(t, `ANALYZE ledger.gr_ir_position`)
-	for _, order := range []string{"purchase_order_id", "last_posting_date%20desc"} {
+	// The last case pages over every position: its totals sum all 20,050.
+	for _, order := range []string{"purchase_order_id", "last_posting_date%20desc", "purchase_order_id&open_only=false"} {
 		var times []time.Duration
 		for range 10 {
 			start := time.Now()
 			page, _ := g.Must(200, "GET", "/v1/gr-ir-balances?legal_entity_id="+g.de.String()+"&order_by="+order, "", "")
 			times = append(times, time.Since(start))
 			if n := len(page["items"].([]any)); n != 50 {
-				t.Fatalf("open positions: got %d, want 50", n)
+				t.Fatalf("positions on the page: got %d, want 50", n)
 			}
 		}
 		slices.Sort(times)
