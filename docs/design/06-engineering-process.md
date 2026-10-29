@@ -290,6 +290,12 @@ gates on each pull request:
     the race step. Changed: `scripts/images.sh` runs ko with `--jobs=1`,
     which `scripts/test-images.sh` holds, and the image step logs memory
     every 30 s too.
+  - 2026-10-28 (apinames): new required response fields (`supplier_name`,
+    `account_number`, `account_name`) passed oasdiff, which treats a new
+    required response field as non-breaking, rightly for consumers; but the
+    strict generated client rejects a stub response that lacks one, so
+    `internal/web`'s stubs failed. Layer: `internal/web`'s tests, which are
+    the layer that catches it. Changed: the stubs answer the new fields.
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
   documentation changed (`docs/`, Markdown) since the base: a pull
