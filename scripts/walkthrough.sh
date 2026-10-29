@@ -460,7 +460,7 @@ step_migrate() {
   grep -q ': reconciled$' "$WORK/migrate.out" || fail "the migration report does not say reconciled"
   for check in 'Trial balance: accounts with differences' 'Open payables total' 'Open payables: vendors with differences' \
     'Parked supplier invoices' 'Parked supplier credit memos' 'Parked subsequent debits' 'Parked subsequent credits' \
-    'Vendor bank accounts: vendors with differences'; do
+    'Vendor bank accounts: vendors with differences' 'Quantities invoiced in SAP: order items with differences'; do
     grep "$check" "$WORK/migrate.out" | grep -q 'PASS$' || fail "the reconciliation check '$check' did not pass"
   done
   say "The trial balance and the open payables agree with SAP's, recomputed from the raw extract, and so"
@@ -480,6 +480,22 @@ step_migrate() {
     api 200 '.items[] | "\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), from \(.source), supplier \(.supplier_id)"' \
       listSupplierInvoices -p "legal_entity_id=$LE" -p "kind=$kind" -p status=parked | name_partners
     expect "parked migrated documents of kind $kind" "$(field '[.items[] | select(.source == "migration")] | length')" 1
+  done
+  say "SAP had invoiced those orders already, in invoices it posted, which come over as journal entries. The load"
+  say "took over what they invoiced and credited on each order item (posted RSEG, by RBKP-XRECH; T72b2), and the"
+  say "reconciliation agrees with SAP per order item. So Alex matches the migrated credit memo and subsequent"
+  say "debit clean and posts them, with no exception to release: the credit memo credits less than SAP invoiced,"
+  say "the subsequent debit revalues an item SAP invoiced."
+  as alex
+  local doc
+  for kind in credit_memo subsequent_debit; do
+    QUIET=1 api 200 '' listSupplierInvoices -p "legal_entity_id=$LE" -p "kind=$kind" -p status=parked
+    doc=$(field '.items[0].id')
+    api 200 "$MATCHED" matchSupplierInvoice -p "id=$doc" -if-match '"1"'
+    expect "the match of the migrated $kind" "$(field .is_clean)" true
+    api 200 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), journal entry \(.journal_entry_id)"' \
+      postSupplierInvoice -p "id=$doc" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+    expect "the migrated $kind's status" "$(field .status)" posted
   done
   passed
 }

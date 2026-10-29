@@ -596,16 +596,16 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Migrated SAP corrections pass matching (pre-existing finding on T72b): invoicedQuantities counts only invoices posted in the platform, so every migrated credit memo is held with quantity_exceeds_invoiced and every subsequent debit/credit with nothing_invoiced until a person releases it; the quantities SAP already invoiced (posted RSEG) are taken over at migration",
-      "r": "internal/payables/match.go invoicedQuantities · internal/integration load",
+      "r": "payables.migrated_invoice_item (000166), TakeOverInvoiced, invoicedQuantities · integration load step invoiced and the reconciliation check of invoiced quantities · walkthrough step 3 · T72b2",
       "src": "review:T72b",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The contract describes SupplierInvoiceItem.quantity as positive, but subsequent debit/credit items carry quantity 0 (pre-existing finding on T72b)",
-      "r": "api/openapi.yaml SupplierInvoiceItem",
+      "r": "api/openapi.yaml SupplierInvoiceItem.quantity · T72b2",
       "src": "review:T72b",
       "c": []
      }

@@ -74,7 +74,8 @@ var DefaultEntities = []EntityMapping{
 	// the API's properties for them are still to be confirmed against a
 	// system's $metadata. Until they are, the quality gate refuses the
 	// parked invoices of an OData extract, whose XRECH is absent, rather
-	// than load a credit memo as an invoice.
+	// than load a credit memo as an invoice, and its posted ones, whose
+	// invoiced quantities the load takes over by direction (T72b2).
 	{Table: "RBKP", Service: "API_SUPPLIERINVOICE_PROCESS_SRV", Entity: "A_SupplierInvoice", CompanyField: "CompanyCode", YearField: "FiscalYear",
 		Fields: map[string]string{"BELNR": "SupplierInvoice", "GJAHR": "FiscalYear", "BUKRS": "CompanyCode",
 			"LIFNR": "InvoicingParty", "XBLNR": "SupplierInvoiceIDByInvcgParty", "BLDAT": "DocumentDate",

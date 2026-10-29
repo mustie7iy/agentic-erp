@@ -108,7 +108,11 @@ func (l *loader) plain(minor money.Minor, currency string) string {
 }
 
 // load brings the extract over: suppliers, purchase orders, goods
-// receipts, parked invoices, then the journal (every document, or one
+// receipts, parked invoices, the quantities posted invoices invoiced
+// (before the journal: its gapless number ranges stay locked until the
+// load commits, and an invoice's posting on a migrated order takes the
+// order items, which the take-over locks, before its journal range), then
+// the journal (every document, or one
 // opening entry per company) with the clearings SAP recorded, and last the
 // posting blocks, which would refuse the postings before them.
 //
@@ -121,7 +125,7 @@ func (l *loader) load(ctx context.Context) error {
 	if err := l.e.Postings.LockAllEntries(ctx); err != nil {
 		return err
 	}
-	for _, fn := range []func(context.Context) error{l.partners, l.orders, l.receipts, l.invoices, l.journal, l.clearings, l.blocked} {
+	for _, fn := range []func(context.Context) error{l.partners, l.orders, l.receipts, l.invoices, l.invoiced, l.journal, l.clearings, l.blocked} {
 		if err := fn(ctx); err != nil {
 			return err
 		}
@@ -225,8 +229,8 @@ func (l *loader) createSupplier(ctx context.Context, np partner.NewPartner, v sa
 }
 
 // itemNos numbers each order's items 1..n in SAP item order.
-func (l *loader) itemNos() map[string]int32 {
-	items := slices.Clone(l.ext.EKPO)
+func itemNos(e *sap.Extract) map[string]int32 {
+	items := slices.Clone(e.EKPO)
 	slices.SortFunc(items, func(a, b sap.EKPO) int { return cmp.Compare(a.EBELN+"/"+a.EBELP, b.EBELN+"/"+b.EBELP) })
 	out := map[string]int32{}
 	next := map[string]int32{}
@@ -284,7 +288,7 @@ func (l *loader) receipts(ctx context.Context) error {
 	for _, h := range l.ext.EKKO {
 		company[h.EBELN] = h.BUKRS
 	}
-	nos := l.itemNos()
+	nos := itemNos(l.ext)
 	docs := map[string][]sap.MSEG{}
 	for _, m := range l.ext.MSEG {
 		if m.BWART == "101" {
@@ -329,7 +333,7 @@ func (l *loader) receipts(ctx context.Context) error {
 // (parkedKinds, T72b), so a credit memo is never a positive invoice that a
 // payment run pays.
 func (l *loader) invoices(ctx context.Context) error {
-	nos := l.itemNos()
+	nos := itemNos(l.ext)
 	items := invoiceItems(l.ext)
 	kinds := parkedKinds(l.ext)
 	heads := slices.Clone(l.ext.RBKP)
@@ -356,6 +360,62 @@ func (l *loader) invoices(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// invoiced takes over what SAP's posted invoice documents invoiced and
+// credited on the orders on the platform (T72b2), so that matching a
+// migrated credit memo or subsequent debit/credit, or a later invoice,
+// counts it. A document is taken over whole, once (its RBKP reference):
+// it waits until every order of the extract it names is loaded, and its
+// items on orders outside the extract, none of the platform's, are left
+// out. Documents the quality gate refused are not taken over.
+func (l *loader) invoiced(ctx context.Context) error {
+	nos := itemNos(l.ext)
+	inExtract := map[string]bool{}
+	for _, h := range l.ext.EKKO {
+		inExtract[h.EBELN] = true
+	}
+	docs, _ := postedDocuments(l.ext, "") // the issues are the quality gate's, which stopped the load on any
+	for _, d := range docs {
+		if _, loaded := l.refs["RBKP/"+d.key]; loaded {
+			continue
+		}
+		in, ready := l.migratedInvoice(d, nos, inExtract)
+		if !ready || len(in.Items) == 0 {
+			continue
+		}
+		done, err := l.step(ctx, "RBKP", d.key, func() error {
+			id, err := l.e.Invoices.TakeOverInvoiced(ctx, in)
+			if err != nil {
+				return err
+			}
+			return l.addRef(ctx, "payables.migrated_invoice", id, "RBKP", d.key)
+		})
+		if err != nil {
+			return err
+		}
+		if done {
+			l.counts["posted_invoices_invoiced"]++
+		}
+	}
+	return nil
+}
+
+// migratedInvoice is what a posted document takes over, and whether every
+// order of the extract it names is on the platform.
+func (l *loader) migratedInvoice(d postedDocument, nos map[string]int32, inExtract map[string]bool) (payables.MigratedInvoice, bool) {
+	in := payables.MigratedInvoice{Reference: "SAP " + d.key, Kind: d.kind}
+	for _, it := range d.items {
+		if !inExtract[it.EBELN] {
+			continue
+		}
+		po, ok := l.refs["EKKO/"+it.EBELN]
+		if !ok {
+			return in, false
+		}
+		in.Items = append(in.Items, payables.MigratedItem{ItemNo: it.no, PurchaseOrderID: po, POItemNo: nos[it.EBELN+"/"+it.EBELP], Quantity: it.MENGE})
+	}
+	return in, true
 }
 
 // invoiceInput is the payables document of one parked SAP document of the

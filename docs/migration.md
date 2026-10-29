@@ -62,6 +62,10 @@ They must be equal.
   debits and subsequent credits where either side has one (posted ones are
   carried by their FI documents). The kind comes from RBKP-XRECH and
   RSEG-TBTKZ (T72b), so a credit memo loaded as an invoice fails two checks
+- Quantities invoiced in SAP per order item: what the posted invoice
+  documents' ordinary items invoiced, credit memos negative, against what the
+  load took over for matching (differences listed by order item; T72b2),
+  where either side has any
 - Every SAP document in scope present on the platform (missing ones listed)
 
 ## What to check on a real SAP system
@@ -72,7 +76,9 @@ They must be equal.
 - The supplier invoice indicators RBKP-XRECH (invoice or credit memo) and
   RSEG-TBTKZ (subsequent debit/credit item) are in the extract. The OData
   mapping does not carry them yet, so the quality gate refuses an OData
-  extract's parked invoices until their properties are mapped (T72b).
+  extract's parked invoices until their properties are mapped (T72b), and
+  its posted ones too, whose invoiced quantities the load takes over by
+  their direction for matching (T72b2).
 - Canadian vendor bank accounts (LFBK, bank country CA) load as scheme `ca`
   only with the bank key (BANKL) in the Canadian Payments Association's
   electronic routing form, 0 + institution (3 digits) + transit (5 digits),

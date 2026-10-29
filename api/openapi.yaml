@@ -27670,7 +27670,7 @@ components:
           maxLength: 200
         quantity:
           $ref: "#/components/schemas/Quantity"
-          description: "Invoiced quantity; positive."
+          description: "Invoiced quantity: positive (422 `payables.invalid_quantity`), except on a subsequent debit or credit, whose items revalue their order item without moving quantity and carry 0 (422 `payables.quantity_not_zero` otherwise). A credit memo's is the quantity it credits."
         amount:
           $ref: "#/components/schemas/Money"
           description: Net amount of the item.
