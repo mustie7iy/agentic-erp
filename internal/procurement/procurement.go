@@ -209,7 +209,7 @@ func (h OrderReleases) Approved(ctx context.Context, order, request uuid.UUID) e
 	if err != nil {
 		return err
 	}
-	_, err = h.Endpoints.release(ctx, tx, p, o, value, false)
+	_, err = h.Endpoints.release(ctx, tx, p, o, value, "")
 	return err
 }
 

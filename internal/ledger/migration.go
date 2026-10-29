@@ -21,6 +21,7 @@ type ChartAccount struct {
 	Type               string // asset, liability, equity, revenue, expense
 	ReconciliationKind string // none, supplier, customer
 	DownPayment        bool   // the legal entity's down_payment account, which takes special G/L A only (ADR-0037)
+	GRIR               bool   // the legal entity's gr_ir account, whose lines name their order item (T33, T72f)
 }
 
 // Chart returns the accounts set up in the legal entity, by number.
@@ -31,14 +32,16 @@ func (Accounts) Chart(ctx context.Context, legalEntity uuid.UUID) (map[string]Ch
 	}
 	rows, _ := tx.Query(ctx, `SELECT a.number, a.id, a.account_type, a.reconciliation_kind,
 			EXISTS (SELECT FROM ledger.account_determination d WHERE d.tenant_id = a.tenant_id AND d.legal_entity_id = $1
-				AND d.key = 'down_payment' AND d.account_id = a.id)
+				AND d.key = 'down_payment' AND d.account_id = a.id),
+			EXISTS (SELECT FROM ledger.account_determination d WHERE d.tenant_id = a.tenant_id AND d.legal_entity_id = $1
+				AND d.key = 'gr_ir' AND d.account_id = a.id)
 		FROM ledger.gl_account a
 		JOIN ledger.company_account ca ON ca.tenant_id = a.tenant_id AND ca.account_id = a.id AND ca.legal_entity_id = $1
 		WHERE a.status = 'active'`, legalEntity)
 	out := map[string]ChartAccount{}
 	var number string
 	var a ChartAccount
-	_, err = pgx.ForEachRow(rows, []any{&number, &a.ID, &a.Type, &a.ReconciliationKind, &a.DownPayment}, func() error { out[number] = a; return nil })
+	_, err = pgx.ForEachRow(rows, []any{&number, &a.ID, &a.Type, &a.ReconciliationKind, &a.DownPayment, &a.GRIR}, func() error { out[number] = a; return nil })
 	if err != nil {
 		return out, fmt.Errorf("ledger: chart of %s: %w", legalEntity, err)
 	}
@@ -194,15 +197,22 @@ type Totals struct {
 }
 
 // Totals sums the legal entity's lines of the fiscal year in the leading
-// ledger.
+// ledger. The debits leave out the GR/IR take-overs a migration run posts
+// (integration entries whose lines name order items, T72f), which move a
+// balance within the GR/IR account and have no document in the source
+// system; the balances count them, as they net to zero.
 func (Reports) Totals(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (Totals, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return Totals{}, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT a.number, sum(l.amount_lc), sum(greatest(l.amount_lc, 0))::bigint FROM ledger.journal_line l
+	rows, _ := tx.Query(ctx, `WITH takeover AS (SELECT DISTINCT l.journal_entry_id FROM ledger.journal_line l
+			JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id AND e.source_context = 'integration'
+			WHERE l.legal_entity_id = $1 AND l.fiscal_year = $2 AND l.purchase_order_id IS NOT NULL)
+		SELECT a.number, sum(l.amount_lc), coalesce(sum(greatest(l.amount_lc, 0)) FILTER (WHERE t.journal_entry_id IS NULL), 0)::bigint FROM ledger.journal_line l
 		JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id AND g.is_leading
 		JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
+		LEFT JOIN takeover t ON t.journal_entry_id = l.journal_entry_id
 		WHERE l.legal_entity_id = $1 AND l.fiscal_year = $2 GROUP BY a.number`, legalEntity, fiscalYear)
 	t := Totals{ByAccount: map[string]money.Minor{}}
 	var number string
@@ -233,6 +243,40 @@ func (Reports) OpenPayables(ctx context.Context, legalEntity uuid.UUID, fiscalYe
 // ledger.
 func (Reports) OpenDownPayments(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error) {
 	return openSupplierItems(ctx, legalEntity, fiscalYear, true)
+}
+
+// OpenGRIR is an order item's open GR/IR position as the migration
+// reconciliation compares it: its quantity, invoiced + cleared + migrated -
+// received, and its balance in local currency.
+type OpenGRIR struct {
+	Quantity string
+	LC       money.Minor
+}
+
+// OpenGRIR reads the open GR/IR positions of the orders' items in the
+// legal entity (ledger.gr_ir_position), by order and item.
+func (Reports) OpenGRIR(ctx context.Context, legalEntity uuid.UUID, orders []uuid.UUID) (map[uuid.UUID]map[int32]OpenGRIR, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT purchase_order_id, po_item_no, trim_scale(invoiced + cleared + migrated - received)::text, amount_lc
+		FROM ledger.gr_ir_position WHERE legal_entity_id = $1 AND purchase_order_id = ANY($2) AND is_open`, legalEntity, orders)
+	out := map[uuid.UUID]map[int32]OpenGRIR{}
+	var order uuid.UUID
+	var item int32
+	var p OpenGRIR
+	_, err = pgx.ForEachRow(rows, []any{&order, &item, &p.Quantity, &p.LC}, func() error {
+		if out[order] == nil {
+			out[order] = map[int32]OpenGRIR{}
+		}
+		out[order][item] = p
+		return nil
+	})
+	if err != nil {
+		return out, fmt.Errorf("ledger: open GR/IR positions of %d orders in %s: %w", len(orders), legalEntity, err)
+	}
+	return out, nil
 }
 
 // openSupplierItems sums open supplier items per partner: the special G/L

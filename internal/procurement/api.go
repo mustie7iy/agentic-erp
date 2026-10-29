@@ -520,7 +520,7 @@ func (e *Endpoints) UpdatePurchaseOrder(ctx context.Context, req *gen.PurchaseOr
 
 // ReleasePurchaseOrder implements POST /v1/purchase-orders/{id}:release.
 func (e *Endpoints) ReleasePurchaseOrder(ctx context.Context, params gen.ReleasePurchaseOrderParams) (gen.ReleasePurchaseOrderRes, error) {
-	o, err := e.releaseOrder(ctx, params.ID, etag.IfMatch(params.IfMatch), false)
+	o, err := e.releaseOrder(ctx, params.ID, etag.IfMatch(params.IfMatch), "")
 	if err != nil {
 		return nil, err
 	}
@@ -644,7 +644,7 @@ func (e *Endpoints) PostGoodsReceipt(ctx context.Context, req *gen.GoodsReceiptC
 	for i, it := range req.Items {
 		in.Items[i] = ReceiptItem{No: int32(i + 1), PurchaseOrderID: it.PurchaseOrderID, POItemNo: it.PoItemNo, Quantity: it.Quantity.Value, Unit: it.Quantity.Unit}
 	}
-	g, err := e.postReceipt(ctx, in)
+	g, err := e.postReceipt(ctx, in, true)
 	if err != nil {
 		return nil, err
 	}

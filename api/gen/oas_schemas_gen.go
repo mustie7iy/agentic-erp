@@ -16812,8 +16812,14 @@ type GrIrBalance struct {
 	InvoicedQuantity Quantity `json:"invoiced_quantity"`
 	// Cleared by posted GR/IR clearings of the closed order (createGrIrClearing, SAP MR11), signed as the
 	// position: positive where more was received than invoiced. A position is closed once invoiced plus
-	// cleared equals received.
+	// cleared plus migrated equals received.
 	ClearedQuantity Quantity `json:"cleared_quantity"`
+	// The open quantity a migration run took over with the position from the source system (SAP's GR/IR
+	// lines naming the order item), signed as the position: what the source system invoiced less what it
+	// received, negative for goods received there and not yet invoiced. Neither received nor invoiced on
+	// the platform: the receipts and invoices posted there before cutover are carried by the migrated
+	// journal. Zero for a position the platform built.
+	MigratedQuantity Quantity `json:"migrated_quantity"`
 	// Balance in the order's currency, signed: negative when more is received than invoiced.
 	Balance Money `json:"balance"`
 	// Balance in local currency, signed.
@@ -16872,6 +16878,11 @@ func (s *GrIrBalance) GetInvoicedQuantity() Quantity {
 // GetClearedQuantity returns the value of ClearedQuantity.
 func (s *GrIrBalance) GetClearedQuantity() Quantity {
 	return s.ClearedQuantity
+}
+
+// GetMigratedQuantity returns the value of MigratedQuantity.
+func (s *GrIrBalance) GetMigratedQuantity() Quantity {
+	return s.MigratedQuantity
 }
 
 // GetBalance returns the value of Balance.
@@ -16942,6 +16953,11 @@ func (s *GrIrBalance) SetInvoicedQuantity(val Quantity) {
 // SetClearedQuantity sets the value of ClearedQuantity.
 func (s *GrIrBalance) SetClearedQuantity(val Quantity) {
 	s.ClearedQuantity = val
+}
+
+// SetMigratedQuantity sets the value of MigratedQuantity.
+func (s *GrIrBalance) SetMigratedQuantity(val Quantity) {
+	s.MigratedQuantity = val
 }
 
 // SetBalance sets the value of Balance.

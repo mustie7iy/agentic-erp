@@ -29,6 +29,7 @@ type GRIRBalance struct {
 	AccountName            string
 	Received, Invoiced     string
 	Cleared                string // what GR/IR clearings cleared (T72e), signed as the position
+	Migrated               string // the open quantity a migration run took over (T72f), signed as the position
 	Unit                   string
 	TC, LC, GC             money.Minor
 	CurrencyTC, CurrencyLC string
@@ -43,7 +44,8 @@ type GRIRBalance struct {
 // open positions' partial index by default. $1: legal entity, one the
 // caller may act in (reportEntity).
 const grirPositionSelect = `SELECT * FROM (SELECT p.id, p.legal_entity_id, p.purchase_order_id, p.po_item_no, p.account_id, a.number AS account_number, a.name AS account_name,
-		trim_scale(p.received)::text AS received, trim_scale(p.invoiced)::text AS invoiced, trim_scale(p.cleared)::text AS cleared, p.uom_code, p.amount_tc, p.amount_lc, p.amount_gc,
+		trim_scale(p.received)::text AS received, trim_scale(p.invoiced)::text AS invoiced, trim_scale(p.cleared)::text AS cleared,
+		trim_scale(p.migrated)::text AS migrated, p.uom_code, p.amount_tc, p.amount_lc, p.amount_gc,
 		p.currency_tc, p.currency_lc, p.currency_gc, ctc.exponent AS exp_tc, clc.exponent AS exp_lc, cgc.exponent AS exp_gc, p.last_posting_date, p.is_open
 	FROM ledger.gr_ir_position p
 	JOIN ledger.gl_account a ON a.tenant_id = p.tenant_id AND a.id = p.account_id
@@ -57,14 +59,15 @@ const grirPositionSelect = `SELECT * FROM (SELECT p.id, p.legal_entity_id, p.pur
 // the order (journal_line_order_item), which the projection, current only,
 // cannot answer. Receipts are the procurement context's lines (credited,
 // so negated here), invoices the payables context's, clearings those of
-// entries recorded as GR/IR clearings (T72e); a reversal is its document's
-// context's. $1: legal entity, one the caller may act in; $2 order;
-// $3 key date.
+// entries recorded as GR/IR clearings (T72e), take-overs the integration
+// context's (T72f); a reversal is its document's context's. $1: legal
+// entity, one the caller may act in; $2 order; $3 key date.
 const grirKeyDateSelect = `SELECT * FROM (SELECT md5(l.purchase_order_id::text || '/' || l.po_item_no::text)::uuid AS id, l.legal_entity_id, l.purchase_order_id,
 		l.po_item_no, l.account_id, a.number AS account_number, a.name AS account_name,
 		trim_scale(coalesce(-sum(l.quantity) FILTER (WHERE e.source_context = 'procurement' AND c.journal_entry_id IS NULL), 0))::text AS received,
 		trim_scale(coalesce(sum(l.quantity) FILTER (WHERE e.source_context = 'payables'), 0))::text AS invoiced,
 		trim_scale(coalesce(sum(l.quantity) FILTER (WHERE c.journal_entry_id IS NOT NULL), 0))::text AS cleared,
+		trim_scale(coalesce(sum(l.quantity) FILTER (WHERE e.source_context = 'integration'), 0))::text AS migrated,
 		min(l.uom_code) AS unit, sum(l.amount_tc)::bigint AS amount_tc, sum(l.amount_lc)::bigint AS amount_lc, sum(l.amount_gc)::bigint AS amount_gc,
 		min(e.currency_tc) AS currency_tc, min(e.currency_lc) AS currency_lc, min(e.currency_gc) AS currency_gc,
 		min(ctc.exponent) AS exp_tc, min(clc.exponent) AS exp_lc, min(cgc.exponent) AS exp_gc, max(l.posting_date) AS last_posting_date,
@@ -207,15 +210,15 @@ func grirBalanceToAPI(b GRIRBalance) gen.GrIrBalance {
 	return gen.GrIrBalance{LegalEntityID: b.LegalEntityID, PurchaseOrderID: b.PurchaseOrderID, PoItemNo: b.POItemNo, AccountID: b.AccountID,
 		AccountNumber: b.AccountNumber, AccountName: b.AccountName,
 		ReceivedQuantity: gen.Quantity{Value: b.Received, Unit: b.Unit}, InvoicedQuantity: gen.Quantity{Value: b.Invoiced, Unit: b.Unit},
-		ClearedQuantity: gen.Quantity{Value: b.Cleared, Unit: b.Unit},
-		Balance:         apitypes.Money(b.TC, b.CurrencyTC, b.ExpTC), BalanceLc: apitypes.Money(b.LC, b.CurrencyLC, b.ExpLC),
+		ClearedQuantity: gen.Quantity{Value: b.Cleared, Unit: b.Unit}, MigratedQuantity: gen.Quantity{Value: b.Migrated, Unit: b.Unit},
+		Balance: apitypes.Money(b.TC, b.CurrencyTC, b.ExpTC), BalanceLc: apitypes.Money(b.LC, b.CurrencyLC, b.ExpLC),
 		BalanceGc: apitypes.Money(b.GC, b.CurrencyGC, b.ExpGC), LastPostingDate: b.LastPostingDate}
 }
 
 func scanGRIRBalance(row pgx.Row) (GRIRBalance, error) {
 	var b GRIRBalance
 	var open bool // the filter's, not shown
-	err := row.Scan(&b.ID, &b.LegalEntityID, &b.PurchaseOrderID, &b.POItemNo, &b.AccountID, &b.AccountNumber, &b.AccountName, &b.Received, &b.Invoiced, &b.Cleared, &b.Unit, &b.TC, &b.LC, &b.GC,
+	err := row.Scan(&b.ID, &b.LegalEntityID, &b.PurchaseOrderID, &b.POItemNo, &b.AccountID, &b.AccountNumber, &b.AccountName, &b.Received, &b.Invoiced, &b.Cleared, &b.Migrated, &b.Unit, &b.TC, &b.LC, &b.GC,
 		&b.CurrencyTC, &b.CurrencyLC, &b.CurrencyGC, &b.ExpTC, &b.ExpLC, &b.ExpGC, &b.LastPostingDate, &open)
 	return b, errs.Wrapf(err, "scan GR/IR balance")
 }

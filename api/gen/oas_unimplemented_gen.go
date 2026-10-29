@@ -1859,13 +1859,16 @@ func (UnimplementedHandler) ListGoodsReceipts(ctx context.Context, params ListGo
 // ListGrIrBalances implements listGrIrBalances operation.
 //
 // The GR/IR position of each purchase order item of a legal entity in the leading ledger: its
-// received, invoiced and cleared quantities and its balance on the GR/IR account (negative: received,
-// not yet invoiced; positive: invoiced, not yet received). A position is zero in every currency once
-// its received quantity equals its invoiced plus its cleared quantity; a closed order's residual
-// position is cleared by a GR/IR clearing (createGrIrClearing). Only orders valued through GR/IR have
-// positions. With `posting_date_to` the call reports one order's positions on that key date. Each
-// position names its order by number and its account by number and name, and `totals` sums every
-// position the filters select, on every page. Sortable by: `purchase_order_id`, `last_posting_date`.
+// received, invoiced, cleared and migrated quantities and its balance on the GR/IR account (negative:
+// received, not yet invoiced; positive: invoiced, not yet received). A position is zero in every
+// currency once its received quantity equals its invoiced plus its cleared plus its migrated quantity;
+// a closed order's residual position is cleared by a GR/IR clearing (createGrIrClearing). Only orders
+// valued through GR/IR have positions; a migration run takes over the open positions SAP holds for the
+// order items it loads (`migrated_quantity`), and an invoice posted after cutover clears them as it
+// clears the platform's own. With `posting_date_to` the call reports one order's positions on that key
+// date. Each position names its order by number and its account by number and name, and `totals` sums
+// every position the filters select, on every page. Sortable by: `purchase_order_id`,
+// `last_posting_date`.
 //
 // GET /v1/gr-ir-balances
 func (UnimplementedHandler) ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (r ListGrIrBalancesRes, _ error) {

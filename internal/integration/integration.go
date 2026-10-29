@@ -69,11 +69,12 @@ type Suppliers interface {
 	PaymentAccounts(ctx context.Context, partners []uuid.UUID) (map[uuid.UUID]partner.PaymentAccount, error)
 }
 
-// Orders creates purchase orders and goods receipts (procurement).
+// Orders creates purchase orders and records goods receipts, whose value
+// the migrated journal carries (procurement).
 type Orders interface {
 	CreateOrder(ctx context.Context, in procurement.NewOrder) (procurement.PurchaseOrder, error)
-	ReleaseLoadedOrder(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (procurement.PurchaseOrder, error)
-	PostReceipt(ctx context.Context, in procurement.ReceiptInput) (procurement.GoodsReceipt, error)
+	ReleaseLoadedOrder(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, valuation string) (procurement.PurchaseOrder, error)
+	PostLoadedReceipt(ctx context.Context, in procurement.ReceiptInput) (procurement.GoodsReceipt, error)
 }
 
 // OrderValues reads purchase order totals (procurement).
@@ -113,6 +114,7 @@ type Reports interface {
 	Totals(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (ledger.Totals, error)
 	OpenPayables(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error)
 	OpenDownPayments(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error)
+	OpenGRIR(ctx context.Context, legalEntity uuid.UUID, orders []uuid.UUID) (map[uuid.UUID]map[int32]ledger.OpenGRIR, error)
 }
 
 // Secrets resolves a connector's secret reference (env:, file: or vault:;

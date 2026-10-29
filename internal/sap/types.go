@@ -173,6 +173,20 @@ type ACDOCA struct {
 	// display is migrated (the quality gate). The field name is the
 	// ABAP dictionary's as published mirrors show it, to be confirmed.
 	MWSKZ string `json:"MWSKZ,omitempty"`
+	// EBELN and EBELP are the purchase order and item a line belongs to.
+	// Goods receipts and invoice receipts of an order valued through GR/IR
+	// are offset to SAP's GR/IR clearing account (T030 WRX), which the
+	// invoice clears (SAP Help, "Postings at Goods Receipt and Invoice
+	// Receipt",
+	// https://help.sap.com/saphelp_46C/helpdata/EN/47/60ff6f49f011d1894c0000e829fbbd/content.htm);
+	// the load expects every line there to name its order item and takes
+	// each item's open position over onto the platform's (T72f). That
+	// ACDOCA carries them under these names, as MSEG and RSEG do, and on
+	// every GR/IR line, is from the ABAP dictionary as published mirrors
+	// show it, still to be confirmed by an SAP specialist on the pilot's
+	// release.
+	EBELN string `json:"EBELN,omitempty"`
+	EBELP string `json:"EBELP,omitempty"`
 }
 
 // --- Customizing (configuration) tables, read by the configuration agent ---

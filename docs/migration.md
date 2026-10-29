@@ -61,6 +61,28 @@ tax, and a tax that is not the code's rate of the down payment (SAP's gross
 display, where the down payment includes its tax). A down payment SAP cleared
 loads in `balances` mode only, since SAP's clearing of it is not taken over.
 
+In either mode an order SAP valued through GR/IR (a line on its GR/IR account,
+T030 WRX, names the order item, ACDOCA EBELN/EBELP) loads valued through GR/IR
+(T72f, ADR-0034): its receipts (MSEG 101) are recorded without posting again,
+as SAP's journal carries them, and each item's open position is taken over in
+an entry of its own per order (document type WE): SAP's balance on the item's
+lines and its open quantity, what SAP's posted invoice documents invoiced less
+what it received, on the platform's order item, against the GR/IR account's
+lines that SAP's documents (or the opening entry) loaded without their order
+items. The GR/IR balances show it (`migrated_quantity`), an invoice after
+cutover clears it at the order price instead of booking the expense again, and
+a closed order's residual is cleared by a GR/IR clearing (SAP MR11). The
+quality gate refuses what it cannot read rather than guess: a line on the
+GR/IR account without its order item or naming one outside the extract, SAP's
+GR/IR account (T030 WRX) with lines when it is not the legal entity's
+`gr_ir` account, an order in another currency than the company's (the
+extract carries the company code amount, HSL, only), a movement other than a
+receipt or a receipt quantity that does not parse on an item with a position,
+an open quantity without a balance, and an item received without a GR/IR
+line on an order whose other items post one. Moving an order already loaded
+valued directly onto GR/IR is not done (tracker: "Move open direct-valued
+orders onto GR/IR (optional)").
+
 ## Reconciliation controls
 
 Each control is computed twice: from the raw SAP extract and from the
@@ -85,6 +107,11 @@ They must be equal.
   documents' ordinary items invoiced, credit memos negative, against what the
   load took over for matching (differences listed by order item; T72b2),
   where either side has any
+- Open GR/IR per order item: SAP's balance on the GR/IR account and open
+  quantity against the platform's position, in total and per order item,
+  where either side has any (T72f). The take-over entries move balances
+  within the GR/IR account and have no SAP document, so the total debits
+  leave them out
 - Every SAP document in scope present on the platform (missing ones listed)
 
 ## What to check on a real SAP system
@@ -98,6 +125,10 @@ They must be equal.
   extract's parked invoices until their properties are mapped (T72b), and
   its posted ones too, whose invoiced quantities the load takes over by
   their direction for matching (T72b2).
+- ACDOCA-EBELN and EBELP (a GR/IR line's order item) are in the extract.
+  The OData mapping does not carry them yet, so the quality gate refuses an
+  OData extract's lines on the GR/IR account (T72f). Confirm that every line
+  your system posts there names its order item.
 - Canadian vendor bank accounts (LFBK, bank country CA) load as scheme `ca`
   only with the bank key (BANKL) in the Canadian Payments Association's
   electronic routing form, 0 + institution (3 digits) + transit (5 digits),

@@ -155,20 +155,24 @@ func lockItems(ctx context.Context, tx pgx.Tx, items []ReceiptItem) ([]orderItem
 }
 
 // insertMovement writes a goods movement with its items, posting its WE
-// entry first for the items of orders valued through GR/IR (current holds
-// each item's order item, as lockItems read it), and returns it. The
+// entry first for the items of orders valued through GR/IR unless post is
+// false (a migration run's receipt, PostLoadedReceipt; current holds each
+// item's order item, as lockItems read it), and returns it. The
 // goods_receipt number range is procurement's own: no posting of the
 // ledger's that holds a GR/IR lock waits for it, so taking it first adds
 // no cycle to the ledger's lock order.
-func (e *Endpoints) insertMovement(ctx context.Context, tx pgx.Tx, p reqctx.Principal, g GoodsReceipt, current []orderItem) (GoodsReceipt, error) {
+func (e *Endpoints) insertMovement(ctx context.Context, tx pgx.Tx, p reqctx.Principal, g GoodsReceipt, current []orderItem, post bool) (GoodsReceipt, error) {
 	number, err := e.number(ctx, g.LegalEntityID, "goods_receipt", g.PostingDate)
 	if err != nil {
 		return GoodsReceipt{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
-	year, entry, err := e.postMovement(ctx, id, number, g, current)
-	if err != nil {
-		return GoodsReceipt{}, err
+	var year *int16
+	var entry *uuid.UUID
+	if post {
+		if year, entry, err = e.postMovement(ctx, id, number, g, current); err != nil {
+			return GoodsReceipt{}, err
+		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.goods_movement (tenant_id, id, document_number, legal_entity_id, plant_id, movement_type,
 			document_date, posting_date, reference, reversal_of_id, posted_by, journal_entry_year, journal_entry_id, reason)
@@ -213,8 +217,8 @@ type ReceiptInput struct {
 // items of the legal entity, or a return to the supplier (122, T47b) of
 // goods received on released or closed ones. The received quantity of an
 // item stays between zero and the ordered quantity plus its over-delivery
-// tolerance.
-func (e *Endpoints) postReceipt(ctx context.Context, in ReceiptInput) (GoodsReceipt, error) {
+// tolerance. post false records it without its WE entry (PostLoadedReceipt).
+func (e *Endpoints) postReceipt(ctx context.Context, in ReceiptInput, post bool) (GoodsReceipt, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return GoodsReceipt{}, err
@@ -244,7 +248,7 @@ func (e *Endpoints) postReceipt(ctx context.Context, in ReceiptInput) (GoodsRece
 		return GoodsReceipt{}, err
 	}
 	g, err := e.insertMovement(ctx, tx, p, GoodsReceipt{LegalEntityID: le.ID, PlantID: in.PlantID, MovementType: mt, DocumentDate: in.DocumentDate,
-		PostingDate: in.PostingDate, Reference: in.Reference, Reason: in.Reason, Items: items}, current)
+		PostingDate: in.PostingDate, Reference: in.Reference, Reason: in.Reason, Items: items}, current, post)
 	if err != nil {
 		return GoodsReceipt{}, err
 	}
@@ -398,7 +402,7 @@ func (e *Endpoints) reverseReceipt(ctx context.Context, id uuid.UUID, ifMatch fu
 		date = *postingDate
 	}
 	rev, err := e.insertMovement(ctx, tx, p, GoodsReceipt{LegalEntityID: orig.LegalEntityID, PlantID: orig.PlantID, MovementType: reversal,
-		DocumentDate: date, PostingDate: date, Reference: orig.Reference, ReversalOfID: &orig.ID, Items: items}, current)
+		DocumentDate: date, PostingDate: date, Reference: orig.Reference, ReversalOfID: &orig.ID, Items: items}, current, true)
 	if err != nil {
 		return GoodsReceipt{}, err
 	}

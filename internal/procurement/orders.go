@@ -145,14 +145,29 @@ func (e *Endpoints) CreateOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 }
 
 // ReleaseLoadedOrder releases a draft purchase order a migration run
-// loaded.
-func (e *Endpoints) ReleaseLoadedOrder(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (PurchaseOrder, error) {
-	return e.releaseOrder(ctx, id, ifMatch, true)
+// loaded, valued as the source system valued it: ValuationDirect, or
+// ValuationGRIR for an order whose GR/IR positions the run takes over
+// (T72f), which the legal entity's GR/IR account must exist for (422
+// procurement.no_gr_ir_account).
+func (e *Endpoints) ReleaseLoadedOrder(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, valuation string) (PurchaseOrder, error) {
+	if valuation != ValuationDirect && valuation != ValuationGRIR {
+		return PurchaseOrder{}, fmt.Errorf("procurement: release loaded order %s: valuation %q is neither direct nor gr_ir", id, valuation)
+	}
+	return e.releaseOrder(ctx, id, ifMatch, valuation)
 }
 
 // PostReceipt posts a goods receipt, as POST /v1/goods-receipts does.
 func (e *Endpoints) PostReceipt(ctx context.Context, in ReceiptInput) (GoodsReceipt, error) {
-	return e.postReceipt(ctx, in)
+	return e.postReceipt(ctx, in, true)
+}
+
+// PostLoadedReceipt records a goods receipt a migration run loaded, as
+// PostReceipt does but without its WE entry: the source system's journal,
+// which the run loads, carries the receipt's value, and on an order valued
+// through GR/IR the run takes its open position over (T72f). A reversal of
+// it on the platform posts its entry as any reversal does.
+func (e *Endpoints) PostLoadedReceipt(ctx context.Context, in ReceiptInput) (GoodsReceipt, error) {
+	return e.postReceipt(ctx, in, false)
 }
 
 // Value is the number of the purchase orders and the total of their live

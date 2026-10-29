@@ -15,14 +15,16 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/nfr"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 )
 
 // TestOrderValuation: an order is valued when it is released, through
 // GR/IR when its legal entity has a GR/IR account then and directly
 // otherwise, and keeps that valuation; an order a migration run loads is
-// valued directly whatever the account determination says, as its
-// accounting comes from the loaded journal (T33).
+// valued as the source system valued it, directly whatever the account
+// determination says (T33), or through GR/IR, which needs the GR/IR
+// account (T72f).
 func TestOrderValuation(t *testing.T) {
 	e := setup(t)
 	before := e.order(t, items(item(e.office, "10", "EA", "5.00", "EUR", "")), "")
@@ -31,6 +33,10 @@ func TestOrderValuation(t *testing.T) {
 	}
 	if got := e.act(t, "/v1/purchase-orders/"+id(before), "release", ""); got["valuation"] != "direct" {
 		t.Errorf("released before GR/IR: got %v, want direct", got["valuation"])
+	}
+	early := e.order(t, items(item(e.office, "10", "EA", "5.00", "EUR", "")), "")
+	if _, err := releaseLoaded(t, e, id(early), procurement.ValuationGRIR); problem.From(err).Code != "procurement.no_gr_ir_account" {
+		t.Errorf("loaded through GR/IR without a GR/IR account: got %v, want procurement.no_gr_ir_account", err)
 	}
 	e.GRIR(t)
 	after := e.act(t, "/v1/purchase-orders/"+id(e.order(t, items(item(e.office, "10", "EA", "5.00", "EUR", "")), "")), "release", "")
@@ -44,16 +50,63 @@ func TestOrderValuation(t *testing.T) {
 	if got := released[len(released)-1]["valuation"]; got != "gr_ir" {
 		t.Errorf("PurchaseOrderReleased valuation: got %v, want gr_ir", got)
 	}
-	loaded := e.order(t, items(item(e.office, "10", "EA", "5.00", "EUR", "")), "")
+	for _, want := range []string{procurement.ValuationDirect, procurement.ValuationGRIR} {
+		loaded := e.order(t, items(item(e.office, "10", "EA", "5.00", "EUR", "")), "")
+		o, err := releaseLoaded(t, e, id(loaded), want)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if o.Valuation != want {
+			t.Errorf("loaded order valued %s: got %v, want %s", want, o.Valuation, want)
+		}
+	}
+	other := e.order(t, items(item(e.office, "10", "EA", "5.00", "EUR", "")), "")
+	if _, err := releaseLoaded(t, e, id(other), "standard"); err == nil || problem.From(err).Status != 500 {
+		t.Errorf("loaded with another valuation: got %v, want an internal error", err)
+	}
+}
+
+// releaseLoaded releases a draft order as a migration run does, valued as given.
+func releaseLoaded(t *testing.T, e env, order, valuation string) (procurement.PurchaseOrder, error) {
+	t.Helper()
 	var o procurement.PurchaseOrder
+	err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
+		o, err = endpoints().ReleaseLoadedOrder(ctx, uuid.MustParse(order), func(int32) error { return nil }, valuation)
+		return err
+	})
+	return o, err
+}
+
+// TestLoadedReceipts: a receipt a migration run loads on an order valued
+// through GR/IR is recorded without its WE entry, as SAP's journal carries
+// its value (T72f); it counts as received, and its reversal on the
+// platform posts the entry that undoes that value.
+func TestLoadedReceipts(t *testing.T) {
+	e := setup(t)
+	e.GRIR(t)
+	order := e.order(t, items(item(e.office, "10", "EA", "5.00", "EUR", "")), "")
+	if _, err := releaseLoaded(t, e, id(order), procurement.ValuationGRIR); err != nil {
+		t.Fatal(err)
+	}
+	var g procurement.GoodsReceipt
 	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
-		o, err = endpoints().ReleaseLoadedOrder(ctx, uuid.MustParse(id(loaded)), func(int32) error { return nil })
+		g, err = endpoints().PostLoadedReceipt(ctx, procurement.ReceiptInput{LegalEntityID: e.DE, DocumentDate: time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC),
+			PostingDate: time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC), Items: []procurement.ReceiptItem{{PurchaseOrderID: uuid.MustParse(id(order)), POItemNo: 1, Quantity: "4", Unit: "EA"}}})
 		return err
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if o.Valuation != procurement.ValuationDirect {
-		t.Errorf("loaded order: got %v, want direct", o.Valuation)
+	if g.JournalEntryID != nil {
+		t.Errorf("loaded receipt's entry: got %v, want none", *g.JournalEntryID)
+	}
+	got, _ := e.Must(200, "GET", "/v1/purchase-orders/"+id(order), "", "")
+	if received := got["items"].([]any)[0].(map[string]any)["received_quantity"].(map[string]any)["value"]; received != "4" {
+		t.Errorf("received: got %v, want 4", received)
+	}
+	rev := e.act(t, "/v1/goods-receipts/"+g.ID.String(), "reverse", "")
+	docType, _, _, lines := e.entryOf(t, rev["journal_entry_id"])
+	if docType != "WE" || len(lines) != 2 {
+		t.Fatalf("the reversal's entry: got %s with %d lines, want WE with 2", docType, len(lines))
 	}
 }
 

@@ -88,6 +88,8 @@ var DefaultEntities = []EntityMapping{
 	// tax code, T72c) are not mapped either, for the same reason: until
 	// they are, the quality gate refuses an OData extract's lines on the
 	// down payment account, whose indicator is absent, rather than infer it.
+	// Nor are ACDOCA-EBELN and EBELP (a GR/IR line's order item, T72f): the
+	// gate refuses an OData extract's GR/IR lines, which come without them.
 	{Table: "ACDOCA", Service: "API_JOURNALENTRYITEMBASIC_SRV", Entity: "A_JournalEntryItemBasic", CompanyField: "CompanyCode", YearField: "FiscalYear",
 		Static: map[string]string{"RLDNR": "0L"},
 		Fields: map[string]string{"RBUKRS": "CompanyCode", "GJAHR": "FiscalYear", "BELNR": "AccountingDocument",
