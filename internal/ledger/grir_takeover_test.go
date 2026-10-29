@@ -3,6 +3,7 @@ package ledger_test
 import (
 	"context"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/google/uuid"
@@ -103,6 +104,9 @@ func TestGRIRTakeOverRefusals(t *testing.T) {
 	notMigrated := g.takeOverPosting(uuid.New(), "-1", -100)
 	notMigrated.SourceContext = "procurement"
 	bad := g.takeOverPosting(uuid.New(), "-1.1234567", -100)
+	settleRate(t, g.env, "USD", "2026-03-05", "1.5")
+	huge := g.takeOverPosting(uuid.New(), "-1", -math.MaxInt64)
+	huge.Currency = "USD"
 	for _, c := range []struct {
 		name   string
 		in     ledger.Posting
@@ -115,6 +119,7 @@ func TestGRIRTakeOverRefusals(t *testing.T) {
 		{"mixed with a receipt", mixed, 500, ""},
 		{"not a migration run's", notMigrated, 500, ""},
 		{"a quantity of seven decimals", bad, 500, ""},
+		{"a balance out of range once converted", huge, 422, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			p := problem.From(post(t, c.in))
