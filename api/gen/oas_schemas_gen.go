@@ -28647,6 +28647,8 @@ func (s *Payment) SetItems(val []PaymentItem) {
 type PaymentExclusion struct {
 	// Supplier.
 	SupplierID uuid.UUID `json:"supplier_id"`
+	// The supplier's name (its business partner's `name`), as it is now.
+	SupplierName string `json:"supplier_name"`
 	// Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed
 	// here; values may be added within /v1. A release also excludes, with `item_reversed` or
 	// `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid.
@@ -28670,6 +28672,11 @@ func (s *PaymentExclusion) GetSupplierID() uuid.UUID {
 	return s.SupplierID
 }
 
+// GetSupplierName returns the value of SupplierName.
+func (s *PaymentExclusion) GetSupplierName() string {
+	return s.SupplierName
+}
+
 // GetReasonCode returns the value of ReasonCode.
 func (s *PaymentExclusion) GetReasonCode() string {
 	return s.ReasonCode
@@ -28688,6 +28695,11 @@ func (s *PaymentExclusion) GetAmount() Money {
 // SetSupplierID sets the value of SupplierID.
 func (s *PaymentExclusion) SetSupplierID(val uuid.UUID) {
 	s.SupplierID = val
+}
+
+// SetSupplierName sets the value of SupplierName.
+func (s *PaymentExclusion) SetSupplierName(val string) {
+	s.SupplierName = val
 }
 
 // SetReasonCode sets the value of ReasonCode.

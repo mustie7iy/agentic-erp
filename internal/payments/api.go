@@ -190,7 +190,7 @@ func (e *Endpoints) ListPayments(ctx context.Context, params gen.ListPaymentsPar
 		return nil, fmt.Errorf("payments: list payments of run %s: %w", r.ID, err)
 	}
 	page, next := pagination.Page(ks, pays, idKey(func(p Payment) uuid.UUID { return p.ID }))
-	names, err := e.supplierNames(ctx, page)
+	names, err := supplierNames(ctx, e.Payees, page, func(p Payment) (uuid.UUID, string) { return p.SupplierID, "payment " + p.ID.String() })
 	if err != nil {
 		return nil, fmt.Errorf("payments: list payments of run %s: %w", r.ID, err)
 	}
@@ -204,21 +204,23 @@ func (e *Endpoints) ListPayments(ctx context.Context, params gen.ListPaymentsPar
 	return &out, nil
 }
 
-// supplierNames names the suppliers of the payments, one call for the
-// page; a supplier the partner context does not hold is an error, never
-// a payment shown without its payee.
-func (e *Endpoints) supplierNames(ctx context.Context, pays []Payment) (map[uuid.UUID]string, error) {
-	ids := make([]uuid.UUID, len(pays))
-	for i, p := range pays {
-		ids[i] = p.SupplierID
+// supplierNames names the suppliers of a page's rows (a run's payments or
+// its exclusions), one call for the page; a supplier the partner context
+// does not hold is an error, never a row shown without its supplier's
+// name. supplier gives a row's supplier and how the error names the row.
+func supplierNames[T any](ctx context.Context, payees Payees, rows []T, supplier func(T) (uuid.UUID, string)) (map[uuid.UUID]string, error) {
+	ids := make([]uuid.UUID, len(rows))
+	for i, row := range rows {
+		ids[i], _ = supplier(row) // the row's label is only for the error below
 	}
-	names, err := e.Payees.Names(ctx, ids)
+	names, err := payees.Names(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
-	for _, p := range pays {
-		if _, ok := names[p.SupplierID]; !ok {
-			return nil, fmt.Errorf("supplier %s of payment %s is not a business partner", p.SupplierID, p.ID)
+	for _, row := range rows {
+		id, what := supplier(row)
+		if _, ok := names[id]; !ok {
+			return nil, fmt.Errorf("supplier %s of %s is not a business partner", id, what)
 		}
 	}
 	return names, nil
@@ -253,12 +255,20 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 	if err != nil {
 		return nil, fmt.Errorf("payments: list exclusions of run %s: %w", r.ID, err)
 	}
-	items, next := apitypes.PageOf(ks, exs, idKey(func(x Exclusion) uuid.UUID { return x.ID }),
-		func(x Exclusion) gen.PaymentExclusion {
-			return gen.PaymentExclusion{SupplierID: x.SupplierID, DownPaymentRequestID: apitypes.OptUUID(x.RequestID), ReasonCode: x.Reason,
-				Amount: apitypes.Money(x.Amount, r.Currency, r.Exponent)}
-		})
-	return &gen.PaymentExclusionPage{Items: items, NextPageToken: next}, nil
+	page, next := pagination.Page(ks, exs, idKey(func(x Exclusion) uuid.UUID { return x.ID }))
+	names, err := supplierNames(ctx, e.Payees, page, func(x Exclusion) (uuid.UUID, string) { return x.SupplierID, "exclusion " + x.ID.String() })
+	if err != nil {
+		return nil, fmt.Errorf("payments: list exclusions of run %s: %w", r.ID, err)
+	}
+	out := gen.PaymentExclusionPage{Items: make([]gen.PaymentExclusion, len(page))}
+	for i, x := range page {
+		out.Items[i] = gen.PaymentExclusion{SupplierID: x.SupplierID, SupplierName: names[x.SupplierID], DownPaymentRequestID: apitypes.OptUUID(x.RequestID),
+			ReasonCode: x.Reason, Amount: apitypes.Money(x.Amount, r.Currency, r.Exponent)}
+	}
+	if next != "" {
+		out.NextPageToken.SetTo(next)
+	}
+	return &out, nil
 }
 
 // GetBankFile implements GET /v1/bank-files/{id}.
