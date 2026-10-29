@@ -53,10 +53,10 @@ hourly copies passes; the module raises it to 250 in both regions.
 
 **Region failover: a pilot light (T41b2).** A production cell has, in its
 disaster-recovery region, a cross-region read replica of its database and a
-pilot-light stack: the VPC, the endpoints and an EKS control plane with no
-nodes, plus the cell's KMS keys' counterparts there (the field key is a
+pilot-light stack: the VPC, the endpoints and an EKS control plane whose
+node group is at zero, plus the cell's KMS keys' counterparts there (the field key is a
 multi-Region key replicated there, so tenant keys wrapped at home unwrap;
-the secrets are replicated), a node group at zero, and the workloads'
+the secrets are replicated), and the workloads'
 roles there, trusting the DR cluster and using the DR bucket and keys
 (T41b3, T72j; as built below). Asynchronous
 replication keeps the replica seconds behind; an alarm fires when its lag
@@ -233,7 +233,14 @@ RELOAD, RESUME). Only 503s, every retried post once, recovery within 60 s.
 `cell.pilot_light` output, read and kept before any incident: Terraform
 cannot plan the root while the home region is down. Every command runs
 in `<dr>`. The steps marked *(staging)* are confirmed on AWS staging
-before the rehearsal (T41g).
+before the rehearsal (T41g). Until the global tier and the subordinate
+CA are recovered from a home-region failure (see "Not covered" below),
+steps 5, 7 and 8 cannot complete for the environment's home cell, the
+production pilot cell among them: its `cell.json` names the directory,
+whose password secret (`erp/global/directory-cell-password`) has no
+replica in `<dr>` and which the DR roles may not read, so erp-server does
+not start there, and step 8 needs the directory itself. No interim
+procedure is decided; T41g waits on that recovery.
 1. Declare the incident; freeze promotions to the cell.
 2. Read the replica's lag (`ReplicaLag`); note it as the data lost.
 3. Promote the replica: `aws rds promote-read-replica
@@ -241,7 +248,7 @@ before the rehearsal (T41g).
    its master password in `<dr>` under the DR key *(staging)*:
    `aws rds modify-db-instance --db-instance-identifier <database_instance>
    --manage-master-user-password --master-user-secret-kms-key-id
-   <database_master_secret_key> --apply-immediately`; the new secret's ARN
+   <database_master_secret_kms_key_arn> --apply-immediately`; the new secret's ARN
    is the cell's master secret there.
 4. Scale the node group to the cell's size (`node_scaling`): `aws eks
    update-nodegroup-config --cluster-name <cluster_name> --nodegroup-name
@@ -357,7 +364,8 @@ before the rehearsal (T41g).
   equal) on the DR region's counterparts: the bucket's replica, the DR key
   (replica bucket, secrets' replicas, the database replica), the DR
   cluster key, the secrets' replicas, a containers' log group in the DR
-  region, the DR region's target groups. The field key's replica names
+  region, target groups of the DR region (none exists there: the router
+  and its target groups stay at home). The field key's replica names
   the DR server's role where the key names the home server's. External
   Secrets also reads the master secret RDS makes for the promoted replica
   (`rds!db-*` tagged with the replica's instance ARN) and, as at home,
@@ -389,4 +397,6 @@ workspace's load balancers, the directory) is in the home region and VPC,
 which the DR VPC is not peered with, so a region failure of the
 environment's home cell also takes the global tier, which no decision yet
 recovers; and the subordinate CA issues from the home region only.
-Raised to the product owner on 2026-10-29.
+Raised to the product owner on 2026-10-29 and tracked as its own item
+(review:T72j), on which the rehearsal (T41g) waits; until then the
+runbook's steps 5, 7 and 8 cannot complete for the home cell (above).

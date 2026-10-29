@@ -778,7 +778,7 @@ run "the_pilot_light_can_run_the_cell_in_the_dr_region" {
     error_message = "the DR cluster and its node group are outputs"
   }
   assert {
-    condition     = output.pilot_light.database_instance == "erp-dev1-dr" && output.pilot_light.database_endpoint == "erp-dev1-dr.abc.eu-west-1.rds.amazonaws.com" && output.pilot_light.database_master_secret_key == "arn:aws:kms:eu-west-1:222222222222:key/dr-data"
+    condition     = output.pilot_light.database_instance == "erp-dev1-dr" && output.pilot_light.database_endpoint == "erp-dev1-dr.abc.eu-west-1.rds.amazonaws.com" && output.pilot_light.database_master_secret_kms_key_arn == "arn:aws:kms:eu-west-1:222222222222:key/dr-data"
     error_message = "the replica, the endpoint the cell's values take once it is promoted, and the key its master secret is made under"
   }
   assert {

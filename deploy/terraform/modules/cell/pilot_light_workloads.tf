@@ -132,22 +132,22 @@ resource "aws_cloudwatch_log_group" "dr_containers" {
 output "pilot_light" {
   description = "The pilot light's values in dr_region, for the cell's values on a failover (ADR-0040 runbook); null without pilot_light. The database master secret is not among them: RDS manages one for the replica only once promoted (the runbook)."
   value = var.pilot_light ? {
-    region                     = var.dr_region
-    cluster_name               = aws_eks_cluster.dr["dr"].name
-    cluster_endpoint           = aws_eks_cluster.dr["dr"].endpoint
-    node_group                 = aws_eks_node_group.dr["dr"].node_group_name
-    node_scaling               = var.node_scaling
-    ebs_csi_addon_version      = var.ebs_csi_addon_version
-    vpc_id                     = module.dr_network["dr"].vpc_id
-    cidr                       = module.dr_network["dr"].cidr
-    database_instance          = aws_db_instance.dr["dr"].identifier
-    database_endpoint          = aws_db_instance.dr["dr"].address
-    database_master_secret_key = aws_kms_key.dr["dr"].arn
-    object_bucket              = aws_s3_bucket.replica["dr"].bucket
-    field_kms_key_arn          = aws_kms_replica_key.fields["dr"].arn
-    cluster_kms_key_arn        = aws_kms_key.dr_cluster["dr"].arn
-    container_log_group        = aws_cloudwatch_log_group.dr_containers["dr"].name
-    workload_role_arns         = { for name, role in aws_iam_role.dr_workload : name => role.arn }
+    region                             = var.dr_region
+    cluster_name                       = aws_eks_cluster.dr["dr"].name
+    cluster_endpoint                   = aws_eks_cluster.dr["dr"].endpoint
+    node_group                         = aws_eks_node_group.dr["dr"].node_group_name
+    node_scaling                       = var.node_scaling
+    ebs_csi_addon_version              = var.ebs_csi_addon_version
+    vpc_id                             = module.dr_network["dr"].vpc_id
+    cidr                               = module.dr_network["dr"].cidr
+    database_instance                  = aws_db_instance.dr["dr"].identifier
+    database_endpoint                  = aws_db_instance.dr["dr"].address
+    database_master_secret_kms_key_arn = aws_kms_key.dr["dr"].arn
+    object_bucket                      = aws_s3_bucket.replica["dr"].bucket
+    field_kms_key_arn                  = aws_kms_replica_key.fields["dr"].arn
+    cluster_kms_key_arn                = aws_kms_key.dr_cluster["dr"].arn
+    container_log_group                = aws_cloudwatch_log_group.dr_containers["dr"].name
+    workload_role_arns                 = { for name, role in aws_iam_role.dr_workload : name => role.arn }
     aws_endpoints = {
       sts = "https://sts.${var.dr_region}.amazonaws.com"
       kms = "https://kms.${var.dr_region}.amazonaws.com"

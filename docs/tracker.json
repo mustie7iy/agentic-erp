@@ -7082,6 +7082,13 @@
         "c": []
        },
        {
+        "s": "T",
+        "t": "A home-region failure of the environment's home cell recovered beyond the cell: the global tier (the router's and the web workspace's load balancers, the directory and its secrets) and the subordinate CA, which stay in the home region and VPC with no DR counterpart (the DR VPC is not peered), so the failover runbook's steps 5, 7 and 8 can complete for the production pilot cell; needs a decision first",
+        "r": "ADR-0040 as built 2026-10-29 (Not covered) and runbook · modules/global · modules/subordinate-ca · deploy/helm/erp-cell secrets.yaml (directory password) · T72j · T41g waits on it",
+        "src": "review:T72j",
+        "c": []
+       },
+       {
         "s": "D",
         "t": "Restore drills (point in time, and from the DR-region copies) recorded append-only in deploy/environments/staging/stg1/drills/restore.json (scripts/promotion-checks.sh accepts it beside the release drills); a production promotion refused when the last passed restore drill on AWS is older than 90 days (rollbacks exempt, PO 2026-10-19); the drill in Docker on demand (weekly.yml dr, make restore-drill)",
         "r": "scripts/restore-drill.sh, test-restore-drill.sh · T41e",
@@ -7091,7 +7098,7 @@
        {
         "s": "T",
         "t": "The region failover rehearsed on the production pilot cell before it takes live traffic (a pre-pilot gate), then yearly in a maintenance window (PO, 2026-10-19)",
-        "r": "ADR-0040 · T41g (waits on: the production AWS pilot cell, after T72j)",
+        "r": "ADR-0040 · T41g (waits on: the production AWS pilot cell, after T72j, and the global tier and subordinate CA recovered from a home-region failure)",
         "src": "baseline",
         "c": []
        },
@@ -8166,7 +8173,7 @@
      },
      {
       "s": "D",
-      "t": "The pilot light is runnable (DR node group, IRSA trust of the DR cluster's OIDC provider, Argo CD in Terraform), so the region failover rehearsal (T41g) can run; its confirmation needs AWS staging",
+      "t": "The pilot light is runnable (DR node group, IRSA trust of the DR cluster's OIDC provider, everything Argo CD needs defined in Terraform and Argo CD bootstrapped there by ADR-0035's runbook; the triage said Argo CD in Terraform), so the region failover rehearsal (T41g) can run once the global tier's recovery is decided; its confirmation needs AWS staging",
       "r": "Phase 1 triage (PO 2026-10-21) · T41b3 · ADR-0040 as built 2026-10-29 (Argo CD bootstrapped on the DR cluster by ADR-0035's runbook, Terraform defining what it needs) · deploy/terraform/modules/cell pilot_light.tf, pilot_light_workloads.tf · the AWS staging confirmation is its own leaf (split:T72j) · T72j",
       "src": "baseline",
       "c": []
