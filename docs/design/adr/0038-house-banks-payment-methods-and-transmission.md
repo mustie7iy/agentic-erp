@@ -496,3 +496,27 @@ a Canadian bank's routing. Decided by default:
   bank account does (they name the bank, as a BIC does, Amendment T45d), and
   absent for an IBAN; `account_last4` is the IBAN's or the Canadian account
   number's. The account number itself stays sealed.
+
+## As built: a run's exclusions name their supplier (review:batch19)
+
+The review of apinames left the run's exclusions giving their supplier by id
+only, beside the reason (REVIEW.md, an identifier without the name its
+consumer needs). Decided by default, as for payments above:
+
+- **The supplier's name.** `listPaymentExclusions` gives `supplier_name`
+  beside `supplier_id`, required, the business partner's `name` as it is now,
+  through the same port (`partner.Payees.Names`, one call per page). The
+  payments list and the exclusions list share one helper, so both fail the
+  page (500) the same way when the partner context does not hold a supplier:
+  a run excludes only suppliers whose open items it read, which the partner
+  context holds, so a missing one is an inconsistency, not a case to render.
+- **One response.** `PaymentExclusion` is returned only by
+  `listPaymentExclusions`; no create or get returns it, so there is no other
+  response to change. Its other fields already meet the API-consumer
+  classes: the amount carries its currency, a request's exclusion names its
+  request, and the list is cursor-paged per run.
+- **The walkthrough.** Step 7 prints each excluded supplier's name from the
+  API instead of looking each partner up (`name_partners`), and expects the
+  posting-blocked supplier the mock extract carries into company 3000 to be
+  left out under its name, Massive Dynamic.
+

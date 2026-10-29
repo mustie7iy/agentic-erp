@@ -23,9 +23,10 @@ func (p partners) Names(context.Context, []uuid.UUID) (map[uuid.UUID]string, err
 	return p.names, p.err
 }
 
-// TestSupplierNames: a payment is never shown without its payee. A
-// supplier the partner context does not hold fails the page rather than
-// leave its name out, as the partner context's failure does.
+// TestSupplierNames: a payment, or an exclusion, is never shown without
+// its supplier's name. A supplier the partner context does not hold fails
+// the page rather than leave its name out, as the partner context's
+// failure does.
 func TestSupplierNames(t *testing.T) {
 	known, unknown := uuid.New(), uuid.New()
 	pays := []Payment{{ID: uuid.New(), SupplierID: known}, {ID: uuid.New(), SupplierID: unknown}}
@@ -40,8 +41,7 @@ func TestSupplierNames(t *testing.T) {
 		"the partner context failing": {partners{err: failed}, pays[:1], failed.Error()},
 	} {
 		t.Run(name, func(t *testing.T) {
-			e := &Endpoints{Payees: c.partners}
-			names, err := e.supplierNames(context.Background(), c.pays)
+			names, err := supplierNames(context.Background(), c.partners, c.pays, func(p Payment) (uuid.UUID, string) { return p.SupplierID, "payment " + p.ID.String() })
 			got := ""
 			if err != nil {
 				got = err.Error()

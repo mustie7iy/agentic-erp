@@ -295,16 +295,7 @@ func TestListsAndAccess(t *testing.T) {
 	if rest["next_page_token"] != nil {
 		t.Errorf("payments second page token: got %v, want none", rest["next_page_token"])
 	}
-	for _, page := range []map[string]any{pays, rest} {
-		p := page["items"].([]any)[0].(map[string]any)
-		var name string
-		if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT name FROM partner.business_partner WHERE id = $1`, p["supplier_id"]).Scan(&name); err != nil {
-			t.Fatal(err)
-		}
-		if p["supplier_name"] != name {
-			t.Errorf("payment %v's supplier: got %v, want its partner's name %s", p["id"], p["supplier_name"], name)
-		}
-	}
+	wantSupplierNames(t, "payment", pays, rest)
 	if got := list("/v1/payment-runs/" + id(first) + "/payments?supplier_id=" + e.Vendor.String()); len(got["items"].([]any)) != 1 {
 		t.Fatalf("payments of the vendor: %v", got)
 	}
@@ -313,8 +304,9 @@ func TestListsAndAccess(t *testing.T) {
 		t.Errorf("exclusions page: got %d items, want 1", got)
 	}
 	if exs["next_page_token"] == nil {
-		t.Errorf("exclusions page token: got none, want one")
+		t.Fatalf("exclusions page token: got none, want one")
 	}
+	wantSupplierNames(t, "exclusion", exs, list("/v1/payment-runs/"+id(second)+"/exclusions?page_size=1&page_token="+url.QueryEscape(exs["next_page_token"].(string))))
 	created := list("/v1/bank-files?status=created&page_size=1")
 	if got := len(created["items"].([]any)); got != 1 {
 		t.Errorf("created bank files: got %d, want 1", got)
@@ -402,5 +394,23 @@ func TestProposalTotalsOutOfRange(t *testing.T) {
 				t.Errorf("operation error: got %v, want payments.amount_too_large", got)
 			}
 		})
+	}
+}
+
+// wantSupplierNames: every row on the pages names its supplier as the
+// partner context holds it, on a later page as on the first.
+func wantSupplierNames(t *testing.T, what string, pages ...map[string]any) {
+	t.Helper()
+	for _, page := range pages {
+		for _, it := range page["items"].([]any) {
+			row := it.(map[string]any)
+			var name string
+			if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT name FROM partner.business_partner WHERE id = $1`, row["supplier_id"]).Scan(&name); err != nil {
+				t.Fatal(err)
+			}
+			if row["supplier_name"] != name {
+				t.Errorf("%s of supplier %v: got name %v, want its partner's name %s", what, row["supplier_id"], row["supplier_name"], name)
+			}
+		}
 	}
 }

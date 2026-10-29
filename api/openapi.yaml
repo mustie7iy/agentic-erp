@@ -29058,6 +29058,7 @@ components:
       description: A supplier excluded from a payment run, with the reason.
       required:
         - supplier_id
+        - supplier_name
         - reason_code
         - amount
       properties:
@@ -29065,6 +29066,10 @@ components:
           type: string
           format: uuid
           description: Supplier.
+          readOnly: true
+        supplier_name:
+          type: string
+          description: "The supplier's name (its business partner's `name`), as it is now."
           readOnly: true
         reason_code:
           type: string
@@ -29092,6 +29097,7 @@ components:
           readOnly: true
       examples:
         - supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
+          supplier_name: Tyrell Office Products
           reason_code: supplier_blocked
           amount:
             amount: "1080.00"

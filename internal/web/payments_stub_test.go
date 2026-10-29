@@ -34,7 +34,7 @@ func stubPaymentsJSON(run uuid.UUID) string {
 // stubExclusionsJSON is a page of what a run left out with a next page: a
 // down payment request, for a reason the workspace does not know.
 func stubExclusionsJSON(request uuid.UUID) string {
-	return fmt.Sprintf(`{"items":[{"supplier_id":%q,"reason_code":"sanctions_hit","down_payment_request_id":%q,
+	return fmt.Sprintf(`{"items":[{"supplier_id":%q,"supplier_name":"Tyrell","reason_code":"sanctions_hit","down_payment_request_id":%q,
 		"amount":{"amount":"5.00","currency":"AED"}}],"next_page_token":"e2"}`, uuid.NewString(), request)
 }
 

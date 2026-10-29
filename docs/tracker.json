@@ -888,7 +888,7 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Payment exclusions name their supplier (pre-existing finding on apinames, API-consumer classes: an identifier without the name its consumer needs): listPaymentExclusions gives the excluded supplier only as supplier_id and should give supplier_name beside it; the walkthrough's step 7 still calls name_partners for exclusions",
         "r": "api/openapi.yaml listPaymentExclusions · internal/payments",
         "src": "review:batch19",
