@@ -348,31 +348,48 @@ func (g grirPosting) itemLines(pos map[orderItem]*position, keys []orderItem) ([
 		lines = append(lines, Line{AccountID: g.grir, TC: tc, LC: lc, GC: gc, Quantity: &g.in.GRIR[i].Quantity, Unit: &g.in.GRIR[i].Unit,
 			Text: it.Text, PurchaseOrderID: &g.in.GRIR[i].PurchaseOrderID, POItemNo: &g.in.GRIR[i].POItemNo, TaxCode: code})
 		kept = append(kept, true)
-		switch {
-		case it.OffsetAccountID != nil && (tc != 0 || lc != 0 || gc != 0):
-			lines, kept = append(lines, Line{AccountID: *it.OffsetAccountID, TC: -tc, LC: -lc, GC: -gc, Text: it.Text, CostCenterID: it.CostCenterID}),
-				append(kept, true)
-		case it.Clears != nil && (tc != 0 || lc != 0 || gc != 0):
-			line := Line{AccountID: g.diff, TC: -tc, LC: -lc, GC: -gc, Text: it.Text}
-			if g.diffCosts {
-				line.CostCenterID = it.CostCenterID
-			}
-			lines, kept = append(lines, line), append(kept, true)
-		case it.Invoiced != nil:
-			diff, err := money.Diff(*it.Invoiced, tc)
-			if err != nil {
-				return nil, nil, errTotalTooLarge("grir")
-			}
-			if diff != 0 {
-				line := Line{AccountID: g.diff, TC: diff, Text: it.Text, TaxCode: code}
-				if g.diffCosts {
-					line.CostCenterID = it.CostCenterID
-				}
-				lines, kept = append(lines, line), append(kept, false)
-			}
+		counter, keep, err := g.counterLine(it, tc, lc, gc, code)
+		if err != nil {
+			return nil, nil, err
+		}
+		if counter != nil {
+			lines, kept = append(lines, *counter), append(kept, keep)
 		}
 	}
 	return lines, kept, nil
+}
+
+// counterLine is an item's line against its GR/IR line, if it has one,
+// and whether it keeps the local and group amounts it is given: a goods
+// movement's mirror on its offset account and a clearing's on the price
+// difference account do; an invoice's price difference, converted at the
+// posting's rates, does not. An item that moves nothing has none.
+func (g grirPosting) counterLine(it GRIRItem, tc, lc, gc money.Minor, code *string) (*Line, bool, error) {
+	moved := tc != 0 || lc != 0 || gc != 0
+	switch {
+	case it.OffsetAccountID != nil && moved:
+		return &Line{AccountID: *it.OffsetAccountID, TC: -tc, LC: -lc, GC: -gc, Text: it.Text, CostCenterID: it.CostCenterID}, true, nil
+	case it.Clears != nil && moved:
+		return g.priceDifference(Line{AccountID: g.diff, TC: -tc, LC: -lc, GC: -gc, Text: it.Text}, it), true, nil
+	case it.Invoiced != nil:
+		diff, err := money.Diff(*it.Invoiced, tc)
+		if err != nil {
+			return nil, false, errTotalTooLarge("grir")
+		}
+		if diff != 0 {
+			return g.priceDifference(Line{AccountID: g.diff, TC: diff, Text: it.Text, TaxCode: code}, it), false, nil
+		}
+	}
+	return nil, false, nil
+}
+
+// priceDifference is a line on the price difference account, carrying the
+// item's cost center when that account is a primary cost account.
+func (g grirPosting) priceDifference(line Line, it GRIRItem) *Line {
+	if g.diffCosts {
+		line.CostCenterID = it.CostCenterID
+	}
+	return &line
 }
 
 // checkClears refuses a clearing item unless the position still holds
