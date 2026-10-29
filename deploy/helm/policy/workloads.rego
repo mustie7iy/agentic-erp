@@ -197,6 +197,8 @@ isolated(job, direction) if {
 deny contains msg if {
 	some job in first_install_jobs
 	some np in holding(job)
+
+	# Any ingress field, an empty list too, is refused: strict, as default_deny.
 	np.spec.ingress
 	msg := sprintf("%s: hook NetworkPolicy %s lets connections in to the Job's Pods", [name(job), np.metadata.name])
 }

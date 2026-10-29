@@ -659,6 +659,12 @@ docs, vpc = [d for d in json.load(open(sys.argv[1])) if d], sys.argv[2]
 def hook(d):
     a = d["metadata"].get("annotations", {})
     return set(filter(None, a.get("helm.sh/hook", "").split(","))), int(a.get("helm.sh/hook-weight", "0"))
+# There already on an upgrade: the release's own policies, and any hook
+# that no successful or failed run deletes (the last release's, until its
+# own turn comes to replace it).
+def kept(np):
+    deleted = set(filter(None, np["metadata"].get("annotations", {}).get("helm.sh/hook-delete-policy", "").split(",")))
+    return not hook(np)[0] or not deleted & {"hook-succeeded", "hook-failed"}
 def selects(np, pod):
     sel = np["spec"]["podSelector"]
     if "matchExpressions" in sel:
@@ -676,13 +682,16 @@ for job in jobs:
     name, weight, pod = job["metadata"]["name"], hook(job)[1], job["spec"]["template"]["metadata"].get("labels", {})
     for event in ("pre-install", "pre-upgrade"):
         held = [np for np in policies if selects(np, pod) and (
-            (event in hook(np)[0] and hook(np)[1] < weight) or (event == "pre-upgrade" and not hook(np)[0]))]
+            (event in hook(np)[0] and hook(np)[1] < weight) or (event == "pre-upgrade" and kept(np)))]
         got = set()
         for np in held:
             for r in np["spec"].get("egress", []):
-                if "to" not in r or "ports" not in r:
+                # A missing or empty list admits every peer or every port.
+                if not r.get("to") or not r.get("ports"):
                     sys.exit("helm-checks: %s's policy %s admits every peer or every port" % (name, np["metadata"]["name"]))
-                got |= {(peer(p), x["protocol"], x["port"]) for p in r["to"] for x in r["ports"]}
+                if any("endPort" in x for x in r["ports"]):
+                    sys.exit("helm-checks: %s's policy %s admits a range of ports" % (name, np["metadata"]["name"]))
+                got |= {(peer(p), x.get("protocol", "TCP"), x["port"]) for p in r["to"] for x in r["ports"]}
         for t in ("Ingress", "Egress"):
             if not any(t in np["spec"]["policyTypes"] for np in held):
                 sys.exit("helm-checks: %s at %s: no policy there yet isolates its %s" % (name, event, t.lower()))
