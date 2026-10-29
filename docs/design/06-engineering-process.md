@@ -139,8 +139,8 @@ Every change passes, before it is merged:
 
 | Step | Tool |
 |---|---|
-| Format, vet, static analysis | `gofmt`, `go vet`, `staticcheck` |
-| Security | `govulncheck`, secret scanning (`gitleaks`), static analysis (`gosec`, with G104, G115, G304 and G107 excluded by decision: errors ignored on purpose carry a comment, integer conversions are of bounded domain values, paths and URLs come from settings and flags; the generated server excluded; the rest annotated where a finding is a false positive, each with its reason) |
+| Format, vet, static analysis | `gofmt`, `go vet`, `staticcheck` (in every Go module, `temporal/` included: `scripts/each-module.sh`) |
+| Security | `govulncheck` (in every Go module, as `staticcheck` and `gosec`), secret scanning (`gitleaks`), static analysis (`gosec`, with G104, G115, G304 and G107 excluded by decision: errors ignored on purpose carry a comment, integer conversions are of bounded domain values, paths and URLs come from settings and flags; the generated server excluded; the rest annotated where a finding is a false positive, each with its reason) |
 | Contract lint and breaking-change check | `vacuum` (Go), `oasdiff` (Go) |
 | Schema tests on PostgreSQL 17 | `go test ./db` against a CI service container |
 | Unit, functional and non-functional tests with the race detector | `go test -race ./...` (locally three times in random order) |
@@ -350,6 +350,29 @@ gates on each pull request:
     SBOM had never been scanned, so its golang.org/x/net v0.58.0 (one
     Critical, four High) and go-jose v4.1.4 (High) went unreported; its
     module took the main module's fixes in batch 21 (0e0ae539).
+  - 2026-10-29 (batch21 review): no gate checked erp-temporal's module
+    for vulnerabilities. `govulncheck`, `staticcheck` and `gosec` ran
+    `./...` from the root in `ci-local.sh`, `ci.yml`'s test job and
+    `weekly.yml`, and a pattern from the root stops at `temporal/`'s own
+    `go.mod`; `scripts/temporal-checks.sh` ran vet, the lint, the tests and
+    coverage there but no vulnerability or security scan; and the image
+    scan reads ko's SBOM, which lists no standard library, on the
+    assumption that govulncheck covered it. So erp-temporal's
+    standard-library and call-reachable vulnerabilities went unchecked
+    locally, in CI and weekly. Layer: the machine checks; the batch's
+    reviewer found it. Changed: the three run in every module through
+    `scripts/each-module.sh`, and `scripts/test-each-module.sh` (with the
+    skip rules' tests, in `ci-local.sh` and `ci.yml`'s `changes` job)
+    tests the script and holds that `ci-local.sh`, `ci.yml` and
+    `weekly.yml` run them only through it. Left as they are: `gofmt -l .`
+    walks the whole tree, `temporal/` included; `go vet`, `make lint-all`,
+    the race suite and `scripts/coverage.sh` stop at the root module, and
+    `scripts/temporal-checks.sh` gives `temporal/` all four whenever
+    `temporal/` or that script changes (the deploy class); a change to
+    `.golangci.yml` or to the tools' pins alone does not run it, a gap
+    the batch 21 review reported for the tracker. The first run found no
+    vulnerability in either module that the code calls (govulncheck
+    v1.9.0).
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
   documentation changed (`docs/`, Markdown) since the base: a pull
@@ -395,8 +418,8 @@ gates on each pull request:
 
 Weekly (Sundays) and on demand before a release: the load and soak suites
 (05 §5.8), the whole suite three times in random order, longer fuzzing, the
-reproducibility gate, the signing round trip, the image scan of `main` again
-and a check that the pinned base image is still its tag's digest (ADR-0032),
+reproducibility gate, the signing round trip, the image scan of `main` again,
+`govulncheck` in every Go module (`scripts/each-module.sh`) and a check that the pinned base image is still its tag's digest (ADR-0032),
 dependency updates. Latency budgets on the shared runner are scaled by `ERP_BUDGET_SCALE`
 (docs/testing.md); the budgets at scale 1 are checked in a cell-sized
 environment.

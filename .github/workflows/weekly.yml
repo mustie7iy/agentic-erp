@@ -72,9 +72,9 @@ jobs:
       - name: Go vulnerabilities, standard library included
         # ko's SBOM lists the modules but not the standard library, where
         # most Go advisories are; govulncheck covers both, in the code that
-        # is called.
+        # is called; in every module, erp-temporal's (temporal/) as well.
         if: success() || failure()
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./... # the version scripts/ci-tools.sh pins
+        run: ./scripts/each-module.sh go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./... # the version scripts/ci-tools.sh pins
       - name: Base image still current
         # The bases are rebuilt often: this step goes red whenever a tag
         # moves, which asks for a reviewed digest bump, not a fix.

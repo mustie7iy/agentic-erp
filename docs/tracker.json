@@ -8651,6 +8651,13 @@
       "r": "docs/design/06-engineering-process.md §6.9 · REVIEW.md",
       "src": "review:batch18",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "govulncheck, staticcheck and gosec cover erp-temporal's own module (temporal/) as well as the root's, through scripts/each-module.sh, in ci-local, ci.yml's test job and weekly (govulncheck): every gate ran ./... from the root, which skips a module of its own, so nothing checked erp-temporal's standard-library or call-reachable vulnerabilities, and ko's SBOM, which grype scans, lists no standard library (pre-existing finding on batch 21)",
+      "r": "scripts/each-module.sh · scripts/test-each-module.sh · scripts/ci-local.sh · .github/workflows/ci.yml · .github/workflows/weekly.yml · 06 §6.5",
+      "src": "review:batch21",
+      "c": []
      }
     ]
    },
