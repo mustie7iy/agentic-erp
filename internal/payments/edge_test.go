@@ -296,6 +296,8 @@ func TestListsAndAccess(t *testing.T) {
 		t.Errorf("payments second page token: got %v, want none", rest["next_page_token"])
 	}
 	wantSupplierNames(t, "payment", pays, rest)
+	wantItemNumbers(t, pays, rest)
+	wantRequestNumbers(t, "payment", pays, rest)
 	if got := list("/v1/payment-runs/" + id(first) + "/payments?supplier_id=" + e.Vendor.String()); len(got["items"].([]any)) != 1 {
 		t.Fatalf("payments of the vendor: %v", got)
 	}
@@ -308,7 +310,7 @@ func TestListsAndAccess(t *testing.T) {
 	}
 	exs2 := list("/v1/payment-runs/" + id(second) + "/exclusions?page_size=1&page_token=" + url.QueryEscape(exs["next_page_token"].(string)))
 	wantSupplierNames(t, "exclusion", exs, exs2)
-	wantRequestNumbers(t, exs, exs2)
+	wantRequestNumbers(t, "exclusion", exs, exs2)
 	created := list("/v1/bank-files?status=created&page_size=1")
 	if got := len(created["items"].([]any)); got != 1 {
 		t.Errorf("created bank files: got %d, want 1", got)
@@ -417,10 +419,11 @@ func wantSupplierNames(t *testing.T, what string, pages ...map[string]any) {
 	}
 }
 
-// wantRequestNumbers: a row on the pages that names a down payment request
-// gives the request's document number as the payables context holds it,
-// and a supplier's row gives none, on a later page as on the first.
-func wantRequestNumbers(t *testing.T, pages ...map[string]any) {
+// wantRequestNumbers: a row on the pages (what: payment or exclusion)
+// that names a down payment request gives the request's document number as
+// the payables context holds it, and any other row gives none, on a later
+// page as on the first.
+func wantRequestNumbers(t *testing.T, what string, pages ...map[string]any) {
 	t.Helper()
 	for _, page := range pages {
 		for _, it := range page["items"].([]any) {
@@ -428,17 +431,42 @@ func wantRequestNumbers(t *testing.T, pages ...map[string]any) {
 			request, ok := row["down_payment_request_id"]
 			if !ok {
 				if n, has := row["down_payment_request_number"]; has {
-					t.Errorf("exclusion of supplier %v's items: got request number %v, want none", row["supplier_id"], n)
+					t.Errorf("%s of supplier %v's items: got request number %v, want none", what, row["supplier_id"], n)
 				}
 				continue
 			}
-			var number string
-			if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT document_number FROM payables.down_payment_request WHERE id = $1`, request).Scan(&number); err != nil {
-				t.Fatal(err)
-			}
-			if row["down_payment_request_number"] != number {
-				t.Errorf("exclusion of request %v: got number %v, want its document number %s", request, row["down_payment_request_number"], number)
+			want := documentNumber(t, `SELECT document_number FROM payables.down_payment_request WHERE id = $1`, request)
+			if row["down_payment_request_number"] != want {
+				t.Errorf("%s of request %v: got number %v, want its document number %s", what, request, row["down_payment_request_number"], want)
 			}
 		}
 	}
+}
+
+// wantItemNumbers: every open item of the pages' payments gives its
+// journal entry's document number as the ledger holds it, on a later page
+// as on the first.
+func wantItemNumbers(t *testing.T, pages ...map[string]any) {
+	t.Helper()
+	for _, page := range pages {
+		for _, p := range page["items"].([]any) {
+			for _, it := range p.(map[string]any)["items"].([]any) {
+				item := it.(map[string]any)
+				want := documentNumber(t, `SELECT document_number FROM ledger.journal_entry WHERE id = $1`, item["journal_entry_id"])
+				if item["document_number"] != want {
+					t.Errorf("item of entry %v: got document number %v, want %s", item["journal_entry_id"], item["document_number"], want)
+				}
+			}
+		}
+	}
+}
+
+// documentNumber is the number query reads for the document id.
+func documentNumber(t *testing.T, query string, id any) string {
+	t.Helper()
+	var number string
+	if err := pgtest.Admin(t).QueryRow(context.Background(), query, id).Scan(&number); err != nil {
+		t.Fatal(err)
+	}
+	return number
 }

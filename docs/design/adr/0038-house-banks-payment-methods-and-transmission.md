@@ -540,9 +540,42 @@ consumer needs). Decided by default:
   payables context does not hold fails the page (500): a run excludes only
   requests it read from payables, so a missing one is an inconsistency.
 - **Other responses.** `Payment.down_payment_request_id` and the open items
-  of a payment (`PaymentItem.journal_entry_id`) give their document by id
-  only too; they are outside this change and reported to the coordinator.
+  of a payment (`PaymentItem.journal_entry_id`) gave their document by id
+  only too; the amendment below adds their numbers.
 - **The walkthrough.** It reaches no request's exclusion: its one down
   payment request is migrated already paid and no run proposes an open one,
   so the API tests (both shapes, and pages after the first) are the
   evidence; a fix to a response, not a new capability (ADR-0053).
+
+## As built: payments and their items name their documents (review:batch23)
+
+The review of exclreq left a down payment's payment giving its request, and
+a payment's open item its journal entry, by id only (REVIEW.md, an
+identifier without the reference its consumer needs). Decided by default:
+
+- **The fields.** `Payment` gains `down_payment_request_number`, named and
+  optional as on `PaymentExclusion`: present exactly when
+  `down_payment_request_id` is. `PaymentItem` gains `document_number`, its
+  journal entry's: the name the contract already gives that number beside
+  the same item's key (`OpenItem` and `LedgerReconciliationEntry`, keyed by
+  `fiscal_year`, `journal_entry_id` and `line_no`), so not
+  `journal_entry_number`. Every entry has a number, so it is required; both
+  are response fields, so the change is additive (oasdiff: no breaking
+  change).
+- **The ports.** The request's number comes through `DownPayments.Numbers`
+  and the entry's through a new `OpenItems.Numbers` of the ledger context,
+  through the `OpenItems` port payments already reads open items with, so
+  no dependency direction changes and no ADR is needed. `listPayments` makes
+  one call to each per page, none to payables for a page without a down
+  payment. The exclusions' helper became `documentNumbers`, shared by both:
+  a document its context does not hold fails the page (500), as for
+  exclusions.
+- **Other identifiers.** `Payment.journal_entry_id` (the payment's own
+  posting), `bank_account_id` and `house_bank_id` are still ids alone;
+  outside this change, reported to the coordinator.
+- **The walkthrough.** Step 7 expects the item of TY-5001 in its payment to
+  give the invoice entry's document number as `getJournalEntry` gives it.
+  No run there pays a down payment request (its one request is migrated
+  already paid), so the API tests are the evidence for the request's number:
+  both kinds of payment, a request's payment on a page after the first, and
+  the database failures of a run that pays one.

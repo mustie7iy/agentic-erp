@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,8 +46,10 @@ func runOK(r Run) *gen.RejectPaymentRunOKHeaders {
 }
 
 // paymentToAPI is payment p of run r to the supplier named supplier; a
-// payment that names no house bank is paid by its run's.
-func paymentToAPI(p Payment, r Run, supplier string) gen.Payment {
+// payment that names no house bank is paid by its run's. numbers are the
+// document numbers of the down payment requests and journal entries it
+// references, keyed by id.
+func paymentToAPI(p Payment, r Run, supplier string, numbers map[uuid.UUID]string) gen.Payment {
 	currency, exp := r.Currency, r.Exponent
 	out := gen.Payment{ID: p.ID, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, PaymentRunID: p.RunID, SupplierID: p.SupplierID, SupplierName: supplier,
 		BankAccountID: p.BankAccountID, Amount: apitypes.Money(p.Amount, currency, exp), DiscountAmount: gen.NewOptMoney(apitypes.Money(p.Discount, currency, exp)),
@@ -61,8 +64,11 @@ func paymentToAPI(p Payment, r Run, supplier string) gen.Payment {
 	if p.DiscountUntil != nil {
 		out.DiscountUntil.SetTo(*p.DiscountUntil)
 	}
+	if p.RequestID != nil {
+		out.DownPaymentRequestNumber.SetTo(numbers[*p.RequestID])
+	}
 	for i, it := range p.Items {
-		out.Items[i] = gen.PaymentItem{FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID, LineNo: it.LineNo,
+		out.Items[i] = gen.PaymentItem{FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID, DocumentNumber: numbers[it.EntryID], LineNo: it.LineNo,
 			Amount: apitypes.Money(it.Amount, currency, exp), DiscountAmount: gen.NewOptMoney(apitypes.Money(it.Discount, currency, exp)),
 			WithholdingAmount: gen.NewOptMoney(apitypes.Money(it.Withholding, currency, exp)), DueDate: it.DueDate.Time, IsActive: it.Active}
 	}
@@ -194,9 +200,13 @@ func (e *Endpoints) ListPayments(ctx context.Context, params gen.ListPaymentsPar
 	if err != nil {
 		return nil, fmt.Errorf("payments: list payments of run %s: %w", r.ID, err)
 	}
+	numbers, err := e.paymentNumbers(ctx, page)
+	if err != nil {
+		return nil, fmt.Errorf("payments: list payments of run %s: %w", r.ID, err)
+	}
 	out := gen.PaymentPage{Items: make([]gen.Payment, len(page))}
 	for i, p := range page {
-		out.Items[i] = paymentToAPI(p, r, names[p.SupplierID])
+		out.Items[i] = paymentToAPI(p, r, names[p.SupplierID], numbers)
 	}
 	if next != "" {
 		out.NextPageToken.SetTo(next)
@@ -260,7 +270,7 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 	if err != nil {
 		return nil, fmt.Errorf("payments: list exclusions of run %s: %w", r.ID, err)
 	}
-	numbers, err := requestNumbers(ctx, e.DownPayments, page)
+	numbers, err := documentNumbers(ctx, e.DownPayments.Numbers, requestsOf(page, func(x Exclusion) *uuid.UUID { return x.RequestID }), downPaymentRequest)
 	if err != nil {
 		return nil, fmt.Errorf("payments: list exclusions of run %s: %w", r.ID, err)
 	}
@@ -278,27 +288,66 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 	return &out, nil
 }
 
-// requestNumbers gives the document numbers of the down payment requests a
-// page's exclusions left out, one call for the page and none for a page
-// without one; a request the payables context does not hold is an error,
-// never an exclusion shown without its request's number.
-func requestNumbers(ctx context.Context, requests DownPayments, page []Exclusion) (map[uuid.UUID]string, error) {
-	var ids []uuid.UUID
-	for _, x := range page {
-		if x.RequestID != nil {
-			ids = append(ids, *x.RequestID)
+// paymentNumbers gives the document numbers of the down payment requests
+// and the open items' journal entries a page's payments reference, keyed
+// by id: one call to each context for the page.
+func (e *Endpoints) paymentNumbers(ctx context.Context, page []Payment) (map[uuid.UUID]string, error) {
+	requests, err := documentNumbers(ctx, e.DownPayments.Numbers, requestsOf(page, func(p Payment) *uuid.UUID { return p.RequestID }), downPaymentRequest)
+	if err != nil {
+		return nil, err
+	}
+	var entries []uuid.UUID
+	for _, p := range page {
+		for _, it := range p.Items {
+			entries = append(entries, it.EntryID)
 		}
 	}
+	numbers, err := documentNumbers(ctx, e.OpenItems.Numbers, entries, journalEntry)
+	if err != nil {
+		return nil, err
+	}
+	maps.Copy(numbers, requests)
+	return numbers, nil
+}
+
+// requestsOf are the down payment requests a page's rows reference, request
+// giving a row's or nil.
+func requestsOf[T any](rows []T, request func(T) *uuid.UUID) []uuid.UUID {
+	var ids []uuid.UUID
+	for _, row := range rows {
+		if id := request(row); id != nil {
+			ids = append(ids, *id)
+		}
+	}
+	return ids
+}
+
+// A referenced document's kind and the context that holds it, as an error
+// names a document missing from it.
+type documentKind struct{ name, context string }
+
+var (
+	downPaymentRequest = documentKind{"down payment request", "payables"}
+	journalEntry       = documentKind{"journal entry", "ledger"}
+)
+
+// documentNumbers gives the document numbers of the documents a page
+// references (ids, of the kind), from the context that holds them: one call
+// for the page and none for a page that references none. A document the
+// context does not hold is an error, never a row shown without its
+// document's number.
+func documentNumbers(ctx context.Context, lookup func(context.Context, []uuid.UUID) (map[uuid.UUID]string, error), ids []uuid.UUID,
+	kind documentKind) (map[uuid.UUID]string, error) {
 	if len(ids) == 0 {
 		return map[uuid.UUID]string{}, nil
 	}
-	numbers, err := requests.Numbers(ctx, ids)
+	numbers, err := lookup(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
 	for _, id := range ids {
 		if _, ok := numbers[id]; !ok {
-			return nil, fmt.Errorf("down payment request %s is not held by the payables context", id)
+			return nil, fmt.Errorf("%s %s is not held by the %s context", kind.name, id, kind.context)
 		}
 	}
 	return numbers, nil

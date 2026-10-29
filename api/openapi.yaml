@@ -28868,6 +28868,7 @@ components:
       required:
         - fiscal_year
         - journal_entry_id
+        - document_number
         - line_no
         - amount
         - due_date
@@ -28884,6 +28885,10 @@ components:
           type: string
           format: uuid
           description: Journal entry of the open item.
+          readOnly: true
+        document_number:
+          type: string
+          description: "Document number of the open item's journal entry, as the open item gives it (`OpenItem.document_number`)."
           readOnly: true
         line_no:
           type: integer
@@ -28915,6 +28920,7 @@ components:
       examples:
         - fiscal_year: 2026
           journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dae"
+          document_number: "5100000123"
           line_no: 1
           amount:
             amount: "1080.00"
@@ -28993,6 +28999,10 @@ components:
               format: uuid
               description: The down payment request a payment of kind `down_payment` pays.
               readOnly: true
+            down_payment_request_number:
+              type: string
+              description: "The request's document number; present exactly when `down_payment_request_id` is."
+              readOnly: true
             house_bank_id:
               type: string
               format: uuid
@@ -29023,12 +29033,28 @@ components:
           items:
             - fiscal_year: 2026
               journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dae"
+              document_number: "5100000123"
               line_no: 1
               amount:
                 amount: "1080.00"
                 currency: EUR
               due_date: "2026-10-09"
               is_active: false
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          created_at: "2026-10-09T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
+          payment_run_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+          supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
+          supplier_name: Tyrell Office Products
+          bank_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db2"
+          amount:
+            amount: "1190.00"
+            currency: EUR
+          end_to_end_id: "2600000017-000043"
+          kind: down_payment
+          down_payment_request_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d58"
+          down_payment_request_number: DP100000
+          items: []
     PaymentPage:
       type: object
       description: One page of payments.
@@ -29065,6 +29091,7 @@ components:
               items:
                 - fiscal_year: 2026
                   journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dae"
+                  document_number: "5100000123"
                   line_no: 1
                   amount:
                     amount: "1080.00"

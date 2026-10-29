@@ -900,6 +900,20 @@
         "r": "api/openapi.yaml PaymentExclusion · internal/payments",
         "src": "review:batch22",
         "c": []
+       },
+       {
+        "s": "D",
+        "t": "A down payment's payment names its request (pre-existing finding on exclreq, API-consumer classes): Payment.down_payment_request_id gives the request by UUID only, without its document_number",
+        "r": "api/openapi.yaml Payment · internal/payments",
+        "src": "review:batch23",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A payment's open items name their document (pre-existing finding on exclreq, API-consumer classes): PaymentItem.journal_entry_id gives the open item's journal entry by id only, without its document number",
+        "r": "api/openapi.yaml PaymentItem · internal/payments · internal/ledger OpenItems",
+        "src": "review:batch23",
+        "c": []
        }
       ]
      },

@@ -133,7 +133,8 @@ func TestDownPaymentPayments(t *testing.T) {
 	if got := e.exclusions(t, run); fmt.Sprint(got) != fmt.Sprint(wantEx) {
 		t.Errorf("exclusions: got %v, want %v", got, wantEx)
 	}
-	e.exclusionPages(t, run)
+	e.requestPages(t, run, "exclusions")
+	e.requestPages(t, run, "payments")
 	if got := run["total_amount"].(map[string]any)["amount"]; got != "1990.00" {
 		t.Errorf("run total: got %v, want 1990.00", got)
 	}
@@ -241,9 +242,9 @@ func postAgain(t *testing.T, e env, run, pay map[string]any) {
 
 // TestDownPaymentDatabaseFailures fails each database statement in turn of
 // the steps that pay down payment requests: a proposal with requests, the
-// run a request is in, the exclusions of a run that left a request out,
-// a request payment's posting and a release that writes it to the bank
-// file.
+// run a request is in, the payments of a run that pays a request, the
+// exclusions of a run that left a request out, a request payment's posting
+// and a release that writes it to the bank file.
 func TestDownPaymentDatabaseFailures(t *testing.T) {
 	e := downPaymentSetup(t)
 	workLeftovers(t)
@@ -302,6 +303,10 @@ func TestDownPaymentDatabaseFailures(t *testing.T) {
 				return err
 			}
 			_, err = h.PostPayment(ctx, r, pay)
+			return err
+		},
+		"payments naming a request": func(ctx context.Context) error {
+			_, err := h.ListPayments(ctx, gen.ListPaymentsParams{ID: uuidOf(id(releasing))})
 			return err
 		},
 		"exclusions naming a request": func(ctx context.Context) error {
@@ -439,18 +444,20 @@ func TestDropBesideAnExcludedRequest(t *testing.T) {
 	}
 }
 
-// exclusionPages walks the run's exclusions a row a page: each row names
-// its request's number, or none for a supplier's items, on a later page as
-// on the first. The run excludes two requests, so at least one of them is
-// on a page after the first, whatever the order.
-func (e env) exclusionPages(t *testing.T, run map[string]any) {
+// requestPages walks the run's payments or exclusions (list) a row a page:
+// each row names its request's number, or none for a supplier's items, on
+// a later page as on the first. The run pays, or excludes, two requests,
+// so at least one of them is on a page after the first, whatever the
+// order.
+func (e env) requestPages(t *testing.T, run map[string]any, list string) {
 	t.Helper()
-	path := "/v1/payment-runs/" + id(run) + "/exclusions?page_size=1"
+	path := "/v1/payment-runs/" + id(run) + "/" + list + "?page_size=1"
 	page, _ := e.Must(200, "GET", path, "", "")
+	wantRequestNumbers(t, list, page)
 	later := 0
 	for page["next_page_token"] != nil {
 		page, _ = e.Must(200, "GET", path+"&page_token="+url.QueryEscape(page["next_page_token"].(string)), "", "")
-		wantRequestNumbers(t, page)
+		wantRequestNumbers(t, list, page)
 		for _, it := range page["items"].([]any) {
 			if _, ok := it.(map[string]any)["down_payment_request_id"]; ok {
 				later++
@@ -458,6 +465,6 @@ func (e env) exclusionPages(t *testing.T, run map[string]any) {
 		}
 	}
 	if later == 0 {
-		t.Errorf("requests' exclusions after the first page: got none, want at least one")
+		t.Errorf("requests' %s after the first page: got none, want at least one", list)
 	}
 }
