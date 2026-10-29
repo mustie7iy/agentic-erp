@@ -756,6 +756,24 @@ their own and least privilege, never as the RDS master user `erp_admin`
   schema `public`, before granting the roles' again; and refuses a schema
   in the database beyond the system's, `public`, `directory` and `web`,
   whose `PUBLIC` rights it would not govern.
+  It also refuses (batch 25, from T72h's review) any right `PUBLIC`, and
+  so every login, holds on the object kinds `pg_shdepend` records no
+  right of `PUBLIC`'s for, since it records roles alone (PostgreSQL 17
+  manual, `pg_shdepend`, `SHARED_DEPENDENCY_ACL`): large objects
+  (`pg_largeobject_metadata.lomacl`), and `lo_compat_privileges`,
+  which turns their privilege checks off (§19.13.1), on in Setup's
+  session or set at all in `pg_db_role_setting` for the login, the
+  owner (whose own setting would hide the server's) or every role, in
+  the database or all; foreign-data
+  wrappers (`pg_foreign_data_wrapper.fdwacl`) and foreign servers
+  (`pg_foreign_server.srvacl`); trusted languages but `sql` and
+  `plpgsql` (`pg_language.lanacl`); and the server's parameters
+  (`pg_parameter_acl.paracl`, `SET` or `ALTER SYSTEM`). A null ACL is
+  read as its kind's default (`acldefault`; `aclexplode` gives `PUBLIC`
+  as grantee 0, §9.27 table 9.72), so a trusted language made by hand,
+  which `PUBLIC` uses by default, is refused too. `TestSetupRefusesOwners`
+  grants each by hand and `TestSetupRefusesServerWideRights` the
+  server-wide ones, inside a transaction it rolls back.
   A password reaches the server only as its SCRAM-SHA-256 verifier,
   computed in Go, so no log or statistics of the statement (PostgreSQL
   logs a failed statement whole, `log_min_error_statement`, to
@@ -789,6 +807,18 @@ their own and least privilege, never as the RDS master user `erp_admin`
   new connections in the window between the hook and the refresh fail and
   are retried, the window accepted for the master password above. To
   change one: write the new value, release.
+- `PUBLIC`'s rights on large objects, foreign-data wrappers and servers,
+  languages and parameters are refused, not taken back (batch 25): it is
+  `checkLogin`'s rule for rights on objects `Grants` does not name; the
+  directory makes and uses none of them; and the owner Setup runs as, no
+  superuser on RDS, need not own one someone else made, when its
+  `REVOKE` would only warn and leave the right (PostgreSQL 17 manual,
+  `REVOKE`, Notes). `PUBLIC`'s default `USAGE` on `sql` and `plpgsql`
+  (§5.8 table 5.2) stands: `Grants`' `DO` blocks need `plpgsql`'s where
+  the owner is no superuser (`DO`, Notes), and a login, which may create
+  no function, runs a `DO` block with its own rights alone. Not checked
+  against an RDS instance: whether RDS itself grants `PUBLIC` a right on
+  a parameter, which would stop the release until an operator looks.
 - One login for the cells: only the home cell's VPC reaches the
   directory today (`modules/global`, its security group).
 - On a first install erp-cell's server, synced in the same wave as

@@ -343,17 +343,32 @@ func TestSetupRefusesLogins(t *testing.T) {
 }
 
 // TestSetupRefusesOwners: a login owning the database, a privilege role
-// owning an object in it, or either holding a right on an object Grants
-// does not name, is refused; each in a database of its own, which the
+// owning an object in it, either holding a right on an object Grants
+// does not name, or PUBLIC holding one on an object kind pg_shdepend does
+// not record it for, is refused; each in a database of its own, which the
 // refusal leaves unusable.
 func TestSetupRefusesOwners(t *testing.T) {
 	ctx := context.Background()
-	for name, sql := range map[string]string{
-		"a login owning the database":     `ALTER DATABASE {db} OWNER TO {login}`,
-		"a privilege role owning a table": `CREATE TABLE public.owned (x int); ALTER TABLE public.owned OWNER TO erp_cell`,
-		"a stray right of a role":         `CREATE TABLE public.stray (x int); GRANT SELECT ON public.stray TO erp_cell`,
-		"a stray right of a login":        `CREATE TABLE public.stray (x int); GRANT SELECT ON public.stray TO {login}`,
-		"a schema made by hand":           `CREATE SCHEMA ops`,
+	for name, c := range map[string]struct{ sql, want string }{
+		"a login owning the database":     {`ALTER DATABASE {db} OWNER TO {login}`, "owned or granted [{login}: database"},
+		"a privilege role owning a table": {`CREATE TABLE public.owned (x int); ALTER TABLE public.owned OWNER TO erp_cell`, "erp_cell: table owned (o)"},
+		"a stray right of a role":         {`CREATE TABLE public.stray (x int); GRANT SELECT ON public.stray TO erp_cell`, "erp_cell: table stray (a)"},
+		"a stray right of a login":        {`CREATE TABLE public.stray (x int); GRANT SELECT ON public.stray TO {login}`, "{login}: table stray (a)"},
+		"a schema made by hand":           {`CREATE SCHEMA ops`, "other schemas [ops]"},
+		// PUBLIC's, every login's, which pg_shdepend does not record.
+		"a large object PUBLIC may read": {`DO $$ BEGIN EXECUTE format('GRANT SELECT ON LARGE OBJECT %s TO PUBLIC', lo_create(0)); END $$`,
+			"PUBLIC's rights [large object "},
+		"a foreign-data wrapper PUBLIC may use": {`CREATE FOREIGN DATA WRAPPER mine; GRANT USAGE ON FOREIGN DATA WRAPPER mine TO PUBLIC`,
+			"PUBLIC's rights [foreign-data wrapper mine]"},
+		"a foreign server PUBLIC may use": {`CREATE FOREIGN DATA WRAPPER mine; CREATE SERVER mine FOREIGN DATA WRAPPER mine; GRANT USAGE ON FOREIGN SERVER mine TO PUBLIC`,
+			"PUBLIC's rights [foreign server mine]"},
+		"a language PUBLIC may use": {`CREATE TRUSTED LANGUAGE plmine HANDLER plpgsql_call_handler; REVOKE USAGE ON LANGUAGE plmine FROM PUBLIC;
+			GRANT USAGE ON LANGUAGE plmine TO PUBLIC`, "PUBLIC's rights [language plmine]"},
+		"large objects unchecked for the login": {`ALTER ROLE {login} SET lo_compat_privileges = on`,
+			"PUBLIC's rights [large objects unchecked (lo_compat_privileges set for {login} in every database)]"},
+		"large objects unchecked in the database": {`ALTER DATABASE {db} SET lo_compat_privileges = on`,
+			"large objects unchecked (lo_compat_privileges set for every role in this database)"},
+		"a trusted language PUBLIC uses by default": {`CREATE TRUSTED LANGUAGE plmine HANDLER plpgsql_call_handler`, "PUBLIC's rights [language plmine]"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			login := pgtest.NewLogin(t) // before the database, so dropped after it
@@ -364,12 +379,13 @@ func TestSetupRefusesOwners(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer dir.Close()
-			sql = strings.NewReplacer("{db}", dbName(t, u), "{login}", pgx.Identifier{login.Name}.Sanitize()).Replace(sql)
+			sql := strings.NewReplacer("{db}", dbName(t, u), "{login}", pgx.Identifier{login.Name}.Sanitize()).Replace(c.sql)
 			if err := exec(ctx, dir, database.Scope{}, sql); err != nil {
 				t.Fatal(err)
 			}
-			if err := directory.Setup(ctx, u, directory.Login{Name: login.Name, Password: "p", Role: directory.CellRole}); !errors.Is(err, directory.ErrLogin) {
-				t.Errorf("got %v, want ErrLogin", err)
+			want := strings.ReplaceAll(c.want, "{login}", login.Name)
+			if err := directory.Setup(ctx, u, directory.Login{Name: login.Name, Password: "p", Role: directory.CellRole}); !errors.Is(err, directory.ErrLogin) || !strings.Contains(err.Error(), want) {
+				t.Errorf("got %v, want ErrLogin naming %q", err, want)
 			}
 		})
 	}
@@ -434,6 +450,47 @@ func TestPrivilegeRoleInAnother(t *testing.T) {
 	})
 	if !errors.Is(err, errDone) {
 		t.Fatal(err)
+	}
+}
+
+// TestSetupRefusesServerWideRights: PUBLIC given a right on a server
+// parameter, or every large object opened to all by
+// lo_compat_privileges, is refused. Both are the server's, so neither is
+// committed: checked inside the transaction that makes it, then rolled
+// back, out of other packages' sight.
+func TestSetupRefusesServerWideRights(t *testing.T) {
+	ctx := context.Background()
+	u := pgtest.EmptyDatabase(t)
+	c := pgtest.NewLogin(t)
+	login := directory.Login{Name: c.Name, Password: c.Password, Role: directory.CellRole}
+	if err := directory.Setup(ctx, u, login); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := directory.OpenWith(ctx, u, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	errDone := errors.New("rolled back")
+	for name, c := range map[string]struct{ sql, want string }{
+		"a parameter PUBLIC may set":   {`GRANT SET ON PARAMETER session_replication_role TO PUBLIC`, "PUBLIC's rights [parameter session_replication_role]"},
+		"large objects open to all":    {`SET LOCAL lo_compat_privileges = on`, "PUBLIC's rights [large objects unchecked (lo_compat_privileges = on)]"},
+		"a parameter PUBLIC may alter": {`GRANT ALTER SYSTEM ON PARAMETER work_mem TO PUBLIC`, "PUBLIC's rights [parameter work_mem]"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := dir.Pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+				if _, err := tx.Exec(ctx, c.sql); err != nil {
+					return err
+				}
+				if err := directory.CheckLogin(ctx, tx, login); !errors.Is(err, directory.ErrLogin) || !strings.Contains(err.Error(), c.want) {
+					t.Errorf("got %v, want ErrLogin naming %q", err, c.want)
+				}
+				return errDone
+			})
+			if !errors.Is(err, errDone) {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
