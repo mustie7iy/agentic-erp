@@ -372,8 +372,9 @@ gates on each pull request:
     `scripts/temporal-checks.sh` gives `temporal/` all four whenever
     `temporal/` or that script changes (the deploy class); a change to
     `.golangci.yml` or to the tools' pins alone does not run it, a gap
-    recorded for the tracker. The first run found no vulnerability in either module that
-    the code calls (govulncheck v1.9.0).
+    the batch 21 review reported for the tracker. The first run found no
+    vulnerability in either module that the code calls (govulncheck
+    v1.9.0).
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
   documentation changed (`docs/`, Markdown) since the base: a pull
