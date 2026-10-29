@@ -303,12 +303,14 @@ gates on each pull request:
     Changed: a step that renumbers walkthrough steps runs
     `go test ./cmd/erp -run TestWalkthrough`.
   - 2026-10-29 (T72i follow-ups): the release tooling had no test that the
-    registry the release pushes to is the one promotion and admission
-    accept, nor that every image `release/release.json` names is built.
-    Layer: the machine checks (the release scripts' own tests). Changed:
+    registry the release pushes to is the one promotion accepts, nor that
+    every image `release/release.json` names is built. Layer: the machine
+    checks (the release scripts' own tests). Changed:
     `scripts/test-images.sh`'s consistency check holds the release's push
     target and built images, `modules/ecr`'s repositories and
-    `release.json`'s names to each other.
+    `release.json`'s names to each other; the registries admission accepts
+    are per-environment values (`deploy/helm/erp-cluster`), which it does
+    not hold.
   - 2026-10-29 (T72i follow-ups, batch21): adding erp-temporal to
     `modules/ecr` left `envs/tooling`'s `terraform test` expecting seven
     repositories, as the lane did not run `scripts/deploy-checks.sh` (the
@@ -317,6 +319,16 @@ gates on each pull request:
     `scripts/deploy-checks.sh`, or `terraform test` on every root and
     module that uses a changed module; the test now names the
     repositories rather than counting them.
+  - 2026-10-29 (T72f, batch21): T72f's new `migrated_quantity`, a required
+    GR/IR balance field, and its new problems (`ledger.gr_ir_position_exists`,
+    `procurement.no_gr_ir_account`) passed the lane, but `internal/web`'s
+    stubs lacked the field and seven operations' `x-problem-codes` lacked
+    the problems, so `internal/web` and `api`'s TestProblemCodes failed on
+    the batch. Layer: the lane fast loop, whose direct importers of a
+    changed package include `api` and `internal/web` when handlers or
+    responses change (the apinames rule above). Changed: no gate; the stubs
+    answer the field and the codes were rewritten with
+    `go test ./api -run TestProblemCodes -update`.
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
   documentation changed (`docs/`, Markdown) since the base: a pull

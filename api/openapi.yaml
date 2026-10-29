@@ -8849,6 +8849,7 @@ paths:
         - procurement.contract_exceeded
         - procurement.invalid_contract
         - procurement.invalid_status
+        - procurement.no_gr_ir_account
         - procurement.requisition_ordered
         - procurement.supplier_not_usable
         - request.version_mismatch
@@ -10001,6 +10002,7 @@ paths:
         - ledger.currency_mismatch
         - ledger.gr_ir_clearing_outdated
         - ledger.gr_ir_currency_mismatch
+        - ledger.gr_ir_position_exists
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -10139,6 +10141,7 @@ paths:
         - ledger.currency_mismatch
         - ledger.gr_ir_clearing_outdated
         - ledger.gr_ir_currency_mismatch
+        - ledger.gr_ir_position_exists
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -10851,6 +10854,7 @@ paths:
         - ledger.currency_mismatch
         - ledger.gr_ir_clearing_outdated
         - ledger.gr_ir_currency_mismatch
+        - ledger.gr_ir_position_exists
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -13994,6 +13998,7 @@ paths:
         - ledger.entry_reversed
         - ledger.gr_ir_clearing_outdated
         - ledger.gr_ir_currency_mismatch
+        - ledger.gr_ir_position_exists
         - ledger.hierarchy_change_invalid
         - ledger.hierarchy_exists
         - ledger.hierarchy_node_exists
@@ -14065,6 +14070,7 @@ paths:
         - procurement.invalid_change
         - procurement.invalid_contract
         - procurement.invalid_status
+        - procurement.no_gr_ir_account
         - procurement.requisition_ordered
         - procurement.supplier_not_usable
         - procurement.unknown_unit
@@ -15583,6 +15589,7 @@ paths:
         - ledger.entry_reversed
         - ledger.gr_ir_clearing_outdated
         - ledger.gr_ir_currency_mismatch
+        - ledger.gr_ir_position_exists
         - ledger.invalid_clearing_entry
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -15705,6 +15712,7 @@ paths:
         - procurement.invalid_tolerance
         - procurement.legal_entity_not_active
         - procurement.mixed_currencies
+        - procurement.no_gr_ir_account
         - procurement.order_not_released
         - procurement.over_delivery
         - procurement.reason_not_allowed
@@ -15792,6 +15800,7 @@ paths:
         - ledger.entry_reversed
         - ledger.gr_ir_clearing_outdated
         - ledger.gr_ir_currency_mismatch
+        - ledger.gr_ir_position_exists
         - ledger.invalid_clearing_entry
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -15914,6 +15923,7 @@ paths:
         - procurement.invalid_tolerance
         - procurement.legal_entity_not_active
         - procurement.mixed_currencies
+        - procurement.no_gr_ir_account
         - procurement.order_not_released
         - procurement.over_delivery
         - procurement.reason_not_allowed
