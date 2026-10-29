@@ -1867,7 +1867,11 @@ keep passing.
      `make generate` leaving no diff · the contract lint and the
      breaking-change check when the contract changes · the tests of the changed
      packages and of the packages that import them directly, against real PostgreSQL
-     with `-race`, once · 100% statement coverage of the changed packages;
+     with `-race`, once, plus `go test ./api -run TestProblemCodes` when a
+     `problem.*` code or a handler changes (`api` imports no context, it reads
+     the server's call graph), `internal/web`'s tests when `api/gen` is
+     regenerated, and `scripts/deploy-checks.sh` when infrastructure changes
+     (06 §6.5, 2026-10-29) · 100% statement coverage of the changed packages;
    - *the batch, green before every pull request:* `make ci-local` runs every
      gate, unchanged, at CI's pinned versions: `make lint-all` at 0 issues,
      `make test`, `make coverage` at 100%, `make fuzz`,

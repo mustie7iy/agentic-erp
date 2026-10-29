@@ -319,15 +319,22 @@ gates on each pull request:
     `scripts/deploy-checks.sh`, or `terraform test` on every root and
     module that uses a changed module; the test now names the
     repositories rather than counting them.
-  - 2026-10-29 (T72f, batch21): T72f's new `migrated_quantity`, a required
-    GR/IR balance field, and its new problems (`ledger.gr_ir_position_exists`,
-    `procurement.no_gr_ir_account`) passed the lane, but `internal/web`'s
-    stubs lacked the field and seven operations' `x-problem-codes` lacked
-    the problems, so `internal/web` and `api`'s TestProblemCodes failed on
-    the batch. Layer: the lane fast loop, whose direct importers of a
-    changed package include `api` and `internal/web` when handlers or
-    responses change (the apinames rule above). Changed: no gate; the stubs
-    answer the field and the codes were rewritten with
+  - 2026-10-29 (T72f, batch21): T72f's new required field
+    `GrIrBalance.migrated_quantity` and its new problems
+    (`ledger.gr_ir_position_exists`, `procurement.no_gr_ir_account`) passed
+    the lane, but `internal/web`'s stubs lacked the field and seven
+    operations' `x-problem-codes` lacked the problems, so `internal/web` and
+    `api`'s TestProblemCodes failed on the batch. Layer: the lane fast loop.
+    `api` imports no context, so it is never a direct importer:
+    TestProblemCodes loads the server's call graph at run time. And the
+    apinames rule above, that a lane adding required response fields runs
+    `internal/web`'s tests, was not followed. Changed: the fast loop
+    (07 §7.7) now names both: a step that adds, removes or moves a
+    `problem.*` code or changes a handler runs
+    `go test ./api -run TestProblemCodes`, and a step that regenerates
+    `api/gen` runs `internal/web`'s tests; a lane that changes
+    infrastructure runs `scripts/deploy-checks.sh` (the entry above). The
+    stubs answer the field and the codes were rewritten with
     `go test ./api -run TestProblemCodes -update`.
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
