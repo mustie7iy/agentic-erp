@@ -359,7 +359,9 @@ func TestMigrationPorts(t *testing.T) {
 		if err := clear(item(invoice))(ctx); problem.From(err).Code != "ledger.item_already_cleared" {
 			t.Errorf("cleared twice: %v", err)
 		}
-		open, _ = ledger.Reports{}.OpenPayables(ctx, e.de, 2026)
+		if open, err = (ledger.Reports{}).OpenPayables(ctx, e.de, 2026); err != nil {
+			return err
+		}
 		if _, ok := open[e.supplier]; ok {
 			t.Errorf("cleared items still open: %v", open)
 		}
