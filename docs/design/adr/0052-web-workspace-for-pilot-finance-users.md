@@ -1360,7 +1360,10 @@ What the API gaps settled, and where they depart from §3:
   the method, which escapes). So do template functions registered with
   `Funcs` (whose results the template may call into), a template converted
   to an interface or handed to a function outside the template packages
-  (which may execute it with data the test does not see), and data
+  (which may execute it with data the test does not see; the program's own
+  functions included, so a helper taking a template, such as
+  `render(t *template.Template, …)`, fails the test until it executes
+  the template where the call shows its data), and data
   reaching the API's handler (a template may call any of its methods, not
   only those api/gen does). Two premises are stated, not checked, since
   the analysis does not read the dependencies' code: code outside does not

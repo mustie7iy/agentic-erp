@@ -296,10 +296,8 @@ func (a *codeAnalysis) templateData(x *flowIndex) []string {
 					out = append(out, fmt.Sprintf("%s executes a template whose data reaches what the test cannot follow: %s (%s)", f, p,
 						a.prog.Fset.Position(in.Pos())))
 				}
+				out = append(out, a.handlerReached(f, r.types, in.Pos())...)
 				for _, t := range r.types {
-					if isHandler(t) {
-						out = append(out, fmt.Sprintf("%s executes a template whose data reaches the API's handler, any of whose methods it may call", f))
-					}
 					for _, m := range append(a.exportedMethods(t), a.exportedMethods(types.NewPointer(t))...) {
 						x.templated[m] = append(x.templated[m], c)
 					}
@@ -309,6 +307,19 @@ func (a *codeAnalysis) templateData(x *flowIndex) []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// handlerReached is the problem of f's template execution at pos when the
+// types its data reaches include the API's handler: the template may call
+// any of the handler's exported methods, not only those api/gen serves,
+// which exportedMethods hides once sealHandler holds. checkTemplateHandler
+// proves it on the program's handler, which the fixture cannot build.
+func (a *codeAnalysis) handlerReached(f *ssa.Function, reached []types.Type, pos token.Pos) []string {
+	if !slices.ContainsFunc(reached, isHandler) {
+		return nil
+	}
+	return []string{fmt.Sprintf("%s executes a template whose data reaches the API's handler, any of whose methods it may call (%s)",
+		f, a.prog.Fset.Position(pos))}
 }
 
 // templateReach is what a template can reach from its data: the types,
@@ -395,6 +406,8 @@ func (r *templateReach) reachParts(t types.Type, k string) {
 // registered with Funcs, whose results the template may call into, or a
 // template converted to an interface or handed to a function outside the
 // template packages, which may execute it with data the test does not see.
+// That includes the program's own functions: a helper taking a template
+// fails the test, as following the template into it is not built.
 func (a *codeAnalysis) templateHandedOn(in ssa.Instruction) string {
 	if mi, ok := in.(*ssa.MakeInterface); ok && isTemplateType(mi.X.Type()) {
 		return "converts a template to " + mi.Type().String() + ", which may execute it with any data"

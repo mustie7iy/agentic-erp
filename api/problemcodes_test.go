@@ -187,6 +187,7 @@ func TestProblemCodes(t *testing.T) {
 	}
 	t.Run("premises", func(t *testing.T) { checkPremisesRefuse(t, a) })
 	t.Run("handler", func(t *testing.T) { checkSealRefuses(t, a) })
+	t.Run("template data", func(t *testing.T) { checkTemplateHandler(t, a) })
 	derived := a.operationCodes(t, spec, common)
 	if *update {
 		writeCodes(t, common, derived)
@@ -231,6 +232,35 @@ func TestProblemCodes(t *testing.T) {
 		if len(a.narrowed[i]) == 0 {
 			t.Errorf("untakenBranches: %s of %s is no operation's to leave out any more; remove the entry", u.code, u.gate)
 		}
+	}
+}
+
+// checkTemplateHandler proves templateData refuses a template's data
+// reaching the API's handler, on the program's internal/app handler
+// (the fixture cannot build that type): the types templateReach gives for
+// data holding a *handler include it, so handlerReached returns its
+// problem, and data reaching only problem.Problem returns none.
+func checkTemplateHandler(t *testing.T, a *codeAnalysis) {
+	t.Helper()
+	app := a.prog.ImportedPackage(module + "/internal/app")
+	if app == nil {
+		t.Fatal("internal/app is not in the program")
+	}
+	h := app.Pkg.Scope().Lookup("handler")
+	if h == nil {
+		t.Fatal("internal/app declares no handler")
+	}
+	holder := types.NewStruct([]*types.Var{types.NewField(token.NoPos, nil, "H", types.NewPointer(h.Type()), false)}, nil)
+	r := &templateReach{prog: a.prog, seen: map[string]bool{}}
+	r.reach(holder, "the data", false)
+	if got := a.handlerReached(a.from, r.types, token.NoPos); len(got) != 1 || !strings.Contains(got[0], "reaches the API's handler") {
+		t.Errorf("data holding the handler: got %q, want the handler refused", got)
+	}
+	p := a.prog.ImportedPackage(module + "/internal/platform/problem").Pkg.Scope().Lookup("Problem").Type()
+	other := &templateReach{prog: a.prog, seen: map[string]bool{}}
+	other.reach(p, "the data", false)
+	if got := a.handlerReached(a.from, other.types, token.NoPos); got != nil {
+		t.Errorf("data holding a problem: got %q, want nothing refused", got)
 	}
 }
 
