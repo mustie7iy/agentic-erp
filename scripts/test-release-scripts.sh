@@ -138,6 +138,9 @@ for sub in tag describe rev-list log diff; do
   if got="$(cd "$r" && PATH="$work/failing:$PATH" FAIL_GIT="$sub" "$next" 2>&1)"; then
     echo "FAIL a failing git $sub: printed $got, want an error" >&2
     failed=1
+  elif ! grep -q "git $sub: failed" <<<"$got"; then
+    echo "FAIL a failing git $sub: failed for another reason: $got" >&2
+    failed=1
   else
     echo "ok   a failing git $sub is an error"
   fi

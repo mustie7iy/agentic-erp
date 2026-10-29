@@ -136,10 +136,12 @@ BASE=faildrill case_ failed-drill-passed-later ok "" 'put deploy/environments/st
 # A git that cannot read BASE's record stops the checks: read as no
 # record, the rewrite above would pass as a new one.
 mkdir -p "$work/failing"
-printf '#!/usr/bin/env bash\n[ "$1 $2" != "show $FAIL_SHOW" ] || { echo "git show: failed" >&2; exit 128; }\nexec "%s" "$@"\n' "$(command -v git)" >"$work/failing/git"
+printf '#!/usr/bin/env bash\n[ "$1 $2" != "show ${FAIL_SHOW:-}" ] || { echo "git show: failed" >&2; exit 128; }\n[ "$1 $4:$6" != "ls-tree ${FAIL_LS_TREE:-}" ] || { echo "git ls-tree: failed" >&2; exit 128; }\nexec "%s" "$@"\n' "$(command -v git)" >"$work/failing/git"
 chmod +x "$work/failing/git"
 PATH="$work/failing:$PATH" FAIL_SHOW=main:deploy/environments/staging/stg1/drills/v1.1.0.json \
   case_ drill-rewritten-base-unreadable refused "git show main:deploy/environments/staging/stg1/drills/v1.1.0.json" 'put deploy/environments/staging/stg1/drills/v1.1.0.json "$(drill v1.1.0 2 v1.0.0 failed)" p'
+PATH="$work/failing:$PATH" FAIL_LS_TREE=main:deploy/environments/staging/stg1/drills/v1.1.0.json \
+  case_ drill-rewritten-base-unlisted refused "git ls-tree main -- deploy/environments/staging/stg1/drills/v1.1.0.json" 'put deploy/environments/staging/stg1/drills/v1.1.0.json "$(drill v1.1.0 2 v1.0.0 failed)" p'
 case_ bad-drill-record refused "must be" 'put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.3.0 3 v1.1.0 passed)" p'
 case_ by-tag refused "not a sha256 digest" 'put "$(env_file dev/dev1)" "$(release v1.3.0 4 | sed "s/sha256:4*\"/latest\"/")" p'
 case_ foreign-repository refused "repository" 'put "$(env_file dev/dev1)" "$(release v1.3.0 4 | sed "s|amazonaws.com/erp-nats|amazonaws.com/nats|")" p'

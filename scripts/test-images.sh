@@ -154,6 +154,7 @@ grep -q "or one cannot be read" "$work/log" || { cat "$work/log" >&2; fail unrea
 printf '#!/usr/bin/env bash\n[ "$1" != status ] || { echo "git status: failed" >&2; exit 128; }\nexec "%s" "$@"\n' "$(command -v git)" >"$work/bin/git"
 chmod +x "$work/bin/git"
 if PATH="$work/bin:$PATH" "$root/scripts/provenance.sh" >"$work/log" 2>&1; then fail provenance-git "wrote a provenance though git status failed: $(cat "$work/log")"; fi
+grep -q "git status: failed" "$work/log" || { cat "$work/log" >&2; fail provenance-git "failed for another reason than git status"; }
 rm "$work/bin/git"
 echo "test-images: an unreadable SBOM stops the signing, a failing git status the provenance"
 

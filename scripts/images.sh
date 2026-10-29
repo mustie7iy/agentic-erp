@@ -13,7 +13,13 @@
 # an empty cache: on CI's 2-CPU, 7938 MiB runner erp-server built for both
 # platforms at once and the runner was stopped (main's full runs
 # 40460447291 and 40547406558); measured cold at GOMAXPROCS=2, ko's build
-# peaks at 6484 MiB that way and 3843 MiB one at a time. erp-analytics links
+# peaks at 6484 MiB that way and 3843 MiB one at a time. erp-temporal,
+# Temporal's server with the platform's authorization (ADR-0035), is a Go
+# module of its own (temporal/): ko builds it from that directory, since ko
+# finds builds in its working directory's module only, with a configuration
+# written from .ko.yaml's base and platforms (the base is pinned once),
+# static and one at a time like the four, listed after them; it has no
+# buildinfo package, so no version is stamped into it. erp-analytics links
 # DuckDB through cgo (ADR-0044), which ko does not cross-compile: docker
 # buildx builds it from deploy/images/erp-analytics.Dockerfile one platform
 # at a time (each compiles api/gen in a few GB of the Docker VM's memory),
