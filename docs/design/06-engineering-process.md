@@ -336,6 +336,22 @@ gates on each pull request:
     infrastructure runs `scripts/deploy-checks.sh` (the entry above). The
     stubs answer the field and the codes were rewritten with
     `go test ./api -run TestProblemCodes -update`.
+  - 2026-10-29 (T72i follow-ups, batch21): `make ci-local`'s images gate
+    stopped with "images: ko listed no erp-temporal image". ko lists each
+    image of a multi-platform index as `repo/name@sha256:…`, but one image
+    (one platform) as `repo/name:tag@sha256:…` when it does not push it
+    (its no-op publisher, which the reproducibility gate and the scan use)
+    or pushes it under one tag other than latest; `images.sh`'s check of
+    the second ko run accepted only the first form. Layer: the lane fast loop and the
+    machine checks. The lane tested erp-temporal's build only with
+    `PUSH=true` against a local registry, and `scripts/test-images.sh`'s
+    fake ko listed every build as an index by digest, so the local
+    one-platform listing was never exercised. Changed: the check accepts
+    both forms; the fake ko lists as ko v0.19.1 does (one platform, one
+    image, under its tag unless pushed under latest or several tags), and
+    the test requires the five ko images, erp-temporal among them, listed
+    from a local one-platform build with their SBOMs, and a ko run that
+    lists no erp-temporal image refused.
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
   documentation changed (`docs/`, Markdown) since the base: a pull

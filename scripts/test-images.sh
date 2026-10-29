@@ -4,7 +4,10 @@
 # calls; nothing is built, pulled or pushed:
 #   - images.sh builds erp-temporal with ko from its own module (temporal/),
 #     on .ko.yaml's base and platforms, listed after the four and before
-#     erp-analytics, an SBOM per image;
+#     erp-analytics, an SBOM per image, whether ko lists it pushed
+#     (repo/name@digest) or built locally on one platform
+#     (repo/name:tag@digest, ci-local's gates), and refuses a ko run
+#     that lists no erp-temporal image;
 #   - images.sh builds erp-analytics with buildx one platform at a time,
 #     dated at the epoch, without buildx attestations, joins the platforms
 #     into one index listed in images.txt after ko's images, writes an SBOM
@@ -33,15 +36,32 @@ export CALLS="$work/calls"
 
 fake() { printf '#!/usr/bin/env bash\nset -euo pipefail\necho "%s $*" >>"$CALLS"\n%s\n' "$1" "$2" >"$work/bin/$1"; chmod +x "$work/bin/$1"; }
 # ko: each binary's index and per-platform images, with ko's SBOM names;
-# where it ran and its configuration, when one was given, are kept.
-fake ko 'refs="" sboms="" platforms="linux/amd64,linux/arm64" binaries=()
-for a in "$@"; do case "$a" in --image-refs=*) refs="${a#*=}" ;; --sbom-dir=*) sboms="${a#*=}" ;; --platform=*) platforms="${a#*=}" ;; ./cmd/*) binaries+=("${a#./cmd/}") ;; esac; done
+# where it ran and its configuration, when one was given, are kept. As ko
+# v0.19.1 does, one platform builds one image and no index, listed under
+# the first tag as well as its digest (repo/name:tag@sha256:...) when it is
+# not pushed (ko's no-op publisher: the local listing the reproducibility
+# gate and the scan read) or is pushed under one tag other than latest;
+# an index's images are listed by digest alone. FAKE_UNLISTED names a
+# binary whose image ko does not list.
+fake ko 'refs="" sboms="" platforms="linux/amd64,linux/arm64" binaries=() push=false tags=latest
+for a in "$@"; do case "$a" in --image-refs=*) refs="${a#*=}" ;; --sbom-dir=*) sboms="${a#*=}" ;; --platform=*) platforms="${a#*=}" ;; --push=*) push="${a#*=}" ;; --tags=*) tags="${a#*=}" ;; ./cmd/*) binaries+=("${a#./cmd/}") ;; esac; done
 echo "ko-ran-in $PWD" >>"$CALLS"
 [ -z "${KO_CONFIG_PATH:-}" ] || cp "$KO_CONFIG_PATH" "$CALLS.${binaries[0]}.ko.yaml"
+[ -z "${FAKE_UNLISTED:-}" ] || [ "${binaries[0]}" != "$FAKE_UNLISTED" ] || refs=/dev/null
 for b in "${binaries[@]}"; do
+  IFS=, read -r -a ps <<<"$platforms"
+  if [ "${#ps[@]}" -eq 1 ]; then
+    d="sha256:$(printf "%s %s" "$b" "${ps[0]}" | shasum -a 256 | cut -c1-64)"
+    if [ "$push" != true ] || { [ "${tags#*,}" = "$tags" ] && [ "$tags" != latest ]; }; then
+      echo "$KO_DOCKER_REPO/$b:${tags%%,*}@$d" >>"$refs"
+    else
+      echo "$KO_DOCKER_REPO/$b@$d" >>"$refs"
+    fi
+    printf "{\"packages\": [{\"name\": \"%s\"}]}" "$d" >"$sboms/$b-${ps[0]//\//-}.spdx.json"
+    continue
+  fi
   d="sha256:$(printf "%s" "$b" | shasum -a 256 | cut -c1-64)"
   echo "$KO_DOCKER_REPO/$b@$d" >>"$refs"; printf "{\"packages\": [{\"name\": \"%s\"}]}" "$d" >"$sboms/$b-index.spdx.json"
-  IFS=, read -r -a ps <<<"$platforms"
   for p in "${ps[@]}"; do
     d="sha256:$(printf "%s %s" "$b" "$p" | shasum -a 256 | cut -c1-64)"
     echo "$KO_DOCKER_REPO/$b@$d" >>"$refs"; printf "{\"packages\": [{\"name\": \"%s\"}]}" "$d" >"$sboms/$b-${p//\//-}.spdx.json"
@@ -170,7 +190,15 @@ KO_PLATFORMS=linux/amd64 images "$work/one" || { cat "$work/log" >&2; fail one-p
 [ "$(calls "^docker buildx build .*--platform linux/amd64 ")" -eq 1 ] && [ "$(calls "^docker buildx build")" -eq 1 ] ||
   fail one-platform "KO_PLATFORMS=linux/amd64 built $(calls "^docker buildx build") times"
 [ "$(grep -c "/erp-analytics@" "$work/one/images.txt")" -eq 2 ] || fail one-platform "want the index and one image listed"
-echo "test-images: KO_PLATFORMS builds one platform"
+# ko lists a local one-platform build as repo/name:tag@digest (ci-local's
+# reproducibility gate and scan): erp-temporal is listed as the four are,
+# with its SBOM.
+for b in erp-server erp-router erp-web erp erp-temporal; do
+  [ "$(grep -c "^erp.local/$b:latest@sha256:[0-9a-f]\{64\}$" "$work/one/images.txt")" -eq 1 ] || fail one-platform "$b not listed once as ko lists a local build"
+done
+ref="$(grep "/erp-temporal:" "$work/one/images.txt" || true)"
+grep -l "\"${ref##*@}\"" "$work/one/sbom/erp-temporal-linux-amd64.spdx.json" >/dev/null 2>&1 || fail one-platform "erp-temporal's local image has no SBOM"
+echo "test-images: KO_PLATFORMS builds one platform, erp-temporal listed from a local build"
 
 KO_DOCKER_REPO=registry.test/erp KO_TAGS=v1.2.3 PUSH=true images "$work/pushed" || { cat "$work/log" >&2; fail push "images.sh failed"; }
 [ "$(calls "^crane push --index .* registry.test/erp/erp-analytics:v1.2.3$")" -eq 1 ] || fail push "the index not pushed under v1.2.3"
@@ -186,6 +214,7 @@ refused "not the index built" PUSH=true FAKE_PUSHED="sha256:$(printf "%064d" 1)"
 refused "want one image manifest" FAKE_INDEX=1
 refused "holds a linux-s390x image" FAKE_ARCH=s390x
 refused "is not one platform" KO_PLATFORMS=all
+refused "ko listed no erp-temporal image" FAKE_UNLISTED=erp-temporal
 echo "test-images: the index pushed under each tag; another digest pushed, an archive of an index or of another platform and a platform that is not one refused"
 
 : >"$CALLS"

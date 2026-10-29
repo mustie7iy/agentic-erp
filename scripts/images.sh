@@ -76,7 +76,11 @@ YAML
 (cd "$here/../temporal" && KO_CONFIG_PATH="$koconfig" KO_DOCKER_REPO="$repo" $KO build --jobs=1 --push="${PUSH:-false}" --base-import-paths \
   --tags="${KO_TAGS:-latest}" ${KO_PLATFORMS:+--platform="$KO_PLATFORMS"} \
   --sbom=spdx --sbom-dir="$out/sbom" --image-refs="$work/temporal.txt" ./cmd/erp-temporal >/dev/null)
-if ! grep -q "^$repo/erp-temporal@sha256:" "$work/temporal.txt"; then
+# ko lists every image of a multi-platform index as repo/name@digest, but
+# one image (one platform) as repo/name:tag@digest when it does not push it
+# (ko's no-op publisher: ci-local's reproducibility gate and scan) or pushes
+# it under one tag other than latest, as it lists the four above.
+if ! grep -qE "^$repo/erp-temporal(:[^@/]+)?@sha256:[0-9a-f]{64}$" "$work/temporal.txt"; then
   echo "images: ko listed no erp-temporal image" >&2
   exit 1
 fi
