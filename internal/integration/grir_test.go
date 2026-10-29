@@ -347,9 +347,11 @@ func TestGRIRDatabaseFailures(t *testing.T) {
 }
 
 // halfReceived is grirTiny with one of its 2 units received: the receipt
-// and its GR/IR line for 50.00.
+// and its GR/IR line for 50.00, beside an order not received.
 func halfReceived() *sap.Extract {
 	x := grirTiny()
+	x.EKKO = append(x.EKKO, sap.EKKO{EBELN: "4500000002", BUKRS: "2000", LIFNR: "0000000001", WAERS: "EUR", BEDAT: "20260301"})
+	x.EKPO = append(x.EKPO, sap.EKPO{EBELN: "4500000002", EBELP: "00010", MATNR: "MAT-1", MENGE: "1", NETPR: "5.00", PEINH: "1", SAKTO: "0000520000"})
 	x.MSEG[0].MENGE = "1"
 	for i, l := range x.ACDOCA {
 		if l.BELNR == "0100000005" {
