@@ -53,9 +53,9 @@ type loader struct {
 	refs    refs
 	today   time.Time
 	issues  []Issue
-	counts  map[string]int
+	counts  LoadedCounts
 	vendors map[string]uuid.UUID // LIFNR -> partner
-	blocks  []uuid.UUID
+	blocks  []block
 	entries map[string]loadedEntry // ACDOCA document key -> entry posted by this run
 	// downPayments are the documents holding an open down payment, which
 	// load as entries of their own in either mode (downPaymentDocs).
@@ -207,7 +207,7 @@ func (l *loader) extendSupplier(ctx context.Context, v sap.LFA1, id uuid.UUID, i
 		return err
 	}
 	if done {
-		l.counts["suppliers_extended"]++
+		l.counts.SuppliersExtended++
 	}
 	return nil
 }
@@ -242,9 +242,9 @@ func (l *loader) createSupplier(ctx context.Context, np partner.NewPartner, v sa
 	}
 	if done {
 		l.vendors[v.LIFNR] = id
-		l.counts["suppliers"]++
+		l.counts.Suppliers++
 		if v.SPERR == "X" {
-			l.blocks = append(l.blocks, id)
+			l.blocks = append(l.blocks, block{lifnr: v.LIFNR, partner: id})
 		}
 	}
 	return nil
@@ -304,7 +304,7 @@ func (l *loader) orders(ctx context.Context) error {
 			return err
 		}
 		if done {
-			l.counts["purchase_orders"]++
+			l.counts.PurchaseOrders++
 			l.viaGRIR[h.EBELN] = valuation == procurement.ValuationGRIR
 		}
 	}
@@ -348,7 +348,7 @@ func (l *loader) receipts(ctx context.Context) error {
 			return err
 		}
 		if done {
-			l.counts["goods_receipts"]++
+			l.counts.GoodsReceipts++
 		}
 	}
 	return nil
@@ -381,7 +381,7 @@ func (l *loader) invoices(ctx context.Context) error {
 			return err
 		}
 		if done {
-			l.counts["supplier_invoices"]++
+			l.counts.SupplierInvoices++
 		}
 	}
 	return nil
@@ -421,7 +421,7 @@ func (l *loader) invoiced(ctx context.Context) error {
 			return err
 		}
 		if done {
-			l.counts["posted_invoices_invoiced"]++
+			l.counts.PostedInvoicesInvoiced++
 		}
 	}
 	return nil
@@ -542,9 +542,9 @@ func (l *loader) journalDocument(ctx context.Context, key string, lines []sap.AC
 	}
 	if done {
 		l.entries[key] = posted
-		l.counts["journal_entries"]++
+		l.counts.JournalEntries++
 		if downPayment {
-			l.counts["down_payments"]++
+			l.counts.DownPayments++
 		}
 	}
 	return nil
@@ -625,7 +625,7 @@ func (l *loader) openingEntry(ctx context.Context, c sap.T001, key string) error
 		return err
 	}
 	if done {
-		l.counts["journal_entries"]++
+		l.counts.JournalEntries++
 	}
 	return nil
 }
@@ -696,7 +696,7 @@ func (l *loader) clearings(ctx context.Context) error {
 			return err
 		}
 		if done {
-			l.counts["clearings"]++
+			l.counts.Clearings++
 		}
 	}
 	return nil
@@ -730,14 +730,22 @@ func (l *loader) clearingItems(group []sap.ACDOCA) ([]ledger.ItemRef, *loadedEnt
 	return items, by, true
 }
 
+// block is a supplier the load blocks for posting once everything else
+// loaded, by the vendor's number, which a refusal is reported under, and
+// its partner.
+type block struct {
+	lifnr   string
+	partner uuid.UUID
+}
+
 func (l *loader) blocked(ctx context.Context) error {
-	for _, id := range l.blocks {
-		done, err := l.step(ctx, "LFA1", id.String(), func() error { return l.e.Partners.Block(ctx, id, "Posting-blocked in SAP") })
+	for _, b := range l.blocks {
+		done, err := l.step(ctx, "LFA1", b.lifnr, func() error { return l.e.Partners.Block(ctx, b.partner, "Posting-blocked in SAP") })
 		if err != nil {
 			return err
 		}
 		if done {
-			l.counts["suppliers_blocked"]++
+			l.counts.SuppliersBlocked++
 		}
 	}
 	return nil

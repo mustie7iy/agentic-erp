@@ -2651,10 +2651,24 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A migration run's report has a schema (pre-existing finding on grirtop): MigrationRun.report is an object with additionalProperties: true, so its loaded-count keys (gr_ir_positions, gr_ir_top_ups and the others) are documented only in docs/migration.md and a consumer of the contract cannot know them",
-      "r": "api/openapi.yaml MigrationRun.report · internal/integration · docs/migration.md",
+      "r": "api/openapi.yaml MigrationRunReport · internal/integration/report.go · docs/migration.md · ADR-0013 As built",
       "src": "review:batch23",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "MigrationRunCompleted's summary has a schema (pre-existing finding on runreport): api/asyncapi.yaml declares it a free-form object and its example shows records_read, records_loaded and differences, while the run publishes passed and loaded, so an event consumer cannot know the figures it is sent",
+      "r": "api/asyncapi.yaml MigrationRunCompletedV1.summary, MigrationLoadedCounts · internal/integration/runs.go summaryOf · apitest.Conforms · TestSummaryMatchesEventContract · ADR-0013 As built",
+      "src": "review:batch24",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "A migration run's report names what each key is about by the reference its reader has (pre-existing finding on runreport): a refused posting block is reported under LFA1 by the platform partner's id, not the SAP vendor number, and a reconciliation difference of a platform supplier that is no migrated vendor is keyed partner <id> without the supplier's name",
+      "r": "internal/integration/load.go blocked · internal/integration/reconcile.go vendorKey · api/openapi.yaml MigrationIssue.key, MigrationDiff.key · docs/migration.md · ADR-0013 As built",
+      "src": "review:batch24",
       "c": []
      },
      {

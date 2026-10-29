@@ -1746,7 +1746,7 @@ components:
       examples:
         - name: rehearsal
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e0000000001f, source: /erp/eu-1/integration, type: com.example.erp.integration.migration_run_completed.v1, subject: 0192a000-0000-7000-8000-000000000b01, time: '2026-10-10T03:12:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {migration_run_id: 0192a000-0000-7000-8000-000000000b01, connector_id: 0192a000-0000-7000-8000-000000000b02, mode: documents, is_rehearsal: true, scope: {legal_entity_ids: [0192a000-0000-7000-8000-000000000201], fiscal_year: 2026}, status: reconciled, operation_id: 0192a000-0000-7000-8000-000000000b03, started_at: '2026-10-10T01:00:00Z', finished_at: '2026-10-10T03:12:00Z', summary: {records_read: 128734, records_loaded: 128734, differences: 0}}
+          payload: {migration_run_id: 0192a000-0000-7000-8000-000000000b01, connector_id: 0192a000-0000-7000-8000-000000000b02, mode: documents, is_rehearsal: true, scope: {legal_entity_ids: [0192a000-0000-7000-8000-000000000201], fiscal_year: 2026}, status: reconciled, operation_id: 0192a000-0000-7000-8000-000000000b03, started_at: '2026-10-10T01:00:00Z', finished_at: '2026-10-10T03:12:00Z', summary: {passed: true, loaded: {suppliers: 3, purchase_orders: 2, goods_receipts: 2, supplier_invoices: 2, journal_entries: 14, gr_ir_positions: 1}}}
 
     # ----------------------------------------------------------------- agents
     RecommendationMade:
@@ -3720,8 +3720,30 @@ components:
         finished_at: {$ref: '#/components/schemas/Instant'}
         summary:
           type: object
-          description: Headline figures of the reconciliation report; the full report is read through the API.
-          additionalProperties: true
+          description: "Headline figures of the run's report, both always present; the full report (`MigrationRunReport`) is read at `GET /v1/migration-runs/{id}`. Fields may be added within v1."
+          properties:
+            passed:
+              type: [boolean, 'null']
+              description: "Whether every reconciliation check passed and the reconciliation had no issue; null when the run failed before it was reconciled (its quality gate or its load refused something)."
+            loaded:
+              oneOf: [{$ref: '#/components/schemas/MigrationLoadedCounts'}, {type: 'null'}]
+              description: "What the load created, by kind (the report's `loaded`); null when the quality gate stopped the run before the load."
+    MigrationLoadedCounts:
+      type: object
+      description: "What a migration run's load created, by kind; a kind it created none of is absent. The same keys as the API's `MigrationLoadedCounts` (api/openapi.yaml), which describes each. A rehearsal, and a load with an `error` refusal, are rolled back: their counts are what the load created before the rollback. A kept load counts only what no earlier kept run loaded."
+      properties:
+        suppliers: {type: integer, minimum: 1, description: 'Suppliers created from SAP vendors (LFA1, LFB1).'}
+        suppliers_extended: {type: integer, minimum: 1, description: Suppliers an earlier run created that this run extended to more company codes (LFB1).}
+        suppliers_blocked: {type: integer, minimum: 1, description: Suppliers blocked for posting because SAP blocks the vendor (LFA1-SPERR).}
+        purchase_orders: {type: integer, minimum: 1, description: 'Purchase orders (EKKO, EKPO).'}
+        goods_receipts: {type: integer, minimum: 1, description: Goods receipts (MSEG).}
+        supplier_invoices: {type: integer, minimum: 1, description: 'Parked supplier documents (RBKP, RSEG), each as its kind.'}
+        posted_invoices_invoiced: {type: integer, minimum: 1, description: SAP's posted invoice documents whose invoiced quantities were taken over for matching.}
+        journal_entries: {type: integer, minimum: 1, description: Journal entries.}
+        down_payments: {type: integer, minimum: 1, description: Open down payments loaded as paid down payment requests.}
+        clearings: {type: integer, minimum: 1, description: Clearings SAP made of vendor items (ACDOCA AUGBL).}
+        gr_ir_positions: {type: integer, minimum: 1, description: Order items whose open GR/IR position this run took over.}
+        gr_ir_top_ups: {type: integer, minimum: 1, description: Order items whose GR/IR position, taken over by an earlier run, this run topped up.}
 
     # --------------------------------------------------------------- agents
     RecommendationMadeV1:
