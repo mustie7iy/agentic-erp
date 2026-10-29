@@ -1220,7 +1220,12 @@ What the API gaps settled, and where they depart from §3:
   field the branch tests (`ledger.GRIRItem.TakesOver`, `Clears`,
   `Invoiced`), or that no other value reaching the parameter it tests
   can carry the value taking it (`procurement` `valuation`'s `loaded`
-  is `gr_ir` only from `ReleaseLoadedOrder`). The test fails when an
+  is `gr_ir` only from `ReleaseLoadedOrder`), a value from a function
+  nothing in the program calls (a method value handed to a worker)
+  counting as one that can. The field check sees the program's own
+  stores and address uses, not a value a decoder fills by reflection
+  or one converted from a twin struct type; none is made today. The
+  test proves each check refuses a broken premise. The test fails when an
   entry's gate no longer makes its code, a function it names is gone,
   its premise breaks, or it leaves the code out of no operation; a list
   naming an excluded code fails as any wrong list does. Four branches,
