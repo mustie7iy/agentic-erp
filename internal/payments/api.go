@@ -260,15 +260,48 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 	if err != nil {
 		return nil, fmt.Errorf("payments: list exclusions of run %s: %w", r.ID, err)
 	}
+	numbers, err := requestNumbers(ctx, e.DownPayments, page)
+	if err != nil {
+		return nil, fmt.Errorf("payments: list exclusions of run %s: %w", r.ID, err)
+	}
 	out := gen.PaymentExclusionPage{Items: make([]gen.PaymentExclusion, len(page))}
 	for i, x := range page {
 		out.Items[i] = gen.PaymentExclusion{SupplierID: x.SupplierID, SupplierName: names[x.SupplierID], DownPaymentRequestID: apitypes.OptUUID(x.RequestID),
 			ReasonCode: x.Reason, Amount: apitypes.Money(x.Amount, r.Currency, r.Exponent)}
+		if x.RequestID != nil {
+			out.Items[i].DownPaymentRequestNumber.SetTo(numbers[*x.RequestID])
+		}
 	}
 	if next != "" {
 		out.NextPageToken.SetTo(next)
 	}
 	return &out, nil
+}
+
+// requestNumbers gives the document numbers of the down payment requests a
+// page's exclusions left out, one call for the page and none for a page
+// without one; a request the payables context does not hold is an error,
+// never an exclusion shown without its request's number.
+func requestNumbers(ctx context.Context, requests DownPayments, page []Exclusion) (map[uuid.UUID]string, error) {
+	var ids []uuid.UUID
+	for _, x := range page {
+		if x.RequestID != nil {
+			ids = append(ids, *x.RequestID)
+		}
+	}
+	if len(ids) == 0 {
+		return map[uuid.UUID]string{}, nil
+	}
+	numbers, err := requests.Numbers(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range ids {
+		if _, ok := numbers[id]; !ok {
+			return nil, fmt.Errorf("down payment request %s is not held by the payables context", id)
+		}
+	}
+	return numbers, nil
 }
 
 // GetBankFile implements GET /v1/bank-files/{id}.

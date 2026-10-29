@@ -15,8 +15,9 @@ import (
 
 // DownPaymentRequests is what the payments context reads and records about
 // down payment requests (T46c), through the adapter in internal/app: the
-// open requests a run pays, and that a released run paid one. It reads
-// without the caller's company access, as the run's worker does.
+// open requests a run pays, the numbers of the requests a run left out,
+// and that a released run paid one. It reads without the caller's company
+// access, as the run's worker does.
 type DownPaymentRequests struct{}
 
 // Due returns the legal entity's open requests in the currency due by the
@@ -44,6 +45,25 @@ func (DownPaymentRequests) Request(ctx context.Context, id uuid.UUID) (DownPayme
 		return DownPaymentRequest{}, err
 	}
 	return loadRequest(ctx, tx, id, false)
+}
+
+// Numbers returns the requests' document numbers, keyed by id: what a
+// run's exclusion of a request shows beside its id. An id that names no
+// request is left out.
+func (DownPaymentRequests) Numbers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT id, document_number FROM payables.down_payment_request WHERE id = ANY($1)`, ids)
+	out := map[uuid.UUID]string{}
+	var id uuid.UUID
+	var number string
+	_, err = pgx.ForEachRow(rows, []any{&id, &number}, func() error { out[id] = number; return nil })
+	if err != nil {
+		return nil, fmt.Errorf("payables: document numbers of %d down payment requests: %w", len(ids), err)
+	}
+	return out, nil
 }
 
 // Paid records that the journal entry paid the request: it moves to paid,

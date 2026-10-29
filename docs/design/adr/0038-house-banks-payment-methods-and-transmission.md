@@ -514,10 +514,35 @@ consumer needs). Decided by default, as for payments above:
   `listPaymentExclusions`; no create or get returns it, so there is no other
   response to change. Its other fields already meet the API-consumer
   classes: the amount carries its currency, and the list is cursor-paged
-  per run. A request's exclusion gives its request by id only, not by its
-  document number (a pre-existing gap, for the coordinator).
+  per run. A request's exclusion gave its request by id only, not by its
+  document number; the amendment below adds the number.
 - **The walkthrough.** Step 7 prints each excluded supplier's name from the
   API instead of looking each partner up (`name_partners`), and expects the
   posting-blocked supplier the mock extract carries into company 3000 to be
   left out under its name, Massive Dynamic.
 
+## As built: a request's exclusion names its request (review:batch22)
+
+The review of exclnames left a down payment request's exclusion giving its
+request by id only (REVIEW.md, an identifier without the reference its
+consumer needs). Decided by default:
+
+- **The field.** `PaymentExclusion` gains `down_payment_request_number`, the
+  request's `document_number`, named as the contract names a referenced
+  document's number beside its id (`purchase_order_id` and
+  `purchase_order_number`). It is optional, present exactly when
+  `down_payment_request_id` is, so the change is additive (oasdiff: no
+  breaking change).
+- **The port.** The number is the payables context's, so payments reads it
+  through its `DownPayments` port (`Numbers`, one call per page, none for a
+  page of suppliers' exclusions alone), as it reads suppliers' names through
+  `Payees.Names`, never by joining the payables schema. A request the
+  payables context does not hold fails the page (500): a run excludes only
+  requests it read from payables, so a missing one is an inconsistency.
+- **Other responses.** `Payment.down_payment_request_id` and the open items
+  of a payment (`PaymentItem.journal_entry_id`) give their document by id
+  only too; they are outside this change and reported to the coordinator.
+- **The walkthrough.** It reaches no request's exclusion: its one down
+  payment request is migrated already paid and no run proposes an open one,
+  so the API tests (both shapes, and pages after the first) are the
+  evidence; a fix to a response, not a new capability (ADR-0053).

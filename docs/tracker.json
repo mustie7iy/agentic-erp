@@ -895,7 +895,7 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A down payment request's exclusion names its request (pre-existing finding on exclnames, API-consumer classes): PaymentExclusion.down_payment_request_id gives the request by UUID only, without its document_number",
         "r": "api/openapi.yaml PaymentExclusion · internal/payments",
         "src": "review:batch22",

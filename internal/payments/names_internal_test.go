@@ -55,3 +55,53 @@ func TestSupplierNames(t *testing.T) {
 		})
 	}
 }
+
+// requestPort is DownPayments under another name, so requests can embed it.
+type requestPort = DownPayments
+
+// requests is a payables context that holds the requests numbered, and
+// fails when told to; it answers nothing else.
+type requests struct {
+	requestPort
+	numbers map[uuid.UUID]string
+	err     error
+}
+
+func (r requests) Numbers(context.Context, []uuid.UUID) (map[uuid.UUID]string, error) {
+	return r.numbers, r.err
+}
+
+// TestRequestNumbers: a request's exclusion is never shown without its
+// request's number. A request the payables context does not hold fails the
+// page rather than leave its number out, as the payables context's failure
+// does; a page of suppliers' exclusions alone asks nothing.
+func TestRequestNumbers(t *testing.T) {
+	known, unknown := uuid.New(), uuid.New()
+	page := []Exclusion{{SupplierID: uuid.New()}, {SupplierID: uuid.New(), RequestID: &known}, {SupplierID: uuid.New(), RequestID: &unknown}}
+	failed := errors.New("payables down")
+	for name, c := range map[string]struct {
+		requests requests
+		page     []Exclusion
+		want     string // the error
+		number   string // the known request's number
+	}{
+		"every request numbered":       {requests{numbers: map[uuid.UUID]string{known: "DP1"}}, page[:2], "", "DP1"},
+		"suppliers' exclusions alone":  {requests{err: failed}, page[:1], "", ""},
+		"a request unknown":            {requests{numbers: map[uuid.UUID]string{known: "DP1"}}, page, "down payment request " + unknown.String() + " is not held by the payables context", ""},
+		"the payables context failing": {requests{err: failed}, page[:2], failed.Error(), ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			numbers, err := requestNumbers(context.Background(), c.requests, c.page)
+			got := ""
+			if err != nil {
+				got = err.Error()
+			}
+			if got != c.want {
+				t.Fatalf("error: got %q, want %q", got, c.want)
+			}
+			if numbers[known] != c.number {
+				t.Errorf("number: got %q, want %q", numbers[known], c.number)
+			}
+		})
+	}
+}

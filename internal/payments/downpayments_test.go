@@ -3,11 +3,13 @@ package payments_test
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
@@ -105,6 +107,7 @@ func TestDownPaymentPayments(t *testing.T) {
 	blocked := e.NewSupplier(t, "BP90000005")
 	e.bankAccount(t, blocked, "DE89370400440532013000", "B", "2026-01-01", "", "create")
 	blockedRequest := e.request(t, blocked, "70.00", "2026-03-10", "")
+	blockedLater := e.request(t, blocked, "20.00", "2026-03-11", "")
 	e.invoice(t, blocked, "B-1", "10.00", "2026-03-01")
 	pgtest.Exec(t, `UPDATE partner.business_partner SET status = 'blocked', version = version + 1 WHERE id = $1`, blocked)
 	e.request(t, e.Supplier, "50.00", "2026-05-01", "") // due after the run's due-by date
@@ -126,10 +129,11 @@ func TestDownPaymentPayments(t *testing.T) {
 		t.Errorf("request paid: got %v, want %s", got, id(taxed))
 	}
 	wantEx := map[string]string{e.Vendor.String(): "debit_balance -25.00", blocked.String(): "supplier_blocked 10.00",
-		"request " + id(blockedRequest): "supplier_blocked 70.00"}
+		"request " + id(blockedRequest): "supplier_blocked 70.00", "request " + id(blockedLater): "supplier_blocked 20.00"}
 	if got := e.exclusions(t, run); fmt.Sprint(got) != fmt.Sprint(wantEx) {
 		t.Errorf("exclusions: got %v, want %v", got, wantEx)
 	}
+	e.exclusionPages(t, run)
 	if got := run["total_amount"].(map[string]any)["amount"]; got != "1990.00" {
 		t.Errorf("run total: got %v, want 1990.00", got)
 	}
@@ -237,8 +241,9 @@ func postAgain(t *testing.T, e env, run, pay map[string]any) {
 
 // TestDownPaymentDatabaseFailures fails each database statement in turn of
 // the steps that pay down payment requests: a proposal with requests, the
-// run a request is in, a request payment's posting and a release that
-// writes it to the bank file.
+// run a request is in, the exclusions of a run that left a request out,
+// a request payment's posting and a release that writes it to the bank
+// file.
 func TestDownPaymentDatabaseFailures(t *testing.T) {
 	e := downPaymentSetup(t)
 	workLeftovers(t)
@@ -263,7 +268,11 @@ func TestDownPaymentDatabaseFailures(t *testing.T) {
 	e.decide(t, 202, releasing, "release", "")
 	pay := uuidOf(id(e.payments(t, releasing)[0].(map[string]any)))
 	e.request(t, e.Vendor, "40.00", "2026-03-15", `, "tax_code": "V1"`)
-	proposedRun := e.run(t, "2026-04-01", "2026-04-01")
+	blocked := e.NewSupplier(t, "BP90000005")
+	e.bankAccount(t, blocked, "DE89370400440532013000", "B", "2026-01-01", "", "create")
+	e.request(t, blocked, "70.00", "2026-03-10", "")
+	pgtest.Exec(t, `UPDATE partner.business_partner SET status = 'blocked', version = version + 1 WHERE id = $1`, blocked)
+	proposedRun := e.run(t, "2026-04-01", "2026-04-01") // leaves the blocked supplier's request out
 	e.request(t, e.Supplier, "23.80", "2026-03-15", `, "tax_code": "V1"`)
 	queued := e.propose(t, "2026-04-02", "2026-04-02")
 	var job payments.Job
@@ -290,6 +299,10 @@ func TestDownPaymentDatabaseFailures(t *testing.T) {
 				return err
 			}
 			_, err = h.PostPayment(ctx, r, pay)
+			return err
+		},
+		"exclusions naming a request": func(ctx context.Context) error {
+			_, err := h.ListPaymentExclusions(ctx, gen.ListPaymentExclusionsParams{ID: uuidOf(id(proposedRun))})
 			return err
 		},
 		"release a run with a request": func(ctx context.Context) error {
@@ -420,5 +433,28 @@ func TestDropBesideAnExcludedRequest(t *testing.T) {
 	}
 	if ev := events(t, e.Tenant, "payment_excluded"); len(ev) != 1 {
 		t.Errorf("PaymentExcluded: got %d events, want 1, the dropped items payment's", len(ev))
+	}
+}
+
+// exclusionPages walks the run's exclusions a row a page: each row names
+// its request's number, or none for a supplier's items, on a later page as
+// on the first. The run excludes two requests, so at least one of them is
+// on a page after the first, whatever the order.
+func (e env) exclusionPages(t *testing.T, run map[string]any) {
+	t.Helper()
+	path := "/v1/payment-runs/" + id(run) + "/exclusions?page_size=1"
+	page, _ := e.Must(200, "GET", path, "", "")
+	later := 0
+	for page["next_page_token"] != nil {
+		page, _ = e.Must(200, "GET", path+"&page_token="+url.QueryEscape(page["next_page_token"].(string)), "", "")
+		wantRequestNumbers(t, page)
+		for _, it := range page["items"].([]any) {
+			if _, ok := it.(map[string]any)["down_payment_request_id"]; ok {
+				later++
+			}
+		}
+	}
+	if later == 0 {
+		t.Errorf("requests' exclusions after the first page: got none, want at least one")
 	}
 }

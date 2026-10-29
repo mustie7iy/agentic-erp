@@ -306,7 +306,9 @@ func TestListsAndAccess(t *testing.T) {
 	if exs["next_page_token"] == nil {
 		t.Fatalf("exclusions page token: got none, want one")
 	}
-	wantSupplierNames(t, "exclusion", exs, list("/v1/payment-runs/"+id(second)+"/exclusions?page_size=1&page_token="+url.QueryEscape(exs["next_page_token"].(string))))
+	exs2 := list("/v1/payment-runs/" + id(second) + "/exclusions?page_size=1&page_token=" + url.QueryEscape(exs["next_page_token"].(string)))
+	wantSupplierNames(t, "exclusion", exs, exs2)
+	wantRequestNumbers(t, exs, exs2)
 	created := list("/v1/bank-files?status=created&page_size=1")
 	if got := len(created["items"].([]any)); got != 1 {
 		t.Errorf("created bank files: got %d, want 1", got)
@@ -410,6 +412,32 @@ func wantSupplierNames(t *testing.T, what string, pages ...map[string]any) {
 			}
 			if row["supplier_name"] != name {
 				t.Errorf("%s of supplier %v: got name %v, want its partner's name %s", what, row["supplier_id"], row["supplier_name"], name)
+			}
+		}
+	}
+}
+
+// wantRequestNumbers: a row on the pages that names a down payment request
+// gives the request's document number as the payables context holds it,
+// and a supplier's row gives none, on a later page as on the first.
+func wantRequestNumbers(t *testing.T, pages ...map[string]any) {
+	t.Helper()
+	for _, page := range pages {
+		for _, it := range page["items"].([]any) {
+			row := it.(map[string]any)
+			request, ok := row["down_payment_request_id"]
+			if !ok {
+				if n, has := row["down_payment_request_number"]; has {
+					t.Errorf("exclusion of supplier %v's items: got request number %v, want none", row["supplier_id"], n)
+				}
+				continue
+			}
+			var number string
+			if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT document_number FROM payables.down_payment_request WHERE id = $1`, request).Scan(&number); err != nil {
+				t.Fatal(err)
+			}
+			if row["down_payment_request_number"] != number {
+				t.Errorf("exclusion of request %v: got number %v, want its document number %s", request, row["down_payment_request_number"], number)
 			}
 		}
 	}

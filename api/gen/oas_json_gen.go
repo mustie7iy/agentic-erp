@@ -76360,17 +76360,24 @@ func (s *PaymentExclusion) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.DownPaymentRequestNumber.Set {
+			e.FieldStart("down_payment_request_number")
+			s.DownPaymentRequestNumber.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("amount")
 		s.Amount.Encode(e)
 	}
 }
 
-var jsonFieldsNameOfPaymentExclusion = [5]string{
+var jsonFieldsNameOfPaymentExclusion = [6]string{
 	0: "supplier_id",
 	1: "supplier_name",
 	2: "reason_code",
 	3: "down_payment_request_id",
-	4: "amount",
+	4: "down_payment_request_number",
+	5: "amount",
 }
 
 // Decode decodes PaymentExclusion from json.
@@ -76428,8 +76435,18 @@ func (s *PaymentExclusion) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"down_payment_request_id\"")
 			}
+		case "down_payment_request_number":
+			if err := func() error {
+				s.DownPaymentRequestNumber.Reset()
+				if err := s.DownPaymentRequestNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"down_payment_request_number\"")
+			}
 		case "amount":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				if err := s.Amount.Decode(d); err != nil {
 					return err
@@ -76448,7 +76465,7 @@ func (s *PaymentExclusion) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00010111,
+		0b00100111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

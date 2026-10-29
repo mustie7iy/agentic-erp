@@ -29091,7 +29091,7 @@ components:
           readOnly: true
         reason_code:
           type: string
-          description: "Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. A release also excludes, with `item_reversed` or `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid. `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run date (T46c); a request's exclusion names it (`down_payment_request_id`), and the supplier's items may still be paid. `no_house_bank` leaves out a supplier, or a request, of a run proposed without a house bank when none of the supplier's payment methods has a house bank ranked for the run currency (T45c)."
+          description: "Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. A release also excludes, with `item_reversed` or `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid. `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run date (T46c); a request's exclusion names it (`down_payment_request_id`, `down_payment_request_number`), and the supplier's items may still be paid. `no_house_bank` leaves out a supplier, or a request, of a run proposed without a house bank when none of the supplier's payment methods has a house bank ranked for the run currency (T45c)."
           x-extensible-enum:
             - supplier_blocked
             - payment_blocked
@@ -29109,6 +29109,10 @@ components:
           format: uuid
           description: "The down payment request left out, when the exclusion is a request's (T46c): a run lists one exclusion per supplier for its items and one per request left out, so a supplier may appear more than once, not necessarily next to each other (the listing is ordered by supplier for items and by request for requests)."
           readOnly: true
+        down_payment_request_number:
+          type: string
+          description: "The request's document number; present exactly when `down_payment_request_id` is."
+          readOnly: true
         amount:
           $ref: "#/components/schemas/Money"
           description: Amount that would otherwise have been paid.
@@ -29119,6 +29123,14 @@ components:
           reason_code: supplier_blocked
           amount:
             amount: "1080.00"
+            currency: EUR
+        - supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
+          supplier_name: Tyrell Office Products
+          reason_code: tax_code_invalid
+          down_payment_request_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d58"
+          down_payment_request_number: DP100000
+          amount:
+            amount: "1190.00"
             currency: EUR
     PaymentExclusionPage:
       type: object
