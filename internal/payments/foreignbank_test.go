@@ -137,6 +137,9 @@ func (sc mapleScenario) paymentRun(t *testing.T) (run, payment map[string]any) {
 		"due_by": "2026-04-15"}`, sc.le), "")
 	work(t)
 	run, _ = e.Must(200, "GET", op["resource"].(string), "", "")
+	if code, has := run["house_bank_code"]; has { // proposed without a bank: each payment names its own
+		t.Errorf("run proposed without a bank: got house_bank_code %v, want none", code)
+	}
 	pays := e.payments(t, run)
 	if len(pays) != 1 {
 		t.Fatalf("payments: got %v, want 1", pays)
@@ -163,6 +166,9 @@ func (sc mapleScenario) bankFile(t *testing.T, run map[string]any) {
 	items := files["items"].([]any)
 	if len(items) != 1 {
 		t.Fatalf("bank files: got %v, want 1", items)
+	}
+	if got := items[0].(map[string]any)["house_bank_code"]; got != "USD" {
+		t.Errorf("bank file's house bank: got %v, want USD", got)
 	}
 	e.transmit(t, id(items[0].(map[string]any)), `"1"`)
 	if len(e.connector.files) != 1 {
@@ -288,6 +294,11 @@ func (sc mapleScenario) reconciled(t *testing.T, statement string) {
 	r, _ := e.Must(200, "GET", "/v1/house-banks/"+sc.usd.String()+"/reconciliation", "", "")
 	if r["currency"] != "USD" {
 		t.Errorf("report currency: got %v, want USD", r["currency"])
+	}
+	for what, got := range map[string]any{"statement": s["house_bank_code"], "report": r["house_bank_code"]} {
+		if got != "USD" {
+			t.Errorf("%s's house bank: got %v, want USD", what, got)
+		}
 	}
 	figures := field(r, "summary", "figures").(map[string]any)
 	for name, want := range map[string]string{"closing_balance": "4000.00", "ledger_balance": "4000.00", "unexplained": "0.00", "in_transit": "0.00"} {

@@ -180,6 +180,7 @@ func (e env) release(t *testing.T, run map[string]any, body string) map[string]a
 		t.Fatalf("release worker: %v", err)
 	}
 	got, _ := e.Must(200, "GET", "/v1/payment-runs/"+id(run), "", "")
+	wantBankCodes(t, "payment run", got)
 	done, _ := e.Must(200, "GET", "/v1/operations/"+id(op), "", "")
 	if got["status"] != "released" {
 		t.Fatalf("released run status: got %v, want released", got["status"])
@@ -319,6 +320,7 @@ func (e env) run(t *testing.T, runDate, dueBy string) map[string]any {
 	op := e.propose(t, runDate, dueBy)
 	work(t)
 	r, _ := e.Must(200, "GET", op["resource"].(string), "", "")
+	wantBankCodes(t, "payment run", r)
 	return r
 }
 
@@ -327,6 +329,7 @@ func (e env) payments(t *testing.T, run map[string]any) []any {
 	page, _ := e.Must(200, "GET", "/v1/payment-runs/"+id(run)+"/payments", "", "")
 	wantRequestNumbers(t, "payment", page)
 	wantItemNumbers(t, page)
+	wantPaymentRefs(t, page)
 	return page["items"].([]any)
 }
 
@@ -351,7 +354,30 @@ func (e env) decide(t *testing.T, code int, run map[string]any, action, body str
 	t.Helper()
 	_, tag := e.Must(200, "GET", "/v1/payment-runs/"+id(run), "", "")
 	got, _ := e.As(e.Approver).Must(code, "POST", "/v1/payment-runs/"+id(run)+":"+action, body, tag)
+	if code == 200 { // the run, rejected
+		wantBankCodes(t, "payment run", got)
+	}
 	return got
+}
+
+// wantBankCodes: every resource given (what names them) names its house
+// bank by the code payments.house_bank holds, exactly when it gives the
+// bank's id.
+func wantBankCodes(t *testing.T, what string, resources ...map[string]any) {
+	t.Helper()
+	for _, r := range resources {
+		apitest.WantNamed(t, what, r, "house_bank_id", "house_bank_code", apitest.HouseBankCode)
+	}
+}
+
+// wantPageBankCodes is wantBankCodes for the items of pages.
+func wantPageBankCodes(t *testing.T, what string, pages ...map[string]any) {
+	t.Helper()
+	for _, page := range pages {
+		for _, it := range apitest.List(t, page, "items") {
+			wantBankCodes(t, what, it.(map[string]any))
+		}
+	}
 }
 
 func id(m map[string]any) string { return m["id"].(string) }

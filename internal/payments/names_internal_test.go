@@ -6,21 +6,31 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
+	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 // payeePort is Payees under another name, so partners can embed it.
 type payeePort = Payees
 
-// partners is a partner context that holds the partners named, and fails
-// when told to; it answers nothing else.
+// partners is a partner context that holds the partners named and the
+// bank accounts given, and fails when told to (err for names, accountsErr
+// for bank accounts); it answers nothing else.
 type partners struct {
 	payeePort
-	names map[uuid.UUID]string
-	err   error
+	names       map[uuid.UUID]string
+	err         error
+	accounts    map[uuid.UUID]partner.BankAccount
+	accountsErr error
 }
 
 func (p partners) Names(context.Context, []uuid.UUID) (map[uuid.UUID]string, error) {
 	return p.names, p.err
+}
+
+func (p partners) BankAccounts(context.Context, []uuid.UUID) (map[uuid.UUID]partner.BankAccount, error) {
+	return p.accounts, p.accountsErr
 }
 
 // TestSupplierNames: a payment, or an exclusion, is never shown without
@@ -87,51 +97,15 @@ func (e entries) Numbers(context.Context, []uuid.UUID) (map[uuid.UUID]string, er
 	return e.numbers, e.err
 }
 
-// TestDocumentNumbers: a row is never shown without the number of a
-// document it references. A document its context does not hold fails the
-// page rather than leave its number out, as the context's failure does; a
-// page that references none asks nothing.
-func TestDocumentNumbers(t *testing.T) {
-	known, unknown := uuid.New(), uuid.New()
-	failed := errors.New("payables down")
-	for name, c := range map[string]struct {
-		requests requests
-		kind     documentKind
-		ids      []uuid.UUID
-		want     string // the error
-		number   string // the known document's number
-	}{
-		"every document numbered": {requests{numbers: map[uuid.UUID]string{known: "DP1"}}, downPaymentRequest, []uuid.UUID{known}, "", "DP1"},
-		"none referenced":         {requests{err: failed}, downPaymentRequest, nil, "", ""},
-		"a document unknown":      {requests{numbers: map[uuid.UUID]string{known: "DP1"}}, downPaymentRequest, []uuid.UUID{known, unknown}, "down payment request " + unknown.String() + " is not held by the payables context", ""},
-		"the context failing":     {requests{err: failed}, downPaymentRequest, []uuid.UUID{known}, failed.Error(), ""},
-		"a journal entry unknown": {requests{numbers: map[uuid.UUID]string{}}, journalEntry, []uuid.UUID{unknown}, "journal entry " + unknown.String() + " is not held by the ledger context", ""},
-	} {
-		t.Run(name, func(t *testing.T) {
-			numbers, err := documentNumbers(context.Background(), c.requests.Numbers, c.ids, c.kind)
-			got := ""
-			if err != nil {
-				got = err.Error()
-			}
-			if got != c.want {
-				t.Fatalf("error: got %q, want %q", got, c.want)
-			}
-			if numbers[known] != c.number {
-				t.Errorf("number: got %q, want %q", numbers[known], c.number)
-			}
-		})
-	}
-}
-
 // TestPaymentNumbers: a page's payments are given the numbers of the
-// requests they pay and of their items' journal entries, from each
-// context in turn; either failing, or not holding a document, fails the
-// page.
+// requests they pay, of their postings and of their items' journal
+// entries, from each context in turn; either failing, or not holding a
+// document, fails the page.
 func TestPaymentNumbers(t *testing.T) {
-	request, entry, unknown := uuid.New(), uuid.New(), uuid.New()
-	page := []Payment{{ID: uuid.New(), Kind: KindDownPayment, RequestID: &request}, {ID: uuid.New(), Kind: KindItems, Items: []Item{{EntryID: entry}}}}
+	request, entry, posting, unknown := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	page := []Payment{{ID: uuid.New(), Kind: KindDownPayment, RequestID: &request}, {ID: uuid.New(), Kind: KindItems, Items: []Item{{EntryID: entry}}, JournalEntryID: &posting}}
 	held := requests{numbers: map[uuid.UUID]string{request: "DP1"}}
-	ledgerHolds := entries{numbers: map[uuid.UUID]string{entry: "5100000001"}}
+	ledgerHolds := entries{numbers: map[uuid.UUID]string{entry: "5100000001", posting: "1500000001"}}
 	payablesDown, ledgerDown := errors.New("payables down"), errors.New("ledger down")
 	for name, c := range map[string]struct {
 		requests requests
@@ -143,6 +117,8 @@ func TestPaymentNumbers(t *testing.T) {
 		"the payables failing": {requests{err: payablesDown}, ledgerHolds, page, payablesDown.Error()},
 		"the ledger failing":   {held, entries{err: ledgerDown}, page, ledgerDown.Error()},
 		"an entry unknown": {held, ledgerHolds, append(page[:2:2], Payment{Items: []Item{{EntryID: unknown}}}),
+			"journal entry " + unknown.String() + " is not held by the ledger context"},
+		"a posting unknown": {held, ledgerHolds, append(page[:2:2], Payment{JournalEntryID: &unknown}),
 			"journal entry " + unknown.String() + " is not held by the ledger context"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -163,6 +139,52 @@ func TestPaymentNumbers(t *testing.T) {
 			}
 			if numbers[entry] != "5100000001" {
 				t.Errorf("the entry's number: got %q, want 5100000001", numbers[entry])
+			}
+			if numbers[posting] != "1500000001" {
+				t.Errorf("the posting's number: got %q, want 1500000001", numbers[posting])
+			}
+		})
+	}
+}
+
+// TestPaymentRefs: a page's payments are given their suppliers' names,
+// their documents' numbers, their bank accounts and their house banks'
+// codes; any of the contexts failing, or not holding what a payment
+// references, fails the page. A page whose payments name no house bank,
+// in a run without one, asks for none.
+func TestPaymentRefs(t *testing.T) {
+	supplier, account, unknown := uuid.New(), uuid.New(), uuid.New()
+	page := []Payment{{ID: uuid.New(), SupplierID: supplier, BankAccountID: account}}
+	held := partners{names: map[uuid.UUID]string{supplier: "Tyrell"}, accounts: map[uuid.UUID]partner.BankAccount{account: {ID: account, AccountLast4: "4321"}}}
+	partnerDown, ledgerDown := errors.New("partner down"), errors.New("ledger down")
+	bank, posting := uuid.New(), uuid.New()
+	posted := []Payment{{ID: uuid.New(), SupplierID: supplier, BankAccountID: account, JournalEntryID: &posting}}
+	for name, c := range map[string]struct {
+		partners partners
+		page     []Payment
+		run      Run
+		want     string // the error
+	}{
+		"every reference named":        {held, page, Run{}, ""},
+		"the suppliers' names failing": {partners{err: partnerDown}, page, Run{}, partnerDown.Error()},
+		"the ledger failing":           {held, posted, Run{}, ledgerDown.Error()},
+		"the bank accounts failing":    {partners{names: held.names, accountsErr: partnerDown}, page, Run{}, partnerDown.Error()},
+		"a bank account unknown": {partners{names: held.names, accounts: map[uuid.UUID]partner.BankAccount{unknown: {}}}, page, Run{},
+			"bank account " + account.String() + " is not held by the partner context"},
+		"the house banks outside a request": {held, page, Run{HouseBankID: &bank}, reqctx.ErrOutsideRequest.Error()},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := &Endpoints{Payees: c.partners, DownPayments: requests{}, OpenItems: entries{err: ledgerDown}}
+			refs, err := e.paymentRefs(context.Background(), c.run, c.page)
+			got := ""
+			if err != nil {
+				got = err.Error()
+			}
+			if got != c.want {
+				t.Fatalf("error: got %q, want %q", got, c.want)
+			}
+			if err == nil && refs.accounts[account].AccountLast4 != "4321" {
+				t.Errorf("the bank account: got %+v, want its last4 4321", refs.accounts[account])
 			}
 		})
 	}

@@ -94,6 +94,7 @@ func TestProposeReleaseTransmit(t *testing.T) {
 		e.Problem(422, "payments.invalid_outcome", "POST", report, `{"outcome": "lost"}`, `"4"`)
 		e.Problem(422, "payments.reason_required", "POST", report, `{"outcome": "rejected"}`, `"4"`)
 		acked, tag := e.Must(200, "POST", report, `{"outcome": "accepted", "reference": "pain.002-0001"}`, `"4"`)
+		wantBankCodes(t, "bank file", acked)
 		if acked["status"] != "acknowledged" {
 			t.Errorf("acknowledged status: got %v, want acknowledged", acked["status"])
 		}
@@ -303,6 +304,7 @@ func checkTransmit(t *testing.T, e env, run map[string]any) map[string]any {
 		}
 	}
 	file, _ = e.Must(200, "GET", "/v1/bank-files/"+id(file), "", "")
+	wantBankCodes(t, "bank file", file)
 	if file["status"] != "transmitted" {
 		t.Fatalf("transmitted: %v", file)
 	}

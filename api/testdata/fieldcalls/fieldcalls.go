@@ -1,7 +1,7 @@
 // Package fieldcalls is TestProblemCodesFieldCalls' program (ADR-0052 G7):
-// calls of a function value held in a field of a struct parameter, which
-// the call graph joins across callers, told apart where every caller makes
-// the value, and followed where one may not.
+// calls of a function value given as a parameter or held in a field of a
+// struct parameter, which the call graph joins across callers, told apart
+// where every caller makes the value, and followed where one may not.
 package fieldcalls
 
 import "github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -116,3 +116,26 @@ func Captured() error {
 func CapturedDirect() error { return runCaptured(step{work: direct}) }
 
 func captured() error { return problem.New(409, "fixture.captured", "Captured", "") }
+
+// callP calls the function value it is given. CallVar passes one read from
+// a package variable, which holdsMade cannot prove made, so the edge stays
+// and CallVar keeps its code (CallMade, beside it, then gets both).
+func callP(f func() error) error { return f() }
+
+var hookP = varWork
+
+func CallVar() error  { return callP(hookP) }
+func CallMade() error { return callP(madeWork) }
+
+func varWork() error  { return problem.New(409, "fixture.var", "Var", "") }
+func madeWork() error { return problem.New(409, "fixture.made", "Made", "") }
+
+// callQ is given only functions its callers make: the graph joins them,
+// and the cut leaves each its own code.
+func callQ(f func() error) error { return f() }
+
+func CallQA() error { return callQ(qa) }
+func CallQB() error { return callQ(qb) }
+
+func qa() error { return problem.New(409, "fixture.qa", "QA", "") }
+func qb() error { return problem.New(409, "fixture.qb", "QB", "") }

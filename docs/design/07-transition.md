@@ -1867,9 +1867,11 @@ keep passing.
      `make generate` leaving no diff · the contract lint and the
      breaking-change check when the contract changes · the tests of the changed
      packages and of the packages that import them directly, against real PostgreSQL
-     with `-race`, once, plus `go test ./api -run TestProblemCodes` when a
-     `problem.*` code or a handler changes (`api` imports no context, it reads
-     the server's call graph), `internal/web`'s tests when `api/gen` is
+     with `-race`, once, plus all of `go test ./api` (the contract's rules,
+     such as `TestRepresentations`, and `TestProblemCodes`) when
+     `api/openapi.yaml`, `api/asyncapi.yaml`, a `problem.*` code or a handler
+     changes (`api` imports no context, it reads the server's call graph;
+     06 §6.5, batch24), `internal/web`'s tests when `api/gen` is
      regenerated, and `scripts/deploy-checks.sh` when infrastructure changes
      (06 §6.5, 2026-10-29) · 100% statement coverage of the changed packages;
    - *the batch, green before every pull request:* `make ci-local` runs every

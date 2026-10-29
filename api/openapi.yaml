@@ -28551,6 +28551,10 @@ components:
               format: uuid
               description: "House bank paying, for a run proposed for one bank; absent when each payment names the bank that pays it (T45c)."
               readOnly: true
+            house_bank_code:
+              type: string
+              description: "The house bank's `code`, its name in the configuration; present exactly when `house_bank_id` is."
+              readOnly: true
             run_date:
               type: string
               format: date
@@ -28614,6 +28618,7 @@ components:
           document_number: "5100000123"
           legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
           house_bank_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d63"
+          house_bank_code: EUR1
           run_date: "2026-10-09"
           due_by: "2026-10-09"
           total_amount:
@@ -28685,6 +28690,7 @@ components:
               document_number: "5100000123"
               legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
               house_bank_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d63"
+              house_bank_code: EUR1
               run_date: "2026-10-09"
               due_by: "2026-10-09"
               total_amount:
@@ -28767,6 +28773,9 @@ components:
             - supplier_id
             - supplier_name
             - bank_account_id
+            - bank_account_last4
+            - bank_account_scheme
+            - bank_account_holder_name
             - amount
             - end_to_end_id
             - items
@@ -28789,6 +28798,38 @@ components:
               type: string
               format: uuid
               description: Supplier bank account valid on the run date.
+              readOnly: true
+            bank_account_last4:
+              type: string
+              description: "The bank account's `account_last4`, as the partner's bank account gives it: the last up to four characters of its number, which is never returned."
+              pattern: "^[A-Z0-9]{1,4}$"
+              readOnly: true
+            bank_account_scheme:
+              type: string
+              description: "The bank account's `account_scheme`: `iban`, `domestic`, or `ca` for a Canadian account. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - iban
+                - domestic
+                - ca
+              readOnly: true
+            bank_account_holder_name:
+              type: string
+              description: "The bank account's `holder_name`, as it is now."
+              readOnly: true
+            bank_account_bic:
+              type: string
+              description: "The bank account's `bic`; absent when it has none."
+              pattern: "^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$"
+              readOnly: true
+            bank_account_institution_number:
+              type: string
+              description: "The bank account's `institution_number`, of a scheme `ca` account (the bank, not masked); absent for the others."
+              pattern: "^[0-9]{3}$"
+              readOnly: true
+            bank_account_transit_number:
+              type: string
+              description: "The bank account's `transit_number`, of a scheme `ca` account (the branch); absent for the others."
+              pattern: "^[0-9]{5}$"
               readOnly: true
             amount:
               $ref: "#/components/schemas/Money"
@@ -28817,6 +28858,10 @@ components:
               format: uuid
               description: Payment journal entry, once posted.
               readOnly: true
+            journal_entry_number:
+              type: string
+              description: "The payment journal entry's document number; present exactly when `journal_entry_id` is."
+              readOnly: true
             kind:
               type: string
               description: "What the payment pays: `items`, the supplier's open items netted (at most one such payment per supplier and run), or `down_payment`, one down payment request (ADR-0037), paid whole and never netted, whose posting puts the down payment on the down payment account. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -28838,6 +28883,10 @@ components:
               format: uuid
               description: "House bank that pays it: the run's, or for a run proposed without one, the first ranked for its payment method and currency (T45c)."
               readOnly: true
+            house_bank_code:
+              type: string
+              description: "The house bank's `code`, its name in the configuration; present exactly when `house_bank_id` is."
+              readOnly: true
             payment_method:
               type: string
               description: "Payment method it is paid by (SAP ZLSCH); absent in a run proposed for one house bank."
@@ -28856,10 +28905,18 @@ components:
           supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
           supplier_name: Tyrell Office Products
           bank_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db2"
+          bank_account_last4: "4321"
+          bank_account_scheme: iban
+          bank_account_holder_name: Tyrell Office Products GmbH
+          bank_account_bic: COBADEFFXXX
           amount:
             amount: "1080.00"
             currency: EUR
           end_to_end_id: "2600000017-000042"
+          journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc1"
+          journal_entry_number: "1500000042"
+          house_bank_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d60"
+          house_bank_code: MAIN
           items:
             - fiscal_year: 2026
               journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dae"
@@ -28877,6 +28934,10 @@ components:
           supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
           supplier_name: Tyrell Office Products
           bank_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db2"
+          bank_account_last4: "4321"
+          bank_account_scheme: iban
+          bank_account_holder_name: Tyrell Office Products GmbH
+          bank_account_bic: COBADEFFXXX
           amount:
             amount: "1190.00"
             currency: EUR
@@ -28914,10 +28975,18 @@ components:
               supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
               supplier_name: Tyrell Office Products
               bank_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db2"
+              bank_account_last4: "4321"
+              bank_account_scheme: iban
+              bank_account_holder_name: Tyrell Office Products GmbH
+              bank_account_bic: COBADEFFXXX
               amount:
                 amount: "1080.00"
                 currency: EUR
               end_to_end_id: "2600000017-000042"
+              journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc1"
+              journal_entry_number: "1500000042"
+              house_bank_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d60"
+              house_bank_code: MAIN
               items:
                 - fiscal_year: 2026
                   journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dae"
@@ -29069,6 +29138,7 @@ components:
               created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
               updated_at: "2026-10-20T08:00:00Z"
               house_bank_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d60"
+              house_bank_code: MAIN
               legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
               format: mt940
               file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9
@@ -29101,6 +29171,7 @@ components:
         - type: object
           required:
             - house_bank_id
+            - house_bank_code
             - legal_entity_id
             - format
             - file_sha256
@@ -29119,6 +29190,10 @@ components:
               type: string
               format: uuid
               description: House bank whose account the statement is of.
+              readOnly: true
+            house_bank_code:
+              type: string
+              description: "The house bank's `code`, its name in the configuration."
               readOnly: true
             legal_entity_id:
               type: string
@@ -29363,9 +29438,10 @@ components:
     BankReconciliation:
       type: object
       description: "One page of a house bank's reconciliation report (ADR-0047, T49h): the period's figures, and its statements on this page with their figures and lines. Amounts are signed: a credit to the account is positive, as on the statements; a ledger balance is debit positive, so the two agree when equal."
-      required: [house_bank_id, legal_entity_id, currency, summary, items]
+      required: [house_bank_id, house_bank_code, legal_entity_id, currency, summary, items]
       properties:
         house_bank_id: {type: string, format: uuid, description: The house bank., readOnly: true}
+        house_bank_code: {type: string, description: "The house bank's `code`, its name in the configuration.", readOnly: true}
         legal_entity_id: {type: string, format: uuid, description: "The house bank's legal entity.", readOnly: true}
         currency: {type: string, description: "The house bank's currency (ISO 4217), its statements' and the ledger balances'.", readOnly: true}
         closing_date_from: {type: string, format: date, description: "The period's first day, when given.", readOnly: true}
@@ -29381,6 +29457,7 @@ components:
           maxLength: 2048
       examples:
         - house_bank_id: 0192a000-0000-7000-8000-000000000b01
+          house_bank_code: MAIN
           legal_entity_id: 0192a000-0000-7000-8000-000000000201
           currency: EUR
           closing_date_from: "2026-04-01"
@@ -29583,6 +29660,7 @@ components:
           properties:
             legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
             house_bank_id: {type: string, format: uuid, description: "The house bank it is expected on; absent: forecast only.", readOnly: true}
+            house_bank_code: {type: string, description: "The house bank's `code`, its name in the configuration; present exactly when `house_bank_id` is.", readOnly: true}
             amount: {$ref: "#/components/schemas/Money"}
             direction:
               type: string
@@ -29632,6 +29710,7 @@ components:
           updated_at: "2026-10-21T09:00:00Z"
           legal_entity_id: 0192a000-0000-7000-8000-000000000201
           house_bank_id: 0192a000-0000-7000-8000-000000000b01
+          house_bank_code: MAIN
           amount: {amount: "12500.00", currency: CAD}
           direction: inflow
           value_date: "2026-10-30"
@@ -30175,6 +30254,10 @@ components:
               format: uuid
               description: "House bank whose account the file pays from; a run writes one file per house bank and payment method (T45c)."
               readOnly: true
+            house_bank_code:
+              type: string
+              description: "The house bank's `code`, its name in the configuration; present exactly when `house_bank_id` is."
+              readOnly: true
             payment_method:
               type: string
               description: "Payment method of the file's payments; absent for a run proposed for one house bank."
@@ -30205,6 +30288,8 @@ components:
           created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
           updated_at: "2026-10-09T14:03:11Z"
           payment_run_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+          house_bank_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d60"
+          house_bank_code: MAIN
           format: pain.001.001.03
           status: created
     BankFilePage:
@@ -30235,6 +30320,8 @@ components:
               created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
               updated_at: "2026-10-09T14:03:11Z"
               payment_run_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+              house_bank_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d60"
+              house_bank_code: MAIN
               format: pain.001.001.03
               status: created
     ApprovalStep:
@@ -31414,9 +31501,8 @@ components:
                 - failed
               readOnly: true
             report:
-              type: object
-              additionalProperties: true
-              description: Reconciliation report.
+              $ref: "#/components/schemas/MigrationRunReport"
+              description: "What the run extracted, checked, loaded and reconciled (docs/migration.md); absent while the run is queued and has not finished a step."
               readOnly: true
             operation_id:
               type: string
@@ -31447,6 +31533,294 @@ components:
           mode: documents
           is_rehearsal: false
           status: queued
+    MigrationRunReport:
+      type: object
+      description: "A migration run's report (docs/migration.md). `extract` and `quality` are written when the run starts; `load` and `loaded` once the quality gate passed and the load ran; `checks`, `diffs`, `passed` and, when there are any, `missing_documents` and `issues` once the run is reconciled (a rehearsal reconciles in its start). Fields may be added within /v1."
+      required:
+        - extract
+        - quality
+      properties:
+        extract:
+          $ref: "#/components/schemas/MigrationExtractCounts"
+          description: Rows read from the source system, per SAP table.
+        quality:
+          type: array
+          items:
+            $ref: "#/components/schemas/MigrationIssue"
+          description: "The data-quality gate's findings on the extract: an `error` stops the run before anything loads, a `warning` loads but needs a business sign-off."
+        load:
+          type: array
+          items:
+            $ref: "#/components/schemas/MigrationIssue"
+          description: "Rows the load refused (`error`, and then nothing stays loaded) or noted (`warning`)."
+        loaded:
+          $ref: "#/components/schemas/MigrationLoadedCounts"
+          description: "What the load created, by kind; for a rehearsal, or a load with an `error` refusal, what it created before it was rolled back."
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/MigrationCheck"
+          description: "The reconciliation controls, each figure computed from the raw SAP extract and from the platform (docs/migration.md, Reconciliation controls)."
+        diffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/MigrationDiff"
+          description: The differences behind the failed checks.
+        missing_documents:
+          type: array
+          items:
+            type: string
+            description: "SAP document, as `<BUKRS>/<GJAHR>/<BELNR>`."
+          maxItems: 100
+          description: "SAP documents of the scope not on the platform (`documents` mode), the first 100; absent when there are none."
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/MigrationIssue"
+          description: "SAP values the reconciliation could not use: amounts that do not parse, or sums out of the range of an amount; absent when there are none. Any one fails the reconciliation."
+        passed:
+          type: boolean
+          description: Whether every check passed and the reconciliation had no issue; the run is then `reconciled`.
+      examples:
+        - extract: {t001: 1, skb1: 42, lfa1: 3, lfb1: 3, lfbk: 2, ekko: 2, ekpo: 3, mseg: 2, rbkp: 2, rseg: 2, acdoca: 61, t052: 2, t007a: 3, t030: 4, t169g: 1, t012k: 1, t074: 1, agr_define: 0, agr_tcodes: 0, agr_users: 0}
+          quality: []
+          load: []
+          loaded: {suppliers: 3, purchase_orders: 2, goods_receipts: 2, supplier_invoices: 2, journal_entries: 14, gr_ir_positions: 1}
+          checks:
+            - company_code: "1000"
+              name: "Trial balance: accounts with differences"
+              sap: "0"
+              platform: "0"
+              pass: true
+          diffs: []
+          passed: true
+    MigrationExtractCounts:
+      type: object
+      description: "Rows read from the source system per SAP table, each key the table's name in lower case (`t001` for T001, `agr_define` for AGR_DEFINE); internal/sap describes each table."
+      required:
+        - t001
+        - skb1
+        - lfa1
+        - lfb1
+        - lfbk
+        - ekko
+        - ekpo
+        - mseg
+        - rbkp
+        - rseg
+        - acdoca
+        - t052
+        - t007a
+        - t030
+        - t169g
+        - t012k
+        - t074
+        - agr_define
+        - agr_tcodes
+        - agr_users
+      properties:
+        t001:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table T001 (company codes)."
+        skb1:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table SKB1 (G/L account master per company code)."
+        lfa1:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table LFA1 (vendor general data)."
+        lfb1:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table LFB1 (vendor company code data)."
+        lfbk:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table LFBK (vendor bank details)."
+        ekko:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table EKKO (purchasing document headers)."
+        ekpo:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table EKPO (purchasing document items)."
+        mseg:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table MSEG (goods movements)."
+        rbkp:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table RBKP (supplier invoice headers)."
+        rseg:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table RSEG (supplier invoice items)."
+        acdoca:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table ACDOCA (Universal Journal line items)."
+        t052:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table T052 (payment terms)."
+        t007a:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table T007A (tax codes)."
+        t030:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table T030 (automatic account determination)."
+        t169g:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table T169G (invoice verification tolerance limits)."
+        t012k:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table T012K (house bank accounts)."
+        t074:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table T074 (special G/L accounts)."
+        agr_define:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table AGR_DEFINE (roles)."
+        agr_tcodes:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table AGR_TCODES (transactions in a role)."
+        agr_users:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table AGR_USERS (role assignments)."
+    MigrationLoadedCounts:
+      type: object
+      description: "What a migration run's load created, by kind; a kind it created none of is absent. A rehearsal, and a load with an `error` refusal, are rolled back: their counts are what the load created before the rollback, and nothing of it stays. A kept load counts only what no earlier kept run loaded, so a run of the same extract again counts nothing."
+      properties:
+        suppliers:
+          type: integer
+          minimum: 1
+          description: "Suppliers created from SAP vendors (LFA1, LFB1)."
+        suppliers_extended:
+          type: integer
+          minimum: 1
+          description: "Suppliers an earlier run created that this run extended to more company codes (LFB1)."
+        suppliers_blocked:
+          type: integer
+          minimum: 1
+          description: "Suppliers blocked for posting because SAP blocks the vendor (LFA1-SPERR)."
+        purchase_orders:
+          type: integer
+          minimum: 1
+          description: "Purchase orders (EKKO, EKPO)."
+        goods_receipts:
+          type: integer
+          minimum: 1
+          description: "Goods receipts (MSEG)."
+        supplier_invoices:
+          type: integer
+          minimum: 1
+          description: "Parked supplier documents (RBKP, RSEG), each as its kind: invoices, credit memos, subsequent debits and subsequent credits."
+        posted_invoices_invoiced:
+          type: integer
+          minimum: 1
+          description: "SAP's posted invoice documents whose invoiced quantities were taken over for matching (T72b2); their amounts come over as journal entries."
+        journal_entries:
+          type: integer
+          minimum: 1
+          description: "Journal entries: SAP's documents in `documents` mode, one opening entry per company in `balances` mode, and each open down payment's document in either mode."
+        down_payments:
+          type: integer
+          minimum: 1
+          description: "Open down payments (special G/L indicator A) loaded as paid down payment requests (T72c); their entries count under `journal_entries` too."
+        clearings:
+          type: integer
+          minimum: 1
+          description: "Clearings SAP made of vendor items (ACDOCA AUGBL), one per clearing document, in `documents` mode."
+        gr_ir_positions:
+          type: integer
+          minimum: 1
+          description: "Order items whose open GR/IR position this run took over, in an entry per order (T72f)."
+        gr_ir_top_ups:
+          type: integer
+          minimum: 1
+          description: "Order items whose GR/IR position, taken over by an earlier run, this run topped up to SAP's balance and open quantity, in an entry per order."
+    MigrationIssue:
+      type: object
+      description: A finding of the quality gate, the load or the reconciliation on a row of the extract.
+      required:
+        - severity
+        - table
+        - key
+        - message
+      properties:
+        severity:
+          type: string
+          description: "`error` blocks the run; `warning` migrates but needs a business decision. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - error
+            - warning
+        table:
+          type: string
+          description: "SAP table of the row, for example `ACDOCA`, or `platform` for a figure the platform holds."
+        key:
+          type: string
+          description: "What the finding is about, within the table: SAP's key of the row (for example `<BUKRS>/<GJAHR>/<BELNR>/<DOCLN>` for a journal line, a vendor number, or several joined by commas for possible duplicates), what the load was doing (`GR/IR <EBELN>`, `clearing <BUKRS>/<AUGBL>`), or for the reconciliation the company code with what it was adding up (`<BUKRS>/vendor <LIFNR>`). A free-form text, not to be parsed."
+        message:
+          type: string
+          description: What is wrong and, where it applies, how to fix it.
+    MigrationCheck:
+      type: object
+      description: One reconciliation control for a company code.
+      required:
+        - company_code
+        - name
+        - sap
+        - platform
+        - pass
+      properties:
+        company_code:
+          type: string
+          description: SAP company code (T001 BUKRS) of the legal entity.
+        name:
+          type: string
+          description: "The control, for example `Trial balance: accounts with differences`, `Open payables total` or `Open GR/IR: order items with differences` (docs/migration.md, Reconciliation controls)."
+        sap:
+          type: string
+          description: "The figure computed from the SAP extract: a count, or an amount with its currency code (`1250.00 EUR`)."
+        platform:
+          type: string
+          description: The same figure computed from the platform.
+        pass:
+          type: boolean
+          description: Whether the two figures agree.
+    MigrationDiff:
+      type: object
+      description: A difference behind a failed check.
+      required:
+        - company_code
+        - key
+        - sap
+        - platform
+      properties:
+        company_code:
+          type: string
+          description: SAP company code (T001 BUKRS).
+        key:
+          type: string
+          description: "What differs: an account number, `vendor <LIFNR>`, `down payments of vendor <LIFNR>`, `partner <id> (<name>)` or `down payments of partner <id> (<name>)` (a platform supplier that is no migrated vendor, by its id and name), `bank account of vendor <LIFNR>`, `order item <EBELN>/<EBELP>` or `GR/IR of order item <EBELN>/<EBELP>`."
+        sap:
+          type: string
+          description: "SAP's value: an amount with its currency code (`1250.00 EUR`), a quantity, a GR/IR position as its balance and quantity (`750.00 EUR, quantity 5`), or a bank account as the load writes it."
+        platform:
+          type: string
+          description: The platform's value, in the same form.
     MigrationRunCreate:
       type: object
       description: "Define a migration run (status `queued`)."

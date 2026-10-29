@@ -138,6 +138,47 @@ They must be equal.
   leave them out
 - Every SAP document in scope present on the platform (missing ones listed)
 
+## The run's report
+
+A migration run's `report` (`GET /v1/migration-runs/{id}`) is declared in
+the contract as `MigrationRunReport` (api/openapi.yaml), which describes every
+key; `erp migrate` prints its counts, findings, checks and differences. It
+grows with the run:
+
+- When the run starts: `extract`, the rows read per SAP table, each keyed by
+  the table's name in lower case as the API names fields in snake_case
+  (`t001`, `lfa1`, `agr_define`), and `quality`,
+  the data-quality gate's findings (`error` stops the run before anything
+  loads, `warning` needs a business sign-off).
+- Once the gate passed and the load ran: `load`, the rows it refused or
+  noted, and `loaded`, what it created by kind: `suppliers`,
+  `suppliers_extended`, `suppliers_blocked`, `purchase_orders`,
+  `goods_receipts`, `supplier_invoices`, `posted_invoices_invoiced`,
+  `journal_entries`, `down_payments`, `clearings`, `gr_ir_positions` and
+  `gr_ir_top_ups`. A kind it created none of is absent. A rehearsal, and a
+  load with an `error` refusal, are rolled back: their counts are what the
+  load created before the rollback, and nothing of it stays. A kept load
+  counts only what no earlier kept run loaded, so a run of the same extract
+  again shows `loaded` empty.
+- Once the run is reconciled (a rehearsal reconciles in its start):
+  `checks`, the controls above, each with SAP's figure, the platform's and
+  whether they agree; `diffs`, the differences behind failed checks;
+  `missing_documents`, the first 100 SAP documents not on the platform
+  (`documents` mode);
+  `issues`, SAP values the reconciliation could not use; and `passed`.
+
+A finding or a difference names what it is about by SAP's reference where
+there is one: a refused supplier, its posting block included, by the vendor
+number (`LFA1`, `<LIFNR>`), a vendor's open items by `vendor <LIFNR>`. Open
+items of a platform supplier that is no migrated vendor, which SAP cannot
+name, are keyed `partner <id> (<name>)`.
+
+When the run ends, `reconciled` or `failed`, its `MigrationRunCompleted`
+event (api/asyncapi.yaml) carries the report's headline figures as
+`summary`: `passed`, null when the run failed before it was reconciled, and
+`loaded`, the same counts as the report's, null when the quality gate
+stopped the run before the load.
+
 ## What to check on a real SAP system
 
 - OData services are activated (`/IWFND/MAINT_SERVICE`) and the technical user

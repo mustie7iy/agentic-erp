@@ -46,7 +46,18 @@ func (e memoEnv) usd(amount string) string {
 // create creates a memo record and returns it with its ETag.
 func (e memoEnv) create(t *testing.T, fields string) (map[string]any, string) {
 	t.Helper()
-	return e.Must(201, "POST", "/v1/memo-records", e.body(fields), "")
+	m, tag := e.Must(201, "POST", "/v1/memo-records", e.body(fields), "")
+	wantBankCode(t, m)
+	return m, tag
+}
+
+// wantBankCode: each memo record names its house bank by the code the
+// payments context holds, exactly when it names the bank.
+func wantBankCode(t *testing.T, records ...map[string]any) {
+	t.Helper()
+	for _, m := range records {
+		apitest.WantNamed(t, "memo record", m, "house_bank_id", "house_bank_code", apitest.HouseBankCode)
+	}
 }
 
 func id(m map[string]any) string { return fmt.Sprint(m["id"]) }
@@ -68,11 +79,13 @@ func TestCreateMemoRecord(t *testing.T) {
 		m["certainty"], " ", m["liquidity_item"], " ", m["description"], " ", m["reference"], " ", m["house_bank_id"]),
 		"active manual inflow 1000.00 USD 2026-04-21 2026-04-28 expected REC_CUSTOMERS Northwind INV-1 "+e.positionEnv.usd.String())
 	want(t, "ETag", tag, `"1"`)
+	want(t, "its house bank's code", m["house_bank_code"], "USD")
 	got, tag := e.Must(200, "GET", path(m, ""), "", "")
-	want(t, "read back", fmt.Sprint(got["id"], " ", tag), fmt.Sprint(m["id"], ` "1"`))
+	want(t, "read back", fmt.Sprint(got["id"], " ", tag, " ", got["house_bank_code"]), fmt.Sprint(m["id"], ` "1" USD`))
 
 	f, _ := e.create(t, `"amount": {"amount": "-500.00", "currency": "CAD"}, "value_date": "2026-04-30", "expires_on": "2026-05-15", "certainty": "planned", "liquidity_item": "TAX"`)
-	want(t, "forecast only", fmt.Sprint(f["house_bank_id"], " ", f["direction"], " ", f["expires_on"], " ", f["certainty"]), "<nil> outflow 2026-05-15 planned")
+	want(t, "forecast only", fmt.Sprint(f["house_bank_id"], " ", f["house_bank_code"], " ", f["direction"], " ", f["expires_on"], " ", f["certainty"]),
+		"<nil> <nil> outflow 2026-05-15 planned")
 
 	evs := apitest.Published(t, e.Tenant, outbox.Event{Context: "cash", Name: "memo_record_changed"})
 	want(t, "events", len(evs), 2)

@@ -572,10 +572,95 @@ identifier without the reference its consumer needs). Decided by default:
   exclusions.
 - **Other identifiers.** `Payment.journal_entry_id` (the payment's own
   posting), `bank_account_id` and `house_bank_id` are still ids alone;
-  outside this change, reported to the coordinator.
+  outside this change, reported to the coordinator; the amendment below
+  names them.
 - **The walkthrough.** Step 7 expects the item of TY-5001 in its payment to
   give the invoice entry's document number as `getJournalEntry` gives it.
   No run there pays a down payment request (its one request is migrated
   already paid), so the API tests are the evidence for the request's number:
   both kinds of payment, a request's payment on a page after the first, and
   the database failures of a run that pays one.
+
+## As built: a payment names its posting and its bank (review:batch23 follow-up)
+
+The review of paynums left a payment's own posting (`journal_entry_id`), its
+supplier's bank account (`bank_account_id`) and its house bank
+(`house_bank_id`) as ids alone (REVIEW.md, an identifier without the name or
+reference its consumer needs). Decided by default:
+
+- **The posting.** `Payment` gains `journal_entry_number`, the entry's
+  document number, named `<x>_number` beside `<x>_id` as
+  `down_payment_request_number` and `purchase_order_number` are. It is
+  present exactly when `journal_entry_id` is (a proposed run's payments are
+  not posted yet). It is read through `OpenItems.Numbers` in the same call
+  as the open items' entries, so a page still makes one call to the ledger.
+- **The house bank.** `Payment` gains `house_bank_code`, the `HouseBank`
+  resource's `code` (its name in the configuration, unique within the legal
+  entity, as `CashPositionBank` names a bank beside its id), present exactly
+  when `house_bank_id` is. House banks are the payments context's own table,
+  so it is one query per page, no port.
+- **The bank account.** The supplier's account is the partner context's, so
+  payments reads it through its `Payees` port (a new `BankAccounts`, masked,
+  beside `Names`; payments already depends on partner, so no dependency
+  direction changes and no ADR is needed). `Payment` gains the fields the
+  partner's `BankAccount` resource gives a consumer to recognise an account,
+  each named `bank_account_` + that resource's field: `bank_account_last4`,
+  `bank_account_scheme` and `bank_account_holder_name`, required (every
+  payment has an account); `bank_account_bic`, absent when the account has
+  none; and a Canadian account's `bank_account_institution_number` and
+  `bank_account_transit_number`, absent for the other schemes. The bank's
+  country (`bank_country_code`) is left out: with the supplier's name, the
+  last four characters and the bank (BIC or Canadian routing) recognise the
+  account, and a consumer that needs the country reads the account. The account
+  number stays sealed: `BankAccounts` reads the masked columns only, and
+  `BankDetails` alone opens the number, for a bank file. All are response
+  fields, so the change is additive (oasdiff: no breaking change).
+- **One helper.** The exclusions' and payments' `documentNumbers` became
+  `resolve`, generic in what it resolves, shared by the request numbers, the
+  entry numbers, the house bank codes and the bank accounts: one call per
+  page, none when nothing is referenced, and an object its context does not
+  hold fails the page (500), as before.
+- **The walkthrough.** Step 7 lists the released run's payments and expects
+  every payment to give its posting's number and the RBC house bank's code,
+  the payment of TY-5001 its posting's number as `getJournalEntry` gives it,
+  and Laurentian Paper's account its scheme `ca`, institution 001 and
+  transit 00010, the bank its pain.001 names.
+
+## As built: every resource that names a house bank gives its code (review:batch24)
+
+The review of paybank found `house_bank_id` alone on `PaymentRun`,
+`BankStatement`, `BankReconciliation`, `MemoRecord` and `BankFile` (REVIEW.md,
+an identifier without the name or reference its consumer needs): an
+integration listing a run's bank files called `getHouseBank` once per file.
+A search of `api/openapi.yaml` found no other response with the id alone
+(`CashPositionBank` already gives `code`; the rest are request bodies and
+query parameters). Decided by default, as for `Payment` above:
+
+- **The field.** Each gains `house_bank_code`, the `HouseBank` resource's
+  `code`, beside `house_bank_id`: optional and present exactly when the id is
+  on `PaymentRun` (absent for a run proposed without one), `MemoRecord`
+  (absent for a forecast-only record) and `BankFile`; required on
+  `BankStatement` and `BankReconciliation`, whose id is required. Response
+  fields only, so the change is additive (oasdiff: no breaking change).
+- **Read once.** A page or a single read asks `payments.house_bank` once for
+  the codes of the banks its rows name, and not at all when none does
+  (`bankCodes`, `withBank`); the report reads the code with the bank it
+  already loads. An id the table does not hold fails the response (500),
+  never a row without its bank's code. Pages use a new
+  `apitypes.PageWith`, `PageOf` with what the page's rows reference read for
+  the page's rows alone, never the row past the page.
+- **One helper, moved.** `resolve` and `idsOf` moved from payments to
+  `internal/platform/idref` (`Resolve`, `Of`, `Kind`), since the cash
+  context needs them too (CLAUDE.md: a helper two contexts need lives in
+  platform, never copied).
+- **Memo records.** They are the cash context's (ADR-0051 §7), which reads
+  house banks only through its `Payments` port: the port gains
+  `HouseBankCodes`, adapted from `payments.CashPosition.HouseBankCodes`, by
+  id and active or not (a record may name a bank deactivated since). Cash
+  already reads payments through that port, so no dependency direction
+  changes and no ADR is needed.
+- **Events.** The event payloads (`api/asyncapi.yaml`) that carry
+  `house_bank_id` are not responses and are left as they are.
+- **The walkthrough.** Step 7 expects RBC's code on the proposed run and on
+  every bank file, step 8 on the reconciled statement and the reconciliation
+  report, and step 13 on the memo record Tom creates.

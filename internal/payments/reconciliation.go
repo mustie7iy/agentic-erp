@@ -66,17 +66,17 @@ func (f Figures) agrees() bool {
 // reconBank is what reconciliation reads of a house bank.
 type reconBank struct {
 	ID, LegalEntityID uuid.UUID
-	Currency          string
+	Code, Currency    string
 	Exponent          int
 	Main              *uuid.UUID // the main bank account; nil: the bank's statements never post
 }
 
-const reconBankSelect = `SELECT h.id, h.legal_entity_id, h.currency, c.exponent, h.main_gl_account_id
+const reconBankSelect = `SELECT h.id, h.legal_entity_id, h.code, h.currency, c.exponent, h.main_gl_account_id
 	FROM payments.house_bank h JOIN ref.currency c ON c.code = h.currency WHERE h.id = $1`
 
 func scanReconBank(row pgx.Row) (reconBank, error) {
 	var b reconBank
-	err := row.Scan(&b.ID, &b.LegalEntityID, &b.Currency, &b.Exponent, &b.Main)
+	err := row.Scan(&b.ID, &b.LegalEntityID, &b.Code, &b.Currency, &b.Exponent, &b.Main)
 	return b, errs.Wrapf(err, "scan house bank")
 }
 
@@ -237,7 +237,7 @@ type ReconciliationSummary struct {
 // Reconciliation is a page of a house bank's reconciliation report.
 type Reconciliation struct {
 	HouseBankID, LegalEntityID uuid.UUID
-	Currency                   string
+	HouseBankCode, Currency    string
 	Exponent                   int
 	From, To                   *time.Time
 	Summary                    ReconciliationSummary
@@ -277,7 +277,7 @@ func (e *Endpoints) BankReconciliation(ctx context.Context, houseBank uuid.UUID,
 	if err = authz.Visible(err, access, b.LegalEntityID, problem.NotFoundOf("house bank"), "payments: house bank %s to reconcile", houseBank); err != nil {
 		return Reconciliation{}, err
 	}
-	r := Reconciliation{HouseBankID: b.ID, LegalEntityID: b.LegalEntityID, Currency: b.Currency, Exponent: b.Exponent, From: q.From, To: q.To}
+	r := Reconciliation{HouseBankID: b.ID, HouseBankCode: b.Code, LegalEntityID: b.LegalEntityID, Currency: b.Currency, Exponent: b.Exponent, From: q.From, To: q.To}
 	if r.Summary, err = e.periodSummary(ctx, tx, b, q); err != nil {
 		return Reconciliation{}, err
 	}

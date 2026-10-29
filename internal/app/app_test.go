@@ -218,6 +218,10 @@ func TestNamingPortsNeedARequest(t *testing.T) {
 			_, err := partner.Payees{}.Names(context.Background(), []uuid.UUID{uuid.New()})
 			return err
 		},
+		"bank accounts": func() error {
+			_, err := partner.Payees{}.BankAccounts(context.Background(), []uuid.UUID{uuid.New()})
+			return err
+		},
 		"order numbers": func() error {
 			_, err := procurement.Orders{}.Numbers(context.Background(), []uuid.UUID{uuid.New()})
 			return err

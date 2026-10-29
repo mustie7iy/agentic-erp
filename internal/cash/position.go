@@ -69,6 +69,9 @@ type Payments interface {
 	// StatementLine is a bank statement line; found is false when there is
 	// none.
 	StatementLine(ctx context.Context, statement uuid.UUID, lineNo int32) (l StatementLine, found bool, err error)
+	// HouseBankCodes are the codes of the house banks among the ids, active
+	// or not, keyed by id: what a memo record shows beside its bank's id.
+	HouseBankCodes(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
 }
 
 // Ledger is what the cash position reads of the ledger context.

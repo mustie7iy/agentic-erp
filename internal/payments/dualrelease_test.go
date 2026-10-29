@@ -49,6 +49,9 @@ func (e env) act(t *testing.T, a pgtest.Actor, status int, run map[string]any, a
 	t.Helper()
 	_, tag := e.Must(200, "GET", runPath(run), "", "")
 	got, _ := e.As(a).Must(status, "POST", runPath(run)+":"+action, body, tag)
+	if action == "submit" { // the run, its approval asked for
+		wantBankCodes(t, "payment run", got)
+	}
 	return got
 }
 

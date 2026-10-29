@@ -104,6 +104,15 @@ func TestCanadianBankFile(t *testing.T) {
 	e.invoice(t, e.Supplier, "INV-CA-1", "100.00", "2026-03-01")
 	run := e.run(t, "2026-04-15", "2026-04-15")
 	e.release(t, run, "")
+	// The payment names the Canadian account by its bank and branch, and
+	// gives no BIC, which the account has none of.
+	pay := e.payments(t, run)[0].(map[string]any)
+	for field, want := range map[string]any{"bank_account_scheme": "ca", "bank_account_institution_number": "004", "bank_account_transit_number": "12345",
+		"bank_account_last4": "9012", "bank_account_holder_name": "Maple Supply Ltd", "bank_account_bic": nil} {
+		if got := pay[field]; got != want {
+			t.Errorf("payment's %s: got %v, want %v", field, got, want)
+		}
+	}
 	files, _ := e.Must(200, "GET", "/v1/bank-files?payment_run_id="+id(run), "", "")
 	file := files["items"].([]any)[0].(map[string]any)
 	e.transmit(t, id(file), `"1"`)

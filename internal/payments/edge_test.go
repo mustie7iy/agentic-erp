@@ -255,6 +255,7 @@ func TestListsAndAccess(t *testing.T) {
 		return out
 	}
 	page := list("/v1/payment-runs?page_size=1")
+	wantPageBankCodes(t, "payment run", page)
 	if got, want := fmt.Sprint(ids(page)), fmt.Sprint([]string{id(first)}); got != want {
 		t.Errorf("first page: got %s, want %s", got, want)
 	}
@@ -262,6 +263,7 @@ func TestListsAndAccess(t *testing.T) {
 		t.Fatalf("first page token: got none, want one: %v", page)
 	}
 	page = list("/v1/payment-runs?page_size=1&page_token=" + url.QueryEscape(page["next_page_token"].(string)))
+	wantPageBankCodes(t, "payment run", page)
 	if got, want := fmt.Sprint(ids(page)), fmt.Sprint([]string{id(second)}); got != want {
 		t.Errorf("second page: got %s, want %s", got, want)
 	}
@@ -298,6 +300,7 @@ func TestListsAndAccess(t *testing.T) {
 	wantSupplierNames(t, "payment", pays, rest)
 	wantItemNumbers(t, pays, rest)
 	wantRequestNumbers(t, "payment", pays, rest)
+	wantPaymentRefs(t, pays, rest)
 	if got := list("/v1/payment-runs/" + id(first) + "/payments?supplier_id=" + e.Vendor.String()); len(got["items"].([]any)) != 1 {
 		t.Fatalf("payments of the vendor: %v", got)
 	}
@@ -331,9 +334,11 @@ func TestListsAndAccess(t *testing.T) {
 	if files["next_page_token"] == nil {
 		t.Fatalf("files page: %v", files)
 	}
-	if more := list("/v1/bank-files?page_size=1&page_token=" + url.QueryEscape(files["next_page_token"].(string))); len(more["items"].([]any)) != 1 {
+	more := list("/v1/bank-files?page_size=1&page_token=" + url.QueryEscape(files["next_page_token"].(string)))
+	if len(more["items"].([]any)) != 1 {
 		t.Fatalf("files second page: %v", more)
 	}
+	wantPageBankCodes(t, "bank file", created, files, more)
 
 	// People without access to company 2000 see none of it.
 	us := pgtest.Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
@@ -469,4 +474,47 @@ func documentNumber(t *testing.T, query string, id any) string {
 		t.Fatal(err)
 	}
 	return number
+}
+
+// wantPaymentRefs: every payment on the pages names its posting by the
+// entry's document number exactly when it is posted, its house bank by
+// its code, and its bank account as the partner context holds it, masked,
+// on a later page as on the first.
+func wantPaymentRefs(t *testing.T, pages ...map[string]any) {
+	t.Helper()
+	for _, page := range pages {
+		for _, it := range page["items"].([]any) {
+			p := it.(map[string]any)
+			apitest.WantNamed(t, "payment", p, "journal_entry_id", "journal_entry_number", `SELECT document_number FROM ledger.journal_entry WHERE id = $1`)
+			apitest.WantNamed(t, "payment", p, "house_bank_id", "house_bank_code", apitest.HouseBankCode)
+			wantBankAccount(t, p)
+		}
+	}
+}
+
+// wantBankAccount: payment p shows its bank account's masked fields as the
+// partner context holds them, an optional one absent when the account has
+// none, and never the account number.
+func wantBankAccount(t *testing.T, p map[string]any) {
+	t.Helper()
+	var last4, scheme, holder string
+	var bic, institution, transit *string
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT account_last4, account_scheme, holder_name, bic, institution_number, transit_number
+		FROM partner.bank_account WHERE id = $1`, p["bank_account_id"]).Scan(&last4, &scheme, &holder, &bic, &institution, &transit); err != nil {
+		t.Fatal(err)
+	}
+	for field, want := range map[string]any{"bank_account_last4": last4, "bank_account_scheme": scheme, "bank_account_holder_name": holder,
+		"bank_account_bic": text(bic), "bank_account_institution_number": text(institution), "bank_account_transit_number": text(transit)} {
+		if got := p[field]; got != want {
+			t.Errorf("payment %v: got %s %v, want %v", p["id"], field, got, want)
+		}
+	}
+}
+
+// text is v as a decoded JSON response gives it: nil for an absent field.
+func text(v *string) any {
+	if v == nil {
+		return nil
+	}
+	return *v
 }

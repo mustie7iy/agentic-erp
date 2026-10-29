@@ -31,7 +31,7 @@ type Check struct {
 // quantity invoiced in SAP (invoicedQuantities).
 type Diff struct {
 	CompanyCode string `json:"company_code"`
-	Key         string `json:"key"` // account number, "vendor <LIFNR>", "down payments of vendor <LIFNR>", "bank account of vendor <LIFNR>", "order item <EBELN>/<EBELP>" or "GR/IR of order item <EBELN>/<EBELP>"
+	Key         string `json:"key"` // account number, "vendor <LIFNR>", "down payments of vendor <LIFNR>", "partner <id> (<name>)" or "down payments of partner <id> (<name>)" (a platform supplier that is no migrated vendor), "bank account of vendor <LIFNR>", "order item <EBELN>/<EBELP>" or "GR/IR of order item <EBELN>/<EBELP>"
 	SAP         string `json:"sap"`
 	Platform    string `json:"platform"`
 }
@@ -242,8 +242,7 @@ func (rc *reconciler) openPayables(ctx context.Context, s companyScope, sapOpen 
 	if err != nil {
 		return err
 	}
-	rc.openItems(s, "Open payables", "", sapOpen, open)
-	return nil
+	return rc.openItems(ctx, s, "Open payables", "", sapOpen, open)
 }
 
 // downPayments compares the open down payments per vendor, when either
@@ -254,20 +253,23 @@ func (rc *reconciler) downPayments(ctx context.Context, s companyScope, sapOpen 
 		return err
 	}
 	if len(sapOpen) > 0 || len(open) > 0 {
-		rc.openItems(s, "Open down payments", "down payments of ", sapOpen, open)
+		return rc.openItems(ctx, s, "Open down payments", "down payments of ", sapOpen, open)
 	}
 	return nil
 }
 
 // openItems compares open items per vendor, SAP's by "vendor <LIFNR>" and
 // the platform's per partner, as the checks name's total and vendors
-// with differences, each difference keyed prefix + "vendor <LIFNR>".
-func (rc *reconciler) openItems(s companyScope, name, prefix string, sapOpen map[string]money.Minor, open map[uuid.UUID]money.Minor) {
+// with differences, each difference keyed prefix + "vendor <LIFNR>", or
+// prefix + "partner <id> (<name>)" for a platform supplier that is no
+// migrated vendor, which SAP's side cannot name.
+func (rc *reconciler) openItems(ctx context.Context, s companyScope, name, prefix string, sapOpen map[string]money.Minor,
+	open map[uuid.UUID]money.Minor) error {
 	byVendor := map[string][]money.Minor{}
 	for id, amt := range open {
-		key := "partner " + id.String()
-		if lifnr, ok := rc.vendorOf[id]; ok {
-			key = "vendor " + lifnr
+		key, err := rc.vendorKey(ctx, s, id)
+		if err != nil {
+			return err
 		}
 		byVendor[key] = append(byVendor[key], amt)
 	}
@@ -282,6 +284,22 @@ func (rc *reconciler) openItems(s companyScope, name, prefix string, sapOpen map
 	platformTotal := rc.total("platform", s.cc, "the platform's "+what+" of company "+s.cc, slices.Collect(maps.Values(platformOpen)))
 	rc.add(s.cc, name+" total", s.format(sapTotal), s.format(platformTotal), sapTotal == platformTotal)
 	rc.add(s.cc, name+": vendors with differences", "0", strconv.Itoa(len(ap)), len(ap) == 0)
+	return nil
+}
+
+// vendorKey names a partner with open items as the report does: by its SAP
+// vendor number when the migration created it, else by its id and name.
+func (rc *reconciler) vendorKey(ctx context.Context, s companyScope, id uuid.UUID) (string, error) {
+	if lifnr, ok := rc.vendorOf[id]; ok {
+		return "vendor " + lifnr, nil
+	}
+	// A partner is never deleted and this one holds open items, so it is
+	// found: ok is always true.
+	sup, _, err := rc.e.Suppliers.Supplier(ctx, id, s.le)
+	if err != nil {
+		return "", err
+	}
+	return "partner " + id.String() + " (" + sup.Name + ")", nil
 }
 
 // vendors compares the vendors set up in the legal entity.

@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
+	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -21,8 +22,26 @@ func lineToAPI(l LineRef) gen.StatementLineRef {
 	return gen.StatementLineRef{StatementID: l.StatementID, LineNo: l.LineNo}
 }
 
-// memoToAPI shows a record with its status as of the read date.
-func memoToAPI(m MemoRecord, read time.Time) gen.MemoRecord {
+// houseBankRef names a house bank missing from the payments context.
+var houseBankRef = idref.Kind{Name: "house bank", Context: "payments"}
+
+// bankOfMemo is the house bank a record is expected on; nil: forecast only.
+func bankOfMemo(m MemoRecord) *uuid.UUID { return m.HouseBankID }
+
+// bankCodes gives the codes of the house banks records name, keyed by id,
+// through the payments context's port: one call for them, none when none
+// is named; a bank it does not hold fails the response.
+func (e *Endpoints) bankCodes(ctx context.Context, ms []MemoRecord) (map[uuid.UUID]string, error) {
+	codes, err := idref.Resolve(ctx, e.Payments.HouseBankCodes, idref.Of(ms, bankOfMemo), houseBankRef)
+	if err != nil {
+		return nil, fmt.Errorf("cash: house banks of %d memo records: %w", len(ms), err)
+	}
+	return codes, nil
+}
+
+// memoToAPI shows a record with its status as of the read date, its house
+// bank named by its code from codes.
+func memoToAPI(m MemoRecord, read time.Time, codes map[uuid.UUID]string) gen.MemoRecord {
 	direction := "inflow"
 	if m.Amount < 0 {
 		direction = "outflow"
@@ -39,6 +58,9 @@ func memoToAPI(m MemoRecord, read time.Time) gen.MemoRecord {
 	}
 	if r := m.Recurrence; r != nil {
 		out.Recurrence.SetTo(gen.MemoRecurrence{Frequency: r.Frequency, Until: apitypes.OptDate(r.Until), Count: apitypes.OptInt32(r.Count)})
+	}
+	if m.HouseBankID != nil {
+		out.HouseBankCode.SetTo(codes[*m.HouseBankID])
 	}
 	if m.RealisedBy != nil {
 		out.RealisedBy.SetTo(lineToAPI(*m.RealisedBy))
@@ -60,13 +82,31 @@ func recurrenceOf(r gen.OptMemoRecurrence) *Recurrence {
 // read is the read date, as a record's status is judged by it.
 func (e *Endpoints) read() time.Time { return clock.Day(clock.Now(e.Now)) }
 
-func (e *Endpoints) headers(m MemoRecord) *gen.MemoRecordHeaders {
-	return &gen.MemoRecordHeaders{ETag: gen.NewOptString(etag.Format(m.Version)), Location: gen.NewOptString("/v1/memo-records/" + m.ID.String()),
-		Response: memoToAPI(m, e.read())}
+// memoOut is record m as a single read shows it, its house bank's code read
+// for it.
+func (e *Endpoints) memoOut(ctx context.Context, m MemoRecord) (gen.MemoRecord, error) {
+	codes, err := e.bankCodes(ctx, []MemoRecord{m})
+	if err != nil {
+		return gen.MemoRecord{}, err
+	}
+	return memoToAPI(m, e.read(), codes), nil
 }
 
-func (e *Endpoints) changed(m MemoRecord) *gen.UpdateMemoRecordOKHeaders {
-	return &gen.UpdateMemoRecordOKHeaders{ETag: gen.NewOptString(etag.Format(m.Version)), Response: memoToAPI(m, e.read())}
+func (e *Endpoints) headers(ctx context.Context, m MemoRecord) (*gen.MemoRecordHeaders, error) {
+	out, err := e.memoOut(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.MemoRecordHeaders{ETag: gen.NewOptString(etag.Format(m.Version)), Location: gen.NewOptString("/v1/memo-records/" + m.ID.String()),
+		Response: out}, nil
+}
+
+func (e *Endpoints) changed(ctx context.Context, m MemoRecord) (*gen.UpdateMemoRecordOKHeaders, error) {
+	out, err := e.memoOut(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.UpdateMemoRecordOKHeaders{ETag: gen.NewOptString(etag.Format(m.Version)), Response: out}, nil
 }
 
 // CreateMemoRecord implements POST /v1/memo-records.
@@ -78,7 +118,7 @@ func (e *Endpoints) CreateMemoRecord(ctx context.Context, req *gen.MemoRecordCre
 	if err != nil {
 		return nil, err
 	}
-	return e.headers(m), nil
+	return e.headers(ctx, m)
 }
 
 // ProposeMemoRecord implements POST /v1/memo-record-proposals.
@@ -94,7 +134,7 @@ func (e *Endpoints) ProposeMemoRecord(ctx context.Context, req *gen.MemoRecordPr
 	if err != nil {
 		return nil, err
 	}
-	return e.headers(m), nil
+	return e.headers(ctx, m)
 }
 
 // GetMemoRecord implements GET /v1/memo-records/{id}.
@@ -107,7 +147,11 @@ func (e *Endpoints) GetMemoRecord(ctx context.Context, params gen.GetMemoRecordP
 	if err != nil {
 		return nil, err
 	}
-	return &gen.GetMemoRecordOKHeaders{ETag: gen.NewOptString(etag.Format(m.Version)), Response: memoToAPI(m, e.read())}, nil
+	out, err := e.memoOut(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.GetMemoRecordOKHeaders{ETag: gen.NewOptString(etag.Format(m.Version)), Response: out}, nil
 }
 
 // UpdateMemoRecord implements PATCH /v1/memo-records/{id}.
@@ -129,7 +173,7 @@ func (e *Endpoints) UpdateMemoRecord(ctx context.Context, req *gen.MemoRecordUpd
 	if err != nil {
 		return nil, err
 	}
-	return e.changed(m), nil
+	return e.changed(ctx, m)
 }
 
 // CancelMemoRecord implements POST /v1/memo-records/{id}:cancel.
@@ -140,9 +184,9 @@ func (e *Endpoints) CancelMemoRecord(ctx context.Context, req gen.OptMemoRecordC
 		return nil, err
 	}
 	if created { // the occurrence's override
-		return e.headers(m), nil
+		return e.headers(ctx, m)
 	}
-	return e.changed(m), nil
+	return e.changed(ctx, m)
 }
 
 // RealiseMemoRecord implements POST /v1/memo-records/{id}:realise.
@@ -160,9 +204,9 @@ func (e *Endpoints) RealiseMemoRecord(ctx context.Context, req gen.OptMemoRecord
 		return nil, err
 	}
 	if created { // the occurrence's override
-		return e.headers(m), nil
+		return e.headers(ctx, m)
 	}
-	return e.changed(m), nil
+	return e.changed(ctx, m)
 }
 
 // AcceptMemoRecordProposal implements POST /v1/memo-records/{id}:acceptProposal.
@@ -171,7 +215,7 @@ func (e *Endpoints) AcceptMemoRecordProposal(ctx context.Context, req gen.OptMem
 	if err != nil {
 		return nil, err
 	}
-	return e.changed(m), nil
+	return e.changed(ctx, m)
 }
 
 // RejectMemoRecordProposal implements POST /v1/memo-records/{id}:rejectProposal.
@@ -180,7 +224,7 @@ func (e *Endpoints) RejectMemoRecordProposal(ctx context.Context, req *gen.Reaso
 	if err != nil {
 		return nil, err
 	}
-	return e.changed(m), nil
+	return e.changed(ctx, m)
 }
 
 var memoSort = pagination.Sort{Default: "value_date", Fields: []pagination.Field{
@@ -218,12 +262,16 @@ func (e *Endpoints) ListMemoRecords(ctx context.Context, params gen.ListMemoReco
 	if err != nil {
 		return nil, fmt.Errorf("cash: list memo records: %w", err)
 	}
-	items, next := apitypes.PageOf(ks, ms, func(m MemoRecord) (string, uuid.UUID) {
+	items, next, err := apitypes.PageWith(ks, ms, func(m MemoRecord) (string, uuid.UUID) {
 		if ks.Field() == "created_at" {
 			return m.CreatedAt.UTC().Format(time.RFC3339Nano), m.ID
 		}
 		return m.ValueDate.Format(time.DateOnly), m.ID
-	}, func(m MemoRecord) gen.MemoRecord { return memoToAPI(m, read) })
+	}, func(page []MemoRecord) (map[uuid.UUID]string, error) { return e.bankCodes(ctx, page) },
+		func(m MemoRecord, codes map[uuid.UUID]string) gen.MemoRecord { return memoToAPI(m, read, codes) })
+	if err != nil {
+		return nil, err
+	}
 	return &gen.MemoRecordPage{Items: items, NextPageToken: next}, nil
 }
 

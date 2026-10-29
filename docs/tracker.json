@@ -916,10 +916,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A payment names its posting and its bank (pre-existing finding on paynums, API-consumer classes: an identifier without the name or reference its consumer needs): Payment.journal_entry_id (the payment's own posting) gives no document number, and bank_account_id and house_bank_id give no name or code, so a consumer makes one more call per payment; ledger.OpenItems.Numbers already resolves journal entry numbers",
-        "r": "api/openapi.yaml Payment journal_entry_id · bank_account_id · house_bank_id · internal/payments · ledger.OpenItems.Numbers",
+        "r": "api/openapi.yaml Payment journal_entry_number · bank_account_last4/_scheme/_holder_name/_bic/_institution_number/_transit_number · house_bank_code · internal/payments paymentRefs · resolve · internal/partner Payees.BankAccounts · ledger.OpenItems.Numbers · ADR-0038 As built (review:batch23 follow-up) · walkthrough step 7",
         "src": "review:batch23",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Every resource that names a house bank gives its code (pre-existing finding on paybank, API-consumer classes: an identifier without the name or reference its consumer needs): PaymentRun, BankStatement, BankReconciliation, MemoRecord and BankFile give house_bank_id without the bank's code, so an integration listing a run's bank files calls getHouseBank once per file",
+        "r": "api/openapi.yaml PaymentRun · BankStatement · BankReconciliation · MemoRecord · BankFile house_bank_code · internal/payments bankCodes · withBank · internal/cash Payments.HouseBankCodes · internal/platform/idref · apitypes.PageWith · ADR-0038 As built (review:batch24) · ADR-0051 §7 As built · walkthrough steps 7, 8, 13",
+        "src": "review:batch24",
         "c": []
        }
       ]
@@ -2644,10 +2651,24 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A migration run's report has a schema (pre-existing finding on grirtop): MigrationRun.report is an object with additionalProperties: true, so its loaded-count keys (gr_ir_positions, gr_ir_top_ups and the others) are documented only in docs/migration.md and a consumer of the contract cannot know them",
-      "r": "api/openapi.yaml MigrationRun.report · internal/integration · docs/migration.md",
+      "r": "api/openapi.yaml MigrationRunReport · internal/integration/report.go · docs/migration.md · ADR-0013 As built",
       "src": "review:batch23",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "MigrationRunCompleted's summary has a schema (pre-existing finding on runreport): api/asyncapi.yaml declares it a free-form object and its example shows records_read, records_loaded and differences, while the run publishes passed and loaded, so an event consumer cannot know the figures it is sent",
+      "r": "api/asyncapi.yaml MigrationRunCompletedV1.summary, MigrationLoadedCounts · internal/integration/runs.go summaryOf · apitest.Conforms · TestSummaryMatchesEventContract · ADR-0013 As built",
+      "src": "review:batch24",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "A migration run's report names what each key is about by the reference its reader has (pre-existing finding on runreport): a refused posting block is reported under LFA1 by the platform partner's id, not the SAP vendor number, and a reconciliation difference of a platform supplier that is no migrated vendor is keyed partner <id> without the supplier's name",
+      "r": "internal/integration/load.go blocked · internal/integration/reconcile.go vendorKey · api/openapi.yaml MigrationIssue.key, MigrationDiff.key · docs/migration.md · ADR-0013 As built",
+      "src": "review:batch24",
       "c": []
      },
      {
@@ -5327,10 +5348,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "x-problem-codes may omit codes an operation can answer: problemcodes_test.go's cut drops a direct call of a function-value parameter without proving its callers made the value; 61 of 165 such call sites in production packages are unproven by holdsMade (counted in review round 2), mostly ifMatch/fits/check/build passed through internal/app.handler's promotion wrappers, others in shared platform helpers (uow.Act fn, uow.Job.Tx fn, database.BeginOr begin, pagination.Page key, worker.Recover fn) and struct fields (payables.Uploads.now, blobstore writeSidecar place, uow authenticate check, apitypes PageOf key/toAPI); checking them with givenMade adds codes such as request.version_mismatch and ledger.approval_required, each to be judged",
-        "r": "api/problemcodes_test.go cut · ADR-0052 G7",
+        "r": "api/problemcodes_test.go callersMake, givenMade, uncallable, sealHandler, flowsTo, genHandlerUses · api/testdata/fieldcalls callP, callQ · api/testdata/handlerflow · TestProblemCodesFieldCalls · TestProblemCodes/handler · ADR-0052 G7: function values given as a parameter",
         "src": "review:batch23",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "x-problem-codes' givenMade treats the calls the call graph shows as every call of a function (pre-existing finding of the pcsound review, batch 24): code without SSA bodies (the standard library, third-party packages, api/gen) could also call a function whose value or receiver escapes to it, passing a function another operation made, and the cut would drop that function's codes. List the functions with a function-typed parameter whose function value or receiver type escapes to code outside the program; none: record the premise in ADR-0052 G7; some: keep their edges",
+        "r": "api/problemcodes_test.go givenMade · ADR-0052 G7",
+        "src": "review:batch24",
         "c": []
        },
        {

@@ -381,6 +381,16 @@ gates on each pull request:
     path filter, whose test
     held only the scripts). Changed: both include them, and
     `scripts/test-ci-changes.sh` holds that each starts the class.
+  - 2026-10-29 (runreport, batch24): `MigrationExtractCounts` named its
+    properties by SAP's table names (`T001`, `AGR_DEFINE`), which `api`'s
+    `TestRepresentations` refuses (JSON field names are snake_case, 04);
+    the lane's fast loop ran only `TestProblemCodes` from `./api`, so a
+    contract-style rule was missed until the batch's integration. Layer:
+    the lane fast loop. Changed: a step that changes `api/openapi.yaml`,
+    `api/asyncapi.yaml`, a problem code or a handler runs all of
+    `go test ./api` (07 §7.7 and the lanes' standing rules), not only
+    `TestProblemCodes`; the API names the tables in lower case and the
+    stored report keeps SAP's names (ADR-0013, As built).
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
   documentation changed (`docs/`, Markdown) since the base: a pull

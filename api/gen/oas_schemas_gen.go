@@ -3733,6 +3733,8 @@ type BankFile struct {
 	// House bank whose account the file pays from; a run writes one file per house bank and payment method
 	// (T45c).
 	HouseBankID OptUUID `json:"house_bank_id"`
+	// The house bank's `code`, its name in the configuration; present exactly when `house_bank_id` is.
+	HouseBankCode OptString `json:"house_bank_code"`
 	// Payment method of the file's payments; absent for a run proposed for one house bank.
 	PaymentMethod OptString `json:"payment_method"`
 	// ISO 20022 message format. Open enumeration: clients must accept and preserve values not listed here;
@@ -3781,6 +3783,11 @@ func (s *BankFile) GetPaymentRunID() uuid.UUID {
 // GetHouseBankID returns the value of HouseBankID.
 func (s *BankFile) GetHouseBankID() OptUUID {
 	return s.HouseBankID
+}
+
+// GetHouseBankCode returns the value of HouseBankCode.
+func (s *BankFile) GetHouseBankCode() OptString {
+	return s.HouseBankCode
 }
 
 // GetPaymentMethod returns the value of PaymentMethod.
@@ -3836,6 +3843,11 @@ func (s *BankFile) SetPaymentRunID(val uuid.UUID) {
 // SetHouseBankID sets the value of HouseBankID.
 func (s *BankFile) SetHouseBankID(val OptUUID) {
 	s.HouseBankID = val
+}
+
+// SetHouseBankCode sets the value of HouseBankCode.
+func (s *BankFile) SetHouseBankCode(val OptString) {
+	s.HouseBankCode = val
 }
 
 // SetPaymentMethod sets the value of PaymentMethod.
@@ -3932,6 +3944,8 @@ func (*BankFilePage) listBankFilesRes() {}
 type BankReconciliation struct {
 	// The house bank.
 	HouseBankID uuid.UUID `json:"house_bank_id"`
+	// The house bank's `code`, its name in the configuration.
+	HouseBankCode string `json:"house_bank_code"`
 	// The house bank's legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// The house bank's currency (ISO 4217), its statements' and the ledger balances'.
@@ -3950,6 +3964,11 @@ type BankReconciliation struct {
 // GetHouseBankID returns the value of HouseBankID.
 func (s *BankReconciliation) GetHouseBankID() uuid.UUID {
 	return s.HouseBankID
+}
+
+// GetHouseBankCode returns the value of HouseBankCode.
+func (s *BankReconciliation) GetHouseBankCode() string {
+	return s.HouseBankCode
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -3990,6 +4009,11 @@ func (s *BankReconciliation) GetNextPageToken() OptString {
 // SetHouseBankID sets the value of HouseBankID.
 func (s *BankReconciliation) SetHouseBankID(val uuid.UUID) {
 	s.HouseBankID = val
+}
+
+// SetHouseBankCode sets the value of HouseBankCode.
+func (s *BankReconciliation) SetHouseBankCode(val string) {
+	s.HouseBankCode = val
 }
 
 // SetLegalEntityID sets the value of LegalEntityID.
@@ -4587,6 +4611,8 @@ type BankStatement struct {
 	UpdatedBy OptUUID `json:"updated_by"`
 	// House bank whose account the statement is of.
 	HouseBankID uuid.UUID `json:"house_bank_id"`
+	// The house bank's `code`, its name in the configuration.
+	HouseBankCode string `json:"house_bank_code"`
 	// The house bank's legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// The file's format and version. Open enumeration: clients must accept and preserve values not listed
@@ -4667,6 +4693,11 @@ func (s *BankStatement) GetUpdatedBy() OptUUID {
 // GetHouseBankID returns the value of HouseBankID.
 func (s *BankStatement) GetHouseBankID() uuid.UUID {
 	return s.HouseBankID
+}
+
+// GetHouseBankCode returns the value of HouseBankCode.
+func (s *BankStatement) GetHouseBankCode() string {
+	return s.HouseBankCode
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -4792,6 +4823,11 @@ func (s *BankStatement) SetUpdatedBy(val OptUUID) {
 // SetHouseBankID sets the value of HouseBankID.
 func (s *BankStatement) SetHouseBankID(val uuid.UUID) {
 	s.HouseBankID = val
+}
+
+// SetHouseBankCode sets the value of HouseBankCode.
+func (s *BankStatement) SetHouseBankCode(val string) {
+	s.HouseBankCode = val
 }
 
 // SetLegalEntityID sets the value of LegalEntityID.
@@ -21904,7 +21940,9 @@ type MemoRecord struct {
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// The house bank it is expected on; absent: forecast only.
 	HouseBankID OptUUID `json:"house_bank_id"`
-	Amount      Money   `json:"amount"`
+	// The house bank's `code`, its name in the configuration; present exactly when `house_bank_id` is.
+	HouseBankCode OptString `json:"house_bank_code"`
+	Amount        Money     `json:"amount"`
 	// `inflow` for a positive amount, `outflow` for a negative one. Open enumeration: clients must accept
 	// and preserve values not listed here; values may be added within /v1.
 	Direction string `json:"direction"`
@@ -21990,6 +22028,11 @@ func (s *MemoRecord) GetLegalEntityID() uuid.UUID {
 // GetHouseBankID returns the value of HouseBankID.
 func (s *MemoRecord) GetHouseBankID() OptUUID {
 	return s.HouseBankID
+}
+
+// GetHouseBankCode returns the value of HouseBankCode.
+func (s *MemoRecord) GetHouseBankCode() OptString {
+	return s.HouseBankCode
 }
 
 // GetAmount returns the value of Amount.
@@ -22135,6 +22178,11 @@ func (s *MemoRecord) SetLegalEntityID(val uuid.UUID) {
 // SetHouseBankID sets the value of HouseBankID.
 func (s *MemoRecord) SetHouseBankID(val OptUUID) {
 	s.HouseBankID = val
+}
+
+// SetHouseBankCode sets the value of HouseBankCode.
+func (s *MemoRecord) SetHouseBankCode(val OptString) {
+	s.HouseBankCode = val
 }
 
 // SetAmount sets the value of Amount.
@@ -23073,6 +23121,591 @@ func (s *MemoRecurrence) SetCount(val OptInt32) {
 	s.Count = val
 }
 
+// One reconciliation control for a company code.
+// Ref: #/components/schemas/MigrationCheck
+type MigrationCheck struct {
+	// SAP company code (T001 BUKRS) of the legal entity.
+	CompanyCode string `json:"company_code"`
+	// The control, for example `Trial balance: accounts with differences`, `Open payables total` or
+	// `Open GR/IR: order items with differences` (docs/migration.md, Reconciliation controls).
+	Name string `json:"name"`
+	// The figure computed from the SAP extract: a count, or an amount with its currency code
+	// (`1250.00 EUR`).
+	Sap string `json:"sap"`
+	// The same figure computed from the platform.
+	Platform string `json:"platform"`
+	// Whether the two figures agree.
+	Pass bool `json:"pass"`
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *MigrationCheck) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetName returns the value of Name.
+func (s *MigrationCheck) GetName() string {
+	return s.Name
+}
+
+// GetSap returns the value of Sap.
+func (s *MigrationCheck) GetSap() string {
+	return s.Sap
+}
+
+// GetPlatform returns the value of Platform.
+func (s *MigrationCheck) GetPlatform() string {
+	return s.Platform
+}
+
+// GetPass returns the value of Pass.
+func (s *MigrationCheck) GetPass() bool {
+	return s.Pass
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *MigrationCheck) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetName sets the value of Name.
+func (s *MigrationCheck) SetName(val string) {
+	s.Name = val
+}
+
+// SetSap sets the value of Sap.
+func (s *MigrationCheck) SetSap(val string) {
+	s.Sap = val
+}
+
+// SetPlatform sets the value of Platform.
+func (s *MigrationCheck) SetPlatform(val string) {
+	s.Platform = val
+}
+
+// SetPass sets the value of Pass.
+func (s *MigrationCheck) SetPass(val bool) {
+	s.Pass = val
+}
+
+// A difference behind a failed check.
+// Ref: #/components/schemas/MigrationDiff
+type MigrationDiff struct {
+	// SAP company code (T001 BUKRS).
+	CompanyCode string `json:"company_code"`
+	// What differs: an account number, `vendor <LIFNR>`, `down payments of vendor <LIFNR>`,
+	// `partner <id> (<name>)` or `down payments of partner <id> (<name>)` (a platform supplier that is no
+	// migrated vendor, by its id and name), `bank account of vendor <LIFNR>`, `order item <EBELN>/<EBELP>`
+	// or `GR/IR of order item <EBELN>/<EBELP>`.
+	Key string `json:"key"`
+	// SAP's value: an amount with its currency code (`1250.00 EUR`), a quantity, a GR/IR position as its
+	// balance and quantity (`750.00 EUR, quantity 5`), or a bank account as the load writes it.
+	Sap string `json:"sap"`
+	// The platform's value, in the same form.
+	Platform string `json:"platform"`
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *MigrationDiff) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetKey returns the value of Key.
+func (s *MigrationDiff) GetKey() string {
+	return s.Key
+}
+
+// GetSap returns the value of Sap.
+func (s *MigrationDiff) GetSap() string {
+	return s.Sap
+}
+
+// GetPlatform returns the value of Platform.
+func (s *MigrationDiff) GetPlatform() string {
+	return s.Platform
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *MigrationDiff) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetKey sets the value of Key.
+func (s *MigrationDiff) SetKey(val string) {
+	s.Key = val
+}
+
+// SetSap sets the value of Sap.
+func (s *MigrationDiff) SetSap(val string) {
+	s.Sap = val
+}
+
+// SetPlatform sets the value of Platform.
+func (s *MigrationDiff) SetPlatform(val string) {
+	s.Platform = val
+}
+
+// Rows read from the source system per SAP table, each key the table's name in lower case (`t001` for
+// T001, `agr_define` for AGR_DEFINE); internal/sap describes each table.
+// Ref: #/components/schemas/MigrationExtractCounts
+type MigrationExtractCounts struct {
+	// Rows of SAP table T001 (company codes).
+	T001 int `json:"t001"`
+	// Rows of SAP table SKB1 (G/L account master per company code).
+	Skb1 int `json:"skb1"`
+	// Rows of SAP table LFA1 (vendor general data).
+	Lfa1 int `json:"lfa1"`
+	// Rows of SAP table LFB1 (vendor company code data).
+	Lfb1 int `json:"lfb1"`
+	// Rows of SAP table LFBK (vendor bank details).
+	Lfbk int `json:"lfbk"`
+	// Rows of SAP table EKKO (purchasing document headers).
+	Ekko int `json:"ekko"`
+	// Rows of SAP table EKPO (purchasing document items).
+	Ekpo int `json:"ekpo"`
+	// Rows of SAP table MSEG (goods movements).
+	Mseg int `json:"mseg"`
+	// Rows of SAP table RBKP (supplier invoice headers).
+	Rbkp int `json:"rbkp"`
+	// Rows of SAP table RSEG (supplier invoice items).
+	Rseg int `json:"rseg"`
+	// Rows of SAP table ACDOCA (Universal Journal line items).
+	Acdoca int `json:"acdoca"`
+	// Rows of SAP table T052 (payment terms).
+	T052 int `json:"t052"`
+	// Rows of SAP table T007A (tax codes).
+	T007a int `json:"t007a"`
+	// Rows of SAP table T030 (automatic account determination).
+	T030 int `json:"t030"`
+	// Rows of SAP table T169G (invoice verification tolerance limits).
+	T169g int `json:"t169g"`
+	// Rows of SAP table T012K (house bank accounts).
+	T012k int `json:"t012k"`
+	// Rows of SAP table T074 (special G/L accounts).
+	T074 int `json:"t074"`
+	// Rows of SAP table AGR_DEFINE (roles).
+	AgrDefine int `json:"agr_define"`
+	// Rows of SAP table AGR_TCODES (transactions in a role).
+	AgrTcodes int `json:"agr_tcodes"`
+	// Rows of SAP table AGR_USERS (role assignments).
+	AgrUsers int `json:"agr_users"`
+}
+
+// GetT001 returns the value of T001.
+func (s *MigrationExtractCounts) GetT001() int {
+	return s.T001
+}
+
+// GetSkb1 returns the value of Skb1.
+func (s *MigrationExtractCounts) GetSkb1() int {
+	return s.Skb1
+}
+
+// GetLfa1 returns the value of Lfa1.
+func (s *MigrationExtractCounts) GetLfa1() int {
+	return s.Lfa1
+}
+
+// GetLfb1 returns the value of Lfb1.
+func (s *MigrationExtractCounts) GetLfb1() int {
+	return s.Lfb1
+}
+
+// GetLfbk returns the value of Lfbk.
+func (s *MigrationExtractCounts) GetLfbk() int {
+	return s.Lfbk
+}
+
+// GetEkko returns the value of Ekko.
+func (s *MigrationExtractCounts) GetEkko() int {
+	return s.Ekko
+}
+
+// GetEkpo returns the value of Ekpo.
+func (s *MigrationExtractCounts) GetEkpo() int {
+	return s.Ekpo
+}
+
+// GetMseg returns the value of Mseg.
+func (s *MigrationExtractCounts) GetMseg() int {
+	return s.Mseg
+}
+
+// GetRbkp returns the value of Rbkp.
+func (s *MigrationExtractCounts) GetRbkp() int {
+	return s.Rbkp
+}
+
+// GetRseg returns the value of Rseg.
+func (s *MigrationExtractCounts) GetRseg() int {
+	return s.Rseg
+}
+
+// GetAcdoca returns the value of Acdoca.
+func (s *MigrationExtractCounts) GetAcdoca() int {
+	return s.Acdoca
+}
+
+// GetT052 returns the value of T052.
+func (s *MigrationExtractCounts) GetT052() int {
+	return s.T052
+}
+
+// GetT007a returns the value of T007a.
+func (s *MigrationExtractCounts) GetT007a() int {
+	return s.T007a
+}
+
+// GetT030 returns the value of T030.
+func (s *MigrationExtractCounts) GetT030() int {
+	return s.T030
+}
+
+// GetT169g returns the value of T169g.
+func (s *MigrationExtractCounts) GetT169g() int {
+	return s.T169g
+}
+
+// GetT012k returns the value of T012k.
+func (s *MigrationExtractCounts) GetT012k() int {
+	return s.T012k
+}
+
+// GetT074 returns the value of T074.
+func (s *MigrationExtractCounts) GetT074() int {
+	return s.T074
+}
+
+// GetAgrDefine returns the value of AgrDefine.
+func (s *MigrationExtractCounts) GetAgrDefine() int {
+	return s.AgrDefine
+}
+
+// GetAgrTcodes returns the value of AgrTcodes.
+func (s *MigrationExtractCounts) GetAgrTcodes() int {
+	return s.AgrTcodes
+}
+
+// GetAgrUsers returns the value of AgrUsers.
+func (s *MigrationExtractCounts) GetAgrUsers() int {
+	return s.AgrUsers
+}
+
+// SetT001 sets the value of T001.
+func (s *MigrationExtractCounts) SetT001(val int) {
+	s.T001 = val
+}
+
+// SetSkb1 sets the value of Skb1.
+func (s *MigrationExtractCounts) SetSkb1(val int) {
+	s.Skb1 = val
+}
+
+// SetLfa1 sets the value of Lfa1.
+func (s *MigrationExtractCounts) SetLfa1(val int) {
+	s.Lfa1 = val
+}
+
+// SetLfb1 sets the value of Lfb1.
+func (s *MigrationExtractCounts) SetLfb1(val int) {
+	s.Lfb1 = val
+}
+
+// SetLfbk sets the value of Lfbk.
+func (s *MigrationExtractCounts) SetLfbk(val int) {
+	s.Lfbk = val
+}
+
+// SetEkko sets the value of Ekko.
+func (s *MigrationExtractCounts) SetEkko(val int) {
+	s.Ekko = val
+}
+
+// SetEkpo sets the value of Ekpo.
+func (s *MigrationExtractCounts) SetEkpo(val int) {
+	s.Ekpo = val
+}
+
+// SetMseg sets the value of Mseg.
+func (s *MigrationExtractCounts) SetMseg(val int) {
+	s.Mseg = val
+}
+
+// SetRbkp sets the value of Rbkp.
+func (s *MigrationExtractCounts) SetRbkp(val int) {
+	s.Rbkp = val
+}
+
+// SetRseg sets the value of Rseg.
+func (s *MigrationExtractCounts) SetRseg(val int) {
+	s.Rseg = val
+}
+
+// SetAcdoca sets the value of Acdoca.
+func (s *MigrationExtractCounts) SetAcdoca(val int) {
+	s.Acdoca = val
+}
+
+// SetT052 sets the value of T052.
+func (s *MigrationExtractCounts) SetT052(val int) {
+	s.T052 = val
+}
+
+// SetT007a sets the value of T007a.
+func (s *MigrationExtractCounts) SetT007a(val int) {
+	s.T007a = val
+}
+
+// SetT030 sets the value of T030.
+func (s *MigrationExtractCounts) SetT030(val int) {
+	s.T030 = val
+}
+
+// SetT169g sets the value of T169g.
+func (s *MigrationExtractCounts) SetT169g(val int) {
+	s.T169g = val
+}
+
+// SetT012k sets the value of T012k.
+func (s *MigrationExtractCounts) SetT012k(val int) {
+	s.T012k = val
+}
+
+// SetT074 sets the value of T074.
+func (s *MigrationExtractCounts) SetT074(val int) {
+	s.T074 = val
+}
+
+// SetAgrDefine sets the value of AgrDefine.
+func (s *MigrationExtractCounts) SetAgrDefine(val int) {
+	s.AgrDefine = val
+}
+
+// SetAgrTcodes sets the value of AgrTcodes.
+func (s *MigrationExtractCounts) SetAgrTcodes(val int) {
+	s.AgrTcodes = val
+}
+
+// SetAgrUsers sets the value of AgrUsers.
+func (s *MigrationExtractCounts) SetAgrUsers(val int) {
+	s.AgrUsers = val
+}
+
+// A finding of the quality gate, the load or the reconciliation on a row of the extract.
+// Ref: #/components/schemas/MigrationIssue
+type MigrationIssue struct {
+	// `error` blocks the run; `warning` migrates but needs a business decision. Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	Severity string `json:"severity"`
+	// SAP table of the row, for example `ACDOCA`, or `platform` for a figure the platform holds.
+	Table string `json:"table"`
+	// What the finding is about, within the table: SAP's key of the row (for example
+	// `<BUKRS>/<GJAHR>/<BELNR>/<DOCLN>` for a journal line, a vendor number, or several joined by commas
+	// for possible duplicates), what the load was doing (`GR/IR <EBELN>`, `clearing <BUKRS>/<AUGBL>`), or
+	// for the reconciliation the company code with what it was adding up (`<BUKRS>/vendor <LIFNR>`). A
+	// free-form text, not to be parsed.
+	Key string `json:"key"`
+	// What is wrong and, where it applies, how to fix it.
+	Message string `json:"message"`
+}
+
+// GetSeverity returns the value of Severity.
+func (s *MigrationIssue) GetSeverity() string {
+	return s.Severity
+}
+
+// GetTable returns the value of Table.
+func (s *MigrationIssue) GetTable() string {
+	return s.Table
+}
+
+// GetKey returns the value of Key.
+func (s *MigrationIssue) GetKey() string {
+	return s.Key
+}
+
+// GetMessage returns the value of Message.
+func (s *MigrationIssue) GetMessage() string {
+	return s.Message
+}
+
+// SetSeverity sets the value of Severity.
+func (s *MigrationIssue) SetSeverity(val string) {
+	s.Severity = val
+}
+
+// SetTable sets the value of Table.
+func (s *MigrationIssue) SetTable(val string) {
+	s.Table = val
+}
+
+// SetKey sets the value of Key.
+func (s *MigrationIssue) SetKey(val string) {
+	s.Key = val
+}
+
+// SetMessage sets the value of Message.
+func (s *MigrationIssue) SetMessage(val string) {
+	s.Message = val
+}
+
+// What a migration run's load created, by kind; a kind it created none of is absent. A rehearsal, and
+// a load with an `error` refusal, are rolled back: their counts are what the load created before the
+// rollback, and nothing of it stays. A kept load counts only what no earlier kept run loaded, so a run
+// of the same extract again counts nothing.
+// Ref: #/components/schemas/MigrationLoadedCounts
+type MigrationLoadedCounts struct {
+	// Suppliers created from SAP vendors (LFA1, LFB1).
+	Suppliers OptInt `json:"suppliers"`
+	// Suppliers an earlier run created that this run extended to more company codes (LFB1).
+	SuppliersExtended OptInt `json:"suppliers_extended"`
+	// Suppliers blocked for posting because SAP blocks the vendor (LFA1-SPERR).
+	SuppliersBlocked OptInt `json:"suppliers_blocked"`
+	// Purchase orders (EKKO, EKPO).
+	PurchaseOrders OptInt `json:"purchase_orders"`
+	// Goods receipts (MSEG).
+	GoodsReceipts OptInt `json:"goods_receipts"`
+	// Parked supplier documents (RBKP, RSEG), each as its kind: invoices, credit memos, subsequent debits
+	// and subsequent credits.
+	SupplierInvoices OptInt `json:"supplier_invoices"`
+	// SAP's posted invoice documents whose invoiced quantities were taken over for matching (T72b2); their
+	// amounts come over as journal entries.
+	PostedInvoicesInvoiced OptInt `json:"posted_invoices_invoiced"`
+	// Journal entries: SAP's documents in `documents` mode, one opening entry per company in `balances`
+	// mode, and each open down payment's document in either mode.
+	JournalEntries OptInt `json:"journal_entries"`
+	// Open down payments (special G/L indicator A) loaded as paid down payment requests (T72c); their
+	// entries count under `journal_entries` too.
+	DownPayments OptInt `json:"down_payments"`
+	// Clearings SAP made of vendor items (ACDOCA AUGBL), one per clearing document, in `documents` mode.
+	Clearings OptInt `json:"clearings"`
+	// Order items whose open GR/IR position this run took over, in an entry per order (T72f).
+	GrIrPositions OptInt `json:"gr_ir_positions"`
+	// Order items whose GR/IR position, taken over by an earlier run, this run topped up to SAP's balance
+	// and open quantity, in an entry per order.
+	GrIrTopUps OptInt `json:"gr_ir_top_ups"`
+}
+
+// GetSuppliers returns the value of Suppliers.
+func (s *MigrationLoadedCounts) GetSuppliers() OptInt {
+	return s.Suppliers
+}
+
+// GetSuppliersExtended returns the value of SuppliersExtended.
+func (s *MigrationLoadedCounts) GetSuppliersExtended() OptInt {
+	return s.SuppliersExtended
+}
+
+// GetSuppliersBlocked returns the value of SuppliersBlocked.
+func (s *MigrationLoadedCounts) GetSuppliersBlocked() OptInt {
+	return s.SuppliersBlocked
+}
+
+// GetPurchaseOrders returns the value of PurchaseOrders.
+func (s *MigrationLoadedCounts) GetPurchaseOrders() OptInt {
+	return s.PurchaseOrders
+}
+
+// GetGoodsReceipts returns the value of GoodsReceipts.
+func (s *MigrationLoadedCounts) GetGoodsReceipts() OptInt {
+	return s.GoodsReceipts
+}
+
+// GetSupplierInvoices returns the value of SupplierInvoices.
+func (s *MigrationLoadedCounts) GetSupplierInvoices() OptInt {
+	return s.SupplierInvoices
+}
+
+// GetPostedInvoicesInvoiced returns the value of PostedInvoicesInvoiced.
+func (s *MigrationLoadedCounts) GetPostedInvoicesInvoiced() OptInt {
+	return s.PostedInvoicesInvoiced
+}
+
+// GetJournalEntries returns the value of JournalEntries.
+func (s *MigrationLoadedCounts) GetJournalEntries() OptInt {
+	return s.JournalEntries
+}
+
+// GetDownPayments returns the value of DownPayments.
+func (s *MigrationLoadedCounts) GetDownPayments() OptInt {
+	return s.DownPayments
+}
+
+// GetClearings returns the value of Clearings.
+func (s *MigrationLoadedCounts) GetClearings() OptInt {
+	return s.Clearings
+}
+
+// GetGrIrPositions returns the value of GrIrPositions.
+func (s *MigrationLoadedCounts) GetGrIrPositions() OptInt {
+	return s.GrIrPositions
+}
+
+// GetGrIrTopUps returns the value of GrIrTopUps.
+func (s *MigrationLoadedCounts) GetGrIrTopUps() OptInt {
+	return s.GrIrTopUps
+}
+
+// SetSuppliers sets the value of Suppliers.
+func (s *MigrationLoadedCounts) SetSuppliers(val OptInt) {
+	s.Suppliers = val
+}
+
+// SetSuppliersExtended sets the value of SuppliersExtended.
+func (s *MigrationLoadedCounts) SetSuppliersExtended(val OptInt) {
+	s.SuppliersExtended = val
+}
+
+// SetSuppliersBlocked sets the value of SuppliersBlocked.
+func (s *MigrationLoadedCounts) SetSuppliersBlocked(val OptInt) {
+	s.SuppliersBlocked = val
+}
+
+// SetPurchaseOrders sets the value of PurchaseOrders.
+func (s *MigrationLoadedCounts) SetPurchaseOrders(val OptInt) {
+	s.PurchaseOrders = val
+}
+
+// SetGoodsReceipts sets the value of GoodsReceipts.
+func (s *MigrationLoadedCounts) SetGoodsReceipts(val OptInt) {
+	s.GoodsReceipts = val
+}
+
+// SetSupplierInvoices sets the value of SupplierInvoices.
+func (s *MigrationLoadedCounts) SetSupplierInvoices(val OptInt) {
+	s.SupplierInvoices = val
+}
+
+// SetPostedInvoicesInvoiced sets the value of PostedInvoicesInvoiced.
+func (s *MigrationLoadedCounts) SetPostedInvoicesInvoiced(val OptInt) {
+	s.PostedInvoicesInvoiced = val
+}
+
+// SetJournalEntries sets the value of JournalEntries.
+func (s *MigrationLoadedCounts) SetJournalEntries(val OptInt) {
+	s.JournalEntries = val
+}
+
+// SetDownPayments sets the value of DownPayments.
+func (s *MigrationLoadedCounts) SetDownPayments(val OptInt) {
+	s.DownPayments = val
+}
+
+// SetClearings sets the value of Clearings.
+func (s *MigrationLoadedCounts) SetClearings(val OptInt) {
+	s.Clearings = val
+}
+
+// SetGrIrPositions sets the value of GrIrPositions.
+func (s *MigrationLoadedCounts) SetGrIrPositions(val OptInt) {
+	s.GrIrPositions = val
+}
+
+// SetGrIrTopUps sets the value of GrIrTopUps.
+func (s *MigrationLoadedCounts) SetGrIrTopUps(val OptInt) {
+	s.GrIrTopUps = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/MigrationRun
 type MigrationRun struct {
@@ -23100,7 +23733,8 @@ type MigrationRun struct {
 	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
 	Status string `json:"status"`
-	// Reconciliation report.
+	// What the run extracted, checked, loaded and reconciled (docs/migration.md); absent while the run is
+	// queued and has not finished a step.
 	Report OptMigrationRunReport `json:"report"`
 	// Current or last operation.
 	OperationID OptUUID `json:"operation_id"`
@@ -23408,16 +24042,125 @@ func (s *MigrationRunPage) SetTotalEstimate(val OptInt64) {
 
 func (*MigrationRunPage) listMigrationRunsRes() {}
 
-// Reconciliation report.
-type MigrationRunReport map[string]jx.Raw
+// A migration run's report (docs/migration.md). `extract` and `quality` are written when the run
+// starts; `load` and `loaded` once the quality gate passed and the load ran; `checks`, `diffs`,
+// `passed` and, when there are any, `missing_documents` and `issues` once the run is reconciled (a
+// rehearsal reconciles in its start). Fields may be added within /v1.
+// Ref: #/components/schemas/MigrationRunReport
+type MigrationRunReport struct {
+	// Rows read from the source system, per SAP table.
+	Extract MigrationExtractCounts `json:"extract"`
+	// The data-quality gate's findings on the extract: an `error` stops the run before anything loads, a
+	// `warning` loads but needs a business sign-off.
+	Quality []MigrationIssue `json:"quality"`
+	// Rows the load refused (`error`, and then nothing stays loaded) or noted (`warning`).
+	Load []MigrationIssue `json:"load"`
+	// What the load created, by kind; for a rehearsal, or a load with an `error` refusal, what it created
+	// before it was rolled back.
+	Loaded OptMigrationLoadedCounts `json:"loaded"`
+	// The reconciliation controls, each figure computed from the raw SAP extract and from the platform
+	// (docs/migration.md, Reconciliation controls).
+	Checks []MigrationCheck `json:"checks"`
+	// The differences behind the failed checks.
+	Diffs []MigrationDiff `json:"diffs"`
+	// SAP documents of the scope not on the platform (`documents` mode), the first 100; absent when there
+	// are none.
+	MissingDocuments []string `json:"missing_documents"`
+	// SAP values the reconciliation could not use: amounts that do not parse, or sums out of the range of
+	// an amount; absent when there are none. Any one fails the reconciliation.
+	Issues []MigrationIssue `json:"issues"`
+	// Whether every check passed and the reconciliation had no issue; the run is then `reconciled`.
+	Passed OptBool `json:"passed"`
+}
 
-func (s *MigrationRunReport) init() MigrationRunReport {
-	m := *s
-	if m == nil {
-		m = map[string]jx.Raw{}
-		*s = m
-	}
-	return m
+// GetExtract returns the value of Extract.
+func (s *MigrationRunReport) GetExtract() MigrationExtractCounts {
+	return s.Extract
+}
+
+// GetQuality returns the value of Quality.
+func (s *MigrationRunReport) GetQuality() []MigrationIssue {
+	return s.Quality
+}
+
+// GetLoad returns the value of Load.
+func (s *MigrationRunReport) GetLoad() []MigrationIssue {
+	return s.Load
+}
+
+// GetLoaded returns the value of Loaded.
+func (s *MigrationRunReport) GetLoaded() OptMigrationLoadedCounts {
+	return s.Loaded
+}
+
+// GetChecks returns the value of Checks.
+func (s *MigrationRunReport) GetChecks() []MigrationCheck {
+	return s.Checks
+}
+
+// GetDiffs returns the value of Diffs.
+func (s *MigrationRunReport) GetDiffs() []MigrationDiff {
+	return s.Diffs
+}
+
+// GetMissingDocuments returns the value of MissingDocuments.
+func (s *MigrationRunReport) GetMissingDocuments() []string {
+	return s.MissingDocuments
+}
+
+// GetIssues returns the value of Issues.
+func (s *MigrationRunReport) GetIssues() []MigrationIssue {
+	return s.Issues
+}
+
+// GetPassed returns the value of Passed.
+func (s *MigrationRunReport) GetPassed() OptBool {
+	return s.Passed
+}
+
+// SetExtract sets the value of Extract.
+func (s *MigrationRunReport) SetExtract(val MigrationExtractCounts) {
+	s.Extract = val
+}
+
+// SetQuality sets the value of Quality.
+func (s *MigrationRunReport) SetQuality(val []MigrationIssue) {
+	s.Quality = val
+}
+
+// SetLoad sets the value of Load.
+func (s *MigrationRunReport) SetLoad(val []MigrationIssue) {
+	s.Load = val
+}
+
+// SetLoaded sets the value of Loaded.
+func (s *MigrationRunReport) SetLoaded(val OptMigrationLoadedCounts) {
+	s.Loaded = val
+}
+
+// SetChecks sets the value of Checks.
+func (s *MigrationRunReport) SetChecks(val []MigrationCheck) {
+	s.Checks = val
+}
+
+// SetDiffs sets the value of Diffs.
+func (s *MigrationRunReport) SetDiffs(val []MigrationDiff) {
+	s.Diffs = val
+}
+
+// SetMissingDocuments sets the value of MissingDocuments.
+func (s *MigrationRunReport) SetMissingDocuments(val []string) {
+	s.MissingDocuments = val
+}
+
+// SetIssues sets the value of Issues.
+func (s *MigrationRunReport) SetIssues(val []MigrationIssue) {
+	s.Issues = val
+}
+
+// SetPassed sets the value of Passed.
+func (s *MigrationRunReport) SetPassed(val OptBool) {
+	s.Passed = val
 }
 
 // What a migration run covers.
@@ -25895,6 +26638,52 @@ func (o OptMemoRecurrence) Get() (v MemoRecurrence, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptMemoRecurrence) Or(d MemoRecurrence) MemoRecurrence {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptMigrationLoadedCounts returns new OptMigrationLoadedCounts with value set to v.
+func NewOptMigrationLoadedCounts(v MigrationLoadedCounts) OptMigrationLoadedCounts {
+	return OptMigrationLoadedCounts{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptMigrationLoadedCounts is optional MigrationLoadedCounts.
+type OptMigrationLoadedCounts struct {
+	Value MigrationLoadedCounts
+	Set   bool
+}
+
+// IsSet returns true if OptMigrationLoadedCounts was set.
+func (o OptMigrationLoadedCounts) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptMigrationLoadedCounts) Reset() {
+	var v MigrationLoadedCounts
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptMigrationLoadedCounts) SetTo(v MigrationLoadedCounts) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptMigrationLoadedCounts) Get() (v MigrationLoadedCounts, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptMigrationLoadedCounts) Or(d MigrationLoadedCounts) MigrationLoadedCounts {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -28429,6 +29218,22 @@ type Payment struct {
 	SupplierName string `json:"supplier_name"`
 	// Supplier bank account valid on the run date.
 	BankAccountID uuid.UUID `json:"bank_account_id"`
+	// The bank account's `account_last4`, as the partner's bank account gives it: the last up to four
+	// characters of its number, which is never returned.
+	BankAccountLast4 string `json:"bank_account_last4"`
+	// The bank account's `account_scheme`: `iban`, `domestic`, or `ca` for a Canadian account. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	BankAccountScheme string `json:"bank_account_scheme"`
+	// The bank account's `holder_name`, as it is now.
+	BankAccountHolderName string `json:"bank_account_holder_name"`
+	// The bank account's `bic`; absent when it has none.
+	BankAccountBic OptString `json:"bank_account_bic"`
+	// The bank account's `institution_number`, of a scheme `ca` account (the bank, not masked); absent for
+	// the others.
+	BankAccountInstitutionNumber OptString `json:"bank_account_institution_number"`
+	// The bank account's `transit_number`, of a scheme `ca` account (the branch); absent for the others.
+	BankAccountTransitNumber OptString `json:"bank_account_transit_number"`
 	// Amount paid, after the cash discounts taken on the items and the withholding tax deducted from them;
 	// positive. The bank file pays it.
 	Amount Money `json:"amount"`
@@ -28446,6 +29251,8 @@ type Payment struct {
 	EndToEndID string `json:"end_to_end_id"`
 	// Payment journal entry, once posted.
 	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The payment journal entry's document number; present exactly when `journal_entry_id` is.
+	JournalEntryNumber OptString `json:"journal_entry_number"`
 	// What the payment pays: `items`, the supplier's open items netted (at most one such payment per
 	// supplier and run), or `down_payment`, one down payment request (ADR-0037), paid whole and never
 	// netted, whose posting puts the down payment on the down payment account. Open enumeration: clients
@@ -28458,6 +29265,8 @@ type Payment struct {
 	// House bank that pays it: the run's, or for a run proposed without one, the first ranked for its
 	// payment method and currency (T45c).
 	HouseBankID OptUUID `json:"house_bank_id"`
+	// The house bank's `code`, its name in the configuration; present exactly when `house_bank_id` is.
+	HouseBankCode OptString `json:"house_bank_code"`
 	// Payment method it is paid by (SAP ZLSCH); absent in a run proposed for one house bank.
 	PaymentMethod OptString `json:"payment_method"`
 	// Settled open items; none on a down payment's payment.
@@ -28499,6 +29308,36 @@ func (s *Payment) GetBankAccountID() uuid.UUID {
 	return s.BankAccountID
 }
 
+// GetBankAccountLast4 returns the value of BankAccountLast4.
+func (s *Payment) GetBankAccountLast4() string {
+	return s.BankAccountLast4
+}
+
+// GetBankAccountScheme returns the value of BankAccountScheme.
+func (s *Payment) GetBankAccountScheme() string {
+	return s.BankAccountScheme
+}
+
+// GetBankAccountHolderName returns the value of BankAccountHolderName.
+func (s *Payment) GetBankAccountHolderName() string {
+	return s.BankAccountHolderName
+}
+
+// GetBankAccountBic returns the value of BankAccountBic.
+func (s *Payment) GetBankAccountBic() OptString {
+	return s.BankAccountBic
+}
+
+// GetBankAccountInstitutionNumber returns the value of BankAccountInstitutionNumber.
+func (s *Payment) GetBankAccountInstitutionNumber() OptString {
+	return s.BankAccountInstitutionNumber
+}
+
+// GetBankAccountTransitNumber returns the value of BankAccountTransitNumber.
+func (s *Payment) GetBankAccountTransitNumber() OptString {
+	return s.BankAccountTransitNumber
+}
+
 // GetAmount returns the value of Amount.
 func (s *Payment) GetAmount() Money {
 	return s.Amount
@@ -28529,6 +29368,11 @@ func (s *Payment) GetJournalEntryID() OptUUID {
 	return s.JournalEntryID
 }
 
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *Payment) GetJournalEntryNumber() OptString {
+	return s.JournalEntryNumber
+}
+
 // GetKind returns the value of Kind.
 func (s *Payment) GetKind() OptString {
 	return s.Kind
@@ -28547,6 +29391,11 @@ func (s *Payment) GetDownPaymentRequestNumber() OptString {
 // GetHouseBankID returns the value of HouseBankID.
 func (s *Payment) GetHouseBankID() OptUUID {
 	return s.HouseBankID
+}
+
+// GetHouseBankCode returns the value of HouseBankCode.
+func (s *Payment) GetHouseBankCode() OptString {
+	return s.HouseBankCode
 }
 
 // GetPaymentMethod returns the value of PaymentMethod.
@@ -28594,6 +29443,36 @@ func (s *Payment) SetBankAccountID(val uuid.UUID) {
 	s.BankAccountID = val
 }
 
+// SetBankAccountLast4 sets the value of BankAccountLast4.
+func (s *Payment) SetBankAccountLast4(val string) {
+	s.BankAccountLast4 = val
+}
+
+// SetBankAccountScheme sets the value of BankAccountScheme.
+func (s *Payment) SetBankAccountScheme(val string) {
+	s.BankAccountScheme = val
+}
+
+// SetBankAccountHolderName sets the value of BankAccountHolderName.
+func (s *Payment) SetBankAccountHolderName(val string) {
+	s.BankAccountHolderName = val
+}
+
+// SetBankAccountBic sets the value of BankAccountBic.
+func (s *Payment) SetBankAccountBic(val OptString) {
+	s.BankAccountBic = val
+}
+
+// SetBankAccountInstitutionNumber sets the value of BankAccountInstitutionNumber.
+func (s *Payment) SetBankAccountInstitutionNumber(val OptString) {
+	s.BankAccountInstitutionNumber = val
+}
+
+// SetBankAccountTransitNumber sets the value of BankAccountTransitNumber.
+func (s *Payment) SetBankAccountTransitNumber(val OptString) {
+	s.BankAccountTransitNumber = val
+}
+
 // SetAmount sets the value of Amount.
 func (s *Payment) SetAmount(val Money) {
 	s.Amount = val
@@ -28624,6 +29503,11 @@ func (s *Payment) SetJournalEntryID(val OptUUID) {
 	s.JournalEntryID = val
 }
 
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *Payment) SetJournalEntryNumber(val OptString) {
+	s.JournalEntryNumber = val
+}
+
 // SetKind sets the value of Kind.
 func (s *Payment) SetKind(val OptString) {
 	s.Kind = val
@@ -28642,6 +29526,11 @@ func (s *Payment) SetDownPaymentRequestNumber(val OptString) {
 // SetHouseBankID sets the value of HouseBankID.
 func (s *Payment) SetHouseBankID(val OptUUID) {
 	s.HouseBankID = val
+}
+
+// SetHouseBankCode sets the value of HouseBankCode.
+func (s *Payment) SetHouseBankCode(val OptString) {
+	s.HouseBankCode = val
 }
 
 // SetPaymentMethod sets the value of PaymentMethod.
@@ -28969,6 +29858,8 @@ type PaymentRun struct {
 	// House bank paying, for a run proposed for one bank; absent when each payment names the bank that
 	// pays it (T45c).
 	HouseBankID OptUUID `json:"house_bank_id"`
+	// The house bank's `code`, its name in the configuration; present exactly when `house_bank_id` is.
+	HouseBankCode OptString `json:"house_bank_code"`
 	// Run (payment) date.
 	RunDate time.Time `json:"run_date"`
 	// Items due on or before this date are included.
@@ -29037,6 +29928,11 @@ func (s *PaymentRun) GetLegalEntityID() uuid.UUID {
 // GetHouseBankID returns the value of HouseBankID.
 func (s *PaymentRun) GetHouseBankID() OptUUID {
 	return s.HouseBankID
+}
+
+// GetHouseBankCode returns the value of HouseBankCode.
+func (s *PaymentRun) GetHouseBankCode() OptString {
+	return s.HouseBankCode
 }
 
 // GetRunDate returns the value of RunDate.
@@ -29132,6 +30028,11 @@ func (s *PaymentRun) SetLegalEntityID(val uuid.UUID) {
 // SetHouseBankID sets the value of HouseBankID.
 func (s *PaymentRun) SetHouseBankID(val OptUUID) {
 	s.HouseBankID = val
+}
+
+// SetHouseBankCode sets the value of HouseBankCode.
+func (s *PaymentRun) SetHouseBankCode(val OptString) {
+	s.HouseBankCode = val
 }
 
 // SetRunDate sets the value of RunDate.

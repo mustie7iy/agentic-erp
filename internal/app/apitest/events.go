@@ -35,45 +35,62 @@ var (
 // payload schema.
 func eventContract() (map[string]payloadSchema, error) {
 	contractOnce.Do(func() {
-		_, file, _, _ := runtime.Caller(0)
-		b, err := os.ReadFile(filepath.Join(filepath.Dir(file), "../../../api/asyncapi.yaml"))
+		b, err := contractFile()
 		if err != nil {
 			contractErr = err
 			return
 		}
-		var doc struct {
-			Components struct {
-				Messages map[string]struct {
-					Headers struct {
-						AllOf []struct {
-							Properties struct {
-								Type struct {
-									Const string `yaml:"const"`
-								} `yaml:"type"`
-							} `yaml:"properties"`
-						} `yaml:"allOf"`
-					} `yaml:"headers"`
-					Payload struct {
-						Ref string `yaml:"$ref"`
-					} `yaml:"payload"`
-				} `yaml:"messages"`
-				Schemas map[string]payloadSchema `yaml:"schemas"`
-			} `yaml:"components"`
-		}
-		if err := yaml.Unmarshal(b, &doc); err != nil {
-			contractErr = fmt.Errorf("apitest: parse event contract: %w", err)
-			return
-		}
-		contract = map[string]payloadSchema{}
-		for _, m := range doc.Components.Messages {
-			for _, part := range m.Headers.AllOf {
-				if typ := part.Properties.Type.Const; typ != "" {
-					contract[typ] = doc.Components.Schemas[filepath.Base(m.Payload.Ref)]
-				}
-			}
-		}
+		contract, _, contractErr = contractOf(b)
 	})
 	return contract, contractErr
+}
+
+// contractFile is api/asyncapi.yaml, found from this file's directory so
+// that any package's test reads it.
+func contractFile() ([]byte, error) {
+	_, file, _, _ := runtime.Caller(0)
+	b, err := os.ReadFile(filepath.Join(filepath.Dir(file), "../../../api/asyncapi.yaml"))
+	if err != nil {
+		return nil, fmt.Errorf("apitest: read the event contract: %w", err)
+	}
+	return b, nil
+}
+
+// contractOf reads an event contract: each message type's payload schema,
+// and the name of that schema.
+func contractOf(b []byte) (map[string]payloadSchema, map[string]string, error) {
+	var doc struct {
+		Components struct {
+			Messages map[string]struct {
+				Headers struct {
+					AllOf []struct {
+						Properties struct {
+							Type struct {
+								Const string `yaml:"const"`
+							} `yaml:"type"`
+						} `yaml:"properties"`
+					} `yaml:"allOf"`
+				} `yaml:"headers"`
+				Payload struct {
+					Ref string `yaml:"$ref"`
+				} `yaml:"payload"`
+			} `yaml:"messages"`
+			Schemas map[string]payloadSchema `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		return nil, nil, fmt.Errorf("apitest: parse event contract: %w", err)
+	}
+	schemas, names := map[string]payloadSchema{}, map[string]string{}
+	for _, m := range doc.Components.Messages {
+		for _, part := range m.Headers.AllOf {
+			if typ := part.Properties.Type.Const; typ != "" {
+				names[typ] = filepath.Base(m.Payload.Ref)
+				schemas[typ] = doc.Components.Schemas[names[typ]]
+			}
+		}
+	}
+	return schemas, names, nil
 }
 
 // Published returns the payloads of the tenant's events of one type in the
