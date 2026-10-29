@@ -2320,7 +2320,7 @@ activate, and orders under them are refused.
 | `external_ref` | Maps any entity to its key in an external system (SAP object and key); unique per system/object/key |
 | `connector` | Configured connections (SAP OData, bank SFTP, EDI VAN, email); secrets by reference to the vault |
 | `message` | Inbound and outbound messages with status, attempts, payload reference |
-| `output_message` | Business output (purchase orders to suppliers) per channel |
+| `output_message` | Business output (purchase orders to suppliers) per channel, written when it is transmitted (post-pilot); not written yet. The printed form, `GET /v1/purchase-orders/{id}/document`, is rendered on read and not stored (ADR-0054) |
 | `migration_run` | Migration scope, mode, status, reconciliation report |
 | `webhook_subscription` | A tenant's webhook endpoint (https), its event types or `<context>.*`, status (`active`, `paused`, `disabled` with a reason, `deleted`), its sealed `whsec_` secret and, during a rotation, the previous one with its expiry (ADR-0041) |
 | `webhook_delivery` | One delivery of an event to a subscription, unique per (subscription, event): body, the event's `occurred_at` (the order a resource's deliveries are sent in), status (`pending` while an attempt is due, `delivered`, `dead`, `dropped` when its subscription was disabled), attempts, last HTTP status and error; kept 30 days. A paused subscription's stay pending until it resumes; the dispatcher leases one it sends by moving `next_attempt_at` (ADR-0041, T50f). Redelivery and replay reset deliveries to `pending` with no attempts; a ping is a delivery of type `webhook.ping` about its subscription, attempted once (T50g) |

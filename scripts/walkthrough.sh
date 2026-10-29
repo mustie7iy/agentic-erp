@@ -352,19 +352,19 @@ people() {
     n=$((n + 1))
   done <"$WORK/permissions"
   show erp call grantRolePermission -p "id=$staff" -body '{"permission_code": "..."}' "# $n permissions"
-  for code in Z_PURCH_MGR process_owner controller solution_architect Z_TREASURY_MGR; do
+  for code in Z_PURCH_MGR process_owner controller solution_architect Z_TREASURY_MGR vendor_master_approver; do
     # shellcheck disable=SC2046 # permission codes are single words
     grant "$(role "$code")" workflow.request.decide $(grep '\.approve$' "$WORK/permissions")
   done
   grant "$(role Z_TREASURY_MGR)" payments.run.release payments.file.transmit
-  say "  the approver roles Z_PURCH_MGR, process_owner, controller and solution_architect decide approval"
-  say "  requests; Z_TREASURY_MGR also releases payment runs and transmits bank files."
+  say "  the approver roles Z_PURCH_MGR, process_owner, controller, solution_architect and vendor_master_approver"
+  say "  decide approval requests; Z_TREASURY_MGR also releases payment runs and transmits bank files."
   QUIET=1 api 200 '' listRoles -p page_size=100
   cp "$WORK/last.json" "$WORK/roles.json"
   person ben "Ben Buyer" finance_staff
   person alex "Alex Payables" finance_staff
   person priya "Priya Purchasing Manager" finance_staff Z_PURCH_MGR process_owner
-  person carla "Carla Controller" finance_staff controller
+  person carla "Carla Controller" finance_staff controller vendor_master_approver
   person sam "Sam Solution Architect" finance_staff solution_architect
   person tom "Tom Treasurer" finance_staff Z_TREASURY_MGR
   person tara "Tara Treasury Manager" finance_staff Z_TREASURY_MGR
@@ -642,7 +642,7 @@ step_pack() {
 }
 
 step_procure() {
-  heading "Step 4 — Requisition, purchase order with its release strategy, goods receipt"
+  heading "Step 4 — Requisition, purchase order with its release strategy, its document for the supplier, goods receipt"
   as ben
   api 200 '.items[] | "supplier \(.number) \(.name), \(.country_code), \(.status)"' listBusinessPartners -p name_prefix=Tyrell
   SUPPLIER=$(field '.items[0].id')
@@ -650,9 +650,10 @@ step_procure() {
   local item expense
   expense=$(account 6000)
   item="{\"description\": \"Ergonomic office chairs\", \"quantity\": {\"value\": \"10\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"450.00\", \"currency\": \"CAD\"}, \"account_id\": \"$expense\"}"
-  say "Ben asks for ten office chairs from Tyrell, a supplier migrated from SAP."
-  api 201 '"requisition \(.id): \(.status), \(.total_amount.amount) \(.total_amount.currency)"' createRequisition \
-    -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"supplier_id\": \"$SUPPLIER\", \"items\": [$item]}"
+  say "Ben asks for ten office chairs from Tyrell, a supplier migrated from SAP, needed in two weeks."
+  NEEDED_BY=$(date_add "$TODAY" 14)
+  api 201 '"requisition \(.id): \(.status), \(.total_amount.amount) \(.total_amount.currency), needed by \(.needed_by)"' createRequisition \
+    -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"supplier_id\": \"$SUPPLIER\", \"needed_by\": \"$NEEDED_BY\", \"items\": [$item]}"
   local req request
   req=$(field .id)
   api 200 '"\(.status): approval request \(.workflow_request_id)"' submitRequisition -p "id=$req" -if-match "$ETAG"
@@ -673,11 +674,35 @@ step_procure() {
   as ben
   api 200 '"purchase order \(.document_number): \(.status), valued through \(.valuation)"' getPurchaseOrder -p "id=$PO"
   expect "order status" "$(field .status)" released
+  order_document
   say "The chairs arrive; Ben posts the goods receipt (debit expense, credit GR/IR)."
   api 201 '"goods receipt \(.id), journal entry \(.journal_entry_id)"' postGoodsReceipt \
     -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$PO\", \"po_item_no\": 1, \"quantity\": {\"value\": \"10\", \"unit\": \"EA\"}}]}"
   api 200 '.items[] | "item \(.item_no): ordered \(.quantity.value), received \(.received_quantity.value)"' getPurchaseOrder -p "id=$PO"
   passed
+}
+
+# order_document has Tyrell's order desk address added, as SAP's extract
+# holds no street, and shows the released order's document for Tyrell
+# (T72g, ADR-0054).
+order_document() {
+  local number change
+  number=$(field .document_number)
+  say "SAP's extract has no street for Tyrell. Ben asks for the address Tyrell takes orders at; Carla, who"
+  say "approves supplier master data, approves it."
+  api 201 '"partner change \(.id): \(.status)"' createPartnerChange -body "{\"partner_id\": \"$SUPPLIER\", \"kind\": \"update\", \"reason\": \"Order desk address confirmed by Tyrell\", \"payload\": {\"addresses\": [{\"purpose\": \"order_from\", \"line1\": \"220 King Street West\", \"line2\": \"Order desk, floor 3\", \"city\": \"Toronto\", \"region\": \"ON\", \"postal_code\": \"M5H 1K4\", \"country_code\": \"CA\", \"valid_from\": \"$TODAY\"}]}}"
+  change=$(field .id)
+  approve carla "$(field .workflow_request_id)" "Address confirmed"
+  as ben
+  QUIET=1 api 200 '' getPartnerChange -p "id=$change"
+  expect "partner change status" "$(field .status)" applied
+  say "Ben fetches the order's document to send to Tyrell (by hand: email and EDI are post-pilot)."
+  api 200 '' getPurchaseOrderDocument -p "id=$PO"
+  sed 's/^/     /' "$WORK/last.json"
+  local want
+  for want in "PURCHASE ORDER $number" "220 King Street West" "Payment terms: 2/10N30" "Needed by: $NEEDED_BY" "10 EA at 470.00 CAD per 1 EA" "Total 4700.00 CAD"; do
+    grep -qF "$want" "$WORK/last.json" || fail "the order's document does not show '$want'"
+  done
 }
 
 # invoice REFERENCE QUANTITY AMOUNT [KIND] enters a supplier invoice on
