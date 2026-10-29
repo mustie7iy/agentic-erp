@@ -228,7 +228,8 @@ const expectedACL = `(d.classid = 'pg_class'::regclass AND d.objid IN ('director
 // plpgsql's USAGE, PUBLIC's by default (§5.8 table 5.2), stands: Grants'
 // DO blocks need plpgsql's (DO, Notes) where the owner is no superuser,
 // as on RDS, and a login, which may create no function, runs a DO block
-// with its own rights alone.
+// with its own rights alone. It is a column of checkLogin's query alone:
+// it reads the login as r, that query's pg_roles row.
 const publicRights = `ARRAY(SELECT kind || ' ' || name FROM (
 			SELECT 'large object' AS kind, oid::text AS name, coalesce(lomacl, acldefault('L', lomowner)) AS acl FROM pg_largeobject_metadata
 			UNION ALL SELECT 'foreign-data wrapper', fdwname::text, coalesce(fdwacl, acldefault('F', fdwowner)) FROM pg_foreign_data_wrapper
