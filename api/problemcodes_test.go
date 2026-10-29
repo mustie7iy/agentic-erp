@@ -213,11 +213,13 @@ func TestProblemCodes(t *testing.T) {
 // whose parameter carries the taking value, one whose parameter comes
 // from a function nothing in the program calls (the API's handler is
 // called from api/gen, outside the analysis; a method value's bound
-// wrapper is the same case), and one whose gate makes
-// no such code.
+// wrapper is the same case), and one whose gate no longer makes its code.
 func checkPremisesRefuse(t *testing.T, a *codeAnalysis) {
 	t.Helper()
-	takeOver, valuation := untakenBranches[0], untakenBranches[3]
+	entry := func(code string) untaken {
+		return untakenBranches[slices.IndexFunc(untakenBranches, func(u untaken) bool { return u.code == code })]
+	}
+	takeOver, valuation := entry("ledger.gr_ir_position_exists"), entry("procurement.no_gr_ir_account")
 	notBy := takeOver
 	notBy.by = []string{module + "/internal/procurement.clearingPosting"}
 	carried := valuation
@@ -229,10 +231,10 @@ func checkPremisesRefuse(t *testing.T, a *codeAnalysis) {
 		got  []string
 		want string
 	}{
-		"a setter outside by":       {a.checkUntaken([]untaken{notBy}), "sets GRIRItem.TakesOver"},
-		"a value taking the branch": {a.checkUntaken([]untaken{carried}), `may be ""`},
-		"a source nothing calls":    {a.checkParamPremise(uncalled, a.fns[uncalled.gate]), "which nothing in the program calls"},
-		"a code the gate makes not": {a.checkUntaken([]untaken{gone}), "no longer makes ledger.no_such_code"},
+		"a setter outside by":             {a.checkUntaken([]untaken{notBy}), "sets GRIRItem.TakesOver"},
+		"a value taking the branch":       {a.checkUntaken([]untaken{carried}), `may be ""`},
+		"a source nothing calls":          {a.checkParamPremise(uncalled, a.fns[uncalled.gate]), "which nothing in the program calls"},
+		"a code the gate no longer makes": {a.checkUntaken([]untaken{gone}), "no longer makes ledger.no_such_code"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if !slices.ContainsFunc(c.got, func(e string) bool { return strings.Contains(e, c.want) }) {
