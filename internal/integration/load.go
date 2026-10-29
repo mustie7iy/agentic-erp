@@ -499,7 +499,10 @@ func (l *loader) journal(ctx context.Context) error {
 // journalDocument posts one SAP document as a journal entry and keeps its
 // line numbers for the clearings that follow. A document holding an open
 // down payment is also taken over as a paid down payment request, in the
-// same savepoint, so a refusal of either leaves neither.
+// same savepoint, so a refusal of either leaves neither. The quality gate
+// refuses every take-over refusal that comes from the extract first, so
+// the shared savepoint is defence in depth (TestTakeOverDownPayment shows
+// the refusal propagating).
 func (l *loader) journalDocument(ctx context.Context, key string, lines []sap.ACDOCA, currency map[string]string) error {
 	in, posted := l.journalPosting(lines, currency)
 	_, downPayment := l.downPayments[key]
