@@ -127,20 +127,26 @@ func (l *loader) plain(minor money.Minor, currency string) string {
 // after its number-range locks and in several sets; it takes all of the
 // tenant's entry locks first instead (Postings.LockAllEntries), so it never
 // deadlocks with a payment proposal's reservation or a reversal. The
-// take-over of invoiced quantities locks the items of orders an earlier
-// run may have loaded, so it comes before the receipts and the journal:
-// their gapless number ranges (goods_receipt, journal_we, the journal's)
-// stay locked until the load commits, and a goods movement or an
-// invoice's posting takes the order items first and those ranges after.
-// Before it the load holds only the partner and purchase order ranges,
-// which nothing that locks order items takes.
+// take-over of invoiced quantities and the receipts lock the items of
+// orders an earlier run may have loaded, and a goods movement (POST
+// /v1/goods-receipts, its reversal) or an invoice's posting takes those
+// items first and then the gapless number ranges (goods_receipt, then the
+// orders' GR/IR locks and journal_we), which the receipts and the journal
+// hold until the load commits. So the load takes every one of those item
+// locks at once, in the order a goods movement takes them
+// (lockOrderItems), before the take-over and the first receipt; it never
+// waits for an order item while it holds a range. Before it the load
+// holds only the partner and purchase order ranges, which nothing that
+// locks order items takes, and its shared entry bucket locks, which
+// nothing takes exclusively after order items (a goods movement's
+// reversal posts a new entry, an invoice's reversal locks no item).
 func (l *loader) load(ctx context.Context) error {
 	if err := l.e.Postings.LockAllEntries(ctx); err != nil {
 		return err
 	}
 	l.downPayments = downPaymentDocs(l.ext)
 	l.grir, l.viaGRIR = grirPositions(l.ext, l.t), map[string]bool{}
-	for _, fn := range []func(context.Context) error{l.partners, l.orders, l.invoiced, l.receipts, l.takeOverGRIR, l.invoices, l.journal, l.clearings,
+	for _, fn := range []func(context.Context) error{l.partners, l.orders, l.lockOrderItems, l.invoiced, l.receipts, l.takeOverGRIR, l.invoices, l.journal, l.clearings,
 		l.blocked} {
 		if err := fn(ctx); err != nil {
 			return err
@@ -305,18 +311,15 @@ func (l *loader) orders(ctx context.Context) error {
 	return nil
 }
 
+// receipts records the goods receipts not yet loaded, under the order item
+// locks lockOrderItems took.
 func (l *loader) receipts(ctx context.Context) error {
 	company := map[string]string{}
 	for _, h := range l.ext.EKKO {
 		company[h.EBELN] = h.BUKRS
 	}
 	nos := itemNos(l.ext)
-	docs := map[string][]sap.MSEG{}
-	for _, m := range l.ext.MSEG {
-		if m.BWART == "101" {
-			docs[m.MBLNR+"/"+m.MJAHR] = append(docs[m.MBLNR+"/"+m.MJAHR], m)
-		}
-	}
+	docs := receiptDocs(l.ext)
 	for _, key := range sortedKeys(docs) {
 		if _, ok := l.refs["MSEG/"+key]; ok {
 			continue
