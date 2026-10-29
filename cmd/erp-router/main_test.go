@@ -29,15 +29,22 @@ import (
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
 // environment is the router's, working as a router's login of the
-// test's own (T72h), as the erp-global chart's router does.
+// test's own (T72h), as the erp-global chart's router does, on a
+// directory database of the test's own (Setup refuses one holding the
+// cell's schemas); ownerKey names the owner's URL, which seeds it.
+// ownerKey is the test's own key in the environment for the directory
+// owner's URL; the router reads ERP_ settings alone.
+const ownerKey = "test.directory_owner_url"
+
 func environment(t *testing.T, is *authntest.Issuer) map[string]string {
 	t.Helper()
 	issuers, _ := json.Marshal([]any{is.Config()})
 	login := pgtest.NewLogin(t)
-	if err := directory.Setup(context.Background(), pgtest.URL(t), directory.Login{Name: login.Name, Password: login.Password, Role: directory.RouterRole}); err != nil {
+	u := pgtest.EmptyDatabase(t)
+	if err := directory.Setup(context.Background(), u, directory.Login{Name: login.Name, Password: login.Password, Role: directory.RouterRole}); err != nil {
 		t.Fatal(err)
 	}
-	return map[string]string{"ERP_DIRECTORY_URL": login.As(pgtest.URL(t)), "ERP_ENV": "development", "ERP_OIDC_ISSUERS": string(issuers), "ERP_OPERATOR_ISSUERS": string(issuers),
+	return map[string]string{ownerKey: u, "ERP_DIRECTORY_URL": login.As(u), "ERP_ENV": "development", "ERP_OIDC_ISSUERS": string(issuers), "ERP_OPERATOR_ISSUERS": string(issuers),
 		"ERP_PAGE_TOKEN_KEY": base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 32))),
 		"ERP_ROUTER_ADDR":    "127.0.0.1:0", "ERP_ROUTER_ADMIN_ADDR": "127.0.0.1:0", "ERP_SHUTDOWN_TIMEOUT": "5s"}
 }
@@ -53,7 +60,7 @@ func TestRoutesToTheCell(t *testing.T) {
 	}))
 	defer cell.Close()
 	tenant := uuid.New()
-	dir, err := directory.Open(context.Background(), pgtest.URL(t))
+	dir, err := directory.Open(context.Background(), env[ownerKey])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +298,7 @@ func TestRoutesOverMutualTLS(t *testing.T) {
 	// A cell's genuine certificate, but another cell's than the directory
 	// names: a stolen cell certificate impersonates no other cell.
 	eu2, _ := cell(tlsconf.ID(trustDomain, "eu-2", "erp-server"))
-	dir, err := directory.Open(context.Background(), pgtest.URL(t))
+	dir, err := directory.Open(context.Background(), env[ownerKey])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -423,7 +430,7 @@ func TestBehindTheLoadBalancer(t *testing.T) {
 	}))
 	defer cell.Close()
 	tenant := uuid.New()
-	dir, err := directory.Open(context.Background(), pgtest.URL(t))
+	dir, err := directory.Open(context.Background(), env[ownerKey])
 	if err != nil {
 		t.Fatal(err)
 	}

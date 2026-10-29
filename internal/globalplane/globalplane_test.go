@@ -44,16 +44,19 @@ func newPlane(t *testing.T) *plane {
 	ctx := context.Background()
 	// The plane works as a router's login of the test's own (T72h); the
 	// owner's store seeds what the cells would write.
-	dir, err := directory.Open(ctx, pgtest.URL(t))
+	// A directory database of its own: Setup refuses a login in one that
+	// holds the cell's schemas, as the package database does.
+	u := pgtest.EmptyDatabase(t)
+	dir, err := directory.Open(ctx, u)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(dir.Close)
 	login := pgtest.NewLogin(t)
-	if err := directory.Setup(ctx, pgtest.URL(t), directory.Login{Name: login.Name, Password: login.Password, Role: directory.RouterRole}); err != nil {
+	if err := directory.Setup(ctx, u, directory.Login{Name: login.Name, Password: login.Password, Role: directory.RouterRole}); err != nil {
 		t.Fatal(err)
 	}
-	asRouter, err := directory.OpenWith(ctx, login.As(pgtest.URL(t)), nil)
+	asRouter, err := directory.OpenWith(ctx, login.As(u), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

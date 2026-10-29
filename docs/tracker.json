@@ -8033,6 +8033,20 @@
      },
      {
       "s": "T",
+      "t": "The router's, the cells' and erp-web's directory logins authenticate with RDS IAM database authentication in place of their operator-set passwords, before production",
+      "r": "T72h · ADR-0035 amendment 2026-10-28 · internal/directory setup.go · deploy/helm/erp-global · deploy/helm/erp-cell · modules/global",
+      "src": "po:2026-10-28",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "erp-cell's erp-migrate and erp-temporal-schema hook network policies admit the cluster's DNS: on a first install the default deny is not there yet and the hook Jobs cannot resolve the writer",
+      "r": "deploy/helm/erp-cell/templates/network-policy.yaml · scripts/helm-checks.sh · T72h",
+      "src": "review:T72h",
+      "c": []
+     },
+     {
+      "s": "T",
       "t": "The release mirrors the PgBouncer and NATS images (scripts/mirror-images.sh) before signing, with copy provenance, so Kyverno's erp-release-signed admits them in production",
       "r": "Phase 1 triage (PO 2026-10-21) · scripts/mirror-images.sh · .github/workflows/release.yml · erp-cluster image-policy.yaml · T72i",
       "src": "baseline",

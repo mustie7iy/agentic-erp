@@ -743,9 +743,11 @@ their own and least privilege, never as the RDS master user `erp_admin`
   the owner's own name and the roles' names, and a password other than
   printable ASCII (SASLprep would change it); and on every run takes back
   any right given by hand to the roles, the logins or `PUBLIC` on the
-  database (but `PUBLIC`'s `CONNECT`), the `directory` and `web` schemas
-  and their tables, and `CREATE` on schema `public`, before granting the
-  roles' again.
+  database (but `PUBLIC`'s `CONNECT`), the `directory` and `web` schemas,
+  their tables, and (from `PUBLIC`) their routines and sequences, and on
+  schema `public`, before granting the roles' again; and refuses a schema
+  in the database beyond the system's, `public`, `directory` and `web`,
+  whose `PUBLIC` rights it would not govern.
   A password reaches the server only as its SCRAM-SHA-256 verifier,
   computed in Go, so no log or statistics of the statement (PostgreSQL
   logs a failed statement whole, `log_min_error_statement`, to
@@ -787,9 +789,8 @@ their own and least privilege, never as the RDS master user `erp_admin`
   missing. Before the first release with this change operators set the
   three passwords.
 
-**Open (security posture, for the product owner):** whether the three
-logins' passwords should rotate on their own (a Secrets Manager rotation
-function, or RDS IAM database authentication in place of passwords),
-rather than when operators change them; the directory's master password
-keeps its RDS-managed weekly rotation either way.
+**Rotation (product owner, 2026-10-28):** the passwords stay as built for
+now; before production the three logins move to RDS IAM database
+authentication, a tracker step of its own (src po:2026-10-28). The
+directory's master password keeps its RDS-managed weekly rotation.
 

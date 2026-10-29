@@ -253,7 +253,10 @@ func TestSetupAgain(t *testing.T) {
 	router, cell := pgx.Identifier{l.creds[directory.RouterRole].Name}.Sanitize(), pgx.Identifier{l.creds[directory.CellRole].Name}.Sanitize()
 	db := dbName(t, l.url)
 	for _, sql := range []string{`GRANT DELETE ON directory.tenant TO erp_router`, `GRANT TRUNCATE ON web.session TO erp_web`,
-		`GRANT DELETE ON directory.cell TO ` + router, `GRANT CREATE ON DATABASE ` + db + ` TO erp_router`, `GRANT CREATE ON DATABASE ` + db + ` TO ` + cell,
+		`GRANT DELETE ON directory.cell TO ` + router, // A database's ACL is the server's (pg_shdepend's dbid 0): granted to
+		// logins of the test's own alone, never to a privilege role, which
+		// every other package's Setup would see meanwhile.
+		`GRANT CREATE ON DATABASE ` + db + ` TO ` + router, `GRANT CREATE ON DATABASE ` + db + ` TO ` + cell,
 		// To PUBLIC, every login's: a table, a schema, the database and schema public.
 		`GRANT DELETE ON directory.placement TO PUBLIC`, `GRANT USAGE ON SCHEMA directory TO PUBLIC`, `GRANT SELECT ON directory.issuer TO PUBLIC`,
 		`GRANT CREATE ON DATABASE ` + db + ` TO PUBLIC`, `GRANT CREATE ON SCHEMA public TO PUBLIC`} {
@@ -350,6 +353,7 @@ func TestSetupRefusesOwners(t *testing.T) {
 		"a privilege role owning a table": `CREATE TABLE public.owned (x int); ALTER TABLE public.owned OWNER TO erp_cell`,
 		"a stray right of a role":         `CREATE TABLE public.stray (x int); GRANT SELECT ON public.stray TO erp_cell`,
 		"a stray right of a login":        `CREATE TABLE public.stray (x int); GRANT SELECT ON public.stray TO {login}`,
+		"a schema made by hand":           `CREATE SCHEMA ops`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			login := pgtest.NewLogin(t) // before the database, so dropped after it
@@ -368,6 +372,36 @@ func TestSetupRefusesOwners(t *testing.T) {
 				t.Errorf("got %v, want ErrLogin", err)
 			}
 		})
+	}
+}
+
+// TestOwnersFunctionsAreNotTheLogins: a SECURITY DEFINER function the
+// owner made, in schema public or in directory, runs as the owner; no
+// login may call it after Setup (PUBLIC executes functions by default).
+func TestOwnersFunctionsAreNotTheLogins(t *testing.T) {
+	ctx := context.Background()
+	l := setUpLogins(t)
+	for _, sql := range []string{
+		`CREATE FUNCTION public.purge() RETURNS int LANGUAGE sql SECURITY DEFINER AS 'SELECT 1'`,
+		`CREATE FUNCTION directory.purge() RETURNS int LANGUAGE sql SECURITY DEFINER AS 'SELECT 1'`,
+	} {
+		if err := exec(ctx, l.owner, database.Scope{}, sql); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := directory.Setup(ctx, l.url, l.all(t)...); err != nil {
+		t.Fatalf("again: %v", err)
+	}
+	stores := map[string]*directory.Postgres{directory.RouterRole: l.router, directory.CellRole: l.cell, directory.WebRole: l.web}
+	for role, dir := range stores {
+		for _, sql := range []string{`SELECT public.purge()`, `SELECT directory.purge()`} {
+			t.Run(role+": "+sql, func(t *testing.T) {
+				err := exec(ctx, dir, database.Scope{}, sql)
+				if pg, ok := errors.AsType[*pgconn.PgError](err); !ok || pg.Code != "42501" {
+					t.Errorf("got %v, want it refused (42501)", err)
+				}
+			})
+		}
 	}
 }
 

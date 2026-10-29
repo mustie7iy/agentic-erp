@@ -46,7 +46,9 @@ const (
 // claims) and erp-web (its sessions). Nobody but the owner may make
 // temporary objects either, nor anything on the database: CREATE and
 // TEMPORARY are taken from PUBLIC, every right on the database from the
-// roles (PUBLIC's CONNECT stays), and CREATE on schema public from all.
+// roles (PUBLIC's CONNECT stays), and every right on schema public from
+// all; checkLogin refuses a schema of anyone's beyond those, whose
+// PUBLIC rights nothing here would take back.
 const Grants = `
 DO $$ BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'erp_router') THEN CREATE ROLE erp_router NOLOGIN; END IF;
@@ -60,13 +62,16 @@ DO $$ BEGIN
   EXECUTE format('REVOKE CREATE, TEMPORARY ON DATABASE %I FROM PUBLIC', current_database());
   EXECUTE format('REVOKE ALL ON DATABASE %I FROM erp_router, erp_cell, erp_web', current_database());
 END $$;
--- The schemas hold tables and a view alone (no sequence or function): a
--- later one needs its own revoke here. PUBLIC is revoked too, since a
--- right given to it is every login's; checkLogin refuses whatever else
--- the roles or the logins hold.
+-- PUBLIC is revoked too, since a right given to it is every login's, and
+-- pg_shdepend, which checkLogin reads for the roles and the logins, does
+-- not record it. Routines and sequences: PUBLIC executes functions by
+-- default. The directory uses nothing in schema public, which a dropped
+-- one makes this fail, closed.
 REVOKE ALL ON ALL TABLES IN SCHEMA directory, web FROM PUBLIC, erp_router, erp_cell, erp_web;
+REVOKE ALL ON ALL ROUTINES IN SCHEMA directory, web FROM PUBLIC;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA directory, web FROM PUBLIC;
 REVOKE ALL ON SCHEMA directory, web FROM PUBLIC, erp_router, erp_cell, erp_web;
-REVOKE CREATE ON SCHEMA public FROM PUBLIC, erp_router, erp_cell, erp_web;
+REVOKE ALL ON SCHEMA public FROM PUBLIC, erp_router, erp_cell, erp_web;
 GRANT USAGE ON SCHEMA directory TO erp_router, erp_cell;
 GRANT SELECT ON directory.tenant, directory.cell, directory.issuer, directory.placement TO erp_router;
 GRANT INSERT (tenant_id, region, cell, api_url, status), UPDATE (region, cell, api_url, status, version, updated_at) ON directory.tenant TO erp_router;
@@ -211,12 +216,14 @@ const expectedACL = `(d.classid = 'pg_class'::regclass AND d.objid IN ('director
 // and any dependency PostgreSQL records on the login or a privilege role
 // (pg_shdepend: an owned object, the database included, a right on any
 // object, shared ones such as databases and parameters too, a policy) in
-// this database or the server's, but the rights Grants gives the roles.
+// this database or the server's, but the rights Grants gives the roles;
+// and any schema in the database beyond the system's, public, directory
+// and web, whose PUBLIC rights Setup does not govern.
 // Setup does not take such rights back: someone gave them, and the
 // release stops until they look.
 func checkLogin(ctx context.Context, tx pgx.Tx, l Login) error {
 	var attributes, admin bool
-	var others, deps []string
+	var others, deps, schemas []string
 	err := tx.QueryRow(ctx, `SELECT r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication OR r.rolbypassrls,
 		EXISTS (SELECT FROM pg_auth_members m WHERE m.member = r.oid AND m.admin_option),
 		ARRAY(SELECT p.rolname || ' in ' || g.rolname FROM pg_auth_members m JOIN pg_roles g ON g.oid = m.roleid JOIN pg_roles p ON p.oid = m.member
@@ -226,14 +233,16 @@ func checkLogin(ctx context.Context, tx pgx.Tx, l Login) error {
 			WHERE d.refclassid = 'pg_authid'::regclass AND (o.rolname = $1 OR o.rolname = ANY($3))
 				AND d.dbid IN (0, (SELECT oid FROM pg_database WHERE datname = current_database()))
 				AND NOT (d.deptype = 'a' AND o.rolname = ANY($3) AND (`+expectedACL+`))
-			ORDER BY 1)
-		FROM pg_roles r WHERE r.rolname = $1`, l.Name, l.Role, []string{RouterRole, CellRole, WebRole}).Scan(&attributes, &admin, &others, &deps)
+			ORDER BY 1),
+		ARRAY(SELECT nspname::text FROM pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'public', 'directory', 'web')
+			AND nspname NOT LIKE 'pg\_toast%' AND nspname NOT LIKE 'pg\_temp\_%' ORDER BY 1)
+		FROM pg_roles r WHERE r.rolname = $1`, l.Name, l.Role, []string{RouterRole, CellRole, WebRole}).Scan(&attributes, &admin, &others, &deps, &schemas)
 	if err != nil {
 		return fmt.Errorf("login %s: read its rights: %w", l.Name, err)
 	}
-	if attributes || admin || len(others) > 0 || len(deps) > 0 {
-		return fmt.Errorf("%w %s: holds more than %s (role attributes %t, admin of its role %t, memberships %v, owned or granted %v)",
-			ErrLogin, l.Name, l.Role, attributes, admin, others, deps)
+	if attributes || admin || len(others) > 0 || len(deps) > 0 || len(schemas) > 0 {
+		return fmt.Errorf("%w %s: holds more than %s (role attributes %t, admin of its role %t, memberships %v, owned or granted %v; other schemas %v)",
+			ErrLogin, l.Name, l.Role, attributes, admin, others, deps, schemas)
 	}
 	return nil
 }
