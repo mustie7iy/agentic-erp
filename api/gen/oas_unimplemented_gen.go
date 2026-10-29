@@ -1377,6 +1377,22 @@ func (UnimplementedHandler) GetPurchaseOrderChange(ctx context.Context, params G
 	return r, ht.ErrNotImplemented
 }
 
+// GetPurchaseOrderDocument implements getPurchaseOrderDocument operation.
+//
+// The order as a plain-text document (UTF-8) to send to the supplier, rendered from the stored order
+// at the time of the call (ADR-0054): the buyer company, the supplier's name, number and address (its
+// `order_from` address valid today, else its `legal` one; none when neither is held), the document
+// number, revision, order date and currency, the purchasing organisation, the payment term with its
+// description, the date the requisition needed the goods by, and each item with its quantity, unit,
+// price per price unit, tax code and amount, with the order's total. Only a `released` or `closed`
+// order has one (409 `procurement.invalid_status`). Producing it changes nothing: transmission to the
+// supplier by email or EDI is not built (post-pilot).
+//
+// GET /v1/purchase-orders/{id}/document
+func (UnimplementedHandler) GetPurchaseOrderDocument(ctx context.Context, params GetPurchaseOrderDocumentParams) (r GetPurchaseOrderDocumentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetRecommendation implements getRecommendation operation.
 //
 // Returns one recommendation.

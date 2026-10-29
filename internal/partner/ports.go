@@ -223,9 +223,12 @@ func (Suppliers) PaymentAccounts(ctx context.Context, partners []uuid.UUID) (map
 // PaymentTerm is a payment term as payables posts with it: its net days
 // and up to two cash discount tiers, earliest first (T36a).
 type PaymentTerm struct {
-	Code      string
-	NetDays   int
-	Discounts []Discount
+	Code string
+	// Description is the configured text of the term, for documents sent
+	// to partners (T72g).
+	Description string
+	NetDays     int
+	Discounts   []Discount
 }
 
 // Discount is a cash discount tier: Percent (a plain decimal) off for
@@ -244,8 +247,8 @@ func (Suppliers) PaymentTerm(ctx context.Context, code string) (PaymentTerm, boo
 	t := PaymentTerm{Code: code}
 	var days1, days2 *int
 	var pct1, pct2 *string
-	err = tx.QueryRow(ctx, `SELECT net_days, discount_days, trim_scale(discount_pct)::text, discount2_days, trim_scale(discount2_pct)::text
-		FROM partner.payment_term WHERE code = $1`, code).Scan(&t.NetDays, &days1, &pct1, &days2, &pct2)
+	err = tx.QueryRow(ctx, `SELECT description, net_days, discount_days, trim_scale(discount_pct)::text, discount2_days, trim_scale(discount2_pct)::text
+		FROM partner.payment_term WHERE code = $1`, code).Scan(&t.Description, &t.NetDays, &days1, &pct1, &days2, &pct2)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return PaymentTerm{}, false, nil
 	}
@@ -259,6 +262,30 @@ func (Suppliers) PaymentTerm(ctx context.Context, code string) (PaymentTerm, boo
 		t.Discounts = append(t.Discounts, Discount{Days: *days2, Percent: *pct2})
 	}
 	return t, true, nil
+}
+
+// OrderAddress returns the address a purchase order is sent to: the
+// partner's order_from address valid today, else its legal one, or
+// ok = false when it holds neither (T72g, ADR-0054). Today is the
+// database's day, as for bank accounts: the document goes out now.
+func (Suppliers) OrderAddress(ctx context.Context, partnerID uuid.UUID) (Address, bool, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return Address{}, false, err
+	}
+	var a Address
+	err = tx.QueryRow(ctx, `SELECT id, purpose, line1, line2, city, postal_code, region, country_code, valid_from
+		FROM partner.address WHERE partner_id = $1 AND purpose IN ('order_from', 'legal')
+			AND valid_from <= current_date AND (valid_to IS NULL OR valid_to > current_date)
+		ORDER BY purpose = 'order_from' DESC LIMIT 1`, partnerID).
+		Scan(&a.ID, &a.Purpose, &a.Line1, &a.Line2, &a.City, &a.PostalCode, &a.Region, &a.CountryCode, &a.ValidFrom.Time)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Address{}, false, nil
+	}
+	if err != nil {
+		return Address{}, false, fmt.Errorf("partner: read the order address of business partner %s: %w", partnerID, err)
+	}
+	return a, true, nil
 }
 
 // PaymentTermExists reports whether the payment terms are configured.

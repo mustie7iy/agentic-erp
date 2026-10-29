@@ -2271,10 +2271,17 @@
       "r": "prototype removed in T6; no API yet (07-transition)",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "Print/PDF form",
-        "r": "prototype removed in T6 · T72g; sending by email is post-pilot, with \"Actual email and EDI transmission\"",
+        "r": "prototype removed in T6 · T72g: getPurchaseOrderDocument (GET /v1/purchase-orders/{id}/document), plain text, ADR-0054 · walkthrough step 4; the PDF is the next item; sending by email is post-pilot, with \"Actual email and EDI transmission\"",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The purchase order document also as a PDF, with an embedded font for every script the tenants' names and addresses use (Latin, and Arabic for the UAE pilot)",
+        "r": "T72g · ADR-0054 \"What a PDF would need\": a PDF library is a new third-party module, a decision for the product owner",
+        "src": "split:T72g",
         "c": []
        },
        {
@@ -4813,7 +4820,7 @@
      {
       "s": "T",
       "t": "Purchase order output (text and X12 850)",
-      "r": "prototype removed in T6; no API yet (07-transition) · T72g",
+      "r": "prototype removed in T6 · T72g built the text form (getPurchaseOrderDocument, ADR-0054); X12 850 open, post-pilot, as \"EDI ANSI X12 850\" under PO output to the vendor",
       "src": "baseline",
       "c": []
      },
@@ -8088,9 +8095,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A purchase order document (a text/PDF form) is produced for the supplier through the API; email and EDI transmission stay post-pilot",
-      "r": "Phase 1 triage (PO 2026-10-21) · internal/config output.purchase_order_channel · prototype removed in T6 · T72g",
+      "r": "Phase 1 triage (PO 2026-10-21) · internal/config output.purchase_order_channel · prototype removed in T6 · T72g · getPurchaseOrderDocument, plain text, ADR-0054 · walkthrough step 4; the PDF tracked under PO output to the vendor",
       "src": "baseline",
       "c": []
      },

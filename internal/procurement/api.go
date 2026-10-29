@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -542,6 +543,15 @@ func (e *Endpoints) CancelPurchaseOrder(ctx context.Context, params gen.CancelPu
 		return nil, err
 	}
 	return orderOK(o), nil
+}
+
+// GetPurchaseOrderDocument implements GET /v1/purchase-orders/{id}/document.
+func (e *Endpoints) GetPurchaseOrderDocument(ctx context.Context, params gen.GetPurchaseOrderDocumentParams) (gen.GetPurchaseOrderDocumentRes, error) {
+	doc, err := e.OrderDocument(ctx, params.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.GetPurchaseOrderDocumentOK{Data: strings.NewReader(doc)}, nil
 }
 
 // --- order changes ----------------------------------------------------------

@@ -9279,6 +9279,7 @@ func (*ConflictHeaders) endSodRuleRes()                       {}
 func (*ConflictHeaders) excludeBankStatementLineRes()         {}
 func (*ConflictHeaders) getAnalyticsModelRes()                {}
 func (*ConflictHeaders) getBankFileContentRes()               {}
+func (*ConflictHeaders) getPurchaseOrderDocumentRes()         {}
 func (*ConflictHeaders) grantRolePermissionRes()              {}
 func (*ConflictHeaders) holdSupplierInvoiceRes()              {}
 func (*ConflictHeaders) importBankStatementsRes()             {}
@@ -15652,6 +15653,39 @@ func (s *GetPurchaseOrderChangeOKHeaders) SetResponse(val PurchaseOrderChange) {
 }
 
 func (*GetPurchaseOrderChangeOKHeaders) getPurchaseOrderChangeRes() {}
+
+type GetPurchaseOrderDocumentBadRequest Problem
+
+func (*GetPurchaseOrderDocumentBadRequest) getPurchaseOrderDocumentRes() {}
+
+type GetPurchaseOrderDocumentForbidden Problem
+
+func (*GetPurchaseOrderDocumentForbidden) getPurchaseOrderDocumentRes() {}
+
+type GetPurchaseOrderDocumentNotFound Problem
+
+func (*GetPurchaseOrderDocumentNotFound) getPurchaseOrderDocumentRes() {}
+
+// The document, plain text in UTF-8, lines ending in LF.
+type GetPurchaseOrderDocumentOK struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetPurchaseOrderDocumentOK) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+func (*GetPurchaseOrderDocumentOK) getPurchaseOrderDocumentRes() {}
+
+type GetPurchaseOrderDocumentUnprocessableEntity Problem
+
+func (*GetPurchaseOrderDocumentUnprocessableEntity) getPurchaseOrderDocumentRes() {}
 
 type GetPurchaseOrderForbidden Problem
 
@@ -39715,6 +39749,7 @@ func (*TooManyRequestsHeaders) getPlanCategoryRes()                  {}
 func (*TooManyRequestsHeaders) getPrincipalRes()                     {}
 func (*TooManyRequestsHeaders) getProfitCenterRes()                  {}
 func (*TooManyRequestsHeaders) getPurchaseOrderChangeRes()           {}
+func (*TooManyRequestsHeaders) getPurchaseOrderDocumentRes()         {}
 func (*TooManyRequestsHeaders) getPurchaseOrderRes()                 {}
 func (*TooManyRequestsHeaders) getRecommendationRes()                {}
 func (*TooManyRequestsHeaders) getRegressionSuiteRes()               {}
@@ -40060,6 +40095,7 @@ func (*UnauthorizedHeaders) getPlanCategoryRes()                  {}
 func (*UnauthorizedHeaders) getPrincipalRes()                     {}
 func (*UnauthorizedHeaders) getProfitCenterRes()                  {}
 func (*UnauthorizedHeaders) getPurchaseOrderChangeRes()           {}
+func (*UnauthorizedHeaders) getPurchaseOrderDocumentRes()         {}
 func (*UnauthorizedHeaders) getPurchaseOrderRes()                 {}
 func (*UnauthorizedHeaders) getRecommendationRes()                {}
 func (*UnauthorizedHeaders) getRegressionSuiteRes()               {}
