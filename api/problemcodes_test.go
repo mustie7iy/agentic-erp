@@ -25,13 +25,13 @@ package api
 // work); and a call of a function value a function was given as a
 // parameter (database.Pool.InTx's work: the graph would join every
 // caller's), whose values the callers make, so they count where their
-// callers are reached. The same holds for a function value in a field of
-// a struct parameter (integration's step.work) when every caller fills
-// the field with a function it makes, one a function it calls returns, or
-// a parameter of its own; a value read through a pointer, from a variable
-// or from a closure's capture keeps its edge (callersMake). A problem made by a package initializer and kept
-// in a variable is an operation's when the operation's code reads that
-// variable. A code a constraint's problem (problem.RegisterConstraint)
+// callers are reached. So is a call of a function value in a field of a
+// struct parameter (integration's step.work) when every caller fills the
+// field with a function it makes, or one a function it calls returns made
+// (callersMake); a value read through a pointer, from a variable or from
+// a closure's capture keeps its edge. A problem made by a package
+// initializer and kept in a variable is an operation's when the
+// operation's code reads that variable. A code a constraint's problem (problem.RegisterConstraint)
 // carries is an operation's when a function it reaches runs a statement
 // writing the constraint's table (constraint and table read from the
 // migrations). Codes built at run time, or set on a problem after
@@ -252,8 +252,11 @@ func checkPremisesRefuse(t *testing.T, a *codeAnalysis) {
 // TestProblemCodesFieldCalls proves the cut of a call of a function value
 // held in a struct parameter's field (callersMake) on testdata/fieldcalls:
 // the graph joins the work Load and Reconcile give run, and each still
-// answers only its own code; work read from a variable or through a
-// pointer is followed, so no operation loses a code it can answer.
+// answers only its own code, as do work chosen by a phi and work set on
+// the callee's copy; work read from a variable, through a pointer or a
+// closure's capture, or handed on through a parameter or a function's
+// result from a variable, is followed, so no operation loses a code it
+// can answer.
 func TestProblemCodesFieldCalls(t *testing.T) {
 	const fixture = module + "/api/testdata/fieldcalls"
 	a, _ := build(t, fixture)
@@ -270,6 +273,11 @@ func TestProblemCodesFieldCalls(t *testing.T) {
 		{"Wired", []string{"fixture.wired"}, nil},
 		{"Direct", []string{"fixture.direct", "fixture.wired"}, nil},
 		{"Pointer", []string{"fixture.pointer"}, nil},
+		{"Chosen", []string{"fixture.first", "fixture.second"}, []string{"fixture.load", "fixture.reconcile"}},
+		{"Spilled", []string{"fixture.spilled"}, []string{"fixture.load", "fixture.reconcile"}},
+		{"Returned", []string{"fixture.returned"}, nil},
+		{"Passed", []string{"fixture.passed"}, nil},
+		{"Captured", []string{"fixture.captured"}, nil},
 	} {
 		t.Run(c.root, func(t *testing.T) {
 			codes := a.codesOf(a.reach([]*ssa.Function{a.fns[fixture+"."+c.root]}), nil)
@@ -742,8 +750,8 @@ func (a *codeAnalysis) referenced(f *ssa.Function, codes map[string]bool) []*ssa
 // call of a function value its caller was given (a callback: the graph
 // does not tell one caller's from another's, and the functions each caller
 // makes are taken as called where it is reached), as a parameter or as a
-// field of a struct parameter every caller fills with a function it makes
-// (callersMake).
+// field of a struct parameter every caller provably fills with a function
+// it makes (callersMake).
 func (a *codeAnalysis) cut(f *ssa.Function, e *callgraph.Edge) bool {
 	c := e.Site.Common()
 	if c.StaticCallee() != nil {
@@ -755,19 +763,19 @@ func (a *codeAnalysis) cut(f *ssa.Function, e *callgraph.Edge) bool {
 	return !c.IsInvoke() && a.callersMake(c.Value)
 }
 
-// callersMake reports whether v, a function value called, is made where
-// it is called (holdsMade): its function's parameter, or a field of a
-// struct parameter (integration's step.work) that every call of the
-// function fills with a function or closure its caller makes. A parameter
-// is taken as its callers' (the cut above); a field could hold anything
-// else, a value read through a pointer, from a global or a closure's
-// variable, or given by a function nothing in the program calls, and then
-// the edge stays.
+// callersMake reports whether v, a function value called, is its
+// function's parameter (taken as its callers', the cut above), or is made
+// where it is called (holdsMade): a field of a struct parameter
+// (integration's step.work) that every call of the function fills with a
+// function or closure its caller makes. Anything else, a value read
+// through a pointer, from a variable or a closure's capture, or given by a
+// function nothing in the program calls, keeps its edge.
 func (a *codeAnalysis) callersMake(v ssa.Value) bool {
 	if ok, done := a.made[v]; done {
 		return ok
 	}
-	made := a.holdsMade(v, nil, map[heldAt]bool{})
+	_, param := v.(*ssa.Parameter)
+	made := param || a.holdsMade(v, nil, map[heldAt]bool{})
 	a.made[v] = made
 	return made
 }
@@ -801,9 +809,11 @@ func (a *codeAnalysis) givenMade(p *ssa.Parameter, path []int, seen map[heldAt]b
 }
 
 // holdsMade reports whether the function value at path within v is made
-// where v is: a function or closure, nil, a function parameter (taken as
-// its callers', as cut does), or traced to those through phis, fields,
-// static calls' results and the stores into a local composite literal.
+// where v is: a function or closure, nil, or traced to those through
+// phis, fields, static calls' results, the stores into a local composite
+// literal and a parameter's arguments at every call (givenMade). A
+// parameter met on the way is checked, not trusted: only the call of a
+// parameter itself is taken as its callers' (callersMake).
 func (a *codeAnalysis) holdsMade(v ssa.Value, path []int, seen map[heldAt]bool) bool {
 	k := heldAt{v, fmt.Sprint(path)}
 	if seen[k] {
@@ -820,7 +830,7 @@ func (a *codeAnalysis) holdsMade(v ssa.Value, path []int, seen map[heldAt]bool) 
 	case *ssa.ChangeType:
 		return a.holdsMade(x.X, path, seen)
 	case *ssa.Parameter:
-		return len(path) == 0 || a.givenMade(x, path, seen)
+		return a.givenMade(x, path, seen)
 	case *ssa.Field:
 		return a.holdsMade(x.X, append([]int{x.Field}, path...), seen)
 	case *ssa.Call:

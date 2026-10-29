@@ -1253,12 +1253,13 @@ What the API gaps settled, and where they depart from §3:
   values count where their callers make them: the cut now also covers a
   function value read from a field of a struct parameter, when the test
   can prove that every call of the function fills the field with a
-  function or closure the caller makes, one a function it calls returns,
-  or a function parameter of its own (through phis, composite literals
-  and the parameter's own copy). Where it cannot, the edge stays and the
-  operation keeps the joined codes: a value read through a pointer
-  (anything holding the pointer may have set it), from a variable or a
-  closure's capture, or given by a function nothing in the program calls
+  function or closure the caller makes, or one a function it calls
+  returns made, through phis, composite literals, the parameter's own
+  copy and the caller's own parameters, which are checked against their
+  callers' arguments in turn, not trusted. Where it cannot, the edge
+  stays and the operation keeps the joined codes: a value read through
+  a pointer (anything holding the pointer may have set it), from a
+  variable or a closure's capture, or given by a function nothing in the program calls
   other than an unexported method's promotion wrapper. The change is
   general, keyed by the call, not by `runStep`; it changes one list,
   `reconcileMigrationRun`'s, which loses 155 codes and keeps the nine
@@ -1266,10 +1267,14 @@ What the API gaps settled, and where they depart from §3:
   (the reconciliation's reads through `Reports`, `Suppliers`,
   `OrderValues`, `InvoiceCounts` and `Invoiced` make none).
   `TestProblemCodesFieldCalls` proves it on `api/testdata/fieldcalls`:
-  two callers' work, joined by the graph, answer each its own code, and
-  work read from a variable or through a pointer is still followed. The
-  parameter cut itself still trusts that the callers make what they pass;
-  the test does not prove it (pre-existing, reported in batch 23).
+  two callers' work, joined by the graph, answer each its own code, as do
+  work a phi chooses and work set on the callee's copy, and work read from
+  a variable, through a pointer or a closure's capture, or handed on from
+  a variable through a parameter or a function's result, is still
+  followed. The parameter cut itself still trusts that the callers make
+  what they pass; the test does not prove it, and a direct call of a
+  parameter given a variable's function loses that function's codes
+  (pre-existing, reported in batch 23).
 - **Client addresses in the API's audit trail (D2, PO 2026-10-21).**
   - erp-web forwards the signed-in person's address, as its own load
     balancer's PROXY header names it, in `Erp-Client-Address` on every

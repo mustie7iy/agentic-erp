@@ -52,3 +52,67 @@ var hooked = &hooks{work: pointed}
 func Pointer() error { return runHooks(hooked) }
 
 func pointed() error { return problem.New(409, "fixture.pointer", "Pointer", "") }
+
+// Chosen gives run work a phi picks from two functions it makes.
+func Chosen(second bool) error {
+	work := first
+	if second {
+		work = secondWork
+	}
+	return run(step{name: "chosen", work: work})
+}
+
+func first() error      { return problem.New(409, "fixture.first", "First", "") }
+func secondWork() error { return problem.New(409, "fixture.second", "Second", "") }
+
+// spill sets the work on its own copy of the step before calling it.
+func spill(st step) error {
+	if st.name == "" {
+		st.work = spilled
+	}
+	return st.work()
+}
+
+func Spilled() error { return spill(step{work: spilled}) }
+
+func spilled() error { return problem.New(409, "fixture.spilled", "Spilled", "") }
+
+// pass returns the work it is given: Returned's comes from a variable.
+func pass(f func() error) func() error { return f }
+
+func runReturned(st step) error { return st.work() }
+
+var probes = hooks{work: returned}
+
+func Returned() error       { return runReturned(step{work: pass(probes.work)}) }
+func ReturnedDirect() error { return runReturned(step{work: pass(direct)}) }
+
+func returned() error { return problem.New(409, "fixture.returned", "Returned", "") }
+
+// fill puts the work its caller gave it in a step: Passed's comes from a
+// variable.
+func fill(f func() error) error { return runPassed(step{work: f}) }
+
+func runPassed(st step) error { return st.work() }
+
+var passedHooks = hooks{work: passed}
+
+func Passed() error       { return fill(passedHooks.work) }
+func PassedDirect() error { return fill(direct) }
+
+func passed() error { return problem.New(409, "fixture.passed", "Passed", "") }
+
+// Captured's closure fills the step with work its maker captured from a
+// variable.
+func runCaptured(st step) error { return st.work() }
+
+var capturedHooks = hooks{work: captured}
+
+func Captured() error {
+	w := capturedHooks.work
+	return func() error { return runCaptured(step{work: w}) }()
+}
+
+func CapturedDirect() error { return runCaptured(step{work: direct}) }
+
+func captured() error { return problem.New(409, "fixture.captured", "Captured", "") }
