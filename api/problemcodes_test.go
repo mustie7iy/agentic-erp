@@ -39,8 +39,11 @@ package api
 // ones whose branch is taken only for an input a few functions make: such
 // a code is an operation's only when it reaches one of them. Each entry's
 // premise is checked: that no other function sets the field the branch
-// tests, or that no other value reaches the parameter it tests. Branches
-// it does not name stay a superset (ADR-0052, G7 as built).
+// tests, or that no other value reaches the parameter it tests. The field
+// check sees the program's own stores and address uses; a value filled
+// by reflection (a decoder) or converted from a twin struct type is not
+// seen, and none is made today. Branches it does not name stay a
+// superset (ADR-0052, G7 as built).
 
 import (
 	"flag"
@@ -154,7 +157,10 @@ func TestProblemCodes(t *testing.T) {
 	a := analyse(t)
 	spec := loadSpec(t)
 	common := keys(a.codesOf(a.reach(a.pipeline()), nil))
-	a.checkUntaken(t)
+	for _, e := range a.checkUntaken(untakenBranches) {
+		t.Error(e)
+	}
+	t.Run("premises", func(t *testing.T) { checkPremisesRefuse(t, a) })
 	derived := a.operationCodes(t, spec, common)
 	if *update {
 		writeCodes(t, common, derived)
@@ -199,6 +205,40 @@ func TestProblemCodes(t *testing.T) {
 		if len(a.narrowed[i]) == 0 {
 			t.Errorf("untakenBranches: %s of %s is no operation's to leave out any more; remove the entry", u.code, u.gate)
 		}
+	}
+}
+
+// checkPremisesRefuse proves checkUntaken fails an entry whose premise
+// does not hold: one that leaves out the function setting the field, one
+// whose parameter carries the taking value, one whose parameter comes
+// from a function nothing in the program calls (the API's handler is
+// called from api/gen, outside the analysis; a method value's bound
+// wrapper is the same case), and one whose gate makes
+// no such code.
+func checkPremisesRefuse(t *testing.T, a *codeAnalysis) {
+	t.Helper()
+	takeOver, valuation := untakenBranches[0], untakenBranches[3]
+	notBy := takeOver
+	notBy.by = []string{module + "/internal/procurement.clearingPosting"}
+	carried := valuation
+	carried.taking = ""
+	uncalled := untaken{gate: "(" + module + "/internal/app.handler).ReleasePurchaseOrder", code: "procurement.no_gr_ir_account", param: "params"}
+	gone := takeOver
+	gone.code = "ledger.no_such_code"
+	for name, c := range map[string]struct {
+		got  []string
+		want string
+	}{
+		"a setter outside by":       {a.checkUntaken([]untaken{notBy}), "sets GRIRItem.TakesOver"},
+		"a value taking the branch": {a.checkUntaken([]untaken{carried}), `may be ""`},
+		"a source nothing calls":    {a.checkParamPremise(uncalled, a.fns[uncalled.gate]), "which nothing in the program calls"},
+		"a code the gate makes not": {a.checkUntaken([]untaken{gone}), "no longer makes ledger.no_such_code"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if !slices.ContainsFunc(c.got, func(e string) bool { return strings.Contains(e, c.want) }) {
+				t.Errorf("got %q, want a problem saying %q", c.got, c.want)
+			}
+		})
 	}
 }
 
@@ -758,12 +798,12 @@ func within(f *ssa.Function, names []string) bool {
 	return false
 }
 
-// checkUntaken checks each of untakenBranches against the program: its
-// gate still makes its code, the functions it names exist, and its
-// premise holds.
-func (a *codeAnalysis) checkUntaken(t *testing.T) {
-	t.Helper()
-	for _, u := range untakenBranches {
+// checkUntaken checks entries against the program: each gate still makes
+// its code at one site, the functions an entry names exist, and its
+// premise holds. It returns what is wrong.
+func (a *codeAnalysis) checkUntaken(entries []untaken) []string {
+	var out []string
+	for _, u := range entries {
 		gate := a.fns[u.gate]
 		sites := 0
 		if gate != nil {
@@ -771,56 +811,59 @@ func (a *codeAnalysis) checkUntaken(t *testing.T) {
 		}
 		switch {
 		case sites == 0:
-			t.Errorf("untakenBranches: %s no longer makes %s", u.gate, u.code)
+			out = append(out, fmt.Sprintf("untakenBranches: %s no longer makes %s (%s)", u.gate, u.code, u.why))
 			continue
 		case sites > 1:
-			t.Errorf("untakenBranches: %s makes %s at %d sites, which the entry cannot tell apart", u.gate, u.code, sites)
+			out = append(out, fmt.Sprintf("untakenBranches: %s makes %s at %d sites, which the entry cannot tell apart", u.gate, u.code, sites))
 		}
 		for _, fn := range u.by {
 			if a.fns[fn] == nil {
-				t.Errorf("untakenBranches, %s: %s no longer exists", u.code, fn)
+				out = append(out, fmt.Sprintf("untakenBranches, %s: %s no longer exists (%s)", u.code, fn, u.why))
 			}
 		}
 		if len(u.fields) == 0 && u.param == "" {
-			t.Errorf("untakenBranches, %s: no premise the test can check (fields or param)", u.code)
+			out = append(out, fmt.Sprintf("untakenBranches, %s: no premise the test can check (fields or param)", u.code))
 		}
 		for _, fl := range u.fields {
-			a.checkFieldPremise(t, u, fl)
+			out = append(out, a.checkFieldPremise(u, fl)...)
 		}
 		if u.param != "" {
-			a.checkParamPremise(t, u, gate)
+			out = append(out, a.checkParamPremise(u, gate)...)
 		}
 	}
+	return out
 }
 
 // checkFieldPremise checks that the functions of u alone set the field.
-func (a *codeAnalysis) checkFieldPremise(t *testing.T, u untaken, fl [3]string) {
-	t.Helper()
+func (a *codeAnalysis) checkFieldPremise(u untaken, fl [3]string) []string {
+	var out []string
 	set := false
 	for f := range a.all {
 		if pos := fieldStores(f, fl[0], fl[1], fl[2]); len(pos) > 0 {
 			set = true
 			if !within(f, u.by) {
-				t.Errorf("untakenBranches, %s: %s sets %s.%s (%v), so %v are not alone in taking the branch", u.code, f, fl[1], fl[2],
-					a.prog.Fset.Position(pos[0]), u.by)
+				out = append(out, fmt.Sprintf("untakenBranches, %s: %s sets %s.%s (%v), so %v are not alone in taking the branch (%s)", u.code, f,
+					fl[1], fl[2], a.prog.Fset.Position(pos[0]), u.by, u.why))
 			}
 		}
 	}
 	if !set {
-		t.Errorf("untakenBranches, %s: nothing sets %s.%s any more", u.code, fl[1], fl[2])
+		out = append(out, fmt.Sprintf("untakenBranches, %s: nothing sets %s.%s any more", u.code, fl[1], fl[2]))
 	}
+	return out
 }
 
 // checkParamPremise checks that every value reaching the gate's
 // parameter is a constant other than the one taking the branch, or comes
-// from a parameter of a function of u.
-func (a *codeAnalysis) checkParamPremise(t *testing.T, u untaken, gate *ssa.Function) {
-	t.Helper()
+// from a parameter of a function of u. A parameter of a function the
+// graph shows no call of (a function value handed outside the program,
+// as a worker's activity is) could carry anything, so it fails.
+func (a *codeAnalysis) checkParamPremise(u untaken, gate *ssa.Function) []string {
 	i := slices.IndexFunc(gate.Params, func(p *ssa.Parameter) bool { return p.Name() == u.param })
 	if i < 0 {
-		t.Errorf("untakenBranches, %s: %s has no parameter %s", u.code, u.gate, u.param)
-		return
+		return []string{fmt.Sprintf("untakenBranches, %s: %s has no parameter %s", u.code, u.gate, u.param)}
 	}
+	var out []string
 	seen := map[ssa.Value]bool{}
 	var check func(v ssa.Value, in *ssa.Function)
 	check = func(v ssa.Value, in *ssa.Function) {
@@ -842,14 +885,29 @@ func (a *codeAnalysis) checkParamPremise(t *testing.T, u untaken, gate *ssa.Func
 			check(v.X, in)
 			return
 		case *ssa.Parameter:
-			if !within(v.Parent(), u.by) {
-				a.eachArgument(v, func(e *callgraph.Edge, arg ssa.Value) { check(arg, e.Caller.Func) })
+			if within(v.Parent(), u.by) {
+				return
 			}
+			if n := a.cg.Nodes[v.Parent()]; (n == nil || len(n.In) == 0) && !unexportedPromotion(v.Parent()) {
+				out = append(out, fmt.Sprintf("untakenBranches, %s: %s's %s comes from %s, which nothing in the program calls (%s)", u.code, u.gate,
+					u.param, v.Parent(), u.why))
+				return
+			}
+			a.eachArgument(v, func(e *callgraph.Edge, arg ssa.Value) { check(arg, e.Caller.Func) })
 			return
 		}
-		t.Errorf("untakenBranches, %s: %s's %s may be %q, as %s passes it", u.code, u.gate, u.param, u.taking, in)
+		out = append(out, fmt.Sprintf("untakenBranches, %s: %s's %s may be %q, as %s passes it (%s)", u.code, u.gate, u.param, u.taking, in, u.why))
 	}
 	check(gate.Params[i], gate)
+	return out
+}
+
+// unexportedPromotion reports whether f is the wrapper promoting an
+// unexported method of an embedded field: only its own package can call
+// it, by name (which the graph shows) or as a method value (whose bound
+// wrapper is then the function nothing calls).
+func unexportedPromotion(f *ssa.Function) bool {
+	return strings.HasPrefix(f.Synthetic, "wrapper for ") && !token.IsExported(f.Name())
 }
 
 // allCodes is every code the server can make.
