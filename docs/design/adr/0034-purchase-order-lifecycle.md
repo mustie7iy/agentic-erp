@@ -265,7 +265,6 @@ SAP's GR/IR credit stayed on the account with no order item to clear it
   never had.
 - **Reconciliation.** Open GR/IR per order item, balance and quantity, in
   total and per item, shown when either side has a position.
-
 - **Several companies and OData extracts.** A GR/IR line naming an order of
   another company of the scope is refused, so a position is taken over in
   its order's legal entity. An extract without T030 (the OData mapping does
@@ -275,8 +274,10 @@ SAP's GR/IR credit stayed on the account with no order item to clear it
   account are recognised only when it is the legal entity's `gr_ir`.
 - **Later runs.** A position is taken over by the run that loads its order;
   receipts or invoices SAP posts on an order already loaded are not taken
-  over by a later run (the reconciliation shows the difference). Cutover
-  freezes SAP's postings for the scope before the final run (docs/migration.md).
+  over by a later run: a delta run after a receipt or invoice SAP posted on
+  an order already loaded fails the reconciliation's open GR/IR check, which
+  the migration cannot then correct. Whether later delta runs must top such
+  positions up is a question for the product owner.
 
 For an SAP specialist: that ACDOCA carries the order item under EBELN and
 EBELP on every GR/IR line, and the OData properties for them and for T030

@@ -82,8 +82,9 @@ an open quantity without a balance, and an item received without a GR/IR
 line on an order whose other items post one; a GR/IR line naming an order of
 another company of the scope is refused too. A position is taken over by the
 run that loads its order: what SAP posts on the order afterwards is not taken
-over by a later run (the reconciliation shows it), so the final run follows
-the freeze of SAP's postings (cutover step 4). Moving an order already loaded
+over by a later run: a delta run after SAP posted a receipt or an invoice on
+an order already loaded fails the reconciliation's open GR/IR check, and the
+migration cannot correct it. Moving an order already loaded
 valued directly onto GR/IR is not done (tracker: "Move open direct-valued
 orders onto GR/IR (optional)").
 
