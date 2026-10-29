@@ -67,9 +67,12 @@ jobs:
           range="${BASE:-$BEFORE}..HEAD"
           if [ -z "${BASE}${BEFORE}" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then range="HEAD~1..HEAD"; fi
           gitleaks git --redact --no-banner --log-opts="--no-merges $range" .
-      - name: The skip rules' own tests
-        # Seconds: the decision below is only as good as these.
-        run: ./scripts/test-ci-changes.sh
+      - name: The skip rules' own tests, and each-module.sh's
+        # Seconds: the decision below is only as good as these. The second
+        # holds that the static checks reach every Go module (06 §6.5).
+        run: |
+          ./scripts/test-ci-changes.sh
+          ./scripts/test-each-module.sh
       - name: Does the suite have to run?
         id: decide
         env:
@@ -344,13 +347,14 @@ jobs:
         # only the code a push changes. api/gen is left out as the Makefile does.
         run: make lint-all GOLANGCI=golangci-lint
       - name: Static analysis
-        run: staticcheck ./...
+        run: ./scripts/each-module.sh staticcheck ./...
       - name: Vulnerabilities
-        run: govulncheck ./...
+        # In every module: from the root alone, ./... skips temporal/.
+        run: ./scripts/each-module.sh govulncheck ./...
       - name: Static security analysis
         # Excluded by decision (docs/design/06-engineering-process.md): G104 (errors ignored on purpose carry a comment),
         # G115 (integer conversions of bounded domain values), G304 and G107 (paths and URLs come from settings and flags by design).
-        run: gosec -quiet -exclude=G104,G115,G304,G107 -exclude-dir=api/gen ./...
+        run: ./scripts/each-module.sh gosec -quiet -exclude=G104,G115,G304,G107 -exclude-dir=api/gen ./...
       - name: Generated code matches its sources (the contract, the templ components)
         run: |
           make generate
