@@ -8,7 +8,8 @@
 # (scripts/mirror-images.sh) carries a copy's provenance instead, naming
 # the digest it copied, which must be the image's: the same copy is
 # attested again by every release that pins it, so such an image passes
-# when one of its copies names ERP_EXPECTED_COMMIT; a built image must
+# when one of its copies names ERP_EXPECTED_COMMIT
+# from a clean checkout; a built image must
 # name that commit alone (ADR-0032 amendment of 2026-10-28, T72i). It
 # exits non-zero at the first image that fails. The release workflow runs
 # it on what it pushed; delivery runs it again before a rollout (T40).
