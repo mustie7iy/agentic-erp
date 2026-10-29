@@ -608,7 +608,10 @@ reference its consumer needs). Decided by default:
   `bank_account_scheme` and `bank_account_holder_name`, required (every
   payment has an account); `bank_account_bic`, absent when the account has
   none; and a Canadian account's `bank_account_institution_number` and
-  `bank_account_transit_number`, absent for the other schemes. The account
+  `bank_account_transit_number`, absent for the other schemes. The bank's
+  country (`bank_country_code`) is left out: with the supplier's name, the
+  last four characters and the bank (BIC or Canadian routing) recognise the
+  account, and a consumer that needs the country reads the account. The account
   number stays sealed: `BankAccounts` reads the masked columns only, and
   `BankDetails` alone opens the number, for a bank file. All are response
   fields, so the change is additive (oasdiff: no breaking change).
