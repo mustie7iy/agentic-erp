@@ -914,6 +914,13 @@
         "r": "api/openapi.yaml PaymentItem · internal/payments · internal/ledger OpenItems",
         "src": "review:batch23",
         "c": []
+       },
+       {
+        "s": "T",
+        "t": "A payment names its posting and its bank (pre-existing finding on paynums, API-consumer classes: an identifier without the name or reference its consumer needs): Payment.journal_entry_id (the payment's own posting) gives no document number, and bank_account_id and house_bank_id give no name or code, so a consumer makes one more call per payment; ledger.OpenItems.Numbers already resolves journal entry numbers",
+        "r": "api/openapi.yaml Payment journal_entry_id · bank_account_id · house_bank_id · internal/payments · ledger.OpenItems.Numbers",
+        "src": "review:batch23",
+        "c": []
        }
       ]
      },
@@ -2633,6 +2640,13 @@
       "s": "T",
       "t": "A later migration run tops up the GR/IR positions of an order an earlier run of the same fiscal year loaded with no position open: the top-up tells a take-over's run, and so its fiscal year, by the take-over entry's source document, and an order loaded with nothing open has none, so it is left with a warning and a reconciliation difference when SAP receives or invoices on it again before cutover",
       "r": "internal/integration/grir.go cannotTopUp · ADR-0034 As built (later runs)",
+      "src": "review:batch23",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A migration run's report has a schema (pre-existing finding on grirtop): MigrationRun.report is an object with additionalProperties: true, so its loaded-count keys (gr_ir_positions, gr_ir_top_ups and the others) are documented only in docs/migration.md and a consumer of the contract cannot know them",
+      "r": "api/openapi.yaml MigrationRun.report · internal/integration · docs/migration.md",
       "src": "review:batch23",
       "c": []
      },
@@ -5356,9 +5370,9 @@
        },
        {
         "s": "T",
-        "t": "The workspace's payment run views name the supplier (pre-existing finding on exclnames): internal/web/payment_run.go:176 and :197 show the supplier as a UUID although the API gives supplier_name for payments and exclusions; waits for the UI rework (PO 2026-10-28: UI later)",
-        "r": "internal/web/payment_run.go",
-        "src": "review:batch22",
+        "t": "The workspace's payment run views name the supplier and the down payment request (pre-existing findings on exclnames and paynums): internal/web/payment_run.go:176 and :197 show the supplier as a UUID although the API gives supplier_name for payments and exclusions, and exclusionViews shows an excluded down payment request by id only although the API gives down_payment_request_number; waits for the UI rework (PO 2026-10-28: UI later)",
+        "r": "internal/web/payment_run.go paymentViews · exclusionViews",
+        "src": "review:batch22 · review:batch23",
         "c": []
        },
        {
