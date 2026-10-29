@@ -270,9 +270,12 @@ func TestDownPaymentDatabaseFailures(t *testing.T) {
 	e.request(t, e.Vendor, "40.00", "2026-03-15", `, "tax_code": "V1"`)
 	blocked := e.NewSupplier(t, "BP90000005")
 	e.bankAccount(t, blocked, "DE89370400440532013000", "B", "2026-01-01", "", "create")
-	e.request(t, blocked, "70.00", "2026-03-10", "")
+	left := e.request(t, blocked, "70.00", "2026-03-10", "")
 	pgtest.Exec(t, `UPDATE partner.business_partner SET status = 'blocked', version = version + 1 WHERE id = $1`, blocked)
-	proposedRun := e.run(t, "2026-04-01", "2026-04-01") // leaves the blocked supplier's request out
+	proposedRun := e.run(t, "2026-04-01", "2026-04-01")
+	if got := e.exclusions(t, proposedRun)["request "+id(left)]; got != "supplier_blocked 70.00" {
+		t.Fatalf("the blocked supplier's request: got %q, want it left out, supplier_blocked 70.00", got)
+	}
 	e.request(t, e.Supplier, "23.80", "2026-03-15", `, "tax_code": "V1"`)
 	queued := e.propose(t, "2026-04-02", "2026-04-02")
 	var job payments.Job
