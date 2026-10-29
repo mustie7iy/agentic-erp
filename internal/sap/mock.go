@@ -314,8 +314,9 @@ func (g *mockGen) purchaseOrder(cc string, i int, taxPct int64, vendors []string
 }
 
 // corrections are the parked documents that follow the posted invoices of
-// the first three orders of each company with scenarios (1000 and 3000), one of each kind other than an
-// invoice, by RBKP-XRECH and RSEG-TBTKZ (types.go).
+// the first three orders of each company with scenarios (1000 and 3000),
+// one of each kind other than an invoice, by RBKP-XRECH and RSEG-TBTKZ
+// (types.go).
 type mockCorrection struct{ prefix, xrech, tbtkz string }
 
 var corrections = []mockCorrection{
