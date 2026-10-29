@@ -513,8 +513,9 @@ consumer needs). Decided by default, as for payments above:
 - **One response.** `PaymentExclusion` is returned only by
   `listPaymentExclusions`; no create or get returns it, so there is no other
   response to change. Its other fields already meet the API-consumer
-  classes: the amount carries its currency, a request's exclusion names its
-  request, and the list is cursor-paged per run.
+  classes: the amount carries its currency, and the list is cursor-paged
+  per run. A request's exclusion gives its request by id only, not by its
+  document number (a pre-existing gap, for the coordinator).
 - **The walkthrough.** Step 7 prints each excluded supplier's name from the
   API instead of looking each partner up (`name_partners`), and expects the
   posting-blocked supplier the mock extract carries into company 3000 to be

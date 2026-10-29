@@ -256,7 +256,7 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 		return nil, fmt.Errorf("payments: list exclusions of run %s: %w", r.ID, err)
 	}
 	page, next := pagination.Page(ks, exs, idKey(func(x Exclusion) uuid.UUID { return x.ID }))
-	names, err := supplierNames(ctx, e.Payees, page, func(x Exclusion) (uuid.UUID, string) { return x.SupplierID, "an exclusion from run " + r.ID.String() })
+	names, err := supplierNames(ctx, e.Payees, page, func(x Exclusion) (uuid.UUID, string) { return x.SupplierID, "exclusion " + x.ID.String() })
 	if err != nil {
 		return nil, fmt.Errorf("payments: list exclusions of run %s: %w", r.ID, err)
 	}
