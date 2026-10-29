@@ -298,6 +298,10 @@ gates on each pull request:
     by design, so `internal/web`'s tests are the layer that catches it, and
     a lane that adds required response fields runs them. Changed: no gate;
     the stubs answer the new fields.
+  - 2026-10-28 (T72c): `make walkthrough` does not check the step headings
+    that cmd/erp's TestWalkthrough asserts. Layer: the lane fast loop.
+    Changed: a step that renumbers walkthrough steps runs
+    `go test ./cmd/erp -run TestWalkthrough`.
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
   documentation changed (`docs/`, Markdown) since the base: a pull
