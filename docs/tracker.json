@@ -5327,6 +5327,13 @@
         "c": []
        },
        {
+        "s": "T",
+        "t": "x-problem-codes may omit codes an operation can answer: problemcodes_test.go's cut drops a direct call of a function-value parameter without proving its callers made the value; about 45 such sites, mostly ifMatch/fits/check/build passed through internal/app.handler's promotion wrappers, a few from struct fields (payables.Uploads.now, blobstore writeSidecar place, uow authenticate check, apitypes PageOf key/toAPI); checking them with givenMade adds codes such as request.version_mismatch and ledger.approval_required, each to be judged",
+        "r": "api/problemcodes_test.go cut · ADR-0052 G7",
+        "src": "review:batch23",
+        "c": []
+       },
+       {
         "s": "D",
         "t": "Approvals inbox: the requests decidable by me (pages read on while the API thins them), a request's page with summary, steps and decisions, approve with a comment and reject with a reason as forms with If-Match and a fresh idempotency key; SoD and permission refusals shown by code (barred permissions from /v1/me); requester and deciders by name and kind (names cached per session), agents' text inert; navigation and actions from /v1/me; amounts per currency and locale; EN and FR; usable at 390 px; scenarios as approver, requester and a person without the role",
         "r": "internal/web approvals.go · me.go · refusal.go · operations.go · ui/approvals.templ · i18n Money, Problems · TestInboxPage · TestDecide · TestDecideRefusals · TestSegregationOfDuties · TestScreensAgainstTheContract · TestApprovalsInTheBrowser · ADR-0052 Built in T73d · T73d",
