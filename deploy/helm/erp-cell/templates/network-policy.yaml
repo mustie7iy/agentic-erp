@@ -14,8 +14,11 @@
 # - The workflow engine's frontend takes the server and the engine's own
 #   nodes; its other services and membership ports, its nodes alone. It
 #   reaches the writer, in the VPC.
-# - PgBouncer and the migrations Jobs reach the writer, in the VPC, only.
-# - Every Pod resolves names through the cluster's DNS.
+# - PgBouncer and the migrations Jobs reach the writer, in the VPC, only;
+#   the Jobs take no connections.
+# - Every Pod resolves names through the cluster's DNS, the hook Jobs
+#   through their own policies' rule as well (the default deny is not
+#   there yet when they run on a first install).
 {{- $vpc := required "vpcCidr is required: cell.cidr" .Values.vpcCidr }}
 {{- $port := .Values.pgbouncer.port }}
 apiVersion: networking.k8s.io/v1
@@ -28,16 +31,7 @@ spec:
   podSelector: {}
   policyTypes: [Ingress, Egress]
   egress:
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
-      ports:
-        - {protocol: UDP, port: 53}
-        - {protocol: TCP, port: 53}
+    {{- include "erp-cell.dnsEgress" . | nindent 4 }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -162,8 +156,12 @@ metadata:
   name: erp-migrate
   labels:
     {{- include "erp-cell.labels" (dict "root" . "component" "erp-migrate") | nindent 4 }}
-  # A hook, as its Job is: on an upgrade the default deny is already
-  # there, and the Job runs before the release's other resources.
+  # A hook, as its Job is, of a lower weight, so it is there before the
+  # Job's Pods. Helm runs pre-install hooks before it creates any of the
+  # release's resources (Argo CD: PreSync), so on a first install the
+  # default deny is not there yet: this policy alone holds the Job, both
+  # ways, and admits the cluster's DNS itself, then the writer in the VPC.
+  # On an upgrade the default deny adds nothing more.
   annotations:
     helm.sh/hook: pre-install,pre-upgrade
     helm.sh/hook-weight: "-10"
@@ -172,8 +170,9 @@ spec:
   podSelector:
     matchLabels:
       {{- include "erp-cell.selector" (dict "root" . "component" "erp-migrate") | nindent 6 }}
-  policyTypes: [Egress]
+  policyTypes: [Ingress, Egress]
   egress:
+    {{- include "erp-cell.dnsEgress" . | nindent 4 }}
     - to:
         - ipBlock:
             cidr: {{ $vpc }}
@@ -276,8 +275,12 @@ metadata:
   name: erp-temporal-schema
   labels:
     {{- include "erp-cell.labels" (dict "root" . "component" "erp-temporal-schema") | nindent 4 }}
-  # A hook, as its Job is: on an upgrade the default deny is already
-  # there, and the Job runs before the release's other resources.
+  # A hook, as its Job is, of a lower weight, so it is there before the
+  # Job's Pods. Helm runs pre-install hooks before it creates any of the
+  # release's resources (Argo CD: PreSync), so on a first install the
+  # default deny is not there yet: this policy alone holds the Job, both
+  # ways, and admits the cluster's DNS itself, then the writer in the VPC.
+  # On an upgrade the default deny adds nothing more.
   annotations:
     helm.sh/hook: pre-install,pre-upgrade
     helm.sh/hook-weight: "-10"
@@ -286,8 +289,9 @@ spec:
   podSelector:
     matchLabels:
       {{- include "erp-cell.selector" (dict "root" . "component" "erp-temporal-schema") | nindent 6 }}
-  policyTypes: [Egress]
+  policyTypes: [Ingress, Egress]
   egress:
+    {{- include "erp-cell.dnsEgress" . | nindent 4 }}
     - to:
         - ipBlock:
             cidr: {{ $vpc }}

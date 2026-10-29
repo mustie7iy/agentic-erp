@@ -8270,9 +8270,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "erp-cell's erp-migrate and erp-temporal-schema hook network policies admit the cluster's DNS: on a first install the default deny is not there yet and the hook Jobs cannot resolve the writer",
-      "r": "deploy/helm/erp-cell/templates/network-policy.yaml · scripts/helm-checks.sh · T72h",
+      "r": "deploy/helm/erp-cell/templates/network-policy.yaml · deploy/helm/policy/workloads.rego · scripts/helm-checks.sh · T72h · ADR-0035 amendment 2026-10-28 (As built 2026-10-29)",
       "src": "review:T72h",
       "c": []
      },

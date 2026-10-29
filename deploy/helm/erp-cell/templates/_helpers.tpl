@@ -87,3 +87,19 @@ spec:
     kind: AWSPCAClusterIssuer
     name: erp-subordinate
 {{- end -}}
+
+{{/* The egress rule to the cluster's DNS: the default deny's, and each
+hook policy's, since on a first install the default deny is not there yet
+when the hook Jobs run. */}}
+{{- define "erp-cell.dnsEgress" -}}
+- to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+  ports:
+    - {protocol: UDP, port: 53}
+    - {protocol: TCP, port: 53}
+{{- end -}}

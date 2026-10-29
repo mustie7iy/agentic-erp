@@ -40,6 +40,10 @@
 #     the hooks erp-cell's hook Jobs mount are hooks of a lower weight that
 #     Argo CD keeps until its sync ends, and Argo CD's sync limit is above
 #     the Jobs' deadline;
+#   - each chart's pre-install hook Jobs, on a first install and on an
+#     upgrade, take no connections and reach the cluster's DNS and the
+#     database in the VPC alone (the default deny is not there yet on a
+#     first install);
 #   - scripts/admission-checks.sh then runs its policies against signed
 #     images and certificates.
 # HELM, KUBECONFORM, CONFTEST (which turns YAML into JSON here) and
@@ -639,6 +643,70 @@ hooks "$work/erp-cell.json"
 echo "helm-checks: erp-cell's hook Jobs mount only hooks of a lower weight, kept until the hooks succeeded"
 hooks "$work/erp-global.json"
 echo "helm-checks: erp-global's hook Job mounts only hooks of a lower weight, kept until the hooks succeeded"
+
+# reach JSON CIDR: each pre-install hook Job's Pods, on a first install
+# (the pre-install hook policies of a lower weight alone: Helm creates the
+# release's other resources, the default deny among them, only after its
+# pre-install hooks) and on an upgrade (those hooks' pre-upgrade versions
+# and the release's own policies, there already), take no connections and
+# reach the cluster's DNS and the database's port in the VPC CIDR alone;
+# the conftest policy (deploy/helm/policy) refuses a hook Job without DNS
+# in any chart, this the exact reach of each one here.
+reach() {
+  python3 - "$1" "$2" <<'PY'
+import json, sys
+docs, vpc = [d for d in json.load(open(sys.argv[1])) if d], sys.argv[2]
+def hook(d):
+    a = d["metadata"].get("annotations", {})
+    return set(filter(None, a.get("helm.sh/hook", "").split(","))), int(a.get("helm.sh/hook-weight", "0"))
+# There already on an upgrade: the release's own policies, and any hook
+# that no successful or failed run deletes (the last release's, until its
+# own turn comes to replace it).
+def kept(np):
+    deleted = set(filter(None, np["metadata"].get("annotations", {}).get("helm.sh/hook-delete-policy", "").split(",")))
+    return not hook(np)[0] or not deleted & {"hook-succeeded", "hook-failed"}
+def selects(np, pod):
+    sel = np["spec"]["podSelector"]
+    if "matchExpressions" in sel:
+        sys.exit("helm-checks: %s selects by expressions, which this check does not judge" % np["metadata"]["name"])
+    return all(pod.get(k) == v for k, v in sel.get("matchLabels", {}).items())
+def peer(p):
+    if "ipBlock" in p:
+        return ("ipBlock", p["ipBlock"]["cidr"], tuple(p["ipBlock"].get("except", [])))
+    return ("pods", json.dumps(p.get("namespaceSelector")), json.dumps(p.get("podSelector")))
+dns = ("pods", json.dumps({"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}}), json.dumps({"matchLabels": {"k8s-app": "kube-dns"}}))
+want = {(dns, "UDP", 53), (dns, "TCP", 53), (("ipBlock", vpc, ()), "TCP", 5432)}
+policies = [d for d in docs if d["kind"] == "NetworkPolicy"]
+jobs = [d for d in docs if d["kind"] == "Job" and "pre-install" in hook(d)[0]]
+for job in jobs:
+    name, weight, pod = job["metadata"]["name"], hook(job)[1], job["spec"]["template"]["metadata"].get("labels", {})
+    for event in ("pre-install", "pre-upgrade"):
+        held = [np for np in policies if selects(np, pod) and (
+            (event in hook(np)[0] and hook(np)[1] < weight) or (event == "pre-upgrade" and kept(np)))]
+        got = set()
+        for np in held:
+            for r in np["spec"].get("egress", []):
+                # A missing or empty list admits every peer or every port.
+                if not r.get("to") or not r.get("ports"):
+                    sys.exit("helm-checks: %s's policy %s admits every peer or every port" % (name, np["metadata"]["name"]))
+                if any("endPort" in x or "port" not in x for x in r["ports"]):
+                    sys.exit("helm-checks: %s's policy %s admits a range of ports, or every port of a protocol" % (name, np["metadata"]["name"]))
+                got |= {(peer(p), x.get("protocol", "TCP"), x["port"]) for p in r["to"] for x in r["ports"]}
+        for t in ("Ingress", "Egress"):
+            if not any(t in np["spec"]["policyTypes"] for np in held):
+                sys.exit("helm-checks: %s at %s: no policy there yet isolates its %s" % (name, event, t.lower()))
+        if any(np["spec"].get("ingress") for np in held):
+            sys.exit("helm-checks: %s at %s takes connections" % (name, event))
+        if got != want:
+            sys.exit("helm-checks: %s at %s reaches %s, want the cluster's DNS (UDP and TCP 53) and %s:5432 alone" % (name, event, sorted(got), vpc))
+if not jobs:
+    sys.exit("helm-checks: no pre-install hook Job: the check judged nothing")
+print("helm-checks: the pre-install hook Jobs %s reach the cluster's DNS and the database in the VPC alone, on a first install and on an upgrade"
+      % ", ".join(sorted(j["metadata"]["name"] for j in jobs)))
+PY
+}
+reach "$work/erp-cell.json" 10.16.0.0/16
+reach "$work/erp-global.json" 10.16.0.0/16
 
 # The directory's logins (T72h): the router, erp-web and the cell connect
 # as logins of their own with their own passwords; the directory's master
