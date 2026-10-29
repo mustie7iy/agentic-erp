@@ -82,10 +82,12 @@ type OrderValues interface {
 }
 
 // Invoices enters supplier invoices, and takes over what SAP's posted
-// invoice documents invoiced on order items (payables).
+// invoice documents invoiced on order items and SAP's open down payments
+// (payables).
 type Invoices interface {
 	CreateInvoice(ctx context.Context, in payables.Input, source string) (payables.Invoice, error)
 	TakeOverInvoiced(ctx context.Context, in payables.MigratedInvoice) (uuid.UUID, error)
+	TakeOverDownPayment(ctx context.Context, in payables.MigratedDownPayment) (payables.DownPaymentRequest, error)
 }
 
 // InvoiceCounts counts supplier invoices by kind (payables).
@@ -110,6 +112,7 @@ type Postings interface {
 type Reports interface {
 	Totals(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (ledger.Totals, error)
 	OpenPayables(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error)
+	OpenDownPayments(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error)
 }
 
 // Secrets resolves a connector's secret reference (env:, file: or vault:;

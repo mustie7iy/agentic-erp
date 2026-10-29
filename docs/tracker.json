@@ -482,9 +482,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "SAP load of open down payments (BSIK with UMSKZ A) on the down payment account with the indicator; the migration reconciliation's open payables then decide whether they count",
-        "r": "internal/integration load · Reports.OpenPayables · follow-up of the SAP load · T72c",
+        "r": "internal/integration downpayments.go · sap.ACDOCA UMSKZ/MWSKZ · sap.T074 · sapconfig downPayment · payables.TakeOverDownPayment · Reports.OpenPayables without special G/L items · Reports.OpenDownPayments · reconciliation Open down payments · walkthrough steps 3, 7 and 16 · T72c",
         "src": "baseline",
         "c": []
        },
@@ -1538,6 +1538,13 @@
       "t": "Tax returns: GST/HST (plus QST FPZ-500 if registered in Quebec, P4) and the UAE VAT 201, prepared and approved in the ERP and filed by a person (P3)",
       "r": "ADR-0049 · T61g-T61k",
       "src": "baseline",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Tax returns leave out the tax items of entries migrated from SAP (an open down payment's input tax, dated SAP's posting date), which SAP's returns reported; the clearing's reversal, dated on the platform, is reported",
+      "r": "ADR-0037 As built (T72c) · ledger.tax_item · journal_entry.source_context integration",
+      "src": "adr:ADR-0037",
       "c": []
      },
      {
@@ -8074,9 +8081,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Open SAP down payments (BSIK UMSKZ A) load on the down payment account with their special G/L indicator: a payment run never nets them and their input tax can be reversed (needed if the pilot has open down payments)",
-      "r": "Phase 1 triage (PO 2026-10-21) · internal/integration load.go openingLines · T46a · T72c",
+      "r": "Phase 1 triage (PO 2026-10-21) · internal/integration downpayments.go · load.go journal, openingLines · payables.TakeOverDownPayment · ADR-0037 As built (T72c) · TestOpenDownPayments · TestDownPaymentQuality · walkthrough steps 3, 7 and 16 · T46a · T72c",
       "src": "baseline",
       "c": []
      },

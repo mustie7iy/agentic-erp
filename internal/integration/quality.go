@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
@@ -33,14 +34,15 @@ func hasErrors(issues []Issue) bool {
 }
 
 // target is what the platform holds for a run's scope: the legal entity of
-// each company code with its chart, the configured payment terms and
-// number ranges, and the minor-unit digits of every currency.
+// each company code with its chart, the configured payment terms, number
+// ranges and tax codes, and the minor-unit digits of every currency.
 type target struct {
 	entities  map[string]tenancy.Entity                 // by company code
 	charts    map[string]map[string]ledger.ChartAccount // by company code, then account number
 	terms     map[string]bool
 	ranges    map[string]bool // company/document type/fiscal year
 	exponents map[string]int
+	taxes     map[string]map[string]config.TaxCode // by company code, then tax code
 	year      int32
 	balances  bool // balances mode
 }
@@ -117,6 +119,7 @@ func checkQuality(e *sap.Extract, t target) []Issue {
 	q.purchaseOrders()
 	q.movements()
 	q.journal()
+	q.downPayments()
 	q.supplierInvoices()
 	return q.out
 }
@@ -330,6 +333,7 @@ func (q *qualityCheck) journalLine(l sap.ACDOCA, s *journalScan) {
 	if _, err := sapDate(l.BUDAT); err != nil {
 		q.add(SevError, "ACDOCA", key+"/"+l.DOCLN, "%v", err)
 	}
+	q.specialGL(l, key+"/"+l.DOCLN)
 	if documentType := "journal_" + strings.ToLower(l.BLART); !q.t.balances && !q.t.hasRange(l.RBUKRS, documentType) && !s.noRange[l.RBUKRS+documentType] {
 		s.noRange[l.RBUKRS+documentType] = true
 		q.add(SevError, "ACDOCA", key, "the configuration has no %s number range for company %s in %d", documentType, l.RBUKRS, q.t.year)

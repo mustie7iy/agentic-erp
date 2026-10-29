@@ -20,6 +20,7 @@ type ChartAccount struct {
 	ID                 uuid.UUID
 	Type               string // asset, liability, equity, revenue, expense
 	ReconciliationKind string // none, supplier, customer
+	DownPayment        bool   // the legal entity's down_payment account, which takes special G/L A only (ADR-0037)
 }
 
 // Chart returns the accounts set up in the legal entity, by number.
@@ -28,13 +29,16 @@ func (Accounts) Chart(ctx context.Context, legalEntity uuid.UUID) (map[string]Ch
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT a.number, a.id, a.account_type, a.reconciliation_kind FROM ledger.gl_account a
+	rows, _ := tx.Query(ctx, `SELECT a.number, a.id, a.account_type, a.reconciliation_kind,
+			EXISTS (SELECT FROM ledger.account_determination d WHERE d.tenant_id = a.tenant_id AND d.legal_entity_id = $1
+				AND d.key = 'down_payment' AND d.account_id = a.id)
+		FROM ledger.gl_account a
 		JOIN ledger.company_account ca ON ca.tenant_id = a.tenant_id AND ca.account_id = a.id AND ca.legal_entity_id = $1
 		WHERE a.status = 'active'`, legalEntity)
 	out := map[string]ChartAccount{}
 	var number string
 	var a ChartAccount
-	_, err = pgx.ForEachRow(rows, []any{&number, &a.ID, &a.Type, &a.ReconciliationKind}, func() error { out[number] = a; return nil })
+	_, err = pgx.ForEachRow(rows, []any{&number, &a.ID, &a.Type, &a.ReconciliationKind, &a.DownPayment}, func() error { out[number] = a; return nil })
 	if err != nil {
 		return out, fmt.Errorf("ledger: chart of %s: %w", legalEntity, err)
 	}
@@ -217,8 +221,23 @@ func (Reports) Totals(ctx context.Context, legalEntity uuid.UUID, fiscalYear int
 }
 
 // OpenPayables sums the legal entity's open supplier items of the fiscal
-// year in local currency per partner, in the leading ledger.
+// year in local currency per partner, in the leading ledger, without the
+// special G/L items (down payments), which OpenDownPayments sums: like a
+// payment run, the open payables do not net them (ADR-0037, T72c).
 func (Reports) OpenPayables(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error) {
+	return openSupplierItems(ctx, legalEntity, fiscalYear, false)
+}
+
+// OpenDownPayments sums the legal entity's open down payments (special G/L
+// A) of the fiscal year in local currency per partner, in the leading
+// ledger.
+func (Reports) OpenDownPayments(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error) {
+	return openSupplierItems(ctx, legalEntity, fiscalYear, true)
+}
+
+// openSupplierItems sums open supplier items per partner: the special G/L
+// items, or the ordinary ones.
+func openSupplierItems(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16, special bool) (map[uuid.UUID]money.Minor, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
@@ -226,16 +245,16 @@ func (Reports) OpenPayables(ctx context.Context, legalEntity uuid.UUID, fiscalYe
 	rows, _ := tx.Query(ctx, `SELECT l.partner_id, sum(l.amount_lc) FROM ledger.journal_line l
 		JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id AND g.is_leading
 		JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id AND a.reconciliation_kind = 'supplier'
-		WHERE l.legal_entity_id = $1 AND l.fiscal_year = $2
+		WHERE l.legal_entity_id = $1 AND l.fiscal_year = $2 AND (l.special_gl IS NOT NULL) = $3
 			AND NOT EXISTS (SELECT FROM ledger.clearing_item c WHERE c.tenant_id = l.tenant_id AND c.fiscal_year = l.fiscal_year
 				AND c.journal_entry_id = l.journal_entry_id AND c.line_no = l.line_no)
-		GROUP BY l.partner_id`, legalEntity, fiscalYear)
+		GROUP BY l.partner_id`, legalEntity, fiscalYear, special)
 	out := map[uuid.UUID]money.Minor{}
 	var partner uuid.UUID
 	var sum money.Minor
 	_, err = pgx.ForEachRow(rows, []any{&partner, &sum}, func() error { out[partner] = sum; return nil })
 	if err != nil {
-		return out, fmt.Errorf("ledger: open payables of %s %d: %w", legalEntity, fiscalYear, err)
+		return out, fmt.Errorf("ledger: open supplier items of %s %d: %w", legalEntity, fiscalYear, err)
 	}
 	return out, nil
 }

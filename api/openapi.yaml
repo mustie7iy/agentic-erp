@@ -15627,11 +15627,13 @@ paths:
         - payables.assignment_from_order
         - payables.currency_mismatch
         - payables.duplicate_invoice
+        - payables.invalid_amount
         - payables.invalid_item_no
         - payables.invalid_purchase_order
         - payables.invalid_quantity
         - payables.invalid_reference
         - payables.invalid_reference_invoice
+        - payables.invalid_tax_amount
         - payables.items_required
         - payables.mixed_purchase_orders
         - payables.negative_amount
@@ -15640,6 +15642,7 @@ paths:
         - payables.quantity_not_zero
         - payables.reference_not_allowed
         - payables.supplier_not_usable
+        - payables.tax_code_components
         - payables.tax_date_human_only
         - payables.unit_mismatch
         - payables.unknown_currency
@@ -15833,11 +15836,13 @@ paths:
         - payables.assignment_from_order
         - payables.currency_mismatch
         - payables.duplicate_invoice
+        - payables.invalid_amount
         - payables.invalid_item_no
         - payables.invalid_purchase_order
         - payables.invalid_quantity
         - payables.invalid_reference
         - payables.invalid_reference_invoice
+        - payables.invalid_tax_amount
         - payables.items_required
         - payables.mixed_purchase_orders
         - payables.negative_amount
@@ -15846,6 +15851,7 @@ paths:
         - payables.quantity_not_zero
         - payables.reference_not_allowed
         - payables.supplier_not_usable
+        - payables.tax_code_components
         - payables.tax_date_human_only
         - payables.unit_mismatch
         - payables.unknown_currency
@@ -28325,7 +28331,7 @@ components:
               readOnly: true
             status:
               type: string
-              description: "Lifecycle status: `open`, `paid` by a payment run (whose payment posted the down payment on the down payment account, T46c), `cleared` against the supplier's final invoice (`supplier-invoices/{id}:clearDownPayments`, T46d), or `cancelled` (`:cancel`, refused while a live run pays it). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "Lifecycle status: `open`, `paid` by a payment run (whose payment posted the down payment on the down payment account, T46c) or, for a down payment migrated open from the source system, by the migration entry that posted it (its `reference` names the source document, T72c), `cleared` against the supplier's final invoice (`supplier-invoices/{id}:clearDownPayments`, T46d), or `cancelled` (`:cancel`, refused while a live run pays it). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - open
                 - paid
@@ -28335,7 +28341,7 @@ components:
             journal_entry_id:
               type: string
               format: uuid
-              description: The journal entry of the payment that paid the request; set from status `paid` on.
+              description: The journal entry that posted the down payment, the payment's or a migration's; set from status `paid` on.
               readOnly: true
             cleared_invoice_id:
               type: string

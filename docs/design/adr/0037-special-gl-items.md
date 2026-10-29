@@ -85,3 +85,48 @@ general ledger that the payment program can pay.
   the run stays `releasing` with that payment unposted until it is fixed.
 - None on down payments (requests or their payment), and no withholding
   tax certificates; manual clearing withholds nothing, only payment runs do.
+
+## As built: SAP's open down payments (T72c, 2026-10-28)
+Decided by default under ADR-0053 §d, each from this ADR or T46's code:
+- **What loads.** A vendor line of the extract (ACDOCA) with special G/L
+  indicator A (UMSKZ) that SAP has not cleared is an open down payment. The
+  extract reads it from the Universal Journal, as it reads every open item
+  (by AUGBL), rather than from BSIK, the open-item index. The down payment
+  account is the configuration's `down_payment`, which the configuration
+  agent takes from T074 (vendors, indicator A; a second account is noted).
+- **As the platform's own.** Its SAP document posts as an entry of its own,
+  in documents mode and in balances mode alike (the opening entry leaves the
+  document out), with the down payment as the supplier's special G/L item A
+  on its tax code and its tax lines on that code, as `PayDownPayment` posts
+  one; no other migrated line carries a tax code. Payables records it as a
+  paid down payment request naming the entry (`TakeOverDownPayment`; number
+  from the request range of its posting date's year, due date its posting
+  date, reference the source document), so it is listed with the supplier's
+  requests, never paid again, and cleared against the final invoice, which
+  finds a down payment by its request, reversing its input tax (T46d). The
+  take-over is audited and publishes no event, as the quantities of
+  migrated invoices (T72b2): nothing was requested or paid on the platform,
+  and the entry's `JournalEntryPosted` carries the item.
+- **Never guessed.** The quality gate refuses another indicator than A, A
+  off the down payment account or a line on it without A (the indicator is
+  not inferred from the account), more than one open down payment in a
+  document (one request per entry, as a run posts them), a credit, a tax
+  code that is not one deductible input tax with a rate on the date, a tax
+  line not on the code's account, and a tax that is not the code's rate of
+  the down payment: the platform keeps a down payment net of tax, SAP's net
+  display; its gross display, where the down payment includes the tax and a
+  tax clearing account offsets it (SAP Help, "Net or Gross Display of Down
+  Payments"), is refused. A down payment SAP cleared is refused in
+  documents mode, since SAP's clearing of it is not taken over (a migrated
+  clearing refuses special items); balances mode leaves cleared items out.
+  In balances mode the down payment's document may hold no cleared vendor
+  line and needs a number range for its type.
+- **Reconciled apart.** The migration's open payables leave special G/L
+  items out on both sides, as a payment run does, and the open down
+  payments are a check of their own, in total and per vendor, shown when
+  either side has one; a down payment loaded as an ordinary item fails both.
+- **Tax returns.** The migrated entry's tax items carry SAP's posting date:
+  SAP's returns reported that tax. The returns still to be built must leave
+  out the items of migrated entries (source context `integration`) or of
+  dates SAP reported, so the claim is not made twice; the clearing's
+  negated items, dated on the platform, are the platform's to report.
