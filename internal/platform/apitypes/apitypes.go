@@ -140,6 +140,28 @@ func PageOf[R, A any](k *pagination.Keyset, rows []R, key func(R) (string, uuid.
 	return items, tok
 }
 
+// PageWith is PageOf for rows shown with what they reference (the names
+// of the objects they name by id, ADR-0038 As built): refs reads it for the
+// page's rows alone, never the row past the page, in one call, and toAPI
+// shows each row with it. refs failing fails the page.
+func PageWith[R, X, A any](k *pagination.Keyset, rows []R, key func(R) (string, uuid.UUID), refs func([]R) (X, error),
+	toAPI func(R, X) A) ([]A, gen.OptString, error) {
+	rows, next := pagination.Page(k, rows, key)
+	x, err := refs(rows)
+	if err != nil {
+		return nil, gen.OptString{}, err
+	}
+	items := make([]A, len(rows))
+	for i, r := range rows {
+		items[i] = toAPI(r, x)
+	}
+	var tok gen.OptString
+	if next != "" {
+		tok.SetTo(next)
+	}
+	return items, tok, nil
+}
+
 // ETagOf is the entity tag of a resource without a version, derived from
 // its representation (04-api-design §4.7).
 func ETagOf[T any](v T) gen.OptString { return gen.NewOptString(etag.Of(&v)) }

@@ -28551,6 +28551,10 @@ components:
               format: uuid
               description: "House bank paying, for a run proposed for one bank; absent when each payment names the bank that pays it (T45c)."
               readOnly: true
+            house_bank_code:
+              type: string
+              description: "The house bank's `code`, its name in the configuration; present exactly when `house_bank_id` is."
+              readOnly: true
             run_date:
               type: string
               format: date
@@ -28614,6 +28618,7 @@ components:
           document_number: "5100000123"
           legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
           house_bank_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d63"
+          house_bank_code: EUR1
           run_date: "2026-10-09"
           due_by: "2026-10-09"
           total_amount:
@@ -28685,6 +28690,7 @@ components:
               document_number: "5100000123"
               legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
               house_bank_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d63"
+              house_bank_code: EUR1
               run_date: "2026-10-09"
               due_by: "2026-10-09"
               total_amount:
@@ -28767,6 +28773,9 @@ components:
             - supplier_id
             - supplier_name
             - bank_account_id
+            - bank_account_last4
+            - bank_account_scheme
+            - bank_account_holder_name
             - amount
             - end_to_end_id
             - items
@@ -28789,6 +28798,38 @@ components:
               type: string
               format: uuid
               description: Supplier bank account valid on the run date.
+              readOnly: true
+            bank_account_last4:
+              type: string
+              description: "The bank account's `account_last4`, as the partner's bank account gives it: the last up to four characters of its number, which is never returned."
+              pattern: "^[A-Z0-9]{1,4}$"
+              readOnly: true
+            bank_account_scheme:
+              type: string
+              description: "The bank account's `account_scheme`: `iban`, `domestic`, or `ca` for a Canadian account. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - iban
+                - domestic
+                - ca
+              readOnly: true
+            bank_account_holder_name:
+              type: string
+              description: "The bank account's `holder_name`, as it is now."
+              readOnly: true
+            bank_account_bic:
+              type: string
+              description: "The bank account's `bic`; absent when it has none."
+              pattern: "^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$"
+              readOnly: true
+            bank_account_institution_number:
+              type: string
+              description: "The bank account's `institution_number`, of a scheme `ca` account (the bank, not masked); absent for the others."
+              pattern: "^[0-9]{3}$"
+              readOnly: true
+            bank_account_transit_number:
+              type: string
+              description: "The bank account's `transit_number`, of a scheme `ca` account (the branch); absent for the others."
+              pattern: "^[0-9]{5}$"
               readOnly: true
             amount:
               $ref: "#/components/schemas/Money"
@@ -28817,6 +28858,10 @@ components:
               format: uuid
               description: Payment journal entry, once posted.
               readOnly: true
+            journal_entry_number:
+              type: string
+              description: "The payment journal entry's document number; present exactly when `journal_entry_id` is."
+              readOnly: true
             kind:
               type: string
               description: "What the payment pays: `items`, the supplier's open items netted (at most one such payment per supplier and run), or `down_payment`, one down payment request (ADR-0037), paid whole and never netted, whose posting puts the down payment on the down payment account. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -28838,6 +28883,10 @@ components:
               format: uuid
               description: "House bank that pays it: the run's, or for a run proposed without one, the first ranked for its payment method and currency (T45c)."
               readOnly: true
+            house_bank_code:
+              type: string
+              description: "The house bank's `code`, its name in the configuration; present exactly when `house_bank_id` is."
+              readOnly: true
             payment_method:
               type: string
               description: "Payment method it is paid by (SAP ZLSCH); absent in a run proposed for one house bank."
@@ -28856,10 +28905,18 @@ components:
           supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
           supplier_name: Tyrell Office Products
           bank_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db2"
+          bank_account_last4: "4321"
+          bank_account_scheme: iban
+          bank_account_holder_name: Tyrell Office Products GmbH
+          bank_account_bic: COBADEFFXXX
           amount:
             amount: "1080.00"
             currency: EUR
           end_to_end_id: "2600000017-000042"
+          journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc1"
+          journal_entry_number: "1500000042"
+          house_bank_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d60"
+          house_bank_code: MAIN
           items:
             - fiscal_year: 2026
               journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dae"
@@ -28877,6 +28934,10 @@ components:
           supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
           supplier_name: Tyrell Office Products
           bank_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db2"
+          bank_account_last4: "4321"
+          bank_account_scheme: iban
+          bank_account_holder_name: Tyrell Office Products GmbH
+          bank_account_bic: COBADEFFXXX
           amount:
             amount: "1190.00"
             currency: EUR
@@ -28914,10 +28975,18 @@ components:
               supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
               supplier_name: Tyrell Office Products
               bank_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db2"
+              bank_account_last4: "4321"
+              bank_account_scheme: iban
+              bank_account_holder_name: Tyrell Office Products GmbH
+              bank_account_bic: COBADEFFXXX
               amount:
                 amount: "1080.00"
                 currency: EUR
               end_to_end_id: "2600000017-000042"
+              journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc1"
+              journal_entry_number: "1500000042"
+              house_bank_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d60"
+              house_bank_code: MAIN
               items:
                 - fiscal_year: 2026
                   journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dae"
@@ -29069,6 +29138,7 @@ components:
               created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
               updated_at: "2026-10-20T08:00:00Z"
               house_bank_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d60"
+              house_bank_code: MAIN
               legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
               format: mt940
               file_sha256: fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9
@@ -29101,6 +29171,7 @@ components:
         - type: object
           required:
             - house_bank_id
+            - house_bank_code
             - legal_entity_id
             - format
             - file_sha256
@@ -29119,6 +29190,10 @@ components:
               type: string
               format: uuid
               description: House bank whose account the statement is of.
+              readOnly: true
+            house_bank_code:
+              type: string
+              description: "The house bank's `code`, its name in the configuration."
               readOnly: true
             legal_entity_id:
               type: string
@@ -29363,9 +29438,10 @@ components:
     BankReconciliation:
       type: object
       description: "One page of a house bank's reconciliation report (ADR-0047, T49h): the period's figures, and its statements on this page with their figures and lines. Amounts are signed: a credit to the account is positive, as on the statements; a ledger balance is debit positive, so the two agree when equal."
-      required: [house_bank_id, legal_entity_id, currency, summary, items]
+      required: [house_bank_id, house_bank_code, legal_entity_id, currency, summary, items]
       properties:
         house_bank_id: {type: string, format: uuid, description: The house bank., readOnly: true}
+        house_bank_code: {type: string, description: "The house bank's `code`, its name in the configuration.", readOnly: true}
         legal_entity_id: {type: string, format: uuid, description: "The house bank's legal entity.", readOnly: true}
         currency: {type: string, description: "The house bank's currency (ISO 4217), its statements' and the ledger balances'.", readOnly: true}
         closing_date_from: {type: string, format: date, description: "The period's first day, when given.", readOnly: true}
@@ -29381,6 +29457,7 @@ components:
           maxLength: 2048
       examples:
         - house_bank_id: 0192a000-0000-7000-8000-000000000b01
+          house_bank_code: MAIN
           legal_entity_id: 0192a000-0000-7000-8000-000000000201
           currency: EUR
           closing_date_from: "2026-04-01"
@@ -29583,6 +29660,7 @@ components:
           properties:
             legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
             house_bank_id: {type: string, format: uuid, description: "The house bank it is expected on; absent: forecast only.", readOnly: true}
+            house_bank_code: {type: string, description: "The house bank's `code`, its name in the configuration; present exactly when `house_bank_id` is.", readOnly: true}
             amount: {$ref: "#/components/schemas/Money"}
             direction:
               type: string
@@ -29632,6 +29710,7 @@ components:
           updated_at: "2026-10-21T09:00:00Z"
           legal_entity_id: 0192a000-0000-7000-8000-000000000201
           house_bank_id: 0192a000-0000-7000-8000-000000000b01
+          house_bank_code: MAIN
           amount: {amount: "12500.00", currency: CAD}
           direction: inflow
           value_date: "2026-10-30"
@@ -30175,6 +30254,10 @@ components:
               format: uuid
               description: "House bank whose account the file pays from; a run writes one file per house bank and payment method (T45c)."
               readOnly: true
+            house_bank_code:
+              type: string
+              description: "The house bank's `code`, its name in the configuration; present exactly when `house_bank_id` is."
+              readOnly: true
             payment_method:
               type: string
               description: "Payment method of the file's payments; absent for a run proposed for one house bank."
@@ -30205,6 +30288,8 @@ components:
           created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
           updated_at: "2026-10-09T14:03:11Z"
           payment_run_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+          house_bank_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d60"
+          house_bank_code: MAIN
           format: pain.001.001.03
           status: created
     BankFilePage:
@@ -30235,6 +30320,8 @@ components:
               created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
               updated_at: "2026-10-09T14:03:11Z"
               payment_run_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+              house_bank_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d60"
+              house_bank_code: MAIN
               format: pain.001.001.03
               status: created
     ApprovalStep:

@@ -65,6 +65,7 @@ func (sc reconScenario) openingEntry(t *testing.T, amount money.Minor) {
 func (sc reconScenario) report(t *testing.T, query string) map[string]any {
 	t.Helper()
 	r, _ := sc.e.in(t).Must(200, "GET", "/v1/house-banks/"+sc.e.bank.String()+"/reconciliation"+query, "", "")
+	wantBankCodes(t, "reconciliation", r)
 	return r
 }
 

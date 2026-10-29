@@ -74,6 +74,10 @@ func (c cashPayments) StatementLine(ctx context.Context, statement uuid.UUID, li
 		found, err
 }
 
+func (c cashPayments) HouseBankCodes(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	return c.position.HouseBankCodes(ctx, ids)
+}
+
 func cashPaymentsOf(ps []payments.CashPayment) []cash.Payment {
 	out := make([]cash.Payment, len(ps))
 	for i, p := range ps {

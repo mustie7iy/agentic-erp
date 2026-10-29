@@ -127,3 +127,24 @@ func (Payees) Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string,
 	}
 	return out, nil
 }
+
+// BankAccounts returns the bank accounts, masked, keyed by id: what a
+// payment shows beside its bank account's id. The account number stays
+// sealed (BankDetails opens it, only for a bank file). An id that names no
+// account is left out.
+func (Payees) BankAccounts(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]BankAccount, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT `+bankColumns+` FROM partner.bank_account WHERE id = ANY($1)`, ids)
+	accounts, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (BankAccount, error) { return scanBank(row) })
+	if err != nil {
+		return nil, fmt.Errorf("partner: bank accounts of %d ids: %w", len(ids), err)
+	}
+	out := make(map[uuid.UUID]BankAccount, len(accounts))
+	for _, a := range accounts {
+		out[a.ID] = a
+	}
+	return out, nil
+}

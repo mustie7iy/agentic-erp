@@ -870,8 +870,9 @@ step_payment() {
     -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBC\", \"currency\": \"CAD\", \"run_date\": \"$TODAY\", \"due_by\": \"$(date_add "$TODAY" 30)\"}"
   wait_op
   RUN=$(field .resource | sed 's|.*/||')
-  api 200 '"run \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency), proposed by Tom"' getPaymentRun -p "id=$RUN"
+  api 200 '"run \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency) from \(.house_bank_code), proposed by Tom"' getPaymentRun -p "id=$RUN"
   local version_etag=$ETAG
+  expect "the house bank the run names" "$(field .house_bank_code)" RBC
   api 200 '.items[] | "payment \(.end_to_end_id) to \(.supplier_name): \(.amount.amount) \(.amount.currency)\(if .discount_amount.amount != "0.00" then ", discount \(.discount_amount.amount) until \(.discount_until)" else "" end)"' listPayments -p "id=$RUN" -p page_size=100
   cp "$WORK/last.json" "$WORK/payments.json"
   local tyrell
@@ -923,7 +924,22 @@ step_payment() {
   wait_op
   api 200 '"run \(.document_number): \(.status)"' getPaymentRun -p "id=$RUN"
   expect "run status" "$(field .status)" released
-  api 200 '.items[] | "bank file \(.id): \(.format), \(.status)"' listBankFiles -p "payment_run_id=$RUN"
+  say "Each payment, once posted, names its posting by its document number, its house bank by its code and the"
+  say "supplier's account by its last four characters and its bank; the account number never appears:"
+  api 200 '.items[] | select(.supplier_name == "Tyrell Office Products" or .supplier_name == "Laurentian Paper") | "payment \(.end_to_end_id) to \(.supplier_name): posted as \(.journal_entry_number), from \(.house_bank_code), to \(.bank_account_scheme) …\(.bank_account_last4)\(if .bank_account_institution_number then " at \(.bank_account_institution_number)-\(.bank_account_transit_number)" else "" end), holder \(.bank_account_holder_name)"' \
+    listPayments -p "id=$RUN" -p page_size=100
+  cp "$WORK/last.json" "$WORK/posted.json"
+  expect "the house bank every payment names" "$(field '[.items[].house_bank_code] | unique | join(" ")')" RBC
+  expect "payments without their posting's number" "$(field '[.items[] | select(.journal_entry_number == null)] | length')" 0
+  expect "Laurentian Paper's account, by its scheme, bank and branch" \
+    "$(field '.items[] | select(.supplier_name == "Laurentian Paper") | "\(.bank_account_scheme) \(.bank_account_institution_number) \(.bank_account_transit_number)"')" "ca 001 00010"
+  local posting
+  posting=$(jq -r --arg a "$INVOICE_ENTRY" '.items[] | select(any(.items[]; .journal_entry_id == $a)) | .journal_entry_id' "$WORK/posted.json")
+  api 200 '"the payment of TY-5001 is journal entry \(.document_number)"' getJournalEntry -p "id=$posting"
+  expect "the posting's number the payment of TY-5001 gives" \
+    "$(jq -r --arg a "$INVOICE_ENTRY" '.items[] | select(any(.items[]; .journal_entry_id == $a)) | .journal_entry_number' "$WORK/posted.json")" "$(field .document_number)"
+  api 200 '.items[] | "bank file \(.id): \(.format) from \(.house_bank_code), \(.status)"' listBankFiles -p "payment_run_id=$RUN"
+  expect "the house bank every bank file names" "$(field '[.items[].house_bank_code] | unique | join(" ")')" RBC
   local file
   file=$(field '.items[0].id')
   say "The pain.001 file, read from the API and written to a file:"
@@ -997,8 +1013,10 @@ step_statement() {
   as tom
   api 200 '"statement \(.statement_ref): \(.status); lines \([.lines[]?.status] | group_by(.) | map("\(.[0]) \(length)") | join(", "))"' getBankStatement -p "id=$st"
   expect "statement status" "$(field .status)" reconciled
+  expect "the house bank the statement names" "$(field .house_bank_code)" RBC
   say "The reconciliation report of the RBC account:"
   api 200 '.summary.figures | "as of \(.as_of): statement closing \(.closing_balance.amount), ledger \(.ledger_balance.amount), in transit \(.in_transit.amount), unexplained \(.unexplained.amount) \(.closing_balance.currency)"' getBankReconciliation -p "id=$RBC"
+  expect "the house bank the report names" "$(field .house_bank_code)" RBC
   expect "unexplained difference" "$(field .summary.figures.unexplained.amount)" 0.00
   expect "ledger balance" "$(field .summary.figures.ledger_balance.amount)" "$CLOSING"
   passed
@@ -1157,8 +1175,9 @@ step_cash() {
   local due
   due=$(date_add "$TODAY" 3)
   say "Tom expects a customer's CAD 25,000.00 at RBC on $due and records it as a memo record (T53d)."
-  api 201 '"memo record \(.reference): \(.amount.amount) \(.amount.currency) on \(.value_date), \(.liquidity_item), \(.certainty), \(.status)"' createMemoRecord \
+  api 201 '"memo record \(.reference): \(.amount.amount) \(.amount.currency) on \(.value_date) at \(.house_bank_code), \(.liquidity_item), \(.certainty), \(.status)"' createMemoRecord \
     -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBC\", \"amount\": {\"amount\": \"25000.00\", \"currency\": \"CAD\"}, \"value_date\": \"$due\", \"liquidity_item\": \"REC_CUSTOMERS\", \"description\": \"Northwind Traders, invoice 1042\", \"reference\": \"WT-1042\"}"
+  expect "the house bank the memo record names" "$(field .house_bank_code)" RBC
   say "The position per bank and day from tomorrow (T53c): today's reconciled statement of step 8 opens it,"
   say "and the memo record flows on its value date (the next working day, if that is not one):"
   api 200 '.banks[] | select(.code == "RBC") | "bank \(.code) \(.currency): statement balance \(.opening.balance.amount) of \(.opening.statement_date // "none")",

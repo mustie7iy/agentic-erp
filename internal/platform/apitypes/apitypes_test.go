@@ -1,6 +1,7 @@
 package apitypes_test
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -165,6 +166,47 @@ func TestPageOf(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPageWith: what the rows reference is read for the page's rows
+// alone, never the row past the page, and shown with each; its failure
+// fails the page.
+func TestPageWith(t *testing.T) {
+	codec, err := pagination.NewCodec([]byte(strings.Repeat("k", 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ks, err := codec.Keyset(pagination.Sort{Default: "n", Fields: []pagination.Field{{Name: "n", Column: "n", Type: "text"}}},
+		"test", pagination.Request{PageSize: 2, PageSizeSet: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := func(s string) (string, uuid.UUID) { return s, uuid.Nil }
+	show := func(s, refs string) string { return s + "@" + refs }
+	t.Run("named", func(t *testing.T) {
+		items, next, err := apitypes.PageWith(ks, []string{"a", "b", "c"}, key, func(rows []string) (string, error) { return strings.Join(rows, ""), nil }, show)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{"a@ab", "b@ab"}; !reflect.DeepEqual(items, want) {
+			t.Errorf("items: got %#v, want %#v", items, want)
+		}
+		if !next.Set {
+			t.Errorf("next page token set: got %t, want true", next.Set)
+		}
+	})
+	t.Run("last page", func(t *testing.T) {
+		_, next, err := apitypes.PageWith(ks, []string{"a"}, key, func([]string) (string, error) { return "", nil }, show)
+		if err != nil || next.Set {
+			t.Errorf("got next %v and error %v, want neither", next, err)
+		}
+	})
+	t.Run("refs failing", func(t *testing.T) {
+		failed := errors.New("context down")
+		if _, _, err := apitypes.PageWith(ks, []string{"a"}, key, func([]string) (string, error) { return "", failed }, show); !errors.Is(err, failed) {
+			t.Errorf("error: got %v, want %v", err, failed)
+		}
+	})
 }
 
 func TestETagOf(t *testing.T) {

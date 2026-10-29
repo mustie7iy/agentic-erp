@@ -916,10 +916,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A payment names its posting and its bank (pre-existing finding on paynums, API-consumer classes: an identifier without the name or reference its consumer needs): Payment.journal_entry_id (the payment's own posting) gives no document number, and bank_account_id and house_bank_id give no name or code, so a consumer makes one more call per payment; ledger.OpenItems.Numbers already resolves journal entry numbers",
-        "r": "api/openapi.yaml Payment journal_entry_id · bank_account_id · house_bank_id · internal/payments · ledger.OpenItems.Numbers",
+        "r": "api/openapi.yaml Payment journal_entry_number · bank_account_last4/_scheme/_holder_name/_bic/_institution_number/_transit_number · house_bank_code · internal/payments paymentRefs · resolve · internal/partner Payees.BankAccounts · ledger.OpenItems.Numbers · ADR-0038 As built (review:batch23 follow-up) · walkthrough step 7",
         "src": "review:batch23",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Every resource that names a house bank gives its code (pre-existing finding on paybank, API-consumer classes: an identifier without the name or reference its consumer needs): PaymentRun, BankStatement, BankReconciliation, MemoRecord and BankFile give house_bank_id without the bank's code, so an integration listing a run's bank files calls getHouseBank once per file",
+        "r": "api/openapi.yaml PaymentRun · BankStatement · BankReconciliation · MemoRecord · BankFile house_bank_code · internal/payments bankCodes · withBank · internal/cash Payments.HouseBankCodes · internal/platform/idref · apitypes.PageWith · ADR-0038 As built (review:batch24) · ADR-0051 §7 As built · walkthrough steps 7, 8, 13",
+        "src": "review:batch24",
         "c": []
        }
       ]

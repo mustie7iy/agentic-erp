@@ -17,7 +17,7 @@ func TestUpdateMemoRecord(t *testing.T) {
 	got, tag = e.Must(200, "PATCH", path(m, ""), `{"expires_on": "2026-05-31", "certainty": "confirmed", "amount": {"amount": "120.00", "currency": "USD"},
 		"description": null, "reference": "INV-9", "house_bank_id": null}`, tag)
 	want(t, "changed", fmt.Sprint(got["expires_on"], " ", got["certainty"], " ", amount(got["amount"]), " ", got["description"], " ", got["reference"], " ",
-		got["house_bank_id"]), "2026-05-31 confirmed 120.00 USD <nil> INV-9 <nil>")
+		got["house_bank_id"], " ", got["house_bank_code"]), "2026-05-31 confirmed 120.00 USD <nil> INV-9 <nil> <nil>")
 	e.Problem(412, "request.version_mismatch", "PATCH", path(m, ""), `{"certainty": "planned"}`, `"1"`)
 	e.Problem(422, "cash.liquidity_item_invalid", "PATCH", path(m, ""), `{"liquidity_item": "TAX"}`, tag)
 	e.Problem(422, "request.validation_failed", "PATCH", path(m, ""), `{"recurrence": {"frequency": "weekly"}}`, tag)

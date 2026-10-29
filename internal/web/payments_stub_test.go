@@ -26,9 +26,9 @@ func runJSON(id uuid.UUID, status, extra string) string {
 func stubPaymentsJSON(run uuid.UUID) string {
 	u := uuid.NewString
 	return fmt.Sprintf(`{"items":[{"id":%q,"created_at":"2026-10-22T10:00:00Z","created_by":%q,"payment_run_id":%q,"supplier_id":%q,"supplier_name":"Tyrell",
-		"bank_account_id":%q,"amount":{"amount":"1250.00","currency":"AED"},"discount_amount":{"amount":"25.00","currency":"AED"},
+		"bank_account_id":%q,"bank_account_last4":"4321","bank_account_scheme":"iban","bank_account_holder_name":"Tyrell","amount":{"amount":"1250.00","currency":"AED"},"discount_amount":{"amount":"25.00","currency":"AED"},
 		"withholding_amount":{"amount":"12.50","currency":"AED"},"end_to_end_id":"E2E-1","kind":"down_payment","down_payment_request_id":%q,"down_payment_request_number":"DP100000",
-		"payment_method":"T","journal_entry_id":%q,"items":[]}],"next_page_token":"p2"}`, u(), u(), run, u(), u(), u(), u())
+		"payment_method":"T","journal_entry_id":%q,"journal_entry_number":"1500000001","items":[]}],"next_page_token":"p2"}`, u(), u(), run, u(), u(), u(), u())
 }
 
 // stubExclusionsJSON is a page of what a run left out with a next page: a
@@ -78,7 +78,7 @@ func TestRunsStubbed(t *testing.T) {
 		"GET /v1/principal-names": answer(500, problemJSON(500, "platform.internal")),
 		"GET /v1/legal-entities":  answer(200, fmt.Sprintf(`{"items":[{"id":%q,"code":"3000","name":"Acme FZE","country_code":"AE","local_currency":"AED","status":"active"}]}`, uuid.New())),
 		"GET /v1/house-banks":     answer(500, problemJSON(500, "platform.internal")),
-		"GET /v1/payment-runs":    answer(200, `{"items":[`+runJSON(releasing, "on_hold", fmt.Sprintf(`,"house_bank_id":%q`, uuid.New()))+`],"next_page_token":"r2"}`),
+		"GET /v1/payment-runs":    answer(200, `{"items":[`+runJSON(releasing, "on_hold", fmt.Sprintf(`,"house_bank_id":%q,"house_bank_code":"MAIN"`, uuid.New()))+`],"next_page_token":"r2"}`),
 		"GET /v1/payment-runs/" + releasing.String(): func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("ETag", `"3"`)
 			answer(200, runJSON(releasing, "releasing", fmt.Sprintf(`,"release_operation_id":%q`, op)))(w, r)

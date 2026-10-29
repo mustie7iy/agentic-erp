@@ -22,7 +22,7 @@ import (
 func bankStatementJSON(id uuid.UUID) string {
 	u := uuid.NewString
 	return fmt.Sprintf(`{"id":%q,"version":4,"created_at":"2026-10-22T10:00:00Z","created_by":%q,"updated_at":"2026-10-22T10:00:00Z",
-		"house_bank_id":%q,"legal_entity_id":%q,"format":"camt.053.001.08","file_sha256":"%s","file_position":1,"statement_ref":"STMT-9",
+		"house_bank_id":%q,"house_bank_code":"MAIN","legal_entity_id":%q,"format":"camt.053.001.08","file_sha256":"%s","file_position":1,"statement_ref":"STMT-9",
 		"sequence":"9","account":"AE070331234567890123456","opening_balance":{"amount":"100.00","currency":"AED"},"opening_date":"2026-10-19",
 		"closing_balance":{"amount":"80.00","currency":"AED"},"closing_date":"2026-10-20","line_count":3,"previous_statement_id":%q,
 		"status":"in_review","reconciled_at":"2026-10-21T08:00:00Z","reconciled_by":%q,"lines":[
@@ -127,7 +127,7 @@ func TestBankStubbed(t *testing.T) {
 // next page, and lines waiting for an approval and of a proposal decided.
 func reconJSON(bank uuid.UUID) string {
 	u := uuid.NewString
-	return fmt.Sprintf(`{"house_bank_id":%q,"legal_entity_id":%q,"currency":"EUR","summary":{"statements":2,
+	return fmt.Sprintf(`{"house_bank_id":%q,"house_bank_code":"MAIN","legal_entity_id":%q,"currency":"EUR","summary":{"statements":2,
 		"lines":{"unmatched":0,"proposed":0,"matched":0,"excluded":0,"pending_approval":1,"posted":0}},
 		"items":[{"bank_statement_id":%q,"statement_ref":"R1","sequence":"1","status":"gap","opening_date":"2026-04-16",
 		"opening_balance":{"amount":"0.00","currency":"EUR"},"figures":{"as_of":"2026-04-17","closing_balance":{"amount":"5.00","currency":"EUR"},

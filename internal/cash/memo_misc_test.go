@@ -34,6 +34,7 @@ func TestListMemoRecords(t *testing.T) {
 		p, _ := e.Must(200, "GET", "/v1/memo-records?"+query, "", "")
 		var out []string
 		for _, it := range p["items"].([]any) {
+			wantBankCode(t, it.(map[string]any)) // on a later page as on the first
 			out = append(out, id(it.(map[string]any)))
 		}
 		if next, ok := p["next_page_token"]; ok {
@@ -69,7 +70,7 @@ func TestListMemoRecords(t *testing.T) {
 	e.Problem(404, "request.not_found", "GET", "/v1/memo-records/"+uuid.NewString(), "", "")
 	e.Problem(412, "request.version_mismatch", "POST", path(a, "cancel"), ``, `"9"`)
 	got, _ := e.Must(200, "PATCH", path(c, ""), `{"house_bank_id": "`+e.positionEnv.usd.String()+`"}`, `"1"`)
-	want(t, "a house bank given", got["house_bank_id"], e.positionEnv.usd.String())
+	want(t, "a house bank given", fmt.Sprint(got["house_bank_id"], " ", got["house_bank_code"]), e.positionEnv.usd.String()+" USD")
 }
 
 // TestLiquidityItemInUse: a configuration that takes away a liquidity
@@ -184,6 +185,15 @@ func TestMemoFailures(t *testing.T) {
 		},
 		"get": func(ctx context.Context) error {
 			_, err := endpoints.GetMemoRecord(ctx, gen.GetMemoRecordParams{ID: uid(one)})
+			return err
+		},
+		"create handler": func(ctx context.Context) error {
+			_, err := endpoints.CreateMemoRecord(ctx, &gen.MemoRecordCreate{LegalEntityID: e.le, HouseBankID: gen.NewOptUUID(e.positionEnv.usd),
+				Amount: gen.Money{Amount: "5.00", Currency: "USD"}, ValueDate: day, LiquidityItem: "REC_CUSTOMERS"}, gen.CreateMemoRecordParams{})
+			return err
+		},
+		"update handler": func(ctx context.Context) error {
+			_, err := endpoints.UpdateMemoRecord(ctx, &gen.MemoRecordUpdate{Certainty: gen.NewOptString("confirmed")}, gen.UpdateMemoRecordParams{ID: uid(one), IfMatch: "*"})
 			return err
 		},
 		"list": func(ctx context.Context) error {

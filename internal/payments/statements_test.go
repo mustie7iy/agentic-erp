@@ -69,6 +69,9 @@ func (e env) imported(t *testing.T, format, file string) []any {
 	if code != 201 {
 		t.Fatalf("import: got %d %v, want 201", code, body)
 	}
+	for _, s := range apitest.List(t, body, "statements") {
+		wantBankCodes(t, "bank statement", s.(map[string]any))
+	}
 	return body["statements"].([]any)
 }
 
@@ -132,16 +135,19 @@ func TestImportStatements(t *testing.T) {
 	})
 	t.Run("read", func(t *testing.T) {
 		one, tag := e.in(t).Must(200, "GET", "/v1/bank-statements/"+id(first), "", "")
+		wantBankCodes(t, "bank statement", one)
 		if len(one["lines"].([]any)) != 1 || tag != `"1"` {
 			t.Errorf("get: got %v %s, want its one line and version 1", one, tag)
 		}
 		page, _ := e.in(t).Must(200, "GET", "/v1/bank-statements?house_bank_id="+e.bank.String()+"&status=imported&page_size=1", "", "")
+		wantPageBankCodes(t, "bank statement", page)
 		if items := page["items"].([]any); len(items) != 1 || field(items[0], "id") != first["id"] || field(items[0], "lines") != nil {
 			t.Errorf("list: got %v, want the first statement without lines", page)
 		}
 		// The list joins ref.currency, so page 2's keyset condition must name the statement's id.
 		page, _ = e.in(t).Must(200, "GET", "/v1/bank-statements?house_bank_id="+e.bank.String()+"&status=imported&page_size=1&page_token="+
 			page["next_page_token"].(string), "", "")
+		wantPageBankCodes(t, "bank statement", page)
 		if items := page["items"].([]any); len(items) != 1 || field(items[0], "id") != second["id"] {
 			t.Errorf("second page: got %v, want the second statement", items)
 		}
@@ -281,6 +287,16 @@ func TestStatementDatabaseFailures(t *testing.T) {
 	})
 	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "get", func(ctx context.Context) error {
 		_, err := payments.GetStatement(ctx, uuidOf(id(s)))
+		return err
+	})
+	// The handlers read the house bank's code after the statements.
+	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "import handler", func(ctx context.Context) error {
+		_, err := h.ImportBankStatements(ctx, &gen.BankStatementUploadMultipart{HouseBankID: e.bank, Format: "mt940",
+			File: mtStatement("F1", "1", "1,00", "261001", "1,00", "261001")}, gen.ImportBankStatementsParams{})
+		return err
+	})
+	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "get handler", func(ctx context.Context) error {
+		_, err := h.GetBankStatement(ctx, gen.GetBankStatementParams{ID: uuidOf(id(s))})
 		return err
 	})
 	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "file", func(ctx context.Context) error {
