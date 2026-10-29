@@ -66,9 +66,8 @@ func parseEventSchemas(b []byte) (eventSchemas, error) {
 // not declared, a value out of an integer minimum or maximum or not of the
 // pattern, or a value matching not exactly one of a oneOf. Those are the
 // keywords it reads; enum, const, format, minItems, allOf and anyOf are not
-// checked. Published checks the top level of
-// every payload; Conforms is for an event whose nested values carry the
-// contract.
+// checked. Published checks the top level of every payload; Conforms is
+// for an event whose nested values carry the contract.
 func Conforms(tb testing.TB, e outbox.Event, payload map[string]any) {
 	tb.Helper()
 	s, err := eventSchemaSet()

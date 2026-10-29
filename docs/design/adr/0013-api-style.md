@@ -88,7 +88,8 @@ rule, are recorded here:
   walks the payload schema at every depth (the keywords it reads: types,
   required and undeclared fields, integer bounds, patterns, `oneOf`; not
   `enum`, `const`, `format`, `minItems`, `allOf` or `anyOf`), and the
-  integration tests run it on every `MigrationRunCompleted` they publish, a summary of each form included.
+  integration tests run it on every `MigrationRunCompleted` they publish,
+  a summary of each form included.
   Published itself was left as it is, so no other context's event tests
   change in this step.
 - **Report keys name the reference the reader has.** A refused posting
