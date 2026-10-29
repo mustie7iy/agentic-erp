@@ -8639,7 +8639,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "scripts/coverage.sh sets a go test timeout (finding on T72b): under load internal/analytics/extract and internal/web hit go test's default 10 minutes and make coverage fails though nothing is wrong",
       "r": "scripts/coverage.sh",
       "src": "review:T72b",
