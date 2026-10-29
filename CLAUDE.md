@@ -110,24 +110,42 @@ tenancy, auth or concurrency), run the **`go-reviewer`** agent on the diff and r
 blocking finding before telling the user the work is done. Report what it found and what you
 changed. For large branches the user may also run `/code-review high` or `/code-review ultra`.
 `REVIEW.md` sets the rules: findings labelled Blocking, Nit or Pre-existing; every instance of
-a named bug class in the diff fixed; after three rounds on one step with a blocking finding left,
-reconsider the approach and tell the coordinator.
+a named bug class in the diff fixed, the API-consumer classes included; after three rounds on
+one step with a blocking finding left, reconsider the approach and tell the coordinator.
 
 ### 4. Small, specific tasks
 
-- Work one tracker item (T-number) at a time per lane, with its acceptance criteria stated up
-  front. Lanes run in parallel on code that does not overlap (07-transition §7.7).
+- A step that adds or changes a capability is a slice (ADR-0053): one capability a named user
+  or API consumer can use end to end, closing one or more tracker leaves (T-numbers), sized for
+  one agent in about half a day. It carries its contract, domain code, migration, tests, doc
+  and ADR updates, and at least one new or extended step in `scripts/walkthrough.sh` exercising
+  it through the public API, which is its acceptance evidence (the step passes, not skipped, in
+  the batch's run). A fix, refactoring, CI, process or docs step needs no walkthrough step;
+  everything else applies. State its acceptance criteria up front. One slice at a time per
+  lane; three lanes run in parallel on code that does not overlap (07-transition §7.7).
 - Every step is held to the bar the refactoring programme reached (9.5/10) and built with the
   loop in `docs/design/07-transition.md` §7.7; `docs/tracker.json` is the only plan (§7.6).
-- If a request is broad ("build approvals"), propose a split into tracker-sized steps first.
-- Each step ends green: lint, tests, coverage, reviewer. Commit per step with a message naming
+- If a request is broad ("build approvals"), split it into slices first.
+- Each step ends green in the lane's fast loop (ADR-0053, 06 §6.5): gofmt, build, vet, lint of
+  changed code, staticcheck, gosec, gitleaks, `make generate` with no diff, contract lint and
+  the breaking-change check when the contract changes, the tests of the changed packages and
+  of the packages that import them directly with `-race` against real PostgreSQL, 100%
+  coverage of the changed packages, and `go-reviewer`. The whole-suite race run ×3, whole-repository coverage,
+  fuzzing, budgets, images, signing and infrastructure checks run once per batch in
+  `make ci-local`, unchanged, before every pull request. Commit per step with a message naming
   the T-number, as the existing history does.
+- Decide by default: when an ADR, design doc or existing behaviour settles a choice, decide and
+  record it in the ADR's "As built" section; when nothing settles it, write a new ADR, accepted
+  once `go-reviewer` has no blocking finding. Either way the batch digest lists it for the
+  product owner to overrule. Only new scope, money or tax rules, legal or
+  regulatory facts and security posture wait for the product owner, batched into one question.
 - Update `docs/tracker.json` and any affected design doc or ADR in the same change. A new
   tracker leaf item names its source in `src` (07-transition §7.5); a test refuses one without.
 
 ## Definition of done
 
-`make lint` clean · `go build ./...` · `make ci-local` passes (tests with `-race`, coverage at 100%) ·
-GitHub's `ci-ok` green ·
+`make lint` clean · `go build ./...` · the lane's fast loop green on the step · `make ci-local`
+passes on the batch before it merges (tests with `-race` ×3, coverage at 100%) ·
+GitHub's `ci-ok` green · a slice's walkthrough step passes in the batch's run ·
 `go-reviewer` has no blocking findings · contract, data model, ADRs and tracker match what was
 built (06-engineering-process §6.8).
