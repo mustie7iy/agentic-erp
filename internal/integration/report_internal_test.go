@@ -117,11 +117,19 @@ func unset(v reflect.Value, path string) []string {
 // contract's MigrationRunReport to the same keys and values: a key the code
 // writes that the contract does not declare (or reportToAPI leaves out) is
 // missing from the response, and a key the contract declares that the code
-// has no field for is never set.
+// has no field for is never set. The one renaming: the stored extract keys
+// a table by SAP's name (T001), the contract by that name in lower case
+// (t001, its snake_case rule), so the stored form's extract keys are
+// lowered before the comparison.
 func TestReportMatchesContract(t *testing.T) {
 	r := fullReport(t)
 	stored, err := json.Marshal(r)
 	want := decoded(t, stored, err)
+	doc, ok := want.(map[string]any)
+	if !ok {
+		t.Fatalf("stored report: got %s, want an object", stored)
+	}
+	doc["extract"] = lowerKeys(t, doc["extract"])
 	api := reportToAPI(r)
 	answer, err := api.MarshalJSON()
 	if got := decoded(t, answer, err); !reflect.DeepEqual(got, want) {
@@ -130,6 +138,21 @@ func TestReportMatchesContract(t *testing.T) {
 	if missing := unset(reflect.ValueOf(api), "report"); len(missing) > 0 {
 		t.Errorf("declared but never written: got %v, want none", missing)
 	}
+}
+
+// lowerKeys is a stored report's extract with its SAP table names in lower
+// case, as the contract names them.
+func lowerKeys(t *testing.T, extract any) map[string]any {
+	t.Helper()
+	m, ok := extract.(map[string]any)
+	if !ok {
+		t.Fatalf("stored extract: got %v, want an object", extract)
+	}
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[strings.ToLower(k)] = v
+	}
+	return out
 }
 
 // TestReportParts: a report holds the parts that ran, and the lists of a

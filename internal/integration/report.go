@@ -4,7 +4,8 @@ import "github.com/mustie7iy/agentic-erp/api/gen"
 
 // Report is a migration run's report as it is stored with the run, and as
 // the contract's MigrationRunReport declares it (reportToAPI;
-// TestReportMatchesContract holds the two to the same keys). The extract's
+// TestReportMatchesContract holds the two to the same keys, the extract's
+// tables named in lower case in the contract, extractToAPI). The extract's
 // counts and the quality gate's findings are written when the run starts;
 // the load's part once the gate passed, and the reconciliation's once the
 // run is reconciled. Stored reports are decoded leniently (encoding/json),
@@ -66,13 +67,18 @@ func reportToAPI(r Report) gen.MigrationRunReport {
 	return out
 }
 
-// extractToAPI names each table sap.Extract.Counts counts; a table a stored
-// report predates reads as no rows.
+// extractToAPI names each table sap.Extract.Counts counts. The stored
+// report keys a table by SAP's name (T001, AGR_DEFINE), as reports were
+// written before the contract declared them; the contract's JSON names are
+// snake_case (04 API style), so it keys each by that name in lower case
+// (t001, agr_define), and the conversion maps between them rather than a
+// data migration rewriting stored reports. A table a stored report
+// predates reads as no rows.
 func extractToAPI(c map[string]int) gen.MigrationExtractCounts {
-	return gen.MigrationExtractCounts{T001: c["T001"], SKB1: c["SKB1"], LFA1: c["LFA1"], LFB1: c["LFB1"], LFBK: c["LFBK"], EKKO: c["EKKO"],
-		EKPO: c["EKPO"], MSEG: c["MSEG"], RBKP: c["RBKP"], RSEG: c["RSEG"], ACDOCA: c["ACDOCA"], T052: c["T052"], T007A: c["T007A"],
-		T030: c["T030"], T169G: c["T169G"], T012K: c["T012K"], T074: c["T074"], AGRDEFINE: c["AGR_DEFINE"], AGRTCODES: c["AGR_TCODES"],
-		AGRUSERS: c["AGR_USERS"]}
+	return gen.MigrationExtractCounts{T001: c["T001"], Skb1: c["SKB1"], Lfa1: c["LFA1"], Lfb1: c["LFB1"], Lfbk: c["LFBK"], Ekko: c["EKKO"],
+		Ekpo: c["EKPO"], Mseg: c["MSEG"], Rbkp: c["RBKP"], Rseg: c["RSEG"], Acdoca: c["ACDOCA"], T052: c["T052"], T007a: c["T007A"],
+		T030: c["T030"], T169g: c["T169G"], T012k: c["T012K"], T074: c["T074"], AgrDefine: c["AGR_DEFINE"], AgrTcodes: c["AGR_TCODES"],
+		AgrUsers: c["AGR_USERS"]}
 }
 
 func loadedToAPI(l LoadedCounts) gen.MigrationLoadedCounts {

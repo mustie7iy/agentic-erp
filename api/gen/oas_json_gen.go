@@ -67783,108 +67783,108 @@ func (s *MigrationExtractCounts) Encode(e *jx.Encoder) {
 // encodeFields encodes fields.
 func (s *MigrationExtractCounts) encodeFields(e *jx.Encoder) {
 	{
-		e.FieldStart("T001")
+		e.FieldStart("t001")
 		e.Int(s.T001)
 	}
 	{
-		e.FieldStart("SKB1")
-		e.Int(s.SKB1)
+		e.FieldStart("skb1")
+		e.Int(s.Skb1)
 	}
 	{
-		e.FieldStart("LFA1")
-		e.Int(s.LFA1)
+		e.FieldStart("lfa1")
+		e.Int(s.Lfa1)
 	}
 	{
-		e.FieldStart("LFB1")
-		e.Int(s.LFB1)
+		e.FieldStart("lfb1")
+		e.Int(s.Lfb1)
 	}
 	{
-		e.FieldStart("LFBK")
-		e.Int(s.LFBK)
+		e.FieldStart("lfbk")
+		e.Int(s.Lfbk)
 	}
 	{
-		e.FieldStart("EKKO")
-		e.Int(s.EKKO)
+		e.FieldStart("ekko")
+		e.Int(s.Ekko)
 	}
 	{
-		e.FieldStart("EKPO")
-		e.Int(s.EKPO)
+		e.FieldStart("ekpo")
+		e.Int(s.Ekpo)
 	}
 	{
-		e.FieldStart("MSEG")
-		e.Int(s.MSEG)
+		e.FieldStart("mseg")
+		e.Int(s.Mseg)
 	}
 	{
-		e.FieldStart("RBKP")
-		e.Int(s.RBKP)
+		e.FieldStart("rbkp")
+		e.Int(s.Rbkp)
 	}
 	{
-		e.FieldStart("RSEG")
-		e.Int(s.RSEG)
+		e.FieldStart("rseg")
+		e.Int(s.Rseg)
 	}
 	{
-		e.FieldStart("ACDOCA")
-		e.Int(s.ACDOCA)
+		e.FieldStart("acdoca")
+		e.Int(s.Acdoca)
 	}
 	{
-		e.FieldStart("T052")
+		e.FieldStart("t052")
 		e.Int(s.T052)
 	}
 	{
-		e.FieldStart("T007A")
-		e.Int(s.T007A)
+		e.FieldStart("t007a")
+		e.Int(s.T007a)
 	}
 	{
-		e.FieldStart("T030")
+		e.FieldStart("t030")
 		e.Int(s.T030)
 	}
 	{
-		e.FieldStart("T169G")
-		e.Int(s.T169G)
+		e.FieldStart("t169g")
+		e.Int(s.T169g)
 	}
 	{
-		e.FieldStart("T012K")
-		e.Int(s.T012K)
+		e.FieldStart("t012k")
+		e.Int(s.T012k)
 	}
 	{
-		e.FieldStart("T074")
+		e.FieldStart("t074")
 		e.Int(s.T074)
 	}
 	{
-		e.FieldStart("AGR_DEFINE")
-		e.Int(s.AGRDEFINE)
+		e.FieldStart("agr_define")
+		e.Int(s.AgrDefine)
 	}
 	{
-		e.FieldStart("AGR_TCODES")
-		e.Int(s.AGRTCODES)
+		e.FieldStart("agr_tcodes")
+		e.Int(s.AgrTcodes)
 	}
 	{
-		e.FieldStart("AGR_USERS")
-		e.Int(s.AGRUSERS)
+		e.FieldStart("agr_users")
+		e.Int(s.AgrUsers)
 	}
 }
 
 var jsonFieldsNameOfMigrationExtractCounts = [20]string{
-	0:  "T001",
-	1:  "SKB1",
-	2:  "LFA1",
-	3:  "LFB1",
-	4:  "LFBK",
-	5:  "EKKO",
-	6:  "EKPO",
-	7:  "MSEG",
-	8:  "RBKP",
-	9:  "RSEG",
-	10: "ACDOCA",
-	11: "T052",
-	12: "T007A",
-	13: "T030",
-	14: "T169G",
-	15: "T012K",
-	16: "T074",
-	17: "AGR_DEFINE",
-	18: "AGR_TCODES",
-	19: "AGR_USERS",
+	0:  "t001",
+	1:  "skb1",
+	2:  "lfa1",
+	3:  "lfb1",
+	4:  "lfbk",
+	5:  "ekko",
+	6:  "ekpo",
+	7:  "mseg",
+	8:  "rbkp",
+	9:  "rseg",
+	10: "acdoca",
+	11: "t052",
+	12: "t007a",
+	13: "t030",
+	14: "t169g",
+	15: "t012k",
+	16: "t074",
+	17: "agr_define",
+	18: "agr_tcodes",
+	19: "agr_users",
 }
 
 // Decode decodes MigrationExtractCounts from json.
@@ -67896,7 +67896,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
-		case "T001":
+		case "t001":
 			requiredBitSet[0] |= 1 << 0
 			if err := func() error {
 				v, err := d.Int()
@@ -67906,129 +67906,129 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"T001\"")
+				return errors.Wrap(err, "decode field \"t001\"")
 			}
-		case "SKB1":
+		case "skb1":
 			requiredBitSet[0] |= 1 << 1
 			if err := func() error {
 				v, err := d.Int()
-				s.SKB1 = int(v)
+				s.Skb1 = int(v)
 				if err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"SKB1\"")
+				return errors.Wrap(err, "decode field \"skb1\"")
 			}
-		case "LFA1":
+		case "lfa1":
 			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
 				v, err := d.Int()
-				s.LFA1 = int(v)
+				s.Lfa1 = int(v)
 				if err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"LFA1\"")
+				return errors.Wrap(err, "decode field \"lfa1\"")
 			}
-		case "LFB1":
+		case "lfb1":
 			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
 				v, err := d.Int()
-				s.LFB1 = int(v)
+				s.Lfb1 = int(v)
 				if err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"LFB1\"")
+				return errors.Wrap(err, "decode field \"lfb1\"")
 			}
-		case "LFBK":
+		case "lfbk":
 			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				v, err := d.Int()
-				s.LFBK = int(v)
+				s.Lfbk = int(v)
 				if err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"LFBK\"")
+				return errors.Wrap(err, "decode field \"lfbk\"")
 			}
-		case "EKKO":
+		case "ekko":
 			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				v, err := d.Int()
-				s.EKKO = int(v)
+				s.Ekko = int(v)
 				if err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"EKKO\"")
+				return errors.Wrap(err, "decode field \"ekko\"")
 			}
-		case "EKPO":
+		case "ekpo":
 			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Int()
-				s.EKPO = int(v)
+				s.Ekpo = int(v)
 				if err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"EKPO\"")
+				return errors.Wrap(err, "decode field \"ekpo\"")
 			}
-		case "MSEG":
+		case "mseg":
 			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int()
-				s.MSEG = int(v)
+				s.Mseg = int(v)
 				if err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"MSEG\"")
+				return errors.Wrap(err, "decode field \"mseg\"")
 			}
-		case "RBKP":
+		case "rbkp":
 			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := d.Int()
-				s.RBKP = int(v)
+				s.Rbkp = int(v)
 				if err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"RBKP\"")
+				return errors.Wrap(err, "decode field \"rbkp\"")
 			}
-		case "RSEG":
+		case "rseg":
 			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				v, err := d.Int()
-				s.RSEG = int(v)
+				s.Rseg = int(v)
 				if err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"RSEG\"")
+				return errors.Wrap(err, "decode field \"rseg\"")
 			}
-		case "ACDOCA":
+		case "acdoca":
 			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				v, err := d.Int()
-				s.ACDOCA = int(v)
+				s.Acdoca = int(v)
 				if err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"ACDOCA\"")
+				return errors.Wrap(err, "decode field \"acdoca\"")
 			}
-		case "T052":
+		case "t052":
 			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				v, err := d.Int()
@@ -68038,21 +68038,21 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"T052\"")
+				return errors.Wrap(err, "decode field \"t052\"")
 			}
-		case "T007A":
+		case "t007a":
 			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := d.Int()
-				s.T007A = int(v)
+				s.T007a = int(v)
 				if err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"T007A\"")
+				return errors.Wrap(err, "decode field \"t007a\"")
 			}
-		case "T030":
+		case "t030":
 			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := d.Int()
@@ -68062,33 +68062,33 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"T030\"")
+				return errors.Wrap(err, "decode field \"t030\"")
 			}
-		case "T169G":
+		case "t169g":
 			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := d.Int()
-				s.T169G = int(v)
+				s.T169g = int(v)
 				if err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"T169G\"")
+				return errors.Wrap(err, "decode field \"t169g\"")
 			}
-		case "T012K":
+		case "t012k":
 			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int()
-				s.T012K = int(v)
+				s.T012k = int(v)
 				if err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"T012K\"")
+				return errors.Wrap(err, "decode field \"t012k\"")
 			}
-		case "T074":
+		case "t074":
 			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				v, err := d.Int()
@@ -68098,43 +68098,43 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"T074\"")
+				return errors.Wrap(err, "decode field \"t074\"")
 			}
-		case "AGR_DEFINE":
+		case "agr_define":
 			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				v, err := d.Int()
-				s.AGRDEFINE = int(v)
+				s.AgrDefine = int(v)
 				if err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"AGR_DEFINE\"")
+				return errors.Wrap(err, "decode field \"agr_define\"")
 			}
-		case "AGR_TCODES":
+		case "agr_tcodes":
 			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				v, err := d.Int()
-				s.AGRTCODES = int(v)
+				s.AgrTcodes = int(v)
 				if err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"AGR_TCODES\"")
+				return errors.Wrap(err, "decode field \"agr_tcodes\"")
 			}
-		case "AGR_USERS":
+		case "agr_users":
 			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				v, err := d.Int()
-				s.AGRUSERS = int(v)
+				s.AgrUsers = int(v)
 				if err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"AGR_USERS\"")
+				return errors.Wrap(err, "decode field \"agr_users\"")
 			}
 		default:
 			return d.Skip()

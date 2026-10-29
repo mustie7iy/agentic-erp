@@ -145,7 +145,9 @@ the contract as `MigrationRunReport` (api/openapi.yaml), which describes every
 key; `erp migrate` prints its counts, findings, checks and differences. It
 grows with the run:
 
-- When the run starts: `extract`, the rows read per SAP table, and `quality`,
+- When the run starts: `extract`, the rows read per SAP table, each keyed by
+  the table's name in lower case as the API names fields in snake_case
+  (`t001`, `lfa1`, `agr_define`), and `quality`,
   the data-quality gate's findings (`error` stops the run before anything
   loads, `warning` needs a business sign-off).
 - Once the gate passed and the load ran: `load`, the rows it refused or

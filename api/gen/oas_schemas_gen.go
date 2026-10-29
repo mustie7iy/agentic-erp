@@ -23245,49 +23245,50 @@ func (s *MigrationDiff) SetPlatform(val string) {
 	s.Platform = val
 }
 
-// Rows read from the source system per SAP table (internal/sap describes each table).
+// Rows read from the source system per SAP table, each key the table's name in lower case (`t001` for
+// T001, `agr_define` for AGR_DEFINE); internal/sap describes each table.
 // Ref: #/components/schemas/MigrationExtractCounts
 type MigrationExtractCounts struct {
-	// Rows of T001 (company codes).
-	T001 int `json:"T001"`
-	// Rows of SKB1 (G/L account master per company code).
-	SKB1 int `json:"SKB1"`
-	// Rows of LFA1 (vendor general data).
-	LFA1 int `json:"LFA1"`
-	// Rows of LFB1 (vendor company code data).
-	LFB1 int `json:"LFB1"`
-	// Rows of LFBK (vendor bank details).
-	LFBK int `json:"LFBK"`
-	// Rows of EKKO (purchasing document headers).
-	EKKO int `json:"EKKO"`
-	// Rows of EKPO (purchasing document items).
-	EKPO int `json:"EKPO"`
-	// Rows of MSEG (goods movements).
-	MSEG int `json:"MSEG"`
-	// Rows of RBKP (supplier invoice headers).
-	RBKP int `json:"RBKP"`
-	// Rows of RSEG (supplier invoice items).
-	RSEG int `json:"RSEG"`
-	// Rows of ACDOCA (Universal Journal line items).
-	ACDOCA int `json:"ACDOCA"`
-	// Rows of T052 (payment terms).
-	T052 int `json:"T052"`
-	// Rows of T007A (tax codes).
-	T007A int `json:"T007A"`
-	// Rows of T030 (automatic account determination).
-	T030 int `json:"T030"`
-	// Rows of T169G (invoice verification tolerance limits).
-	T169G int `json:"T169G"`
-	// Rows of T012K (house bank accounts).
-	T012K int `json:"T012K"`
-	// Rows of T074 (special G/L accounts).
-	T074 int `json:"T074"`
-	// Rows of AGR_DEFINE (roles).
-	AGRDEFINE int `json:"AGR_DEFINE"`
-	// Rows of AGR_TCODES (transactions in a role).
-	AGRTCODES int `json:"AGR_TCODES"`
-	// Rows of AGR_USERS (role assignments).
-	AGRUSERS int `json:"AGR_USERS"`
+	// Rows of SAP table T001 (company codes).
+	T001 int `json:"t001"`
+	// Rows of SAP table SKB1 (G/L account master per company code).
+	Skb1 int `json:"skb1"`
+	// Rows of SAP table LFA1 (vendor general data).
+	Lfa1 int `json:"lfa1"`
+	// Rows of SAP table LFB1 (vendor company code data).
+	Lfb1 int `json:"lfb1"`
+	// Rows of SAP table LFBK (vendor bank details).
+	Lfbk int `json:"lfbk"`
+	// Rows of SAP table EKKO (purchasing document headers).
+	Ekko int `json:"ekko"`
+	// Rows of SAP table EKPO (purchasing document items).
+	Ekpo int `json:"ekpo"`
+	// Rows of SAP table MSEG (goods movements).
+	Mseg int `json:"mseg"`
+	// Rows of SAP table RBKP (supplier invoice headers).
+	Rbkp int `json:"rbkp"`
+	// Rows of SAP table RSEG (supplier invoice items).
+	Rseg int `json:"rseg"`
+	// Rows of SAP table ACDOCA (Universal Journal line items).
+	Acdoca int `json:"acdoca"`
+	// Rows of SAP table T052 (payment terms).
+	T052 int `json:"t052"`
+	// Rows of SAP table T007A (tax codes).
+	T007a int `json:"t007a"`
+	// Rows of SAP table T030 (automatic account determination).
+	T030 int `json:"t030"`
+	// Rows of SAP table T169G (invoice verification tolerance limits).
+	T169g int `json:"t169g"`
+	// Rows of SAP table T012K (house bank accounts).
+	T012k int `json:"t012k"`
+	// Rows of SAP table T074 (special G/L accounts).
+	T074 int `json:"t074"`
+	// Rows of SAP table AGR_DEFINE (roles).
+	AgrDefine int `json:"agr_define"`
+	// Rows of SAP table AGR_TCODES (transactions in a role).
+	AgrTcodes int `json:"agr_tcodes"`
+	// Rows of SAP table AGR_USERS (role assignments).
+	AgrUsers int `json:"agr_users"`
 }
 
 // GetT001 returns the value of T001.
@@ -23295,54 +23296,54 @@ func (s *MigrationExtractCounts) GetT001() int {
 	return s.T001
 }
 
-// GetSKB1 returns the value of SKB1.
-func (s *MigrationExtractCounts) GetSKB1() int {
-	return s.SKB1
+// GetSkb1 returns the value of Skb1.
+func (s *MigrationExtractCounts) GetSkb1() int {
+	return s.Skb1
 }
 
-// GetLFA1 returns the value of LFA1.
-func (s *MigrationExtractCounts) GetLFA1() int {
-	return s.LFA1
+// GetLfa1 returns the value of Lfa1.
+func (s *MigrationExtractCounts) GetLfa1() int {
+	return s.Lfa1
 }
 
-// GetLFB1 returns the value of LFB1.
-func (s *MigrationExtractCounts) GetLFB1() int {
-	return s.LFB1
+// GetLfb1 returns the value of Lfb1.
+func (s *MigrationExtractCounts) GetLfb1() int {
+	return s.Lfb1
 }
 
-// GetLFBK returns the value of LFBK.
-func (s *MigrationExtractCounts) GetLFBK() int {
-	return s.LFBK
+// GetLfbk returns the value of Lfbk.
+func (s *MigrationExtractCounts) GetLfbk() int {
+	return s.Lfbk
 }
 
-// GetEKKO returns the value of EKKO.
-func (s *MigrationExtractCounts) GetEKKO() int {
-	return s.EKKO
+// GetEkko returns the value of Ekko.
+func (s *MigrationExtractCounts) GetEkko() int {
+	return s.Ekko
 }
 
-// GetEKPO returns the value of EKPO.
-func (s *MigrationExtractCounts) GetEKPO() int {
-	return s.EKPO
+// GetEkpo returns the value of Ekpo.
+func (s *MigrationExtractCounts) GetEkpo() int {
+	return s.Ekpo
 }
 
-// GetMSEG returns the value of MSEG.
-func (s *MigrationExtractCounts) GetMSEG() int {
-	return s.MSEG
+// GetMseg returns the value of Mseg.
+func (s *MigrationExtractCounts) GetMseg() int {
+	return s.Mseg
 }
 
-// GetRBKP returns the value of RBKP.
-func (s *MigrationExtractCounts) GetRBKP() int {
-	return s.RBKP
+// GetRbkp returns the value of Rbkp.
+func (s *MigrationExtractCounts) GetRbkp() int {
+	return s.Rbkp
 }
 
-// GetRSEG returns the value of RSEG.
-func (s *MigrationExtractCounts) GetRSEG() int {
-	return s.RSEG
+// GetRseg returns the value of Rseg.
+func (s *MigrationExtractCounts) GetRseg() int {
+	return s.Rseg
 }
 
-// GetACDOCA returns the value of ACDOCA.
-func (s *MigrationExtractCounts) GetACDOCA() int {
-	return s.ACDOCA
+// GetAcdoca returns the value of Acdoca.
+func (s *MigrationExtractCounts) GetAcdoca() int {
+	return s.Acdoca
 }
 
 // GetT052 returns the value of T052.
@@ -23350,9 +23351,9 @@ func (s *MigrationExtractCounts) GetT052() int {
 	return s.T052
 }
 
-// GetT007A returns the value of T007A.
-func (s *MigrationExtractCounts) GetT007A() int {
-	return s.T007A
+// GetT007a returns the value of T007a.
+func (s *MigrationExtractCounts) GetT007a() int {
+	return s.T007a
 }
 
 // GetT030 returns the value of T030.
@@ -23360,14 +23361,14 @@ func (s *MigrationExtractCounts) GetT030() int {
 	return s.T030
 }
 
-// GetT169G returns the value of T169G.
-func (s *MigrationExtractCounts) GetT169G() int {
-	return s.T169G
+// GetT169g returns the value of T169g.
+func (s *MigrationExtractCounts) GetT169g() int {
+	return s.T169g
 }
 
-// GetT012K returns the value of T012K.
-func (s *MigrationExtractCounts) GetT012K() int {
-	return s.T012K
+// GetT012k returns the value of T012k.
+func (s *MigrationExtractCounts) GetT012k() int {
+	return s.T012k
 }
 
 // GetT074 returns the value of T074.
@@ -23375,19 +23376,19 @@ func (s *MigrationExtractCounts) GetT074() int {
 	return s.T074
 }
 
-// GetAGRDEFINE returns the value of AGRDEFINE.
-func (s *MigrationExtractCounts) GetAGRDEFINE() int {
-	return s.AGRDEFINE
+// GetAgrDefine returns the value of AgrDefine.
+func (s *MigrationExtractCounts) GetAgrDefine() int {
+	return s.AgrDefine
 }
 
-// GetAGRTCODES returns the value of AGRTCODES.
-func (s *MigrationExtractCounts) GetAGRTCODES() int {
-	return s.AGRTCODES
+// GetAgrTcodes returns the value of AgrTcodes.
+func (s *MigrationExtractCounts) GetAgrTcodes() int {
+	return s.AgrTcodes
 }
 
-// GetAGRUSERS returns the value of AGRUSERS.
-func (s *MigrationExtractCounts) GetAGRUSERS() int {
-	return s.AGRUSERS
+// GetAgrUsers returns the value of AgrUsers.
+func (s *MigrationExtractCounts) GetAgrUsers() int {
+	return s.AgrUsers
 }
 
 // SetT001 sets the value of T001.
@@ -23395,54 +23396,54 @@ func (s *MigrationExtractCounts) SetT001(val int) {
 	s.T001 = val
 }
 
-// SetSKB1 sets the value of SKB1.
-func (s *MigrationExtractCounts) SetSKB1(val int) {
-	s.SKB1 = val
+// SetSkb1 sets the value of Skb1.
+func (s *MigrationExtractCounts) SetSkb1(val int) {
+	s.Skb1 = val
 }
 
-// SetLFA1 sets the value of LFA1.
-func (s *MigrationExtractCounts) SetLFA1(val int) {
-	s.LFA1 = val
+// SetLfa1 sets the value of Lfa1.
+func (s *MigrationExtractCounts) SetLfa1(val int) {
+	s.Lfa1 = val
 }
 
-// SetLFB1 sets the value of LFB1.
-func (s *MigrationExtractCounts) SetLFB1(val int) {
-	s.LFB1 = val
+// SetLfb1 sets the value of Lfb1.
+func (s *MigrationExtractCounts) SetLfb1(val int) {
+	s.Lfb1 = val
 }
 
-// SetLFBK sets the value of LFBK.
-func (s *MigrationExtractCounts) SetLFBK(val int) {
-	s.LFBK = val
+// SetLfbk sets the value of Lfbk.
+func (s *MigrationExtractCounts) SetLfbk(val int) {
+	s.Lfbk = val
 }
 
-// SetEKKO sets the value of EKKO.
-func (s *MigrationExtractCounts) SetEKKO(val int) {
-	s.EKKO = val
+// SetEkko sets the value of Ekko.
+func (s *MigrationExtractCounts) SetEkko(val int) {
+	s.Ekko = val
 }
 
-// SetEKPO sets the value of EKPO.
-func (s *MigrationExtractCounts) SetEKPO(val int) {
-	s.EKPO = val
+// SetEkpo sets the value of Ekpo.
+func (s *MigrationExtractCounts) SetEkpo(val int) {
+	s.Ekpo = val
 }
 
-// SetMSEG sets the value of MSEG.
-func (s *MigrationExtractCounts) SetMSEG(val int) {
-	s.MSEG = val
+// SetMseg sets the value of Mseg.
+func (s *MigrationExtractCounts) SetMseg(val int) {
+	s.Mseg = val
 }
 
-// SetRBKP sets the value of RBKP.
-func (s *MigrationExtractCounts) SetRBKP(val int) {
-	s.RBKP = val
+// SetRbkp sets the value of Rbkp.
+func (s *MigrationExtractCounts) SetRbkp(val int) {
+	s.Rbkp = val
 }
 
-// SetRSEG sets the value of RSEG.
-func (s *MigrationExtractCounts) SetRSEG(val int) {
-	s.RSEG = val
+// SetRseg sets the value of Rseg.
+func (s *MigrationExtractCounts) SetRseg(val int) {
+	s.Rseg = val
 }
 
-// SetACDOCA sets the value of ACDOCA.
-func (s *MigrationExtractCounts) SetACDOCA(val int) {
-	s.ACDOCA = val
+// SetAcdoca sets the value of Acdoca.
+func (s *MigrationExtractCounts) SetAcdoca(val int) {
+	s.Acdoca = val
 }
 
 // SetT052 sets the value of T052.
@@ -23450,9 +23451,9 @@ func (s *MigrationExtractCounts) SetT052(val int) {
 	s.T052 = val
 }
 
-// SetT007A sets the value of T007A.
-func (s *MigrationExtractCounts) SetT007A(val int) {
-	s.T007A = val
+// SetT007a sets the value of T007a.
+func (s *MigrationExtractCounts) SetT007a(val int) {
+	s.T007a = val
 }
 
 // SetT030 sets the value of T030.
@@ -23460,14 +23461,14 @@ func (s *MigrationExtractCounts) SetT030(val int) {
 	s.T030 = val
 }
 
-// SetT169G sets the value of T169G.
-func (s *MigrationExtractCounts) SetT169G(val int) {
-	s.T169G = val
+// SetT169g sets the value of T169g.
+func (s *MigrationExtractCounts) SetT169g(val int) {
+	s.T169g = val
 }
 
-// SetT012K sets the value of T012K.
-func (s *MigrationExtractCounts) SetT012K(val int) {
-	s.T012K = val
+// SetT012k sets the value of T012k.
+func (s *MigrationExtractCounts) SetT012k(val int) {
+	s.T012k = val
 }
 
 // SetT074 sets the value of T074.
@@ -23475,19 +23476,19 @@ func (s *MigrationExtractCounts) SetT074(val int) {
 	s.T074 = val
 }
 
-// SetAGRDEFINE sets the value of AGRDEFINE.
-func (s *MigrationExtractCounts) SetAGRDEFINE(val int) {
-	s.AGRDEFINE = val
+// SetAgrDefine sets the value of AgrDefine.
+func (s *MigrationExtractCounts) SetAgrDefine(val int) {
+	s.AgrDefine = val
 }
 
-// SetAGRTCODES sets the value of AGRTCODES.
-func (s *MigrationExtractCounts) SetAGRTCODES(val int) {
-	s.AGRTCODES = val
+// SetAgrTcodes sets the value of AgrTcodes.
+func (s *MigrationExtractCounts) SetAgrTcodes(val int) {
+	s.AgrTcodes = val
 }
 
-// SetAGRUSERS sets the value of AGRUSERS.
-func (s *MigrationExtractCounts) SetAGRUSERS(val int) {
-	s.AGRUSERS = val
+// SetAgrUsers sets the value of AgrUsers.
+func (s *MigrationExtractCounts) SetAgrUsers(val int) {
+	s.AgrUsers = val
 }
 
 // A finding of the quality gate, the load or the reconciliation on a row of the extract.

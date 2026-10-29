@@ -23665,7 +23665,7 @@ func (s *MigrationExtractCounts) Validate() error {
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "T001",
+			Name:  "t001",
 			Error: err,
 		})
 	}
@@ -23680,13 +23680,13 @@ func (s *MigrationExtractCounts) Validate() error {
 			MultipleOfSet: false,
 			MultipleOf:    0,
 			Pattern:       nil,
-		}).Validate(int64(s.SKB1)); err != nil {
+		}).Validate(int64(s.Skb1)); err != nil {
 			return errors.Wrap(err, "int")
 		}
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "SKB1",
+			Name:  "skb1",
 			Error: err,
 		})
 	}
@@ -23701,13 +23701,13 @@ func (s *MigrationExtractCounts) Validate() error {
 			MultipleOfSet: false,
 			MultipleOf:    0,
 			Pattern:       nil,
-		}).Validate(int64(s.LFA1)); err != nil {
+		}).Validate(int64(s.Lfa1)); err != nil {
 			return errors.Wrap(err, "int")
 		}
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "LFA1",
+			Name:  "lfa1",
 			Error: err,
 		})
 	}
@@ -23722,13 +23722,13 @@ func (s *MigrationExtractCounts) Validate() error {
 			MultipleOfSet: false,
 			MultipleOf:    0,
 			Pattern:       nil,
-		}).Validate(int64(s.LFB1)); err != nil {
+		}).Validate(int64(s.Lfb1)); err != nil {
 			return errors.Wrap(err, "int")
 		}
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "LFB1",
+			Name:  "lfb1",
 			Error: err,
 		})
 	}
@@ -23743,13 +23743,13 @@ func (s *MigrationExtractCounts) Validate() error {
 			MultipleOfSet: false,
 			MultipleOf:    0,
 			Pattern:       nil,
-		}).Validate(int64(s.LFBK)); err != nil {
+		}).Validate(int64(s.Lfbk)); err != nil {
 			return errors.Wrap(err, "int")
 		}
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "LFBK",
+			Name:  "lfbk",
 			Error: err,
 		})
 	}
@@ -23764,13 +23764,13 @@ func (s *MigrationExtractCounts) Validate() error {
 			MultipleOfSet: false,
 			MultipleOf:    0,
 			Pattern:       nil,
-		}).Validate(int64(s.EKKO)); err != nil {
+		}).Validate(int64(s.Ekko)); err != nil {
 			return errors.Wrap(err, "int")
 		}
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "EKKO",
+			Name:  "ekko",
 			Error: err,
 		})
 	}
@@ -23785,13 +23785,13 @@ func (s *MigrationExtractCounts) Validate() error {
 			MultipleOfSet: false,
 			MultipleOf:    0,
 			Pattern:       nil,
-		}).Validate(int64(s.EKPO)); err != nil {
+		}).Validate(int64(s.Ekpo)); err != nil {
 			return errors.Wrap(err, "int")
 		}
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "EKPO",
+			Name:  "ekpo",
 			Error: err,
 		})
 	}
@@ -23806,13 +23806,13 @@ func (s *MigrationExtractCounts) Validate() error {
 			MultipleOfSet: false,
 			MultipleOf:    0,
 			Pattern:       nil,
-		}).Validate(int64(s.MSEG)); err != nil {
+		}).Validate(int64(s.Mseg)); err != nil {
 			return errors.Wrap(err, "int")
 		}
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "MSEG",
+			Name:  "mseg",
 			Error: err,
 		})
 	}
@@ -23827,13 +23827,13 @@ func (s *MigrationExtractCounts) Validate() error {
 			MultipleOfSet: false,
 			MultipleOf:    0,
 			Pattern:       nil,
-		}).Validate(int64(s.RBKP)); err != nil {
+		}).Validate(int64(s.Rbkp)); err != nil {
 			return errors.Wrap(err, "int")
 		}
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "RBKP",
+			Name:  "rbkp",
 			Error: err,
 		})
 	}
@@ -23848,13 +23848,13 @@ func (s *MigrationExtractCounts) Validate() error {
 			MultipleOfSet: false,
 			MultipleOf:    0,
 			Pattern:       nil,
-		}).Validate(int64(s.RSEG)); err != nil {
+		}).Validate(int64(s.Rseg)); err != nil {
 			return errors.Wrap(err, "int")
 		}
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "RSEG",
+			Name:  "rseg",
 			Error: err,
 		})
 	}
@@ -23869,13 +23869,13 @@ func (s *MigrationExtractCounts) Validate() error {
 			MultipleOfSet: false,
 			MultipleOf:    0,
 			Pattern:       nil,
-		}).Validate(int64(s.ACDOCA)); err != nil {
+		}).Validate(int64(s.Acdoca)); err != nil {
 			return errors.Wrap(err, "int")
 		}
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "ACDOCA",
+			Name:  "acdoca",
 			Error: err,
 		})
 	}
@@ -23896,7 +23896,7 @@ func (s *MigrationExtractCounts) Validate() error {
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "T052",
+			Name:  "t052",
 			Error: err,
 		})
 	}
@@ -23911,13 +23911,13 @@ func (s *MigrationExtractCounts) Validate() error {
 			MultipleOfSet: false,
 			MultipleOf:    0,
 			Pattern:       nil,
-		}).Validate(int64(s.T007A)); err != nil {
+		}).Validate(int64(s.T007a)); err != nil {
 			return errors.Wrap(err, "int")
 		}
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "T007A",
+			Name:  "t007a",
 			Error: err,
 		})
 	}
@@ -23938,7 +23938,7 @@ func (s *MigrationExtractCounts) Validate() error {
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "T030",
+			Name:  "t030",
 			Error: err,
 		})
 	}
@@ -23953,13 +23953,13 @@ func (s *MigrationExtractCounts) Validate() error {
 			MultipleOfSet: false,
 			MultipleOf:    0,
 			Pattern:       nil,
-		}).Validate(int64(s.T169G)); err != nil {
+		}).Validate(int64(s.T169g)); err != nil {
 			return errors.Wrap(err, "int")
 		}
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "T169G",
+			Name:  "t169g",
 			Error: err,
 		})
 	}
@@ -23974,13 +23974,13 @@ func (s *MigrationExtractCounts) Validate() error {
 			MultipleOfSet: false,
 			MultipleOf:    0,
 			Pattern:       nil,
-		}).Validate(int64(s.T012K)); err != nil {
+		}).Validate(int64(s.T012k)); err != nil {
 			return errors.Wrap(err, "int")
 		}
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "T012K",
+			Name:  "t012k",
 			Error: err,
 		})
 	}
@@ -24001,7 +24001,7 @@ func (s *MigrationExtractCounts) Validate() error {
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "T074",
+			Name:  "t074",
 			Error: err,
 		})
 	}
@@ -24016,13 +24016,13 @@ func (s *MigrationExtractCounts) Validate() error {
 			MultipleOfSet: false,
 			MultipleOf:    0,
 			Pattern:       nil,
-		}).Validate(int64(s.AGRDEFINE)); err != nil {
+		}).Validate(int64(s.AgrDefine)); err != nil {
 			return errors.Wrap(err, "int")
 		}
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "AGR_DEFINE",
+			Name:  "agr_define",
 			Error: err,
 		})
 	}
@@ -24037,13 +24037,13 @@ func (s *MigrationExtractCounts) Validate() error {
 			MultipleOfSet: false,
 			MultipleOf:    0,
 			Pattern:       nil,
-		}).Validate(int64(s.AGRTCODES)); err != nil {
+		}).Validate(int64(s.AgrTcodes)); err != nil {
 			return errors.Wrap(err, "int")
 		}
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "AGR_TCODES",
+			Name:  "agr_tcodes",
 			Error: err,
 		})
 	}
@@ -24058,13 +24058,13 @@ func (s *MigrationExtractCounts) Validate() error {
 			MultipleOfSet: false,
 			MultipleOf:    0,
 			Pattern:       nil,
-		}).Validate(int64(s.AGRUSERS)); err != nil {
+		}).Validate(int64(s.AgrUsers)); err != nil {
 			return errors.Wrap(err, "int")
 		}
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "AGR_USERS",
+			Name:  "agr_users",
 			Error: err,
 		})
 	}

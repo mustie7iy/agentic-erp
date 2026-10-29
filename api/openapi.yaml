@@ -31582,7 +31582,7 @@ components:
           type: boolean
           description: Whether every check passed and the reconciliation had no issue; the run is then `reconciled`.
       examples:
-        - extract: {T001: 1, SKB1: 42, LFA1: 3, LFB1: 3, LFBK: 2, EKKO: 2, EKPO: 3, MSEG: 2, RBKP: 2, RSEG: 2, ACDOCA: 61, T052: 2, T007A: 3, T030: 4, T169G: 1, T012K: 1, T074: 1, AGR_DEFINE: 0, AGR_TCODES: 0, AGR_USERS: 0}
+        - extract: {t001: 1, skb1: 42, lfa1: 3, lfb1: 3, lfbk: 2, ekko: 2, ekpo: 3, mseg: 2, rbkp: 2, rseg: 2, acdoca: 61, t052: 2, t007a: 3, t030: 4, t169g: 1, t012k: 1, t074: 1, agr_define: 0, agr_tcodes: 0, agr_users: 0}
           quality: []
           load: []
           loaded: {suppliers: 3, purchase_orders: 2, goods_receipts: 2, supplier_invoices: 2, journal_entries: 14, gr_ir_positions: 1}
@@ -31596,109 +31596,109 @@ components:
           passed: true
     MigrationExtractCounts:
       type: object
-      description: Rows read from the source system per SAP table (internal/sap describes each table).
+      description: "Rows read from the source system per SAP table, each key the table's name in lower case (`t001` for T001, `agr_define` for AGR_DEFINE); internal/sap describes each table."
       required:
-        - T001
-        - SKB1
-        - LFA1
-        - LFB1
-        - LFBK
-        - EKKO
-        - EKPO
-        - MSEG
-        - RBKP
-        - RSEG
-        - ACDOCA
-        - T052
-        - T007A
-        - T030
-        - T169G
-        - T012K
-        - T074
-        - AGR_DEFINE
-        - AGR_TCODES
-        - AGR_USERS
+        - t001
+        - skb1
+        - lfa1
+        - lfb1
+        - lfbk
+        - ekko
+        - ekpo
+        - mseg
+        - rbkp
+        - rseg
+        - acdoca
+        - t052
+        - t007a
+        - t030
+        - t169g
+        - t012k
+        - t074
+        - agr_define
+        - agr_tcodes
+        - agr_users
       properties:
-        T001:
+        t001:
           type: integer
           minimum: 0
-          description: "Rows of T001 (company codes)."
-        SKB1:
+          description: "Rows of SAP table T001 (company codes)."
+        skb1:
           type: integer
           minimum: 0
-          description: "Rows of SKB1 (G/L account master per company code)."
-        LFA1:
+          description: "Rows of SAP table SKB1 (G/L account master per company code)."
+        lfa1:
           type: integer
           minimum: 0
-          description: "Rows of LFA1 (vendor general data)."
-        LFB1:
+          description: "Rows of SAP table LFA1 (vendor general data)."
+        lfb1:
           type: integer
           minimum: 0
-          description: "Rows of LFB1 (vendor company code data)."
-        LFBK:
+          description: "Rows of SAP table LFB1 (vendor company code data)."
+        lfbk:
           type: integer
           minimum: 0
-          description: "Rows of LFBK (vendor bank details)."
-        EKKO:
+          description: "Rows of SAP table LFBK (vendor bank details)."
+        ekko:
           type: integer
           minimum: 0
-          description: "Rows of EKKO (purchasing document headers)."
-        EKPO:
+          description: "Rows of SAP table EKKO (purchasing document headers)."
+        ekpo:
           type: integer
           minimum: 0
-          description: "Rows of EKPO (purchasing document items)."
-        MSEG:
+          description: "Rows of SAP table EKPO (purchasing document items)."
+        mseg:
           type: integer
           minimum: 0
-          description: "Rows of MSEG (goods movements)."
-        RBKP:
+          description: "Rows of SAP table MSEG (goods movements)."
+        rbkp:
           type: integer
           minimum: 0
-          description: "Rows of RBKP (supplier invoice headers)."
-        RSEG:
+          description: "Rows of SAP table RBKP (supplier invoice headers)."
+        rseg:
           type: integer
           minimum: 0
-          description: "Rows of RSEG (supplier invoice items)."
-        ACDOCA:
+          description: "Rows of SAP table RSEG (supplier invoice items)."
+        acdoca:
           type: integer
           minimum: 0
-          description: "Rows of ACDOCA (Universal Journal line items)."
-        T052:
+          description: "Rows of SAP table ACDOCA (Universal Journal line items)."
+        t052:
           type: integer
           minimum: 0
-          description: "Rows of T052 (payment terms)."
-        T007A:
+          description: "Rows of SAP table T052 (payment terms)."
+        t007a:
           type: integer
           minimum: 0
-          description: "Rows of T007A (tax codes)."
-        T030:
+          description: "Rows of SAP table T007A (tax codes)."
+        t030:
           type: integer
           minimum: 0
-          description: "Rows of T030 (automatic account determination)."
-        T169G:
+          description: "Rows of SAP table T030 (automatic account determination)."
+        t169g:
           type: integer
           minimum: 0
-          description: "Rows of T169G (invoice verification tolerance limits)."
-        T012K:
+          description: "Rows of SAP table T169G (invoice verification tolerance limits)."
+        t012k:
           type: integer
           minimum: 0
-          description: "Rows of T012K (house bank accounts)."
-        T074:
+          description: "Rows of SAP table T012K (house bank accounts)."
+        t074:
           type: integer
           minimum: 0
-          description: "Rows of T074 (special G/L accounts)."
-        AGR_DEFINE:
+          description: "Rows of SAP table T074 (special G/L accounts)."
+        agr_define:
           type: integer
           minimum: 0
-          description: "Rows of AGR_DEFINE (roles)."
-        AGR_TCODES:
+          description: "Rows of SAP table AGR_DEFINE (roles)."
+        agr_tcodes:
           type: integer
           minimum: 0
-          description: "Rows of AGR_TCODES (transactions in a role)."
-        AGR_USERS:
+          description: "Rows of SAP table AGR_TCODES (transactions in a role)."
+        agr_users:
           type: integer
           minimum: 0
-          description: "Rows of AGR_USERS (role assignments)."
+          description: "Rows of SAP table AGR_USERS (role assignments)."
     MigrationLoadedCounts:
       type: object
       description: "What a migration run's load created, by kind; a kind it created none of is absent. A rehearsal, and a load with an `error` refusal, are rolled back: their counts are what the load created before the rollback, and nothing of it stays. A kept load counts only what no earlier kept run loaded, so a run of the same extract again counts nothing."

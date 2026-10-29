@@ -101,3 +101,15 @@ rule, are recorded here:
   uses; a failed read fails the reconciliation rather than leaving the name
   out. The keys stay free-form text, as `MigrationIssue.key` and
   `MigrationDiff.key` say, so no field was added.
+- **The extract's counts are named in snake_case (batch24 fix forward).**
+  `MigrationExtractCounts` first named its properties by SAP's table names
+  (`T001`, `AGR_DEFINE`), which the contract's rule that JSON field names
+  are snake_case (04, API style; `TestRepresentations`) refuses. The API
+  names each table in lower case (`t001`, `agr_define`), its description
+  naming the table in SAP's spelling. The stored report keeps SAP's names,
+  as every report a run has written holds them: `extractToAPI` maps between
+  the two, so no data migration rewrites stored rows, and
+  `TestReportMatchesContract` lowers the stored keys before comparing. On
+  the wire this renames the keys of `report.extract`, which the free-form
+  report returned in SAP's spelling before; neither `erp migrate` nor the
+  walkthrough reads them, and the run's event carries no extract counts.
