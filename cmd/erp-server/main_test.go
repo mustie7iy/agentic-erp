@@ -1097,7 +1097,7 @@ func TestImportCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	withDirectory := maps.Clone(env)
-	maps.Copy(withDirectory, map[string]string{"ERP_DIRECTORY_URL": dirURL, "ERP_CELL_API_URL": "https://test.api.example.com", "ERP_CELL_REGION": "eu-west",
+	maps.Copy(withDirectory, map[string]string{"ERP_DIRECTORY_URL": cellLogin(t, dirURL), "ERP_CELL_API_URL": "https://test.api.example.com", "ERP_CELL_REGION": "eu-west",
 		"ERP_CELL_CONTROL_URL": "http://test-admin.internal:9090"})
 	stdout.Reset()
 	if code := cli(context.Background(), []string{"import", "-manifest", ex.Ref}, func(k string) string { return withDirectory[k] }, &stdout, &stderr, nil); code != 0 || !strings.Contains(stdout.String(), `"identity.principal"`) {
@@ -1242,7 +1242,7 @@ func TestDirectorySync(t *testing.T) {
 	is := authntest.New(t)
 	env := environment(t, is, "")
 	directoryURL := pgtest.EmptyDatabase(t)
-	env["ERP_DIRECTORY_URL"], env["ERP_CELL_API_URL"], env["ERP_CELL_CONTROL_URL"], env["ERP_CELL_REGION"] = directoryURL, "https://test.api.example.com", "http://test-admin.internal:9090", "eu-west"
+	env["ERP_DIRECTORY_URL"], env["ERP_CELL_API_URL"], env["ERP_CELL_CONTROL_URL"], env["ERP_CELL_REGION"] = cellLogin(t, directoryURL), "https://test.api.example.com", "http://test-admin.internal:9090", "eu-west"
 	env["ERP_OPERATOR_ISSUERS"] = env["ERP_OIDC_ISSUERS"] // the control plane claims providers in the directory
 	ten := pgtest.NewTenant(t)
 	directoryInterval = 20 * time.Millisecond
@@ -1698,7 +1698,7 @@ func TestProvisionClaimsInTheDirectory(t *testing.T) {
 	env := environment(t, authntest.New(t), "")
 	delete(env, "ERP_OIDC_ISSUERS")
 	directoryURL := pgtest.EmptyDatabase(t)
-	env["ERP_DIRECTORY_URL"], env["ERP_CELL_API_URL"], env["ERP_CELL_CONTROL_URL"], env["ERP_CELL_REGION"] = directoryURL, "https://test.api.example.com", "http://test-admin.internal:9090", "eu-west"
+	env["ERP_DIRECTORY_URL"], env["ERP_CELL_API_URL"], env["ERP_CELL_CONTROL_URL"], env["ERP_CELL_REGION"] = cellLogin(t, directoryURL), "https://test.api.example.com", "http://test-admin.internal:9090", "eu-west"
 	args := []string{"provision", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "ada", "-admin-name", "Ada",
 		"-config", configFile(t), "-idp-issuer", idp.URL, "-idp-audience", authntest.Audience}
 	var stdout, stderr bytes.Buffer
@@ -1942,7 +1942,7 @@ func TestRegisterProviderCommand(t *testing.T) {
 	t.Run("with a global directory", func(t *testing.T) {
 		other := authntest.NewSeparate(t)
 		directoryURL := pgtest.EmptyDatabase(t)
-		env["ERP_DIRECTORY_URL"], env["ERP_CELL_API_URL"], env["ERP_CELL_CONTROL_URL"], env["ERP_CELL_REGION"] = directoryURL, "https://test.api.example.com", "http://test-admin.internal:9090", "eu-west"
+		env["ERP_DIRECTORY_URL"], env["ERP_CELL_API_URL"], env["ERP_CELL_CONTROL_URL"], env["ERP_CELL_REGION"] = cellLogin(t, directoryURL), "https://test.api.example.com", "http://test-admin.internal:9090", "eu-west"
 		defer delete(env, "ERP_DIRECTORY_URL")
 		withDir := []string{"register-provider", "-tenant", ten.ID.String(), "-issuer", other.URL, "-audience", audience}
 		if code := cli(context.Background(), withDir, getenv, io.Discard, &stderr, nil); code != 0 {
@@ -2454,4 +2454,16 @@ func TestReplicaDown(t *testing.T) {
 	if code := cli(context.Background(), nil, func(k string) string { return env[k] }, io.Discard, &stderr, nil); code != 1 || !strings.Contains(stderr.String(), "the read replica") {
 		t.Errorf("got %d %s, want 1 and the read replica's failure", code, stderr.String())
 	}
+}
+
+// cellLogin sets the directory at u up with a cell's login of the test's
+// own and returns the URL connecting as it: the cell's commands work as
+// the login erp-cell gives them (T72h), never as the directory's owner.
+func cellLogin(t *testing.T, u string) string {
+	t.Helper()
+	login := pgtest.NewLogin(t)
+	if err := directory.Setup(context.Background(), u, directory.Login{Name: login.Name, Password: login.Password, Role: directory.CellRole}); err != nil {
+		t.Fatal(err)
+	}
+	return login.As(u)
 }

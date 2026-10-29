@@ -212,6 +212,79 @@ type GRIRItem struct {
 	// the item's assignment; the GR/IR line, a balance sheet line, none.
 	// nil: the ledger derives them (§5).
 	CostCenterID *uuid.UUID
+	// Clears makes the item a GR/IR clearing's (T72e, SAP MR11), naming
+	// neither an offset account nor an invoiced amount: Quantity is the
+	// position's quantity negated, and what the GR/IR line clears goes to
+	// the price_difference account, with CostCenterID when that is a
+	// primary cost account, as an invoice's price difference does. An
+	// entry that clears is all clearing items.
+	Clears *GRIRClearing
+}
+
+// GRIRClearing is the position a clearing item was approved to clear: it
+// posts only while the position still holds that quantity and balance and
+// the price difference account is still the one the approver saw, and is
+// refused otherwise (409 ledger.gr_ir_clearing_outdated).
+type GRIRClearing struct {
+	Balance money.Minor // in the position's transaction currency
+	Account uuid.UUID   // the price_difference account
+}
+
+// GRIRPosition is an order item's current GR/IR position, as a clearing
+// proposes to clear it.
+type GRIRPosition struct {
+	POItemNo int32
+	// Quantity is invoiced + cleared - received, signed as the GR/IR line
+	// (debit positive).
+	Quantity, Unit string
+	Balance        money.Minor // in Currency, the position's transaction currency
+	Currency       string
+	Open           bool
+}
+
+// AccountRef names a G/L account.
+type AccountRef struct {
+	ID           uuid.UUID
+	Number, Name string
+}
+
+// GRIROrder is what a GR/IR clearing of a purchase order is proposed from:
+// the current positions of its items in the legal entity, by item number,
+// and the legal entity's price_difference account (nil: none). A read
+// for a proposal, which the clearing's posting checks again under the
+// order's GR/IR lock (GRIRItem.Clears).
+type GRIROrder struct {
+	Positions       []GRIRPosition
+	PriceDifference *AccountRef
+}
+
+// GRIROrder reads the positions of the order's items in the legal entity
+// (ledger.gr_ir_position) and the price_difference account.
+func (Postings) GRIROrder(ctx context.Context, legalEntity, order uuid.UUID) (GRIROrder, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return GRIROrder{}, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT po_item_no, trim_scale(invoiced + cleared - received)::text, uom_code, amount_tc, currency_tc, is_open
+		FROM ledger.gr_ir_position WHERE legal_entity_id = $1 AND purchase_order_id = $2 ORDER BY po_item_no`, legalEntity, order)
+	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (GRIRPosition, error) {
+		var p GRIRPosition
+		return p, r.Scan(&p.POItemNo, &p.Quantity, &p.Unit, &p.Balance, &p.Currency, &p.Open)
+	})
+	if err != nil {
+		return GRIROrder{}, fmt.Errorf("ledger: GR/IR positions of order %s: %w", order, err)
+	}
+	out := GRIROrder{Positions: list}
+	var a AccountRef
+	err = tx.QueryRow(ctx, `SELECT a.id, a.number, a.name FROM ledger.account_determination d JOIN ledger.gl_account a ON a.id = d.account_id
+		WHERE d.legal_entity_id = $1 AND d.key = 'price_difference'`, legalEntity).Scan(&a.ID, &a.Number, &a.Name)
+	switch {
+	case err == nil:
+		out.PriceDifference = &a
+	case !errors.Is(err, pgx.ErrNoRows):
+		return GRIROrder{}, fmt.Errorf("ledger: price difference account of %s: %w", legalEntity, err)
+	}
+	return out, nil
 }
 
 // Post posts the entry in the leading ledger; one with GR/IR items books

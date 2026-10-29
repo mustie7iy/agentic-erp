@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
 
@@ -24,10 +25,11 @@ type Check struct {
 	Pass        bool   `json:"pass"`
 }
 
-// Diff is a difference behind a failed check, in minor units.
+// Diff is a difference behind a failed check: amounts in minor units, or
+// a vendor's bank account as bankAccount writes it.
 type Diff struct {
 	CompanyCode string `json:"company_code"`
-	Key         string `json:"key"` // account number, or "vendor <LIFNR>"
+	Key         string `json:"key"` // account number, "vendor <LIFNR>" or "bank account of vendor <LIFNR>"
 	SAP         string `json:"sap"`
 	Platform    string `json:"platform"`
 }
@@ -137,6 +139,9 @@ func (rc *reconciler) company(ctx context.Context, cc, cur string) error {
 		return err
 	}
 	if err := rc.vendors(ctx, s); err != nil {
+		return err
+	}
+	if err := rc.bankAccounts(ctx, s); err != nil {
 		return err
 	}
 	if err := rc.purchaseOrders(ctx, s); err != nil {
@@ -295,18 +300,31 @@ func (rc *reconciler) purchaseOrders(ctx context.Context, s companyScope) error 
 	return nil
 }
 
-// parkedInvoices compares parked supplier invoices (posted ones are
-// carried by their journal entries).
+// parkedChecks name the parked documents' checks by kind. Invoices are
+// always checked; the other kinds when either side has one, so a scope
+// without corrections reports as before (T72b).
+var parkedChecks = []struct{ kind, name string }{
+	{payables.KindInvoice, "Parked supplier invoices"},
+	{payables.KindCreditMemo, "Parked supplier credit memos"},
+	{payables.KindSubsequentDebit, "Parked subsequent debits"},
+	{payables.KindSubsequentCredit, "Parked subsequent credits"},
+}
+
+// parkedInvoices compares parked supplier documents by kind (posted ones
+// are carried by their journal entries): SAP's by RBKP-XRECH and
+// RSEG-TBTKZ (parkedKinds), the platform's by the kind they were entered
+// as, so a credit memo loaded as an invoice fails two checks.
 func (rc *reconciler) parkedInvoices(ctx context.Context, s companyScope) error {
-	dups := duplicateInvoices(rc.ext)
-	sapParked := 0
+	kinds := parkedKinds(rc.ext)
+	sapParked := map[string]int{}
 	var invoices []uuid.UUID
 	for _, h := range rc.ext.RBKP {
 		key := h.BELNR + "/" + h.GJAHR
-		if h.BUKRS != s.cc || h.RBSTAT != "A" || dups[key] != "" {
+		kind, ok := kinds[key]
+		if h.BUKRS != s.cc || !ok {
 			continue
 		}
-		sapParked++
+		sapParked[kind]++
 		if id, ok := rc.r["RBKP/"+key]; ok {
 			invoices = append(invoices, id)
 		}
@@ -315,7 +333,11 @@ func (rc *reconciler) parkedInvoices(ctx context.Context, s companyScope) error 
 	if err != nil {
 		return err
 	}
-	rc.add(s.cc, "Parked supplier invoices", strconv.Itoa(sapParked), strconv.Itoa(parked), sapParked == parked)
+	for i, c := range parkedChecks {
+		if i == 0 || sapParked[c.kind] != 0 || parked[c.kind] != 0 {
+			rc.add(s.cc, c.name, strconv.Itoa(sapParked[c.kind]), strconv.Itoa(parked[c.kind]), sapParked[c.kind] == parked[c.kind])
+		}
+	}
 	return nil
 }
 

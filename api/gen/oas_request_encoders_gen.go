@@ -480,6 +480,20 @@ func encodeCreateExchangeRateRequest(
 	return nil
 }
 
+func encodeCreateGrIrClearingRequest(
+	req *GrIrClearingCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateHierarchyRequest(
 	req *HierarchyCreate,
 	r *http.Request,

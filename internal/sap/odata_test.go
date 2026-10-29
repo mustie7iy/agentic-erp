@@ -80,6 +80,36 @@ func TestODataSourcePagesAndFilters(t *testing.T) {
 	}
 }
 
+// TestODataInvoicesHaveNoKindIndicator: the OData mapping does not carry
+// RBKP-XRECH, so an extracted invoice's indicator is absent (nil), never a
+// blank that would read as a credit memo; the quality gate refuses it
+// (T72b).
+func TestODataInvoicesHaveNoKindIndicator(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		row := map[string]any{"SupplierInvoice": "5100000001", "FiscalYear": "2026", "CompanyCode": "1000", "SupplierInvoiceStatus": "A"}
+		// A failed write reaches the source as a broken answer, which the test asserts on.
+		_ = json.NewEncoder(w).Encode(map[string]any{"d": map[string]any{"results": []map[string]any{row}}})
+	}))
+	defer srv.Close()
+	var rbkp EntityMapping
+	for _, em := range DefaultEntities {
+		if em.Table == "RBKP" {
+			rbkp = em
+		}
+	}
+	src := &ODataSource{BaseURL: srv.URL, Entities: []EntityMapping{rbkp}}
+	e, err := src.Extract(context.Background(), Scope{CompanyCodes: []string{"1000"}, FiscalYear: "2026"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(e.RBKP) != 1 {
+		t.Fatalf("invoices: got %d, want 1", len(e.RBKP))
+	}
+	if e.RBKP[0].XRECH != nil {
+		t.Errorf("XRECH: got %q, want absent (nil)", *e.RBKP[0].XRECH)
+	}
+}
+
 // Scope values are OData string literals: a quote inside one is doubled, so
 // it cannot end the literal and change the filter.
 func TestODataFilterEscapesQuotes(t *testing.T) {

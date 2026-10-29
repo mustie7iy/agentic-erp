@@ -266,7 +266,13 @@ its tenant, with multi-factor and session rules per tenant
 ([ADR-0031](docs/design/adr/0031-per-tenant-identity-providers-and-sessions.md));
 `erp-server register-provider -tenant <id> -issuer <url> -audience <aud>`
 registers one without a running server, the remedy when a production cell
-refuses to start for an active tenant without one. With
+refuses to start for an active tenant without one. The global directory's
+database is set up first, as its owner, by `erp-router setup-directory`
+(`ERP_DIRECTORY_ADMIN_URL`, and `ERP_DIRECTORY_ROUTER_PASSWORD`,
+`ERP_DIRECTORY_CELL_PASSWORD`, `ERP_DIRECTORY_WEB_PASSWORD` for the
+router's, the cells' and erp-web's logins, `erp_router_login`,
+`erp_cell_login` and `erp_web_login` unless `ERP_DIRECTORY_*_USER` names
+others), which the services then connect as (T72h). With
 `ERP_DIRECTORY_URL` and `ERP_CELL_API_URL` set, the cell records its tenants
 in the global directory, and `erp-router` (same `ERP_ENV`,
 `ERP_DIRECTORY_URL`, `ERP_ROUTER_ADDR`; `ERP_OIDC_ISSUERS` outside

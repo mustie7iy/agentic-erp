@@ -97,7 +97,7 @@ type Store interface {
 // the one writing, which leaves the entry as it is.
 var ErrOtherCell = errors.New("directory: the tenant is in another cell")
 
-// Schema is the directory's tables, created when the store opens: the
+// Schema is the directory's tables, created by Setup: the
 // tenants, the cells, the issuers (which tenant an active identity
 // provider's issuer and audience belong to, ADR-0031), and the placements
 // (which cell an Idempotency-Key of a global provisioning went to, so a
@@ -156,7 +156,8 @@ CREATE TABLE IF NOT EXISTS directory.placement (
 
 // WebSchema is the web workspace's part of the directory database
 // (ADR-0052 §6, T73b): its people's sessions, and the web clients by login
-// code. erp-web works as erp_web, a role that sees the web schema alone:
+// code. erp-web works as erp_web (WebRole), a role that sees the web schema
+// alone (its grants are in Grants):
 // it reads the clients through the view, never directory.issuer, and no
 // tenant, cell or placement. A session holds no business data: who signed
 // in (tenant, issuer, subject), through which login code, when, and the
@@ -190,11 +191,7 @@ CREATE INDEX IF NOT EXISTS session_last_seen ON web.session (last_seen_at);
 CREATE INDEX IF NOT EXISTS session_expires ON web.session (expires_at);
 CREATE OR REPLACE VIEW web.login_client WITH (security_barrier) AS
   SELECT login_code, issuer, audience, tenant_id, client_id, auth_method, credential_ref, scope
-  FROM directory.issuer WHERE login_code IS NOT NULL;
-REVOKE ALL ON SCHEMA directory FROM erp_web;
-GRANT USAGE ON SCHEMA web TO erp_web;
-GRANT SELECT, INSERT, UPDATE, DELETE ON web.session TO erp_web;
-GRANT SELECT ON web.login_client TO erp_web;`
+  FROM directory.issuer WHERE login_code IS NOT NULL;`
 
 // Postgres keeps the directory in a database of its own (ERP_DIRECTORY_URL).
 type Postgres struct {
@@ -210,14 +207,23 @@ func (p *Postgres) inTx(ctx context.Context, scope database.Scope, fn func(conte
 	return p.Pool.InTx(ctx, scope, fn)
 }
 
-// Open connects to the directory database and makes sure its table exists.
+// Open makes the directory's schema as its owner (Setup, with no logins)
+// and connects: development's and tests' way, whose URL is the owner's.
+// The platform's services connect with OpenWith, as logins of their own.
 func Open(ctx context.Context, url string) (*Postgres, error) {
+	if err := Setup(ctx, url); err != nil {
+		return nil, err
+	}
 	return OpenWith(ctx, url, nil)
 }
 
-// OpenWith is Open with a password asked for each new connection in
-// place of the URL's, when password is not nil: the directory's RDS-managed
-// master password rotates (database.Settings.Password).
+// OpenWith connects to the directory database, with a password asked for
+// each new connection in place of the URL's when password is not nil
+// (database.Settings.Password: the login's password changes while the
+// service runs), and checks the schema is there. It makes nothing: the
+// router and the cells connect as logins that may not (T72h), and Setup
+// made the schema before them, so a missing one fails startup rather than
+// the first request.
 func OpenWith(ctx context.Context, url string, password func(context.Context) (string, error)) (*Postgres, error) {
 	settings := database.DefaultSettings
 	settings.Password = password
@@ -226,19 +232,12 @@ func OpenWith(ctx context.Context, url string, password func(context.Context) (s
 		return nil, fmt.Errorf("directory: %w", err)
 	}
 	p := &Postgres{Pool: pool}
-	if err := pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
-		// Openers starting together (replicas of a cell, a router and a
-		// control plane) serialize on an advisory lock: two concurrent
-		// CREATE SCHEMA IF NOT EXISTS otherwise race into a unique violation
-		// on pg_namespace.
-		_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('directory.schema'));`+Schema)
-		if err != nil {
-			return fmt.Errorf("lock and create: %w", err)
-		}
-		return nil
+	if err := pool.InTx(ctx, database.Scope{ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `SELECT FROM directory.tenant LIMIT 0`)
+		return err //nolint:wrapcheck // wrapped below
 	}); err != nil {
 		pool.Close()
-		return nil, fmt.Errorf("directory: schema: %w", err)
+		return nil, fmt.Errorf("directory: schema (made by erp-router setup-directory): %w", err)
 	}
 	return p, nil
 }

@@ -9246,6 +9246,7 @@ func (*ConflictHeaders) createContractRes()                   {}
 func (*ConflictHeaders) createCostCenterRes()                 {}
 func (*ConflictHeaders) createDownPaymentRequestRes()         {}
 func (*ConflictHeaders) createExchangeRateRes()               {}
+func (*ConflictHeaders) createGrIrClearingRes()               {}
 func (*ConflictHeaders) createHierarchyRes()                  {}
 func (*ConflictHeaders) createLegalEntityRes()                {}
 func (*ConflictHeaders) createMemoRecordRes()                 {}
@@ -11958,6 +11959,76 @@ func (*CreateExchangeRatePreconditionRequired) createExchangeRateRes() {}
 type CreateExchangeRateUnprocessableEntity Problem
 
 func (*CreateExchangeRateUnprocessableEntity) createExchangeRateRes() {}
+
+type CreateGrIrClearingBadRequest Problem
+
+func (*CreateGrIrClearingBadRequest) createGrIrClearingRes() {}
+
+// CreateGrIrClearingCreatedHeaders wraps GrIrClearing with response headers.
+type CreateGrIrClearingCreatedHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           GrIrClearing
+}
+
+// GetETag returns the value of ETag.
+func (s *CreateGrIrClearingCreatedHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CreateGrIrClearingCreatedHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CreateGrIrClearingCreatedHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *CreateGrIrClearingCreatedHeaders) GetResponse() GrIrClearing {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CreateGrIrClearingCreatedHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CreateGrIrClearingCreatedHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CreateGrIrClearingCreatedHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CreateGrIrClearingCreatedHeaders) SetResponse(val GrIrClearing) {
+	s.Response = val
+}
+
+func (*CreateGrIrClearingCreatedHeaders) createGrIrClearingRes() {}
+
+type CreateGrIrClearingForbidden Problem
+
+func (*CreateGrIrClearingForbidden) createGrIrClearingRes() {}
+
+type CreateGrIrClearingNotFound Problem
+
+func (*CreateGrIrClearingNotFound) createGrIrClearingRes() {}
+
+type CreateGrIrClearingPreconditionRequired Problem
+
+func (*CreateGrIrClearingPreconditionRequired) createGrIrClearingRes() {}
+
+type CreateGrIrClearingUnprocessableEntity Problem
+
+func (*CreateGrIrClearingUnprocessableEntity) createGrIrClearingRes() {}
 
 type CreateHierarchyBadRequest Problem
 
@@ -15026,6 +15097,18 @@ func (s *GetGoodsReceiptOKHeaders) SetResponse(val GoodsReceipt) {
 
 func (*GetGoodsReceiptOKHeaders) getGoodsReceiptRes() {}
 
+type GetGrIrClearingBadRequest Problem
+
+func (*GetGrIrClearingBadRequest) getGrIrClearingRes() {}
+
+type GetGrIrClearingForbidden Problem
+
+func (*GetGrIrClearingForbidden) getGrIrClearingRes() {}
+
+type GetGrIrClearingNotFound Problem
+
+func (*GetGrIrClearingNotFound) getGrIrClearingRes() {}
+
 type GetHierarchyBadRequest Problem
 
 func (*GetHierarchyBadRequest) getHierarchyRes() {}
@@ -16668,6 +16751,10 @@ type GrIrBalance struct {
 	ReceivedQuantity Quantity `json:"received_quantity"`
 	// Invoiced by posted invoices less their reversals.
 	InvoicedQuantity Quantity `json:"invoiced_quantity"`
+	// Cleared by posted GR/IR clearings of the closed order (createGrIrClearing, SAP MR11), signed as the
+	// position: positive where more was received than invoiced. A position is closed once invoiced plus
+	// cleared equals received.
+	ClearedQuantity Quantity `json:"cleared_quantity"`
 	// Balance in the order's currency, signed: negative when more is received than invoiced.
 	Balance Money `json:"balance"`
 	// Balance in local currency, signed.
@@ -16706,6 +16793,11 @@ func (s *GrIrBalance) GetReceivedQuantity() Quantity {
 // GetInvoicedQuantity returns the value of InvoicedQuantity.
 func (s *GrIrBalance) GetInvoicedQuantity() Quantity {
 	return s.InvoicedQuantity
+}
+
+// GetClearedQuantity returns the value of ClearedQuantity.
+func (s *GrIrBalance) GetClearedQuantity() Quantity {
+	return s.ClearedQuantity
 }
 
 // GetBalance returns the value of Balance.
@@ -16756,6 +16848,11 @@ func (s *GrIrBalance) SetReceivedQuantity(val Quantity) {
 // SetInvoicedQuantity sets the value of InvoicedQuantity.
 func (s *GrIrBalance) SetInvoicedQuantity(val Quantity) {
 	s.InvoicedQuantity = val
+}
+
+// SetClearedQuantity sets the value of ClearedQuantity.
+func (s *GrIrBalance) SetClearedQuantity(val Quantity) {
+	s.ClearedQuantity = val
 }
 
 // SetBalance sets the value of Balance.
@@ -16821,6 +16918,464 @@ func (s *GrIrBalancePage) SetTotalEstimate(val OptInt64) {
 }
 
 func (*GrIrBalancePage) listGrIrBalancesRes() {}
+
+// Merged schema.
+// Ref: #/components/schemas/GrIrClearing
+type GrIrClearing struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The closed order whose positions it clears.
+	PurchaseOrderID uuid.UUID `json:"purchase_order_id"`
+	// The order's document number.
+	PurchaseOrderNumber string `json:"purchase_order_number"`
+	// The order's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// GR/IR clearing status. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Status string `json:"status"`
+	// Why the positions are cleared.
+	Reason string `json:"reason"`
+	// The posting date of its entry.
+	PostingDate   time.Time           `json:"posting_date"`
+	OffsetAccount GrIrClearingAccount `json:"offset_account"`
+	// The positions it clears, by item, as they stood when it was proposed.
+	Items []GrIrClearingItem `json:"items"`
+	// The items' balances summed, in the order's currency: what the GR/IR account moves by, signed
+	// (negative: a credit balance, more received than invoiced).
+	Total Money `json:"total"`
+	// The `gr_ir_clearing` approval request (workflow context) it waits for or was decided on.
+	ApprovalRequestID uuid.UUID            `json:"approval_request_id"`
+	JournalEntry      OptGrIrClearingEntry `json:"journal_entry"`
+	// The comment of the decision that rejected or withdrew it.
+	DecisionComment OptString `json:"decision_comment"`
+}
+
+// GetID returns the value of ID.
+func (s *GrIrClearing) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *GrIrClearing) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *GrIrClearing) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *GrIrClearing) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *GrIrClearing) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *GrIrClearing) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetPurchaseOrderID returns the value of PurchaseOrderID.
+func (s *GrIrClearing) GetPurchaseOrderID() uuid.UUID {
+	return s.PurchaseOrderID
+}
+
+// GetPurchaseOrderNumber returns the value of PurchaseOrderNumber.
+func (s *GrIrClearing) GetPurchaseOrderNumber() string {
+	return s.PurchaseOrderNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *GrIrClearing) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetStatus returns the value of Status.
+func (s *GrIrClearing) GetStatus() string {
+	return s.Status
+}
+
+// GetReason returns the value of Reason.
+func (s *GrIrClearing) GetReason() string {
+	return s.Reason
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *GrIrClearing) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetOffsetAccount returns the value of OffsetAccount.
+func (s *GrIrClearing) GetOffsetAccount() GrIrClearingAccount {
+	return s.OffsetAccount
+}
+
+// GetItems returns the value of Items.
+func (s *GrIrClearing) GetItems() []GrIrClearingItem {
+	return s.Items
+}
+
+// GetTotal returns the value of Total.
+func (s *GrIrClearing) GetTotal() Money {
+	return s.Total
+}
+
+// GetApprovalRequestID returns the value of ApprovalRequestID.
+func (s *GrIrClearing) GetApprovalRequestID() uuid.UUID {
+	return s.ApprovalRequestID
+}
+
+// GetJournalEntry returns the value of JournalEntry.
+func (s *GrIrClearing) GetJournalEntry() OptGrIrClearingEntry {
+	return s.JournalEntry
+}
+
+// GetDecisionComment returns the value of DecisionComment.
+func (s *GrIrClearing) GetDecisionComment() OptString {
+	return s.DecisionComment
+}
+
+// SetID sets the value of ID.
+func (s *GrIrClearing) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *GrIrClearing) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *GrIrClearing) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *GrIrClearing) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *GrIrClearing) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *GrIrClearing) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetPurchaseOrderID sets the value of PurchaseOrderID.
+func (s *GrIrClearing) SetPurchaseOrderID(val uuid.UUID) {
+	s.PurchaseOrderID = val
+}
+
+// SetPurchaseOrderNumber sets the value of PurchaseOrderNumber.
+func (s *GrIrClearing) SetPurchaseOrderNumber(val string) {
+	s.PurchaseOrderNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *GrIrClearing) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetStatus sets the value of Status.
+func (s *GrIrClearing) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetReason sets the value of Reason.
+func (s *GrIrClearing) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *GrIrClearing) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetOffsetAccount sets the value of OffsetAccount.
+func (s *GrIrClearing) SetOffsetAccount(val GrIrClearingAccount) {
+	s.OffsetAccount = val
+}
+
+// SetItems sets the value of Items.
+func (s *GrIrClearing) SetItems(val []GrIrClearingItem) {
+	s.Items = val
+}
+
+// SetTotal sets the value of Total.
+func (s *GrIrClearing) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetApprovalRequestID sets the value of ApprovalRequestID.
+func (s *GrIrClearing) SetApprovalRequestID(val uuid.UUID) {
+	s.ApprovalRequestID = val
+}
+
+// SetJournalEntry sets the value of JournalEntry.
+func (s *GrIrClearing) SetJournalEntry(val OptGrIrClearingEntry) {
+	s.JournalEntry = val
+}
+
+// SetDecisionComment sets the value of DecisionComment.
+func (s *GrIrClearing) SetDecisionComment(val OptString) {
+	s.DecisionComment = val
+}
+
+// The price difference account a clearing posts against, as it was shown when the clearing was
+// proposed.
+// Ref: #/components/schemas/GrIrClearingAccount
+type GrIrClearingAccount struct {
+	// The account.
+	ID uuid.UUID `json:"id"`
+	// The account's number in the legal entity's chart.
+	Number string `json:"number"`
+	// The account's name.
+	Name string `json:"name"`
+}
+
+// GetID returns the value of ID.
+func (s *GrIrClearingAccount) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetNumber returns the value of Number.
+func (s *GrIrClearingAccount) GetNumber() string {
+	return s.Number
+}
+
+// GetName returns the value of Name.
+func (s *GrIrClearingAccount) GetName() string {
+	return s.Name
+}
+
+// SetID sets the value of ID.
+func (s *GrIrClearingAccount) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *GrIrClearingAccount) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetName sets the value of Name.
+func (s *GrIrClearingAccount) SetName(val string) {
+	s.Name = val
+}
+
+// A GR/IR clearing of a closed purchase order.
+// Ref: #/components/schemas/GrIrClearingCreate
+type GrIrClearingCreate struct {
+	// Why the positions are cleared, for the approver and the audit trail.
+	Reason string `json:"reason"`
+	// The posting date of the clearing entry, in an open period when it is approved.
+	PostingDate time.Time `json:"posting_date"`
+	// Only these items' positions; default: every open position of the order.
+	PoItemNos []int32 `json:"po_item_nos"`
+}
+
+// GetReason returns the value of Reason.
+func (s *GrIrClearingCreate) GetReason() string {
+	return s.Reason
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *GrIrClearingCreate) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetPoItemNos returns the value of PoItemNos.
+func (s *GrIrClearingCreate) GetPoItemNos() []int32 {
+	return s.PoItemNos
+}
+
+// SetReason sets the value of Reason.
+func (s *GrIrClearingCreate) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *GrIrClearingCreate) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetPoItemNos sets the value of PoItemNos.
+func (s *GrIrClearingCreate) SetPoItemNos(val []int32) {
+	s.PoItemNos = val
+}
+
+// The journal entry (document type WE) a posted clearing posted.
+// Ref: #/components/schemas/GrIrClearingEntry
+type GrIrClearingEntry struct {
+	// The journal entry (`GET /v1/journal-entries/{id}`).
+	ID uuid.UUID `json:"id"`
+	// Its fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// Its document number.
+	DocumentNumber string `json:"document_number"`
+}
+
+// GetID returns the value of ID.
+func (s *GrIrClearingEntry) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *GrIrClearingEntry) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *GrIrClearingEntry) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// SetID sets the value of ID.
+func (s *GrIrClearingEntry) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *GrIrClearingEntry) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *GrIrClearingEntry) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// GrIrClearingHeaders wraps GrIrClearing with response headers.
+type GrIrClearingHeaders struct {
+	ETag     OptString
+	Response GrIrClearing
+}
+
+// GetETag returns the value of ETag.
+func (s *GrIrClearingHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GrIrClearingHeaders) GetResponse() GrIrClearing {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GrIrClearingHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GrIrClearingHeaders) SetResponse(val GrIrClearing) {
+	s.Response = val
+}
+
+func (*GrIrClearingHeaders) getGrIrClearingRes() {}
+
+// One order item's GR/IR position a clearing clears.
+// Ref: #/components/schemas/GrIrClearingItem
+type GrIrClearingItem struct {
+	// Item of the purchase order.
+	PoItemNo int32 `json:"po_item_no"`
+	// The order item's description.
+	Description string `json:"description"`
+	// The position's quantity, invoiced plus cleared less received, in the item's unit: negative where
+	// more was received than invoiced.
+	Quantity Quantity `json:"quantity"`
+	// The position's balance in the order's currency, signed as the GR/IR balances show it.
+	Amount Money `json:"amount"`
+}
+
+// GetPoItemNo returns the value of PoItemNo.
+func (s *GrIrClearingItem) GetPoItemNo() int32 {
+	return s.PoItemNo
+}
+
+// GetDescription returns the value of Description.
+func (s *GrIrClearingItem) GetDescription() string {
+	return s.Description
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *GrIrClearingItem) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetAmount returns the value of Amount.
+func (s *GrIrClearingItem) GetAmount() Money {
+	return s.Amount
+}
+
+// SetPoItemNo sets the value of PoItemNo.
+func (s *GrIrClearingItem) SetPoItemNo(val int32) {
+	s.PoItemNo = val
+}
+
+// SetDescription sets the value of Description.
+func (s *GrIrClearingItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *GrIrClearingItem) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *GrIrClearingItem) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// One page of GR/IR clearings.
+// Ref: #/components/schemas/GrIrClearingPage
+type GrIrClearingPage struct {
+	// The GR/IR clearings on this page.
+	Items []GrIrClearing `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *GrIrClearingPage) GetItems() []GrIrClearing {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *GrIrClearingPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *GrIrClearingPage) SetItems(val []GrIrClearing) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *GrIrClearingPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*GrIrClearingPage) listGrIrClearingsRes() {}
 
 type GrantRolePermissionBadRequest Problem
 
@@ -20154,6 +20709,18 @@ func (*ListGrIrBalancesBadRequest) listGrIrBalancesRes() {}
 type ListGrIrBalancesForbidden Problem
 
 func (*ListGrIrBalancesForbidden) listGrIrBalancesRes() {}
+
+type ListGrIrClearingsBadRequest Problem
+
+func (*ListGrIrClearingsBadRequest) listGrIrClearingsRes() {}
+
+type ListGrIrClearingsForbidden Problem
+
+func (*ListGrIrClearingsForbidden) listGrIrClearingsRes() {}
+
+type ListGrIrClearingsNotFound Problem
+
+func (*ListGrIrClearingsNotFound) listGrIrClearingsRes() {}
 
 type ListHierarchiesBadRequest Problem
 
@@ -24578,6 +25145,52 @@ func (o OptGoodsReceiptReverse) Get() (v GoodsReceiptReverse, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptGoodsReceiptReverse) Or(d GoodsReceiptReverse) GoodsReceiptReverse {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptGrIrClearingEntry returns new OptGrIrClearingEntry with value set to v.
+func NewOptGrIrClearingEntry(v GrIrClearingEntry) OptGrIrClearingEntry {
+	return OptGrIrClearingEntry{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptGrIrClearingEntry is optional GrIrClearingEntry.
+type OptGrIrClearingEntry struct {
+	Value GrIrClearingEntry
+	Set   bool
+}
+
+// IsSet returns true if OptGrIrClearingEntry was set.
+func (o OptGrIrClearingEntry) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptGrIrClearingEntry) Reset() {
+	var v GrIrClearingEntry
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptGrIrClearingEntry) SetTo(v GrIrClearingEntry) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptGrIrClearingEntry) Get() (v GrIrClearingEntry, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptGrIrClearingEntry) Or(d GrIrClearingEntry) GrIrClearingEntry {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -36485,6 +37098,7 @@ func (*ServiceUnavailableHeaders) createContractRes()                   {}
 func (*ServiceUnavailableHeaders) createCostCenterRes()                 {}
 func (*ServiceUnavailableHeaders) createDownPaymentRequestRes()         {}
 func (*ServiceUnavailableHeaders) createExchangeRateRes()               {}
+func (*ServiceUnavailableHeaders) createGrIrClearingRes()               {}
 func (*ServiceUnavailableHeaders) createHierarchyRes()                  {}
 func (*ServiceUnavailableHeaders) createLegalEntityRes()                {}
 func (*ServiceUnavailableHeaders) createMemoRecordRes()                 {}
@@ -39022,6 +39636,7 @@ func (*TooManyRequestsHeaders) createContractRes()                   {}
 func (*TooManyRequestsHeaders) createCostCenterRes()                 {}
 func (*TooManyRequestsHeaders) createDownPaymentRequestRes()         {}
 func (*TooManyRequestsHeaders) createExchangeRateRes()               {}
+func (*TooManyRequestsHeaders) createGrIrClearingRes()               {}
 func (*TooManyRequestsHeaders) createHierarchyRes()                  {}
 func (*TooManyRequestsHeaders) createLegalEntityRes()                {}
 func (*TooManyRequestsHeaders) createMemoRecordRes()                 {}
@@ -39082,6 +39697,7 @@ func (*TooManyRequestsHeaders) getDownPaymentRequestRes()            {}
 func (*TooManyRequestsHeaders) getExchangeRateRes()                  {}
 func (*TooManyRequestsHeaders) getFiscalPeriodRes()                  {}
 func (*TooManyRequestsHeaders) getGoodsReceiptRes()                  {}
+func (*TooManyRequestsHeaders) getGrIrClearingRes()                  {}
 func (*TooManyRequestsHeaders) getHierarchyNodeRes()                 {}
 func (*TooManyRequestsHeaders) getHierarchyRes()                     {}
 func (*TooManyRequestsHeaders) getJournalEntryRes()                  {}
@@ -39146,6 +39762,7 @@ func (*TooManyRequestsHeaders) listExchangeRatesRes()                {}
 func (*TooManyRequestsHeaders) listFiscalPeriodsRes()                {}
 func (*TooManyRequestsHeaders) listGoodsReceiptsRes()                {}
 func (*TooManyRequestsHeaders) listGrIrBalancesRes()                 {}
+func (*TooManyRequestsHeaders) listGrIrClearingsRes()                {}
 func (*TooManyRequestsHeaders) listHierarchiesRes()                  {}
 func (*TooManyRequestsHeaders) listHouseBanksRes()                   {}
 func (*TooManyRequestsHeaders) listJournalEntriesRes()               {}
@@ -39364,6 +39981,7 @@ func (*UnauthorizedHeaders) createContractRes()                   {}
 func (*UnauthorizedHeaders) createCostCenterRes()                 {}
 func (*UnauthorizedHeaders) createDownPaymentRequestRes()         {}
 func (*UnauthorizedHeaders) createExchangeRateRes()               {}
+func (*UnauthorizedHeaders) createGrIrClearingRes()               {}
 func (*UnauthorizedHeaders) createHierarchyRes()                  {}
 func (*UnauthorizedHeaders) createLegalEntityRes()                {}
 func (*UnauthorizedHeaders) createMemoRecordRes()                 {}
@@ -39424,6 +40042,7 @@ func (*UnauthorizedHeaders) getDownPaymentRequestRes()            {}
 func (*UnauthorizedHeaders) getExchangeRateRes()                  {}
 func (*UnauthorizedHeaders) getFiscalPeriodRes()                  {}
 func (*UnauthorizedHeaders) getGoodsReceiptRes()                  {}
+func (*UnauthorizedHeaders) getGrIrClearingRes()                  {}
 func (*UnauthorizedHeaders) getHierarchyNodeRes()                 {}
 func (*UnauthorizedHeaders) getHierarchyRes()                     {}
 func (*UnauthorizedHeaders) getJournalEntryRes()                  {}
@@ -39488,6 +40107,7 @@ func (*UnauthorizedHeaders) listExchangeRatesRes()                {}
 func (*UnauthorizedHeaders) listFiscalPeriodsRes()                {}
 func (*UnauthorizedHeaders) listGoodsReceiptsRes()                {}
 func (*UnauthorizedHeaders) listGrIrBalancesRes()                 {}
+func (*UnauthorizedHeaders) listGrIrClearingsRes()                {}
 func (*UnauthorizedHeaders) listHierarchiesRes()                  {}
 func (*UnauthorizedHeaders) listHouseBanksRes()                   {}
 func (*UnauthorizedHeaders) listJournalEntriesRes()               {}

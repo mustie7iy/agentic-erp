@@ -1122,6 +1122,14 @@ Decisions for the product owner (T73b):
   master may `SET ROLE` to a role it created on PostgreSQL 17
   (`createrole_self_grant`); `erp_app` in the cells is created the same
   way.
+  Built in T72h (2026-10-28): erp-web connects as a login of its own,
+  `erp_web_login`, a member of `erp_web` alone, whose password operators
+  set (`erp/global/directory-web-password`) and the erp-global chart's
+  setup hook gives it; the router and the cells have their own likewise
+  and no service holds the master credentials (ADR-0035, amendment of
+  2026-10-28). erp-web still works as `erp_web` (`SET LOCAL ROLE`, its
+  own role now), so the question of the master's `SET ROLE` no longer
+  arises for the directory.
 - **D2:** whether the API's audit trail should record people's client
   addresses (for erp-web's users, the router would have to trust erp-web
   to forward them, which it cannot authenticate today). Decided

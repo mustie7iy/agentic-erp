@@ -137,12 +137,13 @@ type Invoker interface {
 	// is posted, a bank statement line is posted). A manual entry is checked again as it is posted: when
 	// that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
 	// fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
-	// statement line's posting (`bank_clearing`), and whoever matched the line by hand cannot approve its
-	// posting (403 `workflow.segregation_of_duties`). A payment run's release (`payment_run_release`) is
-	// approved by a holder of the release role who did not propose the run (403
-	// `workflow.segregation_of_duties`); the approval does not release it. A change request whose latest
-	// regression evidence replayed no case (a suite captured with `allow_empty`) is approved only with a
-	// comment acknowledging that (422 `workflow.acknowledgement_required`).
+	// statement line's posting (`bank_clearing`) and a GR/IR clearing's (`gr_ir_clearing`, 409
+	// `ledger.gr_ir_clearing_outdated` when a position moved since it was proposed), and whoever matched
+	// the line by hand cannot approve its posting (403 `workflow.segregation_of_duties`). A payment run's
+	// release (`payment_run_release`) is approved by a holder of the release role who did not propose the
+	// run (403 `workflow.segregation_of_duties`); the approval does not release it. A change request whose
+	// latest regression evidence replayed no case (a suite captured with `allow_empty`) is approved only
+	// with a comment acknowledging that (422 `workflow.acknowledgement_required`).
 	//
 	// POST /v1/approval-requests/{id}:approve
 	ApproveApprovalRequest(ctx context.Context, request OptDecisionInput, params ApproveApprovalRequestParams) (ApproveApprovalRequestRes, error)
@@ -385,6 +386,29 @@ type Invoker interface {
 	//
 	// POST /v1/exchange-rates
 	CreateExchangeRate(ctx context.Context, request *ExchangeRateCreate, params CreateExchangeRateParams) (CreateExchangeRateRes, error)
+	// CreateGrIrClearing invokes createGrIrClearing operation.
+	//
+	// Proposes clearing the GR/IR positions a closed order is left with (SAP MR11, GR/IR clearing account
+	// maintenance): received and invoiced quantities that will not agree, since a closed order takes no
+	// further receipts or invoices (`GET /v1/gr-ir-balances?purchase_order_id=`). The clearing takes each
+	// open position of the order's items, or of the items named, as it stands now: its quantity and its
+	// balance, cleared against the legal entity's `price_difference` account (with the item's cost center
+	// when that is a primary cost account). It opens a `gr_ir_clearing` approval request (its `object_id`
+	// is the clearing, `GET /v1/gr-ir-clearings/{id}`), which a controller holding
+	// `procurement.gr_ir.clear.approve` decides, never its requester and never an agent. Approved, the
+	// clearing posts a WE entry dated `posting_date`: the GR/IR line of each item clears its position,
+	// which the GR/IR balances then show as cleared (`cleared_quantity`), and event `GrIrCleared` is
+	// published. The posting is checked again when it is approved: a position that moved since, or a price
+	// difference account that changed, refuses the approval (409 `ledger.gr_ir_clearing_outdated`) and the
+	// request stays pending, to be rejected or withdrawn and proposed again; so does a period not open on
+	// `posting_date` (409 `ledger.period_not_open`). Requires status `closed` (409
+	// `procurement.invalid_status`) on an order valued through GR/IR with an open position (409
+	// `procurement.nothing_to_clear`); an item named without an open position is refused (422
+	// `procurement.invalid_item_no`). One pending clearing per order (409
+	// `procurement.gr_ir_clearing_pending`). Human-only.
+	//
+	// POST /v1/purchase-orders/{id}/gr-ir-clearings
+	CreateGrIrClearing(ctx context.Context, request *GrIrClearingCreate, params CreateGrIrClearingParams) (CreateGrIrClearingRes, error)
 	// CreateHierarchy invokes createHierarchy operation.
 	//
 	// Creates an empty hierarchy of cost or profit centers with its root node, which takes the hierarchy's
@@ -896,6 +920,13 @@ type Invoker interface {
 	//
 	// GET /v1/goods-receipts/{id}
 	GetGoodsReceipt(ctx context.Context, params GetGoodsReceiptParams) (GetGoodsReceiptRes, error)
+	// GetGrIrClearing invokes getGrIrClearing operation.
+	//
+	// Returns one GR/IR clearing, the object of a `gr_ir_clearing` approval request (its `object_id`):
+	// what it clears, against which account, and once posted its journal entry.
+	//
+	// GET /v1/gr-ir-clearings/{id}
+	GetGrIrClearing(ctx context.Context, params GetGrIrClearingParams) (GetGrIrClearingRes, error)
 	// GetHierarchy invokes getHierarchy operation.
 	//
 	// Returns the hierarchy with its whole tree: its nodes in tree order (each after its parent, siblings
@@ -1338,15 +1369,23 @@ type Invoker interface {
 	ListGoodsReceipts(ctx context.Context, params ListGoodsReceiptsParams) (ListGoodsReceiptsRes, error)
 	// ListGrIrBalances invokes listGrIrBalances operation.
 	//
-	// The GR/IR position of each purchase order item of a legal entity in the leading ledger: its received
-	// and invoiced quantities and its balance on the GR/IR account (negative: received, not yet invoiced;
-	// positive: invoiced, not yet received). A position is zero in every currency once its received and
-	// invoiced quantities agree. Only orders valued through GR/IR have positions. With `posting_date_to`
-	// the call reports one order's positions on that key date. Sortable by: `purchase_order_id`,
-	// `last_posting_date`.
+	// The GR/IR position of each purchase order item of a legal entity in the leading ledger: its
+	// received, invoiced and cleared quantities and its balance on the GR/IR account (negative: received,
+	// not yet invoiced; positive: invoiced, not yet received). A position is zero in every currency once
+	// its received quantity equals its invoiced plus its cleared quantity; a closed order's residual
+	// position is cleared by a GR/IR clearing (createGrIrClearing). Only orders valued through GR/IR have
+	// positions. With `posting_date_to` the call reports one order's positions on that key date. Sortable
+	// by: `purchase_order_id`, `last_posting_date`.
 	//
 	// GET /v1/gr-ir-balances
 	ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (ListGrIrBalancesRes, error)
+	// ListGrIrClearings invokes listGrIrClearings operation.
+	//
+	// The GR/IR clearings of a purchase order, newest first, with their status: pending approval, posted,
+	// rejected or cancelled. Sortable by: `created_at`.
+	//
+	// GET /v1/purchase-orders/{id}/gr-ir-clearings
+	ListGrIrClearings(ctx context.Context, params ListGrIrClearingsParams) (ListGrIrClearingsRes, error)
 	// ListHierarchies invokes listHierarchies operation.
 	//
 	// Standard and alternative hierarchies of cost and profit centers (ADR-0050 §3), without their trees.
@@ -4034,12 +4073,13 @@ func (c *Client) sendApplyPlanBatch(ctx context.Context, request *PlanBatchCreat
 // is posted, a bank statement line is posted). A manual entry is checked again as it is posted: when
 // that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
 // fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
-// statement line's posting (`bank_clearing`), and whoever matched the line by hand cannot approve its
-// posting (403 `workflow.segregation_of_duties`). A payment run's release (`payment_run_release`) is
-// approved by a holder of the release role who did not propose the run (403
-// `workflow.segregation_of_duties`); the approval does not release it. A change request whose latest
-// regression evidence replayed no case (a suite captured with `allow_empty`) is approved only with a
-// comment acknowledging that (422 `workflow.acknowledgement_required`).
+// statement line's posting (`bank_clearing`) and a GR/IR clearing's (`gr_ir_clearing`, 409
+// `ledger.gr_ir_clearing_outdated` when a position moved since it was proposed), and whoever matched
+// the line by hand cannot approve its posting (403 `workflow.segregation_of_duties`). A payment run's
+// release (`payment_run_release`) is approved by a holder of the release role who did not propose the
+// run (403 `workflow.segregation_of_duties`); the approval does not release it. A change request whose
+// latest regression evidence replayed no case (a suite captured with `allow_empty`) is approved only
+// with a comment acknowledging that (422 `workflow.acknowledgement_required`).
 //
 // POST /v1/approval-requests/{id}:approve
 func (c *Client) ApproveApprovalRequest(ctx context.Context, request OptDecisionInput, params ApproveApprovalRequestParams) (ApproveApprovalRequestRes, error) {
@@ -8593,6 +8633,172 @@ func (c *Client) sendCreateExchangeRate(ctx context.Context, request *ExchangeRa
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateExchangeRateResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateGrIrClearing invokes createGrIrClearing operation.
+//
+// Proposes clearing the GR/IR positions a closed order is left with (SAP MR11, GR/IR clearing account
+// maintenance): received and invoiced quantities that will not agree, since a closed order takes no
+// further receipts or invoices (`GET /v1/gr-ir-balances?purchase_order_id=`). The clearing takes each
+// open position of the order's items, or of the items named, as it stands now: its quantity and its
+// balance, cleared against the legal entity's `price_difference` account (with the item's cost center
+// when that is a primary cost account). It opens a `gr_ir_clearing` approval request (its `object_id`
+// is the clearing, `GET /v1/gr-ir-clearings/{id}`), which a controller holding
+// `procurement.gr_ir.clear.approve` decides, never its requester and never an agent. Approved, the
+// clearing posts a WE entry dated `posting_date`: the GR/IR line of each item clears its position,
+// which the GR/IR balances then show as cleared (`cleared_quantity`), and event `GrIrCleared` is
+// published. The posting is checked again when it is approved: a position that moved since, or a price
+// difference account that changed, refuses the approval (409 `ledger.gr_ir_clearing_outdated`) and the
+// request stays pending, to be rejected or withdrawn and proposed again; so does a period not open on
+// `posting_date` (409 `ledger.period_not_open`). Requires status `closed` (409
+// `procurement.invalid_status`) on an order valued through GR/IR with an open position (409
+// `procurement.nothing_to_clear`); an item named without an open position is refused (422
+// `procurement.invalid_item_no`). One pending clearing per order (409
+// `procurement.gr_ir_clearing_pending`). Human-only.
+//
+// POST /v1/purchase-orders/{id}/gr-ir-clearings
+func (c *Client) CreateGrIrClearing(ctx context.Context, request *GrIrClearingCreate, params CreateGrIrClearingParams) (CreateGrIrClearingRes, error) {
+	res, err := c.sendCreateGrIrClearing(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateGrIrClearing(ctx context.Context, request *GrIrClearingCreate, params CreateGrIrClearingParams) (res CreateGrIrClearingRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createGrIrClearing"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/purchase-orders/{id}/gr-ir-clearings"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateGrIrClearingOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/purchase-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/gr-ir-clearings"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateGrIrClearingRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateGrIrClearingOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateGrIrClearingResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -17070,6 +17276,138 @@ func (c *Client) sendGetGoodsReceipt(ctx context.Context, params GetGoodsReceipt
 
 	stage = "DecodeResponse"
 	result, err := decodeGetGoodsReceiptResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetGrIrClearing invokes getGrIrClearing operation.
+//
+// Returns one GR/IR clearing, the object of a `gr_ir_clearing` approval request (its `object_id`):
+// what it clears, against which account, and once posted its journal entry.
+//
+// GET /v1/gr-ir-clearings/{id}
+func (c *Client) GetGrIrClearing(ctx context.Context, params GetGrIrClearingParams) (GetGrIrClearingRes, error) {
+	res, err := c.sendGetGrIrClearing(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetGrIrClearing(ctx context.Context, params GetGrIrClearingParams) (res GetGrIrClearingRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getGrIrClearing"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/gr-ir-clearings/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetGrIrClearingOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/gr-ir-clearings/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetGrIrClearingOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetGrIrClearingResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -28327,12 +28665,13 @@ func (c *Client) sendListGoodsReceipts(ctx context.Context, params ListGoodsRece
 
 // ListGrIrBalances invokes listGrIrBalances operation.
 //
-// The GR/IR position of each purchase order item of a legal entity in the leading ledger: its received
-// and invoiced quantities and its balance on the GR/IR account (negative: received, not yet invoiced;
-// positive: invoiced, not yet received). A position is zero in every currency once its received and
-// invoiced quantities agree. Only orders valued through GR/IR have positions. With `posting_date_to`
-// the call reports one order's positions on that key date. Sortable by: `purchase_order_id`,
-// `last_posting_date`.
+// The GR/IR position of each purchase order item of a legal entity in the leading ledger: its
+// received, invoiced and cleared quantities and its balance on the GR/IR account (negative: received,
+// not yet invoiced; positive: invoiced, not yet received). A position is zero in every currency once
+// its received quantity equals its invoiced plus its cleared quantity; a closed order's residual
+// position is cleared by a GR/IR clearing (createGrIrClearing). Only orders valued through GR/IR have
+// positions. With `posting_date_to` the call reports one order's positions on that key date. Sortable
+// by: `purchase_order_id`, `last_posting_date`.
 //
 // GET /v1/gr-ir-balances
 func (c *Client) ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (ListGrIrBalancesRes, error) {
@@ -28573,6 +28912,194 @@ func (c *Client) sendListGrIrBalances(ctx context.Context, params ListGrIrBalanc
 
 	stage = "DecodeResponse"
 	result, err := decodeListGrIrBalancesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListGrIrClearings invokes listGrIrClearings operation.
+//
+// The GR/IR clearings of a purchase order, newest first, with their status: pending approval, posted,
+// rejected or cancelled. Sortable by: `created_at`.
+//
+// GET /v1/purchase-orders/{id}/gr-ir-clearings
+func (c *Client) ListGrIrClearings(ctx context.Context, params ListGrIrClearingsParams) (ListGrIrClearingsRes, error) {
+	res, err := c.sendListGrIrClearings(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListGrIrClearings(ctx context.Context, params ListGrIrClearingsParams) (res ListGrIrClearingsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listGrIrClearings"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/purchase-orders/{id}/gr-ir-clearings"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListGrIrClearingsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/purchase-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/gr-ir-clearings"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListGrIrClearingsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListGrIrClearingsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

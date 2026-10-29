@@ -28,6 +28,20 @@ type Centers struct {
 	Doc *config.Config
 }
 
+// Controller creates the controller role (approvals.DefaultCenterChangeRole,
+// the fixed role of center changes, period unlocks and GR/IR clearings)
+// if the tenant has none and gives it to Approver.
+func (e Env) Controller(tb testing.TB) {
+	tb.Helper()
+	pgtest.Exec(tb, `INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by)
+		SELECT $1, gen_random_uuid(), $2, $2, 'active', $3, $3 WHERE NOT EXISTS (SELECT FROM identity.role WHERE tenant_id = $1 AND code = $2)`,
+		e.Tenant.ID, approvals.DefaultCenterChangeRole, e.Tenant.Human.ID)
+	pgtest.Exec(tb, `INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by)
+		SELECT $1, gen_random_uuid(), $2, r.id, current_date - 1, $2 FROM identity.role r WHERE r.tenant_id = $1 AND r.code = $3
+			AND NOT EXISTS (SELECT FROM identity.principal_role p WHERE p.tenant_id = $1 AND p.principal_id = $2 AND p.role_id = r.id)`,
+		e.Tenant.ID, e.Approver.ID, approvals.DefaultCenterChangeRole)
+}
+
 // CostCenters gives company 2000 the centers, approved by the controller
 // (approvals.DefaultCenterChangeRole, which Approver is given), and turns
 // its cost center accounting on from 2026 with Admin the default of
@@ -42,13 +56,7 @@ func (e Env) CostCenters(tb testing.TB, extend func(*config.Config)) Centers {
 			SELECT tenant_id, gen_random_uuid(), id, $2, current_date - 1, $3 FROM identity.role WHERE tenant_id = $1 AND code = 'all'`,
 			e.Tenant.ID, p, e.Tenant.Human.ID)
 	}
-	pgtest.Exec(tb, `INSERT INTO identity.role (tenant_id, id, code, name, status, created_by, updated_by)
-		SELECT $1, gen_random_uuid(), $2, $2, 'active', $3, $3 WHERE NOT EXISTS (SELECT FROM identity.role WHERE tenant_id = $1 AND code = $2)`,
-		e.Tenant.ID, approvals.DefaultCenterChangeRole, e.Tenant.Human.ID)
-	pgtest.Exec(tb, `INSERT INTO identity.principal_role (tenant_id, id, principal_id, role_id, valid_from, created_by)
-		SELECT $1, gen_random_uuid(), $2, r.id, current_date - 1, $2 FROM identity.role r WHERE r.tenant_id = $1 AND r.code = $3
-			AND NOT EXISTS (SELECT FROM identity.principal_role p WHERE p.tenant_id = $1 AND p.principal_id = $2 AND p.role_id = r.id)`,
-		e.Tenant.ID, e.Approver.ID, approvals.DefaultCenterChangeRole)
+	e.Controller(tb)
 	doc := Document(tb)
 	if extend != nil {
 		extend(doc)

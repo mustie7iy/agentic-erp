@@ -186,6 +186,40 @@ func (Suppliers) Supplier(ctx context.Context, partnerID, legalEntity uuid.UUID)
 	return s, true, nil
 }
 
+// PaymentAccount is a partner's payments bank account as a migration's
+// reconciliation compares it with the source system's: the scheme, the
+// bank and the account's last four characters, never the account.
+type PaymentAccount struct {
+	Scheme, BankCountryCode string
+	// InstitutionNumber and TransitNumber are a Canadian account's bank
+	// (scheme ca, T45d); "" for the other schemes.
+	InstitutionNumber, TransitNumber string
+	Last4                            string
+}
+
+// PaymentAccounts returns the payments bank account valid today of each
+// partner that has one, keyed by partner id (T72d).
+func (Suppliers) PaymentAccounts(ctx context.Context, partners []uuid.UUID) (map[uuid.UUID]PaymentAccount, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT partner_id, account_scheme, bank_country_code, coalesce(institution_number, ''), coalesce(transit_number, ''), account_last4
+		FROM partner.bank_account WHERE partner_id = ANY($1) AND purpose = 'payments'
+			AND valid_from <= current_date AND (valid_to IS NULL OR valid_to > current_date)`, partners)
+	out := map[uuid.UUID]PaymentAccount{}
+	var id uuid.UUID
+	var a PaymentAccount
+	_, err = pgx.ForEachRow(rows, []any{&id, &a.Scheme, &a.BankCountryCode, &a.InstitutionNumber, &a.TransitNumber, &a.Last4}, func() error {
+		out[id] = a
+		return nil
+	})
+	if err != nil {
+		return out, fmt.Errorf("partner: read the payments bank accounts of %d partners: %w", len(partners), err)
+	}
+	return out, nil
+}
+
 // PaymentTerm is a payment term as payables posts with it: its net days
 // and up to two cash discount tiers, earliest first (T36a).
 type PaymentTerm struct {

@@ -301,3 +301,38 @@ func TestGRIRRowsDisagree(t *testing.T) {
 		t.Errorf("got a note on PRD rows that agree:\n%s", all)
 	}
 }
+
+// TestCanadianHouseBank: company 3000's house bank has no IBAN; its
+// account is taken by the routing in its bank key and its account number
+// (T72d), and a bank key in another form is noted and left for a reviewer,
+// whom validation then stops.
+func TestCanadianHouseBank(t *testing.T) {
+	c, _ := Generate(sap.GenerateMock(42, "2026"), DefaultOptions())
+	want := config.HouseBank{Name: "MAIN", BIC: "ROYCCAT2", InstitutionNumber: "003", TransitNumber: "00001", AccountNumber: "5012345"}
+	if got := c.Company("3000").HouseBank; got != want {
+		t.Errorf("house bank of 3000: got %+v, want %+v", got, want)
+	}
+	if fs := config.Validate(c, currency.Seeded()); config.HasErrors(fs) {
+		t.Fatalf("draft with a Canadian house bank does not validate: %v", fs)
+	}
+	for name, bankKey := range map[string]string{"transit first": "00001-003", "without its zero": "00300001", "empty": ""} {
+		t.Run(name, func(t *testing.T) {
+			e := sap.GenerateMock(42, "2026")
+			for i := range e.T012K {
+				if e.T012K[i].BUKRS == "3000" {
+					e.T012K[i].BANKL = bankKey
+				}
+			}
+			c, notes := Generate(e, DefaultOptions())
+			if want := "companies[3000].house_banks[MAIN]: bank key"; !strings.Contains(notesText(notes), want) {
+				t.Errorf("got notes without %q:\n%s", want, notesText(notes))
+			}
+			if hb := c.Company("3000").HouseBank; hb.InstitutionNumber != "" || hb.TransitNumber != "" {
+				t.Errorf("routing of a bank key %q: got %s/%s, want none", bankKey, hb.InstitutionNumber, hb.TransitNumber)
+			}
+			if fs := config.Validate(c, currency.Seeded()); !config.HasErrors(fs) {
+				t.Errorf("draft without the routing: got no errors, want validation to refuse it")
+			}
+		})
+	}
+}

@@ -11,6 +11,12 @@
       "BUTXT": "Acme GmbH",
       "WAERS": "EUR",
       "LAND1": "DE"
+    },
+    {
+      "BUKRS": "3000",
+      "BUTXT": "Maple Industries Canada",
+      "WAERS": "CAD",
+      "LAND1": "CA"
     }
   ],
   "SKB1": [
@@ -149,6 +155,76 @@
     },
     {
       "BUKRS": "2000",
+      "SAKNR": "0000610000",
+      "TXT50": "Salaries and Wages",
+      "XBILK": "",
+      "MITKZ": ""
+    },
+    {
+      "BUKRS": "3000",
+      "SAKNR": "0000100000",
+      "TXT50": "Bank - Operating",
+      "XBILK": "X",
+      "MITKZ": ""
+    },
+    {
+      "BUKRS": "3000",
+      "SAKNR": "0000140000",
+      "TXT50": "Input Tax",
+      "XBILK": "X",
+      "MITKZ": ""
+    },
+    {
+      "BUKRS": "3000",
+      "SAKNR": "0000211000",
+      "TXT50": "Accounts Payable - Domestic",
+      "XBILK": "X",
+      "MITKZ": "K"
+    },
+    {
+      "BUKRS": "3000",
+      "SAKNR": "0000300000",
+      "TXT50": "Share Capital",
+      "XBILK": "X",
+      "MITKZ": ""
+    },
+    {
+      "BUKRS": "3000",
+      "SAKNR": "0000400000",
+      "TXT50": "Sales Revenue",
+      "XBILK": "",
+      "MITKZ": ""
+    },
+    {
+      "BUKRS": "3000",
+      "SAKNR": "0000510000",
+      "TXT50": "Raw Materials Consumed",
+      "XBILK": "",
+      "MITKZ": ""
+    },
+    {
+      "BUKRS": "3000",
+      "SAKNR": "0000520000",
+      "TXT50": "Office Supplies",
+      "XBILK": "",
+      "MITKZ": ""
+    },
+    {
+      "BUKRS": "3000",
+      "SAKNR": "0000530000",
+      "TXT50": "IT Services",
+      "XBILK": "",
+      "MITKZ": ""
+    },
+    {
+      "BUKRS": "3000",
+      "SAKNR": "0000540000",
+      "TXT50": "Freight Inbound",
+      "XBILK": "",
+      "MITKZ": ""
+    },
+    {
+      "BUKRS": "3000",
       "SAKNR": "0000610000",
       "TXT50": "Salaries and Wages",
       "XBILK": "",
@@ -323,6 +399,48 @@
       "LAND1": "DE",
       "STCD1": "DE102408767",
       "SPERR": ""
+    },
+    {
+      "LIFNR": "0000300001",
+      "NAME1": "Laurentian Paper",
+      "LAND1": "CA",
+      "STCD1": "800000000",
+      "SPERR": ""
+    },
+    {
+      "LIFNR": "0000300002",
+      "NAME1": "Prairie Freight",
+      "LAND1": "CA",
+      "STCD1": "800007919",
+      "SPERR": ""
+    },
+    {
+      "LIFNR": "0000300003",
+      "NAME1": "Rideau IT Services",
+      "LAND1": "CA",
+      "STCD1": "800015838",
+      "SPERR": ""
+    },
+    {
+      "LIFNR": "0000300004",
+      "NAME1": "Fundy Chemicals",
+      "LAND1": "CA",
+      "STCD1": "800023757",
+      "SPERR": ""
+    },
+    {
+      "LIFNR": "0000300005",
+      "NAME1": "Muskoka Office Supply",
+      "LAND1": "CA",
+      "STCD1": "800031676",
+      "SPERR": ""
+    },
+    {
+      "LIFNR": "0000300006",
+      "NAME1": "Cabot Components",
+      "LAND1": "CA",
+      "STCD1": "800039595",
+      "SPERR": ""
     }
   ],
   "LFB1": [
@@ -493,6 +611,54 @@
       "BUKRS": "2000",
       "AKONT": "0000211000",
       "ZTERM": "NT30"
+    },
+    {
+      "LIFNR": "0000300001",
+      "BUKRS": "3000",
+      "AKONT": "0000211000",
+      "ZTERM": "NT30"
+    },
+    {
+      "LIFNR": "0000300002",
+      "BUKRS": "3000",
+      "AKONT": "0000211000",
+      "ZTERM": "NT45"
+    },
+    {
+      "LIFNR": "0000300003",
+      "BUKRS": "3000",
+      "AKONT": "0000211000",
+      "ZTERM": "NT14"
+    },
+    {
+      "LIFNR": "0000300004",
+      "BUKRS": "3000",
+      "AKONT": "0000211000",
+      "ZTERM": "NT60"
+    },
+    {
+      "LIFNR": "0000300005",
+      "BUKRS": "3000",
+      "AKONT": "0000211000",
+      "ZTERM": "NT30"
+    },
+    {
+      "LIFNR": "0000300006",
+      "BUKRS": "3000",
+      "AKONT": "0000211000",
+      "ZTERM": "NT45"
+    },
+    {
+      "LIFNR": "0000100011",
+      "BUKRS": "3000",
+      "AKONT": "0000211000",
+      "ZTERM": "NT30"
+    },
+    {
+      "LIFNR": "0000100012",
+      "BUKRS": "3000",
+      "AKONT": "0000211000",
+      "ZTERM": "NT30"
     }
   ],
   "LFBK": [
@@ -615,6 +781,42 @@
       "LIFNR": "0000100024",
       "BANKS": "DE",
       "BANKN": "400000178871"
+    },
+    {
+      "LIFNR": "0000300001",
+      "BANKS": "CA",
+      "BANKN": "5007777",
+      "BANKL": "000100010"
+    },
+    {
+      "LIFNR": "0000300002",
+      "BANKS": "CA",
+      "BANKN": "5015554",
+      "BANKL": "000200121"
+    },
+    {
+      "LIFNR": "0000300003",
+      "BANKS": "CA",
+      "BANKN": "5023331",
+      "BANKL": "000300232"
+    },
+    {
+      "LIFNR": "0000300004",
+      "BANKS": "CA",
+      "BANKN": "5031108",
+      "BANKL": "000400343"
+    },
+    {
+      "LIFNR": "0000300005",
+      "BANKS": "CA",
+      "BANKN": "5038885",
+      "BANKL": "000600454"
+    },
+    {
+      "LIFNR": "0000300006",
+      "BANKS": "CA",
+      "BANKN": "5046662",
+      "BANKL": "001000565"
     }
   ],
   "EKKO": [
@@ -896,6 +1098,146 @@
       "BUKRS": "2000",
       "LIFNR": "0000100019",
       "WAERS": "EUR",
+      "BEDAT": "20260203"
+    },
+    {
+      "EBELN": "4526000041",
+      "BUKRS": "3000",
+      "LIFNR": "0000300001",
+      "WAERS": "CAD",
+      "BEDAT": "20260103"
+    },
+    {
+      "EBELN": "4526000042",
+      "BUKRS": "3000",
+      "LIFNR": "0000300006",
+      "WAERS": "CAD",
+      "BEDAT": "20260203"
+    },
+    {
+      "EBELN": "4526000043",
+      "BUKRS": "3000",
+      "LIFNR": "0000100011",
+      "WAERS": "CAD",
+      "BEDAT": "20260303"
+    },
+    {
+      "EBELN": "4526000044",
+      "BUKRS": "3000",
+      "LIFNR": "0000100012",
+      "WAERS": "CAD",
+      "BEDAT": "20260403"
+    },
+    {
+      "EBELN": "4526000045",
+      "BUKRS": "3000",
+      "LIFNR": "0000300004",
+      "WAERS": "CAD",
+      "BEDAT": "20260503"
+    },
+    {
+      "EBELN": "4526000046",
+      "BUKRS": "3000",
+      "LIFNR": "0000300002",
+      "WAERS": "CAD",
+      "BEDAT": "20260603"
+    },
+    {
+      "EBELN": "4526000047",
+      "BUKRS": "3000",
+      "LIFNR": "0000300005",
+      "WAERS": "CAD",
+      "BEDAT": "20260103"
+    },
+    {
+      "EBELN": "4526000048",
+      "BUKRS": "3000",
+      "LIFNR": "0000300001",
+      "WAERS": "CAD",
+      "BEDAT": "20260203"
+    },
+    {
+      "EBELN": "4526000049",
+      "BUKRS": "3000",
+      "LIFNR": "0000300004",
+      "WAERS": "CAD",
+      "BEDAT": "20260303"
+    },
+    {
+      "EBELN": "4526000050",
+      "BUKRS": "3000",
+      "LIFNR": "0000300006",
+      "WAERS": "CAD",
+      "BEDAT": "20260403"
+    },
+    {
+      "EBELN": "4526000051",
+      "BUKRS": "3000",
+      "LIFNR": "0000300004",
+      "WAERS": "CAD",
+      "BEDAT": "20260503"
+    },
+    {
+      "EBELN": "4526000052",
+      "BUKRS": "3000",
+      "LIFNR": "0000300005",
+      "WAERS": "CAD",
+      "BEDAT": "20260603"
+    },
+    {
+      "EBELN": "4526000053",
+      "BUKRS": "3000",
+      "LIFNR": "0000300002",
+      "WAERS": "CAD",
+      "BEDAT": "20260103"
+    },
+    {
+      "EBELN": "4526000054",
+      "BUKRS": "3000",
+      "LIFNR": "0000300001",
+      "WAERS": "CAD",
+      "BEDAT": "20260203"
+    },
+    {
+      "EBELN": "4526000055",
+      "BUKRS": "3000",
+      "LIFNR": "0000300005",
+      "WAERS": "CAD",
+      "BEDAT": "20260303"
+    },
+    {
+      "EBELN": "4526000056",
+      "BUKRS": "3000",
+      "LIFNR": "0000300005",
+      "WAERS": "CAD",
+      "BEDAT": "20260403"
+    },
+    {
+      "EBELN": "4526000057",
+      "BUKRS": "3000",
+      "LIFNR": "0000300001",
+      "WAERS": "CAD",
+      "BEDAT": "20260503"
+    },
+    {
+      "EBELN": "4526000058",
+      "BUKRS": "3000",
+      "LIFNR": "0000300006",
+      "WAERS": "CAD",
+      "BEDAT": "20260603"
+    },
+    {
+      "EBELN": "4526000059",
+      "BUKRS": "3000",
+      "LIFNR": "0000300001",
+      "WAERS": "CAD",
+      "BEDAT": "20260103"
+    },
+    {
+      "EBELN": "4526000060",
+      "BUKRS": "3000",
+      "LIFNR": "0000100011",
+      "WAERS": "CAD",
       "BEDAT": "20260203"
     }
   ],
@@ -1749,6 +2091,416 @@
       "NETPR": "1526.67",
       "PEINH": "1",
       "SAKTO": "0000530000"
+    },
+    {
+      "EBELN": "4526000041",
+      "EBELP": "00010",
+      "MATNR": "MAT-7456",
+      "TXZ01": "Item 1 for 4526000041",
+      "MENGE": "7",
+      "NETPR": "1210.44",
+      "PEINH": "1",
+      "SAKTO": "0000540000"
+    },
+    {
+      "EBELN": "4526000041",
+      "EBELP": "00020",
+      "MATNR": "MAT-6235",
+      "TXZ01": "Item 2 for 4526000041",
+      "MENGE": "20",
+      "NETPR": "1806.16",
+      "PEINH": "1",
+      "SAKTO": "0000530000"
+    },
+    {
+      "EBELN": "4526000041",
+      "EBELP": "00030",
+      "MATNR": "MAT-5676",
+      "TXZ01": "Item 3 for 4526000041",
+      "MENGE": "9",
+      "NETPR": "313.84",
+      "PEINH": "1",
+      "SAKTO": "0000520000"
+    },
+    {
+      "EBELN": "4526000042",
+      "EBELP": "00010",
+      "MATNR": "MAT-4100",
+      "TXZ01": "Item 1 for 4526000042",
+      "MENGE": "49",
+      "NETPR": "1711.49",
+      "PEINH": "1",
+      "SAKTO": "0000530000"
+    },
+    {
+      "EBELN": "4526000042",
+      "EBELP": "00020",
+      "MATNR": "MAT-5285",
+      "TXZ01": "Item 2 for 4526000042",
+      "MENGE": "35",
+      "NETPR": "489.56",
+      "PEINH": "1",
+      "SAKTO": "0000510000"
+    },
+    {
+      "EBELN": "4526000042",
+      "EBELP": "00030",
+      "MATNR": "MAT-8963",
+      "TXZ01": "Item 3 for 4526000042",
+      "MENGE": "17",
+      "NETPR": "1218.32",
+      "PEINH": "1",
+      "SAKTO": "0000510000"
+    },
+    {
+      "EBELN": "4526000043",
+      "EBELP": "00010",
+      "MATNR": "MAT-5335",
+      "TXZ01": "Item 1 for 4526000043",
+      "MENGE": "1",
+      "NETPR": "276.14",
+      "PEINH": "1",
+      "SAKTO": "0000510000"
+    },
+    {
+      "EBELN": "4526000043",
+      "EBELP": "00020",
+      "MATNR": "MAT-4711",
+      "TXZ01": "Item 2 for 4526000043",
+      "MENGE": "14",
+      "NETPR": "1184.12",
+      "PEINH": "1",
+      "SAKTO": "0000520000"
+    },
+    {
+      "EBELN": "4526000043",
+      "EBELP": "00030",
+      "MATNR": "MAT-6106",
+      "TXZ01": "Item 3 for 4526000043",
+      "MENGE": "14",
+      "NETPR": "1458.76",
+      "PEINH": "1",
+      "SAKTO": "0000520000"
+    },
+    {
+      "EBELN": "4526000044",
+      "EBELP": "00010",
+      "MATNR": "MAT-1314",
+      "TXZ01": "Item 1 for 4526000044",
+      "MENGE": "49",
+      "NETPR": "35.47",
+      "PEINH": "1",
+      "SAKTO": "0000530000"
+    },
+    {
+      "EBELN": "4526000044",
+      "EBELP": "00020",
+      "MATNR": "MAT-8867",
+      "TXZ01": "Item 2 for 4526000044",
+      "MENGE": "27",
+      "NETPR": "688.10",
+      "PEINH": "1",
+      "SAKTO": "0000510000"
+    },
+    {
+      "EBELN": "4526000044",
+      "EBELP": "00030",
+      "MATNR": "MAT-6342",
+      "TXZ01": "Item 3 for 4526000044",
+      "MENGE": "9",
+      "NETPR": "1891.88",
+      "PEINH": "1",
+      "SAKTO": "0000510000"
+    },
+    {
+      "EBELN": "4526000045",
+      "EBELP": "00010",
+      "MATNR": "MAT-5853",
+      "TXZ01": "Item 1 for 4526000045",
+      "MENGE": "21",
+      "NETPR": "1573.73",
+      "PEINH": "1",
+      "SAKTO": "0000510000"
+    },
+    {
+      "EBELN": "4526000045",
+      "EBELP": "00020",
+      "MATNR": "MAT-6169",
+      "TXZ01": "Item 2 for 4526000045",
+      "MENGE": "16",
+      "NETPR": "569.88",
+      "PEINH": "1",
+      "SAKTO": "0000510000"
+    },
+    {
+      "EBELN": "4526000045",
+      "EBELP": "00030",
+      "MATNR": "MAT-8384",
+      "TXZ01": "Item 3 for 4526000045",
+      "MENGE": "40",
+      "NETPR": "340.77",
+      "PEINH": "1",
+      "SAKTO": "0000520000"
+    },
+    {
+      "EBELN": "4526000046",
+      "EBELP": "00010",
+      "MATNR": "MAT-8888",
+      "TXZ01": "Item 1 for 4526000046",
+      "MENGE": "12.5",
+      "NETPR": "1358.41",
+      "PEINH": "1",
+      "SAKTO": "0000540000"
+    },
+    {
+      "EBELN": "4526000047",
+      "EBELP": "00010",
+      "MATNR": "MAT-9677",
+      "TXZ01": "Item 1 for 4526000047",
+      "MENGE": "24",
+      "NETPR": "1914.69",
+      "PEINH": "1",
+      "SAKTO": "0000510000"
+    },
+    {
+      "EBELN": "4526000047",
+      "EBELP": "00020",
+      "MATNR": "MAT-3452",
+      "TXZ01": "Item 2 for 4526000047",
+      "MENGE": "24",
+      "NETPR": "987.60",
+      "PEINH": "1",
+      "SAKTO": "0000520000"
+    },
+    {
+      "EBELN": "4526000048",
+      "EBELP": "00010",
+      "MATNR": "MAT-2189",
+      "TXZ01": "Item 1 for 4526000048",
+      "MENGE": "2400",
+      "NETPR": "996.16",
+      "PEINH": "100",
+      "SAKTO": "0000540000"
+    },
+    {
+      "EBELN": "4526000048",
+      "EBELP": "00020",
+      "MATNR": "MAT-6487",
+      "TXZ01": "Item 2 for 4526000048",
+      "MENGE": "19",
+      "NETPR": "77.38",
+      "PEINH": "1",
+      "SAKTO": "0000520000"
+    },
+    {
+      "EBELN": "4526000048",
+      "EBELP": "00030",
+      "MATNR": "MAT-6721",
+      "TXZ01": "Item 3 for 4526000048",
+      "MENGE": "28",
+      "NETPR": "677.48",
+      "PEINH": "1",
+      "SAKTO": "0000520000"
+    },
+    {
+      "EBELN": "4526000049",
+      "EBELP": "00010",
+      "MATNR": "MAT-6301",
+      "TXZ01": "Item 1 for 4526000049",
+      "MENGE": "43",
+      "NETPR": "1398.68",
+      "PEINH": "1",
+      "SAKTO": "0000520000"
+    },
+    {
+      "EBELN": "4526000049",
+      "EBELP": "00020",
+      "MATNR": "MAT-9810",
+      "TXZ01": "Item 2 for 4526000049",
+      "MENGE": "16",
+      "NETPR": "848.18",
+      "PEINH": "1",
+      "SAKTO": "0000540000"
+    },
+    {
+      "EBELN": "4526000049",
+      "EBELP": "00030",
+      "MATNR": "MAT-2738",
+      "TXZ01": "Item 3 for 4526000049",
+      "MENGE": "46",
+      "NETPR": "1250.91",
+      "PEINH": "1",
+      "SAKTO": "0000520000"
+    },
+    {
+      "EBELN": "4526000050",
+      "EBELP": "00010",
+      "MATNR": "MAT-9013",
+      "TXZ01": "Item 1 for 4526000050",
+      "MENGE": "8",
+      "NETPR": "152.60",
+      "PEINH": "1",
+      "SAKTO": "0000530000"
+    },
+    {
+      "EBELN": "4526000051",
+      "EBELP": "00010",
+      "MATNR": "MAT-3213",
+      "TXZ01": "Item 1 for 4526000051",
+      "MENGE": "33",
+      "NETPR": "910.11",
+      "PEINH": "1",
+      "SAKTO": "0000540000"
+    },
+    {
+      "EBELN": "4526000051",
+      "EBELP": "00020",
+      "MATNR": "MAT-9865",
+      "TXZ01": "Item 2 for 4526000051",
+      "MENGE": "7",
+      "NETPR": "1466.51",
+      "PEINH": "1",
+      "SAKTO": "0000510000"
+    },
+    {
+      "EBELN": "4526000052",
+      "EBELP": "00010",
+      "MATNR": "MAT-6761",
+      "TXZ01": "Item 1 for 4526000052",
+      "MENGE": "33",
+      "NETPR": "1546.06",
+      "PEINH": "1",
+      "SAKTO": "0000540000"
+    },
+    {
+      "EBELN": "4526000053",
+      "EBELP": "00010",
+      "MATNR": "MAT-2532",
+      "TXZ01": "Item 1 for 4526000053",
+      "MENGE": "27",
+      "NETPR": "1102.04",
+      "PEINH": "1",
+      "SAKTO": "0000530000"
+    },
+    {
+      "EBELN": "4526000053",
+      "EBELP": "00020",
+      "MATNR": "MAT-8772",
+      "TXZ01": "Item 2 for 4526000053",
+      "MENGE": "16",
+      "NETPR": "160.23",
+      "PEINH": "1",
+      "SAKTO": "0000520000"
+    },
+    {
+      "EBELN": "4526000054",
+      "EBELP": "00010",
+      "MATNR": "MAT-9652",
+      "TXZ01": "Item 1 for 4526000054",
+      "MENGE": "40",
+      "NETPR": "1465.61",
+      "PEINH": "1",
+      "SAKTO": "0000520000"
+    },
+    {
+      "EBELN": "4526000055",
+      "EBELP": "00010",
+      "MATNR": "MAT-3979",
+      "TXZ01": "Item 1 for 4526000055",
+      "MENGE": "30",
+      "NETPR": "618.49",
+      "PEINH": "1",
+      "SAKTO": "0000520000"
+    },
+    {
+      "EBELN": "4526000056",
+      "EBELP": "00010",
+      "MATNR": "MAT-9897",
+      "TXZ01": "Item 1 for 4526000056",
+      "MENGE": "20",
+      "NETPR": "845.13",
+      "PEINH": "1",
+      "SAKTO": "0000520000"
+    },
+    {
+      "EBELN": "4526000056",
+      "EBELP": "00020",
+      "MATNR": "MAT-5640",
+      "TXZ01": "Item 2 for 4526000056",
+      "MENGE": "38",
+      "NETPR": "283.44",
+      "PEINH": "1",
+      "SAKTO": "0000510000"
+    },
+    {
+      "EBELN": "4526000057",
+      "EBELP": "00010",
+      "MATNR": "MAT-9444",
+      "TXZ01": "Item 1 for 4526000057",
+      "MENGE": "40",
+      "NETPR": "1588.95",
+      "PEINH": "1",
+      "SAKTO": "0000540000"
+    },
+    {
+      "EBELN": "4526000058",
+      "EBELP": "00010",
+      "MATNR": "MAT-2776",
+      "TXZ01": "Item 1 for 4526000058",
+      "MENGE": "33",
+      "NETPR": "27788.34",
+      "PEINH": "1",
+      "SAKTO": "0000540000"
+    },
+    {
+      "EBELN": "4526000058",
+      "EBELP": "00020",
+      "MATNR": "MAT-4648",
+      "TXZ01": "Item 2 for 4526000058",
+      "MENGE": "54",
+      "NETPR": "23228.21",
+      "PEINH": "1",
+      "SAKTO": "0000520000"
+    },
+    {
+      "EBELN": "4526000058",
+      "EBELP": "00030",
+      "MATNR": "MAT-1375",
+      "TXZ01": "Item 3 for 4526000058",
+      "MENGE": "22",
+      "NETPR": "24589.08",
+      "PEINH": "1",
+      "SAKTO": "0000530000"
+    },
+    {
+      "EBELN": "4526000059",
+      "EBELP": "00010",
+      "MATNR": "MAT-1069",
+      "TXZ01": "Item 1 for 4526000059",
+      "MENGE": "7",
+      "NETPR": "1478.20",
+      "PEINH": "1",
+      "SAKTO": "0000510000"
+    },
+    {
+      "EBELN": "4526000059",
+      "EBELP": "00020",
+      "MATNR": "MAT-1682",
+      "TXZ01": "Item 2 for 4526000059",
+      "MENGE": "4",
+      "NETPR": "502.72",
+      "PEINH": "1",
+      "SAKTO": "0000540000"
+    },
+    {
+      "EBELN": "4526000060",
+      "EBELP": "00010",
+      "MATNR": "MAT-6347",
+      "TXZ01": "Item 1 for 4526000060",
+      "MENGE": "20",
+      "NETPR": "332.48",
+      "PEINH": "1",
+      "SAKTO": "0000510000"
     }
   ],
   "MSEG": [
@@ -2601,6 +3353,416 @@
       "EBELP": "00030",
       "MENGE": "31",
       "BUDAT": "20260210"
+    },
+    {
+      "MBLNR": "5000000086",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000041",
+      "EBELP": "00010",
+      "MENGE": "7",
+      "BUDAT": "20260110"
+    },
+    {
+      "MBLNR": "5000000087",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000041",
+      "EBELP": "00020",
+      "MENGE": "20",
+      "BUDAT": "20260110"
+    },
+    {
+      "MBLNR": "5000000088",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000041",
+      "EBELP": "00030",
+      "MENGE": "9",
+      "BUDAT": "20260110"
+    },
+    {
+      "MBLNR": "5000000089",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000042",
+      "EBELP": "00010",
+      "MENGE": "49",
+      "BUDAT": "20260210"
+    },
+    {
+      "MBLNR": "5000000090",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000042",
+      "EBELP": "00020",
+      "MENGE": "35",
+      "BUDAT": "20260210"
+    },
+    {
+      "MBLNR": "5000000091",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000042",
+      "EBELP": "00030",
+      "MENGE": "17",
+      "BUDAT": "20260210"
+    },
+    {
+      "MBLNR": "5000000092",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000043",
+      "EBELP": "00010",
+      "MENGE": "1",
+      "BUDAT": "20260310"
+    },
+    {
+      "MBLNR": "5000000093",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000043",
+      "EBELP": "00020",
+      "MENGE": "14",
+      "BUDAT": "20260310"
+    },
+    {
+      "MBLNR": "5000000094",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000043",
+      "EBELP": "00030",
+      "MENGE": "14",
+      "BUDAT": "20260310"
+    },
+    {
+      "MBLNR": "5000000095",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000044",
+      "EBELP": "00010",
+      "MENGE": "49",
+      "BUDAT": "20260410"
+    },
+    {
+      "MBLNR": "5000000096",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000044",
+      "EBELP": "00020",
+      "MENGE": "27",
+      "BUDAT": "20260410"
+    },
+    {
+      "MBLNR": "5000000097",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000044",
+      "EBELP": "00030",
+      "MENGE": "9",
+      "BUDAT": "20260410"
+    },
+    {
+      "MBLNR": "5000000098",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000045",
+      "EBELP": "00010",
+      "MENGE": "21",
+      "BUDAT": "20260510"
+    },
+    {
+      "MBLNR": "5000000099",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000045",
+      "EBELP": "00020",
+      "MENGE": "16",
+      "BUDAT": "20260510"
+    },
+    {
+      "MBLNR": "5000000100",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000045",
+      "EBELP": "00030",
+      "MENGE": "40",
+      "BUDAT": "20260510"
+    },
+    {
+      "MBLNR": "5000000101",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000046",
+      "EBELP": "00010",
+      "MENGE": "12.5",
+      "BUDAT": "20260610"
+    },
+    {
+      "MBLNR": "5000000102",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000047",
+      "EBELP": "00010",
+      "MENGE": "24",
+      "BUDAT": "20260110"
+    },
+    {
+      "MBLNR": "5000000103",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000047",
+      "EBELP": "00020",
+      "MENGE": "24",
+      "BUDAT": "20260110"
+    },
+    {
+      "MBLNR": "5000000104",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000048",
+      "EBELP": "00010",
+      "MENGE": "2400",
+      "BUDAT": "20260210"
+    },
+    {
+      "MBLNR": "5000000105",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000048",
+      "EBELP": "00020",
+      "MENGE": "19",
+      "BUDAT": "20260210"
+    },
+    {
+      "MBLNR": "5000000106",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000048",
+      "EBELP": "00030",
+      "MENGE": "28",
+      "BUDAT": "20260210"
+    },
+    {
+      "MBLNR": "5000000107",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000049",
+      "EBELP": "00010",
+      "MENGE": "43",
+      "BUDAT": "20260310"
+    },
+    {
+      "MBLNR": "5000000108",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000049",
+      "EBELP": "00020",
+      "MENGE": "16",
+      "BUDAT": "20260310"
+    },
+    {
+      "MBLNR": "5000000109",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000049",
+      "EBELP": "00030",
+      "MENGE": "46",
+      "BUDAT": "20260310"
+    },
+    {
+      "MBLNR": "5000000110",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000050",
+      "EBELP": "00010",
+      "MENGE": "8",
+      "BUDAT": "20260410"
+    },
+    {
+      "MBLNR": "5000000111",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000051",
+      "EBELP": "00010",
+      "MENGE": "33",
+      "BUDAT": "20260510"
+    },
+    {
+      "MBLNR": "5000000112",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000051",
+      "EBELP": "00020",
+      "MENGE": "7",
+      "BUDAT": "20260510"
+    },
+    {
+      "MBLNR": "5000000113",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000052",
+      "EBELP": "00010",
+      "MENGE": "33",
+      "BUDAT": "20260610"
+    },
+    {
+      "MBLNR": "5000000114",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000053",
+      "EBELP": "00010",
+      "MENGE": "27",
+      "BUDAT": "20260110"
+    },
+    {
+      "MBLNR": "5000000115",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000053",
+      "EBELP": "00020",
+      "MENGE": "16",
+      "BUDAT": "20260110"
+    },
+    {
+      "MBLNR": "5000000116",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000054",
+      "EBELP": "00010",
+      "MENGE": "40",
+      "BUDAT": "20260210"
+    },
+    {
+      "MBLNR": "5000000117",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000055",
+      "EBELP": "00010",
+      "MENGE": "30",
+      "BUDAT": "20260310"
+    },
+    {
+      "MBLNR": "5000000118",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000056",
+      "EBELP": "00010",
+      "MENGE": "10",
+      "BUDAT": "20260410"
+    },
+    {
+      "MBLNR": "5000000119",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000056",
+      "EBELP": "00020",
+      "MENGE": "19",
+      "BUDAT": "20260410"
+    },
+    {
+      "MBLNR": "5000000120",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000057",
+      "EBELP": "00010",
+      "MENGE": "40",
+      "BUDAT": "20260510"
+    },
+    {
+      "MBLNR": "5000000121",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000058",
+      "EBELP": "00010",
+      "MENGE": "33",
+      "BUDAT": "20260610"
+    },
+    {
+      "MBLNR": "5000000122",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000058",
+      "EBELP": "00020",
+      "MENGE": "54",
+      "BUDAT": "20260610"
+    },
+    {
+      "MBLNR": "5000000123",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000058",
+      "EBELP": "00030",
+      "MENGE": "22",
+      "BUDAT": "20260610"
+    },
+    {
+      "MBLNR": "5000000124",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000059",
+      "EBELP": "00010",
+      "MENGE": "7",
+      "BUDAT": "20260110"
+    },
+    {
+      "MBLNR": "5000000125",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000059",
+      "EBELP": "00020",
+      "MENGE": "4",
+      "BUDAT": "20260110"
+    },
+    {
+      "MBLNR": "5000000126",
+      "MJAHR": "2026",
+      "ZEILE": "0001",
+      "BWART": "101",
+      "EBELN": "4526000060",
+      "EBELP": "00010",
+      "MENGE": "20",
+      "BUDAT": "20260210"
     }
   ],
   "RBKP": [
@@ -2614,7 +3776,21 @@
       "WAERS": "USD",
       "RMWWR": "58761.90",
       "WMWST1": "4352.73",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5200000001",
+      "GJAHR": "2026",
+      "BUKRS": "1000",
+      "LIFNR": "0000100005",
+      "XBLNR": "CM-0005-0001",
+      "BLDAT": "20260120",
+      "WAERS": "USD",
+      "RMWWR": "225.04",
+      "WMWST1": "16.67",
+      "RBSTAT": "A",
+      "XRECH": ""
     },
     {
       "BELNR": "5100000002",
@@ -2626,7 +3802,21 @@
       "WAERS": "USD",
       "RMWWR": "150689.65",
       "WMWST1": "11162.20",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5200000002",
+      "GJAHR": "2026",
+      "BUKRS": "1000",
+      "LIFNR": "0000100017",
+      "XBLNR": "SD-0017-0002",
+      "BLDAT": "20260220",
+      "WAERS": "USD",
+      "RMWWR": "27.00",
+      "WMWST1": "2.00",
+      "RBSTAT": "A",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000003",
@@ -2638,7 +3828,21 @@
       "WAERS": "USD",
       "RMWWR": "62575.25",
       "WMWST1": "4635.20",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5200000003",
+      "GJAHR": "2026",
+      "BUKRS": "1000",
+      "LIFNR": "0000100018",
+      "XBLNR": "SC-0018-0003",
+      "BLDAT": "20260320",
+      "WAERS": "USD",
+      "RMWWR": "27.00",
+      "WMWST1": "2.00",
+      "RBSTAT": "A",
+      "XRECH": ""
     },
     {
       "BELNR": "5100000004",
@@ -2650,7 +3854,8 @@
       "WAERS": "USD",
       "RMWWR": "141594.92",
       "WMWST1": "10488.51",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000005",
@@ -2662,7 +3867,8 @@
       "WAERS": "USD",
       "RMWWR": "71560.74",
       "WMWST1": "5300.80",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000006",
@@ -2674,7 +3880,8 @@
       "WAERS": "USD",
       "RMWWR": "35982.66",
       "WMWST1": "2665.38",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000007",
@@ -2686,7 +3893,8 @@
       "WAERS": "USD",
       "RMWWR": "77590.25",
       "WMWST1": "5747.43",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000008",
@@ -2698,7 +3906,8 @@
       "WAERS": "USD",
       "RMWWR": "63030.96",
       "WMWST1": "4668.96",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000009",
@@ -2710,7 +3919,8 @@
       "WAERS": "USD",
       "RMWWR": "83483.25",
       "WMWST1": "6183.94",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000010",
@@ -2722,7 +3932,8 @@
       "WAERS": "USD",
       "RMWWR": "64577.36",
       "WMWST1": "4783.51",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000011",
@@ -2734,7 +3945,8 @@
       "WAERS": "USD",
       "RMWWR": "41838.51",
       "WMWST1": "3099.15",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000012",
@@ -2746,7 +3958,8 @@
       "WAERS": "USD",
       "RMWWR": "158773.38",
       "WMWST1": "11760.99",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000013",
@@ -2758,7 +3971,8 @@
       "WAERS": "USD",
       "RMWWR": "75819.12",
       "WMWST1": "5616.23",
-      "RBSTAT": "A"
+      "RBSTAT": "A",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000014",
@@ -2770,7 +3984,8 @@
       "WAERS": "USD",
       "RMWWR": "26533.27",
       "WMWST1": "1965.43",
-      "RBSTAT": "A"
+      "RBSTAT": "A",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000015",
@@ -2782,7 +3997,8 @@
       "WAERS": "USD",
       "RMWWR": "8044.74",
       "WMWST1": "595.91",
-      "RBSTAT": "A"
+      "RBSTAT": "A",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000016",
@@ -2794,7 +4010,8 @@
       "WAERS": "USD",
       "RMWWR": "72160.37",
       "WMWST1": "5345.21",
-      "RBSTAT": "A"
+      "RBSTAT": "A",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000017",
@@ -2806,7 +4023,8 @@
       "WAERS": "USD",
       "RMWWR": "20030.78",
       "WMWST1": "1483.76",
-      "RBSTAT": "A"
+      "RBSTAT": "A",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000018",
@@ -2818,7 +4036,8 @@
       "WAERS": "USD",
       "RMWWR": "2874413.67",
       "WMWST1": "212919.53",
-      "RBSTAT": "A"
+      "RBSTAT": "A",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000019",
@@ -2830,7 +4049,8 @@
       "WAERS": "USD",
       "RMWWR": "18538.93",
       "WMWST1": "1373.18",
-      "RBSTAT": "A"
+      "RBSTAT": "A",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000020",
@@ -2842,7 +4062,8 @@
       "WAERS": "USD",
       "RMWWR": "18618.28",
       "WMWST1": "1379.13",
-      "RBSTAT": "A"
+      "RBSTAT": "A",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000021",
@@ -2854,7 +4075,8 @@
       "WAERS": "EUR",
       "RMWWR": "43343.48",
       "WMWST1": "6920.39",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000022",
@@ -2866,7 +4088,8 @@
       "WAERS": "EUR",
       "RMWWR": "23307.79",
       "WMWST1": "3721.41",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000023",
@@ -2878,7 +4101,8 @@
       "WAERS": "EUR",
       "RMWWR": "96409.44",
       "WMWST1": "15393.10",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000024",
@@ -2890,7 +4114,8 @@
       "WAERS": "EUR",
       "RMWWR": "96308.43",
       "WMWST1": "15376.98",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000025",
@@ -2902,7 +4127,8 @@
       "WAERS": "EUR",
       "RMWWR": "48667.19",
       "WMWST1": "7770.39",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000026",
@@ -2914,7 +4140,8 @@
       "WAERS": "EUR",
       "RMWWR": "12345.51",
       "WMWST1": "1971.13",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000027",
@@ -2926,7 +4153,8 @@
       "WAERS": "EUR",
       "RMWWR": "44111.68",
       "WMWST1": "7043.04",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000028",
@@ -2938,7 +4166,8 @@
       "WAERS": "EUR",
       "RMWWR": "83922.13",
       "WMWST1": "13399.33",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000029",
@@ -2950,7 +4179,8 @@
       "WAERS": "EUR",
       "RMWWR": "126320.70",
       "WMWST1": "20168.85",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000030",
@@ -2962,7 +4192,8 @@
       "WAERS": "EUR",
       "RMWWR": "7076.60",
       "WMWST1": "1129.88",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000031",
@@ -2974,7 +4205,8 @@
       "WAERS": "EUR",
       "RMWWR": "16782.50",
       "WMWST1": "2679.56",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000032",
@@ -2986,7 +4218,8 @@
       "WAERS": "EUR",
       "RMWWR": "69520.98",
       "WMWST1": "11099.99",
-      "RBSTAT": "5"
+      "RBSTAT": "5",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000033",
@@ -2998,7 +4231,8 @@
       "WAERS": "EUR",
       "RMWWR": "39077.30",
       "WMWST1": "6239.23",
-      "RBSTAT": "A"
+      "RBSTAT": "A",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000034",
@@ -3010,7 +4244,8 @@
       "WAERS": "EUR",
       "RMWWR": "4895.71",
       "WMWST1": "781.67",
-      "RBSTAT": "A"
+      "RBSTAT": "A",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000035",
@@ -3022,7 +4257,8 @@
       "WAERS": "EUR",
       "RMWWR": "34583.30",
       "WMWST1": "5521.70",
-      "RBSTAT": "A"
+      "RBSTAT": "A",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000036",
@@ -3034,7 +4270,8 @@
       "WAERS": "EUR",
       "RMWWR": "8287.16",
       "WMWST1": "1323.16",
-      "RBSTAT": "A"
+      "RBSTAT": "A",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000037",
@@ -3046,7 +4283,8 @@
       "WAERS": "EUR",
       "RMWWR": "85492.97",
       "WMWST1": "13650.14",
-      "RBSTAT": "A"
+      "RBSTAT": "A",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000038",
@@ -3058,7 +4296,8 @@
       "WAERS": "EUR",
       "RMWWR": "86050.22",
       "WMWST1": "13739.11",
-      "RBSTAT": "A"
+      "RBSTAT": "A",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000039",
@@ -3070,7 +4309,8 @@
       "WAERS": "EUR",
       "RMWWR": "9160.98",
       "WMWST1": "1462.68",
-      "RBSTAT": "A"
+      "RBSTAT": "A",
+      "XRECH": "X"
     },
     {
       "BELNR": "5100000040",
@@ -3082,7 +4322,307 @@
       "WAERS": "EUR",
       "RMWWR": "70116.36",
       "WMWST1": "11195.05",
-      "RBSTAT": "A"
+      "RBSTAT": "A",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5100000041",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000300001",
+      "XBLNR": "INV-0001-0141",
+      "BLDAT": "20260115",
+      "WAERS": "CAD",
+      "RMWWR": "49791.88",
+      "WMWST1": "2371.04",
+      "RBSTAT": "5",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5200000004",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000300001",
+      "XBLNR": "CM-0001-0004",
+      "BLDAT": "20260120",
+      "WAERS": "CAD",
+      "RMWWR": "1270.96",
+      "WMWST1": "60.52",
+      "RBSTAT": "A",
+      "XRECH": ""
+    },
+    {
+      "BELNR": "5100000042",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000300006",
+      "XBLNR": "INV-0006-0142",
+      "BLDAT": "20260215",
+      "WAERS": "CAD",
+      "RMWWR": "127794.50",
+      "WMWST1": "6085.45",
+      "RBSTAT": "5",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5200000005",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000300006",
+      "XBLNR": "SD-0006-0005",
+      "BLDAT": "20260220",
+      "WAERS": "CAD",
+      "RMWWR": "26.25",
+      "WMWST1": "1.25",
+      "RBSTAT": "A",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5100000043",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000100011",
+      "XBLNR": "INV-0011-0143",
+      "BLDAT": "20260315",
+      "WAERS": "CAD",
+      "RMWWR": "39140.28",
+      "WMWST1": "1863.82",
+      "RBSTAT": "5",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5200000006",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000100011",
+      "XBLNR": "SC-0011-0006",
+      "BLDAT": "20260320",
+      "WAERS": "CAD",
+      "RMWWR": "26.25",
+      "WMWST1": "1.25",
+      "RBSTAT": "A",
+      "XRECH": ""
+    },
+    {
+      "BELNR": "5100000044",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000100012",
+      "XBLNR": "INV-0012-0144",
+      "BLDAT": "20260415",
+      "WAERS": "CAD",
+      "RMWWR": "39210.83",
+      "WMWST1": "1867.18",
+      "RBSTAT": "5",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5100000045",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000300004",
+      "XBLNR": "INV-0004-0145",
+      "BLDAT": "20260515",
+      "WAERS": "CAD",
+      "RMWWR": "58587.07",
+      "WMWST1": "2789.86",
+      "RBSTAT": "5",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5100000046",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000300002",
+      "XBLNR": "INV-0002-0146",
+      "BLDAT": "20260615",
+      "WAERS": "CAD",
+      "RMWWR": "17829.14",
+      "WMWST1": "849.01",
+      "RBSTAT": "5",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5100000047",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000300005",
+      "XBLNR": "INV-0005-0147",
+      "BLDAT": "20260115",
+      "WAERS": "CAD",
+      "RMWWR": "73137.71",
+      "WMWST1": "3482.75",
+      "RBSTAT": "5",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5100000048",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000300001",
+      "XBLNR": "INV-0001-0148",
+      "BLDAT": "20260215",
+      "WAERS": "CAD",
+      "RMWWR": "46564.88",
+      "WMWST1": "2217.38",
+      "RBSTAT": "5",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5100000049",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000300004",
+      "XBLNR": "INV-0004-0149",
+      "BLDAT": "20260315",
+      "WAERS": "CAD",
+      "RMWWR": "137818.78",
+      "WMWST1": "6562.80",
+      "RBSTAT": "5",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5100000050",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000300006",
+      "XBLNR": "INV-0006-0150",
+      "BLDAT": "20260415",
+      "WAERS": "CAD",
+      "RMWWR": "1281.84",
+      "WMWST1": "61.04",
+      "RBSTAT": "5",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5100000051",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000300004",
+      "XBLNR": "INV-0004-0151",
+      "BLDAT": "20260515",
+      "WAERS": "CAD",
+      "RMWWR": "42314.16",
+      "WMWST1": "2014.96",
+      "RBSTAT": "5",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5100000052",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000300005",
+      "XBLNR": "INV-0005-0152",
+      "BLDAT": "20260615",
+      "WAERS": "CAD",
+      "RMWWR": "53570.98",
+      "WMWST1": "2551.00",
+      "RBSTAT": "5",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5100000053",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000300002",
+      "XBLNR": "INV-0002-0153",
+      "BLDAT": "20260115",
+      "WAERS": "CAD",
+      "RMWWR": "33934.70",
+      "WMWST1": "1615.94",
+      "RBSTAT": "A",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5100000054",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000300001",
+      "XBLNR": "INV-0001-0154",
+      "BLDAT": "20260215",
+      "WAERS": "CAD",
+      "RMWWR": "61555.62",
+      "WMWST1": "2931.22",
+      "RBSTAT": "A",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5100000055",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000300005",
+      "XBLNR": "INV-0005-0155",
+      "BLDAT": "20260315",
+      "WAERS": "CAD",
+      "RMWWR": "21430.68",
+      "WMWST1": "1020.51",
+      "RBSTAT": "A",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5100000056",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000300005",
+      "XBLNR": "INV-0005-0156",
+      "BLDAT": "20260415",
+      "WAERS": "CAD",
+      "RMWWR": "29056.99",
+      "WMWST1": "1383.67",
+      "RBSTAT": "A",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5100000057",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000300001",
+      "XBLNR": "INV-0001-0141",
+      "BLDAT": "20260515",
+      "WAERS": "CAD",
+      "RMWWR": "66735.90",
+      "WMWST1": "3177.90",
+      "RBSTAT": "A",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5100000058",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000300006",
+      "XBLNR": "INV-0006-0158",
+      "BLDAT": "20260615",
+      "WAERS": "CAD",
+      "RMWWR": "2847913.24",
+      "WMWST1": "135614.92",
+      "RBSTAT": "A",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5100000059",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000300001",
+      "XBLNR": "INV-0001-0159",
+      "BLDAT": "20260115",
+      "WAERS": "CAD",
+      "RMWWR": "12977.19",
+      "WMWST1": "617.91",
+      "RBSTAT": "A",
+      "XRECH": "X"
+    },
+    {
+      "BELNR": "5100000060",
+      "GJAHR": "2026",
+      "BUKRS": "3000",
+      "LIFNR": "0000100011",
+      "XBLNR": "INV-0011-0160",
+      "BLDAT": "20260215",
+      "WAERS": "CAD",
+      "RMWWR": "6982.08",
+      "WMWST1": "332.48",
+      "RBSTAT": "A",
+      "XRECH": "X"
     }
   ],
   "RSEG": [
@@ -3114,6 +4654,15 @@
       "WRBTR": "13601.49"
     },
     {
+      "BELNR": "5200000001",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000001",
+      "EBELP": "00010",
+      "MENGE": "1",
+      "WRBTR": "208.37"
+    },
+    {
       "BELNR": "5100000002",
       "GJAHR": "2026",
       "BUZEI": "000001",
@@ -3141,6 +4690,16 @@
       "WRBTR": "80704.70"
     },
     {
+      "BELNR": "5200000002",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000002",
+      "EBELP": "00010",
+      "MENGE": "30",
+      "WRBTR": "25.00",
+      "TBTKZ": "X"
+    },
+    {
       "BELNR": "5100000003",
       "GJAHR": "2026",
       "BUZEI": "000001",
@@ -3148,6 +4707,16 @@
       "EBELP": "00010",
       "MENGE": "49",
       "WRBTR": "57940.05"
+    },
+    {
+      "BELNR": "5200000003",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000003",
+      "EBELP": "00010",
+      "MENGE": "49",
+      "WRBTR": "25.00",
+      "TBTKZ": "X"
     },
     {
       "BELNR": "5100000004",
@@ -3850,6 +5419,404 @@
       "EBELP": "00030",
       "MENGE": "31",
       "WRBTR": "47326.77"
+    },
+    {
+      "BELNR": "5100000041",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000041",
+      "EBELP": "00010",
+      "MENGE": "7",
+      "WRBTR": "8473.08"
+    },
+    {
+      "BELNR": "5100000041",
+      "GJAHR": "2026",
+      "BUZEI": "000002",
+      "EBELN": "4526000041",
+      "EBELP": "00020",
+      "MENGE": "20",
+      "WRBTR": "36123.20"
+    },
+    {
+      "BELNR": "5100000041",
+      "GJAHR": "2026",
+      "BUZEI": "000003",
+      "EBELN": "4526000041",
+      "EBELP": "00030",
+      "MENGE": "9",
+      "WRBTR": "2824.56"
+    },
+    {
+      "BELNR": "5200000004",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000041",
+      "EBELP": "00010",
+      "MENGE": "1",
+      "WRBTR": "1210.44"
+    },
+    {
+      "BELNR": "5100000042",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000042",
+      "EBELP": "00010",
+      "MENGE": "49",
+      "WRBTR": "83863.01"
+    },
+    {
+      "BELNR": "5100000042",
+      "GJAHR": "2026",
+      "BUZEI": "000002",
+      "EBELN": "4526000042",
+      "EBELP": "00020",
+      "MENGE": "35",
+      "WRBTR": "17134.60"
+    },
+    {
+      "BELNR": "5100000042",
+      "GJAHR": "2026",
+      "BUZEI": "000003",
+      "EBELN": "4526000042",
+      "EBELP": "00030",
+      "MENGE": "17",
+      "WRBTR": "20711.44"
+    },
+    {
+      "BELNR": "5200000005",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000042",
+      "EBELP": "00010",
+      "MENGE": "49",
+      "WRBTR": "25.00",
+      "TBTKZ": "X"
+    },
+    {
+      "BELNR": "5100000043",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000043",
+      "EBELP": "00010",
+      "MENGE": "1",
+      "WRBTR": "276.14"
+    },
+    {
+      "BELNR": "5100000043",
+      "GJAHR": "2026",
+      "BUZEI": "000002",
+      "EBELN": "4526000043",
+      "EBELP": "00020",
+      "MENGE": "14",
+      "WRBTR": "16577.68"
+    },
+    {
+      "BELNR": "5100000043",
+      "GJAHR": "2026",
+      "BUZEI": "000003",
+      "EBELN": "4526000043",
+      "EBELP": "00030",
+      "MENGE": "14",
+      "WRBTR": "20422.64"
+    },
+    {
+      "BELNR": "5200000006",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000043",
+      "EBELP": "00010",
+      "MENGE": "1",
+      "WRBTR": "25.00",
+      "TBTKZ": "X"
+    },
+    {
+      "BELNR": "5100000044",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000044",
+      "EBELP": "00010",
+      "MENGE": "49",
+      "WRBTR": "1738.03"
+    },
+    {
+      "BELNR": "5100000044",
+      "GJAHR": "2026",
+      "BUZEI": "000002",
+      "EBELN": "4526000044",
+      "EBELP": "00020",
+      "MENGE": "27",
+      "WRBTR": "18578.70"
+    },
+    {
+      "BELNR": "5100000044",
+      "GJAHR": "2026",
+      "BUZEI": "000003",
+      "EBELN": "4526000044",
+      "EBELP": "00030",
+      "MENGE": "9",
+      "WRBTR": "17026.92"
+    },
+    {
+      "BELNR": "5100000045",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000045",
+      "EBELP": "00010",
+      "MENGE": "21",
+      "WRBTR": "33048.33"
+    },
+    {
+      "BELNR": "5100000045",
+      "GJAHR": "2026",
+      "BUZEI": "000002",
+      "EBELN": "4526000045",
+      "EBELP": "00020",
+      "MENGE": "16",
+      "WRBTR": "9118.08"
+    },
+    {
+      "BELNR": "5100000045",
+      "GJAHR": "2026",
+      "BUZEI": "000003",
+      "EBELN": "4526000045",
+      "EBELP": "00030",
+      "MENGE": "40",
+      "WRBTR": "13630.80"
+    },
+    {
+      "BELNR": "5100000046",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000046",
+      "EBELP": "00010",
+      "MENGE": "12.5",
+      "WRBTR": "16980.13"
+    },
+    {
+      "BELNR": "5100000047",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000047",
+      "EBELP": "00010",
+      "MENGE": "24",
+      "WRBTR": "45952.56"
+    },
+    {
+      "BELNR": "5100000047",
+      "GJAHR": "2026",
+      "BUZEI": "000002",
+      "EBELN": "4526000047",
+      "EBELP": "00020",
+      "MENGE": "24",
+      "WRBTR": "23702.40"
+    },
+    {
+      "BELNR": "5100000048",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000048",
+      "EBELP": "00010",
+      "MENGE": "2400",
+      "WRBTR": "23907.84"
+    },
+    {
+      "BELNR": "5100000048",
+      "GJAHR": "2026",
+      "BUZEI": "000002",
+      "EBELN": "4526000048",
+      "EBELP": "00020",
+      "MENGE": "19",
+      "WRBTR": "1470.22"
+    },
+    {
+      "BELNR": "5100000048",
+      "GJAHR": "2026",
+      "BUZEI": "000003",
+      "EBELN": "4526000048",
+      "EBELP": "00030",
+      "MENGE": "28",
+      "WRBTR": "18969.44"
+    },
+    {
+      "BELNR": "5100000049",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000049",
+      "EBELP": "00010",
+      "MENGE": "43",
+      "WRBTR": "60143.24"
+    },
+    {
+      "BELNR": "5100000049",
+      "GJAHR": "2026",
+      "BUZEI": "000002",
+      "EBELN": "4526000049",
+      "EBELP": "00020",
+      "MENGE": "16",
+      "WRBTR": "13570.88"
+    },
+    {
+      "BELNR": "5100000049",
+      "GJAHR": "2026",
+      "BUZEI": "000003",
+      "EBELN": "4526000049",
+      "EBELP": "00030",
+      "MENGE": "46",
+      "WRBTR": "57541.86"
+    },
+    {
+      "BELNR": "5100000050",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000050",
+      "EBELP": "00010",
+      "MENGE": "8",
+      "WRBTR": "1220.80"
+    },
+    {
+      "BELNR": "5100000051",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000051",
+      "EBELP": "00010",
+      "MENGE": "33",
+      "WRBTR": "30033.63"
+    },
+    {
+      "BELNR": "5100000051",
+      "GJAHR": "2026",
+      "BUZEI": "000002",
+      "EBELN": "4526000051",
+      "EBELP": "00020",
+      "MENGE": "7",
+      "WRBTR": "10265.57"
+    },
+    {
+      "BELNR": "5100000052",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000052",
+      "EBELP": "00010",
+      "MENGE": "33",
+      "WRBTR": "51019.98"
+    },
+    {
+      "BELNR": "5100000053",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000053",
+      "EBELP": "00010",
+      "MENGE": "27",
+      "WRBTR": "29755.08"
+    },
+    {
+      "BELNR": "5100000053",
+      "GJAHR": "2026",
+      "BUZEI": "000002",
+      "EBELN": "4526000053",
+      "EBELP": "00020",
+      "MENGE": "16",
+      "WRBTR": "2563.68"
+    },
+    {
+      "BELNR": "5100000054",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000054",
+      "EBELP": "00010",
+      "MENGE": "40",
+      "WRBTR": "58624.40"
+    },
+    {
+      "BELNR": "5100000055",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000055",
+      "EBELP": "00010",
+      "MENGE": "30",
+      "WRBTR": "20410.17"
+    },
+    {
+      "BELNR": "5100000056",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000056",
+      "EBELP": "00010",
+      "MENGE": "20",
+      "WRBTR": "16902.60"
+    },
+    {
+      "BELNR": "5100000056",
+      "GJAHR": "2026",
+      "BUZEI": "000002",
+      "EBELN": "4526000056",
+      "EBELP": "00020",
+      "MENGE": "38",
+      "WRBTR": "10770.72"
+    },
+    {
+      "BELNR": "5100000057",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000057",
+      "EBELP": "00010",
+      "MENGE": "40",
+      "WRBTR": "63558.00"
+    },
+    {
+      "BELNR": "5100000058",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000058",
+      "EBELP": "00010",
+      "MENGE": "33",
+      "WRBTR": "917015.22"
+    },
+    {
+      "BELNR": "5100000058",
+      "GJAHR": "2026",
+      "BUZEI": "000002",
+      "EBELN": "4526000058",
+      "EBELP": "00020",
+      "MENGE": "54",
+      "WRBTR": "1254323.34"
+    },
+    {
+      "BELNR": "5100000058",
+      "GJAHR": "2026",
+      "BUZEI": "000003",
+      "EBELN": "4526000058",
+      "EBELP": "00030",
+      "MENGE": "22",
+      "WRBTR": "540959.76"
+    },
+    {
+      "BELNR": "5100000059",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000059",
+      "EBELP": "00010",
+      "MENGE": "7",
+      "WRBTR": "10347.40"
+    },
+    {
+      "BELNR": "5100000059",
+      "GJAHR": "2026",
+      "BUZEI": "000002",
+      "EBELN": "4526000059",
+      "EBELP": "00020",
+      "MENGE": "4",
+      "WRBTR": "2010.88"
+    },
+    {
+      "BELNR": "5100000060",
+      "GJAHR": "2026",
+      "BUZEI": "000001",
+      "EBELN": "4526000060",
+      "EBELP": "00010",
+      "MENGE": "20",
+      "WRBTR": "6649.60"
     }
   ],
   "ACDOCA": [
@@ -5770,6 +7737,986 @@
       "LIFNR": "0000100019",
       "XBLNR": "INV-0019-0132",
       "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000001",
+      "DOCLN": "000001",
+      "RACCT": "0000100000",
+      "HSL": "5000000.00",
+      "BUDAT": "20260102",
+      "BLART": "SA",
+      "LIFNR": "",
+      "XBLNR": "CAPITAL",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000001",
+      "DOCLN": "000002",
+      "RACCT": "0000300000",
+      "HSL": "-5000000.00",
+      "BUDAT": "20260102",
+      "BLART": "SA",
+      "LIFNR": "",
+      "XBLNR": "CAPITAL",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000002",
+      "DOCLN": "000001",
+      "RACCT": "0000100000",
+      "HSL": "326938.50",
+      "BUDAT": "20260128",
+      "BLART": "SA",
+      "LIFNR": "",
+      "XBLNR": "SALES-01",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000002",
+      "DOCLN": "000002",
+      "RACCT": "0000400000",
+      "HSL": "-326938.50",
+      "BUDAT": "20260128",
+      "BLART": "SA",
+      "LIFNR": "",
+      "XBLNR": "SALES-01",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000003",
+      "DOCLN": "000001",
+      "RACCT": "0000610000",
+      "HSL": "185377.50",
+      "BUDAT": "20260127",
+      "BLART": "SA",
+      "LIFNR": "",
+      "XBLNR": "PAYROLL-01",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000003",
+      "DOCLN": "000002",
+      "RACCT": "0000100000",
+      "HSL": "-185377.50",
+      "BUDAT": "20260127",
+      "BLART": "SA",
+      "LIFNR": "",
+      "XBLNR": "PAYROLL-01",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000004",
+      "DOCLN": "000001",
+      "RACCT": "0000540000",
+      "HSL": "8473.08",
+      "BUDAT": "20260116",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0001-0141",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000004",
+      "DOCLN": "000002",
+      "RACCT": "0000530000",
+      "HSL": "36123.20",
+      "BUDAT": "20260116",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0001-0141",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000004",
+      "DOCLN": "000003",
+      "RACCT": "0000520000",
+      "HSL": "2824.56",
+      "BUDAT": "20260116",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0001-0141",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000004",
+      "DOCLN": "000004",
+      "RACCT": "0000140000",
+      "HSL": "2371.04",
+      "BUDAT": "20260116",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0001-0141",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000004",
+      "DOCLN": "000005",
+      "RACCT": "0000211000",
+      "HSL": "-49791.88",
+      "BUDAT": "20260116",
+      "BLART": "RE",
+      "LIFNR": "0000300001",
+      "XBLNR": "INV-0001-0141",
+      "AUGBL": "0100000005"
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000005",
+      "DOCLN": "000001",
+      "RACCT": "0000211000",
+      "HSL": "49791.88",
+      "BUDAT": "20260125",
+      "BLART": "KZ",
+      "LIFNR": "0000300001",
+      "XBLNR": "INV-0001-0141",
+      "AUGBL": "0100000005"
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000005",
+      "DOCLN": "000002",
+      "RACCT": "0000100000",
+      "HSL": "-49791.88",
+      "BUDAT": "20260125",
+      "BLART": "KZ",
+      "LIFNR": "",
+      "XBLNR": "INV-0001-0141",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000006",
+      "DOCLN": "000001",
+      "RACCT": "0000530000",
+      "HSL": "83863.01",
+      "BUDAT": "20260216",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0006-0142",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000006",
+      "DOCLN": "000002",
+      "RACCT": "0000510000",
+      "HSL": "17134.60",
+      "BUDAT": "20260216",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0006-0142",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000006",
+      "DOCLN": "000003",
+      "RACCT": "0000510000",
+      "HSL": "20711.44",
+      "BUDAT": "20260216",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0006-0142",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000006",
+      "DOCLN": "000004",
+      "RACCT": "0000140000",
+      "HSL": "6085.45",
+      "BUDAT": "20260216",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0006-0142",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000006",
+      "DOCLN": "000005",
+      "RACCT": "0000211000",
+      "HSL": "-127794.50",
+      "BUDAT": "20260216",
+      "BLART": "RE",
+      "LIFNR": "0000300006",
+      "XBLNR": "INV-0006-0142",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000007",
+      "DOCLN": "000001",
+      "RACCT": "0000510000",
+      "HSL": "276.14",
+      "BUDAT": "20260316",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0011-0143",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000007",
+      "DOCLN": "000002",
+      "RACCT": "0000520000",
+      "HSL": "16577.68",
+      "BUDAT": "20260316",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0011-0143",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000007",
+      "DOCLN": "000003",
+      "RACCT": "0000520000",
+      "HSL": "20422.64",
+      "BUDAT": "20260316",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0011-0143",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000007",
+      "DOCLN": "000004",
+      "RACCT": "0000140000",
+      "HSL": "1863.82",
+      "BUDAT": "20260316",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0011-0143",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000007",
+      "DOCLN": "000005",
+      "RACCT": "0000211000",
+      "HSL": "-39140.28",
+      "BUDAT": "20260316",
+      "BLART": "RE",
+      "LIFNR": "0000100011",
+      "XBLNR": "INV-0011-0143",
+      "AUGBL": "0100000008"
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000008",
+      "DOCLN": "000001",
+      "RACCT": "0000211000",
+      "HSL": "39140.28",
+      "BUDAT": "20260325",
+      "BLART": "KZ",
+      "LIFNR": "0000100011",
+      "XBLNR": "INV-0011-0143",
+      "AUGBL": "0100000008"
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000008",
+      "DOCLN": "000002",
+      "RACCT": "0000100000",
+      "HSL": "-39140.28",
+      "BUDAT": "20260325",
+      "BLART": "KZ",
+      "LIFNR": "",
+      "XBLNR": "INV-0011-0143",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000009",
+      "DOCLN": "000001",
+      "RACCT": "0000530000",
+      "HSL": "1738.03",
+      "BUDAT": "20260416",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0012-0144",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000009",
+      "DOCLN": "000002",
+      "RACCT": "0000510000",
+      "HSL": "18578.70",
+      "BUDAT": "20260416",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0012-0144",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000009",
+      "DOCLN": "000003",
+      "RACCT": "0000510000",
+      "HSL": "17026.92",
+      "BUDAT": "20260416",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0012-0144",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000009",
+      "DOCLN": "000004",
+      "RACCT": "0000140000",
+      "HSL": "1867.18",
+      "BUDAT": "20260416",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0012-0144",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000009",
+      "DOCLN": "000005",
+      "RACCT": "0000211000",
+      "HSL": "-39210.83",
+      "BUDAT": "20260416",
+      "BLART": "RE",
+      "LIFNR": "0000100012",
+      "XBLNR": "INV-0012-0144",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000010",
+      "DOCLN": "000001",
+      "RACCT": "0000510000",
+      "HSL": "33048.33",
+      "BUDAT": "20260516",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0004-0145",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000010",
+      "DOCLN": "000002",
+      "RACCT": "0000510000",
+      "HSL": "9118.08",
+      "BUDAT": "20260516",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0004-0145",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000010",
+      "DOCLN": "000003",
+      "RACCT": "0000520000",
+      "HSL": "13630.80",
+      "BUDAT": "20260516",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0004-0145",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000010",
+      "DOCLN": "000004",
+      "RACCT": "0000140000",
+      "HSL": "2789.86",
+      "BUDAT": "20260516",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0004-0145",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000010",
+      "DOCLN": "000005",
+      "RACCT": "0000211000",
+      "HSL": "-58587.07",
+      "BUDAT": "20260516",
+      "BLART": "RE",
+      "LIFNR": "0000300004",
+      "XBLNR": "INV-0004-0145",
+      "AUGBL": "0100000011"
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000011",
+      "DOCLN": "000001",
+      "RACCT": "0000211000",
+      "HSL": "58587.07",
+      "BUDAT": "20260525",
+      "BLART": "KZ",
+      "LIFNR": "0000300004",
+      "XBLNR": "INV-0004-0145",
+      "AUGBL": "0100000011"
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000011",
+      "DOCLN": "000002",
+      "RACCT": "0000100000",
+      "HSL": "-58587.07",
+      "BUDAT": "20260525",
+      "BLART": "KZ",
+      "LIFNR": "",
+      "XBLNR": "INV-0004-0145",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000012",
+      "DOCLN": "000001",
+      "RACCT": "0000540000",
+      "HSL": "16980.13",
+      "BUDAT": "20260616",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0002-0146",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000012",
+      "DOCLN": "000002",
+      "RACCT": "0000140000",
+      "HSL": "849.01",
+      "BUDAT": "20260616",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0002-0146",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000012",
+      "DOCLN": "000003",
+      "RACCT": "0000211000",
+      "HSL": "-17829.14",
+      "BUDAT": "20260616",
+      "BLART": "RE",
+      "LIFNR": "0000300002",
+      "XBLNR": "INV-0002-0146",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000013",
+      "DOCLN": "000001",
+      "RACCT": "0000510000",
+      "HSL": "45952.56",
+      "BUDAT": "20260116",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0005-0147",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000013",
+      "DOCLN": "000002",
+      "RACCT": "0000520000",
+      "HSL": "23702.40",
+      "BUDAT": "20260116",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0005-0147",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000013",
+      "DOCLN": "000003",
+      "RACCT": "0000140000",
+      "HSL": "3482.75",
+      "BUDAT": "20260116",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0005-0147",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000013",
+      "DOCLN": "000004",
+      "RACCT": "0000211000",
+      "HSL": "-73137.71",
+      "BUDAT": "20260116",
+      "BLART": "RE",
+      "LIFNR": "0000300005",
+      "XBLNR": "INV-0005-0147",
+      "AUGBL": "0100000014"
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000014",
+      "DOCLN": "000001",
+      "RACCT": "0000211000",
+      "HSL": "73137.71",
+      "BUDAT": "20260125",
+      "BLART": "KZ",
+      "LIFNR": "0000300005",
+      "XBLNR": "INV-0005-0147",
+      "AUGBL": "0100000014"
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000014",
+      "DOCLN": "000002",
+      "RACCT": "0000100000",
+      "HSL": "-73137.71",
+      "BUDAT": "20260125",
+      "BLART": "KZ",
+      "LIFNR": "",
+      "XBLNR": "INV-0005-0147",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000015",
+      "DOCLN": "000001",
+      "RACCT": "0000540000",
+      "HSL": "23907.84",
+      "BUDAT": "20260216",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0001-0148",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000015",
+      "DOCLN": "000002",
+      "RACCT": "0000520000",
+      "HSL": "1470.22",
+      "BUDAT": "20260216",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0001-0148",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000015",
+      "DOCLN": "000003",
+      "RACCT": "0000520000",
+      "HSL": "18969.44",
+      "BUDAT": "20260216",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0001-0148",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000015",
+      "DOCLN": "000004",
+      "RACCT": "0000140000",
+      "HSL": "2217.38",
+      "BUDAT": "20260216",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0001-0148",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000015",
+      "DOCLN": "000005",
+      "RACCT": "0000211000",
+      "HSL": "-46564.88",
+      "BUDAT": "20260216",
+      "BLART": "RE",
+      "LIFNR": "0000300001",
+      "XBLNR": "INV-0001-0148",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000016",
+      "DOCLN": "000001",
+      "RACCT": "0000520000",
+      "HSL": "60143.24",
+      "BUDAT": "20260316",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0004-0149",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000016",
+      "DOCLN": "000002",
+      "RACCT": "0000540000",
+      "HSL": "13570.88",
+      "BUDAT": "20260316",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0004-0149",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000016",
+      "DOCLN": "000003",
+      "RACCT": "0000520000",
+      "HSL": "57541.86",
+      "BUDAT": "20260316",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0004-0149",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000016",
+      "DOCLN": "000004",
+      "RACCT": "0000140000",
+      "HSL": "6562.80",
+      "BUDAT": "20260316",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0004-0149",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000016",
+      "DOCLN": "000005",
+      "RACCT": "0000211000",
+      "HSL": "-137818.78",
+      "BUDAT": "20260316",
+      "BLART": "RE",
+      "LIFNR": "0000300004",
+      "XBLNR": "INV-0004-0149",
+      "AUGBL": "0100000017"
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000017",
+      "DOCLN": "000001",
+      "RACCT": "0000211000",
+      "HSL": "137818.78",
+      "BUDAT": "20260325",
+      "BLART": "KZ",
+      "LIFNR": "0000300004",
+      "XBLNR": "INV-0004-0149",
+      "AUGBL": "0100000017"
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000017",
+      "DOCLN": "000002",
+      "RACCT": "0000100000",
+      "HSL": "-137818.78",
+      "BUDAT": "20260325",
+      "BLART": "KZ",
+      "LIFNR": "",
+      "XBLNR": "INV-0004-0149",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000018",
+      "DOCLN": "000001",
+      "RACCT": "0000530000",
+      "HSL": "1220.80",
+      "BUDAT": "20260416",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0006-0150",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000018",
+      "DOCLN": "000002",
+      "RACCT": "0000140000",
+      "HSL": "61.04",
+      "BUDAT": "20260416",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0006-0150",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000018",
+      "DOCLN": "000003",
+      "RACCT": "0000211000",
+      "HSL": "-1281.84",
+      "BUDAT": "20260416",
+      "BLART": "RE",
+      "LIFNR": "0000300006",
+      "XBLNR": "INV-0006-0150",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000019",
+      "DOCLN": "000001",
+      "RACCT": "0000540000",
+      "HSL": "30033.63",
+      "BUDAT": "20260516",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0004-0151",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000019",
+      "DOCLN": "000002",
+      "RACCT": "0000510000",
+      "HSL": "10265.57",
+      "BUDAT": "20260516",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0004-0151",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000019",
+      "DOCLN": "000003",
+      "RACCT": "0000140000",
+      "HSL": "2014.96",
+      "BUDAT": "20260516",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0004-0151",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000019",
+      "DOCLN": "000004",
+      "RACCT": "0000211000",
+      "HSL": "-42314.16",
+      "BUDAT": "20260516",
+      "BLART": "RE",
+      "LIFNR": "0000300004",
+      "XBLNR": "INV-0004-0151",
+      "AUGBL": "0100000020"
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000020",
+      "DOCLN": "000001",
+      "RACCT": "0000211000",
+      "HSL": "42314.16",
+      "BUDAT": "20260525",
+      "BLART": "KZ",
+      "LIFNR": "0000300004",
+      "XBLNR": "INV-0004-0151",
+      "AUGBL": "0100000020"
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000020",
+      "DOCLN": "000002",
+      "RACCT": "0000100000",
+      "HSL": "-42314.16",
+      "BUDAT": "20260525",
+      "BLART": "KZ",
+      "LIFNR": "",
+      "XBLNR": "INV-0004-0151",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000021",
+      "DOCLN": "000001",
+      "RACCT": "0000540000",
+      "HSL": "51019.98",
+      "BUDAT": "20260616",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0005-0152",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000021",
+      "DOCLN": "000002",
+      "RACCT": "0000140000",
+      "HSL": "2551.00",
+      "BUDAT": "20260616",
+      "BLART": "RE",
+      "LIFNR": "",
+      "XBLNR": "INV-0005-0152",
+      "AUGBL": ""
+    },
+    {
+      "RLDNR": "0L",
+      "RBUKRS": "3000",
+      "GJAHR": "2026",
+      "BELNR": "0100000021",
+      "DOCLN": "000003",
+      "RACCT": "0000211000",
+      "HSL": "-53570.98",
+      "BUDAT": "20260616",
+      "BLART": "RE",
+      "LIFNR": "0000300005",
+      "XBLNR": "INV-0005-0152",
+      "AUGBL": ""
     }
   ],
   "T052": [
@@ -5822,6 +8769,20 @@
       "TEXT1": "Input tax exempt",
       "KBETR": "0",
       "KONTS": "0000140000"
+    },
+    {
+      "BUKRS": "3000",
+      "MWSKZ": "V1",
+      "TEXT1": "Input tax, standard rate",
+      "KBETR": "5",
+      "KONTS": "0000140000"
+    },
+    {
+      "BUKRS": "3000",
+      "MWSKZ": "V0",
+      "TEXT1": "Input tax exempt",
+      "KBETR": "0",
+      "KONTS": "0000140000"
     }
   ],
   "T030": [
@@ -5844,6 +8805,16 @@
       "BUKRS": "2000",
       "KTOSL": "BNK",
       "KONTS": "0000100000"
+    },
+    {
+      "BUKRS": "3000",
+      "KTOSL": "VST",
+      "KONTS": "0000140000"
+    },
+    {
+      "BUKRS": "3000",
+      "KTOSL": "BNK",
+      "KONTS": "0000100000"
     }
   ],
   "T169G": [
@@ -5855,6 +8826,12 @@
     },
     {
       "BUKRS": "2000",
+      "TOLSL": "PP",
+      "PROZ": "2",
+      "WERTO": "5.00"
+    },
+    {
+      "BUKRS": "3000",
       "TOLSL": "PP",
       "PROZ": "2",
       "WERTO": "5.00"
@@ -5874,6 +8851,16 @@
       "HKONT": "0000100000",
       "IBAN": "DE89370400440532013000",
       "SWIFT": "COBADEFFXXX"
+    },
+    {
+      "BUKRS": "3000",
+      "HBKID": "MAIN",
+      "HKONT": "0000100000",
+      "IBAN": "",
+      "SWIFT": "ROYCCAT2",
+      "BANKS": "CA",
+      "BANKL": "000300001",
+      "BANKN": "5012345"
     }
   ],
   "AGR_DEFINE": [

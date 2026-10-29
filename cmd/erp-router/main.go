@@ -1,7 +1,9 @@
 // Command erp-router is the global router of 05-scalability §5.4
 // (ADR-0022): it verifies each request's token, looks the tenant up in the
 // directory and forwards the request to the tenant's cell. Configuration
-// comes from the environment (internal/router.LoadConfig).
+// comes from the environment (internal/router.LoadConfig). `erp-router
+// setup-directory` makes the directory's schema and its clients' logins as
+// the database's owner (T72h), before a release's router starts.
 package main
 
 import (
@@ -33,7 +35,7 @@ var exit = os.Exit
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	code := cli(ctx, os.Getenv, os.Stderr, nil)
+	code := command(ctx, os.Args[1:], os.Getenv, os.Stderr, nil)
 	stop()
 	exit(code)
 }

@@ -42,11 +42,20 @@ type LFB1 struct {
 	ZTERM string `json:"ZTERM"` // payment terms key
 }
 
-// LFBK - vendor bank details.
+// LFBK - vendor bank details: the bank country, the bank key ("this may
+// be the bank number": a country-specific bank identification) and the
+// bank account number (SAP Help, "Defining Business Partner Banks",
+// https://help.sap.com/saphelp_46c/helpdata/en/9c/944bb81ca911d2954b00a0c9426c73/content.htm).
 type LFBK struct {
 	LIFNR string `json:"LIFNR"`
 	BANKS string `json:"BANKS"`
 	BANKN string `json:"BANKN"`
+	// BANKL is the bank key. A Canadian account (BANKS "CA") is loaded
+	// only with its bank key in the Canadian Payments Association's
+	// electronic routing form, 0 + institution + transit (ADR-0038, T72d);
+	// which form a given SAP system keeps it in is its customizing, still
+	// to be confirmed for the pilot's.
+	BANKL string `json:"BANKL,omitempty"`
 }
 
 // EKKO - purchasing document header.
@@ -95,7 +104,20 @@ type RBKP struct {
 	WMWST1 string `json:"WMWST1"` // tax amount
 	// RBSTAT "A" = parked, "5" = posted.
 	RBSTAT string `json:"RBSTAT"`
+	// XRECH is the document's direction (data element XRECH, "Indicator:
+	// post invoice"): "X" an invoice, "" a credit memo. It is a pointer
+	// because an absent indicator and a credit memo's blank one differ: an
+	// extract without it (the OData mapping does not yet carry it) cannot
+	// tell an invoice from a credit memo, and the quality gate refuses its
+	// parked documents rather than guess (T72b). The field and its values
+	// are from the ABAP dictionary as published mirrors show it, still to be
+	// confirmed by an SAP specialist on the pilot's release.
+	XRECH *string `json:"XRECH,omitempty"`
 }
+
+// Indicator is an SAP one-character indicator as the extract holds an
+// optional one: XRECH: sap.Indicator("X").
+func Indicator(v string) *string { return &v }
 
 // RSEG - supplier invoice item referencing a PO item.
 type RSEG struct {
@@ -106,6 +128,13 @@ type RSEG struct {
 	EBELP string `json:"EBELP"`
 	MENGE string `json:"MENGE"`
 	WRBTR string `json:"WRBTR"`
+	// TBTKZ "X" marks a subsequent debit/credit item: a revaluation of what
+	// was invoiced that moves no quantity (SAP Help, "Subsequent
+	// Debits/Credits"); "" an ordinary item. SAP keeps the indicator per
+	// item, and a document whose items all carry it is a subsequent debit
+	// (XRECH "X") or credit (XRECH ""), as SAP Help, "Posting Subsequent
+	// Debit/Credits", describes entering one (T72b).
+	TBTKZ string `json:"TBTKZ,omitempty"`
 }
 
 // ACDOCA - Universal Journal line item.
@@ -180,6 +209,21 @@ type T012K struct {
 	HKONT string `json:"HKONT"` // G/L account of the bank
 	IBAN  string `json:"IBAN"`
 	SWIFT string `json:"SWIFT"`
+	// BANKS and BANKL are the house bank's bank country and bank key and
+	// BANKN the account's bank account number, flattened in here as IBAN
+	// and SWIFT are. That SAP keeps the first two with the house bank (T012)
+	// rather than its account is an assumption to confirm. A house bank has a
+	// bank country, a bank key (for Germany the bank number), an account ID
+	// and a bank account number, which is the company's account with the
+	// bank (SAP Help, "Necessary Customizing for the Electronic Bank
+	// Statement",
+	// https://help.sap.com/saphelp_46c/helpdata/en/64/20b8398a9111d2bc970060087d1bfc/content.htm).
+	// A Canadian account has no IBAN and is taken from these (T72d); the
+	// table and field names are the ABAP dictionary's as published mirrors
+	// show them, still to be confirmed by an SAP specialist.
+	BANKS string `json:"BANKS,omitempty"`
+	BANKL string `json:"BANKL,omitempty"`
+	BANKN string `json:"BANKN,omitempty"`
 }
 
 // AGR_DEFINE - roles.

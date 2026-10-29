@@ -292,5 +292,5 @@ for d in docs:
 print("\n---\n".join(json.dumps(d) for d in docs))
 ' >global.yaml
 apply global.json --resource global.yaml --registry
-expect global.json erp-router:admitted erp-router-tls:admitted erp-web:admitted
-echo "admission-checks: the erp-global chart's router, its certificate and the web workspace are admitted"
+expect global.json erp-router:admitted erp-router-tls:admitted erp-web:admitted erp-directory-setup:admitted
+echo "admission-checks: the erp-global chart's router, its certificate, the web workspace and the directory's setup hook are admitted"

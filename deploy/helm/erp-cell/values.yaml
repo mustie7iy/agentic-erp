@@ -118,11 +118,14 @@ directory:
   # host:port (global.directory_endpoint).
   endpoint: ""
   name: directory
-  # Its RDS-managed master user, whose rotating password the server reads
-  # again for each new connection (ERP_DIRECTORY_PASSWORD).
-  user: erp_admin
-  # The master credentials (global.directory_master_secret_arn).
-  masterSecretArn: ""
+  # The cells' login (T72h), which may record the cell, its tenants and
+  # their identity providers' claims and nothing else, made by the
+  # erp-global chart's setup hook (directory.logins.cell there).
+  user: erp_cell_login
+  # Its password in Secrets Manager, which operators set (e.g. `openssl
+  # rand -hex 32`) and the server reads again for each new connection
+  # (ERP_DIRECTORY_PASSWORD).
+  passwordSecret: erp/global/directory-cell-password
 
 pgbouncer:
   replicas: 2

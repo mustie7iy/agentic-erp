@@ -62,9 +62,11 @@ type Partners interface {
 	Block(ctx context.Context, id uuid.UUID, reason string) error
 }
 
-// Suppliers reads suppliers (partner).
+// Suppliers reads suppliers and, for the reconciliation, their payments
+// bank accounts (partner).
 type Suppliers interface {
 	Supplier(ctx context.Context, partnerID, legalEntity uuid.UUID) (partner.Supplier, bool, error)
+	PaymentAccounts(ctx context.Context, partners []uuid.UUID) (map[uuid.UUID]partner.PaymentAccount, error)
 }
 
 // Orders creates purchase orders and goods receipts (procurement).
@@ -84,9 +86,9 @@ type Invoices interface {
 	CreateInvoice(ctx context.Context, in payables.Input, source string) (payables.Invoice, error)
 }
 
-// InvoiceCounts counts supplier invoices (payables).
+// InvoiceCounts counts supplier invoices by kind (payables).
 type InvoiceCounts interface {
-	Count(ctx context.Context, ids []uuid.UUID) (int, error)
+	Count(ctx context.Context, ids []uuid.UUID) (map[string]int, error)
 }
 
 // Postings posts journal entries and clears migrated open items (ledger).

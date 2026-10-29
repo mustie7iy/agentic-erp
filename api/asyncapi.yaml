@@ -245,6 +245,7 @@ channels:
       RequisitionRejected: {$ref: '#/components/messages/RequisitionRejected'}
       RequisitionOrdered: {$ref: '#/components/messages/RequisitionOrdered'}
       PurchaseOrderClosed: {$ref: '#/components/messages/PurchaseOrderClosed'}
+      GrIrCleared: {$ref: '#/components/messages/GrIrCleared'}
       ContractExpired: {$ref: '#/components/messages/ContractExpired'}
       ContractExpiring: {$ref: '#/components/messages/ContractExpiring'}
   payables:
@@ -454,6 +455,7 @@ operations:
       - $ref: '#/channels/procurement/messages/RequisitionRejected'
       - $ref: '#/channels/procurement/messages/RequisitionOrdered'
       - $ref: '#/channels/procurement/messages/PurchaseOrderClosed'
+      - $ref: '#/channels/procurement/messages/GrIrCleared'
       - $ref: '#/channels/procurement/messages/ContractExpired'
       - $ref: '#/channels/procurement/messages/ContractExpiring'
   publishPayablesEvents:
@@ -2564,6 +2566,23 @@ components:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000063", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.purchase_order_closed.v1", "subject": "0192a000-0000-7000-8000-000000000602", "time": "2026-10-08T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
           payload: {"purchase_order_id": "0192a000-0000-7000-8000-000000000602", "document_number": "4500001234", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "previous_status": "released", "status": "closed"}
+    GrIrCleared:
+      name: GrIrCleared
+      x-webhook: true
+      title: GR/IR positions cleared
+      summary: "An approved GR/IR clearing of a closed purchase order posted its entry (SAP MR11)."
+      description: "Emitted when a GR/IR clearing's approval request is approved and its WE entry is posted against the price difference account: the order's items named no longer have an open GR/IR position. Subject is the GR/IR clearing id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.gr_ir_cleared.v1}
+      payload: {$ref: '#/components/schemas/GrIrClearedV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000071", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.gr_ir_cleared.v1", "subject": "0192a000-0000-7000-8000-000000000611", "time": "2026-10-27T10:05:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000102"}
+          payload: {"gr_ir_clearing_id": "0192a000-0000-7000-8000-000000000611", "purchase_order_id": "0192a000-0000-7000-8000-000000000602", "document_number": "4500001234", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "posting_date": "2026-10-27", "journal_entry_id": "0192a000-0000-7000-8000-000000000612", "journal_entry_year": 2026, "journal_entry_number": "5000000017", "items": [{"po_item_no": 1, "quantity": "-1", "unit": "EA", "amount": {"amount": "-470.00", "currency": "CAD"}}]}
     ContractExpired:
       name: ContractExpired
       x-webhook: true
@@ -4206,6 +4225,29 @@ components:
         supplier_id: {"$ref": "#/components/schemas/Uuid"}
         previous_status: {"type": "string", "description": "Open enum; released in v1."}
         status: {"type": "string", "description": "Open enum; closed in v1."}
+    GrIrClearedV1:
+      type: object
+      required: ["gr_ir_clearing_id", "purchase_order_id", "document_number", "legal_entity_id", "posting_date", "journal_entry_id", "journal_entry_year", "journal_entry_number", "items"]
+      properties:
+        gr_ir_clearing_id: {"$ref": "#/components/schemas/Uuid"}
+        purchase_order_id: {"$ref": "#/components/schemas/Uuid"}
+        document_number: {"type": "string", "description": "The purchase order's document number."}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        posting_date: {"$ref": "#/components/schemas/Date"}
+        journal_entry_id: {"$ref": "#/components/schemas/Uuid"}
+        journal_entry_year: {"type": "integer"}
+        journal_entry_number: {"type": "string"}
+        items:
+          type: array
+          description: "The positions cleared, by order item: the quantity (invoiced plus cleared less received, signed) and the balance in the order's currency."
+          items:
+            type: object
+            required: ["po_item_no", "quantity", "unit", "amount"]
+            properties:
+              po_item_no: {"type": "integer"}
+              quantity: {"type": "string"}
+              unit: {"type": "string"}
+              amount: {"$ref": "#/components/schemas/Money"}
     ContractExpiredV1:
       type: object
       required: ["contract_id", "document_number", "legal_entity_id", "supplier_id", "valid_to", "consumed_value", "previous_status", "status"]

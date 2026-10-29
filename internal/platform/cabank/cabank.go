@@ -66,6 +66,18 @@ func MemberID(institutionNumber, transitNumber string) string {
 // ValidMemberID reports whether s is a MemberID.
 func ValidMemberID(s string) bool { return memberID.MatchString(s) }
 
+// SplitMemberID is the institution and transit numbers of a MemberID,
+// written with or without spaces and dashes, or ok false when s is not one.
+// It reads a bank key held in that form, as an SAP extract's may be
+// (T72d).
+func SplitMemberID(s string) (institutionNumber, transitNumber string, ok bool) {
+	d := Digits(s)
+	if !memberID.MatchString(d) {
+		return "", "", false
+	}
+	return d[1:4], d[4:], true
+}
+
 // Digits is s without the spaces and dashes people write the numbers
 // with: the form they are stored in.
 func Digits(s string) string {

@@ -10,9 +10,9 @@
 # accepts it, and erp-web has no token of its own: every API call carries
 # the signed-in person's token. People sign in at their tenant's identity provider (T73b); their
 # sessions are kept in the directory database's web schema, which erp-web
-# reaches over verified TLS as the directory's login, working as the
-# erp_web role that sees that schema alone, with the tokens sealed under
-# the session key. Its admin listener (plain HTTP) serves liveness,
+# reaches over verified TLS as a login of its own (T72h), a member of the
+# erp_web role alone, which sees that schema alone, with the tokens sealed
+# under the session key. Its admin listener (plain HTTP) serves liveness,
 # metrics and the build's version to the kubelet alone.
 {{- $td := required "trustDomain is required" .Values.trustDomain }}
 {{- $hostname := required "web.hostname is required: the workspace's own hostname, app.<domain>" .Values.web.hostname }}
@@ -136,11 +136,12 @@ spec:
             # while it runs as cert-manager renews it.
             - {name: ERP_TLS_CERT, value: file:/etc/erp/tls/tls.crt}
             - {name: ERP_TLS_KEY, value: file:/etc/erp/tls/tls.key}
-            # Sessions: the directory over verified TLS, its rotating
-            # password read again for each new connection; the sealing key;
-            # and where the web clients' credentials are (credential_ref
-            # file:/etc/erp/web-clients/<name>, nothing outside it).
-            - {name: ERP_WEB_DIRECTORY_URL, value: {{ printf "postgres://%s@%s/%s?sslmode=verify-full&sslrootcert=/etc/erp/trust/rds-ca.pem" (.Values.directory.user | urlquery) $directory .Values.directory.name | quote }}}
+            # Sessions: the directory over verified TLS as erp-web's
+            # login, its password read again for each new connection; the
+            # sealing key; and where the web clients' credentials are
+            # (credential_ref file:/etc/erp/web-clients/<name>, nothing
+            # outside it).
+            - {name: ERP_WEB_DIRECTORY_URL, value: {{ printf "postgres://%s@%s/%s?sslmode=verify-full&sslrootcert=/etc/erp/trust/rds-ca.pem" ((required "directory.logins.web is required: erp-web's login" .Values.directory.logins.web) | urlquery) $directory .Values.directory.name | quote }}}
             - {name: ERP_WEB_DIRECTORY_PASSWORD, value: file:/etc/erp/secrets/directory-password}
             - {name: ERP_WEB_SESSION_KEY, value: file:/etc/erp/secrets/session-key}
             {{- if .Values.web.sessionKeyPrevious }}
@@ -272,9 +273,9 @@ spec:
 ---
 # erp-web's sessions' secrets, from AWS Secrets Manager (ADR-0017): the
 # sealing key (<prefix>/web-session-key), during a rotation the previous
-# one (<prefix>/web-session-key-previous, web.sessionKeyPrevious), and the
-# directory's RDS-managed
-# master password, refreshed every five minutes as the router's is; and
+# one (<prefix>/web-session-key-previous, web.sessionKeyPrevious), and its
+# directory login's password (<prefix>/directory-web-password, T72h),
+# refreshed every five minutes as the router's is; and
 # the web clients' credentials (<prefix>/web-clients, a JSON object of
 # file name to PEM key or client secret, one file each), which operators
 # load when they register a tenant's web client (ADR-0052 G8).
@@ -303,8 +304,7 @@ spec:
     {{- end }}
     - secretKey: directory-password
       remoteRef:
-        key: {{ required "directory.masterSecretArn is required: global.directory_master_secret_arn" .Values.directory.masterSecretArn }}
-        property: password
+        key: {{ printf "%s/directory-web-password" .Values.secrets.prefix }}
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret

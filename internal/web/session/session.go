@@ -1,13 +1,13 @@
 // Package session is erp-web's store of signed-in people (ADR-0052 §6,
 // T73b): server-side sessions in the web schema of the global directory's
-// database, which erp-web reaches as the erp_web role, seeing that schema
-// alone (directory.WebSchema), and the web clients it signs people in
-// with, found by their login code. A session holds who signed in and the
-// tokens the provider issued, sealed (Sealer); the browser holds only its
-// random id, of which the store keeps the SHA-256. Nothing here is
-// business data, and nothing is exported or fingerprinted. The store is
-// the one package of the workspace that holds a database pool
-// (internal/layout).
+// database, which erp-web reaches as a login of its own working as the
+// erp_web role, seeing that schema alone (directory.WebSchema, T72h), and
+// the web clients it signs people in with, found by their login code. A
+// session holds who signed in and the tokens the provider issued, sealed
+// (Sealer); the browser holds only its random id, of which the store
+// keeps the SHA-256. Nothing here is business data, and nothing is
+// exported or fingerprinted. The store is the one package of the
+// workspace that holds a database pool (internal/layout).
 package session
 
 import (
@@ -381,7 +381,8 @@ func (st *Store) Sweep(ctx context.Context) (int64, error) {
 
 // Check reads nothing a person owns: it tells whether the store's schema
 // is there and erp_web may use it, so a missing schema (the directory not
-// yet opened by its owners) fails startup rather than the first sign-in.
+// yet set up, erp-router setup-directory) fails startup rather than the
+// first sign-in.
 func (st *Store) Check(ctx context.Context) error {
 	err := st.inTx(ctx, true, func(ctx context.Context, tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `SELECT FROM web.session LIMIT 0; SELECT FROM web.login_client LIMIT 0`)
@@ -394,8 +395,9 @@ func (st *Store) Check(ctx context.Context) error {
 }
 
 // Open connects to the directory database with url, asking password for
-// each new connection when it is not nil (the directory's rotating
-// password, database.Settings), and checks the web schema is there.
+// each new connection when it is not nil (erp-web's login's password,
+// which changes while it runs: database.Settings), and checks the web
+// schema is there.
 func Open(ctx context.Context, url string, password func(context.Context) (string, error), sealer *Sealer) (*Store, error) {
 	settings := database.DefaultSettings
 	settings.Password, settings.MaxConns = password, MaxConns

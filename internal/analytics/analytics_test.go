@@ -39,7 +39,7 @@ func twoYears(t *testing.T) *Facts {
 	t.Helper()
 	fixtureOnce.Do(func() {
 		m, _ := DefaultModel()
-		f := &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{}, Exponents: map[string]int{"USD": 2, "EUR": 2}, AsOf: time.Date(2026, 10, 8, 6, 0, 0, 0, time.UTC)}
+		f := &Facts{Tables: map[string][]Fact{}, Companies: map[string]string{}, Exponents: map[string]int{"USD": 2, "EUR": 2, "CAD": 2}, AsOf: time.Date(2026, 10, 8, 6, 0, 0, 0, time.UTC)}
 		ledgerRevenue = map[string]int64{}
 		types := func(number string) string {
 			switch number[0] {

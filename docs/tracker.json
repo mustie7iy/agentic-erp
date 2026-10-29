@@ -456,9 +456,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Load SAP credit memos and subsequent debits/credits by kind (RBKP XRECH/TBTKZ)",
-      "r": "T72b",
+      "r": "integration documentKind, parkedKinds · sap.RBKP XRECH, sap.RSEG TBTKZ · reconciliation Parked supplier credit memos / subsequent debits / subsequent credits · TestCorrectionsLoadByKind · TestDocumentKind · walkthrough step 3 · T72b",
       "src": "baseline",
       "c": []
      },
@@ -593,6 +593,20 @@
       "t": "Tests: an invoice's posting against a goods receipt reversal (apitest.Serialized) and against an order change applied through procurement",
       "r": "follow-up of the overpayment fix · 03 §3.9",
       "src": "baseline",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Migrated SAP corrections pass matching (pre-existing finding on T72b): invoicedQuantities counts only invoices posted in the platform, so every migrated credit memo is held with quantity_exceeds_invoiced and every subsequent debit/credit with nothing_invoiced until a person releases it; the quantities SAP already invoiced (posted RSEG) are taken over at migration",
+      "r": "internal/payables/match.go invoicedQuantities · internal/integration load",
+      "src": "review:T72b",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "The contract describes SupplierInvoiceItem.quantity as positive, but subsequent debit/credit items carry quantity 0 (pre-existing finding on T72b)",
+      "r": "api/openapi.yaml SupplierInvoiceItem",
+      "src": "review:T72b",
       "c": []
      }
     ]
@@ -832,10 +846,31 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "SAP load of Canadian accounts: vendor bank accounts (LFBK) as scheme ca with institution and transit numbers, and Canadian house banks (T012K) without an IBAN",
-        "r": "integration/load.go · delivery/sapconfig · after T45d · T72d",
+        "r": "integration/banks.go (load, quality gate LFBK, reconciliation check of vendor bank accounts) · delivery/sapconfig canadianAccount · cabank.SplitMemberID · partner.Suppliers.PaymentAccounts · ADR-0038 As built (T72d) · T72d",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "SAP bank accounts attach to the right vendor (pre-existing finding on T72d): the OData mapping takes LFBK's vendor from A_BusinessPartnerBank.BusinessPartner, assuming business partner and vendor numbers are equal; where the ranges differ, accounts attach to no vendor or the wrong one; checked against the pilot's set-up",
+        "r": "internal/sap/odata.go",
+        "src": "review:T72d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "House banks show their Canadian routing (pre-existing finding on T72d, API-consumer classes): listHouseBanks returns institution and transit numbers, and account_last4 is not described as of the IBAN",
+        "r": "api/openapi.yaml HouseBank · internal/payments",
+        "src": "review:T72d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Payments name their supplier (pre-existing finding on T72d, API-consumer classes): listPayments items give the supplier's name beside supplier_id",
+        "r": "api/openapi.yaml Payment · internal/payments",
+        "src": "review:T72d",
         "c": []
        }
       ]
@@ -2504,9 +2539,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "GR/IR maintenance: clear residual positions on closed orders (SAP MR11)",
-      "r": "T72e",
+      "r": "POST/GET /v1/purchase-orders/{id}/gr-ir-clearings · procurement grir_clearing.go · approvals.GRIRClearing · ledger GRIRItem.Clears, gr_ir_position.cleared, gr_ir_clearing_entry (migration 000165) · event GrIrCleared · walkthrough step 15 · ADR-0034 As built · T72e",
       "src": "baseline",
       "c": []
      },
@@ -2529,6 +2564,27 @@
       "t": "Move open direct-valued orders onto GR/IR (optional)",
       "r": "T72f",
       "src": "baseline",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A purchase order's change history answers page 2 (pre-existing finding on T72e): its select joins purchase_order, so the keyset's unqualified id is ambiguous and page 2 answers 500; its test never asks for page 2",
+      "r": "internal/procurement/order_changes.go · api.go",
+      "src": "review:T72e",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "GR/IR balances name what they count (pre-existing finding on T72e, API-consumer classes): rows give the order's number beside purchase_order_id and the account's number and name beside account_id, and the report gives totals",
+      "r": "internal/ledger/grir_list.go · api/openapi.yaml listGrIrBalances",
+      "src": "review:T72e",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Approval requests lead to their object (pre-existing finding on T72e): ApprovalRequest.object_type lists payment_run_release, and an order_change request carries what a consumer needs to reach the change",
+      "r": "api/openapi.yaml ApprovalRequest · internal/approvals",
+      "src": "review:T72e",
       "c": []
      }
     ]
@@ -6501,9 +6557,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Logins of their own in the directory for the router and the cells, in place of its master user; erp-web too needs its own directory login before production (T73b review D1: it connects as the master login, working as the erp_web role, which keeps it to its schema against its own code but not against a stolen credential), with T73m at the latest",
-        "r": "deploy/helm/erp-global · deploy/helm/erp-cell · T72h · ADR-0052 D1",
+        "r": "deploy/helm/erp-global · deploy/helm/erp-cell · T72h · ADR-0052 D1 · internal/directory setup.go · erp-router setup-directory · erp-global templates/setup.yaml · ADR-0035 amendment 2026-10-28",
         "src": "baseline",
         "c": []
        },
@@ -6547,6 +6603,20 @@
         "t": "The SCRAM verifier in setup-schema",
         "r": "temporal/cmd/erp-temporal schema.go (post-pilot, PO 2026-10-21)",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "PUBLIC's rights on object kinds pg_shdepend does not record are taken back or refused by the directory's Setup (follow-up of T72h's review, the class: a right given by hand that Setup neither takes back nor refuses): large objects, foreign servers and wrappers, languages, and server-wide parameter ACLs",
+        "r": "internal/directory/setup.go",
+        "src": "review:T72h",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The directory's logins reach no other database on the directory's server (follow-up of T72h's review): PUBLIC's CONNECT and TEMPORARY defaults and hand grants on other databases (e.g. postgres) stay usable by every login; refuse or document a server holding other databases, or take PUBLIC's CONNECT on them with the IAM authentication step",
+        "r": "internal/directory/setup.go · ADR-0035",
+        "src": "review:T72h",
         "c": []
        }
       ]
@@ -7983,7 +8053,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A parked SAP credit memo or subsequent debit/credit (RBKP XRECH/TBTKZ) loads as its kind, never as a positive invoice that gets paid",
       "r": "Phase 1 triage (PO 2026-10-21) · internal/integration load.go loader.invoices · sap.RBKP · T72b",
       "src": "baseline",
@@ -7997,16 +8067,16 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Canadian vendor bank accounts (LFBK) load as scheme ca with institution and transit numbers, and Canadian house banks (T012K) load without an IBAN, so migrated Canadian suppliers can be paid",
-      "r": "Phase 1 triage (PO 2026-10-21) · internal/integration load.go newSupplier · delivery/sapconfig house banks · T45d · T72d",
+      "r": "Phase 1 triage (PO 2026-10-21) · internal/integration banks.go · delivery/sapconfig canadianAccount · walkthrough steps 1, 3 and 7 · T72d",
       "src": "baseline",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Residual GR/IR positions of closed orders can be cleared (SAP MR11) through the API, approved and audited, before the first month-end close",
-      "r": "Phase 1 triage (PO 2026-10-21) · 03-data-model GR/IR (not yet built) · T33a · T72e",
+      "r": "Phase 1 triage (PO 2026-10-21) · 03-data-model §3.8 GR/IR clearing · createGrIrClearing, approvals gr_ir_clearing · walkthrough step 15 · T72e",
       "src": "baseline",
       "c": []
      },
@@ -8025,10 +8095,24 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The router and the cells connect to the directory with logins of their own and least privilege, never as the RDS master user erp_admin",
-      "r": "Phase 1 triage (PO 2026-10-21) · deploy/helm/erp-global values.yaml · deploy/helm/erp-cell values.yaml · T72h",
+      "r": "Phase 1 triage (PO 2026-10-21) · deploy/helm/erp-global values.yaml · deploy/helm/erp-cell values.yaml · T72h · erp_router_login, erp_cell_login, erp_web_login · ADR-0035 amendment 2026-10-28",
       "src": "baseline",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "The router's, the cells' and erp-web's directory logins authenticate with RDS IAM database authentication in place of their operator-set passwords, before production",
+      "r": "T72h · ADR-0035 amendment 2026-10-28 · internal/directory setup.go · deploy/helm/erp-global · deploy/helm/erp-cell · modules/global",
+      "src": "po:2026-10-28",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "erp-cell's erp-migrate and erp-temporal-schema hook network policies admit the cluster's DNS: on a first install the default deny is not there yet and the hook Jobs cannot resolve the writer",
+      "r": "deploy/helm/erp-cell/templates/network-policy.yaml · scripts/helm-checks.sh · T72h",
+      "src": "review:T72h",
       "c": []
      },
      {
@@ -8088,9 +8172,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The mock SAP extract has a Canadian company (CAD, LAND1 CA, Canadian vendors and house banks), so the walkthrough migrates the Canadian pilot company from SAP instead of the mock's US and German companies",
-      "r": "walkthrough 2026-10-22 · internal/sap mock.go (companies 1000 US, 2000 DE) · T72d",
+      "r": "walkthrough 2026-10-22 · internal/sap mock.go company 3000 (CAD, CA) · scripts/walkthrough.sh migrates it · T72d",
       "src": "baseline",
       "c": []
      },
@@ -8359,6 +8443,13 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "Delivery process of 2026-10-28 (PO: \"waterfall of waterfall\"; ADR-0053): the 9.5/10 bar kept; a step that adds or changes a capability is a slice a named user or API consumer can use end to end, closing one or more tracker leaves in about half an agent-day, with contract, domain, migration, tests, docs and at least one new or extended walkthrough step as its acceptance evidence; lanes run a fast loop (static checks, gitleaks, generate, contract checks when it changes, the changed and directly importing packages' tests against real PostgreSQL with -race once, 100% coverage of the changed packages, go-reviewer) and make ci-local runs every full gate once per batch, unchanged, before every pull request, the lanes returning to full gates if more than 1 batch in 3 fails on what they would have caught; the product owner is not a gate: agents accept slices with go-reviewer and REVIEW.md's API-consumer classes, decide by default and record it in the ADR's As built section (or a new ADR, accepted after go-reviewer, when nothing settles it), and block only on new scope, money or tax rules, legal or regulatory facts and security posture, batched into one question; a digest per batch with the decisions and process metrics; three lanes; the web workspace deferred, its tests kept passing; branch protection approved and refused by GitHub on a free private repository, so merge-pr.sh enforces ci-ok by convention",
+      "r": "docs/design/adr/0053-delivery-process-slices-fast-lane-loop.md · REVIEW.md · .claude/agents/go-reviewer.md · CLAUDE.md · 06 §6.2 · 06 §6.5 · 06 §6.8 · 07-transition §7.7",
+      "src": "po:2026-10-28",
+      "c": []
+     },
+     {
       "s": "P",
       "t": "Main's full suite on GitHub, stopped by the runner (exit 143, \"received a shutdown signal\") about 8 minutes into the race step on every push from 2026-10-21 with no test failing: the generated API built alone first, then the packages tested two at a time, memory and disk logged every 30 s; workflow_dispatch runs the full jobs on any branch (PO 2026-10-25); verified by main's first run after it merges",
       "r": ".github/workflows/ci.yml test job",
@@ -8440,6 +8531,20 @@
       "t": "06 §6.5 lists the inputs that start the image reproducibility gate and the signing round trip as scripts/ci-changes.sh's images class has them, .dockerignore, deploy/images/, scripts/test-images and scripts/lib/sbom-root included, and names the script as the rule (pre-existing review finding on batch 17)",
       "r": "06 §6.5 · scripts/ci-changes.sh",
       "src": "review:batch17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "scripts/coverage.sh sets a go test timeout (finding on T72b): under load internal/analytics/extract and internal/web hit go test's default 10 minutes and make coverage fails though nothing is wrong",
+      "r": "scripts/coverage.sh",
+      "src": "review:T72b",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "06 §6.9 asks for two reviewers on migrations, contracts and security-sensitive code; every step has one agent reviewer (pre-existing finding on the process change): the rule and the practice are made to agree",
+      "r": "docs/design/06-engineering-process.md §6.9 · REVIEW.md",
+      "src": "review:batch18",
       "c": []
      }
     ]

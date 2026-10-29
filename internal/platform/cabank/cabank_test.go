@@ -59,3 +59,30 @@ func TestStoredForms(t *testing.T) {
 		t.Errorf("member id: got %q, want %q", got, want)
 	}
 }
+
+func TestSplitMemberID(t *testing.T) {
+	cases := []struct {
+		name, in, institution, transit string
+		ok                             bool
+	}{
+		{"member id", "000312345", "003", "12345", true},
+		{"written with a dash", "0003-12345", "003", "12345", true},
+		{"without its zero", "00312345", "", "", false},
+		{"transit first, as on a cheque", "12345-003", "", "", false},
+		{"empty", "", "", "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			institution, transit, ok := SplitMemberID(c.in)
+			if ok != c.ok {
+				t.Fatalf("ok: got %v, want %v", ok, c.ok)
+			}
+			if institution != c.institution || transit != c.transit {
+				t.Errorf("routing: got %q/%q, want %q/%q", institution, transit, c.institution, c.transit)
+			}
+			if ok && MemberID(institution, transit) != Digits(c.in) {
+				t.Errorf("member id of the parts: got %q, want %q", MemberID(institution, transit), Digits(c.in))
+			}
+		})
+	}
+}

@@ -768,8 +768,8 @@ Rules enforced in the database:
   arrive without their order items. The ledger's `IsPostable` answers false
   for the GR/IR account too, so no order or invoice item names it.
 - An order item's GR/IR position is the sum of its lines: quantity
-  (invoiced less received; a receipt's line is negative) and amounts in the
-  three currencies. Goods movements and invoices move it through
+  (invoiced plus cleared less received; a receipt's line is negative) and
+  amounts in the three currencies. Goods movements and invoices move it through
   `Postings.Post` with `GRIR` items (T33b); the ledger books the GR/IR line,
   its own reading of the position under the order's lock:
   - in transaction currency the balance afterwards is the order price of the
@@ -804,6 +804,19 @@ Rules enforced in the database:
   `ledger.check_gr_ir_fixed`, constraint `account_determination_gr_ir_fixed`,
   409 `ledger.gr_ir_account_fixed`), as the configuration does: a reversal
   of lines on another account would not reach their positions.
+  A GR/IR clearing's entry (T72e, SAP MR11; procurement below) is recorded
+  in `ledger.gr_ir_clearing_entry` (insert-only, migration 000165) before
+  it is projected, and its GR/IR lines' quantities go to the position's
+  `cleared` rather than to received or invoiced; `is_open` is received
+  <> invoiced + cleared or any balance not zero, and the key-date report
+  reads clearings from the same record. Its items (`GRIRItem.Clears`)
+  bring each position to zero against `price_difference` (with the item's
+  cost center when that is a primary cost account, as an invoice's price
+  difference), and are refused (409 `ledger.gr_ir_clearing_outdated`)
+  unless the position still holds the quantity and transaction balance,
+  and `price_difference` is still the account, that were approved. A
+  clearing entry is procurement's (WE), so the ledger's `:reverse`
+  refuses it; no path reverses one yet.
   `GET /v1/gr-ir-balances` (T33e) pages the current positions from it by an
   index range scan (partial indexes `WHERE is_open` for the default,
   open-only listing); together they are the leading ledger's GR/IR balance
@@ -1259,8 +1272,35 @@ takes it beyond the tolerance. On a `gr_ir` order a return posts Dr GR/IR
 invoiced is left with a debit GR/IR position, which the supplier's credit
 memo clears (T34); payables takes no invoice on a closed order
 (`order_not_open`), so a closed order's position waits for a GR/IR
-account clearing (SAP MR11), not yet built. Reversals do not check the order's status: a
+clearing (SAP MR11, below). Reversals do not check the order's status: a
 mistaken receipt or return is undone on a closed order too.
+
+A GR/IR clearing (`gr_ir_clearing`, migration 000165, T72e; ADR-0034 As
+built) clears the positions a closed order valued through GR/IR is left
+with: received and invoiced quantities that no receipt or invoice will
+make agree. `POST /v1/purchase-orders/{id}/gr-ir-clearings` (permission
+`procurement.gr_ir.clear`, human-only) takes each open position of the
+order's items, or of the items named, as it stands (`gr_ir_clearing_item`,
+insert-only: the position's quantity, invoiced plus cleared less received,
+and its balance in the order's currency), with the legal entity's
+`price_difference` account as shown then (id, number, name), and opens a
+`gr_ir_clearing` approval request, whose object is the clearing (`GET
+/v1/gr-ir-clearings/{id}`; the order's are listed under it), which a controller holding
+`procurement.gr_ir.clear.approve` decides, never its requester (fixed role,
+`approvals.DefaultGRIRClearingRole`). It is refused unless the order is
+`closed` (409 `procurement.invalid_status`), with a reason (422
+`procurement.reason_required`), and has an open position (409
+`procurement.nothing_to_clear`); one is pending per order
+(`gr_ir_clearing_one_pending`, 409 `procurement.gr_ir_clearing_pending`).
+Approved, it posts a WE entry dated its `posting_date` through
+`ledger.Postings`, a clearing item per position at the item's valuation
+price, names the entry (`journal_entry_id`, year and number:
+`gr_ir_clearing_posted`) and publishes `GrIrCleared`; rejected or
+withdrawn, it ends `rejected` or `cancelled` with the decision's comment
+and the positions stay open. A position that moved since the proposal (a
+receipt reversed on the closed order) refuses the approval and the request
+stays pending. A clearing starts `pending` and is decided once, and what it
+clears never changes (`gr_ir_clearing_transition`, `gr_ir_clearing_fixed`).
 
 An order is released by the release strategy (migration 000063, T47d)
 when it has no approved requisition or its total exceeds its
@@ -2323,7 +2363,7 @@ line or reservation. An agent's budget is identity's
 | SKA1/SKB1 | `ledger.gl_account`, `ledger.company_account` |
 | ACDOCA | `ledger.journal_entry` + `ledger.journal_line` (TC/LC/GC amounts) |
 | BSEG clearing (AUGBL) | `ledger.clearing` + `ledger.clearing_item` |
-| LFA1/LFB1/LFBK, BUT000 | `partner.business_partner`, `supplier_company`, `bank_account`, `tax_identifier` |
+| LFA1/LFB1/LFBK, BUT000 | `partner.business_partner`, `supplier_company`, `bank_account`, `tax_identifier`; a Canadian LFBK (BANKS CA) as scheme `ca`, its institution and transit from BANKL as 0 + institution + transit (T72d) |
 | FLQLITEM/FLQLITEMT liquidity items, T035 planning groups, LFB1-FDGRV | `cash.liquidity_item`, `cash.planning_group`, `supplier_company.planning_group` (T53b) |
 | EBAN | `procurement.requisition` |
 | EKKO/EKPO | `procurement.purchase_order` + items |
@@ -2334,9 +2374,9 @@ line or reservation. An agent's budget is identity's
 | Purchase order release strategy (T16FS/T16FC, EKKO-FRGKE/FRGZU) | `purchasing.order_release_approval` tiers, `purchase_order.status` `pending_approval`, `workflow.approval_request` (`purchase_order`) (T47c/d) |
 | PO change documents and versions (CDHDR/CDPOS EINKBELEG, EREV, EKKO-REVNO) | `procurement.purchase_order_change` (`proposed`, `previous`, `revision`), `purchase_order.revision`; increases approved as `order_change` (T47e/f) |
 | Outline agreement validity end and follow-on contract (EKKO-KDATE, reference agreement) | `contract.valid_to`, `contract.renewal_of_id`, `expiry_alerted_on` and `ContractExpiring` (T47g) |
-| RBKP/RSEG | `payables.supplier_invoice` + items |
+| RBKP/RSEG | `payables.supplier_invoice` + items; parked documents (RBSTAT A) by kind (T72b): RBKP-XRECH "X" an invoice, blank a credit memo; all items RSEG-TBTKZ "X" a subsequent debit (XRECH "X") or credit (blank), their items of quantity 0. An absent or unknown indicator stops the load; a document mixing subsequent and ordinary items is not migrated (warning) |
 | REGUH/REGUP (F110) | `payments.payment_run`, `payment`, `payment_item` |
-| T012K | `payments.house_bank` |
+| T012K | `payments.house_bank`; a Canadian one, without an IBAN, by `institution_number`, `transit_number` (from the bank key, as for LFBK) and `account_number` (BANKN) (T72d) |
 | T052 | `partner.payment_term` |
 | T007A, KONP/A003 (tax rates per condition), T030K (account keys MWS, VST, NVV, ESA/ESE) | `ledger.tax_code_definition`, `tax_component`, `tax_rate` (T61a) |
 | T030 | `ledger.account_determination` (VST, BNK, WRX, PRD, SKE) |
