@@ -76,7 +76,7 @@ if [ "$event" = pull_request ]; then
 else
   files="$(git diff --name-only "$base" "$head")"
 fi
-images="$(changed '^(go\.(mod|sum)|\.ko\.yaml|\.dockerignore|deploy/images/|Makefile|cmd/|release/|scripts/(image|test-images|lib/sbom-root|sign|verify-image|provenance|free-disk)|\.github/workflows/(ci|weekly)\.yml)')"
+images="$(changed '^(go\.(mod|sum)|temporal/(go\.(mod|sum)|cmd/)|\.ko\.yaml|\.dockerignore|deploy/images/|Makefile|cmd/|release/|scripts/(image|test-images|lib/sbom-root|sign|verify-image|provenance|free-disk)|\.github/workflows/(ci|weekly)\.yml)')"
 release="$(changed '^(scripts/(next-version|changelog|test-release-scripts)\.sh|cliff\.toml|Makefile|\.github/workflows/(ci|release|weekly)\.yml)')"
 # deploy.yml's paths: deploy/ but its environments (promotion.yml's), the
 # scripts it runs, temporal/, scripts/lib/ and the workflows it lints.

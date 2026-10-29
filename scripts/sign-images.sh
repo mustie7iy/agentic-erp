@@ -37,12 +37,15 @@ else
 fi
 # sbom_for prints the one SBOM in OUT/sbom that describes the image digest
 # $1 (ko names the image it describes first), and fails unless exactly one
-# does.
+# does or when one cannot be read.
 sbom_for() {
-  local found="" f
+  local found="" f name
   for f in "$OUT"/sbom/*.spdx.json; do
     [ -e "$f" ] || continue
-    if [ "$(jq -r '.packages[0].name' "$f")" = "$1" ]; then
+    # An SBOM that cannot be read stops the signing: skipping it could
+    # hide a second SBOM of the image.
+    name="$(jq -r '.packages[0].name' "$f")" || return 1
+    if [ "$name" = "$1" ]; then
       [ -z "$found" ] || return 1
       found="$f"
     fi
@@ -83,7 +86,7 @@ copies=0
 while IFS= read -r ref; do
   [ -n "$ref" ] || continue
   if ! sbom="$(sbom_for "${ref##*@}")"; then
-    echo "sign-images: $ref: no single SBOM in $OUT/sbom describes it" >&2
+    echo "sign-images: $ref: no single SBOM in $OUT/sbom describes it, or one cannot be read" >&2
     exit 1
   fi
   if ! attested="$(provenance_for "${ref##*@}")"; then

@@ -20,7 +20,14 @@ if [ "${1:-}" = --after ]; then
   shift 2
 fi
 rev="${1:-HEAD}"
-last="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' --exclude '*-*' "$rev" 2>/dev/null || true)"
+# Whether a release tag is reachable is asked first, so that a failing git
+# is an error, never "no release yet": describe fails both ways.
+reachable="$(git tag --merged "$rev" --list 'v[0-9]*.[0-9]*.[0-9]*')"
+releases="$(awk '!/-/' <<<"$reachable")"
+last=""
+if [ -n "$releases" ]; then
+  last="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' --exclude '*-*' "$rev")"
+fi
 if [ -n "$named" ] && ! [[ "$named" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "next-version: $named is not vX.Y.Z" >&2
   exit 1
@@ -46,7 +53,10 @@ if [ -n "$named" ]; then
   exit 0
 fi
 range="$last..$rev"
-if [ -z "$(git rev-list --no-merges "$range")" ]; then
+# Each read is assigned before it is tested: inside a test, a failed git
+# would print nothing and read as "no commit" or "no migration".
+commits="$(git rev-list --no-merges "$range")"
+if [ -z "$commits" ]; then
   echo "next-version: nothing was committed since $last" >&2
   exit 1
 fi
@@ -58,8 +68,9 @@ subjects="$(git log --no-merges --format=%s "$range")"
 # the same release removed it again (the file only lists what main has not
 # absorbed yet), so each commit's change is read, not the net difference.
 accepted="$(git log --no-merges -p --format= "$range" -- api/breaking-accepted.txt)"
+contract="$(git diff --name-only "$range" -- db/migrations 'api/*.yaml')"
 bump=patch
-if [ -n "$(git diff --name-only "$range" -- db/migrations 'api/*.yaml')" ] ||
+if [ -n "$contract" ] ||
   grep -Evq '^(Fix|Refactor|Tests?|CI|Plan|Tracker|Process|Release):' <<<"$subjects"; then
   bump=minor
 fi

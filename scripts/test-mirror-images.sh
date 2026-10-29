@@ -16,7 +16,8 @@
 #     accepts the copy for every release that attested it and refuses it
 #     for another commit or one whose checkout had uncommitted changes, a
 #     copy's provenance naming another digest, an image whose provenance
-#     says both copy and build, and a built image attested at two commits;
+#     says both copy and build, a built image attested at two commits and
+#     one whose checkout state jq fails to read;
 #     two copies of one digest, or an unreadable one, stop the signing.
 # ZOT, CRANE, SYFT and COSIGN name the binaries.
 set -euo pipefail
@@ -179,6 +180,19 @@ attest "$registry/erp-router@$mixed" spdxjson empty-sbom.json
 attest "$registry/erp-router@$mixed" slsaprovenance1 build-a.json
 attest "$registry/erp-router@$mixed" slsaprovenance1 build-b.json
 unverified "$commit_a" "$registry/erp-router@$mixed" "was built from"
+# A check whose tool fails refuses: jq failing on the checkout state of a
+# clean build at A (as an unreadable provenance or a broken jq would)
+# cannot read as a clean checkout.
+mkdir -p failing
+printf '#!/usr/bin/env bash\ncase "$*" in *sourceModified*) echo "jq: error" >&2; exit 5 ;; esac\nexec "%s" "$@"\n' "$(command -v jq)" >failing/jq
+chmod +x failing/jq
+clean="$(push_image erp-web v1)"
+"$COSIGN" sign --yes --key keys/cosign.key --signing-config "$root/release/signing-config.json" "$registry/erp-web@$clean" >/dev/null 2>&1 || fail "signing erp-web failed"
+attest "$registry/erp-web@$clean" spdxjson empty-sbom.json
+attest "$registry/erp-web@$clean" slsaprovenance1 build-a.json
+verified "$commit_a" "$registry/erp-web@$clean"
+if PATH="$PWD/failing:$PATH" verify "$commit_a" "$registry/erp-web@$clean" >verify.log 2>&1; then fail "a jq error on the checkout state passed for a clean checkout"; fi
+grep -q "was built from uncommitted changes, or its provenance does not say" verify.log || { cat verify.log >&2; fail "a jq error on the checkout state was refused without the reason"; }
 cp out/provenance/erp-proxy.json out/provenance/erp-twin.json
 if ERP_COSIGN_KEY=keys/cosign.key PROVENANCE=build-a.json "$root/scripts/sign-images.sh" out >twin.log 2>&1; then fail "two copies of one digest were signed"; fi
 grep -q "no single readable copy" twin.log || { cat twin.log >&2; fail "two copies of one digest failed without the reason"; }
@@ -186,4 +200,4 @@ rm out/provenance/erp-twin.json
 echo '{"buildDefinition":' >out/provenance/erp-broken.json
 if ERP_COSIGN_KEY=keys/cosign.key PROVENANCE=build-a.json "$root/scripts/sign-images.sh" out >broken.log 2>&1; then fail "a broken copy provenance was signed past"; fi
 grep -q "no single readable copy" broken.log || { cat broken.log >&2; fail "a broken copy provenance failed without the reason"; }
-echo "test-mirror-images: another digest, copy and build in one, a build at two commits, two copies of one digest and an unreadable copy are refused"
+echo "test-mirror-images: another digest, copy and build in one, a build at two commits or whose checkout state jq fails to read, two copies of one digest and an unreadable copy are refused"

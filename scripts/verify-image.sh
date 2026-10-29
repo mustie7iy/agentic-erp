@@ -71,8 +71,10 @@ for ref in "$@"; do
       echo "verify-image: $ref was built from ${commits:-no commit}, want $expected" >&2
       exit 1
     fi
-    if printf '%s\n' "$predicates" | jq -e 'select(.buildDefinition.internalParameters.sourceModified != false)' >/dev/null; then
-      echo "verify-image: $ref was built from uncommitted changes" >&2
+    # Asserted positively, as above: a jq error (a provenance it cannot
+    # read) refuses the image rather than reading as a clean checkout.
+    if ! printf '%s\n' "$predicates" | jq -e -s 'all(.[]; .buildDefinition.internalParameters.sourceModified == false)' >/dev/null; then
+      echo "verify-image: $ref was built from uncommitted changes, or its provenance does not say it was not" >&2
       exit 1
     fi
   fi

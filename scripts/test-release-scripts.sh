@@ -127,6 +127,22 @@ ERP_RELEASE_BUMP=major expect "ERP_RELEASE_BUMP overrides" "$r" v2.0.0
 r="$(repo nothing v1.0.0)"
 expect "nothing since the tag" "$r" "error: next-version: nothing was committed since v1.0.0"
 
+# A git that fails is an error, never a first release or a smaller bump:
+# each subcommand next-version.sh reads fails in turn, the others are real.
+mkdir -p "$work/failing"
+printf '#!/usr/bin/env bash\n[ "$1" != "$FAIL_GIT" ] || { echo "git $1: failed" >&2; exit 128; }\nexec "%s" "$@"\n' "$(command -v git)" >"$work/failing/git"
+chmod +x "$work/failing/git"
+r="$(repo failing v0.6.0)"
+commit "$r" "Fix: the index (T4)" db/migrations/000099_x.up.sql
+for sub in tag describe rev-list log diff; do
+  if got="$(cd "$r" && PATH="$work/failing:$PATH" FAIL_GIT="$sub" "$next" 2>&1)"; then
+    echo "FAIL a failing git $sub: printed $got, want an error" >&2
+    failed=1
+  else
+    echo "ok   a failing git $sub is an error"
+  fi
+done
+
 if [ -n "${GIT_CLIFF:-}" ]; then
   r="$(repo changelog v0.1.0)"
   cp "$root/cliff.toml" "$r/"

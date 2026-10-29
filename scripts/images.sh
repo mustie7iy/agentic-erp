@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the container images of the five binaries (ADR-0032) into OUT
+# Builds the container images of the six binaries (ADR-0032) into OUT
 # (default dist/images), and pushes them to KO_DOCKER_REPO when PUSH=true
 # (the release workflow); otherwise nothing leaves the machine:
 #   OUT/images.txt  one image reference per line, the multi-platform index
@@ -47,6 +47,34 @@ KO_DOCKER_REPO="$repo" ERP_VERSION="${ERP_VERSION:-}" $KO build --jobs=1 --push=
   --tags="${KO_TAGS:-latest}" ${KO_PLATFORMS:+--platform="$KO_PLATFORMS"} \
   --sbom=spdx --sbom-dir="$OUT/sbom" --image-refs="$OUT/images.txt" \
   ./cmd/erp-server ./cmd/erp-router ./cmd/erp-web ./cmd/erp >/dev/null
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+# erp-temporal, from its own module. OUT is made absolute: ko runs in
+# temporal/.
+out="$(cd "$OUT" && pwd)"
+koconfig="$work/temporal.ko.yaml"
+sed -n '/^defaultBaseImage:/p; /^defaultPlatforms:/,/^[a-z]/{/^defaultPlatforms:/p; /^ *- /p;}' "$here/../.ko.yaml" >"$koconfig"
+if ! grep -q '^defaultBaseImage: .*@sha256:' "$koconfig" || ! grep -q '^ *- ' "$koconfig"; then
+  echo "images: .ko.yaml must name defaultBaseImage by digest and list defaultPlatforms one per line (erp-temporal's configuration is written from them)" >&2
+  exit 1
+fi
+cat >>"$koconfig" <<'YAML'
+builds:
+  - id: erp-temporal
+    main: ./cmd/erp-temporal
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: ["-s -w -buildid="]
+YAML
+(cd "$here/../temporal" && KO_CONFIG_PATH="$koconfig" KO_DOCKER_REPO="$repo" $KO build --jobs=1 --push="${PUSH:-false}" --base-import-paths \
+  --tags="${KO_TAGS:-latest}" ${KO_PLATFORMS:+--platform="$KO_PLATFORMS"} \
+  --sbom=spdx --sbom-dir="$out/sbom" --image-refs="$work/temporal.txt" ./cmd/erp-temporal >/dev/null)
+if ! grep -q "^$repo/erp-temporal@sha256:" "$work/temporal.txt"; then
+  echo "images: ko listed no erp-temporal image" >&2
+  exit 1
+fi
+cat "$work/temporal.txt" >>"$OUT/images.txt"
 
 # erp-analytics, for the same platforms.
 if [ -n "${KO_PLATFORMS:-}" ]; then
@@ -64,8 +92,6 @@ for platform in "${platforms[@]}"; do
     exit 1
   fi
 done
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
 for platform in "${platforms[@]}"; do
   # No buildx attestations: the SBOM and provenance are signed attestations
   # of their own (sign-images.sh), and an attestation manifest would make

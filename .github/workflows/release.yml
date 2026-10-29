@@ -3,9 +3,11 @@ name: release
 # A release (ADR-0032, 06 §6.9): dispatched by hand from a green main, it
 # waits for a second person's approval in the `release` environment, then
 # builds the images at that commit with the version stamped in, scans them,
-# pushes them (tagged with the version only), copies the pinned upstream
-# images (deploy/images/upstream.txt: PgBouncer, NATS) by digest into the
-# release registry with their SBOMs and copy provenance
+# pushes them (tagged with the version only) to the release registry,
+# tooling's ECR, where the clusters admit images from and promotions pin
+# them (ADR-0035; no other registry, ADR-0032 amendment of 2026-10-29),
+# copies the pinned upstream images (deploy/images/upstream.txt: PgBouncer,
+# NATS) by digest into it with their SBOMs and copy provenance
 # (scripts/mirror-images.sh, ADR-0035), signs them all and attests their
 # SBOM and provenance with the KMS key, verifies what it pushed, tags the
 # commit, publishes the GitHub Release with the generated notes and opens a
@@ -22,8 +24,9 @@ name: release
 #                                        sub repo:<owner>/agentic-erp:environment:release
 #                  ERP_AWS_REGION        the key's region
 #                  ERP_RELEASE_REGISTRY  tooling's ECR registry host (the host of envs/tooling
-#                                        repository_urls), which the upstream images are
-#                                        copied into and the clusters admit images from
+#                                        repository_urls), which the images are pushed and
+#                                        the upstream images copied into, and the clusters
+#                                        admit images from
 #                  ERP_RELEASE_APP_ID    a GitHub App that may push a branch and open
 #                                        a pull request (contents and pull requests:
 #                                        write), so the changelog pull request runs CI
@@ -55,8 +58,7 @@ jobs:
     environment: release
     permissions:
       contents: write # the tag and the GitHub Release
-      packages: write # the images in GitHub's registry
-      id-token: write # the AWS role that may use the signing key
+      id-token: write # the AWS role that signs and pushes to the release registry
     env:
       GIT_CLIFF_VERSION: 2.14.2
       GIT_CLIFF_SHA512: 26d1f7c8ea2400f2ccb0b2e7f321635f600b583bf4cd1f7afaa5e8c24068ad1088a2504e0a4d9f4333d4bb20a80329327d9462634343ee3af91e1a7fbdc6f18a
@@ -119,32 +121,38 @@ jobs:
           fi
           ./scripts/images.sh dist/images
           make image-scan
-      - name: AWS credentials for the signing key
+      - name: AWS credentials for the signing key and the release registry
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.ERP_RELEASE_ROLE_ARN }}
           aws-region: ${{ vars.ERP_AWS_REGION }}
+      - name: Login to the release registry
+        uses: aws-actions/amazon-ecr-login@v2
       - name: Images, pushed
-        # The same build again, now pushed: reproducible, so the same
-        # digests as the scanned ones. Tagged with the version only.
+        # The same build again, now pushed to the release registry, each
+        # binary into its erp-<name> repository (modules/ecr), the names
+        # release.json and the clusters' erp-release-signed accept:
+        # reproducible, so the same digests as the scanned ones. Tagged
+        # with the version only.
         env:
           ERP_VERSION: ${{ steps.version.outputs.version }}
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY: ${{ vars.ERP_RELEASE_REGISTRY }}
         run: |
-          owner="${GITHUB_REPOSITORY_OWNER,,}"
-          echo "$TOKEN" | go run github.com/google/ko@v0.19.1 login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+          # A host alone, as the clusters' release.registries name it.
+          if ! [[ "$REGISTRY" =~ ^[a-z0-9.-]+(:[0-9]+)?$ ]]; then
+            echo "ERP_RELEASE_REGISTRY must be the release registry's host, not \"$REGISTRY\"" >&2
+            exit 1
+          fi
           cp dist/images/images.txt dist/scanned.txt
           if [ -n "${KO_PLATFORMS:-}" ]; then
             echo "a release builds every platform; KO_PLATFORMS is set to $KO_PLATFORMS" >&2
             exit 1
           fi
-          KO_DOCKER_REPO="ghcr.io/${owner}/agentic-erp" KO_TAGS="$ERP_VERSION" PUSH=true ./scripts/images.sh dist/images
+          KO_DOCKER_REPO="$REGISTRY" KO_TAGS="$ERP_VERSION" PUSH=true ./scripts/images.sh dist/images
           if ! diff <(sed 's/.*@//' dist/scanned.txt) <(sed 's/.*@//' dist/images/images.txt); then
             echo "the pushed images are not the scanned ones" >&2
             exit 1
           fi
-      - name: Login to the release registry
-        uses: aws-actions/amazon-ecr-login@v2
       - name: Upstream images, mirrored into the release registry
         # After the pushed images' check, which compares images.txt with
         # the scanned build: the copies are appended to it, so the next

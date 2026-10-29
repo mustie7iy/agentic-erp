@@ -98,6 +98,15 @@ prev="$c"
 c="$(change scripts/free-disk.sh)"
 expect_out "the runner's disk clean-up runs the image checks" "$c" images true
 prev="$c"
+c="$(change temporal/cmd/erp-temporal/main.go)"
+expect_out "erp-temporal's command runs the image checks" "$c" images true
+prev="$c"
+c="$(change temporal/go.sum)"
+expect_out "erp-temporal's modules run the image checks" "$c" images true
+prev="$c"
+c="$(change temporal/spiffeauth/x.go)"
+expect_out "erp-temporal's packages alone leave the image checks out, as the platform's do" "$c" images false
+prev="$c"
 c="$(change cliff.toml)"
 expect_out "the changelog's configuration runs the release scripts" "$c" release true
 prev="$c"

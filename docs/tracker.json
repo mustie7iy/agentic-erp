@@ -8137,6 +8137,27 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "The release pushes, signs, attests and records its own images in tooling's ECR (ERP_RELEASE_REGISTRY), as the upstream copies, not in ghcr.io: promotion-checks.sh takes only <registry>/erp-<name> and Kyverno's erp-release-signed admits only release.registries, so no release's own images could be pinned or admitted in production",
+      "r": ".github/workflows/release.yml · scripts/promotion-checks.sh · erp-cluster image-policy.yaml · modules/ecr · scripts/test-images.sh · ADR-0032 amendment 2026-10-29 · ADR-0035",
+      "src": "review:batch21",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "The release builds erp-temporal (Temporal's server with the platform's authorization, the temporal/ module) with the platform's images, and tooling's ECR has its erp-temporal repository: release.json and erp-cell require images.temporal, which no release built and no repository held",
+      "r": "scripts/images.sh · modules/ecr · scripts/ci-changes.sh · scripts/test-images.sh · ADR-0035 (Temporal, T40c4) · ADR-0032 amendment 2026-10-29",
+      "src": "review:batch21",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "verify-image.sh asserts a built image's clean checkout positively, so a jq error refuses it (the select(sourceModified != false) check read a jq error as clean); and the release, signing, verification and promotion scripts' other checks whose tool error read as a pass fail closed: provenance.sh's git status, sign-images.sh's SBOM lookup, next-version.sh's git reads and promotion-checks.sh's file reads",
+      "r": "scripts/verify-image.sh · scripts/provenance.sh · scripts/sign-images.sh · scripts/next-version.sh · scripts/promotion-checks.sh · scripts/test-mirror-images.sh · ADR-0032 amendment 2026-10-29",
+      "src": "review:batch21",
+      "c": []
+     },
+     {
       "s": "T",
       "t": "The pilot light is runnable (DR node group, IRSA trust of the DR cluster's OIDC provider, Argo CD in Terraform), so the region failover rehearsal (T41g) can run; its confirmation needs AWS staging",
       "r": "Phase 1 triage (PO 2026-10-21) · T41b3 · ADR-0040 · T72j",

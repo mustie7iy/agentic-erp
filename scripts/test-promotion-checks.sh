@@ -133,6 +133,13 @@ case_ drill-again ok "records a drill" 'put deploy/environments/staging/stg1/dri
 case_ drill-rewritten refused "append-only" 'put deploy/environments/staging/stg1/drills/v1.1.0.json "$(drill v1.1.0 2 v1.0.0 failed)" p'
 case_ drill-unchanged-runs refused "append-only" 'put deploy/environments/staging/stg1/drills/v1.1.0.json "[$(run_ v1.1.0 2 v1.0.0 passed) ]" p'
 BASE=faildrill case_ failed-drill-passed-later ok "" 'put deploy/environments/staging/stg1/drills/v1.1.0.json "[$(run_ v1.1.0 2 v1.0.0 passed), $(run_ v1.1.0 2 v1.0.0 failed), $(run_ v1.1.0 2 v1.0.0 passed)]" p'
+# A git that cannot read BASE's record stops the checks: read as no
+# record, the rewrite above would pass as a new one.
+mkdir -p "$work/failing"
+printf '#!/usr/bin/env bash\n[ "$1 $2" != "show $FAIL_SHOW" ] || { echo "git show: failed" >&2; exit 128; }\nexec "%s" "$@"\n' "$(command -v git)" >"$work/failing/git"
+chmod +x "$work/failing/git"
+PATH="$work/failing:$PATH" FAIL_SHOW=main:deploy/environments/staging/stg1/drills/v1.1.0.json \
+  case_ drill-rewritten-base-unreadable refused "git show main:deploy/environments/staging/stg1/drills/v1.1.0.json" 'put deploy/environments/staging/stg1/drills/v1.1.0.json "$(drill v1.1.0 2 v1.0.0 failed)" p'
 case_ bad-drill-record refused "must be" 'put deploy/environments/staging/stg1/drills/v1.2.0.json "$(drill v1.3.0 3 v1.1.0 passed)" p'
 case_ by-tag refused "not a sha256 digest" 'put "$(env_file dev/dev1)" "$(release v1.3.0 4 | sed "s/sha256:4*\"/latest\"/")" p'
 case_ foreign-repository refused "repository" 'put "$(env_file dev/dev1)" "$(release v1.3.0 4 | sed "s|amazonaws.com/erp-nats|amazonaws.com/nats|")" p'

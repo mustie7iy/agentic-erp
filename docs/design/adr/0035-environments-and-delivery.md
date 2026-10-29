@@ -48,8 +48,9 @@ trusting exactly `repo:mustie7iy/agentic-erp:environment:<release|delivery>`
 and the STS audience. The release role also pushes to ECR. The tooling
 root's outputs are the release environment's `ERP_COSIGN_KEY`
 (`awskms:///<key ARN>`) and `ERP_RELEASE_ROLE_ARN`, and the host of its
-`repository_urls` is `ERP_RELEASE_REGISTRY`, where the release copies the
-upstream images (T72i).
+`repository_urls` is `ERP_RELEASE_REGISTRY`, where the release pushes its
+images and copies the upstream images (T72i; ADR-0032 amendment of
+2026-10-29).
 
 **Registry (from T39).** One ECR repository per binary in tooling's primary
 region, replicated by ECR to every region a cell runs in, pulled by the
@@ -239,7 +240,9 @@ Kubernetes' restricted Pod Security profile):
   `helm-checks.sh` runs it on the chart's; `scripts/temporal-checks.sh`
   holds the module to the platform's lint, `-race` tests and 100%
   coverage. Its image is built, signed and attested with the platform's
-  own (ADR-0032) once T39's release builds the `temporal/` module.
+  own (ADR-0032): `scripts/images.sh` runs ko in `temporal/` on
+  `.ko.yaml`'s base and platforms, and tooling's ECR has its
+  `erp-temporal` repository (as built: ADR-0032 amendment of 2026-10-29).
 - The migrations hook Job described above, with the writer's URL and the
   RDS bundle as hooks of lower weight, so a first install has them.
 - PgBouncer: two replicas, transaction mode, `max_prepared_statements`

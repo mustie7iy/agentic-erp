@@ -149,7 +149,7 @@ Every change passes, before it is merged:
 | Fuzz targets | Every target's seed corpus with the tests on PRs; `make fuzz` 30 s per target on `main`, 5 minutes weekly |
 | Image signing round trip | `make signing-roundtrip` against a registry service: push, sign and attest (SBOM, provenance) with a key pair made for the job, verify, and the refusals (another key, another commit, a tag, no signature, attestations without a signature, uncommitted changes) (ADR-0032). When signing or image inputs change, and weekly |
 | Release scripts | `scripts/test-release-scripts.sh`: the version rules and the changelog's grouping on throwaway repositories, with the pinned git-cliff (ADR-0032). When those scripts or their inputs change, and weekly |
-| Build and container images | `make build`; `make image-scan`: grype on each SBOM and the pinned base, failing on a fixable high or critical vulnerability; `make images-reproducible` (the four ko images and erp-analytics built twice, with private caches, and their digests compared; one build at a time, as the three ko binaries that import `api/gen` and erp-analytics each compile it: measured cold, ko peaks at 3843 MiB and erp-analytics's buildx builder at 3784 MiB) when image inputs change, and weekly (ADR-0032) |
+| Build and container images | `make build`; `make image-scan`: grype on each SBOM and the pinned base, failing on a fixable high or critical vulnerability; `make images-reproducible` (the four ko images, erp-temporal (ko, from `temporal/`) and erp-analytics built twice, with private caches, and their digests compared; one build at a time, as the three ko binaries that import `api/gen` and erp-analytics each compile it: measured cold, ko peaks at 3843 MiB and erp-analytics's buildx builder at 3784 MiB) when image inputs change, and weekly (ADR-0032) |
 | Infrastructure (when the deploy workflow's paths change: `deploy/` but promotions, its scripts, `temporal/`, `scripts/lib/`, any workflow) | `scripts/deploy-checks.sh`: actionlint on the workflows, `terraform fmt`, `validate` and `test` in every module with tests (mock provider, no credentials), tflint, and the encryption-at-rest policy with conftest: unit tests, every root and module, and a fixture it must refuse (ADR-0035) |
 | Cluster content (the same paths) | `scripts/helm-checks.sh`: the pinned add-ons, the charts and their policies with helm, kubeconform, promtool and conftest, then `scripts/admission-checks.sh` (Kyverno's CLI against images signed in a local zot registry); `scripts/test-mirror-images.sh` (the upstream images' copy, a dry run of the real list, and the copies signed and verified as the release does, with their refusals, ADR-0032 amendment of 2026-10-28; it also runs when `sign-images.sh`, `verify-image.sh` or `provenance.sh` change); `scripts/nats-checks.sh` (NATS authorization by SPIFFE identity); `scripts/temporal-checks.sh` (the temporal module's vet, lint, `-race` tests and 100% coverage) |
 | Promotion checks' own tests (when they change) | `scripts/test-promotion-checks.sh`, `test-promotion-approvals.sh`, `test-rollback-drill.sh`, `test-restore-drill.sh` |
@@ -319,7 +319,7 @@ gates on each pull request:
   trip run when their inputs change: the paths of the `images` class in
   `scripts/ci-changes.sh`, which is the rule (`go.mod`, `go.sum`,
   `.ko.yaml`, `.dockerignore`, `deploy/images/`, `Makefile`, `cmd/`,
-  `release/`, `scripts/image*`, `scripts/test-images*`,
+  `temporal/go.mod`, `temporal/go.sum`, `temporal/cmd/`, `release/`, `scripts/image*`, `scripts/test-images*`,
   `scripts/lib/sbom-root*`, `scripts/sign*`, `scripts/verify-image*`,
   `scripts/provenance*`, `scripts/free-disk*`, `ci.yml`, `weekly.yml`);
   otherwise the images are built once and scanned. On a push to `main` the signing
@@ -492,8 +492,9 @@ A change is done when:
   workflow from a green `main` commit; a second person approves it in the
   `release` environment. The workflow computes the version
   (`scripts/next-version.sh`) unless one is given, builds and scans the
-  images, pushes them tagged with the version, copies the pinned upstream
-  images (PgBouncer, NATS) into the release registry, signs and verifies
+  images, pushes them tagged with the version to the release registry
+  (tooling's ECR, the only one: ADR-0032 amendment of 2026-10-29), copies
+  the pinned upstream images (PgBouncer, NATS) into it, signs and verifies
   them all,
   tags the built commit, publishes the GitHub Release with the generated
   notes, and opens, as the release GitHub App so that CI runs on it, the
