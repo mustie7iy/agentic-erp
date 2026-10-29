@@ -364,6 +364,10 @@ func TestSetupRefusesOwners(t *testing.T) {
 			"PUBLIC's rights [foreign server mine]"},
 		"a language PUBLIC may use": {`CREATE TRUSTED LANGUAGE plmine HANDLER plpgsql_call_handler; REVOKE USAGE ON LANGUAGE plmine FROM PUBLIC;
 			GRANT USAGE ON LANGUAGE plmine TO PUBLIC`, "PUBLIC's rights [language plmine]"},
+		"large objects unchecked for the login": {`ALTER ROLE {login} SET lo_compat_privileges = on`,
+			"PUBLIC's rights [large objects unchecked (lo_compat_privileges set for {login} in every database)]"},
+		"large objects unchecked in the database": {`ALTER DATABASE {db} SET lo_compat_privileges = on`,
+			"large objects unchecked (lo_compat_privileges set for every role in this database)"},
 		"a trusted language PUBLIC uses by default": {`CREATE TRUSTED LANGUAGE plmine HANDLER plpgsql_call_handler`, "PUBLIC's rights [language plmine]"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -449,12 +453,12 @@ func TestPrivilegeRoleInAnother(t *testing.T) {
 	}
 }
 
-// TestSetupRefusesPublicsParameters: PUBLIC given a right on a server
+// TestSetupRefusesServerWideRights: PUBLIC given a right on a server
 // parameter, or every large object opened to all by
 // lo_compat_privileges, is refused. Both are the server's, so neither is
 // committed: checked inside the transaction that makes it, then rolled
 // back, out of other packages' sight.
-func TestSetupRefusesPublicsParameters(t *testing.T) {
+func TestSetupRefusesServerWideRights(t *testing.T) {
 	ctx := context.Background()
 	u := pgtest.EmptyDatabase(t)
 	c := pgtest.NewLogin(t)
@@ -470,7 +474,7 @@ func TestSetupRefusesPublicsParameters(t *testing.T) {
 	errDone := errors.New("rolled back")
 	for name, c := range map[string]struct{ sql, want string }{
 		"a parameter PUBLIC may set":   {`GRANT SET ON PARAMETER session_replication_role TO PUBLIC`, "PUBLIC's rights [parameter session_replication_role]"},
-		"large objects open to all":    {`SET LOCAL lo_compat_privileges = on`, "PUBLIC's rights [parameter lo_compat_privileges = on]"},
+		"large objects open to all":    {`SET LOCAL lo_compat_privileges = on`, "PUBLIC's rights [large objects unchecked (lo_compat_privileges = on)]"},
 		"a parameter PUBLIC may alter": {`GRANT ALTER SYSTEM ON PARAMETER work_mem TO PUBLIC`, "PUBLIC's rights [parameter work_mem]"},
 	} {
 		t.Run(name, func(t *testing.T) {

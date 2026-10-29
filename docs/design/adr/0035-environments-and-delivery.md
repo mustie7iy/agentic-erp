@@ -760,8 +760,11 @@ their own and least privilege, never as the RDS master user `erp_admin`
   so every login, holds on the object kinds `pg_shdepend` records no
   right of `PUBLIC`'s for, since it records roles alone (PostgreSQL 17
   manual, `pg_shdepend`, `SHARED_DEPENDENCY_ACL`): large objects
-  (`pg_largeobject_metadata.lomacl`), and `lo_compat_privileges` on,
-  which turns their privilege checks off (§19.13.1); foreign-data
+  (`pg_largeobject_metadata.lomacl`), and `lo_compat_privileges`,
+  which turns their privilege checks off (§19.13.1), on in Setup's
+  session or set at all in `pg_db_role_setting` for the login, the
+  owner (whose own setting would hide the server's) or every role, in
+  the database or all; foreign-data
   wrappers (`pg_foreign_data_wrapper.fdwacl`) and foreign servers
   (`pg_foreign_server.srvacl`); trusted languages but `sql` and
   `plpgsql` (`pg_language.lanacl`); and the server's parameters
@@ -769,7 +772,7 @@ their own and least privilege, never as the RDS master user `erp_admin`
   read as its kind's default (`acldefault`; `aclexplode` gives `PUBLIC`
   as grantee 0, §9.27 table 9.72), so a trusted language made by hand,
   which `PUBLIC` uses by default, is refused too. `TestSetupRefusesOwners`
-  grants each by hand and `TestSetupRefusesPublicsParameters` the
+  grants each by hand and `TestSetupRefusesServerWideRights` the
   server-wide ones, inside a transaction it rolls back.
   A password reaches the server only as its SCRAM-SHA-256 verifier,
   computed in Go, so no log or statistics of the statement (PostgreSQL

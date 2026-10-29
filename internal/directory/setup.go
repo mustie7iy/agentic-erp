@@ -213,7 +213,10 @@ const expectedACL = `(d.classid = 'pg_class'::regclass AND d.objid IN ('director
 // object kinds pg_shdepend records no right of PUBLIC's for (it records
 // roles alone, and PUBLIC is none) and Grants does not take back: large
 // objects (pg_largeobject_metadata.lomacl, and lo_compat_privileges,
-// which turns their privilege checks off), foreign-data wrappers
+// which turns their privilege checks off: on in Setup's session, or set
+// in pg_db_role_setting for the login, the owner, whose own setting hides
+// the server's, or every role, in this database or all, whatever the
+// value), foreign-data wrappers
 // (pg_foreign_data_wrapper.fdwacl), foreign servers
 // (pg_foreign_server.srvacl), trusted languages but sql and plpgsql
 // (pg_language.lanacl) and the server's parameters (pg_parameter_acl);
@@ -234,7 +237,13 @@ const publicRights = `ARRAY(SELECT kind || ' ' || name FROM (
 				WHERE lanpltrusted AND lanname NOT IN ('sql', 'plpgsql')
 			UNION ALL SELECT 'parameter', parname, paracl FROM pg_parameter_acl) o
 			WHERE EXISTS (SELECT FROM aclexplode(o.acl) a WHERE a.grantee = 0)
-		UNION ALL SELECT 'parameter lo_compat_privileges = on' WHERE current_setting('lo_compat_privileges')::bool
+		UNION ALL SELECT 'large objects unchecked (lo_compat_privileges = on)' WHERE current_setting('lo_compat_privileges')::bool
+		UNION ALL SELECT 'large objects unchecked (lo_compat_privileges set for ' || CASE s.setrole WHEN 0 THEN 'every role' ELSE s.setrole::regrole::text END
+				|| CASE s.setdatabase WHEN 0 THEN ' in every database)' ELSE ' in this database)' END
+			FROM pg_db_role_setting s
+			WHERE s.setdatabase IN (0, (SELECT oid FROM pg_database WHERE datname = current_database()))
+				AND s.setrole IN (0, r.oid, (SELECT oid FROM pg_roles WHERE rolname = current_user))
+				AND EXISTS (SELECT FROM unnest(s.setconfig) c WHERE c LIKE 'lo\_compat\_privileges=%')
 		ORDER BY 1)`
 
 // checkLogin refuses a login that may do more than its role: one an
