@@ -132,7 +132,7 @@ func TestPaymentNumbers(t *testing.T) {
 	page := []Payment{{ID: uuid.New(), Kind: KindDownPayment, RequestID: &request}, {ID: uuid.New(), Kind: KindItems, Items: []Item{{EntryID: entry}}}}
 	held := requests{numbers: map[uuid.UUID]string{request: "DP1"}}
 	ledgerHolds := entries{numbers: map[uuid.UUID]string{entry: "5100000001"}}
-	failed := errors.New("context down")
+	payablesDown, ledgerDown := errors.New("payables down"), errors.New("ledger down")
 	for name, c := range map[string]struct {
 		requests requests
 		entries  entries
@@ -140,8 +140,8 @@ func TestPaymentNumbers(t *testing.T) {
 		want     string // the error
 	}{
 		"both numbered":        {held, ledgerHolds, page, ""},
-		"the payables failing": {requests{err: failed}, ledgerHolds, page, failed.Error()},
-		"the ledger failing":   {held, entries{err: failed}, page, failed.Error()},
+		"the payables failing": {requests{err: payablesDown}, ledgerHolds, page, payablesDown.Error()},
+		"the ledger failing":   {held, entries{err: ledgerDown}, page, ledgerDown.Error()},
 		"an entry unknown": {held, ledgerHolds, append(page[:2:2], Payment{Items: []Item{{EntryID: unknown}}}),
 			"journal entry " + unknown.String() + " is not held by the ledger context"},
 	} {
