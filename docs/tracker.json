@@ -5369,9 +5369,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "x-problem-codes' givenMade treats the calls the call graph shows as every call of a function (pre-existing finding of the pcsound review, batch 24): code without SSA bodies (the standard library, third-party packages, api/gen) could also call a function whose value or receiver escapes to it, passing a function another operation made, and the cut would drop that function's codes. List the functions with a function-typed parameter whose function value or receiver type escapes to code outside the program; none: record the premise in ADR-0052 G7; some: keep their edges",
-        "r": "api/problemcodes_test.go givenMade · ADR-0052 G7",
+        "r": "api/problemcodes_test.go givenMade, checkParamPremise · api/problemcodes_escape_test.go escapes, outsideImports, templateData · api/testdata/fieldcalls callE, Runner, Keeper, Slots, RenderPage · TestProblemCodesFieldCalls · TestProblemCodesEscapes · ADR-0052 G7: functions code outside the program can call",
         "src": "review:batch24",
         "c": []
        },
