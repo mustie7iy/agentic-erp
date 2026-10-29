@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http/httptest"
 	"sync"
@@ -111,6 +112,11 @@ func (e env) async(r apitest.Req) <-chan *httptest.ResponseRecorder {
 	return out
 }
 
+// errSetup is what holdItems' transaction reports when its setup failed:
+// apitest.Committed then fails the test and ends the goroutine, which
+// still answers, so the test fails here rather than waiting for it.
+var errSetup = errors.New("transaction setup failed")
+
 // holdItems locks the order's item 1 in a transaction of its own, as an
 // invoice's posting does (Orders.LockItems), and holds it until letGo,
 // returning that transaction's backend.
@@ -119,7 +125,9 @@ func (e env) holdItems(t *testing.T, order string) (int32, func()) {
 	var pid atomic.Int32
 	held, release, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
 	go func() {
-		done <- apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		err := errSetup
+		defer func() { done <- err }()
+		err = apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 			tx, _, err := reqctx.Request(ctx)
 			if err != nil {
 				return err

@@ -80,13 +80,20 @@ extract carries the company code amount, HSL, only), a movement other than a
 receipt or a receipt quantity that does not parse on an item with a position,
 an open quantity without a balance, and an item received without a GR/IR
 line on an order whose other items post one; a GR/IR line naming an order of
-another company of the scope is refused too. A position is taken over by the
-run that loads its order: what SAP posts on the order afterwards is not taken
-over by a later run: a delta run after SAP posted a receipt or an invoice on
-an order already loaded fails the reconciliation's open GR/IR check, and the
-migration cannot correct it. Moving an order already loaded
+another company of the scope is refused too. A later run, such as the final
+delta run at cutover, tops the positions of orders an earlier run loaded up to
+SAP's: each item's take-over moves what earlier runs took over of it to SAP's
+balance and open quantity, in an entry of its own per order (counted as
+`gr_ir_top_ups`), so the open GR/IR check passes after SAP posted a receipt or
+an invoice on a loaded order, and a run of the same extract again posts
+nothing. It tops up only an order whose take-overs are all a run's of its own
+fiscal year (its extract holds that year's journal only): an order taken over
+by another year's run, or loaded with no position open, is warned about and
+stays a difference. What the platform posted on the item after the load (a receipt, an
+invoice, a GR/IR clearing) stays beside what was taken over, and shows as a
+difference from SAP in the reconciliation. Moving an order already loaded
 valued directly onto GR/IR is not done (tracker: "Move open direct-valued
-orders onto GR/IR (optional)").
+orders onto GR/IR (optional)"): its position stays a difference.
 
 In either mode every migrated line posts in company code currency (ACDOCA HSL),
 so the quality gate refuses an open item whose document currency (ACDOCA RWCUR,

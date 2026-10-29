@@ -29,6 +29,10 @@ func (d downPayments) Request(ctx context.Context, id uuid.UUID) (payments.DownP
 	return downPayment(r), err
 }
 
+func (d downPayments) Numbers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	return d.requests.Numbers(ctx, ids)
+}
+
 func (d downPayments) Paid(ctx context.Context, id uuid.UUID, fiscalYear int16, entryID uuid.UUID) error {
 	return d.requests.Paid(ctx, id, fiscalYear, entryID)
 }

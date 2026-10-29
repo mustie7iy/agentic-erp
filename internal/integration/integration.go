@@ -84,9 +84,12 @@ type OrderLocks interface {
 	LockItems(ctx context.Context, id uuid.UUID, items []int32) error
 }
 
-// OrderValues reads purchase order totals (procurement).
+// OrderValues reads purchase order totals, and an order an earlier run
+// loaded, whose valuation says whether its GR/IR positions are topped up
+// (procurement).
 type OrderValues interface {
 	Value(ctx context.Context, ids []uuid.UUID) (int, money.Minor, error)
+	Order(ctx context.Context, id uuid.UUID) (procurement.Order, bool, error)
 }
 
 // Invoices enters supplier invoices, and takes over what SAP's posted
@@ -109,9 +112,11 @@ type InvoicedQuantities interface {
 	MigratedQuantities(ctx context.Context, orders []uuid.UUID) (map[uuid.UUID]map[int32]string, error)
 }
 
-// Postings posts journal entries and clears migrated open items (ledger).
+// Postings posts journal entries, clears migrated open items and reads
+// what earlier runs took over of GR/IR positions (ledger).
 type Postings interface {
 	Post(ctx context.Context, in ledger.Posting) (ledger.Entry, error)
+	TakenOverGRIR(ctx context.Context, legalEntity uuid.UUID, orders []uuid.UUID) (map[uuid.UUID]ledger.GRIRTakenOverOrder, error)
 	Clear(ctx context.Context, legalEntity uuid.UUID, date time.Time, by ledger.ItemRef, items []ledger.ItemRef) (uuid.UUID, error)
 	LockAllEntries(ctx context.Context) error
 }

@@ -3,6 +3,7 @@ package payables_test
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"testing"
 
@@ -203,9 +204,9 @@ func TestDownPaymentDatabaseFailures(t *testing.T) {
 
 // TestDownPaymentRequestPorts: what the payments context reads and records
 // through DownPaymentRequests (T46c): the open requests due by a date, one
-// request, and that an entry paid one, which is recorded once; a request
-// paid by another entry, or no longer open, is refused, and a paid request
-// is not cancelled.
+// request, the requests' numbers (an unknown id left out), and that an
+// entry paid one, which is recorded once; a request paid by another entry,
+// or no longer open, is refused, and a paid request is not cancelled.
 func TestDownPaymentRequestPorts(t *testing.T) {
 	e := setup(t)
 	paid, _ := e.Must(201, "POST", "/v1/down-payment-requests", e.downPayment(e.Supplier, "100.00", "EUR", ""), "")
@@ -229,8 +230,16 @@ func TestDownPaymentRequestPorts(t *testing.T) {
 			t.Errorf("due: got %v, want only the open request", due)
 		}
 		r, err := ports.Request(ctx, uuid.MustParse(id(paid)))
+		if err != nil {
+			return err
+		}
 		if r.JournalEntryID == nil || *r.JournalEntryID != entry {
 			t.Errorf("paid request's entry: got %v, want %s", r.JournalEntryID, entry)
+		}
+		numbers, err := ports.Numbers(ctx, []uuid.UUID{uuid.MustParse(id(paid)), uuid.MustParse(id(open)), uuid.New()})
+		want := map[uuid.UUID]string{uuid.MustParse(id(paid)): paid["document_number"].(string), uuid.MustParse(id(open)): open["document_number"].(string)}
+		if !maps.Equal(numbers, want) {
+			t.Errorf("numbers: got %v, want %v", numbers, want)
 		}
 		return err
 	})
@@ -248,6 +257,7 @@ func TestDownPaymentRequestPorts(t *testing.T) {
 	for name, call := range map[string]func(ctx context.Context) error{
 		"due":     func(ctx context.Context) error { _, err := ports.Due(ctx, e.DE, "EUR", date("2026-03-31")); return err },
 		"request": func(ctx context.Context) error { _, err := ports.Request(ctx, uuid.MustParse(id(open))); return err },
+		"numbers": func(ctx context.Context) error { _, err := ports.Numbers(ctx, []uuid.UUID{uuid.New()}); return err },
 		"paid":    func(ctx context.Context) error { return ports.Paid(ctx, uuid.MustParse(id(open)), 2026, uuid.New()) },
 	} {
 		t.Run(name, func(t *testing.T) {

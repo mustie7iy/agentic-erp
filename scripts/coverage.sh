@@ -20,7 +20,11 @@ excluded='/internal/(nfr|llm/llmtest|app/apitest)/|/internal/platform/(pgtest|au
 # proportional to the code under test.
 coverpkg="$(go list ./... | sed 's#$#/#' | grep -v -E "$excluded" | sed 's#/$##' | paste -sd, -)"
 profile="$(mktemp)"
-if ! go test -short -count=1 -coverpkg="$coverpkg" -coverprofile="$profile" ./... > "$profile.log" 2>&1; then
+# -timeout 60m, as the single race run in ci.yml's test job: the limit only
+# guards against a hang, and under load internal/analytics/extract and
+# internal/web, instrumented, took longer than go test's default of 10
+# minutes per package without hanging (T72b).
+if ! go test -short -count=1 -timeout 60m -coverpkg="$coverpkg" -coverprofile="$profile" ./... > "$profile.log" 2>&1; then
   echo "coverage: tests failed:" >&2
   grep -E "^(--- FAIL|FAIL|panic:)" "$profile.log" >&2
   # Everything the failing packages printed: build errors ("# pkg" blocks),

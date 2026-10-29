@@ -299,7 +299,11 @@ func (g grirPosting) lines(ctx context.Context, tx pgx.Tx) ([]Line, error) {
 	if err != nil {
 		return nil, err
 	}
-	moved, keep, err := g.itemLines(pos, keys)
+	taken, err := g.takenOver(ctx, tx, keys)
+	if err != nil {
+		return nil, err
+	}
+	moved, keep, err := g.itemLines(pos, taken, keys)
 	if err != nil {
 		return nil, err
 	}
@@ -330,17 +334,21 @@ func (g grirPosting) ownLines() ([]Line, []bool, error) {
 // itemLines are each item's GR/IR line and its counter line, and which of
 // them keep the local and group amounts they are given: the GR/IR line
 // and a goods movement's mirror of it, not an invoice's price difference,
-// which is converted at the posting's rates.
-func (g grirPosting) itemLines(pos map[orderItem]*position, keys []orderItem) ([]Line, []bool, error) {
+// which is converted at the posting's rates. A take-over item moves what
+// earlier take-overs took over of its order item (taken) to the source
+// system's position.
+func (g grirPosting) itemLines(pos map[orderItem]*position, taken map[orderItem]GRIRTakenOver, keys []orderItem) ([]Line, []bool, error) {
 	var lines []Line
 	var kept []bool
+	seen := map[orderItem]bool{}
 	for i, it := range g.in.GRIR {
 		if it.TakesOver != nil {
-			taken, err := g.takeOver(pos[keys[i]], i)
+			moved, err := g.takeOver(taken[keys[i]], seen[keys[i]], i)
 			if err != nil {
 				return nil, nil, err
 			}
-			lines, kept = append(lines, taken...), append(kept, true, true)
+			seen[keys[i]] = true
+			lines, kept = append(lines, moved...), append(kept, true, true)
 			continue
 		}
 		if err := g.checkClears(pos[keys[i]], it); err != nil {
@@ -419,49 +427,6 @@ func (g grirPosting) checkClears(p *position, it GRIRItem) error {
 			"or the price difference account is no longer the one, that the clearing was approved for; propose the clearing again.", it.POItemNo, it.PurchaseOrderID))
 	}
 	return nil
-}
-
-// checkTakeOver refuses an entry that mixes take-over items with others,
-// or that is not a migration run's: only an integration entry's line on
-// the GR/IR account may go without its order item (ledger.check_gr_ir_line),
-// and that line is what a take-over posts against.
-func checkTakeOver(in Posting) error {
-	if !slices.ContainsFunc(in.GRIR, func(it GRIRItem) bool { return it.TakesOver != nil }) {
-		return nil
-	}
-	if in.SourceContext != "integration" || slices.ContainsFunc(in.GRIR, func(it GRIRItem) bool { return it.TakesOver == nil }) {
-		return fmt.Errorf("ledger: a GR/IR take-over is an integration entry of take-over items only; got source context %q", in.SourceContext)
-	}
-	return nil
-}
-
-// takeOver is the pair of lines that takes over the source system's
-// position of item i (GRIRItem.TakesOver) onto an order item without one:
-// the item's GR/IR line with the balance and the open quantity, and a line
-// on the GR/IR account without an order item that offsets it, both
-// converted at the posting's rates and kept so they net to zero in every
-// currency. An item that has a position is refused, so a position is taken
-// over once, and an item listed twice in the entry is too.
-func (g grirPosting) takeOver(p *position, i int) ([]Line, error) {
-	it := &g.in.GRIR[i]
-	if p.qty.Sign() != 0 || p.tc != 0 || p.lc != 0 || p.gc != 0 {
-		return nil, problem.Conflict("ledger.gr_ir_position_exists", fmt.Sprintf("Item %d of purchase order %s already has a GR/IR position; "+
-			"a source system's position is taken over once, onto an item without one.", it.POItemNo, it.PurchaseOrderID))
-	}
-	q, err := signedQuantity(it.Quantity)
-	if err != nil {
-		return nil, fmt.Errorf("ledger: GR/IR quantity %q: %w", it.Quantity, err)
-	}
-	tc := *it.TakesOver
-	lc, gc, err := g.rates.local(tc)
-	if err != nil {
-		return nil, convertErr(err)
-	}
-	p.qty, p.tc, p.lc, p.gc = q, tc, lc, gc
-	// A source system's amount, parsed, is never -2^63: negating cannot overflow,
-	// and its conversions are bounded by it.
-	return []Line{{AccountID: g.grir, TC: tc, LC: lc, GC: gc, Quantity: &it.Quantity, Unit: &it.Unit, Text: it.Text, PurchaseOrderID: &it.PurchaseOrderID,
-		POItemNo: &it.POItemNo}, {AccountID: g.grir, TC: -tc, LC: -lc, GC: -gc, Text: it.Text}}, nil
 }
 
 func btoi(b bool) int {

@@ -4,12 +4,14 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"math/big"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
@@ -31,7 +33,9 @@ import (
 // SAP's documents (or the opening entry) loaded without their order
 // items. An invoice after cutover then clears the position, as it clears
 // the platform's own, instead of booking the expense again; a closed
-// order's residual is cleared by a GR/IR clearing (T72e). The quality gate
+// order's residual is cleared by a GR/IR clearing (T72e). A later run,
+// such as the final delta run at cutover, tops the positions of orders an
+// earlier run loaded up to SAP's (review:batch21). The quality gate
 // refuses what it cannot read rather than guess (grirChecks), and the
 // reconciliation compares the open positions per order item.
 
@@ -253,67 +257,219 @@ func (q *qualityCheck) grirReceipts(orders map[string]bool, positions map[string
 	}
 }
 
-// takeOverGRIR takes over the open GR/IR positions of the orders this run
-// released valued through GR/IR, one entry per order (its GRIR/<EBELN>
-// reference): an order an earlier run loaded is not released again, so
-// its positions are never taken over twice, and the ledger refuses a
-// position taken over onto an item that has one. The entry's WE number
-// range is the configuration's, which a GR/IR account requires; a period
-// or range the ledger refuses is reported as the record's refusal. It
-// comes after the receipts: the first order's GR/IR lock is taken after
-// the goods_receipt range, as a goods movement takes them, and before the
-// journal's ranges. Each later order's lock is taken while the run holds
-// the WE range and the period of the take-over before it, the other way
-// round from a posting's order; that cannot deadlock, as every order taken
-// over here was created by this run and is invisible to other transactions
-// until the load commits, so no one else can hold or wait for its lock.
+// takeOverGRIR takes over the GR/IR positions of the orders valued
+// through GR/IR, one entry per order: the open positions of those this run
+// released, and for those an earlier run loaded, what SAP's positions
+// moved since the earlier runs took them over (a final delta run after
+// SAP posted receipts or invoices on them; review:batch21). Each item's
+// take-over moves what was taken over of it to SAP's position, so a
+// position is never taken over twice, and running an extract again posts
+// nothing; what the platform itself posted on the item stays beside it.
+// An order an earlier run loaded valued directly is not moved onto GR/IR
+// (the optional tracker leaf), and one whose run's fiscal year cannot be
+// told to be this run's is left with a warning (cannotTopUp): their
+// positions stay differences in the reconciliation. The entry's WE number range is the configuration's,
+// which a GR/IR account requires; a period or range the ledger refuses is
+// reported as the record's refusal.
+//
+// It comes after the receipts and takes the GR/IR locks of every order
+// first (takenOver), after the goods_receipt range and before any period
+// or the journal's ranges, the order in which a goods movement, an
+// invoice's posting and a GR/IR clearing take them, so it never waits for
+// an order's lock while holding a range another posting on the order
+// waits for.
 func (l *loader) takeOverGRIR(ctx context.Context) error {
-	nos := itemNos(l.ext)
-	byOrder := map[string][]*grirPosition{}
-	for _, p := range l.grir {
-		if l.viaGRIR[p.order] && p.open() {
-			byOrder[p.order] = append(byOrder[p.order], p)
-		}
+	orders, err := l.grirValued(ctx)
+	if err != nil {
+		return err
 	}
-	for _, order := range sortedKeys(byOrder) {
-		in := l.grirPosting(order, byOrder[order], nos)
+	taken, err := l.takenOver(ctx, orders)
+	if err != nil {
+		return err
+	}
+	years, err := l.runYears(ctx, taken)
+	if err != nil {
+		return err
+	}
+	nos := itemNos(l.ext)
+	for _, order := range sortedKeys(orders) {
+		items := l.grirItems(order, nos, taken[orders[order]].Items)
+		if len(items) == 0 {
+			continue
+		}
+		if why := l.cannotTopUp(order, taken[orders[order]], years); why != "" {
+			l.issues = append(l.issues, Issue{Severity: SevWarning, Table: "EKKO", Key: order, Message: why})
+			continue
+		}
+		key, count := order, "gr_ir_positions"
+		if !l.viaGRIR[order] {
+			key, count = order+"/"+l.run.ID.String(), "gr_ir_top_ups"
+		}
+		in := l.grirPosting(order, items)
 		done, err := l.step(ctx, "ACDOCA", "GR/IR "+order, func() error {
 			entry, err := l.e.Postings.Post(ctx, in)
 			if err != nil {
 				return err
 			}
-			return l.addRef(ctx, "ledger.journal_entry", entry.ID, "GRIR", order)
+			return l.addRef(ctx, "ledger.journal_entry", entry.ID, "GRIR", key)
 		})
 		if err != nil {
 			return err
 		}
 		if done {
-			l.counts["gr_ir_positions"] += len(in.GRIR)
+			l.counts[count] += len(items)
 		}
 	}
 	return nil
 }
 
-// grirPosting is the take-over entry of an order's open positions, in item
-// order, dated the latest of their lines.
-func (l *loader) grirPosting(order string, positions []*grirPosition, nos map[string]int32) ledger.Posting {
-	slices.SortFunc(positions, func(a, b *grirPosition) int { return cmp.Compare(a.item, b.item) })
-	company := positions[0].company
-	cur := l.t.entities[company].LocalCurrency
-	var last string
-	for _, p := range positions {
-		last = max(last, p.last)
+// grirValued are the platform orders, by EBELN, of the extract's orders
+// SAP valued through GR/IR that are valued through GR/IR on the platform:
+// those this run released, and those an earlier run loaded so.
+func (l *loader) grirValued(ctx context.Context) (map[string]uuid.UUID, error) {
+	out := map[string]uuid.UUID{}
+	for _, order := range sortedKeys(grirOrders(l.grir)) {
+		id := l.refs["EKKO/"+order]
+		if l.viaGRIR[order] {
+			out[order] = id
+			continue
+		}
+		// An order this run refused has no reference: uuid.Nil names no
+		// order, which is not found and so not valued through GR/IR.
+		o, _, err := l.e.OrderValues.Order(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if o.Valuation == procurement.ValuationGRIR {
+			out[order] = id
+		}
 	}
+	return out, nil
+}
+
+// takenOver locks the orders' GR/IR positions and reads what earlier runs
+// took over of their items, legal entity by legal entity, by order and
+// item.
+func (l *loader) takenOver(ctx context.Context, orders map[string]uuid.UUID) (map[uuid.UUID]ledger.GRIRTakenOverOrder, error) {
+	byCompany := map[string][]uuid.UUID{}
+	for _, p := range l.grir {
+		if id, ok := orders[p.order]; ok && !slices.Contains(byCompany[p.company], id) {
+			byCompany[p.company] = append(byCompany[p.company], id)
+		}
+	}
+	out := map[uuid.UUID]ledger.GRIRTakenOverOrder{}
+	for _, company := range sortedKeys(byCompany) {
+		taken, err := l.e.Postings.TakenOverGRIR(ctx, l.t.entities[company].ID, byCompany[company])
+		if err != nil {
+			return nil, err
+		}
+		maps.Copy(out, taken)
+	}
+	return out, nil
+}
+
+// runYears are the fiscal years of the runs whose take-overs the orders
+// hold, by run.
+func (l *loader) runYears(ctx context.Context, taken map[uuid.UUID]ledger.GRIRTakenOverOrder) (map[uuid.UUID]int32, error) {
+	var runs []uuid.UUID
+	for _, o := range taken {
+		runs = append(runs, o.Sources...)
+	}
+	rows, _ := l.tx.Query(ctx, `SELECT id, (scope->>'fiscal_year')::int FROM integration.migration_run WHERE id = ANY($1)`, runs)
+	out := map[uuid.UUID]int32{}
+	var id uuid.UUID
+	var year int32
+	if _, err := pgx.ForEachRow(rows, []any{&id, &year}, func() error { out[id] = year; return nil }); err != nil {
+		return nil, fmt.Errorf("integration: read the fiscal years of %d migration runs: %w", len(runs), err)
+	}
+	return out, nil
+}
+
+// cannotTopUp says why the run leaves the GR/IR positions of an order an
+// earlier run loaded as they are, or "" when it tops them up. A run's
+// extract carries its fiscal year's journal and invoices only
+// (sap.Source), while receipts are not limited to it, so it can tell SAP's
+// position of an order only when every take-over on it is a run's of its
+// own fiscal year; topping up from another year's would move the position
+// wrongly, the GR/IR account still netting to zero and the reconciliation,
+// from the same extract, agreeing (review:batch21, round 1). An order an
+// earlier run loaded with no position open has no take-over to tell its
+// run's year by, so it is left too. Either stays a difference in the
+// reconciliation, as before.
+func (l *loader) cannotTopUp(order string, o ledger.GRIRTakenOverOrder, years map[uuid.UUID]int32) string {
+	if l.viaGRIR[order] {
+		return ""
+	}
+	if len(o.Sources) == 0 {
+		return fmt.Sprintf("order %s, which an earlier run loaded with no GR/IR position open, has none taken over to tell the fiscal year "+
+			"of its run by: its GR/IR positions are not topped up, and the reconciliation shows them as differences", order)
+	}
+	for _, run := range o.Sources {
+		if year, ok := years[run]; ok && year != l.run.Scope.FiscalYear {
+			return fmt.Sprintf("order %s's GR/IR positions were taken over by a run of fiscal year %d: this run's extract holds fiscal year %d's "+
+				"journal only, so it cannot tell SAP's position and does not top it up", order, year, l.run.Scope.FiscalYear)
+		}
+	}
+	return ""
+}
+
+// grirItem is an order item whose take-over moves: SAP's position on it,
+// its open quantity and balance (zero when it has no GR/IR line), and
+// what earlier runs took over of it (nil when nothing).
+type grirItem struct {
+	ebelp   string
+	no      int32
+	qty     *big.Rat
+	balance money.Minor
+	taken   *ledger.GRIRTakenOver
+}
+
+// grirItems are the order's items, in item order, whose position SAP
+// holds differs from what earlier runs took over of it (taken, by item
+// number): every open one of an order this run released.
+func (l *loader) grirItems(order string, nos map[string]int32, taken map[int32]ledger.GRIRTakenOver) []grirItem {
+	var out []grirItem
+	for _, it := range l.ext.EKPO {
+		key := order + "/" + it.EBELP
+		if it.EBELN != order {
+			continue
+		}
+		item := grirItem{ebelp: it.EBELP, no: nos[key], qty: new(big.Rat)}
+		if p := l.grir[key]; p != nil {
+			item.qty, item.balance = p.qty, p.balance()
+		}
+		had, hadBalance := new(big.Rat), money.Minor(0)
+		if t, ok := taken[item.no]; ok {
+			item.taken, had, hadBalance = &t, money.ParseRat(t.Quantity), t.Balance
+		}
+		if had.Cmp(item.qty) != 0 || hadBalance != item.balance {
+			out = append(out, item)
+		}
+	}
+	slices.SortFunc(out, func(a, b grirItem) int { return cmp.Compare(a.ebelp, b.ebelp) })
+	return out
+}
+
+// grirPosting is the take-over entry of an order's items, in item order,
+// dated the latest of SAP's GR/IR lines on the order.
+func (l *loader) grirPosting(order string, items []grirItem) ledger.Posting {
+	var company, last string
+	for _, p := range l.grir {
+		if p.order == order {
+			company, last = p.company, max(last, p.last)
+		}
+	}
+	cur := l.t.entities[company].LocalCurrency
 	date, _ := sapDate(last) // each line's date is checked by the quality gate
 	text := "GR/IR positions of SAP order " + order
 	ref := order
 	in := ledger.Posting{LegalEntityID: l.t.entities[company].ID, DocumentType: procurement.WEDocumentType, DocumentDate: date, PostingDate: date,
 		Currency: cur, Reference: &ref, HeaderText: &text, SourceContext: "integration", SourceDocumentID: l.run.ID}
-	for _, p := range positions {
-		balance := p.balance()
-		item := "SAP " + p.order + "/" + p.item
-		in.GRIR = append(in.GRIR, ledger.GRIRItem{PurchaseOrderID: l.refs["EKKO/"+order], POItemNo: nos[p.order+"/"+p.item], Quantity: plainQuantity(p.qty),
-			Unit: unit, TakesOver: &balance, Text: &item})
+	for _, it := range items {
+		balance := it.balance
+		item := "SAP " + order + "/" + it.ebelp
+		in.GRIR = append(in.GRIR, ledger.GRIRItem{PurchaseOrderID: l.refs["EKKO/"+order], POItemNo: it.no, Quantity: plainQuantity(it.qty),
+			Unit: unit, TakesOver: &balance, TakenOver: it.taken, Text: &item})
 	}
 	return in
 }

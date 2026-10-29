@@ -245,8 +245,8 @@ SAP's GR/IR credit stayed on the account with no order item to clear it
   offsets the lines SAP's documents, or the opening entry, loaded without
   theirs. It nets to zero on the account, so the trial balance is SAP's, and
   the total debits of the reconciliation leave it out. The ledger takes a
-  position over once, onto an item that has none (409
-  `ledger.gr_ir_position_exists`).
+  position over once (409 `ledger.gr_ir_position_exists`); a later run
+  tops it up (below).
 - **The open quantity** is what SAP's posted invoice documents invoiced on
   the item (credit memos negative; the quantities T72b2 takes over for
   matching) less what SAP received (MSEG 101), the figures the load already
@@ -272,13 +272,68 @@ SAP's GR/IR credit stayed on the account with no order item to clear it
   the legal entity's `gr_ir` account are refused without their order items,
   and a company with receipts is warned about, since lines on SAP's GR/IR
   account are recognised only when it is the legal entity's `gr_ir`.
-- **Later runs.** A position is taken over by the run that loads its order;
-  receipts or invoices SAP posts on an order already loaded are not taken
-  over by a later run: a delta run after a receipt or invoice SAP posted on
-  an order already loaded fails the reconciliation's open GR/IR check, which
-  the migration cannot then correct. Whether later delta runs must top such
-  positions up is a question for the product owner.
+- **Later runs** top the positions up (next section).
 
 For an SAP specialist: that ACDOCA carries the order item under EBELN and
 EBELP on every GR/IR line, and the OData properties for them and for T030
 (not mapped).
+
+## As built: later runs top GR/IR positions up (review:batch21)
+
+The cutover protocol runs a final delta migration after the parallel run
+(docs/migration.md), but a position was taken over only by the run that
+loaded its order, so a receipt or invoice SAP posted on an order already
+loaded failed the open GR/IR check, and no run could correct it. Decisions
+taken by default (ADR-0053 §d), each settled by an existing rule:
+
+- **What a later run moves.** Each item's take-over moves what the earlier
+  take-overs took over of it to SAP's position now, balance and open
+  quantity: a delta, so the take-overs together always hold SAP's
+  position, and running the same extract again posts nothing, publishes no
+  event and counts nothing. It is an entry of its own per order, as the
+  first take-over (WE, source integration, against the GR/IR account's
+  line without an order item that offsets the new SAP documents' lines);
+  the report counts the items as `gr_ir_top_ups` and the entry's external
+  reference is `GRIR/<EBELN>/<run id>`. An item SAP has since invoiced in
+  full is topped up to nothing.
+- **A position the platform moved after cutover.** What the platform posted
+  on the item (a receipt, an invoice, a GR/IR clearing) stays as it is,
+  beside what was taken over: the take-over is SAP's part of the position
+  only, as T72f kept `migrated` apart from received, invoiced and cleared,
+  and as every other migrated document is loaded once beside the
+  platform's postings rather than netted against them. So the
+  reconciliation shows such a posting as a difference from SAP, as it does
+  for a GR/IR clearing after the load (`TestMigratedGRIRClearing`), and a
+  later run does not undo it.
+- **What the ledger checks.** The take-over item names what the caller read
+  as taken over (`GRIRItem.TakenOver`, read with `Postings.TakenOverGRIR`
+  from the integration entries' order item lines, reversals included); the
+  item is refused unless the ledger still finds exactly that, under the
+  order's GR/IR lock (409 `ledger.gr_ir_position_exists`), and an item
+  listed twice in an entry is refused too. A take-over no longer requires
+  the item to have no position of the platform's own. The lock is the
+  ledger's guard on positions (lockOrders, ADR-0008): the load takes the
+  GR/IR locks of all its orders at once, after the goods_receipt range and
+  before any period or the journal's ranges, the order a goods movement,
+  an invoice's posting and a GR/IR clearing take them in, since an order
+  an earlier run loaded is visible to them.
+- **Which orders.** Those an earlier run loaded valued through GR/IR on the
+  platform, when every take-over on the order is a run's of the later
+  run's fiscal year. A run's extract carries its fiscal year's journal and
+  invoices only (`sap.Source`, ACDOCA and RBKP), while receipts are not
+  limited to it, so it reads SAP's position right only for an order whose
+  history it holds: topping up a take-over of another year's run would
+  move the position wrongly while the GR/IR account still nets to zero and
+  the reconciliation, from the same extract, agrees (review:batch21,
+  round 1). So an order taken over by another year's run, and one an
+  earlier run loaded with no position open, which has no take-over to
+  tell its run's year by (the take-over entries' source document is their
+  run), are left with a warning in the load report and stay differences
+  in the reconciliation, as before. The second also leaves a same-year
+  order SAP received again after a load that found nothing open; that gap
+  is a tracker item (review:batch23). One loaded valued directly (SAP had not received it yet) is not
+  moved onto GR/IR, which stays the optional tracker leaf: its position
+  remains a difference in the reconciliation. In balances mode a later run
+  does not load the opening entry again, so its trial balance check fails
+  after SAP posted anything; the top-up still moves the GR/IR account's
+  balance between its lines only.

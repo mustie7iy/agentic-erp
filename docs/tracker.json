@@ -895,10 +895,31 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A down payment request's exclusion names its request (pre-existing finding on exclnames, API-consumer classes): PaymentExclusion.down_payment_request_id gives the request by UUID only, without its document_number",
         "r": "api/openapi.yaml PaymentExclusion · internal/payments",
         "src": "review:batch22",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A down payment's payment names its request (pre-existing finding on exclreq, API-consumer classes): Payment.down_payment_request_id gives the request by UUID only, without its document_number",
+        "r": "api/openapi.yaml Payment · internal/payments",
+        "src": "review:batch23",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A payment's open items name their document (pre-existing finding on exclreq, API-consumer classes): PaymentItem.journal_entry_id gives the open item's journal entry by id only, without its document number",
+        "r": "api/openapi.yaml PaymentItem · internal/payments · internal/ledger OpenItems",
+        "src": "review:batch23",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A payment names its posting and its bank (pre-existing finding on paynums, API-consumer classes: an identifier without the name or reference its consumer needs): Payment.journal_entry_id (the payment's own posting) gives no document number, and bank_account_id and house_bank_id give no name or code, so a consumer makes one more call per payment; ledger.OpenItems.Numbers already resolves journal entry numbers",
+        "r": "api/openapi.yaml Payment journal_entry_id · bank_account_id · house_bank_id · internal/payments · ledger.OpenItems.Numbers",
+        "src": "review:batch23",
         "c": []
        }
       ]
@@ -2609,10 +2630,24 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A later migration run tops up the GR/IR positions of orders an earlier run loaded (pre-existing finding on T72f): docs/migration.md's cutover runs a final delta migration after the parallel run, but a position is taken over only by the run that loads its order, so receipts or invoices SAP posted on an already loaded order fail the open GR/IR reconciliation check and the migration cannot correct it",
-      "r": "internal/integration/grir.go · docs/migration.md §Cut over · T72f",
+      "r": "internal/integration/grir.go · internal/ledger/grir_takeover.go · docs/migration.md · ADR-0034 As built (later runs) · walkthrough step 3 · T72f",
       "src": "review:batch21",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A later migration run tops up the GR/IR positions of an order an earlier run of the same fiscal year loaded with no position open: the top-up tells a take-over's run, and so its fiscal year, by the take-over entry's source document, and an order loaded with nothing open has none, so it is left with a warning and a reconciliation difference when SAP receives or invoices on it again before cutover",
+      "r": "internal/integration/grir.go cannotTopUp · ADR-0034 As built (later runs)",
+      "src": "review:batch23",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A migration run's report has a schema (pre-existing finding on grirtop): MigrationRun.report is an object with additionalProperties: true, so its loaded-count keys (gr_ir_positions, gr_ir_top_ups and the others) are documented only in docs/migration.md and a consumer of the contract cannot know them",
+      "r": "api/openapi.yaml MigrationRun.report · internal/integration · docs/migration.md",
+      "src": "review:batch23",
       "c": []
      },
      {
@@ -5278,10 +5313,24 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "x-problem-codes lists codes an operation can never answer (pre-existing finding on batch 21): api/problemcodes_test.go derives codes from the call graph without branch conditions, so e.g. postGoodsReceipt lists ledger.gr_ir_position_exists, which only a migration take-over produces, and releasePurchaseOrder and approveApprovalRequest list procurement.no_gr_ir_account; ADR-0052 G7 accepts a superset: either an unreachable-from table in the test or the superset documented in G7",
-        "r": "api/problemcodes_test.go · ADR-0052 G7",
+        "r": "api/problemcodes_test.go untakenBranches, checkUntaken · api/openapi.yaml x-problem-codes · TestProblemCodes · ADR-0052 G7: branches only another caller takes",
         "src": "review:batch21",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "reconcileMigrationRun's x-problem-codes lists about 150 codes only the load can answer (partner.*, payables.*, ledger.gr_ir_position_exists, procurement.no_gr_ir_account, ...; pre-existing finding on batch 23): api/problemcodes_test.go's call graph joins the work functions integration.Endpoints.runStep calls through step.work, a field of its struct parameter, so reconciling reached the load (runStep, load$bound, load); call-graph imprecision, not a branch condition, so untakenBranches does not fit",
+        "r": "api/problemcodes_test.go callersMake, holdsMade · api/testdata/fieldcalls · TestProblemCodesFieldCalls · api/openapi.yaml x-problem-codes · ADR-0052 G7: function values in a parameter's fields",
+        "src": "review:batch23",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "x-problem-codes may omit codes an operation can answer: problemcodes_test.go's cut drops a direct call of a function-value parameter without proving its callers made the value; 61 of 165 such call sites in production packages are unproven by holdsMade (counted in review round 2), mostly ifMatch/fits/check/build passed through internal/app.handler's promotion wrappers, others in shared platform helpers (uow.Act fn, uow.Job.Tx fn, database.BeginOr begin, pagination.Page key, worker.Recover fn) and struct fields (payables.Uploads.now, blobstore writeSidecar place, uow authenticate check, apitypes PageOf key/toAPI); checking them with givenMade adds codes such as request.version_mismatch and ledger.approval_required, each to be judged",
+        "r": "api/problemcodes_test.go cut · ADR-0052 G7",
+        "src": "review:batch23",
         "c": []
        },
        {
@@ -5335,9 +5384,9 @@
        },
        {
         "s": "T",
-        "t": "The workspace's payment run views name the supplier (pre-existing finding on exclnames): internal/web/payment_run.go:176 and :197 show the supplier as a UUID although the API gives supplier_name for payments and exclusions; waits for the UI rework (PO 2026-10-28: UI later)",
-        "r": "internal/web/payment_run.go",
-        "src": "review:batch22",
+        "t": "The workspace's payment run views name the supplier and the down payment request (pre-existing findings on exclnames and paynums): internal/web/payment_run.go:176 and :197 show the supplier as a UUID although the API gives supplier_name for payments and exclusions, and exclusionViews shows an excluded down payment request by id only although the API gives down_payment_request_number; waits for the UI rework (PO 2026-10-28: UI later)",
+        "r": "internal/web/payment_run.go paymentViews · exclusionViews",
+        "src": "review:batch22 · review:batch23",
         "c": []
        },
        {
@@ -8639,7 +8688,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "scripts/coverage.sh sets a go test timeout (finding on T72b): under load internal/analytics/extract and internal/web hit go test's default 10 minutes and make coverage fails though nothing is wrong",
       "r": "scripts/coverage.sh",
       "src": "review:T72b",
@@ -8656,6 +8705,13 @@
       "s": "D",
       "t": "govulncheck, staticcheck and gosec cover erp-temporal's own module (temporal/) as well as the root's, through scripts/each-module.sh, in ci-local, ci.yml's test job and weekly (govulncheck): every gate ran ./... from the root, which skips a module of its own, so nothing checked erp-temporal's standard-library or call-reachable vulnerabilities, and ko's SBOM, which grype scans, lists no standard library (pre-existing finding on batch 21)",
       "r": "scripts/each-module.sh · scripts/test-each-module.sh · scripts/ci-local.sh · .github/workflows/ci.yml · .github/workflows/weekly.yml · 06 §6.5",
+      "src": "review:batch21",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "The deploy checks run when the files they read change, not only their scripts and deploy/: temporal-checks.sh's lint rules (.golangci.yml), the module nats-checks.sh builds its nats-server from (go.mod, go.sum), and the ko and signing configurations test-mirror-images.sh reads through provenance.sh and sign-images.sh (.ko.yaml, release/signing-config.json); a change to any of them alone skipped those checks locally and on main (finding of the batch 21 review); scripts/ci-tools.sh stays out, as its golangci-lint pin is held equal to deploy.yml's by ci-local-tools.sh",
+      "r": "scripts/ci-changes.sh deploy class · .github/workflows/deploy.yml on.push.paths · scripts/test-ci-changes.sh · 06 §6.5",
       "src": "review:batch21",
       "c": []
      }
