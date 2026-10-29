@@ -124,6 +124,10 @@ func (r *failureRuns) prepare(t *testing.T) {
 	e, other := r.e.in(t), r.other.in(t)
 	blocked := tiny()
 	blocked.LFA1[0].SPERR = "X"
+	// A posted SAP invoice, whose quantity the load takes over (T72b2).
+	blocked.RBKP = append(blocked.RBKP, sap.RBKP{BELNR: "5100000020", GJAHR: "2026", BUKRS: "2000", LIFNR: "0000000001", XBLNR: "P-1", BLDAT: "20260302",
+		WAERS: "EUR", RMWWR: "80.00", WMWST1: "0.00", RBSTAT: "5", XRECH: sap.Indicator("X")})
+	blocked.RSEG = append(blocked.RSEG, sap.RSEG{BELNR: "5100000020", GJAHR: "2026", BUZEI: "000001", EBELN: "4500000001", EBELP: "00010", MENGE: "1", WRBTR: "80.00"})
 	write(t, e.dir, "tiny.json", blocked)
 	usOnly := tiny()
 	usOnly.T001 = []sap.T001{{BUKRS: "1000", WAERS: "USD"}}

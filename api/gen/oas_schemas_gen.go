@@ -39150,7 +39150,9 @@ type SupplierInvoiceItem struct {
 	PoItemNo OptInt32 `json:"po_item_no"`
 	// Description.
 	Description OptString `json:"description"`
-	// Invoiced quantity; positive.
+	// Invoiced quantity: positive (422 `payables.invalid_quantity`), except on a subsequent debit or
+	// credit, whose items revalue their order item without moving quantity and carry 0 (422
+	// `payables.quantity_not_zero` otherwise). A credit memo's is the quantity it credits.
 	Quantity Quantity `json:"quantity"`
 	// Net amount of the item.
 	Amount Money `json:"amount"`

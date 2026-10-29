@@ -1440,6 +1440,13 @@ erDiagram
     uuid account_id
     uuid cost_center_id "T56e"
     uuid profit_center_id "T56e" }
+  migrated_invoice_item { uuid migrated_invoice_id PK
+    int item_no PK
+    text reference
+    text kind "invoice | credit_memo"
+    uuid purchase_order_id
+    int po_item_no
+    numeric quantity }
   match_result { uuid id PK
     uuid supplier_invoice_id
     timestamptz evaluated_at
@@ -1497,7 +1504,8 @@ do (T34c).
 Each kind is matched and posted by its kind (T34c):
 
 - **Match**, per order item, against what other posted documents invoiced
-  net of credit memos:
+  net of credit memos, and what SAP's posted documents invoiced before
+  migration (`migrated_invoice_item`, below):
   - an invoice does not invoice more than received;
   - a credit memo does not credit more than invoiced
     (`quantity_exceeds_invoiced`);
@@ -1547,6 +1555,30 @@ Each kind is matched and posted by its kind (T34c):
   `payables.unknown_payment_term` for a term that is not configured). The
   invoice resource and `SupplierInvoicePosted` show them as
   `payment_terms`; a later change to the term changes neither.
+
+**Quantities invoiced before migration** (migration 000166, T72b2). SAP's
+posted invoice documents come over as journal entries, not as supplier
+invoices, so the match saw nothing invoiced on a migrated order and held
+every migrated credit memo (`quantity_exceeds_invoiced`) and subsequent
+debit or credit (`nothing_invoiced`). The migration load takes over, through
+`Endpoints.TakeOverInvoiced`, what each posted document (RBKP RBSTAT 5)
+invoiced or credited: `payables.migrated_invoice_item`, one row per ordinary
+item (RSEG-TBTKZ blank; a subsequent debit/credit item moves no quantity and
+is left out), its `kind` the document's direction (RBKP-XRECH: `invoice` or
+`credit_memo`), a positive `quantity`, the source document as `reference`
+(the connector's source system and BELNR/GJAHR, "SAP_PRD 5100000001/2026",
+as its external references name it) and the item's place in it as `item_no`. Rows are
+insert-only and taken over once per document and item
+(`migrated_invoice_item_once`, 409 `payables.already_taken_over`); the order
+item is checked through procurement's published API, with no foreign key,
+and its order's items are locked as a posting locks them, so a posting on
+the order waits for the take-over and counts it. The match, `:post`,
+simulations and regression suites count the rows as they count documents
+posted here, so a migrated correction matches when SAP's quantities allow
+it and is still held when they do not, and an invoice entered after
+cutover counts what SAP invoiced against the received quantity. The
+migration's reconciliation compares them per order item
+(`Invoices.MigratedQuantities`, docs/migration.md).
 
 A partial unique index on `(tenant_id, supplier_id, supplier_reference_norm)`
 for non-rejected invoices makes duplicate invoices impossible at the database
@@ -2374,7 +2406,7 @@ line or reservation. An agent's budget is identity's
 | Purchase order release strategy (T16FS/T16FC, EKKO-FRGKE/FRGZU) | `purchasing.order_release_approval` tiers, `purchase_order.status` `pending_approval`, `workflow.approval_request` (`purchase_order`) (T47c/d) |
 | PO change documents and versions (CDHDR/CDPOS EINKBELEG, EREV, EKKO-REVNO) | `procurement.purchase_order_change` (`proposed`, `previous`, `revision`), `purchase_order.revision`; increases approved as `order_change` (T47e/f) |
 | Outline agreement validity end and follow-on contract (EKKO-KDATE, reference agreement) | `contract.valid_to`, `contract.renewal_of_id`, `expiry_alerted_on` and `ContractExpiring` (T47g) |
-| RBKP/RSEG | `payables.supplier_invoice` + items; parked documents (RBSTAT A) by kind (T72b): RBKP-XRECH "X" an invoice, blank a credit memo; all items RSEG-TBTKZ "X" a subsequent debit (XRECH "X") or credit (blank), their items of quantity 0. An absent or unknown indicator stops the load; a document mixing subsequent and ordinary items is not migrated (warning) |
+| RBKP/RSEG | `payables.supplier_invoice` + items; parked documents (RBSTAT A) by kind (T72b): RBKP-XRECH "X" an invoice, blank a credit memo; all items RSEG-TBTKZ "X" a subsequent debit (XRECH "X") or credit (blank), their items of quantity 0. An absent or unknown indicator stops the load; a document mixing subsequent and ordinary items is not migrated (warning). Posted documents (RBSTAT 5): the quantities of their ordinary items, by XRECH, as `payables.migrated_invoice_item` for matching (T72b2); one whose XRECH, an item's TBTKZ or an ordinary item's quantity cannot be read stops the load |
 | REGUH/REGUP (F110) | `payments.payment_run`, `payment`, `payment_item` |
 | T012K | `payments.house_bank`; a Canadian one, without an IBAN, by `institution_number`, `transit_number` (from the bank key, as for LFBK) and `account_number` (BANKN) (T72d) |
 | T052 | `partner.payment_term` |

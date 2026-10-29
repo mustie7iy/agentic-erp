@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"math/big"
 	"slices"
 	"strconv"
 	"strings"
@@ -25,11 +26,12 @@ type Check struct {
 	Pass        bool   `json:"pass"`
 }
 
-// Diff is a difference behind a failed check: amounts in minor units, or
-// a vendor's bank account as bankAccount writes it.
+// Diff is a difference behind a failed check: amounts in minor units, a
+// vendor's bank account as bankAccount writes it, or an order item's
+// quantity invoiced in SAP (invoicedQuantities).
 type Diff struct {
 	CompanyCode string `json:"company_code"`
-	Key         string `json:"key"` // account number, "vendor <LIFNR>" or "bank account of vendor <LIFNR>"
+	Key         string `json:"key"` // account number, "vendor <LIFNR>", "bank account of vendor <LIFNR>" or "order item <EBELN>/<EBELP>"
 	SAP         string `json:"sap"`
 	Platform    string `json:"platform"`
 }
@@ -147,7 +149,10 @@ func (rc *reconciler) company(ctx context.Context, cc, cur string) error {
 	if err := rc.purchaseOrders(ctx, s); err != nil {
 		return err
 	}
-	return rc.parkedInvoices(ctx, s)
+	if err := rc.parkedInvoices(ctx, s); err != nil {
+		return err
+	}
+	return rc.invoicedQuantities(ctx, s)
 }
 
 // sapJournal is the SAP side of the journal controls of a company code.
@@ -339,6 +344,111 @@ func (rc *reconciler) parkedInvoices(ctx context.Context, s companyScope) error 
 		}
 	}
 	return nil
+}
+
+// invoicedQuantities compares, per order item of the company, the net
+// quantity SAP's posted invoice documents invoiced (credit memos
+// negative, subsequent debit/credit items none) with what the platform took
+// over (T72b2), and lists the order items that differ. The check is shown
+// when either side has a quantity, so a scope without posted invoices
+// reports as before. SAP's side is the extract's, every posted document
+// on the company's orders, whether or not the load took it over yet.
+func (rc *reconciler) invoicedQuantities(ctx context.Context, s companyScope) error {
+	orders := map[string]bool{}
+	var ids []uuid.UUID
+	ebeln := map[uuid.UUID]string{}
+	for _, h := range rc.ext.EKKO {
+		if h.BUKRS != s.cc {
+			continue
+		}
+		orders[h.EBELN] = true
+		if id, ok := rc.r["EKKO/"+h.EBELN]; ok {
+			ids, ebeln[id] = append(ids, id), h.EBELN
+		}
+	}
+	sapQty := rc.sapInvoiced(s.cc, orders)
+	taken, err := rc.e.Invoiced.MigratedQuantities(ctx, ids)
+	if err != nil {
+		return err
+	}
+	ebelp := map[string]string{} // EBELN/item no -> EBELP
+	for key, no := range itemNos(rc.ext) {
+		order, item, _ := strings.Cut(key, "/")
+		ebelp[order+"/"+strconv.Itoa(int(no))] = item
+	}
+	platform := map[string]*big.Rat{}
+	for id, items := range taken {
+		for no, qty := range items {
+			order := ebeln[id]
+			platform["order item "+order+"/"+ebelp[order+"/"+strconv.Itoa(int(no))]] = money.ParseRat(qty)
+		}
+	}
+	if len(sapQty) == 0 && len(platform) == 0 {
+		return nil
+	}
+	n := 0
+	for _, key := range sortedKeys(unionKeys(sapQty, platform)) {
+		a, b := orZero(sapQty[key]), orZero(platform[key])
+		if a.Cmp(b) != 0 {
+			n++
+			rc.rec.Diffs = append(rc.rec.Diffs, Diff{CompanyCode: s.cc, Key: key, SAP: plainQuantity(a), Platform: plainQuantity(b)})
+		}
+	}
+	rc.add(s.cc, "Quantities invoiced in SAP: order items with differences", "0", strconv.Itoa(n), n == 0)
+	return nil
+}
+
+// sapInvoiced is the net quantity the posted documents invoiced per item
+// of the company's orders, keyed "order item EBELN/EBELP". A
+// document whose kind or quantities cannot be told is refused, as the
+// quality gate refuses it.
+func (rc *reconciler) sapInvoiced(cc string, orders map[string]bool) map[string]*big.Rat {
+	_, issues := postedDocuments(rc.ext, cc)
+	for _, i := range issues {
+		rc.refuse(i.Table, i.Key, "%s", i.Message)
+	}
+	// Every company's documents, on the company's orders: the platform's
+	// side counts what was taken over on the orders, whichever document.
+	docs, _ := postedDocuments(rc.ext, "") // each company's issues are refused with its own checks
+	out := map[string]*big.Rat{}
+	for _, d := range docs {
+		for _, it := range d.items {
+			if !orders[it.EBELN] {
+				continue
+			}
+			q := money.ParseRat(it.MENGE) // a positive quantity (postedInvoiced)
+			if d.kind == payables.KindCreditMemo {
+				q.Neg(q)
+			}
+			key := "order item " + it.EBELN + "/" + it.EBELP
+			out[key] = new(big.Rat).Add(orZero(out[key]), q)
+		}
+	}
+	return out
+}
+
+func orZero(r *big.Rat) *big.Rat {
+	if r == nil {
+		return new(big.Rat)
+	}
+	return r
+}
+
+func unionKeys[V any](a, b map[string]V) map[string]bool {
+	out := map[string]bool{}
+	for k := range a {
+		out[k] = true
+	}
+	for k := range b {
+		out[k] = true
+	}
+	return out
+}
+
+// plainQuantity renders an exact quantity of up to six decimals as the
+// extract and the platform write one: "12.5", "-3".
+func plainQuantity(r *big.Rat) string {
+	return strings.TrimSuffix(strings.TrimRight(r.FloatString(6), "0"), ".")
 }
 
 // extend is an item's net value: quantity times price per price unit,

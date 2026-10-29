@@ -23,7 +23,7 @@ import (
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
 var perms = []string{"integration.connector.read", "integration.connector.manage", "integration.migration.read", "integration.migration.run",
-	"platform.operation.read", "ledger.entry.read", "ledger.entry.post", "payables.invoice.read", "procurement.order.read"}
+	"platform.operation.read", "ledger.entry.read", "ledger.entry.post", "payables.invoice.read", "payables.invoice.capture", "procurement.order.read"}
 
 type env struct {
 	fixture.Env

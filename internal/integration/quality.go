@@ -337,7 +337,9 @@ func (q *qualityCheck) journalLine(l sap.ACDOCA, s *journalScan) {
 }
 
 // supplierInvoices checks that each parked invoice document has a kind
-// (documentKind) and that its header agrees with its items and tax.
+// (documentKind) and that its header agrees with its items and tax, and
+// that each posted one has a direction and quantities to take over
+// (postedInvoiced).
 func (q *qualityCheck) supplierInvoices() {
 	itemTotals := q.invoiceItemTotals()
 	dups := duplicateInvoices(q.e)
@@ -375,7 +377,12 @@ func (q *qualityCheck) supplierInvoice(h sap.RBKP, items []sap.RSEG, itemTotals 
 		q.add(SevError, "RBKP", key, "unparseable amounts %q / %q or date %q", h.RMWWR, h.WMWST1, h.BLDAT)
 		return
 	case h.RBSTAT == "5":
-		return // posted in SAP: its journal entry carries it
+		// Posted in SAP: its journal entry carries it, and the load takes
+		// over the quantities it invoiced, which need its kind (T72b2).
+		if _, issue := postedInvoiced(h, items); issue != nil {
+			q.out = append(q.out, *issue)
+		}
+		return
 	case h.RBSTAT != "A":
 		q.add(SevWarning, "RBKP", key, "invoice status %q is not migrated", h.RBSTAT)
 		return

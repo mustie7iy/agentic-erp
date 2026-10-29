@@ -15621,12 +15621,16 @@ paths:
         - payables.account_not_postable
         - payables.account_required
         - payables.already_captured
+        - payables.already_taken_over
         - payables.assignment_from_order
         - payables.currency_mismatch
         - payables.duplicate_invoice
+        - payables.invalid_item_no
         - payables.invalid_purchase_order
         - payables.invalid_quantity
+        - payables.invalid_reference
         - payables.invalid_reference_invoice
+        - payables.items_required
         - payables.mixed_purchase_orders
         - payables.negative_amount
         - payables.po_item_required
@@ -15823,12 +15827,16 @@ paths:
         - payables.account_not_postable
         - payables.account_required
         - payables.already_captured
+        - payables.already_taken_over
         - payables.assignment_from_order
         - payables.currency_mismatch
         - payables.duplicate_invoice
+        - payables.invalid_item_no
         - payables.invalid_purchase_order
         - payables.invalid_quantity
+        - payables.invalid_reference
         - payables.invalid_reference_invoice
+        - payables.items_required
         - payables.mixed_purchase_orders
         - payables.negative_amount
         - payables.po_item_required
@@ -27670,7 +27678,7 @@ components:
           maxLength: 200
         quantity:
           $ref: "#/components/schemas/Quantity"
-          description: "Invoiced quantity; positive."
+          description: "Invoiced quantity: positive (422 `payables.invalid_quantity`), except on a subsequent debit or credit, whose items revalue their order item without moving quantity and carry 0 (422 `payables.quantity_not_zero` otherwise). A credit memo's is the quantity it credits."
         amount:
           $ref: "#/components/schemas/Money"
           description: Net amount of the item.

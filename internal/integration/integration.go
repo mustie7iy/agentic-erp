@@ -81,14 +81,22 @@ type OrderValues interface {
 	Value(ctx context.Context, ids []uuid.UUID) (int, money.Minor, error)
 }
 
-// Invoices enters supplier invoices (payables).
+// Invoices enters supplier invoices, and takes over what SAP's posted
+// invoice documents invoiced on order items (payables).
 type Invoices interface {
 	CreateInvoice(ctx context.Context, in payables.Input, source string) (payables.Invoice, error)
+	TakeOverInvoiced(ctx context.Context, in payables.MigratedInvoice) (uuid.UUID, error)
 }
 
 // InvoiceCounts counts supplier invoices by kind (payables).
 type InvoiceCounts interface {
 	Count(ctx context.Context, ids []uuid.UUID) (map[string]int, error)
+}
+
+// InvoicedQuantities reads the quantities migrated documents invoiced on
+// order items, by order and item (payables).
+type InvoicedQuantities interface {
+	MigratedQuantities(ctx context.Context, orders []uuid.UUID) (map[uuid.UUID]map[int32]string, error)
 }
 
 // Postings posts journal entries and clears migrated open items (ledger).
@@ -122,6 +130,7 @@ type Endpoints struct {
 	OrderValues   OrderValues
 	Invoices      Invoices
 	InvoiceCounts InvoiceCounts
+	Invoiced      InvoicedQuantities
 	Postings      Postings
 	Reports       Reports
 	Secrets       Secrets
