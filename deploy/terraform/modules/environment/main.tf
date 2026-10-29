@@ -194,7 +194,7 @@ module "global" {
 }
 
 output "cell" {
-  description = "The home cell: cluster, database, bucket, keys and workload roles (the erp-cell chart's values)."
+  description = "The home cell: cluster, database, bucket, keys and workload roles (the erp-cell chart's values), and its pilot light's, which the cell takes on a failover (ADR-0040)."
   value = {
     cluster_name               = module.cell.cluster_name
     vpc_id                     = module.cell.vpc_id
@@ -208,6 +208,7 @@ output "cell" {
     workload_role_arns         = module.cell.workload_role_arns
     aws_endpoints              = module.cell.aws_endpoints
     restore_drill              = module.cell.restore_drill
+    pilot_light                = module.cell.pilot_light
   }
 }
 

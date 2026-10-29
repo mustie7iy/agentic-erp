@@ -1,12 +1,14 @@
 # A production cell's pilot light in its disaster-recovery region (ADR-0040,
-# T41b2): a cross-region read replica of the database, a VPC with its
-# endpoints, an EKS control plane without nodes, the cluster key's
-# counterpart, the field key replicated (a multi-Region key, so tenant keys
-# wrapped at home unwrap there) and the secrets replicated. On a region
-# failure the runbook promotes the replica and Argo CD syncs the cell there.
-# Whether a Multi-AZ DB cluster accepts a cross-region replica is to be
-# confirmed on AWS staging before the pilot: the replica is one resource to
-# replace if it does not.
+# T41b2, T41b3): a cross-region read replica of the database, a VPC with
+# its endpoints, an EKS control plane with a node group at zero, the
+# cluster key's counterpart, the field key replicated (a multi-Region key,
+# so tenant keys wrapped at home unwrap there) and the secrets replicated;
+# the workloads' roles there trust the DR cluster alone
+# (pilot_light_workloads.tf). On a region failure the runbook promotes the
+# replica, scales the node group up and bootstraps the cell's Argo CD
+# there, which syncs the cell. Whether a Multi-AZ DB cluster accepts a
+# cross-region replica is to be confirmed on AWS staging before the pilot:
+# the replica is one resource to replace if it does not.
 
 variable "pilot_light" {
   description = "Keep a pilot light in dr_region (production cells); staging has the backup copies only."
@@ -88,7 +90,7 @@ resource "aws_kms_key" "dr_cluster" {
   deletion_window_in_days = 30
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
+    Statement = concat([
       local.administer,
       {
         Sid       = "CloudWatchLogs"
@@ -100,7 +102,8 @@ resource "aws_kms_key" "dr_cluster" {
           ArnLike = { "kms:EncryptionContext:aws:logs:arn" = "arn:${data.aws_partition.current.partition}:logs:${var.dr_region}:${data.aws_caller_identity.current.account_id}:log-group:*" }
         }
       },
-    ]
+      # The DR nodes' volumes, as the home cluster key's (kms.tf).
+    ], local.autoscaling_volumes)
   })
   lifecycle {
     prevent_destroy = true
@@ -108,14 +111,15 @@ resource "aws_kms_key" "dr_cluster" {
 }
 
 # The field key's replica: the same key material and id, so the server
-# unwraps the tenant keys there; its policy is the primary's.
+# unwraps the tenant keys there; its policy is the primary's but for the
+# server's role, which is the DR server's (kms.tf field_key_policies).
 resource "aws_kms_replica_key" "fields" {
   for_each                = local.pilot
   region                  = var.dr_region
   description             = "${local.prefix}: field encryption master, DR replica (ADR-0019, ADR-0040)"
   primary_key_arn         = aws_kms_key.fields.arn
   deletion_window_in_days = 30
-  policy                  = aws_kms_key.fields.policy
+  policy                  = local.field_key_policies[each.key]
   lifecycle {
     prevent_destroy = true
   }
@@ -206,8 +210,8 @@ resource "aws_cloudwatch_metric_alarm" "replica_lag" {
   alarm_actions       = var.replica_lag_alarm_actions
 }
 
-# The control plane, without nodes: its role is the home cluster's (IAM is
-# global), its secrets encrypted with the DR cluster key.
+# The control plane: its role is the home cluster's (IAM is global), its
+# secrets encrypted with the DR cluster key.
 
 resource "aws_cloudwatch_log_group" "dr_cluster" {
   for_each          = local.pilot
@@ -259,4 +263,75 @@ resource "aws_eks_access_policy_association" "dr_admin" {
   access_scope {
     type = "cluster"
   }
+}
+
+# The nodes, at zero until a failover (T41b3): the home cluster's node role
+# (IAM is global) and instance types, its launch template's settings with
+# the DR cluster key. The runbook scales the group to the cell's size
+# (node_scaling) with the EKS API, since Terraform cannot plan while the
+# home region is down; Terraform leaves the count alone afterwards.
+
+resource "aws_launch_template" "dr_nodes" {
+  for_each    = local.pilot
+  region      = var.dr_region
+  name_prefix = "${local.prefix}-dr-nodes-"
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size           = 50
+      volume_type           = "gp3"
+      encrypted             = true
+      kms_key_id            = aws_kms_key.dr_cluster[each.key].arn
+      delete_on_termination = true
+    }
+  }
+  metadata_options {
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
+    http_endpoint               = "enabled"
+  }
+}
+
+resource "aws_eks_node_group" "dr" {
+  for_each        = local.pilot
+  region          = var.dr_region
+  cluster_name    = aws_eks_cluster.dr[each.key].name
+  node_group_name = "${local.prefix}-general"
+  node_role_arn   = aws_iam_role.nodes.arn
+  subnet_ids      = module.dr_network[each.key].private_subnet_ids
+  instance_types  = var.node_instance_types
+  ami_type        = aws_eks_node_group.cell.ami_type
+  launch_template {
+    id      = aws_launch_template.dr_nodes[each.key].id
+    version = aws_launch_template.dr_nodes[each.key].latest_version
+  }
+  scaling_config {
+    min_size     = 0
+    desired_size = 0
+    max_size     = var.node_scaling.max
+  }
+  update_config {
+    max_unavailable = 1
+  }
+  depends_on = [aws_iam_role_policy_attachment.nodes]
+  lifecycle {
+    ignore_changes = [scaling_config[0].desired_size, scaling_config[0].min_size]
+  }
+}
+
+# The VPC CNI with its network policy agent, as at home, so the charts'
+# default deny holds from the first pod. A DaemonSet, it is healthy with
+# no nodes. The EBS CSI driver is not created here: its controller cannot
+# become ready without nodes, so EKS would leave the add-on degraded and
+# the apply would fail; the runbook creates it after the scale-up, as its
+# role (dr_workload ebs_csi).
+resource "aws_eks_addon" "dr_vpc_cni" {
+  for_each                    = local.pilot
+  region                      = var.dr_region
+  cluster_name                = aws_eks_cluster.dr[each.key].name
+  addon_name                  = "vpc-cni"
+  addon_version               = var.vpc_cni_addon_version
+  configuration_values        = jsonencode({ enableNetworkPolicy = "true" })
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "PRESERVE"
 }

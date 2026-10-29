@@ -64,6 +64,16 @@ mock_provider "aws" {
   mock_resource "aws_lb" {
     defaults = { arn = "arn:aws:elasticloadbalancing:eu-central-1:222222222222:loadbalancer/net/erp-dev-router/0" }
   }
+  # The production shape's DR side (modules/cell dr.tf, pilot_light.tf).
+  mock_data "aws_servicequotas_service_quota" {
+    defaults = { quota_code = "L-0000TEST", value = 100 }
+  }
+  mock_resource "aws_backup_vault" {
+    defaults = { arn = "arn:aws:backup:eu-west-1:222222222222:backup-vault:erp-prod1-dr" }
+  }
+  mock_resource "aws_rds_cluster" {
+    defaults = { arn = "arn:aws:rds:eu-central-1:222222222222:cluster:erp-prod1" }
+  }
   mock_resource "aws_lb_target_group" {
     defaults = { arn = "arn:aws:elasticloadbalancing:eu-central-1:222222222222:targetgroup/erp-dev-router/0" }
   }
@@ -98,6 +108,10 @@ run "the_small_shape_plans_and_wires_its_parts" {
   assert {
     condition     = output.cell.cluster_name == "erp-dev1" && output.cell.object_bucket != null && output.cell.cidr == "10.16.0.0/16"
     error_message = "the cell is named after the root's cell and its range is an output"
+  }
+  assert {
+    condition     = output.cell.pilot_light == null
+    error_message = "dev has no pilot light"
   }
   assert {
     condition     = toset(keys(output.cell.workload_role_arns)) == toset(["server", "external_secrets", "cert_manager", "ebs_csi", "load_balancer", "kyverno", "monitoring", "logging", "tracing", "analytics"])
@@ -142,5 +156,37 @@ run "the_production_shape_is_zone_redundant" {
   assert {
     condition     = output.cell.cluster_name == "erp-prod1"
     error_message = "the cell is named after the root's cell"
+  }
+}
+
+run "the_production_pilot_light_is_an_output" {
+  command   = apply
+  state_key = "pilot"
+
+  variables {
+    environment               = "production"
+    cell                      = "prod1"
+    cidr                      = "10.64.0.0/16"
+    zone_redundant            = true
+    node_scaling              = { min = 3, desired = 3, max = 12 }
+    backup_retention_days     = 35
+    dr_region                 = "eu-west-1"
+    pilot_light               = true
+    dr_cidr                   = "10.65.0.0/16"
+    dr_availability_zones     = ["eu-west-1a", "eu-west-1b", "eu-west-1c"]
+    replica_lag_alarm_actions = ["arn:aws:sns:eu-west-1:222222222222:erp-oncall"]
+  }
+
+  assert {
+    condition     = output.cell.pilot_light.region == "eu-west-1" && output.cell.pilot_light.node_scaling == { min = 3, desired = 3, max = 12 }
+    error_message = "the pilot light's region and the size its nodes are scaled to on a failover are outputs"
+  }
+  assert {
+    condition     = toset(keys(output.cell.pilot_light.workload_role_arns)) == toset(keys(output.cell.workload_role_arns))
+    error_message = "every workload role the charts need has its DR counterpart among the outputs"
+  }
+  assert {
+    condition     = output.cell.pilot_light.aws_endpoints.sts == "https://sts.eu-west-1.amazonaws.com"
+    error_message = "the DR region's endpoints are the cell's values there"
   }
 }
