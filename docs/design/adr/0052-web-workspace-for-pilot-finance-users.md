@@ -1291,13 +1291,19 @@ What the API gaps settled, and where they depart from §3:
   `UpdateMemoRecord`; most of the 61 sites were the endpoints' `ifMatch`,
   `fits`, `check` and `build` reached that way). Nothing calls such a
   wrapper: the program would show a call, and the handler leaves it only
-  as `gen.Handler`, whose methods alone api/gen calls. That premise is
-  checked, not trusted (`sealHandler`): every conversion of the handler
-  to an interface is to `gen.Handler`, no type embeds it, and api/gen's
-  source (outside the analysis) uses it only as `s.h` to call a method of
-  `gen.Handler` and imports no reflection; otherwise no handler wrapper
-  counts as uncallable. The test proves the check refuses each broken
-  premise. Now 129 of the 165 sites are proven and cut, and the other 36
+  as `gen.Handler` given to `gen.NewServer`, and api/gen calls only that
+  interface's methods on it. That premise is checked, not trusted
+  (`sealHandler`): every conversion of the handler to an interface is to
+  `gen.Handler`, and that value goes only through parameters of
+  functions in the program to `gen.NewServer`'s first argument (kept,
+  converted again or handed to a function value, it fails); api/gen,
+  outside the SSA analysis, is read with its types, and every use of a
+  variable of type `Handler` there must call one of its methods or fill
+  or name a field (`Server{h: h}`), no struct embeds `Handler`, and
+  nothing imports `reflect`. Otherwise no handler wrapper counts as
+  uncallable. The test proves each check refuses a broken premise (an
+  assertion on `NewServer`'s parameter, an aliased reflect import, the
+  handler kept in a variable or converted to `any`). Now 129 of the 165 sites are proven and cut, and the other 36
   (shared platform helpers such as `uow.Act`, `uow.Job.Tx`,
   `database.BeginOr`, `pagination.Page`, `clock.Now`, `worker.Recover`,
   functions read from struct fields through a pointer, generic bodies

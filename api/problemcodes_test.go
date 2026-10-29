@@ -54,12 +54,14 @@ package api
 import (
 	"flag"
 	"fmt"
+	"go/ast"
 	"go/constant"
+	"go/importer"
+	"go/parser"
 	"go/token"
 	"go/types"
 	"maps"
 	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -258,25 +260,33 @@ func checkPremisesRefuse(t *testing.T, a *codeAnalysis) {
 	}
 }
 
-// checkSealRefuses proves sealHandler's source check fails a reflection
-// import, the handler used other than to call a method of gen.Handler and
-// a source with no call, and that a promotion wrapper of the handler is
-// uncallable only when it is no operation and the seal holds.
+// checkSealRefuses proves sealHandler's checks fail a broken premise: in
+// api/gen, a reflection import (under any name), the handler used other
+// than to call a method of Handler (asserted to another interface, held
+// in another value), Handler embedded, and code with no call; in the
+// program, a handler kept in a variable or given to a function the test
+// does not see into (testdata/handlerflow). And that a promotion wrapper
+// of the handler is uncallable only when it is no operation and the seal
+// holds.
 func checkSealRefuses(t *testing.T, a *codeAnalysis) {
 	t.Helper()
-	served := map[string]bool{"GetMe": true}
+	const head = "package gen\n\ntype Handler interface{ GetMe() error }\n\ntype Server struct{ h Handler }\n\n" +
+		"func (s *Server) serve() { _ = s.h.GetMe() }\n\n"
+	const newServer = "func NewServer(h Handler) *Server { return &Server{h: h} }\n"
 	for name, c := range map[string]struct {
 		src  string
 		want string
 	}{
-		"reflection":        {"import (\n\t\"reflect\"\n)\nfunc f() { s.h.GetMe(ctx) }", "imports reflect"},
-		"the handler held":  {"func f() { g(s.h) }", `uses the handler as "s.h"`},
-		"another method":    {"func f() { s.h.UpdateMemo(ctx) }", `uses the handler as "s.h.UpdateMemo("`},
-		"no call to check":  {"func f() {}", "finds nothing to check"},
-		"only served calls": {"func f() { s.h.GetMe(ctx) }", ""},
+		"reflection under a name": {strings.Replace(head, "\n\n", "\n\nimport R \"reflect\"\n\nvar _ = R.TypeOf\n\n", 1) + newServer, "imports reflect"},
+		"an assertion on the parameter": {head + "func NewServer(h Handler) *Server {\n\tif x, ok := h.(interface{ Other() }); ok {\n\t\tx.Other()\n\t}\n" +
+			"\treturn &Server{h: h}\n}\n", "the handler h is used other than"},
+		"the handler held elsewhere": {head + newServer + "var held any\n\nfunc (s *Server) keep() { held = s.h }\n", "the handler h is used other than"},
+		"Handler embedded":           {head + newServer + "type wrap struct{ Handler }\n", "embeds Handler"},
+		"no call to check":           {strings.Replace(head, "_ = s.h.GetMe()", "", 1) + newServer, "finds nothing to check"},
+		"only calls of Handler":      {head + newServer, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := handlerUses(map[string][]byte{"gen/x.go": []byte(c.src)}, served)
+			got := typedGen(t, c.src)
 			if c.want == "" && len(got) > 0 {
 				t.Errorf("got %q, want nothing wrong", got)
 			}
@@ -285,6 +295,7 @@ func checkSealRefuses(t *testing.T, a *codeAnalysis) {
 			}
 		})
 	}
+	t.Run("flow", func(t *testing.T) { checkFlowRefuses(t) })
 	wrapper := func(name string) *ssa.Function { return a.fns["("+module+"/internal/app.handler)."+name] }
 	if got := a.uncallable(wrapper("UpdateMemo")); !got {
 		t.Errorf("handler.UpdateMemo, no operation: got uncallable %v, want true", got)
@@ -296,6 +307,51 @@ func checkSealRefuses(t *testing.T, a *codeAnalysis) {
 	unsealed.served = nil
 	if got := unsealed.uncallable(wrapper("UpdateMemo")); got {
 		t.Errorf("handler.UpdateMemo without the seal: got uncallable %v, want false", got)
+	}
+}
+
+// typedGen type-checks src as package gen and returns what
+// genHandlerUses finds wrong in it.
+func typedGen(t *testing.T, src string) []string {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "gen.go", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := &types.Info{Defs: map[*ast.Ident]types.Object{}, Uses: map[*ast.Ident]types.Object{}}
+	pkg, err := (&types.Config{Importer: importer.ForCompiler(fset, "source", nil)}).Check("gen", fset, []*ast.File{f}, info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return genHandlerUses(fset, []*ast.File{f}, info, pkg)
+}
+
+// checkFlowRefuses proves flowsTo on testdata/handlerflow: the handler
+// handed to NewServer through a parameter passes; kept in a variable,
+// converted to any or given to a function value fails.
+func checkFlowRefuses(t *testing.T) {
+	t.Helper()
+	const fixture = module + "/api/testdata/handlerflow"
+	a, _ := build(t, fixture)
+	for root, want := range map[string]string{"Wired": "", "Kept": "goes to *", "Printed": "goes to change interface",
+		"Registered": "outside what the test sees"} {
+		t.Run(root, func(t *testing.T) {
+			var got []string
+			for _, b := range a.fns[fixture+"."+root].Blocks {
+				for _, in := range b.Instrs {
+					if mi, ok := in.(*ssa.MakeInterface); ok && mi.Type().String() == fixture+".Handler" {
+						got = append(got, a.flowsTo(mi, fixture+".NewServer", map[ssa.Value]bool{})...)
+					}
+				}
+			}
+			if want == "" && len(got) > 0 {
+				t.Errorf("got %q, want nothing wrong", got)
+			}
+			if want != "" && !slices.ContainsFunc(got, func(e string) bool { return strings.Contains(e, want) }) {
+				t.Errorf("got %q, want a problem saying %q", got, want)
+			}
+		})
 	}
 }
 
@@ -1166,9 +1222,10 @@ func (a *codeAnalysis) checkParamPremise(u untaken, gate *ssa.Function) []string
 // (whose bound wrapper is then the function nothing calls); or one
 // promoting to the API's handler a method of a context's endpoints that
 // is not an operation (handler.UpdateMemo, beside the operation
-// UpdateMemoRecord). The handler leaves the program only as gen.Handler,
-// whose methods alone api/gen calls (sealHandler checks both), and any
-// call inside the program is the graph's.
+// UpdateMemoRecord). The handler leaves the program only as gen.Handler
+// given to gen.NewServer, and api/gen calls only that interface's methods
+// on it (sealHandler checks both); any call inside the program is the
+// graph's.
 func (a *codeAnalysis) uncallable(f *ssa.Function) bool {
 	if !strings.HasPrefix(f.Synthetic, "wrapper for ") {
 		return false
@@ -1188,50 +1245,62 @@ func isHandler(t types.Type) bool {
 	return ok && n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == module+"/internal/app" && n.Obj().Name() == "handler"
 }
 
-// The API's handler as api/gen uses it (Server.h), and reflection, which
-// sealHandler looks for in api/gen's source.
-var (
-	handlerUse    = regexp.MustCompile(`\bs\.h\b(\.([A-Za-z0-9_]+)\()?`)
-	reflectImport = regexp.MustCompile(`(?m)^\s*(?:import\s+)?(?:[a-z_]+\s+)?"reflect"\s*$`)
-)
-
 // sealHandler sets served, the methods of gen.Handler, once it has
 // checked that code outside the program can call no other method of the
-// API's handler: every conversion of the handler to an interface is to
-// gen.Handler, no type embeds it, and api/gen (outside the analysis)
-// calls only gen.Handler's methods on it and imports no reflection. It
-// returns what does not hold, and leaves served nil then, so that no
-// promotion wrapper of the handler counts as uncallable.
+// API's handler. In the program, every conversion of the handler to an
+// interface is to gen.Handler, and that value goes nowhere but through
+// parameters of functions in the program to gen.NewServer (flowsTo). In
+// api/gen, outside the analysis and read here with its types, a value of
+// type Handler is used only to call one of its methods or to fill a field,
+// no struct embeds Handler, and nothing imports reflect
+// (genHandlerUses). It returns what does not hold, and leaves served nil
+// then, so that no promotion wrapper of the handler counts as uncallable.
 func (a *codeAnalysis) sealHandler() []string {
+	const genPath = module + "/api/gen"
 	app := a.prog.ImportedPackage(module + "/internal/app").Pkg
-	gen := app.Imports()[slices.IndexFunc(app.Imports(), func(p *types.Package) bool { return p.Path() == module+"/api/gen" })]
-	handler := gen.Scope().Lookup("Handler").Type()
-	iface := handler.Underlying().(*types.Interface)
-	served := map[string]bool{}
-	for i := range iface.NumMethods() {
-		served[iface.Method(i).Name()] = true
+	i := slices.IndexFunc(app.Imports(), func(p *types.Package) bool { return p.Path() == genPath })
+	if i < 0 {
+		return []string{"internal/app no longer imports api/gen"}
 	}
-	out := a.handlerConversions(handler)
-	for _, name := range app.Scope().Names() {
-		if st, ok := app.Scope().Lookup(name).Type().Underlying().(*types.Struct); ok {
-			for i := range st.NumFields() {
-				if st.Field(i).Embedded() && isHandler(st.Field(i).Type()) {
-					out = append(out, fmt.Sprintf("app.%s embeds the API's handler, whose methods it then serves", name))
-				}
-			}
-		}
+	handler, served, err := handlerOf(app.Imports()[i])
+	if err != nil {
+		return []string{err.Error()}
 	}
-	out = append(out, genUses(served)...)
+	out := a.handlerConversions(handler, genPath+".NewServer")
+	pkgs, err := packages.Load(&packages.Config{Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes |
+		packages.NeedTypesInfo | packages.NeedImports, Dir: ".."}, genPath)
+	if err != nil || len(pkgs) != 1 || len(pkgs[0].Errors) > 0 {
+		return append(out, fmt.Sprintf("api/gen does not load with its types: %v %v", err, pkgs))
+	}
+	out = append(out, genHandlerUses(pkgs[0].Fset, pkgs[0].Syntax, pkgs[0].TypesInfo, pkgs[0].Types)...)
 	if len(out) == 0 {
 		a.served = served
 	}
 	return out
 }
 
+// handlerOf is gen's Handler interface and its methods' names.
+func handlerOf(gen *types.Package) (types.Type, map[string]bool, error) {
+	obj := gen.Scope().Lookup("Handler")
+	if obj == nil {
+		return nil, nil, fmt.Errorf("%s declares no Handler", gen.Path())
+	}
+	iface, ok := obj.Type().Underlying().(*types.Interface)
+	if !ok {
+		return nil, nil, fmt.Errorf("%s's Handler is no interface", gen.Path())
+	}
+	served := map[string]bool{}
+	for i := range iface.NumMethods() {
+		served[iface.Method(i).Name()] = true
+	}
+	return obj.Type(), served, nil
+}
+
 // handlerConversions is every conversion of the API's handler to an
-// interface other than gen.Handler, or that there is none at all (the
+// interface other than gen.Handler, every route a gen.Handler made of it
+// takes but to sink (flowsTo), or that there is no conversion at all (the
 // check would see nothing).
-func (a *codeAnalysis) handlerConversions(handler types.Type) []string {
+func (a *codeAnalysis) handlerConversions(handler types.Type, sink string) []string {
 	var out []string
 	served := 0
 	for f := range a.all {
@@ -1242,6 +1311,7 @@ func (a *codeAnalysis) handlerConversions(handler types.Type) []string {
 				case !ok || !isHandler(mi.X.Type()):
 				case types.Identical(mi.Type(), handler):
 					served++
+					out = append(out, a.flowsTo(mi, sink, map[ssa.Value]bool{})...)
 				default:
 					out = append(out, fmt.Sprintf("%s converts the API's handler to %s, not gen.Handler (%s)", f, mi.Type(), a.prog.Fset.Position(mi.Pos())))
 				}
@@ -1254,52 +1324,115 @@ func (a *codeAnalysis) handlerConversions(handler types.Type) []string {
 	return out
 }
 
-// genSource is api/gen's source, by file.
-func genSource() (map[string][]byte, error) {
-	files, err := filepath.Glob("gen/*.go")
-	if err != nil {
-		return nil, err
+// flowsTo is where v goes but as the first argument of sink, a function
+// named by its full name, or as an argument of a function in the program,
+// whose parameter is followed in turn: anywhere else (stored, converted,
+// called on, handed to a function without a body here) code the graph
+// does not see could call any of its methods.
+func (a *codeAnalysis) flowsTo(v ssa.Value, sink string, seen map[ssa.Value]bool) []string {
+	if seen[v] {
+		return nil
 	}
-	src := map[string][]byte{}
-	for _, name := range files {
-		if src[name], err = os.ReadFile(name); err != nil {
-			return nil, err
-		}
-	}
-	return src, nil
-}
-
-// genUses checks api/gen's source: the handler is used only as s.h, to
-// call a method of gen.Handler, and nothing imports reflect. A source
-// with no call at all fails, as the check would see nothing.
-func genUses(served map[string]bool) []string {
-	src, err := genSource()
-	if err != nil {
-		return []string{"api/gen's source: " + err.Error()}
-	}
-	return handlerUses(src, served)
-}
-
-// handlerUses is what genUses finds wrong in src.
-func handlerUses(src map[string][]byte, served map[string]bool) []string {
+	seen[v] = true
 	var out []string
-	calls := 0
-	for _, name := range slices.Sorted(maps.Keys(src)) {
-		if reflectImport.Match(src[name]) {
-			out = append(out, name+" imports reflect, which can call any method of the handler")
+	for _, r := range *v.Referrers() {
+		if _, ok := r.(*ssa.DebugRef); ok {
+			continue
 		}
-		for _, m := range handlerUse.FindAllSubmatch(src[name], -1) {
-			if !served[string(m[2])] {
-				out = append(out, fmt.Sprintf("%s uses the handler as %q, not to call a method of gen.Handler", name, m[0]))
-				continue
-			}
-			calls++
+		call, ok := r.(*ssa.Call)
+		if !ok {
+			out = append(out, fmt.Sprintf("%s: the handler goes to %s (%s)", v.Parent(), r, a.prog.Fset.Position(r.Pos())))
+			continue
 		}
-	}
-	if calls == 0 {
-		out = append(out, "api/gen calls no method of the handler as s.h: the check finds nothing to check")
+		g, i := call.Call.StaticCallee(), slices.Index(call.Call.Args, v)
+		switch {
+		case g != nil && g.String() == sink && i == 0:
+		case g == nil || i < 0 || len(g.Blocks) == 0 || i >= len(g.Params):
+			out = append(out, fmt.Sprintf("%s: the handler goes to %s, outside what the test sees (%s)", v.Parent(), call, a.prog.Fset.Position(call.Pos())))
+		default:
+			out = append(out, a.flowsTo(g.Params[i], sink, seen)...)
+		}
 	}
 	return out
+}
+
+// genHandlerUses checks api/gen with its types: every use of a variable
+// of type Handler is a call of one of Handler's methods on it, or fills or
+// names a field (Server{h: h}); no struct embeds Handler; nothing imports
+// reflect. Code with no such call fails, as the check would see nothing.
+func genHandlerUses(fset *token.FileSet, files []*ast.File, info *types.Info, pkg *types.Package) []string {
+	handler, served, err := handlerOf(pkg)
+	if err != nil {
+		return []string{err.Error()}
+	}
+	var out []string
+	if slices.ContainsFunc(pkg.Imports(), func(p *types.Package) bool { return p.Path() == "reflect" }) {
+		out = append(out, pkg.Path()+" imports reflect, which can call any method of the handler")
+	}
+	calls := 0
+	for _, f := range files {
+		var stack []ast.Node
+		ast.Inspect(f, func(n ast.Node) bool {
+			if n == nil {
+				stack = stack[:len(stack)-1]
+				return true
+			}
+			stack = append(stack, n)
+			id, ok := n.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			switch use := handlerUse(id, stack, info, handler, served); use {
+			case "":
+			case "call":
+				calls++
+			default:
+				out = append(out, fmt.Sprintf("%s: %s", fset.Position(id.Pos()), use))
+			}
+			return true
+		})
+	}
+	if calls == 0 {
+		out = append(out, pkg.Path()+" calls no method of the handler: the check finds nothing to check")
+	}
+	return out
+}
+
+// handlerUse classifies id, the last node of stack: "" when it is no
+// variable of type Handler, or one declared or naming a field in a
+// composite literal; "call" when it is the receiver of a call of a method
+// of Handler; otherwise what is wrong.
+func handlerUse(id *ast.Ident, stack []ast.Node, info *types.Info, handler types.Type, served map[string]bool) string {
+	if v, ok := info.Defs[id].(*types.Var); ok && types.Identical(v.Type(), handler) {
+		if v.Embedded() {
+			return "a struct embeds Handler, whose methods it then has"
+		}
+		return ""
+	}
+	v, ok := info.Uses[id].(*types.Var)
+	if !ok || !types.Identical(v.Type(), handler) {
+		return ""
+	}
+	at := func(i int) ast.Node { // the i-th node above the value
+		if i < len(stack) {
+			return stack[len(stack)-1-i]
+		}
+		return nil
+	}
+	var value ast.Expr = id
+	up := 1
+	if sel, ok := at(1).(*ast.SelectorExpr); ok && sel.Sel == id {
+		value, up = sel, 2 // s.h
+	}
+	if kv, ok := at(up).(*ast.KeyValueExpr); ok && (kv.Key == value || kv.Value == value) {
+		return "" // Server{h: h}: the field's own uses are checked
+	}
+	if sel, ok := at(up).(*ast.SelectorExpr); ok && sel.X == value && served[sel.Sel.Name] {
+		if call, ok := at(up + 1).(*ast.CallExpr); ok && call.Fun == sel {
+			return "call"
+		}
+	}
+	return fmt.Sprintf("the handler %s is used other than to call a method of Handler", id.Name)
 }
 
 // allCodes is every code the server can make.
