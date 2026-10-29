@@ -447,6 +447,7 @@ step_migrate() {
   api 201 '"connector \(.id): \(.kind), \(.name)"' createConnector -body '{"kind": "sap_file", "name": "SAP PRD", "settings": {"path": "extract.json"}}'
   local connector
   connector=$(field .id)
+  parallel_run_extract
   say "A rehearsal first: load, reconcile and roll back."
   show erp migrate -connector "$connector" -legal-entities "$LE" -year "$YEAR" -rehearsal
   "$ERP" migrate -connector "$connector" -legal-entities "$LE" -year "$YEAR" -rehearsal >"$WORK/rehearsal.out" 2>&1 ||
@@ -464,6 +465,7 @@ step_migrate() {
     'Open down payments total' 'Open down payments: vendors with differences' 'Open GR/IR total' 'Open GR/IR: order items with differences'; do
     grep "$check" "$WORK/migrate.out" | grep -q 'PASS$' || fail "the reconciliation check '$check' did not pass"
   done
+  delta_migration "$connector"
   say "The trial balance and the open payables agree with SAP's, recomputed from the raw extract, and so"
   say "does each supplier's bank account. A Canadian supplier's account came over with its bank (T72d):"
   say "scheme ca, the institution and transit numbers from SAP's bank key (LFBK-BANKL), the account sealed."
@@ -503,6 +505,53 @@ step_migrate() {
   passed
 }
 
+# parallel_run_extract splits SAP's receipt of the eight shelving units
+# (T72f) in two, as SAP stood during the parallel run and at cutover: the
+# extract the first run loads (extract.json) has five received on 20 June,
+# their document crediting the GR/IR account 750.00; the final delta run's
+# (delta.json) has three more received on 25 June, in a receipt and a
+# document of their own crediting it 450.00, both lines naming the order
+# item. Account balances are the mock's either way.
+parallel_run_extract() {
+  local grir
+  grir=$(jq -r --arg cc "$CC" '.T030[] | select(.BUKRS == $cc and .KTOSL == "WRX") | .KONTS' "$WORK/data/extract.json")
+  jq --arg cc "$CC" --arg a "$grir" --arg d "${YEAR}0625" '
+    def value(v): if startswith("-") then "-" + v else v end;
+    ([.ACDOCA[] | select(.RBUKRS == $cc and .RACCT == $a)] | first) as $g
+    | ([.ACDOCA[] | select(.RBUKRS == $cc and .GJAHR == $g.GJAHR and .BELNR == $g.BELNR)]) as $doc
+    | ([.MSEG[] | select(.EBELN == $g.EBELN)] | first) as $m
+    | .MSEG = [.MSEG[] | if .MBLNR == $m.MBLNR then .MENGE = "5" else . end] + [$m + {MBLNR: "5099999999", MENGE: "3", BUDAT: $d}]
+    | .ACDOCA = [.ACDOCA[] | if .RBUKRS == $cc and .GJAHR == $g.GJAHR and .BELNR == $g.BELNR then .HSL |= value("750.00") | .WSL |= value("750.00") else . end]
+      + [$doc[] | .BELNR = "0199999999" | .BUDAT = $d | .HSL |= value("450.00") | .WSL |= value("450.00")]' \
+    "$WORK/data/extract.json" >"$WORK/data/delta.json" || fail "the delta extract could not be made"
+  jq '.MSEG = [.MSEG[] | select(.MBLNR != "5099999999")] | .ACDOCA = [.ACDOCA[] | select(.BELNR != "0199999999")]' \
+    "$WORK/data/delta.json" >"$WORK/data/extract.json" || fail "the parallel run's extract could not be made"
+}
+
+# delta_migration runs the final delta migration at cutover (docs/migration.md
+# §4): SAP received the last three shelving units after the first run
+# loaded their order, so the run loads the receipt and its document and
+# tops the order item's migrated GR/IR position up to SAP's (review:batch21),
+# and the open GR/IR check passes again.
+delta_migration() {
+  say "That first run loaded SAP as it stood during the parallel run. SAP then received three more of the"
+  say "shelving units before postings were frozen for cutover: a receipt and a document of their own, on an"
+  say "order the platform already has. The final delta run loads what is new and tops the item's migrated"
+  say "GR/IR position up to SAP's, from what the first run took over:"
+  jq -r --arg cc "$CC" '.ACDOCA[] | select(.RBUKRS == $cc and .BELNR == "0199999999")
+    | "     ACDOCA \(.BELNR)/\(.DOCLN) \(.BLART): account \(.RACCT) \(.HSL), order item \(.EBELN)/\(.EBELP)"' "$WORK/data/delta.json"
+  cp "$WORK/data/delta.json" "$WORK/data/extract.json"
+  show erp migrate -connector "$1" -legal-entities "$LE" -year "$YEAR"
+  "$ERP" migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" >"$WORK/delta.out" 2>&1 ||
+    { sed 's/^/     /' "$WORK/delta.out"; fail "the delta migration did not reconcile"; }
+  grep -E '^(Migration run|Loaded)|Open GR/IR' "$WORK/delta.out" | sed 's/^/     /'
+  grep -q '"gr_ir_top_ups":1' "$WORK/delta.out" || fail "the delta run did not top up the GR/IR position"
+  local check
+  for check in 'Open GR/IR total' 'Open GR/IR: order items with differences' 'Trial balance: accounts with differences'; do
+    grep "$check" "$WORK/delta.out" | grep -q 'PASS$' || fail "the delta run's check '$check' did not pass"
+  done
+}
+
 # migrated_grir shows the GR/IR position SAP held open for an order item it
 # received and was not yet invoiced for (T72f), as the load took it over:
 # the order valued through GR/IR and the position on the platform's order
@@ -514,14 +563,14 @@ migrated_grir() {
   ebeln=$(jq -r --arg cc "$CC" --arg a "$grir" '[.ACDOCA[] | select(.RBUKRS == $cc and .RACCT == $a) | .EBELN] | first' "$WORK/data/extract.json")
   lifnr=$(jq -r --arg o "$ebeln" '.EKKO[] | select(.EBELN == $o) | .LIFNR' "$WORK/data/extract.json")
   GRIR_NAME=$(jq -r --arg v "$lifnr" '.LFA1[] | select(.LIFNR == $v) | .NAME1' "$WORK/data/extract.json")
-  say "SAP received $GRIR_NAME's shelving units on order $ebeln and has no invoice for them yet: the receipt's document"
+  say "SAP received $GRIR_NAME's shelving units on order $ebeln and has no invoice for them yet: each receipt's document"
   say "debited the item's account and credited SAP's GR/IR account (T030 WRX $grir), both lines naming the order item"
   say "(ACDOCA EBELN/EBELP):"
   jq -r --arg cc "$CC" --arg o "$ebeln" '.ACDOCA[] | select(.RBUKRS == $cc and .EBELN == $o)
     | "     ACDOCA \(.BELNR)/\(.DOCLN) \(.BLART): account \(.RACCT) \(.HSL), order item \(.EBELN)/\(.EBELP)"' "$WORK/data/extract.json"
-  say "The order came over valued through GR/IR, its receipt recorded without posting it again (SAP's journal carries"
-  say "it), and the open credit taken over onto the platform's order item in an entry of its own, reconciled per order"
-  say "item with SAP's above. The GR/IR balances show it beside the order, by number:"
+  say "The order came over valued through GR/IR, its receipts recorded without posting them again (SAP's journal carries"
+  say "them), and the open credit taken over onto the platform's order item, by the first run and topped up by the"
+  say "delta run in an entry each, reconciled per order item with SAP's above. The GR/IR balances show it by number:"
   api 200 "$GRIR_POSITION" listGrIrBalances -p "legal_entity_id=$LE"
   expect "open GR/IR positions after the migration" "$(field '.items | length')" 1
   expect "the migrated quantity" "$(field '.items[0].migrated_quantity.value')" -8

@@ -82,8 +82,60 @@ func TestGRIRTakeOver(t *testing.T) {
 	}
 }
 
-// TestGRIRTakeOverRefusals: a position is taken over once, onto an item
-// without one, by an integration entry of take-over items only.
+// TestGRIRTopUp: a later migration run tops a position up to the source
+// system's, from what the earlier take-overs took over, which
+// TakenOverGRIR reads; what the platform posted on the item stays beside
+// it (review:batch21).
+func TestGRIRTopUp(t *testing.T) {
+	g := grirSetup(t)
+	order := uuid.New()
+	g.post(t, g.takeOverPosting(order, "-2", -500))
+	taken := func(t *testing.T) map[uuid.UUID]map[int32]ledger.GRIRTakenOver {
+		t.Helper()
+		var out map[uuid.UUID]map[int32]ledger.GRIRTakenOver
+		if err := apitest.Committed(t, g.ten, g.ten.Human, func(ctx context.Context) (err error) {
+			out, err = ledger.Postings{}.TakenOverGRIR(ctx, g.de, []uuid.UUID{order})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	read := taken(t)[order][10]
+	if read != (ledger.GRIRTakenOver{Quantity: "-2", Balance: -500}) {
+		t.Fatalf("taken over: got %+v, want -2 and -500", read)
+	}
+	g.post(t, g.receiptPosting("2026-03-06", "EUR", order, "-1", price{250, 1}))
+	topUp := g.takeOverPosting(order, "-5", -1250)
+	topUp.GRIR[0].TakenOver = &read
+	entry := g.post(t, topUp)
+	if lines := on(entry, g.grir); len(lines) != 2 || lines[0] != [3]money.Minor{-750, -750, -750} || lines[1] != [3]money.Minor{750, 750, 750} {
+		t.Errorf("the top-up's GR/IR lines: got %v, want what the position moved and its offset", lines)
+	}
+	if got := *entry.Lines[0].Quantity; money.ParseRat(got).Cmp(money.ParseRat("-3")) != 0 {
+		t.Errorf("the top-up's quantity: got %s, want -3", got)
+	}
+	if got, want := g.projected(t, order), "received 1, invoiced 0, migrated -5, balance -1500, open true"; got != want {
+		t.Errorf("after the top-up: got %s, want %s", got, want)
+	}
+	if got := taken(t)[order][10]; got != (ledger.GRIRTakenOver{Quantity: "-5", Balance: -1250}) {
+		t.Errorf("taken over after the top-up: got %+v, want -5 and -1250", got)
+	}
+	// The source system's position invoiced in full: topped up to nothing.
+	cleared := g.takeOverPosting(order, "0", 0)
+	cleared.GRIR[0].TakenOver = &ledger.GRIRTakenOver{Quantity: "-5", Balance: -1250}
+	g.post(t, cleared)
+	if got, want := g.projected(t, order), "received 1, invoiced 0, migrated 0, balance -250, open true"; got != want {
+		t.Errorf("topped up to nothing: got %s, want %s", got, want)
+	}
+	if got := taken(t)[order][10]; got != (ledger.GRIRTakenOver{Quantity: "0", Balance: 0}) {
+		t.Errorf("taken over at the end: got %+v, want nothing", got)
+	}
+}
+
+// TestGRIRTakeOverRefusals: a position is taken over once, and topped up
+// only from what was taken over, by an integration entry of take-over
+// items only.
 func TestGRIRTakeOverRefusals(t *testing.T) {
 	g := grirSetup(t)
 	post := func(t *testing.T, in ledger.Posting) error {
@@ -95,8 +147,12 @@ func TestGRIRTakeOverRefusals(t *testing.T) {
 	}
 	taken := uuid.New()
 	g.post(t, g.takeOverPosting(taken, "-2", -500))
-	received := uuid.New()
-	g.post(t, g.receiptPosting("2026-03-02", "EUR", received, "-1", price{500, 1}))
+	stale := g.takeOverPosting(taken, "-3", -700)
+	stale.GRIR[0].TakenOver = &ledger.GRIRTakenOver{Quantity: "-2", Balance: -400}
+	staleQty := g.takeOverPosting(taken, "-3", -700)
+	staleQty.GRIR[0].TakenOver = &ledger.GRIRTakenOver{Quantity: "-1", Balance: -500}
+	unread := g.takeOverPosting(taken, "-3", -700)
+	unread.GRIR[0].TakenOver = &ledger.GRIRTakenOver{Quantity: "two", Balance: -500}
 	twice := g.takeOverPosting(uuid.New(), "-1", -100)
 	twice.GRIR = append(twice.GRIR, twice.GRIR[0])
 	mixed := g.takeOverPosting(uuid.New(), "-1", -100)
@@ -114,7 +170,9 @@ func TestGRIRTakeOverRefusals(t *testing.T) {
 		code   string
 	}{
 		{"taken over before", g.takeOverPosting(taken, "-2", -500), 409, "ledger.gr_ir_position_exists"},
-		{"an item the platform moved", g.takeOverPosting(received, "-1", -500), 409, "ledger.gr_ir_position_exists"},
+		{"a balance taken over other than read", stale, 409, "ledger.gr_ir_position_exists"},
+		{"a quantity taken over other than read", staleQty, 409, "ledger.gr_ir_position_exists"},
+		{"a quantity taken over that does not parse", unread, 500, ""},
 		{"the same item twice", twice, 409, "ledger.gr_ir_position_exists"},
 		{"mixed with a receipt", mixed, 500, ""},
 		{"not a migration run's", notMigrated, 500, ""},

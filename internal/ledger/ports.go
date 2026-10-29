@@ -222,15 +222,31 @@ type GRIRItem struct {
 	// TakesOver makes the item a migration run's take-over of the position
 	// the source system holds for the order item (T72f; SAP's GR/IR lines
 	// carry the order item, ACDOCA EBELN/EBELP): its balance there, in the
-	// entry's currency, onto an item without a position yet. Quantity is
-	// the position's open quantity, invoiced less received in the source
-	// system, and UnitPrice is not read. The GR/IR line carries both,
-	// against a line on the GR/IR account without an order item, which
-	// offsets the lines the run loaded from the source system's documents
-	// without theirs; the quantity counts as migrated, neither received nor
-	// invoiced. An entry that takes over is an integration entry of
-	// take-over items only.
+	// entry's currency. Quantity is the position's open quantity, invoiced
+	// less received in the source system, and UnitPrice is not read. The
+	// GR/IR line moves what earlier take-overs took over of the item
+	// (TakenOver) to both, a later run's take-over topping it up by what
+	// the source system's position moved since, against a line on the
+	// GR/IR account without an order item, which offsets the lines the run
+	// loaded from the source system's documents without theirs; the
+	// quantity counts as migrated, neither received nor invoiced, and what
+	// the platform itself posted on the item is left as it is. An entry
+	// that takes over is an integration entry of take-over items only.
 	TakesOver *money.Minor
+	// TakenOver is what earlier take-overs took over of the item as the
+	// caller read it (Postings.TakenOverGRIR), nil when they took over
+	// nothing: the item is refused unless that is still what they took
+	// over (409 ledger.gr_ir_position_exists), so a source system's
+	// position is never taken over twice.
+	TakenOver *GRIRTakenOver
+}
+
+// GRIRTakenOver is what migration runs' take-overs (GRIRItem.TakesOver)
+// took over of an order item's GR/IR position: the quantity, signed as the
+// position, and the balance in its transaction currency.
+type GRIRTakenOver struct {
+	Quantity string
+	Balance  money.Minor
 }
 
 // GRIRClearing is the position a clearing item was approved to clear: it

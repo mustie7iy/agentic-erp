@@ -373,6 +373,10 @@ func TestMigrationPorts(t *testing.T) {
 			_, err := ledger.Reports{}.OpenGRIR(ctx, e.de, []uuid.UUID{uuid.New()})
 			return err
 		},
+		"taken over GR/IR": func(ctx context.Context) error {
+			_, err := ledger.Postings{}.TakenOverGRIR(ctx, e.de, []uuid.UUID{uuid.New()})
+			return err
+		},
 		"clear": clear(item(invoice), item(payment)),
 	} {
 		t.Run(name, func(t *testing.T) {

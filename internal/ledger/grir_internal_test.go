@@ -48,8 +48,16 @@ func TestGRIRLinesOutOfRange(t *testing.T) {
 	lowest := money.Minor(math.MinInt64 + 1)
 	g := grirPosting{in: Posting{Currency: "EUR", GRIR: []GRIRItem{{Quantity: "1", UnitPrice: 1_000_000_000_000_000_000, PriceUnit: 1, Invoiced: &lowest}}},
 		rates: rates{toLC: one, toGC: one, expTC: 2, expLC: 2, expGC: 2}}
-	if _, _, err := g.itemLines(map[orderItem]*position{{}: zero()}, []orderItem{{}}); problemCode(err) != "ledger.amount_too_large" {
+	if _, _, err := g.itemLines(map[orderItem]*position{{}: zero()}, nil, []orderItem{{}}); problemCode(err) != "ledger.amount_too_large" {
 		t.Errorf("price difference: got %v, want ledger.amount_too_large", err)
+	}
+	// A top-up whose source balance is as far from what was taken over as
+	// the range allows.
+	highest := money.Minor(math.MaxInt64)
+	topUp := grirPosting{in: Posting{Currency: "EUR", GRIR: []GRIRItem{{Quantity: "1", TakesOver: &highest, TakenOver: &GRIRTakenOver{Quantity: "1", Balance: -2}}}},
+		rates: g.rates}
+	if _, _, err := topUp.itemLines(nil, map[orderItem]GRIRTakenOver{{}: {Quantity: "1", Balance: -2}}, []orderItem{{}}); problemCode(err) != "ledger.amount_too_large" {
+		t.Errorf("top-up: got %v, want ledger.amount_too_large", err)
 	}
 	g.rates.toLC = two
 	huge := money.Minor(6_000_000_000_000_000_000)

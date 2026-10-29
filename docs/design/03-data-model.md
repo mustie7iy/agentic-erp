@@ -823,8 +823,12 @@ Rules enforced in the database:
   `GRIRItem.TakesOver` items, each the item's GR/IR line with SAP's balance
   and open quantity (what SAP invoiced less what it received) against a
   line on the GR/IR account without an order item, which offsets SAP's
-  documents' lines there; refused (409 `ledger.gr_ir_position_exists`) onto
-  an item that has a position. The projection adds an integration entry's
+  documents' lines there. A later run tops a position up: the item's line
+  moves what earlier take-overs took over of it (their integration lines,
+  reversals included) to SAP's position now, refused (409
+  `ledger.gr_ir_position_exists`) unless what was taken over is what the
+  run read (`GRIRItem.TakenOver`); what the platform posted on the item
+  stays beside it (review:batch21). The projection adds an integration entry's
   quantities to the position's `migrated`, neither received nor invoiced
   (and the key-date report likewise), so a position's quantity is invoiced
   + cleared + migrated - received and `is_open` reads all four.
