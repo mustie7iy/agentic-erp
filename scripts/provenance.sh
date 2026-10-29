@@ -15,7 +15,10 @@ repo="${GITHUB_REPOSITORY:-mustie7iy/agentic-erp}"
 commit="${GITHUB_SHA:-$(git rev-parse HEAD)}"
 ref="${GITHUB_REF:-$(git symbolic-ref -q HEAD || echo detached)}"
 modified=false
-if [ -n "$(git status --porcelain)" ]; then # untracked .go files are compiled too
+# Read before it is tested: inside the test, a failed git status would
+# print nothing and read as a clean checkout.
+status="$(git status --porcelain)"
+if [ -n "$status" ]; then # untracked .go files are compiled too
   modified=true
 fi
 # GITHUB_WORKFLOW_REF is owner/repo/.github/workflows/<file>@<ref>.

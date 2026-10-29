@@ -8,16 +8,18 @@
 #   OUT/sbom/       an SPDX SBOM per image (syft), its first package the
 #                   image's digest, as sign-images.sh looks it up;
 #   OUT/provenance/ a SLSA v1 provenance per image saying what it is: a
-#                   copy of source@digest by this repository's release,
-#                   not a build of it. sign-images.sh attests it in place
-#                   of the release's build provenance (when T39's and
-#                   T40's scripts meet; ADR-0035).
+#                   copy of source:tag@digest into the release registry,
+#                   not a build. sign-images.sh attests it in place of the
+#                   build provenance, completed with the release's commit
+#                   and run, so verify-image.sh holds a copy to the commit
+#                   that pinned it (ADR-0032 amendment of 2026-10-28, T72i).
 # The copy keeps the digest: the source must serve exactly the pinned
 # manifest, and a tag already in the registry must name it, since release
 # repositories' tags are immutable. REGISTRY is the release registry's host
 # (tooling's ECR, the release workflow's ERP_RELEASE_REGISTRY). CRANE and
 # SYFT name the binaries; INSECURE=true allows a plain-HTTP registry (the
-# tests' only).
+# tests' only). DRY_RUN=true checks LIST and prints each copy it would
+# make, contacting no registry and writing nothing.
 set -euo pipefail
 OUT="${1:-dist/images}"
 LIST="${LIST:-$(dirname "$0")/../deploy/images/upstream.txt}"
@@ -30,7 +32,8 @@ if [ "${INSECURE:-false}" = true ]; then
   export SYFT_REGISTRY_INSECURE_USE_HTTP=true
 fi
 export SYFT_CHECK_FOR_APP_UPDATE=false
-mkdir -p "$OUT/sbom"
+dry="${DRY_RUN:-false}"
+[ "$dry" = true ] || mkdir -p "$OUT/sbom"
 copied=0
 while read -r -u 3 name source tag digest; do
   case "$name" in '' | '#'*) continue ;; esac
@@ -43,6 +46,11 @@ while read -r -u 3 name source tag digest; do
     exit 1
   fi
   target="$registry/erp-$name"
+  if [ "$dry" = true ]; then
+    echo "mirror-images: would copy $source:$tag@$digest to $target:$tag"
+    copied=$((copied + 1))
+    continue
+  fi
   # The source must still serve the pinned manifest: crane copies what it
   # is given, and the digest is what everything downstream trusts.
   served="$("$CRANE" digest ${insecure[@]+"${insecure[@]}"} "$source@$digest")"
@@ -82,14 +90,17 @@ while read -r -u 3 name source tag digest; do
   python3 "$(dirname "$0")/lib/sbom-root.py" "$sbom.raw" "$sbom" "$digest" "copied from $source:$tag@$digest"
   rm -f "$sbom.raw"
   mkdir -p "$OUT/provenance"
+  # The copy alone: what was copied from where to where. sign-images.sh
+  # adds the release's commit, checkout state and run before attesting it.
   python3 - "$OUT/provenance/erp-$name.json" "$source" "$tag" "$digest" "$ref" <<'PY'
 import json, sys
 out, source, tag, digest, ref = sys.argv[1:]
 json.dump({
     "buildDefinition": {
         "buildType": "https://github.com/mustie7iy/agentic-erp/mirror-images@v1",
-        "externalParameters": {"source": source, "tag": tag, "digest": digest},
-        "resolvedDependencies": [{"uri": "%s:%s" % (source, tag), "digest": {"sha256": digest.split(":", 1)[1]}}],
+        "externalParameters": {"list": "deploy/images/upstream.txt", "source": source, "tag": tag,
+                               "digest": digest, "mirrored": ref},
+        "resolvedDependencies": [{"uri": "oci://%s:%s" % (source, tag), "digest": {"sha256": digest.split(":", 1)[1]}}],
     },
     "runDetails": {"builder": {"id": "https://github.com/mustie7iy/agentic-erp/scripts/mirror-images.sh"},
                    "metadata": {"invocationId": ref}},

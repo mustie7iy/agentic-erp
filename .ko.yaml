@@ -1,5 +1,8 @@
 # Container images of the four pure-Go binaries (ADR-0032; erp-web,
-# ADR-0052), built by `make images`.
+# ADR-0052), built by `make images`. erp-temporal, pure Go too, is a module
+# of its own (temporal/, ADR-0035): scripts/images.sh builds it with ko from
+# there, on this file's defaultBaseImage and defaultPlatforms, which it
+# reads one per line.
 #
 # The base is distroless static, nonroot (uid 65532, no shell, CA
 # certificates and time zones included), pinned by the digest of its

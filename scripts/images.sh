@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the container images of the five binaries (ADR-0032) into OUT
+# Builds the container images of the six binaries (ADR-0032) into OUT
 # (default dist/images), and pushes them to KO_DOCKER_REPO when PUSH=true
 # (the release workflow); otherwise nothing leaves the machine:
 #   OUT/images.txt  one image reference per line, the multi-platform index
@@ -13,7 +13,13 @@
 # an empty cache: on CI's 2-CPU, 7938 MiB runner erp-server built for both
 # platforms at once and the runner was stopped (main's full runs
 # 40460447291 and 40547406558); measured cold at GOMAXPROCS=2, ko's build
-# peaks at 6484 MiB that way and 3843 MiB one at a time. erp-analytics links
+# peaks at 6484 MiB that way and 3843 MiB one at a time. erp-temporal,
+# Temporal's server with the platform's authorization (ADR-0035), is a Go
+# module of its own (temporal/): ko builds it from that directory, since ko
+# finds builds in its working directory's module only, with a configuration
+# written from .ko.yaml's base and platforms (the base is pinned once),
+# static and one at a time like the four, listed after them; it has no
+# buildinfo package, so no version is stamped into it. erp-analytics links
 # DuckDB through cgo (ADR-0044), which ko does not cross-compile: docker
 # buildx builds it from deploy/images/erp-analytics.Dockerfile one platform
 # at a time (each compiles api/gen in a few GB of the Docker VM's memory),
@@ -47,6 +53,34 @@ KO_DOCKER_REPO="$repo" ERP_VERSION="${ERP_VERSION:-}" $KO build --jobs=1 --push=
   --tags="${KO_TAGS:-latest}" ${KO_PLATFORMS:+--platform="$KO_PLATFORMS"} \
   --sbom=spdx --sbom-dir="$OUT/sbom" --image-refs="$OUT/images.txt" \
   ./cmd/erp-server ./cmd/erp-router ./cmd/erp-web ./cmd/erp >/dev/null
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+# erp-temporal, from its own module. OUT is made absolute: ko runs in
+# temporal/.
+out="$(cd "$OUT" && pwd)"
+koconfig="$work/temporal.ko.yaml"
+sed -n '/^defaultBaseImage:/p; /^defaultPlatforms:/,/^[a-z]/{/^defaultPlatforms:/p; /^ *- /p;}' "$here/../.ko.yaml" >"$koconfig"
+if ! grep -q '^defaultBaseImage: .*@sha256:' "$koconfig" || ! grep -q '^ *- ' "$koconfig"; then
+  echo "images: .ko.yaml must name defaultBaseImage by digest and list defaultPlatforms one per line (erp-temporal's configuration is written from them)" >&2
+  exit 1
+fi
+cat >>"$koconfig" <<'YAML'
+builds:
+  - id: erp-temporal
+    main: ./cmd/erp-temporal
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: ["-s -w -buildid="]
+YAML
+(cd "$here/../temporal" && KO_CONFIG_PATH="$koconfig" KO_DOCKER_REPO="$repo" $KO build --jobs=1 --push="${PUSH:-false}" --base-import-paths \
+  --tags="${KO_TAGS:-latest}" ${KO_PLATFORMS:+--platform="$KO_PLATFORMS"} \
+  --sbom=spdx --sbom-dir="$out/sbom" --image-refs="$work/temporal.txt" ./cmd/erp-temporal >/dev/null)
+if ! grep -q "^$repo/erp-temporal@sha256:" "$work/temporal.txt"; then
+  echo "images: ko listed no erp-temporal image" >&2
+  exit 1
+fi
+cat "$work/temporal.txt" >>"$OUT/images.txt"
 
 # erp-analytics, for the same platforms.
 if [ -n "${KO_PLATFORMS:-}" ]; then
@@ -64,8 +98,6 @@ for platform in "${platforms[@]}"; do
     exit 1
   fi
 done
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
 for platform in "${platforms[@]}"; do
   # No buildx attestations: the SBOM and provenance are signed attestations
   # of their own (sign-images.sh), and an attestation manifest would make

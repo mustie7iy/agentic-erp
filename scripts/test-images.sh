@@ -2,6 +2,9 @@
 # Tests the image pipeline's scripts (ADR-0032) with fake ko, docker, syft,
 # crane, grype and cosign that write what the real ones would and log their
 # calls; nothing is built, pulled or pushed:
+#   - images.sh builds erp-temporal with ko from its own module (temporal/),
+#     on .ko.yaml's base and platforms, listed after the four and before
+#     erp-analytics, an SBOM per image;
 #   - images.sh builds erp-analytics with buildx one platform at a time,
 #     dated at the epoch, without buildx attestations, joins the platforms
 #     into one index listed in images.txt after ko's images, writes an SBOM
@@ -14,7 +17,12 @@
 #     removes it, and fails when the digests differ;
 #   - image-scan.sh scans erp-analytics's SBOMs and its cc base;
 #   - sign-images.sh signs and attests every erp-analytics reference;
-#   - base-image-current.sh checks the three pins and names the moved one.
+#   - base-image-current.sh checks the three pins and names the moved one;
+#   - the release pushes every image it builds or copies into the release
+#     registry (ERP_RELEASE_REGISTRY, tooling's ECR) and nowhere else, each
+#     into a repository modules/ecr creates, under the names a cell's
+#     release.json must use (promotion-checks.sh), and every image
+#     release.json names is one the release builds or copies.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 root="$PWD"
@@ -24,10 +32,13 @@ mkdir -p "$work/bin"
 export CALLS="$work/calls"
 
 fake() { printf '#!/usr/bin/env bash\nset -euo pipefail\necho "%s $*" >>"$CALLS"\n%s\n' "$1" "$2" >"$work/bin/$1"; chmod +x "$work/bin/$1"; }
-# ko: each binary's index and per-platform images, with ko's SBOM names.
-fake ko 'refs="" sboms="" platforms="linux/amd64,linux/arm64"
-for a in "$@"; do case "$a" in --image-refs=*) refs="${a#*=}" ;; --sbom-dir=*) sboms="${a#*=}" ;; --platform=*) platforms="${a#*=}" ;; esac; done
-for b in erp-server erp-router erp-web erp; do
+# ko: each binary's index and per-platform images, with ko's SBOM names;
+# where it ran and its configuration, when one was given, are kept.
+fake ko 'refs="" sboms="" platforms="linux/amd64,linux/arm64" binaries=()
+for a in "$@"; do case "$a" in --image-refs=*) refs="${a#*=}" ;; --sbom-dir=*) sboms="${a#*=}" ;; --platform=*) platforms="${a#*=}" ;; ./cmd/*) binaries+=("${a#./cmd/}") ;; esac; done
+echo "ko-ran-in $PWD" >>"$CALLS"
+[ -z "${KO_CONFIG_PATH:-}" ] || cp "$KO_CONFIG_PATH" "$CALLS.${binaries[0]}.ko.yaml"
+for b in "${binaries[@]}"; do
   d="sha256:$(printf "%s" "$b" | shasum -a 256 | cut -c1-64)"
   echo "$KO_DOCKER_REPO/$b@$d" >>"$refs"; printf "{\"packages\": [{\"name\": \"%s\"}]}" "$d" >"$sboms/$b-index.spdx.json"
   IFS=, read -r -a ps <<<"$platforms"
@@ -83,7 +94,7 @@ grep "^docker buildx build" "$CALLS" | grep -v -- "--platform linux/[a-z0-9]* --
 analytics=()
 while IFS= read -r ref; do analytics+=("$ref"); done < <(grep "/erp-analytics@" "$work/out/images.txt")
 [ "${#analytics[@]}" -eq 3 ] || fail listed "${#analytics[@]} erp-analytics references, want the index and two images"
-[ "$(head -12 "$work/out/images.txt" | grep -c "/erp-analytics@")" -eq 0 ] || fail order "erp-analytics before ko's images"
+[ "$(head -15 "$work/out/images.txt" | grep -c "/erp-analytics@")" -eq 0 ] || fail order "erp-analytics before ko's images"
 first() { python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["packages"][0]["name"])' "$1"; }
 [ "$(first "$work/out/sbom/erp-analytics-index.spdx.json")" = "${analytics[0]##*@}" ] || fail index-sbom "the index's SBOM does not name it first"
 for p in amd64 arm64; do
@@ -91,16 +102,61 @@ for p in amd64 arm64; do
   grep -q "erp-analytics@$(first "$sbom")$" "$work/out/images.txt" || fail platform-sbom "linux/$p's SBOM names an image not listed"
 done
 echo "test-images: two platforms built one at a time, joined into one index, an SBOM per image"
-[ "$(calls "^ko build --jobs=1 ")" -eq 1 ] && [ "$(calls "^ko ")" -eq 1 ] ||
-  fail ko-jobs "ko not run once with --jobs=1: two api/gen builds at once stopped CI's runner"
+[ "$(calls "^ko build --jobs=1 ")" -eq 2 ] && [ "$(calls "^ko ")" -eq 2 ] ||
+  fail ko-jobs "ko not run twice (the platform's module, then temporal/'s), each with --jobs=1: two api/gen builds at once stopped CI's runner"
 echo "test-images: ko builds one binary and platform at a time"
+
+# erp-temporal: ko in temporal/, with a configuration holding .ko.yaml's
+# base and platforms and its one static build.
+grep -q "^ko build .* \./cmd/erp-server \./cmd/erp-router \./cmd/erp-web \./cmd/erp$" "$CALLS" ||
+  fail temporal "the platform's four not built in one ko run"
+grep -q "^ko build .* \./cmd/erp-temporal$" "$CALLS" || fail temporal "erp-temporal not built alone"
+[ "$(grep "^ko-ran-in " "$CALLS" | tail -1)" = "ko-ran-in $root/temporal" ] || fail temporal "erp-temporal not built in temporal/: $(grep "^ko-ran-in " "$CALLS" | tail -1)"
+config="$CALLS.erp-temporal.ko.yaml"
+if [ ! -f "$config" ]; then
+  fail temporal "erp-temporal built without a configuration of its own"
+else
+  python3 - "$root/.ko.yaml" "$config" >"$work/log" 2>&1 <<'PY' || { cat "$work/log" >&2; fail temporal "erp-temporal's configuration"; }
+import re, sys
+root, temporal = open(sys.argv[1]).read(), open(sys.argv[2]).read()
+base = lambda t: re.findall(r"^defaultBaseImage: *(\S+)$", t, re.M)
+platforms = lambda t: re.findall(r"^  - (linux/\S+)$", t, re.M)
+assert base(temporal) == base(root) and len(base(root)) == 1, "base %s, want .ko.yaml's %s" % (base(temporal), base(root))
+assert platforms(temporal) == platforms(root) and platforms(root), "platforms %s, want .ko.yaml's %s" % (platforms(temporal), platforms(root))
+assert "main: ./cmd/erp-temporal" in temporal and "env: [CGO_ENABLED=0]" in temporal and "flags: [-trimpath]" in temporal \
+    and 'ldflags: ["-s -w -buildid="]' in temporal, "not one static build without a build id:\n" + temporal
+PY
+fi
+temporal=()
+while IFS= read -r ref; do temporal+=("$ref"); done < <(grep "/erp-temporal@" "$work/out/images.txt")
+[ "${#temporal[@]}" -eq 3 ] || fail temporal "${#temporal[@]} erp-temporal references, want the index and two images"
+[ "$(sed -n '13,15p' "$work/out/images.txt" | grep -c "/erp-temporal@")" -eq 3 ] || fail temporal "erp-temporal not listed after the four, before erp-analytics"
+for ref in ${temporal[@]+"${temporal[@]}"}; do
+  grep -l "\"${ref##*@}\"" "$work/out/sbom/"erp-temporal-*.spdx.json >/dev/null || fail temporal "$ref has no SBOM"
+done
+echo "test-images: erp-temporal built by ko in its own module on .ko.yaml's base and platforms, listed with its SBOMs"
 
 : >"$CALLS"
 ERP_COSIGN_KEY=k "$root/scripts/sign-images.sh" "$work/out" >"$work/log" 2>&1 || { cat "$work/log" >&2; fail sign "sign-images.sh failed"; }
-for ref in "${analytics[@]}"; do
+for ref in "${analytics[@]}" ${temporal[@]+"${temporal[@]}"}; do
   [ "$(calls "^cosign .* $ref$")" -eq 3 ] || fail sign "$ref: $(calls "^cosign .* $ref$") cosign calls, want a signature and two attestations"
 done
-echo "test-images: every erp-analytics reference signed with its SBOM and the provenance"
+echo "test-images: every erp-analytics and erp-temporal reference signed with its SBOM and the provenance"
+
+# A tool that fails is a refusal, never a pass: an SBOM that cannot be read
+# stops the signing (it could be a second SBOM of an image), and a git
+# status that fails stops the provenance (it would read as a clean
+# checkout).
+cp -R "$work/out" "$work/unreadable"
+echo '{"packages": "not a list"}' >"$work/unreadable/sbom/zz-broken.spdx.json"
+if ERP_COSIGN_KEY=k "$root/scripts/sign-images.sh" "$work/unreadable" >"$work/log" 2>&1; then fail unreadable-sbom "signed past an SBOM jq cannot read"; fi
+grep -q "or one cannot be read" "$work/log" || { cat "$work/log" >&2; fail unreadable-sbom "refused without the reason"; }
+printf '#!/usr/bin/env bash\n[ "$1" != status ] || { echo "git status: failed" >&2; exit 128; }\nexec "%s" "$@"\n' "$(command -v git)" >"$work/bin/git"
+chmod +x "$work/bin/git"
+if PATH="$work/bin:$PATH" "$root/scripts/provenance.sh" >"$work/log" 2>&1; then fail provenance-git "wrote a provenance though git status failed: $(cat "$work/log")"; fi
+grep -q "git status: failed" "$work/log" || { cat "$work/log" >&2; fail provenance-git "failed for another reason than git status"; }
+rm "$work/bin/git"
+echo "test-images: an unreadable SBOM stops the signing, a failing git status the provenance"
 
 : >"$CALLS"
 "$root/scripts/image-scan.sh" "$work/out" >"$work/log" 2>&1 || { cat "$work/log" >&2; fail scan "image-scan.sh failed"; }
@@ -150,6 +206,53 @@ if FAKE_MOVED=gcr.io/distroless/cc-debian12:nonroot "$root/scripts/base-image-cu
 grep -q "cc-debian12:nonroot is now .*erp-analytics.Dockerfile pins" "$work/log" || { cat "$work/log" >&2; fail moved "the moved pin not named"; }
 grep -q "golang:1.26.10-bookworm is still" "$work/log" || fail moved "the pins after the moved one not checked"
 echo "test-images: base-image-current checks ko's base and erp-analytics's builder and base"
+
+# The release's registry (ADR-0032 amendment of 2026-10-29): what a
+# release pushes, built (images.sh) or copied (mirror-images.sh, planned
+# offline), lands in tooling's ECR, each image in a repository modules/ecr
+# creates and no repository left without an image, under the name
+# promotion-checks.sh requires of a cell's release.json; and every image a
+# release.json names is one of them.
+ecr=111111111111.dkr.ecr.eu-central-1.amazonaws.com
+KO_DOCKER_REPO="$ecr" KO_TAGS=v1.2.3 PUSH=true images "$work/ecr" || { cat "$work/log" >&2; fail registry "images.sh failed"; }
+plan="$(DRY_RUN=true CRANE=false SYFT=false REGISTRY="$ecr" "$root/scripts/mirror-images.sh" "$work/ecr-mirror")" ||
+  fail registry "the mirror's plan failed: $plan"
+sed -n 's/^mirror-images: would copy .* to \(.*\):[^:]*$/\1/p' <<<"$plan" >"$work/copies"
+python3 - "$ecr" "$work/ecr/images.txt" "$work/copies" "$root/deploy/terraform/modules/ecr/main.tf" "$root/scripts/promotion-checks.sh" \
+  >"$work/log" 2>&1 <<'PY' || { cat "$work/log" >&2; fail registry "the release's images, the registry's repositories and release.json disagree"; }
+import ast, re, sys
+host, built, copies, tf, checks = sys.argv[1:]
+refs = [l.strip() for l in open(built) if l.strip()]
+targets = [l.strip() for l in open(copies) if l.strip()]
+assert refs and targets, "nothing built (%d) or copied (%d)" % (len(refs), len(targets))
+repos = set()
+for ref in [r.split("@")[0] for r in refs] + targets:
+    assert ref.startswith(host + "/") and "/" not in ref[len(host) + 1:], "%s is not in the release registry %s" % (ref, host)
+    repos.add(ref[len(host) + 1:])
+ecr = set(ast.literal_eval(re.search(r'variable "repositories" \{.*?default\s*=\s*(\[[^]]*\])', open(tf).read(), re.S).group(1)))
+assert repos == ecr, "the release pushes %s; modules/ecr creates %s" % (sorted(repos), sorted(ecr))
+images = ast.literal_eval(re.search(r"^images = (\{.*\})$", open(checks).read(), re.M).group(1))
+missing = sorted(set(images.values()) - repos)
+assert not missing, "release.json names %s, which no release pushes" % missing
+for name, repo in images.items():
+    assert re.fullmatch(r"[a-z0-9.-]+(:[0-9]+)?/" + re.escape(repo), "%s/%s" % (host, repo)), \
+        "%s/%s is not a name promotion-checks.sh takes for images.%s" % (host, repo, name)
+PY
+# The workflow pushes and copies into ERP_RELEASE_REGISTRY and names no
+# other registry.
+python3 - "$root/.github/workflows/release.yml" >"$work/log" 2>&1 <<'PY' || { cat "$work/log" >&2; fail registry "release.yml"; }
+import re, sys
+text = open(sys.argv[1]).read()
+steps = {m.group(1): m.group(2) for m in re.finditer(r"^      - name: (.*)\n((?:(?!      - name: ).*\n)*)", text, re.M)}
+for name, run in (("Images, pushed", 'KO_DOCKER_REPO="$REGISTRY" '), ("Upstream images, mirrored into the release registry", "./scripts/mirror-images.sh")):
+    step = steps.get(name)
+    assert step is not None, "no step %r" % name
+    assert "REGISTRY: ${{ vars.ERP_RELEASE_REGISTRY }}" in step and run in step, "%r does not push to ERP_RELEASE_REGISTRY:\n%s" % (name, step)
+assert text.count("KO_DOCKER_REPO=") == 1, "release.yml sets KO_DOCKER_REPO more than once"
+for other in ("ghcr.io", "docker.io", "packages: write"):
+    assert other not in text, "release.yml names %s: the release's registry is tooling's ECR" % other
+PY
+echo "test-images: the release pushes every image it builds or copies to ERP_RELEASE_REGISTRY, into modules/ecr's repositories, under release.json's names"
 
 if [ "$failed" -ne 0 ]; then
   exit 1

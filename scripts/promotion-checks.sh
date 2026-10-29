@@ -65,9 +65,18 @@ def git(*args):
     return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
 
 def at(rev, path):
-    """The file at rev, or None where it does not exist."""
+    """The file at rev, or None where it does not exist. Whether it exists
+    is asked of ls-tree, so a failing git stops the checks rather than
+    reading as a file never there (a drill's record as new, so rewritable)."""
+    r = subprocess.run(["git", "ls-tree", "-z", "--name-only", rev, "--", path], capture_output=True, text=True)
+    if r.returncode != 0:
+        fail("git ls-tree %s -- %s: %s" % (rev, path, r.stderr.strip()))
+    if r.stdout != path + "\0":
+        return None
     r = subprocess.run(["git", "show", "%s:%s" % (rev, path)], capture_output=True, text=True)
-    return r.stdout if r.returncode == 0 else None
+    if r.returncode != 0:
+        fail("git show %s:%s: %s" % (rev, path, r.stderr.strip()))
+    return r.stdout
 
 def load(text, path):
     try:

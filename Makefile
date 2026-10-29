@@ -9,10 +9,11 @@ build:
 	# C toolchain; its image is built with the others (make images).
 	CGO_ENABLED=1 go build -o bin/erp-analytics ./cmd/erp-analytics
 
-# Container images of the five binaries (ADR-0032), not pushed: digests in
+# Container images of the six binaries (ADR-0032), not pushed: digests in
 # dist/images/images.txt, SBOMs in dist/images/sbom. ko builds erp-server,
 # erp-router, erp-web and erp (.ko.yaml), one build at a time (each of three
-# compiles api/gen in about 3 GB); docker buildx builds erp-analytics (cgo,
+# compiles api/gen in about 3 GB), then erp-temporal from its own module
+# (temporal/, on .ko.yaml's base and platforms); docker buildx builds erp-analytics (cgo,
 # DuckDB: not ko's, ADR-0044) from deploy/images/erp-analytics.Dockerfile,
 # one platform at a time, since each compiles api/gen in a few GB of the
 # Docker VM's memory (KO_PLATFORMS=linux/arm64 builds one platform of

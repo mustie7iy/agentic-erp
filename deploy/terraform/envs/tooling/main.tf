@@ -3,7 +3,8 @@
 # (ADR-0032), the image registry replicated to the cells' regions, and the
 # root certificate authority. Its outputs are the settings of the GitHub
 # `release` environment (ERP_COSIGN_KEY, ERP_RELEASE_ROLE_ARN,
-# ERP_AWS_REGION) and of delivery.
+# ERP_AWS_REGION, and ERP_RELEASE_REGISTRY: the host of repository_urls)
+# and of delivery.
 
 variable "account_id" {
   description = "The tooling account's id; any other account is refused."
@@ -109,7 +110,7 @@ output "delivery_role_arn" {
 }
 
 output "repository_urls" {
-  description = "Where releases push, by binary."
+  description = "Where releases push, by binary and upstream image; their host is the release environment's ERP_RELEASE_REGISTRY."
   value       = module.ecr.repository_urls
 }
 
