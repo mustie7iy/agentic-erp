@@ -2644,9 +2644,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A later migration run tops up the GR/IR positions of an order an earlier run of the same fiscal year loaded with no position open: the top-up tells a take-over's run, and so its fiscal year, by the take-over entry's source document, and an order loaded with nothing open has none, so it is left with a warning and a reconciliation difference when SAP receives or invoices on it again before cutover",
-      "r": "internal/integration/grir.go cannotTopUp · ADR-0034 As built (later runs)",
+      "r": "internal/integration/grir.go cannotTopUp, loadedBy · load.go addRef · migrations 000168-000169 (integration.external_ref.migration_run_id) · ADR-0034 As built (an order loaded with no position open) · walkthrough step 3",
       "src": "review:batch23",
       "c": []
      },

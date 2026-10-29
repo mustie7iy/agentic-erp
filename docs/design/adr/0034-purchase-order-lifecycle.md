@@ -318,25 +318,51 @@ taken by default (ADR-0053 §d), each settled by an existing rule:
   an invoice's posting and a GR/IR clearing take them in, since an order
   an earlier run loaded is visible to them.
 - **Which orders.** Those an earlier run loaded valued through GR/IR on the
-  platform, when every take-over on the order is a run's of the later
-  run's fiscal year. A run's extract carries its fiscal year's journal and
+  platform, when the run that loaded the order and every take-over on it
+  are runs of the later run's fiscal year. A run's extract carries its fiscal year's journal and
   invoices only (`sap.Source`, ACDOCA and RBKP), while receipts are not
   limited to it, so it reads SAP's position right only for an order whose
   history it holds: topping up a take-over of another year's run would
   move the position wrongly while the GR/IR account still nets to zero and
   the reconciliation, from the same extract, agrees (review:batch21,
-  round 1). So an order taken over by another year's run, and one an
-  earlier run loaded with no position open, which has no take-over to
-  tell its run's year by (the take-over entries' source document is their
-  run), are left with a warning in the load report and stay differences
-  in the reconciliation, as before. The second also leaves a same-year
-  order SAP received again after a load that found nothing open; that gap
-  is a tracker item (review:batch23). One loaded valued directly (SAP had not received it yet) is not
+  round 1). So an order loaded or taken over by another year's run is
+  left with a warning in the load report and stays a difference in the
+  reconciliation, as before. An order loaded with no position open is
+  told by the run that loaded it (below, review:batch23). One loaded valued directly (SAP had not received it yet) is not
   moved onto GR/IR, which stays the optional tracker leaf: its position
   remains a difference in the reconciliation. In balances mode a later run
   does not load the opening entry again, so its trial balance check fails
   after SAP posted anything; the top-up still moves the GR/IR account's
   balance between its lines only.
+
+### An order loaded with no position open (review:batch23)
+
+The top-up told a take-over's run, and so its fiscal year, by the
+take-over entry's source document, and an order loaded with nothing open
+has none: a same-year order SAP received or invoiced on again before
+cutover was left with a warning and a reconciliation difference. Decided
+by default (ADR-0053 §d), from what the platform records:
+
+- **The run that loaded a record.** `integration.external_ref`, the
+  platform's record of what a run loaded for each SAP key, names the run
+  that recorded it (`migration_run_id`, migration 000168, a foreign key to
+  the run of the same tenant, validated by 000169), rather than a new table
+  or a guess from timestamps: no other record ties a loaded order to its
+  run (neither the order nor its receipts name it), and
+  the take-over entries do so only when something was open. Every
+  reference a run records names it, not only an order's.
+- **The guard is unchanged.** The order is topped up when the run that
+  loaded it (its `EKKO/<EBELN>` reference) and every take-over on it are
+  runs of the later run's fiscal year; another year's loading run is
+  warned about (`was loaded by a run of fiscal year …`), as another year's
+  take-over is. A reference recorded before 000168 names no run and is not
+  backfilled (nothing tells its run): such an order with no take-over is
+  left with a warning and stays a difference, as before.
+- **Idempotent, locks, audit and outbox as any top-up.** The read of the
+  references takes no lock and comes after the orders' GR/IR locks, so
+  the lock order of batches 22 and 23 is unchanged; the top-up is the
+  entry above, with its audit record and event, and the same extract
+  again posts nothing.
 
 ## As built: later runs clear what SAP cleared across runs (review:batch22)
 

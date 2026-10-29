@@ -86,10 +86,12 @@ SAP's: each item's take-over moves what earlier runs took over of it to SAP's
 balance and open quantity, in an entry of its own per order (counted as
 `gr_ir_top_ups`), so the open GR/IR check passes after SAP posted a receipt or
 an invoice on a loaded order, and a run of the same extract again posts
-nothing. It tops up only an order whose take-overs are all a run's of its own
-fiscal year (its extract holds that year's journal only): an order taken over
-by another year's run, or loaded with no position open, is warned about and
-stays a difference. What the platform posted on the item after the load (a receipt, an
+nothing. It tops up only an order loaded by a run of its own fiscal year and
+whose take-overs are all such a run's (its extract holds that year's journal
+only); every external reference names the run that loaded it, so an order
+loaded with no position open is topped up too. An order loaded or taken over
+by another year's run, or loaded with no position open before references
+named their run (migration 000168), is warned about and stays a difference. What the platform posted on the item after the load (a receipt, an
 invoice, a GR/IR clearing) stays beside what was taken over, and shows as a
 difference from SAP in the reconciliation. Moving an order already loaded
 valued directly onto GR/IR is not done (tracker: "Move open direct-valued

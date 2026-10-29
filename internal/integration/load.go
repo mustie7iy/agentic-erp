@@ -101,10 +101,13 @@ func (l *loader) step(ctx context.Context, table, key string, fn func() error) (
 	return true, nil
 }
 
+// addRef records the platform record loaded for an SAP key, and the run
+// that loaded it, by which a later run tells the fiscal year of the run
+// that loaded an order (cannotTopUp).
 func (l *loader) addRef(ctx context.Context, entityType string, id uuid.UUID, object, key string) error {
 	l.refs[object+"/"+key] = id
-	_, err := l.tx.Exec(ctx, `INSERT INTO integration.external_ref (tenant_id, entity_type, entity_id, system, object, external_key, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`, l.p.TenantID, entityType, id, l.system, object, key, l.p.ID)
+	_, err := l.tx.Exec(ctx, `INSERT INTO integration.external_ref (tenant_id, entity_type, entity_id, system, object, external_key, created_by,
+		migration_run_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, l.p.TenantID, entityType, id, l.system, object, key, l.p.ID, l.run.ID)
 	if err != nil {
 		return fmt.Errorf("integration: record the external reference %s/%s: %w", object, key, err)
 	}
