@@ -689,8 +689,8 @@ for job in jobs:
                 # A missing or empty list admits every peer or every port.
                 if not r.get("to") or not r.get("ports"):
                     sys.exit("helm-checks: %s's policy %s admits every peer or every port" % (name, np["metadata"]["name"]))
-                if any("endPort" in x for x in r["ports"]):
-                    sys.exit("helm-checks: %s's policy %s admits a range of ports" % (name, np["metadata"]["name"]))
+                if any("endPort" in x or "port" not in x for x in r["ports"]):
+                    sys.exit("helm-checks: %s's policy %s admits a range of ports, or every port of a protocol" % (name, np["metadata"]["name"]))
                 got |= {(peer(p), x.get("protocol", "TCP"), x["port"]) for p in r["to"] for x in r["ports"]}
         for t in ("Ingress", "Egress"):
             if not any(t in np["spec"]["policyTypes"] for np in held):
