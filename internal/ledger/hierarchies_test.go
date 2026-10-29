@@ -296,6 +296,21 @@ func TestHierarchyPlaces(t *testing.T) {
 	if items := page["items"].([]any); len(items) != 1 {
 		t.Errorf("a profit center's paths: got %v, want the standard one", items)
 	}
+	ph, _ := c.Must(201, "POST", "/v1/hierarchies", `{"kind": "profit_center", "code": "ALTPC", "name": "Hierarchy ALTPC"}`, "")
+	pt := tree{c: c, path: "/v1/hierarchies/" + ph["id"].(string)}
+	ptr, _ := pt.get(t)
+	pt.apply(t, ":place", fmt.Sprintf(`{"center_id": %q, "node_id": %q, "reason": "r"}`, pc[len("/v1/profit-centers/"):], pt.add(t, ptr["root_node_id"], "PA")))
+	page, _ = c.Must(200, "GET", pc+"/hierarchy-paths?page_size=1", "", "")
+	if items := page["items"].([]any); len(items) != 1 || items[0].(map[string]any)["hierarchy_code"] != "ALTPC" {
+		t.Errorf("first page of a profit center's paths: got %v, want ALTPC", items)
+	}
+	page, _ = c.Must(200, "GET", pc+"/hierarchy-paths?page_size=1&page_token="+page["next_page_token"].(string), "", "")
+	if items := page["items"].([]any); len(items) != 1 || items[0].(map[string]any)["is_standard"] != true {
+		t.Errorf("second page of a profit center's paths: got %v, want the standard hierarchy", items)
+	}
+	if next, ok := page["next_page_token"]; ok {
+		t.Errorf("last page of a profit center's paths' next_page_token: got %v, want none", next)
+	}
 	var actions []string
 	pgtest.Scan(t, `SELECT array_agg(action ORDER BY seq) FROM audit.audit_event WHERE tenant_id = $1 AND object_id = $2`,
 		[]any{c.ten.ID, uuid.MustParse(h.path[len("/v1/hierarchies/"):])}, &actions)

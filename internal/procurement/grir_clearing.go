@@ -381,3 +381,8 @@ func pendingClearing(ctx context.Context, tx pgx.Tx, clearing, request uuid.UUID
 	}
 	return c, nil
 }
+
+// Resources is where the API reads each GR/IR clearing (approvals.Locator).
+func (GRIRClearings) Resources(_ context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	return approvals.Paths("/v1/gr-ir-clearings/%s", ids), nil
+}

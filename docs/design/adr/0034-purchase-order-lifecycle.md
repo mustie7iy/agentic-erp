@@ -178,3 +178,42 @@ by an existing rule:
 Not built, for the product owner: reversing a posted clearing (no path
 here yet), and clearing positions of orders that are fully invoiced but
 not closed.
+
+## As built: what GR/IR balances and approval requests refer to (review:T72e)
+
+The API-consumer review of T72e (ADR-0053, REVIEW.md) found GR/IR balances
+giving orders and accounts by id only and no totals, approval requests whose
+object a consumer could not reach, and a change history that failed on page
+2. Decided by default:
+
+- **GR/IR balances name what they count.** Each position gives
+  `purchase_order_number` beside `purchase_order_id`, read from the
+  procurement context through a port the ledger declares
+  (`ledger.OrderNumbers`, implemented by `procurement.Orders.Numbers`, one
+  call per page), so the ledger still imports nothing of procurement; and
+  `account_number` and `account_name` of the GR/IR account, the ledger's
+  own. The number is absent only for postings naming an order procurement
+  does not hold (none in practice; the ledger's own tests post such).
+- **The report's totals.** `totals` sums every position the filters select,
+  not only the page's, and is the same on every page: their count, the
+  balances in local and group currency (the legal entity's, so present on
+  an empty report too), and in the orders' currency only when every position
+  is in one (always for one order). Absent when the legal entity is not one
+  the caller may act in, as the positions are; that check is now made once
+  on the legal entity (as the center balance reports make it) rather than
+  in each query.
+- **Approval requests lead to their object.** `object_resource` is the API
+  path that reads the object, given by the context that owns the object
+  type: an approvals `Locator`, an optional interface of the Handler beside
+  `Barrer` and `Modifier`, asked once per object type per page. Objects read
+  by their own id use `approvals.Paths`; an order change is read through its
+  order (`/v1/purchase-orders/{id}/changes/{change_id}`), and a bank
+  clearing's match through the statement whose line carries it. A Handler
+  that is not a Locator leaves the path absent; every one the application
+  wires is one (`TestApprovalObjectsLocated`). `object_type` and the list's
+  filter now list `payment_run_release` and `gr_ir_clearing`.
+- **A change history answers page 2.** `listPurchaseOrderChanges` joined the
+  order, so the keyset's unqualified tie-breaker `id` was ambiguous on page
+  2 (500). Its select is wrapped as the other joined listings are
+  (`SELECT * FROM (…) ch WHERE true`). Every other keyset listing over a join
+  was checked: none other was ambiguous, and each now has a page-2 test.

@@ -135,3 +135,20 @@ func (BankClearings) Barred(ctx context.Context, match, actor uuid.UUID) (bool, 
 	}
 	return barred, nil
 }
+
+// Resources is where the API reads each match (approvals.Locator): the
+// statement whose line carries it, which lists the line's match_id.
+func (BankClearings) Resources(ctx context.Context, matches []uuid.UUID) (map[uuid.UUID]string, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT id, statement_id FROM payments.statement_match WHERE id = ANY($1)`, matches)
+	out := map[uuid.UUID]string{}
+	var match, statement uuid.UUID
+	_, err = pgx.ForEachRow(rows, []any{&match, &statement}, func() error { out[match] = "/v1/bank-statements/" + statement.String(); return nil })
+	if err != nil {
+		return out, fmt.Errorf("payments: statements of %d matches: %w", len(matches), err)
+	}
+	return out, nil
+}

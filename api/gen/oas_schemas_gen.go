@@ -2270,8 +2270,14 @@ type ApprovalRequest struct {
 	// Kind of object to approve. Open enumeration: clients must accept and preserve values not listed
 	// here; values may be added within /v1.
 	ObjectType string `json:"object_type"`
-	// Object to approve.
+	// Object to approve: of a `payment_run_release`, the payment run; of a `bank_clearing`, the statement
+	// line's match.
 	ObjectID uuid.UUID `json:"object_id"`
+	// API path that reads the object to approve, given by the context that owns it: e.g.
+	// `/v1/purchase-orders/{id}/changes/{change_id}` for an `order_change`, `/v1/payment-runs/{id}` for a
+	// `payment_run_release`, and for a `bank_clearing` the statement (`/v1/bank-statements/{id}`) whose
+	// line carries the match. Absent only for an object type this server does not place.
+	ObjectResource OptString `json:"object_resource"`
 	// Title shown to approvers.
 	Title string `json:"title"`
 	// Principal that requested approval; cannot decide.
@@ -2336,6 +2342,11 @@ func (s *ApprovalRequest) GetObjectType() string {
 // GetObjectID returns the value of ObjectID.
 func (s *ApprovalRequest) GetObjectID() uuid.UUID {
 	return s.ObjectID
+}
+
+// GetObjectResource returns the value of ObjectResource.
+func (s *ApprovalRequest) GetObjectResource() OptString {
+	return s.ObjectResource
 }
 
 // GetTitle returns the value of Title.
@@ -2431,6 +2442,11 @@ func (s *ApprovalRequest) SetObjectType(val string) {
 // SetObjectID sets the value of ObjectID.
 func (s *ApprovalRequest) SetObjectID(val uuid.UUID) {
 	s.ObjectID = val
+}
+
+// SetObjectResource sets the value of ObjectResource.
+func (s *ApprovalRequest) SetObjectResource(val OptString) {
+	s.ObjectResource = val
 }
 
 // SetTitle sets the value of Title.
@@ -16743,10 +16759,17 @@ type GrIrBalance struct {
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// Purchase order.
 	PurchaseOrderID uuid.UUID `json:"purchase_order_id"`
+	// The order's document number (procurement context); absent only for postings that name an order
+	// procurement does not hold.
+	PurchaseOrderNumber OptString `json:"purchase_order_number"`
 	// Item of the purchase order.
 	PoItemNo int32 `json:"po_item_no"`
 	// The GR/IR account.
 	AccountID uuid.UUID `json:"account_id"`
+	// The GR/IR account's number in the legal entity's chart.
+	AccountNumber string `json:"account_number"`
+	// The GR/IR account's name.
+	AccountName string `json:"account_name"`
 	// Received by goods receipts less their reversals, in the order item's unit.
 	ReceivedQuantity Quantity `json:"received_quantity"`
 	// Invoiced by posted invoices less their reversals.
@@ -16775,6 +16798,11 @@ func (s *GrIrBalance) GetPurchaseOrderID() uuid.UUID {
 	return s.PurchaseOrderID
 }
 
+// GetPurchaseOrderNumber returns the value of PurchaseOrderNumber.
+func (s *GrIrBalance) GetPurchaseOrderNumber() OptString {
+	return s.PurchaseOrderNumber
+}
+
 // GetPoItemNo returns the value of PoItemNo.
 func (s *GrIrBalance) GetPoItemNo() int32 {
 	return s.PoItemNo
@@ -16783,6 +16811,16 @@ func (s *GrIrBalance) GetPoItemNo() int32 {
 // GetAccountID returns the value of AccountID.
 func (s *GrIrBalance) GetAccountID() uuid.UUID {
 	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *GrIrBalance) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *GrIrBalance) GetAccountName() string {
+	return s.AccountName
 }
 
 // GetReceivedQuantity returns the value of ReceivedQuantity.
@@ -16830,6 +16868,11 @@ func (s *GrIrBalance) SetPurchaseOrderID(val uuid.UUID) {
 	s.PurchaseOrderID = val
 }
 
+// SetPurchaseOrderNumber sets the value of PurchaseOrderNumber.
+func (s *GrIrBalance) SetPurchaseOrderNumber(val OptString) {
+	s.PurchaseOrderNumber = val
+}
+
 // SetPoItemNo sets the value of PoItemNo.
 func (s *GrIrBalance) SetPoItemNo(val int32) {
 	s.PoItemNo = val
@@ -16838,6 +16881,16 @@ func (s *GrIrBalance) SetPoItemNo(val int32) {
 // SetAccountID sets the value of AccountID.
 func (s *GrIrBalance) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *GrIrBalance) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *GrIrBalance) SetAccountName(val string) {
+	s.AccountName = val
 }
 
 // SetReceivedQuantity sets the value of ReceivedQuantity.
@@ -16875,11 +16928,12 @@ func (s *GrIrBalance) SetLastPostingDate(val time.Time) {
 	s.LastPostingDate = val
 }
 
-// One page of GR/IR balances.
+// One page of GR/IR balances, with the totals of every position the filters select.
 // Ref: #/components/schemas/GrIrBalancePage
 type GrIrBalancePage struct {
 	// The positions on this page.
-	Items []GrIrBalance `json:"items"`
+	Items  []GrIrBalance        `json:"items"`
+	Totals OptGrIrBalanceTotals `json:"totals"`
 	// Opaque cursor for the next page; absent on the last page.
 	NextPageToken OptString `json:"next_page_token"`
 	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
@@ -16890,6 +16944,11 @@ type GrIrBalancePage struct {
 // GetItems returns the value of Items.
 func (s *GrIrBalancePage) GetItems() []GrIrBalance {
 	return s.Items
+}
+
+// GetTotals returns the value of Totals.
+func (s *GrIrBalancePage) GetTotals() OptGrIrBalanceTotals {
+	return s.Totals
 }
 
 // GetNextPageToken returns the value of NextPageToken.
@@ -16907,6 +16966,11 @@ func (s *GrIrBalancePage) SetItems(val []GrIrBalance) {
 	s.Items = val
 }
 
+// SetTotals sets the value of Totals.
+func (s *GrIrBalancePage) SetTotals(val OptGrIrBalanceTotals) {
+	s.Totals = val
+}
+
 // SetNextPageToken sets the value of NextPageToken.
 func (s *GrIrBalancePage) SetNextPageToken(val OptString) {
 	s.NextPageToken = val
@@ -16918,6 +16982,62 @@ func (s *GrIrBalancePage) SetTotalEstimate(val OptInt64) {
 }
 
 func (*GrIrBalancePage) listGrIrBalancesRes() {}
+
+// The report's totals: every position the filters select summed, on every page alike (not only the
+// page's). Absent when the legal entity is not one the caller may act in.
+// Ref: #/components/schemas/GrIrBalanceTotals
+type GrIrBalanceTotals struct {
+	// How many positions the filters select.
+	Positions int64 `json:"positions"`
+	// The balances in the orders' currency summed, signed; present only when every position selected is in
+	// one currency (always for one order).
+	Balance OptMoney `json:"balance"`
+	// The balances in the legal entity's local currency summed, signed: what the GR/IR account holds for
+	// the positions.
+	BalanceLc Money `json:"balance_lc"`
+	// The balances in group currency summed, signed.
+	BalanceGc Money `json:"balance_gc"`
+}
+
+// GetPositions returns the value of Positions.
+func (s *GrIrBalanceTotals) GetPositions() int64 {
+	return s.Positions
+}
+
+// GetBalance returns the value of Balance.
+func (s *GrIrBalanceTotals) GetBalance() OptMoney {
+	return s.Balance
+}
+
+// GetBalanceLc returns the value of BalanceLc.
+func (s *GrIrBalanceTotals) GetBalanceLc() Money {
+	return s.BalanceLc
+}
+
+// GetBalanceGc returns the value of BalanceGc.
+func (s *GrIrBalanceTotals) GetBalanceGc() Money {
+	return s.BalanceGc
+}
+
+// SetPositions sets the value of Positions.
+func (s *GrIrBalanceTotals) SetPositions(val int64) {
+	s.Positions = val
+}
+
+// SetBalance sets the value of Balance.
+func (s *GrIrBalanceTotals) SetBalance(val OptMoney) {
+	s.Balance = val
+}
+
+// SetBalanceLc sets the value of BalanceLc.
+func (s *GrIrBalanceTotals) SetBalanceLc(val Money) {
+	s.BalanceLc = val
+}
+
+// SetBalanceGc sets the value of BalanceGc.
+func (s *GrIrBalanceTotals) SetBalanceGc(val Money) {
+	s.BalanceGc = val
+}
 
 // Merged schema.
 // Ref: #/components/schemas/GrIrClearing
@@ -18171,8 +18291,14 @@ type HouseBank struct {
 	// company's. A bank in another currency than its company's pays runs and takes statements only in it
 	// (ADR-0051, T53a).
 	Currency string `json:"currency"`
-	// The last up to four characters of the account's IBAN.
+	// The last up to four characters of the account's IBAN, or of a Canadian bank's account number.
 	AccountLast4 string `json:"account_last4"`
+	// A Canadian house bank's institution number (T45d); absent for an IBAN. It names the bank, as a BIC
+	// does, and is not masked.
+	InstitutionNumber OptString `json:"institution_number"`
+	// A Canadian house bank's transit (branch) number (T45d); absent for an IBAN. Bank files name the bank
+	// by its CACPA member id, 0 + institution + transit.
+	TransitNumber OptString `json:"transit_number"`
 	// The bank's BIC.
 	Bic string `json:"bic"`
 	// `inactive` once the configuration no longer lists it. Open enumeration: clients must accept and
@@ -18203,6 +18329,16 @@ func (s *HouseBank) GetCurrency() string {
 // GetAccountLast4 returns the value of AccountLast4.
 func (s *HouseBank) GetAccountLast4() string {
 	return s.AccountLast4
+}
+
+// GetInstitutionNumber returns the value of InstitutionNumber.
+func (s *HouseBank) GetInstitutionNumber() OptString {
+	return s.InstitutionNumber
+}
+
+// GetTransitNumber returns the value of TransitNumber.
+func (s *HouseBank) GetTransitNumber() OptString {
+	return s.TransitNumber
 }
 
 // GetBic returns the value of Bic.
@@ -18238,6 +18374,16 @@ func (s *HouseBank) SetCurrency(val string) {
 // SetAccountLast4 sets the value of AccountLast4.
 func (s *HouseBank) SetAccountLast4(val string) {
 	s.AccountLast4 = val
+}
+
+// SetInstitutionNumber sets the value of InstitutionNumber.
+func (s *HouseBank) SetInstitutionNumber(val OptString) {
+	s.InstitutionNumber = val
+}
+
+// SetTransitNumber sets the value of TransitNumber.
+func (s *HouseBank) SetTransitNumber(val OptString) {
+	s.TransitNumber = val
 }
 
 // SetBic sets the value of Bic.
@@ -25151,6 +25297,52 @@ func (o OptGoodsReceiptReverse) Or(d GoodsReceiptReverse) GoodsReceiptReverse {
 	return d
 }
 
+// NewOptGrIrBalanceTotals returns new OptGrIrBalanceTotals with value set to v.
+func NewOptGrIrBalanceTotals(v GrIrBalanceTotals) OptGrIrBalanceTotals {
+	return OptGrIrBalanceTotals{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptGrIrBalanceTotals is optional GrIrBalanceTotals.
+type OptGrIrBalanceTotals struct {
+	Value GrIrBalanceTotals
+	Set   bool
+}
+
+// IsSet returns true if OptGrIrBalanceTotals was set.
+func (o OptGrIrBalanceTotals) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptGrIrBalanceTotals) Reset() {
+	var v GrIrBalanceTotals
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptGrIrBalanceTotals) SetTo(v GrIrBalanceTotals) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptGrIrBalanceTotals) Get() (v GrIrBalanceTotals, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptGrIrBalanceTotals) Or(d GrIrBalanceTotals) GrIrBalanceTotals {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptGrIrClearingEntry returns new OptGrIrClearingEntry with value set to v.
 func NewOptGrIrClearingEntry(v GrIrClearingEntry) OptGrIrClearingEntry {
 	return OptGrIrClearingEntry{
@@ -28181,6 +28373,8 @@ type Payment struct {
 	PaymentRunID uuid.UUID `json:"payment_run_id"`
 	// Supplier.
 	SupplierID uuid.UUID `json:"supplier_id"`
+	// The supplier's name (its business partner's `name`), as it is now.
+	SupplierName string `json:"supplier_name"`
 	// Supplier bank account valid on the run date.
 	BankAccountID uuid.UUID `json:"bank_account_id"`
 	// Amount paid, after the cash discounts taken on the items and the withholding tax deducted from them;
@@ -28239,6 +28433,11 @@ func (s *Payment) GetPaymentRunID() uuid.UUID {
 // GetSupplierID returns the value of SupplierID.
 func (s *Payment) GetSupplierID() uuid.UUID {
 	return s.SupplierID
+}
+
+// GetSupplierName returns the value of SupplierName.
+func (s *Payment) GetSupplierName() string {
+	return s.SupplierName
 }
 
 // GetBankAccountID returns the value of BankAccountID.
@@ -28324,6 +28523,11 @@ func (s *Payment) SetPaymentRunID(val uuid.UUID) {
 // SetSupplierID sets the value of SupplierID.
 func (s *Payment) SetSupplierID(val uuid.UUID) {
 	s.SupplierID = val
+}
+
+// SetSupplierName sets the value of SupplierName.
+func (s *Payment) SetSupplierName(val string) {
+	s.SupplierName = val
 }
 
 // SetBankAccountID sets the value of BankAccountID.

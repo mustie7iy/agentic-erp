@@ -92,6 +92,8 @@ func TestOrderChangeApproval(t *testing.T) {
 	want(t, "change above the first tier", pending, map[string]any{"status": "pending_approval", "revision": nil})
 	r := e.Pending(t, id(ch))
 	want(t, "request", r, map[string]any{"object_type": "order_change", "id": pending["approval_request_id"], "requester_id": e.Tenant.Agent.ID.String()})
+	// The change is read through its order: the request says where.
+	want(t, "request's object", r, map[string]any{"object_resource": cpath})
 	want(t, "request amount", r["amount"].(map[string]any), map[string]any{"amount": "1500.00", "currency": "EUR"})
 	e.Problem(409, "procurement.invalid_status", "PATCH", cpath, `{"reason": "x"}`, tag)
 	order, _ := e.Must(200, "GET", path, "", "")

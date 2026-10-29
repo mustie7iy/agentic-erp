@@ -90,6 +90,13 @@ func TestGRIRClearing(t *testing.T) {
 		r := e.Pending(t, id(c))
 		want(t, "request", r, map[string]any{"object_type": "gr_ir_clearing", "id": c["approval_request_id"], "requester_id": e.Tenant.Human.ID.String()})
 		want(t, "request amount", r["amount"].(map[string]any), map[string]any{"amount": "10.00", "currency": "EUR"})
+		if got := r["object_resource"]; got != path {
+			t.Errorf("request's object: got %v, want %s", got, path)
+		}
+		page, _ := e.Must(200, "GET", fmt.Sprintf("/v1/gr-ir-balances?legal_entity_id=%s&purchase_order_id=%s", e.DE, order), "", "")
+		if got := page["items"].([]any)[0].(map[string]any)["purchase_order_number"]; got != "PO100001" {
+			t.Errorf("position's order number: got %v, want PO100001", got)
+		}
 		if tag != `"1"` {
 			t.Errorf("ETag: got %s, want \"1\"", tag)
 		}

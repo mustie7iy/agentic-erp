@@ -304,3 +304,23 @@ func waitingChange(ctx context.Context, tx pgx.Tx, change, request uuid.UUID) (P
 	}
 	return o, ch, nil
 }
+
+// Resources is where the API reads each change (approvals.Locator):
+// through its order, /v1/purchase-orders/{id}/changes/{change_id}.
+func (OrderChanges) Resources(ctx context.Context, changes []uuid.UUID) (map[uuid.UUID]string, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT id, purchase_order_id FROM procurement.purchase_order_change WHERE id = ANY($1)`, changes)
+	out := map[uuid.UUID]string{}
+	var change, order uuid.UUID
+	_, err = pgx.ForEachRow(rows, []any{&change, &order}, func() error {
+		out[change] = "/v1/purchase-orders/" + order.String() + "/changes/" + change.String()
+		return nil
+	})
+	if err != nil {
+		return out, fmt.Errorf("procurement: orders of %d changes: %w", len(changes), err)
+	}
+	return out, nil
+}

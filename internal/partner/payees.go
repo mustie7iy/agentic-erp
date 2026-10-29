@@ -109,3 +109,21 @@ func (y Payees) BankDetails(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID
 	}
 	return out, nil
 }
+
+// Names returns the partners' names, keyed by id: what a payment shows
+// beside its supplier's id. An id that names no partner is left out.
+func (Payees) Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT id, name FROM partner.business_partner WHERE id = ANY($1)`, ids)
+	out := map[uuid.UUID]string{}
+	var id uuid.UUID
+	var name string
+	_, err = pgx.ForEachRow(rows, []any{&id, &name}, func() error { out[id] = name; return nil })
+	if err != nil {
+		return out, fmt.Errorf("partner: names of %d partners: %w", len(ids), err)
+	}
+	return out, nil
+}

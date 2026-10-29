@@ -221,3 +221,8 @@ func (e *Endpoints) withinLimit(ctx context.Context, tx pgx.Tx, v prepared, in N
 	}
 	return nil
 }
+
+// Resources is where the API reads each parked entry (approvals.Locator).
+func (ManualEntries) Resources(_ context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	return approvals.Paths("/v1/parked-journal-entries/%s", ids), nil
+}

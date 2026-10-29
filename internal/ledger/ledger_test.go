@@ -19,6 +19,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -61,7 +62,7 @@ func deps() configuration.Dependencies {
 func endpoints() *ledger.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
 	return &ledger.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{},
-		Approvals: fixture.Approvals()}
+		Orders: procurement.Orders{}, Approvals: fixture.Approvals()}
 }
 
 type env struct {

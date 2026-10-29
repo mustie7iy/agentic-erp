@@ -578,15 +578,17 @@ func (e *Endpoints) GetPurchaseOrderChange(ctx context.Context, params gen.GetPu
 	return &gen.GetPurchaseOrderChangeOKHeaders{ETag: gen.NewOptString(etag.Format(ch.Version)), Response: changeToAPI(ch)}, nil
 }
 
+// changeSort sorts the changes' list, whose select is wrapped: it joins the
+// order, so the keyset's tie-breaker id would be ambiguous on page 2.
 var changeSort = pagination.Sort{Default: "created_at", DefaultDesc: true, Fields: []pagination.Field{
-	{Name: "created_at", Column: "ch.created_at", Type: "timestamptz"},
+	{Name: "created_at", Column: "created_at", Type: "timestamptz"},
 }}
 
 // ListPurchaseOrderChanges implements GET /v1/purchase-orders/{id}/changes.
 func (e *Endpoints) ListPurchaseOrderChanges(ctx context.Context, params gen.ListPurchaseOrderChangesParams) (gen.ListPurchaseOrderChangesRes, error) {
 	items, next, err := listOfOrder(ctx, e, params.ID, orderList[PurchaseOrderChange, gen.PurchaseOrderChange]{sort: changeSort,
 		scope: "listPurchaseOrderChanges", page: apitypes.Page(params.OrderBy, params.PageSize, params.PageToken),
-		query: changeSelect + ` WHERE ch.purchase_order_id = $1`, what: "changes", scan: scanChange,
+		query: `SELECT * FROM (` + changeSelect + ` WHERE ch.purchase_order_id = $1) ch WHERE true`, what: "changes", scan: scanChange,
 		key: func(ch PurchaseOrderChange) (string, uuid.UUID) { return timestamp(ch.CreatedAt), ch.ID }, toAPI: changeToAPI})
 	if err != nil {
 		return nil, err

@@ -32786,8 +32786,9 @@ func (s *Server) handleListGoodsReceiptsRequest(args [0]string, argsEscaped bool
 // not yet invoiced; positive: invoiced, not yet received). A position is zero in every currency once
 // its received quantity equals its invoiced plus its cleared quantity; a closed order's residual
 // position is cleared by a GR/IR clearing (createGrIrClearing). Only orders valued through GR/IR have
-// positions. With `posting_date_to` the call reports one order's positions on that key date. Sortable
-// by: `purchase_order_id`, `last_posting_date`.
+// positions. With `posting_date_to` the call reports one order's positions on that key date. Each
+// position names its order by number and its account by number and name, and `totals` sums every
+// position the filters select, on every page. Sortable by: `purchase_order_id`, `last_posting_date`.
 //
 // GET /v1/gr-ir-balances
 func (s *Server) handleListGrIrBalancesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

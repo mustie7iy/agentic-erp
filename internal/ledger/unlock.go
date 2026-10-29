@@ -135,3 +135,8 @@ func namingRequest(ctx context.Context, tx pgx.Tx, period, request uuid.UUID) (P
 	}
 	return p, nil
 }
+
+// Resources is where the API reads each fiscal period (approvals.Locator).
+func (PeriodUnlocks) Resources(_ context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	return approvals.Paths("/v1/fiscal-periods/%s", ids), nil
+}

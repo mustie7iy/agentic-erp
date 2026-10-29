@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
@@ -22,7 +23,7 @@ func canadian(name string) config.HouseBank {
 // in clear text and its account number sealed, and a document that gives
 // it other routing under the same name is refused, as a new IBAN is.
 func TestCanadianHouseBank(t *testing.T) {
-	e := setup(t)
+	e := setupWith(t, []string{"payments.statement.read"}, func(*app.Config) {})
 	h := houseBanks()
 	doc := fixture.Document(t)
 	doc.Companies[1].HouseBanks = []config.HouseBank{canadian("RBC")}
@@ -39,6 +40,27 @@ func TestCanadianHouseBank(t *testing.T) {
 			t.Errorf("house bank %s: got %q, want %q", c.name, c.got, c.want)
 		}
 	}
+	t.Run("listed with its routing", func(t *testing.T) {
+		page, _ := e.in(t).Must(200, "GET", "/v1/house-banks?legal_entity_id="+e.DE.String(), "", "")
+		listed := false
+		for _, it := range page["items"].([]any) {
+			b := it.(map[string]any)
+			want := "<nil> <nil>" // an IBAN bank has no routing
+			if b["code"] == "RBC" {
+				want, listed = "0001 003 00002", true
+				if got := fmt.Sprint(b["account_last4"], " ", b["institution_number"], " ", b["transit_number"]); got != want {
+					t.Errorf("RBC's last4, institution and transit: got %q, want %q", got, want)
+				}
+				continue
+			}
+			if got := fmt.Sprint(b["institution_number"], " ", b["transit_number"]); got != want {
+				t.Errorf("%v's institution and transit: got %q, want none", b["code"], got)
+			}
+		}
+		if !listed {
+			t.Errorf("house banks of company 2000: got %v, want RBC among them", page["items"])
+		}
+	})
 	for name, c := range map[string]struct {
 		mutate   func(hb *config.HouseBank)
 		findings int

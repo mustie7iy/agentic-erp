@@ -575,7 +575,9 @@ step_pack() {
   QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
   api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
   expect "status after activation" "$(field .status)" active
-  api 200 '.items[] | "house bank \(.code): \(.currency), account ending \(.account_last4)"' listHouseBanks -p "legal_entity_id=$LE"
+  api 200 '.items[] | "house bank \(.code): \(.currency), account ending \(.account_last4)\(if .institution_number then ", institution \(.institution_number), transit \(.transit_number)" else "" end)"' \
+    listHouseBanks -p "legal_entity_id=$LE"
+  expect "RBC's Canadian routing" "$(field '.items[] | select(.code == "RBC") | "\(.institution_number) \(.transit_number)"')" "003 00002"
   RBC=$(field '.items[] | select(.code == "RBC") | .id')
   RBCUS=$(field '.items[] | select(.code == "RBCUS") | .id')
   if [ -z "$RBC" ] || [ -z "$RBCUS" ]; then fail "the RBC house banks are not there"; fi
@@ -684,18 +686,19 @@ step_payment() {
   RUN=$(field .resource | sed 's|.*/||')
   api 200 '"run \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency), proposed by Tom"' getPaymentRun -p "id=$RUN"
   local version_etag=$ETAG
-  api 200 '.items[] | "payment \(.end_to_end_id): \(.amount.amount) \(.amount.currency)\(if .discount_amount.amount != "0.00" then ", discount \(.discount_amount.amount) until \(.discount_until)" else "" end)"' listPayments -p "id=$RUN" -p page_size=100
+  api 200 '.items[] | "payment \(.end_to_end_id) to \(.supplier_name): \(.amount.amount) \(.amount.currency)\(if .discount_amount.amount != "0.00" then ", discount \(.discount_amount.amount) until \(.discount_until)" else "" end)"' listPayments -p "id=$RUN" -p page_size=100
   cp "$WORK/last.json" "$WORK/payments.json"
   local tyrell
   # The payment of the walkthrough's own invoice and credit memo.
   tyrell=$(jq -r --arg a "$INVOICE_ENTRY" --arg c "$CREDIT_ENTRY" '.items[] | select(any(.items[]; .journal_entry_id == $a))
     | "\(.amount.amount) \(.discount_amount.amount) \(any(.items[]; .journal_entry_id == $c))"' "$WORK/payments.json")
   expect "the payment of TY-5001 less TY-CM-77: amount, discount, credit memo in it" "$tyrell" "4136.00 94.00 true"
+  expect "the payee of TY-5001, named by the API" "$(jq -r --arg a "$INVOICE_ENTRY" '.items[] | select(any(.items[]; .journal_entry_id == $a)) | .supplier_name' "$WORK/payments.json")" "Tyrell Office Products"
   api 200 '.items[] | "excluded: \(.reason_code), \(.amount.amount) \(.amount.currency), supplier \(.supplier_id)"' listPaymentExclusions -p "id=$RUN" |
     name_partners
   expect "suppliers left out for want of a bank account" "$(field '[.items[] | select(.reason_code == "no_bank_account")] | length')" 0
-  say "The migrated Canadian suppliers are in the run, paid to their Canadian accounts:"
-  jq -r '.items[] | "\(.end_to_end_id) \(.supplier_id) \(.amount.amount) \(.amount.currency)"' "$WORK/payments.json" | name_partners |
+  say "The migrated Canadian suppliers are in the run, paid to their Canadian accounts, each payment naming its payee:"
+  jq -r '.items[] | "\(.end_to_end_id) \(.supplier_name) \(.amount.amount) \(.amount.currency)"' "$WORK/payments.json" |
     grep -E 'Laurentian|Prairie|Rideau|Fundy|Muskoka|Cabot' | sed 's/^/     payment /' || fail "the run pays none of the migrated Canadian suppliers"
   say "Tom holds the release permission too, but whoever proposes a run can never release it:"
   refused 403 identity.sod_conflict releasePaymentRun -p "id=$RUN" -if-match "$version_etag" -body '{}'
@@ -707,8 +710,10 @@ step_payment() {
     submitPaymentRun -p "id=$RUN" -if-match "$version_etag"
   local request
   request=$(field .release_approval.request_id)
+  say "The request leads to the run it releases:"
+  api 200 '"approval request \(.object_type): \(.object_resource)"' getApprovalRequest -p "id=$request"
+  expect "the request's object" "$(field .object_resource)" "/v1/payment-runs/$RUN"
   say "Tara asked for it, so she cannot approve it; Tom proposed the run, so he cannot either:"
-  QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
   refused 403 workflow.own_request approveApprovalRequest -p "id=$request" -if-match "$ETAG" -body '{}'
   as tom
   QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
@@ -1016,7 +1021,7 @@ step_reports() {
 }
 
 # GR/IR position of an order as the balances list it.
-GRIR_POSITION='.items[] | "item \(.po_item_no): received \(.received_quantity.value), invoiced \(.invoiced_quantity.value), cleared \(.cleared_quantity.value), balance \(.balance.amount) \(.balance.currency)"'
+GRIR_POSITION='(.items[] | "order \(.purchase_order_number) item \(.po_item_no) on \(.account_number) \(.account_name): received \(.received_quantity.value), invoiced \(.invoiced_quantity.value), cleared \(.cleared_quantity.value), balance \(.balance.amount) \(.balance.currency)"), "totals: \(.totals.positions) position(s), \(.totals.balance_lc.amount) \(.totals.balance_lc.currency)"'
 
 step_grir() {
   heading "Step 15 — GR/IR maintenance before the month-end close: the closed order's residual position is cleared (SAP MR11)"
@@ -1024,6 +1029,7 @@ step_grir() {
   say "Tyrell credited the damaged chair (step 6) and the buyer keeps it: nothing more will be delivered or invoiced,"
   say "so Ben closes the order."
   QUIET=1 api 200 '' getPurchaseOrder -p "id=$PO"
+  cp "$WORK/last.json" "$WORK/order.json"
   api 200 '"purchase order \(.document_number): \(.status)"' closePurchaseOrder -p "id=$PO" -if-match "$ETAG"
   expect "order status" "$(field .status)" closed
   as alex
@@ -1031,6 +1037,11 @@ step_grir() {
   say "invoiced net of the credit memo, a credit on the GR/IR account that no invoice will clear."
   api 200 "$GRIR_POSITION" listGrIrBalances -p "legal_entity_id=$LE" -p "purchase_order_id=$PO"
   expect "the residual balance" "$(field '.items[0].balance.amount')" -470.00
+  expect "the order, named by its number" "$(field '.items[0].purchase_order_number')" "$(jq -r .document_number "$WORK/order.json")"
+  expect "the order's total" "$(field '.totals.balance_lc.amount')" -470.00
+  say "Every open position of the company, totalled by the report (no adding up):"
+  api 200 '"\(.totals.positions) open position(s), \(.totals.balance_lc.amount) \(.totals.balance_lc.currency) (group \(.totals.balance_gc.amount) \(.totals.balance_gc.currency))\(if .totals.balance then ", \(.totals.balance.amount) \(.totals.balance.currency) in the orders'"'"' currency" else "" end)"' \
+    listGrIrBalances -p "legal_entity_id=$LE" -p page_size=1
   say "She proposes clearing it to the price difference account; the controller decides."
   api 201 '"GR/IR clearing of \(.purchase_order_number): \(.status), \(.total.amount) \(.total.currency) against \(.offset_account.number) \(.offset_account.name)\([.items[] | "\n  item \(.po_item_no) \(.description): \(.quantity.value) \(.quantity.unit), \(.amount.amount) \(.amount.currency)"] | join(""))"' \
     createGrIrClearing -p "id=$PO" -body "{\"reason\": \"Damaged chair credited by Tyrell and kept; no further delivery or invoice\", \"posting_date\": \"$TODAY\"}"
@@ -1041,7 +1052,8 @@ step_grir() {
   say "While it waits, a second proposal for the order is refused, and Alex, who holds no approver role, cannot approve it"
   say "(nor could a controller who proposed it: the proposer is never the approver):"
   refused 409 procurement.gr_ir_clearing_pending createGrIrClearing -p "id=$PO" -body "$body"
-  QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
+  api 200 '"approval request \(.object_type): \(.object_resource)"' getApprovalRequest -p "id=$request"
+  expect "the request's object" "$(field .object_resource)" "/v1/gr-ir-clearings/$clearing"
   refused 403 identity.permission_missing approveApprovalRequest -p "id=$request" -if-match "$ETAG" -body '{}'
   approve carla "$request" "Cleared before the month-end close"
   as alex

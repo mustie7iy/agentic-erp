@@ -301,3 +301,8 @@ func (ReleaseApprovals) Barred(ctx context.Context, run, actor uuid.UUID) (bool,
 	}
 	return barred, nil
 }
+
+// Resources is where the API reads each payment run (approvals.Locator).
+func (ReleaseApprovals) Resources(_ context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	return approvals.Paths("/v1/payment-runs/%s", ids), nil
+}

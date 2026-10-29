@@ -860,14 +860,14 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "House banks show their Canadian routing (pre-existing finding on T72d, API-consumer classes): listHouseBanks returns institution and transit numbers, and account_last4 is not described as of the IBAN",
         "r": "api/openapi.yaml HouseBank · internal/payments",
         "src": "review:T72d",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Payments name their supplier (pre-existing finding on T72d, API-consumer classes): listPayments items give the supplier's name beside supplier_id",
         "r": "api/openapi.yaml Payment · internal/payments",
         "src": "review:T72d",
@@ -2567,21 +2567,21 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A purchase order's change history answers page 2 (pre-existing finding on T72e): its select joins purchase_order, so the keyset's unqualified id is ambiguous and page 2 answers 500; its test never asks for page 2",
       "r": "internal/procurement/order_changes.go · api.go",
       "src": "review:T72e",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "GR/IR balances name what they count (pre-existing finding on T72e, API-consumer classes): rows give the order's number beside purchase_order_id and the account's number and name beside account_id, and the report gives totals",
       "r": "internal/ledger/grir_list.go · api/openapi.yaml listGrIrBalances",
       "src": "review:T72e",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Approval requests lead to their object (pre-existing finding on T72e): ApprovalRequest.object_type lists payment_run_release, and an order_change request carries what a consumer needs to reach the change",
       "r": "api/openapi.yaml ApprovalRequest · internal/approvals",
       "src": "review:T72e",

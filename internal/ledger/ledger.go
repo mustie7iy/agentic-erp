@@ -66,12 +66,20 @@ type Numbers interface {
 	Next(ctx context.Context, legalEntity uuid.UUID, documentType string, fiscalYear int16) (string, error)
 }
 
+// OrderNumbers names purchase orders by their document numbers
+// (procurement context): the GR/IR report shows them beside the orders'
+// ids.
+type OrderNumbers interface {
+	Numbers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
+}
+
 // Endpoints implements the ledger part of the generated API.
 type Endpoints struct {
 	Pages         *pagination.Codec
 	LegalEntities LegalEntities
 	Partners      Partners
 	Numbers       Numbers
+	Orders        OrderNumbers
 	Approvals     Opener // opens the unlock requests of locked periods
 	// Now is the clock center changes read today by, as the controlling
 	// rules' setup does (Setup.Now): a default center stays usable from

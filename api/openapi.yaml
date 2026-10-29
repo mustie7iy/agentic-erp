@@ -6950,7 +6950,7 @@ paths:
       tags:
         - ledger
       summary: List GR/IR balances
-      description: "The GR/IR position of each purchase order item of a legal entity in the leading ledger: its received, invoiced and cleared quantities and its balance on the GR/IR account (negative: received, not yet invoiced; positive: invoiced, not yet received). A position is zero in every currency once its received quantity equals its invoiced plus its cleared quantity; a closed order's residual position is cleared by a GR/IR clearing (createGrIrClearing). Only orders valued through GR/IR have positions. With `posting_date_to` the call reports one order's positions on that key date. Sortable by: `purchase_order_id`, `last_posting_date`."
+      description: "The GR/IR position of each purchase order item of a legal entity in the leading ledger: its received, invoiced and cleared quantities and its balance on the GR/IR account (negative: received, not yet invoiced; positive: invoiced, not yet received). A position is zero in every currency once its received quantity equals its invoiced plus its cleared quantity; a closed order's residual position is cleared by a GR/IR clearing (createGrIrClearing). Only orders valued through GR/IR have positions. With `posting_date_to` the call reports one order's positions on that key date. Each position names its order by number and its account by number and name, and `totals` sums every position the filters select, on every page. Sortable by: `purchase_order_id`, `last_posting_date`."
       x-permission: ledger.entry.read
       x-problem-codes:
         - request.invalid_order_by
@@ -13802,6 +13802,8 @@ paths:
               - order_change
               - bank_clearing
               - center_change
+              - gr_ir_clearing
+              - payment_run_release
         - name: object_id
           in: query
           required: false
@@ -24099,6 +24101,8 @@ components:
         - purchase_order_id
         - po_item_no
         - account_id
+        - account_number
+        - account_name
         - received_quantity
         - invoiced_quantity
         - cleared_quantity
@@ -24117,6 +24121,10 @@ components:
           format: uuid
           description: Purchase order.
           readOnly: true
+        purchase_order_number:
+          type: string
+          description: "The order's document number (procurement context); absent only for postings that name an order procurement does not hold."
+          readOnly: true
         po_item_no:
           type: integer
           format: int32
@@ -24127,6 +24135,14 @@ components:
           type: string
           format: uuid
           description: The GR/IR account.
+          readOnly: true
+        account_number:
+          type: string
+          description: "The GR/IR account's number in the legal entity's chart."
+          readOnly: true
+        account_name:
+          type: string
+          description: "The GR/IR account's name."
           readOnly: true
         received_quantity:
           $ref: "#/components/schemas/Quantity"
@@ -24160,8 +24176,11 @@ components:
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
           purchase_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d5c"
+          purchase_order_number: "4500001234"
           po_item_no: 1
           account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+          account_number: "191100"
+          account_name: GR/IR clearing
           received_quantity:
             value: "10"
             unit: EA
@@ -24183,7 +24202,7 @@ components:
           last_posting_date: "2026-03-15"
     GrIrBalancePage:
       type: object
-      description: One page of GR/IR balances.
+      description: "One page of GR/IR balances, with the totals of every position the filters select."
       required:
         - items
       properties:
@@ -24192,6 +24211,8 @@ components:
           items:
             $ref: "#/components/schemas/GrIrBalance"
           description: The positions on this page.
+        totals:
+          $ref: "#/components/schemas/GrIrBalanceTotals"
         next_page_token:
           type: string
           description: "Opaque cursor for the next page; absent on the last page."
@@ -24201,6 +24222,32 @@ components:
           format: int64
           description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
           minimum: 0
+    GrIrBalanceTotals:
+      type: object
+      description: "The report's totals: every position the filters select summed, on every page alike (not only the page's). Absent when the legal entity is not one the caller may act in."
+      required:
+        - positions
+        - balance_lc
+        - balance_gc
+      properties:
+        positions:
+          type: integer
+          format: int64
+          minimum: 0
+          description: How many positions the filters select.
+          readOnly: true
+        balance:
+          $ref: "#/components/schemas/Money"
+          description: "The balances in the orders' currency summed, signed; present only when every position selected is in one currency (always for one order)."
+          readOnly: true
+        balance_lc:
+          $ref: "#/components/schemas/Money"
+          description: "The balances in the legal entity's local currency summed, signed: what the GR/IR account holds for the positions."
+          readOnly: true
+        balance_gc:
+          $ref: "#/components/schemas/Money"
+          description: The balances in group currency summed, signed.
+          readOnly: true
     RevaluationRun:
       type: object
       description: "A foreign-currency revaluation run (ADR-0042). Fixed once posted, except that it may be cancelled once (`cancelRevaluationRun`)."
@@ -28814,6 +28861,7 @@ components:
           required:
             - payment_run_id
             - supplier_id
+            - supplier_name
             - bank_account_id
             - amount
             - end_to_end_id
@@ -28828,6 +28876,10 @@ components:
               type: string
               format: uuid
               description: Supplier.
+              readOnly: true
+            supplier_name:
+              type: string
+              description: "The supplier's name (its business partner's `name`), as it is now."
               readOnly: true
             bank_account_id:
               type: string
@@ -28894,6 +28946,7 @@ components:
           created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
           payment_run_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
           supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
+          supplier_name: Tyrell Office Products
           bank_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db2"
           amount:
             amount: "1080.00"
@@ -28935,6 +28988,7 @@ components:
               created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
               payment_run_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
               supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
+              supplier_name: Tyrell Office Products
               bank_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db2"
               amount:
                 amount: "1080.00"
@@ -29337,7 +29391,9 @@ components:
         legal_entity_id: {type: string, format: uuid, description: The house bank's legal entity., readOnly: true}
         code: {type: string, description: "The bank's name in the configuration, unique within the legal entity.", readOnly: true}
         currency: {type: string, description: "The account's currency (ISO 4217): the configuration's `currency` of the house bank, or its company's. A bank in another currency than its company's pays runs and takes statements only in it (ADR-0051, T53a).", readOnly: true}
-        account_last4: {type: string, description: "The last up to four characters of the account's IBAN.", readOnly: true}
+        account_last4: {type: string, description: "The last up to four characters of the account's IBAN, or of a Canadian bank's account number.", readOnly: true}
+        institution_number: {type: string, pattern: "^[0-9]{3}$", description: "A Canadian house bank's institution number (T45d); absent for an IBAN. It names the bank, as a BIC does, and is not masked.", readOnly: true}
+        transit_number: {type: string, pattern: "^[0-9]{5}$", description: "A Canadian house bank's transit (branch) number (T45d); absent for an IBAN. Bank files name the bank by its CACPA member id, 0 + institution + transit.", readOnly: true}
         bic: {type: string, description: The bank's BIC., readOnly: true}
         status:
           type: string
@@ -30354,11 +30410,17 @@ components:
                 - bank_clearing
                 - center_change
                 - gr_ir_clearing
+                - payment_run_release
               readOnly: true
             object_id:
               type: string
               format: uuid
-              description: Object to approve.
+              description: "Object to approve: of a `payment_run_release`, the payment run; of a `bank_clearing`, the statement line's match."
+              readOnly: true
+            object_resource:
+              type: string
+              format: uri-reference
+              description: "API path that reads the object to approve, given by the context that owns it: e.g. `/v1/purchase-orders/{id}/changes/{change_id}` for an `order_change`, `/v1/payment-runs/{id}` for a `payment_run_release`, and for a `bank_clearing` the statement (`/v1/bank-statements/{id}`) whose line carries the match. Absent only for an object type this server does not place."
               readOnly: true
             title:
               type: string
@@ -30429,6 +30491,7 @@ components:
           updated_at: "2026-10-09T14:03:11Z"
           object_type: requisition
           object_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db9"
+          object_resource: /v1/requisitions/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db9
           title: Raise the tier 2 approval limit
           requester_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d4f"
           status: pending

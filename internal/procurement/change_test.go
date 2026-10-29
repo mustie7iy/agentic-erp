@@ -63,7 +63,16 @@ func TestDraftOrderChanges(t *testing.T) {
 	e.Must(201, "POST", path+"/changes", body, "") // the next one
 	first, _ := e.Must(200, "GET", path+"/changes?page_size=1", "", "")
 	if first["next_page_token"] == nil {
-		t.Error("changes on a page of one: got no next page, want one")
+		t.Fatal("changes on a page of one: got no next page, want one")
+	}
+	// Page 2 reads past the cursor over the change and its order, both of
+	// which have an id (review:T72e).
+	second, _ := e.Must(200, "GET", path+"/changes?page_size=1&page_token="+first["next_page_token"].(string), "", "")
+	if got, want := id(second["items"].([]any)[0].(map[string]any)), id(ch); got != want {
+		t.Errorf("second page: got change %s, want the cancelled first one %s", got, want)
+	}
+	if _, more := second["next_page_token"]; more {
+		t.Error("second page: got a next page token, want none")
 	}
 	e.Problem(404, "request.not_found", "GET", path+"/changes/"+uuid.NewString(), "", "")
 }

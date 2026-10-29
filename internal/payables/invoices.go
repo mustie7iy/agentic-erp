@@ -436,3 +436,8 @@ func (Invoices) HasInvoices(ctx context.Context, purchaseOrder uuid.UUID) (bool,
 	}
 	return ok, nil
 }
+
+// Resources is where the API reads each supplier invoice (approvals.Locator).
+func (Approvals) Resources(_ context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	return approvals.Paths("/v1/supplier-invoices/%s", ids), nil
+}

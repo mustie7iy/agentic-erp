@@ -65,3 +65,8 @@ func (Approvals) Cancelled(ctx context.Context, change, _ uuid.UUID, _ string) e
 	_, err := CancelChange(ctx, change)
 	return err
 }
+
+// Resources is where the API reads each partner change (approvals.Locator).
+func (Approvals) Resources(_ context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	return approvals.Paths("/v1/partner-changes/%s", ids), nil
+}
