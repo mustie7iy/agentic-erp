@@ -617,7 +617,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The SAP load's receipts step takes its locks in one order (pre-existing finding on T72b2): its first receipt takes the legal entity's goods_receipt number range (and journal_we), then a later receipt on an order an earlier run loaded locks that order's items, while a concurrent POST /v1/goods-receipts holds those items and waits on the range, so the two deadlock; e.g. every item lock is taken before the first receipt posts",
       "r": "internal/integration/load.go receipts",
       "src": "review:batch19",
