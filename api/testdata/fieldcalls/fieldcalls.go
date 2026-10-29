@@ -1,10 +1,16 @@
 // Package fieldcalls is TestProblemCodesFieldCalls' program (ADR-0052 G7):
 // calls of a function value given as a parameter or held in a field of a
 // struct parameter, which the call graph joins across callers, told apart
-// where every caller makes the value, and followed where one may not.
+// where every caller makes the value, and followed where one may not or
+// where code outside the program can call the function.
 package fieldcalls
 
-import "github.com/mustie7iy/agentic-erp/internal/platform/problem"
+import (
+	"fmt"
+	"sync"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+)
 
 // step is a move and the work it does, as integration's runStep takes it.
 type step struct {
@@ -139,3 +145,49 @@ func CallQB() error { return callQ(qb) }
 
 func qa() error { return problem.New(409, "fixture.qa", "QA", "") }
 func qb() error { return problem.New(409, "fixture.qb", "QB", "") }
+
+// callE is given only functions its callers make, but its value goes to
+// code outside the program (a sync.Map), which may call it with any
+// function: the edge stays, and each caller gets both codes.
+func callE(f func() error) error { return f() }
+
+var registry sync.Map
+
+func Register() { registry.Store("e", callE) }
+
+func CallEA() error { return callE(ea) }
+func CallEB() error { return callE(eb) }
+
+func ea() error { return problem.New(409, "fixture.ea", "EA", "") }
+func eb() error { return problem.New(409, "fixture.eb", "EB", "") }
+
+// Runner's Run is given only functions its callers make, but a *Runner goes
+// to code outside the program in an interface (fmt.Sprint), which could
+// call Run with any function: the edge stays.
+type Runner struct{}
+
+func (*Runner) Run(f func() error) error { return f() }
+
+func Show() string { return fmt.Sprint(&Runner{}) }
+
+func CallRA() error { return (&Runner{}).Run(ra) }
+func CallRB() error { return (&Runner{}).Run(rb) }
+
+func ra() error { return problem.New(409, "fixture.ra", "RA", "") }
+func rb() error { return problem.New(409, "fixture.rb", "RB", "") }
+
+// A *Keeper in an interface stays in the program (a variable whose loads
+// it calls Keep on), so Keep is cut to each caller's own code.
+type keeper interface{ Keep(f func() error) error }
+
+type Keeper struct{}
+
+func (*Keeper) Keep(f func() error) error { return f() }
+
+var kept keeper = &Keeper{}
+
+func CallKA() error { return kept.Keep(ka) }
+func CallKB() error { return (&Keeper{}).Keep(kb) }
+
+func ka() error { return problem.New(409, "fixture.ka", "KA", "") }
+func kb() error { return problem.New(409, "fixture.kb", "KB", "") }

@@ -31,7 +31,9 @@ package api
 // from a closure's capture, or given by a function nothing in the program
 // calls, keeps its edge, but for a promotion wrapper nothing can call (an
 // unexported method's, or a method of the API's handler that is not an
-// operation, sealHandler). A problem made by a package
+// operation, sealHandler); so does one given by a function code outside
+// the program can call, whose value or receiver reaches it (escapes). A
+// problem made by a package
 // initializer and kept in a variable is an operation's when the
 // operation's code reads that variable. A code a constraint's problem (problem.RegisterConstraint)
 // carries is an operation's when a function it reaches runs a statement
@@ -163,6 +165,11 @@ type codeAnalysis struct {
 	made        map[ssa.Value]bool          // callersMake's answers
 	served      map[string]bool             // gen.Handler's methods, once sealHandler holds
 	sealed      []string                    // what sealHandler found not to hold
+	program     map[string]bool             // the paths of the packages analysed, with their bodies
+	outside     []string                    // packages outside the program importing it (outsideImports)
+	flow        *flowIndex                  // escapes' index, built on first use
+	escaped     map[*ssa.Function]string    // escapes' answers
+	pending     map[*ssa.Function]bool      // the functions escapes is answering
 }
 
 func TestProblemCodes(t *testing.T) {
@@ -174,6 +181,9 @@ func TestProblemCodes(t *testing.T) {
 	}
 	for _, e := range a.sealed {
 		t.Errorf("the API's handler: %s", e)
+	}
+	for _, e := range a.outside {
+		t.Errorf("code outside the program: %s", e)
 	}
 	t.Run("premises", func(t *testing.T) { checkPremisesRefuse(t, a) })
 	t.Run("handler", func(t *testing.T) { checkSealRefuses(t, a) })
@@ -367,12 +377,19 @@ func checkFlowRefuses(t *testing.T) {
 // the callee's copy; work read from a variable, through a pointer or a
 // closure's capture, or handed on through a parameter or a function's
 // result from a variable, is followed, so no operation loses a code it
-// can answer.
+// can answer. A function code outside the program can call (callE, whose
+// value goes to a sync.Map, and a *Runner's Run, which goes to fmt.Sprint)
+// keeps its edge, joined; a *Keeper's Keep, whose interface stays in the
+// program, is cut.
 func TestProblemCodesFieldCalls(t *testing.T) {
 	const fixture = module + "/api/testdata/fieldcalls"
 	a, _ := build(t, fixture)
-	for _, join := range [][2]string{{"run", "reconcile"}, {"callQ", "qb"}} {
-		from, to := a.fns[fixture+"."+join[0]], a.fns[fixture+"."+join[1]]
+	for _, join := range [][2]string{{"run", "reconcile"}, {"callQ", "qb"}, {"callE", "eb"}, {"(*" + fixture + ".Runner).Run", "rb"},
+		{"(*" + fixture + ".Keeper).Keep", "kb"}} {
+		from, to := a.fns[join[0]], a.fns[fixture+"."+join[1]]
+		if from == nil {
+			from = a.fns[fixture+"."+join[0]]
+		}
 		if !slices.ContainsFunc(a.cg.Nodes[from].Out, func(e *callgraph.Edge) bool { return e.Callee.Func == to }) {
 			t.Fatalf("the call graph has no edge from %s to %s: the fixture no longer shows the join", join[0], join[1])
 		}
@@ -395,6 +412,10 @@ func TestProblemCodesFieldCalls(t *testing.T) {
 		{"CallMade", []string{"fixture.made", "fixture.var"}, nil},
 		{"CallQA", []string{"fixture.qa"}, []string{"fixture.qb"}},
 		{"CallQB", []string{"fixture.qb"}, []string{"fixture.qa"}},
+		{"CallEA", []string{"fixture.ea", "fixture.eb"}, nil},
+		{"CallRA", []string{"fixture.ra", "fixture.rb"}, nil},
+		{"CallKA", []string{"fixture.ka"}, []string{"fixture.kb"}},
+		{"CallKB", []string{"fixture.kb"}, []string{"fixture.ka"}},
 	} {
 		t.Run(c.root, func(t *testing.T) {
 			codes := a.codesOf(a.reach([]*ssa.Function{a.fns[fixture+"."+c.root]}), nil)
@@ -449,6 +470,7 @@ func analyse(t *testing.T) *codeAnalysis {
 		}
 	})
 	a, emitted := build(t, paths...)
+	a.outside = outsideImports(deps, a.program)
 	a.sealed = a.sealHandler()
 	problem := a.prog.ImportedPackage(module + "/internal/platform/problem")
 	for fn, codes := range dynamicCodes {
@@ -486,7 +508,10 @@ func build(t *testing.T, paths ...string) (*codeAnalysis, []emission) {
 	a := &codeAnalysis{prog: prog, all: fns, fns: map[string]*ssa.Function{}, cg: vta.CallGraph(fns, cha.CallGraph(prog)), from: problem.Func("From"),
 		gated: map[*ssa.Function][]string{}, globals: map[*ssa.Global][]string{}, unresolved: map[string][]token.Position{},
 		constraints: map[string][]string{}, writes: map[*ssa.Function][]string{}, narrowed: map[int][]string{},
-		made: map[ssa.Value]bool{}}
+		made: map[ssa.Value]bool{}, program: map[string]bool{}, escaped: map[*ssa.Function]string{}, pending: map[*ssa.Function]bool{}}
+	for _, p := range pkgs {
+		a.program[p.PkgPath] = true
+	}
 	for f := range fns {
 		a.fns[f.String()] = f
 	}
@@ -886,8 +911,9 @@ func (a *codeAnalysis) cut(f *ssa.Function, e *callgraph.Edge) bool {
 // field of a struct parameter (integration's step.work) that every call of
 // the function passes or fills with a function or closure its caller
 // makes. Anything else, a value read through a pointer, from a variable or
-// a closure's capture, or given by a function nothing in the program calls
-// but one nothing can call (uncallable), keeps its edge.
+// a closure's capture, given by a function nothing in the program calls
+// but one nothing can call (uncallable), or by one code outside the
+// program can call (escapes), keeps its edge.
 func (a *codeAnalysis) callersMake(v ssa.Value) bool {
 	if ok, done := a.made[v]; done {
 		return ok
@@ -907,9 +933,15 @@ type heldAt struct {
 // givenMade reports whether every call of p's function passes, at path
 // within p, a function value its caller makes (holdsMade); with no call in
 // the graph, whether the function is one nothing can call (uncallable).
+// The graph shows the program's calls only, so a function code outside
+// the program can call (escapes) proves nothing: that code may pass any
+// function it was given.
 func (a *codeAnalysis) givenMade(p *ssa.Parameter, path []int, seen map[heldAt]bool) bool {
 	fn := p.Parent()
 	idx := slices.Index(fn.Params, p)
+	if a.escapes(fn) != "" {
+		return false // code outside may call it with any function
+	}
 	n := a.cg.Nodes[fn]
 	if n == nil || len(n.In) == 0 {
 		return a.uncallable(fn)
@@ -1174,7 +1206,9 @@ func (a *codeAnalysis) checkFieldPremise(u untaken, fl [3]string) []string {
 // parameter is a constant other than the one taking the branch, or comes
 // from a parameter of a function of u. A parameter of a function the
 // graph shows no call of (a function value handed outside the program,
-// as a worker's activity is) could carry anything, so it fails.
+// as a worker's activity is), or of one code outside the program can call
+// beside the calls the graph shows (escapes), could carry anything, so it
+// fails.
 func (a *codeAnalysis) checkParamPremise(u untaken, gate *ssa.Function) []string {
 	i := slices.IndexFunc(gate.Params, func(p *ssa.Parameter) bool { return p.Name() == u.param })
 	if i < 0 {
@@ -1208,6 +1242,11 @@ func (a *codeAnalysis) checkParamPremise(u untaken, gate *ssa.Function) []string
 			if n := a.cg.Nodes[v.Parent()]; (n == nil || len(n.In) == 0) && !a.uncallable(v.Parent()) {
 				out = append(out, fmt.Sprintf("untakenBranches, %s: %s's %s comes from %s, which nothing in the program calls (%s)", u.code, u.gate,
 					u.param, v.Parent(), u.why))
+				return
+			}
+			if why := a.escapes(v.Parent()); why != "" {
+				out = append(out, fmt.Sprintf("untakenBranches, %s: %s's %s comes from %s, which code outside the program can call (%s; %s)", u.code,
+					u.gate, u.param, v.Parent(), why, u.why))
 				return
 			}
 			a.eachArgument(v, func(e *callgraph.Edge, arg ssa.Value) { check(arg, e.Caller.Func) })

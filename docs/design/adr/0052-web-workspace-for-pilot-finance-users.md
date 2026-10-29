@@ -1318,6 +1318,53 @@ What the API gaps settled, and where they depart from §3:
   `api/testdata/fieldcalls`: a function read from a package variable,
   passed beside a made one (`callP`), keeps its code, and two made ones
   alone (`callQ`), joined by the graph, are each cut to their own.
+- **G7: functions code outside the program can call (fix, batch 25).** The
+  batch 24 cut proves a parameter made from the calls the graph shows,
+  which are the program's own: the standard library, third-party packages
+  and api/gen have no SSA bodies in the analysis, so a call they make of a
+  function whose value or receiver reached them is not in the graph, and
+  could pass a function another operation made (review of batch 24).
+  Soundness first: `givenMade` now proves nothing for a function code
+  outside the program can call (`escapes`, in
+  `api/problemcodes_escape_test.go`), and keeps the edge. Such code
+  imports none of the program (checked: `outsideImports` fails the test on
+  a package outside the program importing one of it), so it can call a
+  function only through a value it is given: the function's own value (a
+  function, closure, method value or thunk), or a value of a type whose
+  exported methods it then calls through an interface of its own, by
+  reflection, or through a generic function's constraint (an unexported
+  method no code outside its package can call). `escapes` follows each
+  such value forward through the program: calls of it and methods invoked
+  on it stay inside; phis, conversions and assertions, closures capturing
+  it, the parameters of functions with bodies it is given, the callers of
+  a function returning it, and stores into a local variable, a global or a
+  field of a struct type the program declares (every read of that field,
+  as VTA joins them) are followed; a function without a body here, a call
+  of a function value or interface method (whose callee code outside may
+  have provided), an element of a slice or map, a channel, a field of a
+  type declared outside the program, or any other use counts as escaping.
+  A type given to a generic function outside the program escapes with all
+  its exported methods; the API's handler gives api/gen only the served
+  methods once `sealHandler` holds. One premise is stated, not checked,
+  since the analysis does not read the dependencies' code: code outside
+  does not read a function from a field of a struct of the program it is
+  given and call it, which only reflection could do. `checkParamPremise`
+  applies the same rule to `untakenBranches`' parameter premises. The
+  check runs on every run, inside `givenMade`, so a change that hands such
+  a function to code outside keeps its edges rather than cutting them.
+  Today none of the 176 functions whose calls a cut relies on escapes
+  (1,130 of the functions the graph shows called do: the operations'
+  methods api/gen calls, the generated server's, standard-library types'),
+  and no list changes. `TestProblemCodesFieldCalls` proves it on
+  `api/testdata/fieldcalls`: `callE`, whose value goes to a `sync.Map`,
+  and a `*Runner`'s `Run`, which goes to `fmt.Sprint`, keep their joined
+  codes, while a `*Keeper`'s `Keep`, whose interface stays in a variable
+  of the program, is cut to each caller's own; `TestProblemCodesEscapes`
+  checks the reasons and `outsideImports`' refusal. Not done, as precision
+  rather than soundness: a function nothing in the program calls and that
+  does not escape is never called, so its parameters could count as made,
+  which would cut through a value method's pointer wrapper; such a
+  function still proves nothing, but for the two wrapper kinds above.
 - **Client addresses in the API's audit trail (D2, PO 2026-10-21).**
   - erp-web forwards the signed-in person's address, as its own load
     balancer's PROXY header names it, in `Erp-Client-Address` on every
