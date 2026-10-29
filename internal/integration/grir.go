@@ -105,13 +105,18 @@ func invoicedNet(e *sap.Extract) map[string]*big.Rat {
 	return out
 }
 
-// open reports whether a position has anything to take over: a balance or
-// an open quantity. Its amounts are bounded by the company's lines, which
-// the gate checks (journal), so their sum is in range.
-func (p *grirPosition) open() bool {
-	total, _ := money.Sum(p.amounts...)
-	return total != 0 || p.qty.Sign() != 0
+// balance is the position's balance in company code currency. Its amounts
+// are bounded by the company's lines, which the gate checks (journal), so
+// their sum is in range; a reconciliation run, without the gate, sums them
+// through reconciler.total instead.
+func (p *grirPosition) balance() money.Minor {
+	total, _ := money.Sum(p.amounts...) // in range: see above
+	return total
 }
+
+// open reports whether a position has anything to take over: a balance or
+// an open quantity.
+func (p *grirPosition) open() bool { return p.balance() != 0 || p.qty.Sign() != 0 }
 
 // grirOrders are the orders of the extract SAP valued through GR/IR: those
 // a line on a legal entity's GR/IR account names. They load valued through
@@ -126,8 +131,10 @@ func grirOrders(positions map[string]*grirPosition) map[string]bool {
 
 // grirChecks refuses what the take-over of GR/IR positions cannot read
 // (T72b's never-guess rule): a line on the GR/IR account without its
-// order item, or naming one outside the extract;
-// SAP's GR/IR account (T030 WRX) when it is not the legal entity's; and
+// order item, or naming one outside the extract or of another company;
+// SAP's GR/IR account (T030 WRX) when it is not the legal entity's, and a
+// warning for a company whose extract has receipts but no T030 to tell
+// SAP's GR/IR account by; and
 // for each position, an order in another currency than the company's (the
 // extract has only the company code amount, HSL), a movement other than a
 // receipt or a receipt quantity that does not parse on the item, and an
@@ -143,19 +150,24 @@ func (q *qualityCheck) grirChecks() {
 		items[i.EBELN+"/"+i.EBELP] = true
 	}
 	for _, l := range q.e.ACDOCA {
-		q.grirLine(l, items)
+		q.grirLine(l, headers, items)
 	}
-	q.grirAccount()
+	q.grirAccount(headers)
+	movements := map[string][]sap.MSEG{}
+	for _, m := range q.e.MSEG {
+		movements[m.EBELN+"/"+m.EBELP] = append(movements[m.EBELN+"/"+m.EBELP], m)
+	}
 	positions := grirPositions(q.e, q.t)
 	for _, key := range sortedKeys(positions) {
-		q.grirPosition(positions[key], headers[positions[key].order])
+		q.grirPosition(positions[key], headers[positions[key].order], movements[key])
 	}
 	q.grirReceipts(grirOrders(positions), positions)
 }
 
 // grirLine checks that a line on the GR/IR account names an order item of
-// the extract.
-func (q *qualityCheck) grirLine(l sap.ACDOCA, items map[string]bool) {
+// the extract in the line's company: a scope of several companies holds
+// their orders, and a position is taken over in its order's legal entity.
+func (q *qualityCheck) grirLine(l sap.ACDOCA, headers map[string]sap.EKKO, items map[string]bool) {
 	key := documentKey(l) + "/" + l.DOCLN
 	account := sap.Alpha(l.RACCT)
 	switch {
@@ -164,20 +176,38 @@ func (q *qualityCheck) grirLine(l sap.ACDOCA, items map[string]bool) {
 		q.add(SevError, "ACDOCA", key, "line on the GR/IR account %s without its order item (EBELN/EBELP): its position cannot be taken over "+
 			"onto the platform's order item, and an invoice after cutover would book the expense again", account)
 	case !items[l.EBELN+"/"+l.EBELP]:
-		// The extract holds the scope's companies' orders only (sap.FilterScope), so an
-		// order of another company is not in it either.
 		q.add(SevError, "ACDOCA", key, "line on the GR/IR account %s names order item %s/%s, which is not in the extract (EKPO) of the scope's companies",
 			account, l.EBELN, l.EBELP)
+	case headers[l.EBELN].BUKRS != l.RBUKRS:
+		q.add(SevError, "ACDOCA", key, "line on the GR/IR account %s of company %s names order %s of company %s", account, l.RBUKRS, l.EBELN,
+			headers[l.EBELN].BUKRS)
 	}
 }
 
 // grirAccount refuses lines on SAP's GR/IR account (T030 WRX) when it is
 // not the legal entity's gr_ir account: loaded on an ordinary account,
-// their positions would not be taken over.
-func (q *qualityCheck) grirAccount() {
-	posted := map[string]bool{}
+// their positions would not be taken over. A company whose extract has
+// goods receipts and no T030 at all (an OData extract, which does not map
+// it) is warned about instead: SAP's GR/IR account cannot be told, so its
+// positions are taken over only if the legal entity's gr_ir account is
+// that account.
+func (q *qualityCheck) grirAccount(headers map[string]sap.EKKO) {
+	posted, customized, received := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, l := range q.e.ACDOCA {
 		posted[l.RBUKRS+"/"+sap.Alpha(l.RACCT)] = true
+	}
+	for _, r := range q.e.T030 {
+		customized[r.BUKRS] = true
+	}
+	for _, m := range q.e.MSEG {
+		received[headers[m.EBELN].BUKRS] = true
+	}
+	for _, c := range q.e.T001 {
+		if received[c.BUKRS] && !customized[c.BUKRS] {
+			q.add(SevWarning, "T030", c.BUKRS, "the extract has goods receipts of company %s but no T030 to tell SAP's GR/IR account (WRX) by: "+
+				"GR/IR positions are taken over only if the legal entity's gr_ir account is SAP's; if it is not, invoices after cutover "+
+				"book the expense of goods SAP received again", c.BUKRS)
+		}
 	}
 	for _, r := range q.e.T030 {
 		account := sap.Alpha(r.KONTS)
@@ -188,17 +218,14 @@ func (q *qualityCheck) grirAccount() {
 	}
 }
 
-// grirPosition checks one order item's position.
-func (q *qualityCheck) grirPosition(p *grirPosition, h sap.EKKO) {
+// grirPosition checks one order item's position and its movements.
+func (q *qualityCheck) grirPosition(p *grirPosition, h sap.EKKO, movements []sap.MSEG) {
 	key := p.order + "/" + p.item
 	if h.EBELN != "" && h.WAERS != q.currency[p.company] { // an order outside the extract is grirLine's
 		q.add(SevError, "EKKO", p.order, "order %s is in %s and has GR/IR positions, which the extract holds in company code currency %s only (HSL); "+
 			"they are not converted", p.order, h.WAERS, q.currency[p.company])
 	}
-	for _, m := range q.e.MSEG {
-		if m.EBELN != p.order || m.EBELP != p.item {
-			continue
-		}
+	for _, m := range movements {
 		if m.BWART != "101" {
 			q.add(SevError, "MSEG", m.MBLNR+"/"+m.MJAHR+"/"+m.ZEILE, "movement type %s on order item %s, which has a GR/IR position: its received "+
 				"quantity, which counts receipts (101) only, cannot be read", m.BWART, key)
@@ -206,8 +233,7 @@ func (q *qualityCheck) grirPosition(p *grirPosition, h sap.EKKO) {
 			q.add(SevError, "MSEG", m.MBLNR+"/"+m.MJAHR+"/"+m.ZEILE, "%v; the received quantity of order item %s cannot be read", err, key)
 		}
 	}
-	total, _ := money.Sum(p.amounts...) // bounded by the company's lines (journal)
-	if total == 0 && p.qty.Sign() != 0 {
+	if p.balance() == 0 && p.qty.Sign() != 0 {
 		q.add(SevError, "ACDOCA", key, "order item %s has an open GR/IR quantity of %s and no balance on the GR/IR account; it cannot be taken over",
 			key, plainQuantity(p.qty))
 	}
@@ -234,9 +260,13 @@ func (q *qualityCheck) grirReceipts(orders map[string]bool, positions map[string
 // position taken over onto an item that has one. The entry's WE number
 // range is the configuration's, which a GR/IR account requires; a period
 // or range the ledger refuses is reported as the record's refusal. It
-// comes after the receipts: the order's GR/IR lock is taken after the
-// goods_receipt range, as a goods movement takes them, and before the
-// journal's ranges.
+// comes after the receipts: the first order's GR/IR lock is taken after
+// the goods_receipt range, as a goods movement takes them, and before the
+// journal's ranges. Each later order's lock is taken while the run holds
+// the WE range and the period of the take-over before it, the other way
+// round from a posting's order; that cannot deadlock, as every order taken
+// over here was created by this run and is invisible to other transactions
+// until the load commits, so no one else can hold or wait for its lock.
 func (l *loader) takeOverGRIR(ctx context.Context) error {
 	nos := itemNos(l.ext)
 	byOrder := map[string][]*grirPosition{}
@@ -280,7 +310,7 @@ func (l *loader) grirPosting(order string, positions []*grirPosition, nos map[st
 	in := ledger.Posting{LegalEntityID: l.t.entities[company].ID, DocumentType: procurement.WEDocumentType, DocumentDate: date, PostingDate: date,
 		Currency: cur, Reference: &ref, HeaderText: &text, SourceContext: "integration", SourceDocumentID: l.run.ID}
 	for _, p := range positions {
-		balance, _ := money.Sum(p.amounts...) // bounded by the company's lines (journal)
+		balance := p.balance()
 		item := "SAP " + p.order + "/" + p.item
 		in.GRIR = append(in.GRIR, ledger.GRIRItem{PurchaseOrderID: l.refs["EKKO/"+order], POItemNo: nos[p.order+"/"+p.item], Quantity: plainQuantity(p.qty),
 			Unit: unit, TakesOver: &balance, Text: &item})

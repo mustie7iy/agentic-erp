@@ -262,8 +262,11 @@ func TestGRIRQuality(t *testing.T) {
 	unvalued.EKPO = append(unvalued.EKPO, sap.EKPO{EBELN: "4500000001", EBELP: "00020", MENGE: "1", NETPR: "5.00", PEINH: "1", SAKTO: "0000520000"})
 	unvalued.MSEG = append(unvalued.MSEG, sap.MSEG{MBLNR: "5000000003", MJAHR: "2026", ZEILE: "0001", BWART: "101", EBELN: "4500000001", EBELP: "00020",
 		MENGE: "1", BUDAT: "20260306"})
+	// An order of company 1000 in EUR, named by 2000's GR/IR line: outside
+	// a scope of 2000 alone, and in a scope of both, of the other company.
 	otherCompany := grirTiny()
-	otherCompany.EKKO = append(otherCompany.EKKO, sap.EKKO{EBELN: "4500000002", BUKRS: "1000", LIFNR: "0000000001", WAERS: "USD", BEDAT: "20260301"})
+	otherCompany.T001 = append(otherCompany.T001, sap.T001{BUKRS: "1000", BUTXT: "Acme Corp US", WAERS: "USD", LAND1: "US"})
+	otherCompany.EKKO = append(otherCompany.EKKO, sap.EKKO{EBELN: "4500000002", BUKRS: "1000", LIFNR: "0000000001", WAERS: "EUR", BEDAT: "20260301"})
 	otherCompany.EKPO = append(otherCompany.EKPO, sap.EKPO{EBELN: "4500000002", EBELP: "00010", MENGE: "1", NETPR: "5.00", PEINH: "1", SAKTO: "0000520000"})
 	otherCompany.ACDOCA[len(otherCompany.ACDOCA)-1].EBELN = "4500000002"
 	otherAccount := tiny()
@@ -271,29 +274,40 @@ func TestGRIRQuality(t *testing.T) {
 	for _, c := range []struct {
 		name, want string
 		x          *sap.Extract
+		both       bool // scoped to 1000 and 2000, not 2000 alone
 	}{
-		{"a GR/IR line without its order item", "without its order item (EBELN/EBELP)", grirTiny(noItem)},
-		{"an order of another company", "names order item 4500000002/00010, which is not in the extract", otherCompany},
-		{"an order item outside the extract", "names order item 4500000099/00010, which is not in the extract", grirTiny(outside)},
-		{"an order in another currency", "order 4500000001 is in USD and has GR/IR positions", foreign},
-		{"a reversed receipt", "movement type 102 on order item 4500000001/00010", reversed},
-		{"a receipt quantity that does not parse", "the received quantity of order item 4500000001/00010 cannot be read", unread},
-		{"an open quantity without a balance", "open GR/IR quantity of -2 and no balance", noBalance},
-		{"an item received without GR/IR", "item 4500000001/00020 was received in SAP without a GR/IR line", unvalued},
-		{"SAP's GR/IR account not the platform's", "SAP's GR/IR account 520000 has lines but is not the legal entity's gr_ir account", otherAccount},
+		{"a GR/IR line without its order item", "without its order item (EBELN/EBELP)", grirTiny(noItem), false},
+		{"an order outside the scope", "names order item 4500000002/00010, which is not in the extract", otherCompany, false},
+		{"an order of another company", "line on the GR/IR account 219000 of company 2000 names order 4500000002 of company 1000", otherCompany, true},
+		{"no T030 to tell SAP's GR/IR account by", "", grirTiny(), false},
+		{"an order item outside the extract", "names order item 4500000099/00010, which is not in the extract", grirTiny(outside), false},
+		{"an order in another currency", "order 4500000001 is in USD and has GR/IR positions", foreign, false},
+		{"a reversed receipt", "movement type 102 on order item 4500000001/00010", reversed, false},
+		{"a receipt quantity that does not parse", "the received quantity of order item 4500000001/00010 cannot be read", unread, false},
+		{"an open quantity without a balance", "open GR/IR quantity of -2 and no balance", noBalance, false},
+		{"an item received without GR/IR", "item 4500000001/00020 was received in SAP without a GR/IR line", unvalued, false},
+		{"SAP's GR/IR account not the platform's", "SAP's GR/IR account 520000 has lines but is not the legal entity's gr_ir account", otherAccount, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			e := grirSetup(t, c.x)
-			run := e.run(t, e.connector(t, "grir.json"), "documents", true, e.DE.String())
+			scope := []string{e.DE.String()}
+			if c.both {
+				scope = append(scope, e.US.String())
+			}
+			run := e.run(t, e.connector(t, "grir.json"), "documents", true, scope...)
 			_, got := e.act(t, run, "start")
+			severity, want := "error", c.want
+			if want == "" {
+				severity, want = "warning", "no T030 to tell SAP's GR/IR account (WRX) by"
+			}
 			var messages []string
 			for _, q := range got["report"].(map[string]any)["quality"].([]any) {
-				if m := q.(map[string]any); m["severity"] == "error" {
+				if m := q.(map[string]any); m["severity"] == severity {
 					messages = append(messages, m["message"].(string))
 				}
 			}
-			if !slices.ContainsFunc(messages, func(m string) bool { return strings.Contains(m, c.want) }) {
-				t.Errorf("errors: got %v, want one with %q", messages, c.want)
+			if !slices.ContainsFunc(messages, func(m string) bool { return strings.Contains(m, want) }) {
+				t.Errorf("%ss: got %v, want one with %q", severity, messages, want)
 			}
 		})
 	}

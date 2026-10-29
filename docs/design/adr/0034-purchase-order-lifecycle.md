@@ -266,6 +266,18 @@ SAP's GR/IR credit stayed on the account with no order item to clear it
 - **Reconciliation.** Open GR/IR per order item, balance and quantity, in
   total and per item, shown when either side has a position.
 
+- **Several companies and OData extracts.** A GR/IR line naming an order of
+  another company of the scope is refused, so a position is taken over in
+  its order's legal entity. An extract without T030 (the OData mapping does
+  not carry it, nor EBELN/EBELP) cannot tell SAP's GR/IR account: lines on
+  the legal entity's `gr_ir` account are refused without their order items,
+  and a company with receipts is warned about, since lines on SAP's GR/IR
+  account are recognised only when it is the legal entity's `gr_ir`.
+- **Later runs.** A position is taken over by the run that loads its order;
+  receipts or invoices SAP posts on an order already loaded are not taken
+  over by a later run (the reconciliation shows the difference). Cutover
+  freezes SAP's postings for the scope before the final run (docs/migration.md).
+
 For an SAP specialist: that ACDOCA carries the order item under EBELN and
-EBELP on every GR/IR line, and the OData properties for them (not mapped, so
-an OData extract's GR/IR lines are refused).
+EBELP on every GR/IR line, and the OData properties for them and for T030
+(not mapped).

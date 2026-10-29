@@ -79,7 +79,11 @@ GR/IR account (T030 WRX) with lines when it is not the legal entity's
 extract carries the company code amount, HSL, only), a movement other than a
 receipt or a receipt quantity that does not parse on an item with a position,
 an open quantity without a balance, and an item received without a GR/IR
-line on an order whose other items post one. Moving an order already loaded
+line on an order whose other items post one; a GR/IR line naming an order of
+another company of the scope is refused too. A position is taken over by the
+run that loads its order: what SAP posts on the order afterwards is not taken
+over by a later run (the reconciliation shows it), so the final run follows
+the freeze of SAP's postings (cutover step 4). Moving an order already loaded
 valued directly onto GR/IR is not done (tracker: "Move open direct-valued
 orders onto GR/IR (optional)").
 
@@ -125,10 +129,13 @@ They must be equal.
   extract's parked invoices until their properties are mapped (T72b), and
   its posted ones too, whose invoiced quantities the load takes over by
   their direction for matching (T72b2).
-- ACDOCA-EBELN and EBELP (a GR/IR line's order item) are in the extract.
-  The OData mapping does not carry them yet, so the quality gate refuses an
-  OData extract's lines on the GR/IR account (T72f). Confirm that every line
-  your system posts there names its order item.
+- ACDOCA-EBELN and EBELP (a GR/IR line's order item) and T030 are in the
+  extract. The OData mapping carries neither yet: the quality gate refuses an
+  OData extract's lines on the legal entity's `gr_ir` account, and warns for
+  each company with goods receipts that SAP's GR/IR account (T030 WRX) cannot
+  be told, so lines on it are recognised only when it is the legal entity's
+  `gr_ir` account (T72f). Confirm that every line your system posts there
+  names its order item.
 - Canadian vendor bank accounts (LFBK, bank country CA) load as scheme `ca`
   only with the bank key (BANKL) in the Canadian Payments Association's
   electronic routing form, 0 + institution (3 digits) + transit (5 digits),
