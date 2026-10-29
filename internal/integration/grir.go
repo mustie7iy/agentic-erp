@@ -415,7 +415,7 @@ func (l *loader) runYears(ctx context.Context, taken map[uuid.UUID]ledger.GRIRTa
 // earlier run loaded as they are, or "" when it tops them up. A run's
 // extract carries its fiscal year's journal and invoices only
 // (sap.Source), while receipts are not limited to it, so it can tell SAP's
-// position of an order only when the run that loaded it (loader, uuid.Nil
+// position of an order only when the run that loaded it (loadingRun, uuid.Nil
 // when its reference predates 000168) and every take-over on it are runs
 // of its own fiscal year; topping up from another year's would move the
 // position wrongly, the GR/IR account still netting to zero and the
@@ -424,11 +424,11 @@ func (l *loader) runYears(ctx context.Context, taken map[uuid.UUID]ledger.GRIRTa
 // that loaded it (review:batch23). One whose loading run is not recorded
 // and that has no take-over to tell a run's year by is left too. Either
 // stays a difference in the reconciliation, as before.
-func (l *loader) cannotTopUp(order string, o ledger.GRIRTakenOverOrder, loader uuid.UUID, years map[uuid.UUID]int32) string {
+func (l *loader) cannotTopUp(order string, o ledger.GRIRTakenOverOrder, loadingRun uuid.UUID, years map[uuid.UUID]int32) string {
 	if l.viaGRIR[order] {
 		return ""
 	}
-	if loader == uuid.Nil && len(o.Sources) == 0 {
+	if loadingRun == uuid.Nil && len(o.Sources) == 0 {
 		return fmt.Sprintf("order %s, which an earlier run loaded with no GR/IR position open before migration runs were recorded on what "+
 			"they load, has neither its run nor a take-over to tell the fiscal year of its run by: its GR/IR positions are not topped up, and "+
 			"the reconciliation shows them as differences", order)
@@ -439,7 +439,7 @@ func (l *loader) cannotTopUp(order string, o ledger.GRIRTakenOverOrder, loader u
 				"journal only, so it cannot tell SAP's position and does not top it up", order, year, l.run.Scope.FiscalYear)
 		}
 	}
-	if year, ok := years[loader]; ok && year != l.run.Scope.FiscalYear {
+	if year, ok := years[loadingRun]; ok && year != l.run.Scope.FiscalYear {
 		return fmt.Sprintf("order %s was loaded by a run of fiscal year %d: this run's extract holds fiscal year %d's journal only, so it "+
 			"cannot tell SAP's position and does not top it up", order, year, l.run.Scope.FiscalYear)
 	}

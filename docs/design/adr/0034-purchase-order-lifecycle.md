@@ -317,23 +317,24 @@ taken by default (ADR-0053 §d), each settled by an existing rule:
   before any period or the journal's ranges, the order a goods movement,
   an invoice's posting and a GR/IR clearing take them in, since an order
   an earlier run loaded is visible to them.
-- **Which orders.** Those an earlier run loaded valued through GR/IR on the
-  platform, when the run that loaded the order and every take-over on it
-  are runs of the later run's fiscal year. A run's extract carries its fiscal year's journal and
-  invoices only (`sap.Source`, ACDOCA and RBKP), while receipts are not
-  limited to it, so it reads SAP's position right only for an order whose
-  history it holds: topping up a take-over of another year's run would
-  move the position wrongly while the GR/IR account still nets to zero and
-  the reconciliation, from the same extract, agrees (review:batch21,
-  round 1). So an order loaded or taken over by another year's run is
-  left with a warning in the load report and stays a difference in the
-  reconciliation, as before. An order loaded with no position open is
-  told by the run that loaded it (below, review:batch23). One loaded valued directly (SAP had not received it yet) is not
-  moved onto GR/IR, which stays the optional tracker leaf: its position
-  remains a difference in the reconciliation. In balances mode a later run
-  does not load the opening entry again, so its trial balance check fails
-  after SAP posted anything; the top-up still moves the GR/IR account's
-  balance between its lines only.
+- **Which orders.** Those an earlier run loaded valued through GR/IR on
+  the platform, when the run that loaded the order and every take-over on
+  it are runs of the later run's fiscal year. A run's extract carries its
+  fiscal year's journal and invoices only (`sap.Source`, ACDOCA and RBKP),
+  while receipts are not limited to it, so it reads SAP's position right
+  only for an order whose history it holds: topping up a take-over of
+  another year's run would move the position wrongly while the GR/IR
+  account still nets to zero and the reconciliation, from the same
+  extract, agrees (review:batch21, round 1). So an order loaded or taken
+  over by another year's run is left with a warning in the load report and
+  stays a difference in the reconciliation, as before. An order loaded
+  with no position open is told by the run that loaded it (below,
+  review:batch23). One loaded valued directly (SAP had not received it
+  yet) is not moved onto GR/IR, which stays the optional tracker leaf: its
+  position remains a difference in the reconciliation. In balances mode a
+  later run does not load the opening entry again, so its trial balance
+  check fails after SAP posted anything; the top-up still moves the GR/IR
+  account's balance between its lines only.
 
 ### An order loaded with no position open (review:batch23)
 
@@ -351,13 +352,13 @@ by default (ADR-0053 §d), from what the platform records:
   run (neither the order nor its receipts name it), and
   the take-over entries do so only when something was open. Every
   reference a run records names it, not only an order's.
-- **The guard is unchanged.** The order is topped up when the run that
-  loaded it (its `EKKO/<EBELN>` reference) and every take-over on it are
-  runs of the later run's fiscal year; another year's loading run is
-  warned about (`was loaded by a run of fiscal year …`), as another year's
-  take-over is. A reference recorded before 000168 names no run and is not
-  backfilled (nothing tells its run): such an order with no take-over is
-  left with a warning and stays a difference, as before.
+- **The fiscal-year guard covers the loading run.** The order is topped up
+  when the run that loaded it (its `EKKO/<EBELN>` reference) and every
+  take-over on it are runs of the later run's fiscal year; another year's
+  loading run is warned about (`was loaded by a run of fiscal year …`), as
+  another year's take-over is. A reference recorded before 000168 names no
+  run and is not backfilled (nothing tells its run): such an order with no
+  take-over is left with a warning and stays a difference, as before.
 - **Idempotent, locks, audit and outbox as any top-up.** The read of the
   references takes no lock and comes after the orders' GR/IR locks, so
   the lock order of batches 22 and 23 is unchanged; the top-up is the

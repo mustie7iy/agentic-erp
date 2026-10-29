@@ -591,8 +591,11 @@ func TestGRIRTopUpLoadedClosed(t *testing.T) {
 	delta := e.run(t, c, "documents", false, e.DE.String())
 	_, got := e.act(t, delta, "start")
 	report := got["report"].(map[string]any)
-	if loaded := fmt.Sprint(report["loaded"]); got["status"] != "loaded" || loaded != "map[goods_receipts:1 gr_ir_top_ups:1 journal_entries:1]" {
-		t.Errorf("delta run: got %v %s, want the receipt, its document and the top-up", got["status"], loaded)
+	if got["status"] != "loaded" {
+		t.Errorf("delta run's status: got %v, want loaded", got["status"])
+	}
+	if loaded := fmt.Sprint(report["loaded"]); loaded != "map[goods_receipts:1 gr_ir_top_ups:1 journal_entries:1]" {
+		t.Errorf("loaded by the delta run: got %s, want the receipt, its document and the top-up", loaded)
 	}
 	if warnings := fmt.Sprint(report["load"]); strings.Contains(warnings, "4500000001") {
 		t.Errorf("the load's warnings: got %s, want none on the order", warnings)
