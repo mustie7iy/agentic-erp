@@ -259,6 +259,25 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 	return t, ext, c, nil
 }
 
+// summary is MigrationRunCompleted's summary (api/asyncapi.yaml): the
+// report's headline figures, each null until the part of the run that
+// sets it ran.
+type summary struct {
+	Passed *bool         `json:"passed"`
+	Loaded *LoadedCounts `json:"loaded"`
+}
+
+func summaryOf(r Report) summary {
+	var s summary
+	if r.Reconciliation != nil {
+		s.Passed = &r.Passed
+	}
+	if r.LoadResult != nil {
+		s.Loaded = &r.Loaded
+	}
+	return s
+}
+
 // finish records a run's new status and report, with MigrationRunCompleted
 // when the status is final, and completes its operation: failed when the
 // run failed.
@@ -272,18 +291,11 @@ func finish(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, op operat
 	}
 	var events []outbox.Event
 	if final {
-		summary := map[string]any{"passed": nil, "loaded": nil}
-		if report.Reconciliation != nil {
-			summary["passed"] = report.Passed
-		}
-		if report.LoadResult != nil {
-			summary["loaded"] = report.Loaded
-		}
 		events = append(events, outbox.Event{Context: "integration", Name: "migration_run_completed", AggregateType: "integration.migration_run",
 			AggregateID: r.ID, Payload: map[string]any{"migration_run_id": r.ID, "connector_id": r.ConnectorID, "mode": r.Mode,
 				"is_rehearsal": r.IsRehearsal, "scope": r.Scope, "status": status, "operation_id": op.ID,
 				"started_at": updated.StartedAt.UTC().Format(time.RFC3339Nano), "finished_at": updated.FinishedAt.UTC().Format(time.RFC3339Nano),
-				"summary": summary}})
+				"summary": summaryOf(report)}})
 	}
 	if err := record(ctx, action, r.ID, map[string]any{"status": status, "operation_id": op.ID, "by": p.ID}, events...); err != nil {
 		return op, err

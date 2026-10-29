@@ -208,7 +208,7 @@ func TestMigrateAndReconcile(t *testing.T) {
 	if _, got = e.act(t, again, "start"); got["status"] != "loaded" || len(got["report"].(map[string]any)["loaded"].(map[string]any)) != 0 {
 		t.Fatalf("again: %v", got["report"])
 	}
-	completed := apitest.Published(t, e.Tenant, outbox.Event{Context: "integration", Name: "migration_run_completed"})
+	completed := apitest.Published(t, e.Tenant, completedEvent)
 	if len(completed) != 3 {
 		t.Fatalf("completed events: got %d, want 3: %v", len(completed), completed)
 	}
@@ -218,6 +218,7 @@ func TestMigrateAndReconcile(t *testing.T) {
 	if completed[1]["summary"] == nil {
 		t.Errorf("second completed event summary: got nil, want a summary")
 	}
+	conforms(t, completed)
 
 	page, _ := e.Must(200, "GET", "/v1/migration-runs?status=reconciled&page_size=1", "", "")
 	if len(page["items"].([]any)) != 1 || page["next_page_token"] == nil {
@@ -377,8 +378,33 @@ func TestQualityGateAndRefusedLoads(t *testing.T) {
 	if missing, ok := report["missing_documents"].([]any); !ok || len(missing) != 1 {
 		t.Errorf("failed controls missing documents: got %v, want a list of 1", report["missing_documents"])
 	}
-	if diffs := fmt.Sprint(report["diffs"]); !strings.Contains(diffs, "partner "+stranger.String()) {
-		t.Errorf("failed controls diffs: got %s, want partner %s among them", diffs, stranger)
+	if diffs := fmt.Sprint(report["diffs"]); !strings.Contains(diffs, "partner "+stranger.String()+" (BP90000099)") {
+		t.Errorf("failed controls diffs: got %s, want partner %s (BP90000099) among them", diffs, stranger)
+	}
+	// Runs failed by the quality gate, by a refused load and by their controls, each summarised as it ended.
+	completed := apitest.Published(t, e.Tenant, completedEvent)
+	conforms(t, completed)
+	forms := map[string]bool{}
+	for _, p := range completed {
+		s := p["summary"].(map[string]any)
+		forms[fmt.Sprintf("passed %v, loaded %t", s["passed"], s["loaded"] != nil)] = true
+	}
+	for _, want := range []string{"passed <nil>, loaded false", "passed <nil>, loaded true", "passed false, loaded true"} {
+		if !forms[want] {
+			t.Errorf("completed summaries: got %v, want %q among them", forms, want)
+		}
+	}
+}
+
+// completedEvent is the event a migration run publishes when it ends.
+var completedEvent = outbox.Event{Context: "integration", Name: "migration_run_completed"}
+
+// conforms requires each MigrationRunCompleted, its summary included, to
+// be as api/asyncapi.yaml declares it.
+func conforms(t *testing.T, completed []map[string]any) {
+	t.Helper()
+	for _, p := range completed {
+		apitest.Conforms(t, completedEvent, p)
 	}
 }
 

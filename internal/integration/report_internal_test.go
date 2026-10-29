@@ -6,10 +6,14 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
@@ -244,5 +248,51 @@ func TestEveryReportFieldIsWritten(t *testing.T) {
 				t.Errorf("%s.%s: got it never written outside tests, want the run to write it", typ.Name(), f)
 			}
 		}
+	}
+}
+
+// TestSummaryMatchesEventContract: MigrationRunCompleted's summary, and
+// the loaded counts in it, hold the keys api/asyncapi.yaml declares, every
+// one of them, so an event consumer reads the same figures as the report's
+// reader (the published events are checked against the whole schema in
+// the package's tests through apitest.Conforms).
+func TestSummaryMatchesEventContract(t *testing.T) {
+	b, err := os.ReadFile("../../api/asyncapi.yaml")
+	if err != nil {
+		t.Fatalf("read the event contract: %v", err)
+	}
+	type props struct {
+		Properties map[string]props `yaml:"properties"`
+	}
+	var doc struct {
+		Components struct {
+			Schemas map[string]props `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		t.Fatalf("parse the event contract: %v", err)
+	}
+	stored, err := json.Marshal(summaryOf(fullReport(t)))
+	got, ok := decoded(t, stored, err).(map[string]any)
+	if !ok {
+		t.Fatalf("summary: got %s, want an object", stored)
+	}
+	loaded, ok := got["loaded"].(map[string]any)
+	if !ok {
+		t.Fatalf("summary loaded: got %s, want an object", stored)
+	}
+	schemas := doc.Components.Schemas
+	for _, c := range []struct {
+		name      string
+		got, want []string
+	}{
+		{"summary", slices.Sorted(maps.Keys(got)), slices.Sorted(maps.Keys(schemas["MigrationRunCompletedV1"].Properties["summary"].Properties))},
+		{"loaded", slices.Sorted(maps.Keys(loaded)), slices.Sorted(maps.Keys(schemas["MigrationLoadedCounts"].Properties))},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if !slices.Equal(c.got, c.want) {
+				t.Errorf("keys: got %v, want %v", c.got, c.want)
+			}
+		})
 	}
 }

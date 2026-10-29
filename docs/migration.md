@@ -165,6 +165,18 @@ grows with the run:
   (`documents` mode);
   `issues`, SAP values the reconciliation could not use; and `passed`.
 
+A finding or a difference names what it is about by SAP's reference where
+there is one: a refused supplier, its posting block included, by the vendor
+number (`LFA1`, `<LIFNR>`), a vendor's open items by `vendor <LIFNR>`. Open
+items of a platform supplier that is no migrated vendor, which SAP cannot
+name, are keyed `partner <id> (<name>)`.
+
+When the run ends, `reconciled` or `failed`, its `MigrationRunCompleted`
+event (api/asyncapi.yaml) carries the report's headline figures as
+`summary`: `passed`, null when the run failed before it was reconciled, and
+`loaded`, the same counts as the report's, null when the quality gate
+stopped the run before the load.
+
 ## What to check on a real SAP system
 
 - OData services are activated (`/IWFND/MAINT_SERVICE`) and the technical user

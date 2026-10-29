@@ -55,7 +55,7 @@ type loader struct {
 	issues  []Issue
 	counts  LoadedCounts
 	vendors map[string]uuid.UUID // LIFNR -> partner
-	blocks  []uuid.UUID
+	blocks  []block
 	entries map[string]loadedEntry // ACDOCA document key -> entry posted by this run
 	// downPayments are the documents holding an open down payment, which
 	// load as entries of their own in either mode (downPaymentDocs).
@@ -244,7 +244,7 @@ func (l *loader) createSupplier(ctx context.Context, np partner.NewPartner, v sa
 		l.vendors[v.LIFNR] = id
 		l.counts.Suppliers++
 		if v.SPERR == "X" {
-			l.blocks = append(l.blocks, id)
+			l.blocks = append(l.blocks, block{lifnr: v.LIFNR, partner: id})
 		}
 	}
 	return nil
@@ -730,9 +730,17 @@ func (l *loader) clearingItems(group []sap.ACDOCA) ([]ledger.ItemRef, *loadedEnt
 	return items, by, true
 }
 
+// block is a supplier the load blocks for posting once everything else
+// loaded, by the vendor's number, which a refusal is reported under, and
+// its partner.
+type block struct {
+	lifnr   string
+	partner uuid.UUID
+}
+
 func (l *loader) blocked(ctx context.Context) error {
-	for _, id := range l.blocks {
-		done, err := l.step(ctx, "LFA1", id.String(), func() error { return l.e.Partners.Block(ctx, id, "Posting-blocked in SAP") })
+	for _, b := range l.blocks {
+		done, err := l.step(ctx, "LFA1", b.lifnr, func() error { return l.e.Partners.Block(ctx, b.partner, "Posting-blocked in SAP") })
 		if err != nil {
 			return err
 		}

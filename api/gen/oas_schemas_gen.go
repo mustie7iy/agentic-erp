@@ -23145,10 +23145,10 @@ func (s *MigrationCheck) SetPass(val bool) {
 type MigrationDiff struct {
 	// SAP company code (T001 BUKRS).
 	CompanyCode string `json:"company_code"`
-	// What differs: an account number, `vendor <LIFNR>`, `down payments of vendor <LIFNR>`, `partner <id>`
-	// or `down payments of partner <id>` (a platform supplier that is no migrated vendor),
-	// `bank account of vendor <LIFNR>`, `order item <EBELN>/<EBELP>` or
-	// `GR/IR of order item <EBELN>/<EBELP>`.
+	// What differs: an account number, `vendor <LIFNR>`, `down payments of vendor <LIFNR>`,
+	// `partner <id> (<name>)` or `down payments of partner <id> (<name>)` (a platform supplier that is no
+	// migrated vendor, by its id and name), `bank account of vendor <LIFNR>`, `order item <EBELN>/<EBELP>`
+	// or `GR/IR of order item <EBELN>/<EBELP>`.
 	Key string `json:"key"`
 	// SAP's value: an amount with its currency code (`1250.00 EUR`), a quantity, a GR/IR position as its
 	// balance and quantity (`750.00 EUR, quantity 5`), or a bank account as the load writes it.
@@ -23452,9 +23452,9 @@ type MigrationIssue struct {
 	Table string `json:"table"`
 	// What the finding is about, within the table: SAP's key of the row (for example
 	// `<BUKRS>/<GJAHR>/<BELNR>/<DOCLN>` for a journal line, a vendor number, or several joined by commas
-	// for possible duplicates), what the load was doing (`GR/IR <EBELN>`, `clearing <BUKRS>/<AUGBL>`, a
-	// platform partner id for a supplier being blocked), or for the reconciliation the company code with
-	// what it was adding up (`<BUKRS>/vendor <LIFNR>`). A free-form text, not to be parsed.
+	// for possible duplicates), what the load was doing (`GR/IR <EBELN>`, `clearing <BUKRS>/<AUGBL>`), or
+	// for the reconciliation the company code with what it was adding up (`<BUKRS>/vendor <LIFNR>`). A
+	// free-form text, not to be parsed.
 	Key string `json:"key"`
 	// What is wrong and, where it applies, how to fix it.
 	Message string `json:"message"`
