@@ -163,7 +163,13 @@ jobs:
         env:
           ERP_COSIGN_KEY: ${{ vars.ERP_COSIGN_KEY }}
           ERP_VERSION: ${{ steps.version.outputs.version }}
-        run: ./scripts/sign-images.sh dist/images
+        run: |
+          # The provenance is this run's (provenance.sh), never a file given.
+          if [ -n "${PROVENANCE:-}" ]; then
+            echo "a release attests its own provenance; PROVENANCE is set to $PROVENANCE" >&2
+            exit 1
+          fi
+          ./scripts/sign-images.sh dist/images
       - name: Verify what was pushed
         env:
           ERP_COSIGN_PUBLIC_KEY: ${{ vars.ERP_COSIGN_KEY }}

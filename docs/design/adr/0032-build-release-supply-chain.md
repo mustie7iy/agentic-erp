@@ -223,8 +223,10 @@ no new mechanism:
 - **Verification.** `verify-image.sh` tells a copy from a build by the build
   type. A copy's provenance must name the image's own digest. Every release
   pinning the same upstream digest attests the same image again, so a copy
-  passes when one of its provenances names the expected commit (and none
-  was made from uncommitted changes), while a built image, whose digest
+  passes when one of its provenances names the expected commit from a clean
+  checkout, the other releases' provenances counting neither way (a failed
+  release's would otherwise refuse the digest until its pin changed), while
+  a built image, whose digest
   changes with every commit, must still name that commit alone. An image
   whose provenances say both copy and build is refused. So a promotion
   (`verify-image.sh` on each image of `release.json` with its commit)
@@ -234,8 +236,11 @@ no new mechanism:
   a local registry with a key made for the test: the copy signed with its
   copy provenance at the release's commit beside a built image with its
   build provenance, two releases verifying for either commit and not a
-  third, and refusals of a copy naming another digest, an image both copy
-  and build, a build attested at two commits and two copies of one digest.
+  third or one from uncommitted changes, and refusals of a copy naming
+  another digest, an image both copy and build, a build attested at two
+  commits, and two copies of one digest or an unreadable one. The test's
+  crane is the release's (v0.21.7), and the release refuses to sign with
+  `PROVENANCE`, the tests' stand-in for `provenance.sh`, set.
   `mirror-images.sh DRY_RUN=true` plans the real list's copies without a
   registry, which the test runs on `deploy/images/upstream.txt`.
 

@@ -14,9 +14,10 @@
 #     provenance completed with the release's commit and run (a built
 #     image beside it keeps the build provenance), and verify-image.sh
 #     accepts the copy for every release that attested it and refuses it
-#     for another commit, a copy's provenance naming another digest, an
-#     image whose provenance says both copy and build, and a built image
-#     attested at two commits; two copies of one digest stop the signing.
+#     for another commit or one whose checkout had uncommitted changes, a
+#     copy's provenance naming another digest, an image whose provenance
+#     says both copy and build, and a built image attested at two commits;
+#     two copies of one digest, or an unreadable one, stop the signing.
 # ZOT, CRANE, SYFT and COSIGN name the binaries.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -149,8 +150,16 @@ mirror list.txt next || { cat next.log >&2; fail "the next release's mirror fail
 sign next build-b.json
 verified "$commit_b" "$copy"
 verified "$commit_a" "$copy"
-unverified "$commit_c" "$copy" "was built from"
-echo "test-mirror-images: a copy attested by two releases verifies for either commit, not for a third"
+unverified "$commit_c" "$copy" "was not copied by the release at $commit_c"
+# A release at C from a checkout with uncommitted changes attests it too:
+# C's own verification refuses it, A's still passes.
+jq '.buildDefinition.internalParameters.sourceModified = true
+  | .buildDefinition.resolvedDependencies[0].digest.gitCommit = "'"$commit_c"'"' build-a.json >build-c-dirty.json
+mirror list.txt dirty || { cat dirty.log >&2; fail "the dirty release's mirror failed"; }
+sign dirty build-c-dirty.json
+unverified "$commit_c" "$copy" "was not copied by the release at $commit_c from a clean checkout"
+verified "$commit_a" "$copy"
+echo "test-mirror-images: a copy attested by two releases verifies for either commit, not for a third nor for one from uncommitted changes"
 
 # Refusals, each on an image of its own.
 other_ref="$registry/erp-proxy@$other"
@@ -173,4 +182,8 @@ unverified "$commit_a" "$registry/erp-router@$mixed" "was built from"
 cp out/provenance/erp-proxy.json out/provenance/erp-twin.json
 if ERP_COSIGN_KEY=keys/cosign.key PROVENANCE=build-a.json "$root/scripts/sign-images.sh" out >twin.log 2>&1; then fail "two copies of one digest were signed"; fi
 grep -q "no single readable copy" twin.log || { cat twin.log >&2; fail "two copies of one digest failed without the reason"; }
-echo "test-mirror-images: another digest, copy and build in one, a build at two commits and two copies of one digest are refused"
+rm out/provenance/erp-twin.json
+echo '{"buildDefinition":' >out/provenance/erp-broken.json
+if ERP_COSIGN_KEY=keys/cosign.key PROVENANCE=build-a.json "$root/scripts/sign-images.sh" out >broken.log 2>&1; then fail "a broken copy provenance was signed past"; fi
+grep -q "no single readable copy" broken.log || { cat broken.log >&2; fail "a broken copy provenance failed without the reason"; }
+echo "test-mirror-images: another digest, copy and build in one, a build at two commits, two copies of one digest and an unreadable copy are refused"

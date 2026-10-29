@@ -47,7 +47,8 @@ for ref in "$@"; do
   # provenance is a build's. One image is one or the other.
   kinds="$(printf '%s\n' "$predicates" | jq -r --arg copy "$copy" 'if .buildDefinition.buildType == $copy then "copy" else "build" end' | sort -u)"
   if [ "$kinds" = copy ]; then
-    if printf '%s\n' "$predicates" | jq -e --arg digest "${ref##*@}" 'select(.buildDefinition.externalParameters.digest != $digest)' >/dev/null; then
+    # Asserted positively, so that a jq error refuses too.
+    if ! printf '%s\n' "$predicates" | jq -e -s --arg digest "${ref##*@}" 'all(.[]; .buildDefinition.externalParameters.digest == $digest)' >/dev/null; then
       echo "verify-image: $ref: a copy's provenance names another digest than the image's" >&2
       exit 1
     fi
@@ -55,11 +56,17 @@ for ref in "$@"; do
     echo "verify-image: $ref: its provenance says both copy and build" >&2
     exit 1
   fi
-  if [ "$expected" != any ]; then
+  if [ "$expected" != any ] && [ "$kinds" = copy ]; then
+    # Only the expected release's copy counts: other releases' attestations
+    # of the same digest, a failed one's among them, neither help nor harm.
+    if ! printf '%s\n' "$predicates" | jq -e -s --arg c "$expected" 'any(.[]; (.buildDefinition.resolvedDependencies | any(.digest.gitCommit == $c))
+        and .buildDefinition.internalParameters.sourceModified == false)' >/dev/null; then
+      echo "verify-image: $ref was not copied by the release at $expected from a clean checkout" >&2
+      exit 1
+    fi
+  elif [ "$expected" != any ]; then
     commits="$(printf '%s\n' "$predicates" | jq -r '.buildDefinition.resolvedDependencies[] | .digest.gitCommit // empty' | sort -u)"
-    if [ "$kinds" = copy ] && grep -qxF "$expected" <<<"$commits"; then
-      : # copied by the release at the expected commit, and by others too
-    elif [ "$commits" != "$expected" ]; then
+    if [ "$commits" != "$expected" ]; then
       echo "verify-image: $ref was built from ${commits:-no commit}, want $expected" >&2
       exit 1
     fi

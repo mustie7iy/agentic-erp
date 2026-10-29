@@ -19,8 +19,9 @@
 # file. Nothing goes to a transparency log: release/signing-config.json
 # names no Sigstore service, because the repository is private and Rekor is
 # public (ADR-0032). COSIGN_PASSWORD unlocks a key file. PROVENANCE, when
-# set, is a build provenance file used in place of provenance.sh's (the
-# tests', which stand for releases at other commits).
+# set, is a build provenance file used in place of provenance.sh's: the
+# tests' only, which stand for releases at other commits; the release
+# workflow refuses to sign with it set.
 set -euo pipefail
 OUT="${1:-dist/images}"
 COSIGN="${COSIGN:-go run github.com/sigstore/cosign/v3/cmd/cosign@v3.1.1}"
@@ -54,10 +55,13 @@ sbom_for() {
 # provenance; it fails when several copies name it or the copy cannot be
 # completed.
 provenance_for() {
-  local found="" f
+  local found="" f d
   for f in "$OUT"/provenance/*.json; do
     [ -e "$f" ] || continue
-    if [ "$(jq -r '.buildDefinition.externalParameters.digest' "$f")" = "$1" ]; then
+    # A file that cannot be read stops the signing: skipping it would
+    # attest a copy as a build.
+    d="$(jq -r '.buildDefinition.externalParameters.digest' "$f")" || return 1
+    if [ "$d" = "$1" ]; then
       [ -z "$found" ] || return 1
       found="$f"
     fi
