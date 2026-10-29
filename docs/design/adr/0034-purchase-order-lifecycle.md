@@ -337,3 +337,58 @@ taken by default (ADR-0053 §d), each settled by an existing rule:
   does not load the opening entry again, so its trial balance check fails
   after SAP posted anything; the top-up still moves the GR/IR account's
   balance between its lines only.
+
+## As built: later runs clear what SAP cleared across runs (review:batch22)
+
+The final delta run at cutover loads what SAP posted since the earlier
+runs, but the load cleared a vendor line SAP cleared only when this run
+had posted every document of the clearing, so a payment the delta run
+loaded left the invoice an earlier run loaded open, beside it. The open
+payables per vendor net the two to zero, so no check showed it. Decided
+by default (ADR-0053 §d), as the GR/IR top-up above decided the same
+question for positions:
+
+- **What a later run clears.** A clearing (the extract's vendor lines on
+  a reconciliation account with one AUGBL in a company) whose documents
+  are all on the platform, posted by this run or by an earlier one (its
+  `ACDOCA/<BUKRS>/<GJAHR>/<BELNR>` reference), is cleared by the clearing
+  document, or by the latest of them when the clearing document is not in
+  the extract, as before (`Postings.Clear`). An earlier run's entry is
+  named by its fiscal year (`Postings.EntryYears`) and its line numbers
+  are the SAP lines' numbering again (`journalPosting`): a posted SAP
+  document's lines do not change, only their clearing does. A document
+  refused, by this run or earlier, still leaves its clearing undone.
+- **Idempotent.** A clearing whose documents earlier runs posted and
+  whose items one clearing cleared already (`Postings.ClearedTogether`)
+  is left as it is, so the same extract again posts nothing, publishes no
+  `items_cleared` and counts nothing. Items the platform has cleared or
+  reversed since (a reversal clears the reversed entry's items) are not
+  cleared again: `Postings.Clear` refuses them (409
+  `ledger.item_already_cleared`, `ledger.entry_reversed`), reported under
+  `clearing <BUKRS>/<AUGBL>`, and the load is rolled back as on every
+  refusal, rather than SAP's clearing guessed onto other items.
+- **No fiscal-year guard.** Unlike a GR/IR position, a clearing is read
+  from the extract's own lines: an extract holds its fiscal year's
+  journal only (`sap.FilterScope`) and the references carry GJAHR, so
+  every document of a clearing the run sees is one of its year's, posted
+  by a run of the same year.
+- **Locks.** The run reads under the shared entry bucket locks it takes
+  first (`LockAllEntries`) and clears as before; it takes no new lock,
+  so the lock order of batch 22 is unchanged.
+- **Reconciliation.** Open payable items, the number of open ordinary
+  vendor items per vendor (lines of amount 0 left out, as the load leaves
+  them out), in total and per vendor (`open items of vendor <LIFNR>`), in
+  both modes. A clearing SAP recorded and the platform did not leaves
+  both items open, which the amounts net away and the count shows.
+
+Not built, for the product owner: a clearing whose counter-item is
+outside the extract, which is another fiscal year's (a prior-year invoice
+paid this year). The extract has neither the item nor the clearing's date
+and year, so the run cannot find the counter-item, and every such item
+fails its run today: the clearing does not net to zero (422
+`ledger.clearing_not_balanced`) in documents mode, and in balances mode
+the cleared items of the year do not net to zero either. Which items a
+fiscal year's migration holds open (open at the extract's date, as the
+load reads AUGBL now, or at the year's end, SAP's key-date reading of
+BSIK/BSAK by the clearing date AUGDT) is an accounting rule nothing here
+settles; the options are in the tracker item that follows this one.

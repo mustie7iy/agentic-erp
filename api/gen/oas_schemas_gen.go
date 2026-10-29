@@ -23195,11 +23195,14 @@ type MigrationDiff struct {
 	CompanyCode string `json:"company_code"`
 	// What differs: an account number, `vendor <LIFNR>`, `down payments of vendor <LIFNR>`,
 	// `partner <id> (<name>)` or `down payments of partner <id> (<name>)` (a platform supplier that is no
-	// migrated vendor, by its id and name), `bank account of vendor <LIFNR>`, `order item <EBELN>/<EBELP>`
-	// or `GR/IR of order item <EBELN>/<EBELP>`.
+	// migrated vendor, by its id and name), `bank account of vendor <LIFNR>`,
+	// `order item <EBELN>/<EBELP>`, `GR/IR of order item <EBELN>/<EBELP>`, or
+	// `open items of vendor <LIFNR>` or `open items of partner <id> (<name>)` (the number of open payable
+	// items).
 	Key string `json:"key"`
-	// SAP's value: an amount with its currency code (`1250.00 EUR`), a quantity, a GR/IR position as its
-	// balance and quantity (`750.00 EUR, quantity 5`), or a bank account as the load writes it.
+	// SAP's value: an amount with its currency code (`1250.00 EUR`), a quantity, a count of open items, a
+	// GR/IR position as its balance and quantity (`750.00 EUR, quantity 5`), or a bank account as the load
+	// writes it.
 	Sap string `json:"sap"`
 	// The platform's value, in the same form.
 	Platform string `json:"platform"`

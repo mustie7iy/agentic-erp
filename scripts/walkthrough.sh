@@ -460,7 +460,7 @@ step_migrate() {
   sed 's/^/     /' "$WORK/migrate.out"
   grep -q ': reconciled$' "$WORK/migrate.out" || fail "the migration report does not say reconciled"
   for check in 'Trial balance: accounts with differences' 'Open payables total' 'Open payables: vendors with differences' \
-    'Parked supplier invoices' 'Parked supplier credit memos' 'Parked subsequent debits' 'Parked subsequent credits' \
+    'Open payable items' 'Open payable items: vendors with differences' 'Parked supplier invoices' 'Parked supplier credit memos' 'Parked subsequent debits' 'Parked subsequent credits' \
     'Vendor bank accounts: vendors with differences' 'Quantities invoiced in SAP: order items with differences' \
     'Open down payments total' 'Open down payments: vendors with differences' 'Open GR/IR total' 'Open GR/IR: order items with differences'; do
     grep "$check" "$WORK/migrate.out" | grep -q 'PASS$' || fail "the reconciliation check '$check' did not pass"
@@ -511,7 +511,11 @@ step_migrate() {
 # their document crediting the GR/IR account 750.00; the final delta run's
 # (delta.json) has three more received on 25 June, in a receipt and a
 # document of their own crediting it 450.00, both lines naming the order
-# item. Account balances are the mock's either way.
+# item. SAP's latest vendor payment is in the delta only: the first
+# extract has the invoice it pays open and no payment, so the delta run
+# clears the open item the first run loaded (review:batch22); it keeps
+# the payment's document number in PAID_LATER. Account balances are the
+# mock's at cutover.
 parallel_run_extract() {
   local grir
   grir=$(jq -r --arg cc "$CC" '.T030[] | select(.BUKRS == $cc and .KTOSL == "WRX") | .KONTS' "$WORK/data/extract.json")
@@ -524,7 +528,12 @@ parallel_run_extract() {
     | .ACDOCA = [.ACDOCA[] | if .RBUKRS == $cc and .GJAHR == $g.GJAHR and .BELNR == $g.BELNR then .HSL |= value("750.00") | .WSL |= value("750.00") else . end]
       + [$doc[] | .BELNR = "0199999999" | .BUDAT = $d | .HSL |= value("450.00") | .WSL |= value("450.00")]' \
     "$WORK/data/extract.json" >"$WORK/data/delta.json" || fail "the delta extract could not be made"
-  jq '.MSEG = [.MSEG[] | select(.MBLNR != "5099999999")] | .ACDOCA = [.ACDOCA[] | select(.BELNR != "0199999999")]' \
+  PAID_LATER=$(jq -r --arg cc "$CC" '[.ACDOCA[] | select(.RBUKRS == $cc and .BLART == "KZ" and .LIFNR != "" and .AUGBL == .BELNR)]
+    | max_by(.BUDAT) | .BELNR' "$WORK/data/delta.json")
+  [ -n "$PAID_LATER" ] && [ "$PAID_LATER" != null ] || fail "the extract has no vendor payment to load in the delta run"
+  jq --arg cc "$CC" --arg p "$PAID_LATER" '.MSEG = [.MSEG[] | select(.MBLNR != "5099999999")]
+    | .ACDOCA = [.ACDOCA[] | select(.BELNR != "0199999999" and (.RBUKRS != $cc or .BELNR != $p))
+      | if .RBUKRS == $cc and .AUGBL == $p then .AUGBL = "" else . end]' \
     "$WORK/data/delta.json" >"$WORK/data/extract.json" || fail "the parallel run's extract could not be made"
 }
 
@@ -532,7 +541,9 @@ parallel_run_extract() {
 # §4): SAP received the last three shelving units after the first run
 # loaded their order, so the run loads the receipt and its document and
 # tops the order item's migrated GR/IR position up to SAP's (review:batch21),
-# and the open GR/IR check passes again.
+# and the open GR/IR check passes again. SAP also paid an invoice the first
+# run loaded open: the run loads the payment and clears the invoice's open
+# item with it (review:batch22), and the open payable items agree.
 delta_migration() {
   say "That first run loaded SAP as it stood during the parallel run. SAP then received three more of the"
   say "shelving units before postings were frozen for cutover: a receipt and a document of their own, on an"
@@ -540,14 +551,20 @@ delta_migration() {
   say "GR/IR position up to SAP's, from what the first run took over:"
   jq -r --arg cc "$CC" '.ACDOCA[] | select(.RBUKRS == $cc and .BELNR == "0199999999")
     | "     ACDOCA \(.BELNR)/\(.DOCLN) \(.BLART): account \(.RACCT) \(.HSL), order item \(.EBELN)/\(.EBELP)"' "$WORK/data/delta.json"
+  say "SAP also paid an invoice the first run loaded as an open item. The payment clears both vendor lines"
+  say "(AUGBL), and the delta run clears the platform's open item with the payment it loads:"
+  jq -r --arg cc "$CC" --arg p "$PAID_LATER" '.ACDOCA[] | select(.RBUKRS == $cc and .AUGBL == $p)
+    | "     ACDOCA \(.BELNR)/\(.DOCLN) \(.BLART): vendor \(.LIFNR) \(.HSL), cleared by \(.AUGBL)"' "$WORK/data/delta.json"
   cp "$WORK/data/delta.json" "$WORK/data/extract.json"
   show erp migrate -connector "$1" -legal-entities "$LE" -year "$YEAR"
   "$ERP" migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" >"$WORK/delta.out" 2>&1 ||
     { sed 's/^/     /' "$WORK/delta.out"; fail "the delta migration did not reconcile"; }
-  grep -E '^(Migration run|Loaded)|Open GR/IR' "$WORK/delta.out" | sed 's/^/     /'
+  grep -E '^(Migration run|Loaded)|Open GR/IR|Open payable items' "$WORK/delta.out" | sed 's/^/     /'
   grep -q '"gr_ir_top_ups":1' "$WORK/delta.out" || fail "the delta run did not top up the GR/IR position"
+  grep -q '"clearings":1' "$WORK/delta.out" || fail "the delta run did not clear the invoice the first run loaded"
   local check
-  for check in 'Open GR/IR total' 'Open GR/IR: order items with differences' 'Trial balance: accounts with differences'; do
+  for check in 'Open GR/IR total' 'Open GR/IR: order items with differences' 'Trial balance: accounts with differences' \
+    'Open payables total' 'Open payable items' 'Open payable items: vendors with differences'; do
     grep "$check" "$WORK/delta.out" | grep -q 'PASS$' || fail "the delta run's check '$check' did not pass"
   done
 }

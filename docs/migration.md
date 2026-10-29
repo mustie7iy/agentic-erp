@@ -95,6 +95,21 @@ difference from SAP in the reconciliation. Moving an order already loaded
 valued directly onto GR/IR is not done (tracker: "Move open direct-valued
 orders onto GR/IR (optional)"): its position stays a difference.
 
+In `documents` mode the load clears the vendor items SAP cleared (AUGBL) by
+SAP's clearing document, or by the latest document of the clearing when the
+clearing document is not in the extract, once every document of the
+clearing is on the platform: a later run, such as the final delta run at
+cutover, clears an open item an earlier run loaded with the payment it
+loads, and a clearing whose documents earlier runs loaded with nothing done
+on them since. A clearing already done is left as it is, so a run of the
+same extract again clears nothing; an item the platform cleared or reversed
+since is refused rather than cleared twice. A clearing whose counter-item is
+another fiscal year's (a prior-year invoice paid this year) is not in the
+extract, which holds the scope's fiscal year only and not SAP's clearing
+date (AUGDT): its clearing does not net to zero and fails the run, as the
+cleared items of such a year do in `balances` mode. How such items migrate
+waits for a decision (tracker).
+
 In either mode every migrated line posts in company code currency (ACDOCA HSL),
 so the quality gate refuses an open item whose document currency (ACDOCA RWCUR,
 SAP's transaction currency; its amount, WSL, is carried and not yet read) is
@@ -116,6 +131,10 @@ They must be equal.
 - Trial balance per account (differences listed by account)
 - Total debits posted (`documents` mode)
 - Open payables, in total and per vendor, without the down payments
+- Open payable items: the number of open vendor items (without the down
+  payments and lines of amount 0), in total and per vendor. A clearing SAP
+  recorded and the platform did not leaves both of its items open, which
+  the open payables net to zero and the count shows
 - Open down payments (special G/L A), in total and per vendor, where either
   side has any (T72c)
 - Vendor count per company code

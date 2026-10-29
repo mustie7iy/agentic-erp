@@ -68,3 +68,25 @@ func TestVendorKeyFails(t *testing.T) {
 		t.Errorf("open items: got %v, want the failed read", err)
 	}
 }
+
+// itemCounts is the reports port of a reconciler test: it reports open
+// payable items of one partner.
+type itemCounts struct {
+	Reports
+	partner uuid.UUID
+}
+
+func (r itemCounts) OpenPayableItems(context.Context, uuid.UUID, int16) (map[uuid.UUID]int, error) {
+	return map[uuid.UUID]int{r.partner: 1}, nil
+}
+
+// TestOpenItemCountVendorKeyFails: open payable items are counted per
+// vendor, so a failed read of a non-migrated supplier's name fails the
+// reconciliation as it does for the open payables.
+func TestOpenItemCountVendorKeyFails(t *testing.T) {
+	down := errors.New("down")
+	rc := &reconciler{e: &Endpoints{Suppliers: failingSuppliers{err: down}, Reports: itemCounts{partner: uuid.New()}}, vendorOf: map[uuid.UUID]string{}}
+	if err := rc.openPayableItems(context.Background(), companyScope{cc: "2000"}, nil); !errors.Is(err, down) {
+		t.Errorf("open payable items: got %v, want the failed read", err)
+	}
+}

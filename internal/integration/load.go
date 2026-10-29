@@ -672,7 +672,12 @@ func (l *loader) openingLines(c sap.T001) ([]ledger.PostingLine, string, money.M
 }
 
 // clearings clears the vendor items SAP cleared, by the migrated clearing
-// document, for clearings whose documents this run loaded.
+// document, for clearings whose documents are on the platform: posted by
+// this run, or by an earlier run of the fiscal year (review:batch22), so
+// a delta run finds the open item an earlier run loaded and clears it
+// with its own. A clearing whose documents earlier runs posted and
+// cleared together already is left as it is, so the same extract again
+// records nothing.
 func (l *loader) clearings(ctx context.Context) error {
 	if l.t.balances {
 		return nil
@@ -683,37 +688,105 @@ func (l *loader) clearings(ctx context.Context) error {
 			groups[line.RBUKRS+"/"+line.AUGBL] = append(groups[line.RBUKRS+"/"+line.AUGBL], line)
 		}
 	}
+	earlier, err := l.earlierEntries(ctx, groups)
+	if err != nil {
+		return err
+	}
 	for _, key := range sortedKeys(groups) {
-		items, by, complete := l.clearingItems(groups[key])
+		items, by, ours, complete := l.clearingItems(groups[key], earlier)
 		if !complete {
 			continue
 		}
-		done, err := l.step(ctx, "ACDOCA", "clearing "+key, func() error {
-			_, err := l.e.Postings.Clear(ctx, l.t.entities[groups[key][0].RBUKRS].ID, by.date, by.ref, items)
-			return err
-		})
-		if err != nil {
-			return err
+		if !ours {
+			done, err := l.e.Postings.ClearedTogether(ctx, items)
+			if err != nil {
+				return err
+			}
+			if done {
+				continue
+			}
 		}
-		if done {
-			l.counts.Clearings++
+		if err := l.clear(ctx, key, groups[key][0].RBUKRS, by, items); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
+// clear records one SAP clearing on the platform.
+func (l *loader) clear(ctx context.Context, key, company string, by *loadedEntry, items []ledger.ItemRef) error {
+	done, err := l.step(ctx, "ACDOCA", "clearing "+key, func() error {
+		_, err := l.e.Postings.Clear(ctx, l.t.entities[company].ID, by.date, by.ref, items)
+		return err
+	})
+	if done {
+		l.counts.Clearings++
+	}
+	return err
+}
+
+// earlierEntries are the entries earlier runs posted for the documents of
+// the clearings, by ACDOCA document key, with their line numbers as the
+// earlier run numbered them (journalPosting, from the same SAP lines: a
+// posted SAP document's lines do not change).
+func (l *loader) earlierEntries(ctx context.Context, groups map[string][]sap.ACDOCA) (map[string]loadedEntry, error) {
+	docs := map[string][]sap.ACDOCA{}
+	var ids []uuid.UUID
+	for _, group := range groups {
+		for _, line := range group {
+			key := documentKey(line)
+			id, loaded := l.refs["ACDOCA/"+key]
+			_, ours := l.entries[key]
+			if _, seen := docs[key]; ours || !loaded || seen {
+				continue
+			}
+			docs[key] = nil
+			ids = append(ids, id)
+		}
+	}
+	out := map[string]loadedEntry{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	years, err := l.e.Postings.EntryYears(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, line := range l.ext.ACDOCA {
+		if _, ok := docs[documentKey(line)]; ok {
+			docs[documentKey(line)] = append(docs[documentKey(line)], line)
+		}
+	}
+	currency := map[string]string{}
+	for _, c := range l.ext.T001 {
+		currency[c.BUKRS] = c.WAERS
+	}
+	for key, lines := range docs {
+		_, e := l.journalPosting(lines, currency)
+		id := l.refs["ACDOCA/"+key]
+		e.ref = ledger.ItemRef{FiscalYear: years[id], EntryID: id}
+		out[key] = e
+	}
+	return out, nil
+}
+
 // clearingItems are the platform items of one SAP clearing and the entry
 // that clears them: the clearing document, or the latest one when the
-// clearing document is not in the scope. It reports false when a document
-// of the clearing was not posted by this run.
-func (l *loader) clearingItems(group []sap.ACDOCA) ([]ledger.ItemRef, *loadedEntry, bool) {
-	var items []ledger.ItemRef
-	var by, latest *loadedEntry
+// clearing document is not in the scope. It reports whether this run
+// posted any of the clearing's documents, and false for complete when a
+// document of the clearing is on the platform from neither this run nor
+// an earlier one (refused).
+func (l *loader) clearingItems(group []sap.ACDOCA, earlier map[string]loadedEntry) (items []ledger.ItemRef, by *loadedEntry, ours, complete bool) {
+	var latest *loadedEntry
 	for _, line := range group {
-		e, ok := l.entries[documentKey(line)]
-		if !ok {
-			return nil, nil, false // loaded by an earlier run, or refused
+		e, mine := l.entries[documentKey(line)]
+		if !mine {
+			var ok bool
+			if e, ok = earlier[documentKey(line)]; !ok {
+				return nil, nil, false, false // refused
+			}
 		}
+		ours = ours || mine
 		if line.BELNR == line.AUGBL {
 			by = &e
 		}
@@ -727,7 +800,7 @@ func (l *loader) clearingItems(group []sap.ACDOCA) ([]ledger.ItemRef, *loadedEnt
 	if by == nil { // the clearing document is not in the scope: the latest one clears
 		by = latest
 	}
-	return items, by, true
+	return items, by, ours, true
 }
 
 // block is a supplier the load blocks for posting once everything else
