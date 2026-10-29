@@ -231,6 +231,7 @@ func (g *mockGen) fiDoc(cc, budat, blart, xblnr string, lines []fiLine) string {
 			RLDNR: "0L", RBUKRS: cc, GJAHR: g.gj, BELNR: belnr, DOCLN: fmt.Sprintf("%06d", i+1),
 			RACCT: l.acct, HSL: l.amount.Plain(mockDecimals), BUDAT: budat, BLART: blart, LIFNR: l.vendor, XBLNR: xblnr,
 			UMSKZ: l.umskz, MWSKZ: l.mwskz, EBELN: l.ebeln, EBELP: l.ebelp,
+			RWCUR: mockCurrency(cc), WSL: l.amount.Plain(mockDecimals), // every mock document is in its company's currency
 		})
 	}
 	if total != 0 {

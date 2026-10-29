@@ -55,7 +55,7 @@ func dpTiny(indicated bool) *sap.Extract {
 		umskz = "A"
 	}
 	line := func(docln, account, hsl, lifnr, umskz, mwskz string) sap.ACDOCA {
-		return sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000009", DOCLN: docln, RACCT: account, HSL: hsl, BUDAT: "20260310",
+		return sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", RWCUR: "EUR", GJAHR: "2026", BELNR: "0100000009", DOCLN: docln, RACCT: account, HSL: hsl, BUDAT: "20260310",
 			BLART: "KZ", LIFNR: lifnr, XBLNR: "DP-1", UMSKZ: umskz, MWSKZ: mwskz}
 	}
 	x.ACDOCA = append(x.ACDOCA, line("000001", "0000159000", "1000.00", "0000000001", umskz, "V1"), line("000002", "0000140000", "190.00", "", "", "V1"),

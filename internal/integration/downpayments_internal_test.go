@@ -19,7 +19,7 @@ import (
 // dpLine is a line of company 2000's down payment document 0100000009 of
 // 2026, a vendor payment (KZ).
 func dpLine(docln, account, hsl, lifnr, umskz, mwskz string) sap.ACDOCA {
-	return sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000009", DOCLN: docln, RACCT: account, HSL: hsl, BUDAT: "20260310",
+	return sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", RWCUR: "EUR", GJAHR: "2026", BELNR: "0100000009", DOCLN: docln, RACCT: account, HSL: hsl, BUDAT: "20260310",
 		BLART: "KZ", LIFNR: lifnr, UMSKZ: umskz, MWSKZ: mwskz}
 }
 

@@ -489,9 +489,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Migrated entries in a foreign document currency (pre-existing finding on T72c): internal/integration/load.go journalPosting posts every migrated entry in company-code currency (HSL), so a down payment SAP made in a foreign document currency would load as a local-currency item and request and a final invoice in the original currency could not clear it (ledger.mixed_items); the quality gate should refuse such entries (sap.ACDOCA first carrying RWCUR/WSL) until they are migrated",
-        "r": "internal/integration/load.go journalPosting · T72c",
+        "r": "internal/integration/load.go journalPosting · T72c · quality.go documentCurrencies · sap.ACDOCA RWCUR/WSL · ADR-0005 As built",
         "src": "review:batch20",
         "c": []
        },
@@ -6475,7 +6475,7 @@
        {
         "s": "T",
         "t": "Validation against a live system's $metadata",
-        "r": "(waits on: access to the pilot's SAP system)",
+        "r": "(waits on: access to the pilot's SAP system) · ACDOCA RWCUR/WSL not mapped yet, so an OData extract's open items are refused (review:batch20)",
         "src": "baseline",
         "c": []
        }
