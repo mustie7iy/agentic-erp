@@ -18,6 +18,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/analytics"
+	"github.com/mustie7iy/agentic-erp/internal/approvals"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn/authntest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
@@ -25,6 +27,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
+	"github.com/mustie7iy/agentic-erp/internal/procurement"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -163,5 +166,67 @@ func TestCountryPacksRefused(t *testing.T) {
 func TestNewWithoutLogger(t *testing.T) {
 	if _, err := New(Config{}); err == nil || !strings.Contains(err.Error(), "a logger is required") {
 		t.Errorf("New: got %v, want a logger required", err)
+	}
+}
+
+// TestApprovalObjectsLocated: every approval object type has the context
+// that owns it, which says where the API reads its objects, so a request
+// leads to its object (review:T72e). Objects read by their own id are
+// placed here; an order change and a bank clearing are read through their
+// order and statement, which their contexts' tests place.
+func TestApprovalObjectsLocated(t *testing.T) {
+	handlers := approvalHandlers(Config{})
+	id := uuid.New()
+	direct := map[string]string{
+		approvals.Requisition: "/v1/requisitions/", approvals.PartnerChange: "/v1/partner-changes/", approvals.ConfigChange: "/v1/change-requests/",
+		approvals.InvoiceException: "/v1/supplier-invoices/", approvals.PeriodUnlock: "/v1/fiscal-periods/",
+		approvals.ManualEntry: "/v1/parked-journal-entries/", approvals.PurchaseOrder: "/v1/purchase-orders/", approvals.CenterChange: "/v1/center-changes/",
+		approvals.PaymentRunRelease: "/v1/payment-runs/", approvals.GRIRClearing: "/v1/gr-ir-clearings/",
+	}
+	for kind := range approvals.ObjectPermissions {
+		t.Run(kind, func(t *testing.T) {
+			l, ok := handlers[kind].(approvals.Locator)
+			if !ok {
+				t.Fatalf("handler of %s: got %T, want an approvals.Locator", kind, handlers[kind])
+			}
+			prefix, isDirect := direct[kind]
+			if !isDirect {
+				if _, err := l.Resources(context.Background(), []uuid.UUID{id}); err == nil {
+					t.Error("outside a unit of work: got no error, want one")
+				}
+				return
+			}
+			paths, err := l.Resources(context.Background(), []uuid.UUID{id})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := paths[id], prefix+id.String(); got != want {
+				t.Errorf("path: got %q, want %q", got, want)
+			}
+		})
+	}
+	if got, want := len(handlers), len(approvals.ObjectPermissions); got != want {
+		t.Errorf("handlers: got %d, want one per object type (%d)", got, want)
+	}
+}
+
+// TestNamingPortsNeedARequest: the ports that name what responses refer to
+// read in the request's transaction, and refuse to run outside one.
+func TestNamingPortsNeedARequest(t *testing.T) {
+	for name, call := range map[string]func() error{
+		"supplier names": func() error {
+			_, err := partner.Payees{}.Names(context.Background(), []uuid.UUID{uuid.New()})
+			return err
+		},
+		"order numbers": func() error {
+			_, err := procurement.Orders{}.Numbers(context.Background(), []uuid.UUID{uuid.New()})
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := call(); err == nil {
+				t.Error("outside a unit of work: got no error, want one")
+			}
+		})
 	}
 }

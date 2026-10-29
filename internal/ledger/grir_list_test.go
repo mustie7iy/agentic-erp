@@ -52,6 +52,32 @@ func TestGRIRBalances(t *testing.T) {
 		if got != want {
 			t.Errorf("position: got %s, want %s", got, want)
 		}
+		if got := fmt.Sprint(b["account_number"], " ", b["account_name"]); got != "219000 GR/IR clearing" {
+			t.Errorf("account: got %s, want 219000 GR/IR clearing", got)
+		}
+		// The orders of these postings are not procurement's: their numbers
+		// are absent (procurement's own tests read a real order's).
+		if n, ok := b["purchase_order_number"]; ok {
+			t.Errorf("order number of an order procurement does not hold: got %v, want none", n)
+		}
+	})
+	t.Run("totals", func(t *testing.T) {
+		for _, c := range []struct{ name, query, want string }{
+			{"of the open positions", "", "1 -10.00 EUR -10.00 EUR -10.00 EUR"},
+			{"of every position, on page 1", "&open_only=false&page_size=1", "2 -10.00 EUR -10.00 EUR -10.00 EUR"},
+			{"of one order on a key date", "&posting_date_to=2026-03-09&purchase_order_id=" + open.String(), "1 -30.00 EUR -30.00 EUR -30.00 EUR"},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				if got := totals(list(t, c.query)); got != c.want {
+					t.Errorf("positions and balances: got %s, want %s", got, c.want)
+				}
+			})
+		}
+		first := list(t, "&open_only=false&page_size=1")
+		second := list(t, "&open_only=false&page_size=1&page_token="+first["next_page_token"].(string))
+		if got, want := totals(second), totals(first); got != want {
+			t.Errorf("totals on page 2: got %s, want page 1's %s", got, want)
+		}
 	})
 	t.Run("zero positions too", func(t *testing.T) {
 		if n := len(list(t, "&open_only=false")["items"].([]any)); n != 2 {
@@ -110,6 +136,9 @@ func TestGRIRBalances(t *testing.T) {
 		if n := len(page["items"].([]any)); n != 0 {
 			t.Errorf("items: got %d, want none", n)
 		}
+		if got, ok := page["totals"]; ok {
+			t.Errorf("totals: got %v, want none", got)
+		}
 	})
 	t.Run("key date without an order", func(t *testing.T) {
 		c := g.Client
@@ -121,6 +150,23 @@ func TestGRIRBalances(t *testing.T) {
 	})
 	g.checkProjected(t)
 	g.Problem(400, "request.invalid_order_by", "GET", "/v1/gr-ir-balances?legal_entity_id="+g.de.String()+"&order_by=balance", "", "")
+}
+
+// totals is a GR/IR page's totals as "positions balance balance_lc
+// balance_gc", the balance "-" when absent.
+func totals(page map[string]any) string {
+	t, ok := page["totals"].(map[string]any)
+	if !ok {
+		return "no totals"
+	}
+	money := func(k string) string {
+		m, ok := t[k].(map[string]any)
+		if !ok {
+			return "-"
+		}
+		return fmt.Sprint(m["amount"], " ", m["currency"])
+	}
+	return fmt.Sprint(t["positions"], " ", money("balance"), " ", money("balance_lc"), " ", money("balance_gc"))
 }
 
 // TestGRIRBalanceAmounts: an invoice's reversal takes its quantity off the
@@ -170,6 +216,14 @@ func TestGRIRBalanceAmounts(t *testing.T) {
 			}
 		})
 	}
+	t.Run("totals in two order currencies", func(t *testing.T) {
+		client := g.Client
+		client.T = t
+		page, _ := client.Must(200, "GET", "/v1/gr-ir-balances?open_only=false&legal_entity_id="+g.de.String(), "", "")
+		if got, want := totals(page), "3 - -115.00 EUR -115.00 EUR"; got != want {
+			t.Errorf("positions and balances: got %s, want %s (no total in the orders' currencies)", got, want)
+		}
+	})
 }
 
 // TestGRIRBalancesBudget checks 01-requirements' list budget (p95 150 ms)
@@ -199,14 +253,15 @@ func TestGRIRBalancesBudget(t *testing.T) {
 	}
 	t.Logf("seeded 20,050 positions in %v", time.Since(start))
 	pgtest.Exec(t, `ANALYZE ledger.gr_ir_position`)
-	for _, order := range []string{"purchase_order_id", "last_posting_date%20desc"} {
+	// The last case pages over every position: its totals sum all 20,050.
+	for _, order := range []string{"purchase_order_id", "last_posting_date%20desc", "purchase_order_id&open_only=false"} {
 		var times []time.Duration
 		for range 10 {
 			start := time.Now()
 			page, _ := g.Must(200, "GET", "/v1/gr-ir-balances?legal_entity_id="+g.de.String()+"&order_by="+order, "", "")
 			times = append(times, time.Since(start))
 			if n := len(page["items"].([]any)); n != 50 {
-				t.Fatalf("open positions: got %d, want 50", n)
+				t.Fatalf("positions on the page: got %d, want 50", n)
 			}
 		}
 		slices.Sort(times)

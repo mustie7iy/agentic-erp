@@ -482,10 +482,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "SAP load of open down payments (BSIK with UMSKZ A) on the down payment account with the indicator; the migration reconciliation's open payables then decide whether they count",
-        "r": "internal/integration load · Reports.OpenPayables · follow-up of the SAP load · T72c",
+        "r": "internal/integration downpayments.go · sap.ACDOCA UMSKZ/MWSKZ · sap.T074 · sapconfig downPayment · payables.TakeOverDownPayment · Reports.OpenPayables without special G/L items · Reports.OpenDownPayments · reconciliation Open down payments · walkthrough steps 3, 7 and 16 · T72c",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Migrated entries in a foreign document currency (pre-existing finding on T72c): internal/integration/load.go journalPosting posts every migrated entry in company-code currency (HSL), so a down payment SAP made in a foreign document currency would load as a local-currency item and request and a final invoice in the original currency could not clear it (ledger.mixed_items); the quality gate should refuse such entries (sap.ACDOCA first carrying RWCUR/WSL) until they are migrated",
+        "r": "internal/integration/load.go journalPosting · T72c",
+        "src": "review:batch20",
         "c": []
        },
        {
@@ -596,17 +603,24 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Migrated SAP corrections pass matching (pre-existing finding on T72b): invoicedQuantities counts only invoices posted in the platform, so every migrated credit memo is held with quantity_exceeds_invoiced and every subsequent debit/credit with nothing_invoiced until a person releases it; the quantities SAP already invoiced (posted RSEG) are taken over at migration",
-      "r": "internal/payables/match.go invoicedQuantities · internal/integration load",
+      "r": "payables.migrated_invoice_item (000166), TakeOverInvoiced, invoicedQuantities · integration load step invoiced and the reconciliation check of invoiced quantities · walkthrough step 3 · T72b2",
+      "src": "review:T72b",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "The contract describes SupplierInvoiceItem.quantity as positive, but subsequent debit/credit items carry quantity 0 (pre-existing finding on T72b)",
+      "r": "api/openapi.yaml SupplierInvoiceItem.quantity · T72b2",
       "src": "review:T72b",
       "c": []
      },
      {
       "s": "T",
-      "t": "The contract describes SupplierInvoiceItem.quantity as positive, but subsequent debit/credit items carry quantity 0 (pre-existing finding on T72b)",
-      "r": "api/openapi.yaml SupplierInvoiceItem",
-      "src": "review:T72b",
+      "t": "The SAP load's receipts step takes its locks in one order (pre-existing finding on T72b2): its first receipt takes the legal entity's goods_receipt number range (and journal_we), then a later receipt on an order an earlier run loaded locks that order's items, while a concurrent POST /v1/goods-receipts holds those items and waits on the range, so the two deadlock; e.g. every item lock is taken before the first receipt posts",
+      "r": "internal/integration/load.go receipts",
+      "src": "review:batch19",
       "c": []
      }
     ]
@@ -860,17 +874,24 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "House banks show their Canadian routing (pre-existing finding on T72d, API-consumer classes): listHouseBanks returns institution and transit numbers, and account_last4 is not described as of the IBAN",
         "r": "api/openapi.yaml HouseBank · internal/payments",
         "src": "review:T72d",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Payments name their supplier (pre-existing finding on T72d, API-consumer classes): listPayments items give the supplier's name beside supplier_id",
         "r": "api/openapi.yaml Payment · internal/payments",
         "src": "review:T72d",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Payment exclusions name their supplier (pre-existing finding on apinames, API-consumer classes: an identifier without the name its consumer needs): listPaymentExclusions gives the excluded supplier only as supplier_id and should give supplier_name beside it; the walkthrough's step 7 still calls name_partners for exclusions",
+        "r": "api/openapi.yaml listPaymentExclusions · internal/payments",
+        "src": "review:batch19",
         "c": []
        }
       ]
@@ -1524,6 +1545,13 @@
       "t": "Tax returns: GST/HST (plus QST FPZ-500 if registered in Quebec, P4) and the UAE VAT 201, prepared and approved in the ERP and filed by a person (P3)",
       "r": "ADR-0049 · T61g-T61k",
       "src": "baseline",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Tax returns leave out the tax items of entries migrated from SAP (an open down payment's input tax, dated SAP's posting date), which SAP's returns reported; the clearing's reversal, dated on the platform, is reported",
+      "r": "ADR-0037 As built (T72c) · ledger.tax_item · journal_entry.source_context integration",
+      "src": "adr:ADR-0037",
       "c": []
      },
      {
@@ -2271,10 +2299,17 @@
       "r": "prototype removed in T6; no API yet (07-transition)",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "Print/PDF form",
-        "r": "prototype removed in T6 · T72g; sending by email is post-pilot, with \"Actual email and EDI transmission\"",
+        "r": "prototype removed in T6 · T72g: getPurchaseOrderDocument (GET /v1/purchase-orders/{id}/document), plain text, ADR-0054 · walkthrough step 4; the PDF is the next item; sending by email is post-pilot, with \"Actual email and EDI transmission\"",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The purchase order document also as a PDF, with an embedded font for every script the tenants' names and addresses use (Latin, and Arabic for the UAE pilot)",
+        "r": "T72g · ADR-0054 \"What a PDF would need\": a PDF library is a new third-party module, a decision for the product owner",
+        "src": "split:T72g",
         "c": []
        },
        {
@@ -2553,9 +2588,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Migrate open GR/IR positions from SAP (ACDOCA EBELN/EBELP)",
-      "r": "T72f",
+      "r": "internal/integration grir.go · ledger GRIRItem.TakesOver, gr_ir_position.migrated (migration 000167) · procurement PostLoadedReceipt, ReleaseLoadedOrder valuation · listGrIrBalances migrated_quantity · ADR-0034 As built (T72f) · TestOpenGRIRPositions · TestGRIRQuality · T72f",
       "src": "baseline",
       "c": []
      },
@@ -2568,20 +2603,27 @@
      },
      {
       "s": "T",
+      "t": "A later migration run tops up the GR/IR positions of orders an earlier run loaded (pre-existing finding on T72f): docs/migration.md's cutover runs a final delta migration after the parallel run, but a position is taken over only by the run that loads its order, so receipts or invoices SAP posted on an already loaded order fail the open GR/IR reconciliation check and the migration cannot correct it",
+      "r": "internal/integration/grir.go · docs/migration.md §Cut over · T72f",
+      "src": "review:batch21",
+      "c": []
+     },
+     {
+      "s": "D",
       "t": "A purchase order's change history answers page 2 (pre-existing finding on T72e): its select joins purchase_order, so the keyset's unqualified id is ambiguous and page 2 answers 500; its test never asks for page 2",
       "r": "internal/procurement/order_changes.go · api.go",
       "src": "review:T72e",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "GR/IR balances name what they count (pre-existing finding on T72e, API-consumer classes): rows give the order's number beside purchase_order_id and the account's number and name beside account_id, and the report gives totals",
       "r": "internal/ledger/grir_list.go · api/openapi.yaml listGrIrBalances",
       "src": "review:T72e",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Approval requests lead to their object (pre-existing finding on T72e): ApprovalRequest.object_type lists payment_run_release, and an order_change request carries what a consumer needs to reach the change",
       "r": "api/openapi.yaml ApprovalRequest · internal/approvals",
       "src": "review:T72e",
@@ -4813,7 +4855,7 @@
      {
       "s": "T",
       "t": "Purchase order output (text and X12 850)",
-      "r": "prototype removed in T6; no API yet (07-transition) · T72g",
+      "r": "prototype removed in T6 · T72g built the text form (getPurchaseOrderDocument, ADR-0054); X12 850 open, post-pilot, as \"EDI ANSI X12 850\" under PO output to the vendor",
       "src": "baseline",
       "c": []
      },
@@ -6571,9 +6613,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Wire mirror-images into the release before signing, with copy provenance for mirrored images",
-        "r": "scripts/mirror-images.sh · .github/workflows/release.yml · T72i",
+        "r": "scripts/mirror-images.sh · .github/workflows/release.yml · ADR-0032 amendment 2026-10-28 · T72i",
         "src": "baseline",
         "c": []
        },
@@ -7054,10 +7096,24 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "The pilot light made runnable: a DR node group at zero the runbook scales up, the workload roles trusting the DR cluster's OIDC provider, their permissions on the DR bucket and keys, Argo CD synced there on failover; confirmed on staging that replicate_source_db takes the cluster's ARN (the API's SourceDBClusterIdentifier), the cluster's engine version pinned so the replica is upgraded first, the master credentials after promotion (RDS-managed in the home region)",
-        "r": "T41b3 · T72j",
+        "s": "D",
+        "t": "The pilot light made runnable: a DR node group at zero the runbook scales up, the workload roles trusting the DR cluster's OIDC provider, their permissions on the DR bucket and keys, Argo CD synced there on failover",
+        "r": "deploy/terraform/modules/cell pilot_light.tf, pilot_light_workloads.tf (aws_eks_node_group.dr, aws_iam_openid_connect_provider.dr, aws_iam_role.dr_workload, output pilot_light) · tests/cell.tftest.hcl · Argo CD by ADR-0035's bootstrap on the DR cluster (runbook step 6) · ADR-0040 as built 2026-10-29 · T41b3 · T72j",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Confirmed on AWS staging before the failover rehearsal: replicate_source_db takes the cluster's ARN (the API's SourceDBClusterIdentifier); the cluster's engine version pinned so the replica is upgraded first; the master credentials after promotion (RDS-managed in the home region; the runbook has RDS manage one in the DR region under the DR key, tagged aws:rds:primaryDBInstanceArn); a replica secret's ARN is its primary's with the region changed; a node group created at zero and the VPC CNI add-on active without nodes; the EBS CSI add-on added after the scale-up; Argo CD bootstrapped on the DR cluster",
+        "r": "ADR-0040 runbook (steps marked staging) and as built 2026-10-29 · deploy/terraform/modules/cell pilot_light.tf, pilot_light_workloads.tf · T41b3 · T72j (waits on: the AWS staging account)",
+        "src": "split:T72j",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A home-region failure of the environment's home cell recovered beyond the cell: the global tier (the router's and the web workspace's load balancers, the directory and its secrets) and the subordinate CA, which stay in the home region and VPC with no DR counterpart (the DR VPC is not peered), so the failover runbook's steps 5, 7 and 8 can complete for the production pilot cell; needs a decision first",
+        "r": "ADR-0040 as built 2026-10-29 (Not covered) and runbook · modules/global · modules/subordinate-ca · deploy/helm/erp-cell secrets.yaml (directory password) · T72j · T41g waits on it",
+        "src": "review:T72j",
         "c": []
        },
        {
@@ -7070,7 +7126,7 @@
        {
         "s": "T",
         "t": "The region failover rehearsed on the production pilot cell before it takes live traffic (a pre-pilot gate), then yearly in a maintenance window (PO, 2026-10-19)",
-        "r": "ADR-0040 · T41g (waits on: the production AWS pilot cell, after T72j)",
+        "r": "ADR-0040 · T41g (waits on: the production AWS pilot cell, after T72j, and the global tier and subordinate CA recovered from a home-region failure)",
         "src": "baseline",
         "c": []
        },
@@ -8060,9 +8116,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Open SAP down payments (BSIK UMSKZ A) load on the down payment account with their special G/L indicator: a payment run never nets them and their input tax can be reversed (needed if the pilot has open down payments)",
-      "r": "Phase 1 triage (PO 2026-10-21) · internal/integration load.go openingLines · T46a · T72c",
+      "r": "Phase 1 triage (PO 2026-10-21) · internal/integration downpayments.go · load.go journal, openingLines · payables.TakeOverDownPayment · ADR-0037 As built (T72c) · TestOpenDownPayments · TestDownPaymentQuality · walkthrough steps 3, 7 and 16 · T46a · T72c",
       "src": "baseline",
       "c": []
      },
@@ -8081,16 +8137,16 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Open GR/IR positions migrate with their order item (ACDOCA EBELN/EBELP): an invoice after cutover for goods received in SAP clears the GR/IR credit instead of booking the expense again; optionally, open direct-valued orders can be moved onto GR/IR",
-      "r": "Phase 1 triage (PO 2026-10-21) · procurement purchase_orders.go valuation(loaded) · 03-data-model migrated GR/IR lines · T72f",
+      "r": "Phase 1 triage (PO 2026-10-21) · procurement purchase_orders.go valuation(loaded) · 03-data-model migrated GR/IR lines · T72f · internal/integration grir.go · ADR-0034 As built (T72f) · walkthrough steps 3 and 5; the optional part stays open as its own leaf (Move open direct-valued orders onto GR/IR)",
       "src": "baseline",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A purchase order document (a text/PDF form) is produced for the supplier through the API; email and EDI transmission stay post-pilot",
-      "r": "Phase 1 triage (PO 2026-10-21) · internal/config output.purchase_order_channel · prototype removed in T6 · T72g",
+      "r": "Phase 1 triage (PO 2026-10-21) · internal/config output.purchase_order_channel · prototype removed in T6 · T72g · getPurchaseOrderDocument, plain text, ADR-0054 · walkthrough step 4; the PDF tracked under PO output to the vendor",
       "src": "baseline",
       "c": []
      },
@@ -8116,16 +8172,37 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The release mirrors the PgBouncer and NATS images (scripts/mirror-images.sh) before signing, with copy provenance, so Kyverno's erp-release-signed admits them in production",
-      "r": "Phase 1 triage (PO 2026-10-21) · scripts/mirror-images.sh · .github/workflows/release.yml · erp-cluster image-policy.yaml · T72i",
+      "r": "Phase 1 triage (PO 2026-10-21) · scripts/mirror-images.sh · .github/workflows/release.yml · erp-cluster image-policy.yaml · scripts/sign-images.sh · scripts/verify-image.sh · scripts/test-mirror-images.sh · ADR-0032 amendment 2026-10-28 · T72i",
       "src": "baseline",
       "c": []
      },
      {
-      "s": "T",
-      "t": "The pilot light is runnable (DR node group, IRSA trust of the DR cluster's OIDC provider, Argo CD in Terraform), so the region failover rehearsal (T41g) can run; its confirmation needs AWS staging",
-      "r": "Phase 1 triage (PO 2026-10-21) · T41b3 · ADR-0040 · T72j",
+      "s": "D",
+      "t": "The release pushes, signs, attests and records its own images in tooling's ECR (ERP_RELEASE_REGISTRY), as the upstream copies, not in ghcr.io: promotion-checks.sh takes only <registry>/erp-<name> and Kyverno's erp-release-signed admits only release.registries, so no release's own images could be pinned or admitted in production",
+      "r": ".github/workflows/release.yml · scripts/promotion-checks.sh · erp-cluster image-policy.yaml · modules/ecr · scripts/test-images.sh · ADR-0032 amendment 2026-10-29 · ADR-0035",
+      "src": "review:batch21",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "The release builds erp-temporal (Temporal's server with the platform's authorization, the temporal/ module) with the platform's images, and tooling's ECR has its erp-temporal repository: release.json and erp-cell require images.temporal, which no release built and no repository held",
+      "r": "scripts/images.sh · modules/ecr · scripts/ci-changes.sh · scripts/test-images.sh · ADR-0035 (Temporal, T40c4) · ADR-0032 amendment 2026-10-29",
+      "src": "review:batch21",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "verify-image.sh asserts a built image's clean checkout positively, so a jq error refuses it (the select(sourceModified != false) check read a jq error as clean); and the release, signing, verification and promotion scripts' other checks whose tool error read as a pass fail closed: provenance.sh's git status, sign-images.sh's SBOM lookup, next-version.sh's git reads and promotion-checks.sh's file reads",
+      "r": "scripts/verify-image.sh · scripts/provenance.sh · scripts/sign-images.sh · scripts/next-version.sh · scripts/promotion-checks.sh · scripts/test-mirror-images.sh · ADR-0032 amendment 2026-10-29",
+      "src": "review:batch21",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "The pilot light is runnable (DR node group, IRSA trust of the DR cluster's OIDC provider, everything Argo CD needs defined in Terraform and Argo CD bootstrapped there by ADR-0035's runbook; the triage said Argo CD in Terraform), so the region failover rehearsal (T41g) can run once the global tier's recovery is decided; its confirmation needs AWS staging",
+      "r": "Phase 1 triage (PO 2026-10-21) · T41b3 · ADR-0040 as built 2026-10-29 (Argo CD bootstrapped on the DR cluster by ADR-0035's runbook, Terraform defining what it needs) · deploy/terraform/modules/cell pilot_light.tf, pilot_light_workloads.tf · the AWS staging confirmation is its own leaf (split:T72j) · T72j",
       "src": "baseline",
       "c": []
      },

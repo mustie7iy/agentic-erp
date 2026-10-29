@@ -365,7 +365,15 @@ func TestMigrationPorts(t *testing.T) {
 		"chart":         func(ctx context.Context) error { _, err := ledger.Accounts{}.Chart(ctx, e.de); return err },
 		"totals":        func(ctx context.Context) error { _, err := ledger.Reports{}.Totals(ctx, e.de, 2026); return err },
 		"open payables": func(ctx context.Context) error { _, err := ledger.Reports{}.OpenPayables(ctx, e.de, 2026); return err },
-		"clear":         clear(item(invoice), item(payment)),
+		"open down payments": func(ctx context.Context) error {
+			_, err := ledger.Reports{}.OpenDownPayments(ctx, e.de, 2026)
+			return err
+		},
+		"open GR/IR": func(ctx context.Context) error {
+			_, err := ledger.Reports{}.OpenGRIR(ctx, e.de, []uuid.UUID{uuid.New()})
+			return err
+		},
+		"clear": clear(item(invoice), item(payment)),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if call(context.Background()) == nil {

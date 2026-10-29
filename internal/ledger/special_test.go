@@ -86,6 +86,31 @@ func TestDownPaymentItems(t *testing.T) {
 			t.Errorf("payable items: got the down payment %v, want it left out", it.ItemRef)
 		}
 	}
+	// The migration's reconciliation reads the down payment account from the
+	// chart and sums the down payments apart from the open payables (T72c).
+	if err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+		chart, err := ledger.Accounts{}.Chart(ctx, e.de)
+		if err != nil {
+			return err
+		}
+		if !chart["159000"].DownPayment || chart["211000"].DownPayment {
+			t.Errorf("down payment accounts in the chart: got 159000 %t and 211000 %t, want true and false", chart["159000"].DownPayment, chart["211000"].DownPayment)
+		}
+		down, err := ledger.Reports{}.OpenDownPayments(ctx, e.de, 2026)
+		if err != nil {
+			return err
+		}
+		open, err := ledger.Reports{}.OpenPayables(ctx, e.de, 2026)
+		if got := down[e.supplier]; got != 5000 {
+			t.Errorf("open down payments of the supplier: got %d, want 5000", got)
+		}
+		if got, ok := open[e.supplier]; ok {
+			t.Errorf("open payables of the supplier: got %d, want none (the down payment is apart)", got)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
 	page, _ := e.Must(200, "GET", "/v1/open-items?partner_id="+e.supplier.String(), "", "")
 	items := page["items"].([]any)
 	if len(items) != 1 {

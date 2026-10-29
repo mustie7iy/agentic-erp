@@ -149,9 +149,9 @@ Every change passes, before it is merged:
 | Fuzz targets | Every target's seed corpus with the tests on PRs; `make fuzz` 30 s per target on `main`, 5 minutes weekly |
 | Image signing round trip | `make signing-roundtrip` against a registry service: push, sign and attest (SBOM, provenance) with a key pair made for the job, verify, and the refusals (another key, another commit, a tag, no signature, attestations without a signature, uncommitted changes) (ADR-0032). When signing or image inputs change, and weekly |
 | Release scripts | `scripts/test-release-scripts.sh`: the version rules and the changelog's grouping on throwaway repositories, with the pinned git-cliff (ADR-0032). When those scripts or their inputs change, and weekly |
-| Build and container images | `make build`; `make image-scan`: grype on each SBOM and the pinned base, failing on a fixable high or critical vulnerability; `make images-reproducible` (the four ko images and erp-analytics built twice, with private caches, and their digests compared; one build at a time, as the three ko binaries that import `api/gen` and erp-analytics each compile it: measured cold, ko peaks at 3843 MiB and erp-analytics's buildx builder at 3784 MiB) when image inputs change, and weekly (ADR-0032) |
+| Build and container images | `make build`; `make image-scan`: grype on each SBOM and the pinned base, failing on a fixable high or critical vulnerability; `make images-reproducible` (the four ko images, erp-temporal (ko, from `temporal/`) and erp-analytics built twice, with private caches, and their digests compared; one build at a time, as the three ko binaries that import `api/gen` and erp-analytics each compile it: measured cold, ko peaks at 3843 MiB and erp-analytics's buildx builder at 3784 MiB) when image inputs change, and weekly (ADR-0032) |
 | Infrastructure (when the deploy workflow's paths change: `deploy/` but promotions, its scripts, `temporal/`, `scripts/lib/`, any workflow) | `scripts/deploy-checks.sh`: actionlint on the workflows, `terraform fmt`, `validate` and `test` in every module with tests (mock provider, no credentials), tflint, and the encryption-at-rest policy with conftest: unit tests, every root and module, and a fixture it must refuse (ADR-0035) |
-| Cluster content (the same paths) | `scripts/helm-checks.sh`: the pinned add-ons, the charts and their policies with helm, kubeconform, promtool and conftest, then `scripts/admission-checks.sh` (Kyverno's CLI against images signed in a local zot registry); `scripts/test-mirror-images.sh`; `scripts/nats-checks.sh` (NATS authorization by SPIFFE identity); `scripts/temporal-checks.sh` (the temporal module's vet, lint, `-race` tests and 100% coverage) |
+| Cluster content (the same paths) | `scripts/helm-checks.sh`: the pinned add-ons, the charts and their policies with helm, kubeconform, promtool and conftest, then `scripts/admission-checks.sh` (Kyverno's CLI against images signed in a local zot registry); `scripts/test-mirror-images.sh` (the upstream images' copy, a dry run of the real list, and the copies signed and verified as the release does, with their refusals, ADR-0032 amendment of 2026-10-28; it also runs when `sign-images.sh`, `verify-image.sh` or `provenance.sh` change); `scripts/nats-checks.sh` (NATS authorization by SPIFFE identity); `scripts/temporal-checks.sh` (the temporal module's vet, lint, `-race` tests and 100% coverage) |
 | Promotion checks' own tests (when they change) | `scripts/test-promotion-checks.sh`, `test-promotion-approvals.sh`, `test-rollback-drill.sh`, `test-restore-drill.sh` |
 
 The checks are split between the author's machine and GitHub (the hybrid
@@ -290,6 +290,68 @@ gates on each pull request:
     the race step. Changed: `scripts/images.sh` runs ko with `--jobs=1`,
     which `scripts/test-images.sh` holds, and the image step logs memory
     every 30 s too.
+  - 2026-10-28 (apinames): new required response fields (`supplier_name`,
+    `account_number`, `account_name`) passed oasdiff, which treats a new
+    required response field as non-breaking, rightly for consumers; but the
+    strict generated client rejects a stub response that lacks one, so
+    `internal/web`'s stubs failed. Layer: the contract check lets it through
+    by design, so `internal/web`'s tests are the layer that catches it, and
+    a lane that adds required response fields runs them. Changed: no gate;
+    the stubs answer the new fields.
+  - 2026-10-28 (T72c): `make walkthrough` does not check the step headings
+    that cmd/erp's TestWalkthrough asserts. Layer: the lane fast loop.
+    Changed: a step that renumbers walkthrough steps runs
+    `go test ./cmd/erp -run TestWalkthrough`.
+  - 2026-10-29 (T72i follow-ups): the release tooling had no test that the
+    registry the release pushes to is the one promotion accepts, nor that
+    every image `release/release.json` names is built. Layer: the machine
+    checks (the release scripts' own tests). Changed:
+    `scripts/test-images.sh`'s consistency check holds the release's push
+    target and built images, `modules/ecr`'s repositories and
+    `release.json`'s names to each other; the registries admission accepts
+    are per-environment values (`deploy/helm/erp-cluster`), which it does
+    not hold.
+  - 2026-10-29 (T72i follow-ups, batch21): adding erp-temporal to
+    `modules/ecr` left `envs/tooling`'s `terraform test` expecting seven
+    repositories, as the lane did not run `scripts/deploy-checks.sh` (the
+    `terraform test` of the roots that use the module). Layer: the lane
+    fast loop. Changed: a lane that changes infrastructure runs
+    `scripts/deploy-checks.sh`, or `terraform test` on every root and
+    module that uses a changed module; the test now names the
+    repositories rather than counting them.
+  - 2026-10-29 (T72f, batch21): T72f's new required field
+    `GrIrBalance.migrated_quantity` and its new problems
+    (`ledger.gr_ir_position_exists`, `procurement.no_gr_ir_account`) passed
+    the lane, but `internal/web`'s stubs lacked the field and seven
+    operations' `x-problem-codes` lacked the problems, so `internal/web` and
+    `api`'s TestProblemCodes failed on the batch. Layer: the lane fast loop.
+    `api` imports no context, so it is never a direct importer:
+    TestProblemCodes loads the server's call graph at run time. And the
+    apinames rule above, that a lane adding required response fields runs
+    `internal/web`'s tests, was not followed. Changed: the fast loop
+    (07 §7.7) now names both: a step that adds, removes or moves a
+    `problem.*` code or changes a handler runs
+    `go test ./api -run TestProblemCodes`, and a step that regenerates
+    `api/gen` runs `internal/web`'s tests; a lane that changes
+    infrastructure runs `scripts/deploy-checks.sh` (the entry above). The
+    stubs answer the field and the codes were rewritten with
+    `go test ./api -run TestProblemCodes -update`.
+  - 2026-10-29 (T72i follow-ups, batch21): `make ci-local`'s images gate
+    stopped with "images: ko listed no erp-temporal image". ko lists each
+    image of a multi-platform index as `repo/name@sha256:…`, but one image
+    (one platform) as `repo/name:tag@sha256:…` when it does not push it
+    (its no-op publisher, which the reproducibility gate and the scan use)
+    or pushes it under one tag other than latest; `images.sh`'s check of
+    the second ko run accepted only the first form. Layer: the lane fast loop and the
+    machine checks. The lane tested erp-temporal's build only with
+    `PUSH=true` against a local registry, and `scripts/test-images.sh`'s
+    fake ko listed every build as an index by digest, so the local
+    one-platform listing was never exercised. Changed: the check accepts
+    both forms; the fake ko lists as ko v0.19.1 does (one platform, one
+    image, under its tag unless pushed under latest or several tags), and
+    the test requires the five ko images, erp-temporal among them, listed
+    from a local one-platform build with their SBOMs, and a ko run that
+    lists no erp-temporal image refused.
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
   documentation changed (`docs/`, Markdown) since the base: a pull
@@ -311,7 +373,7 @@ gates on each pull request:
   trip run when their inputs change: the paths of the `images` class in
   `scripts/ci-changes.sh`, which is the rule (`go.mod`, `go.sum`,
   `.ko.yaml`, `.dockerignore`, `deploy/images/`, `Makefile`, `cmd/`,
-  `release/`, `scripts/image*`, `scripts/test-images*`,
+  `temporal/go.mod`, `temporal/go.sum`, `temporal/cmd/`, `release/`, `scripts/image*`, `scripts/test-images*`,
   `scripts/lib/sbom-root*`, `scripts/sign*`, `scripts/verify-image*`,
   `scripts/provenance*`, `scripts/free-disk*`, `ci.yml`, `weekly.yml`);
   otherwise the images are built once and scanned. On a push to `main` the signing
@@ -484,7 +546,10 @@ A change is done when:
   workflow from a green `main` commit; a second person approves it in the
   `release` environment. The workflow computes the version
   (`scripts/next-version.sh`) unless one is given, builds and scans the
-  images, pushes them tagged with the version, signs and verifies them,
+  images, pushes them tagged with the version to the release registry
+  (tooling's ECR, the only one: ADR-0032 amendment of 2026-10-29), copies
+  the pinned upstream images (PgBouncer, NATS) into it, signs and verifies
+  them all,
   tags the built commit, publishes the GitHub Release with the generated
   notes, and opens, as the release GitHub App so that CI runs on it, the
   pull request that adds them to `CHANGELOG.md`. The environment's

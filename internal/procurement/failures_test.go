@@ -229,6 +229,10 @@ func failureCalls(e env, h *procurement.Endpoints, f failureFixture) map[string]
 			_, err := h.GetPurchaseOrder(ctx, gen.GetPurchaseOrderParams{ID: u(f.draftPO), Expand: []string{"supplier"}})
 			return err
 		},
+		"order document": func(ctx context.Context) error {
+			_, err := h.GetPurchaseOrderDocument(ctx, gen.GetPurchaseOrderDocumentParams{ID: u(f.released)})
+			return err
+		},
 		"list orders": func(ctx context.Context) error {
 			_, err := h.ListPurchaseOrders(ctx, gen.ListPurchaseOrdersParams{Expand: []string{"supplier"}})
 			return err

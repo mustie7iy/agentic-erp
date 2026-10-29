@@ -213,6 +213,13 @@ func TestPostStatementLineByHand(t *testing.T) {
 		t.Errorf("journal entry of a posting waiting for approval: got %v, want none", m["journal_entry_id"])
 	}
 	r := e.Pending(t, id(m))
+	if got, want := r["object_resource"], "/v1/bank-statements/"+sc.statement; got != want {
+		t.Errorf("request's object: got %v, want the statement %s, whose line carries the match", got, want)
+	}
+	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "place the match", func(ctx context.Context) error {
+		_, err := payments.BankClearings{}.Resources(ctx, []uuid.UUID{uuid.MustParse(id(m))})
+		return err
+	})
 	e.As(e.Approver).Problem(403, "workflow.segregation_of_duties", "POST", "/v1/approval-requests/"+r["id"].(string)+":approve", `{"comment": "ok"}`,
 		fmt.Sprintf(`"%v"`, r["version"]))
 	e.Problem(403, "workflow.own_request", "POST", "/v1/approval-requests/"+r["id"].(string)+":approve", `{"comment": "ok"}`, fmt.Sprintf(`"%v"`, r["version"]))

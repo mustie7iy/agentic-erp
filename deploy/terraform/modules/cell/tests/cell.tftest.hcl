@@ -570,6 +570,227 @@ run "a_production_cell_keeps_a_pilot_light_in_the_dr_region" {
   }
 }
 
+# The pilot light runs the cell on a failover (T41b3, T72j): nodes at
+# zero, the workloads' roles trusting the DR cluster alone and doing there,
+# on the DR region's counterparts, what they do at home. The DR resources
+# get values of their own, so the checks tell the two regions apart.
+run "the_pilot_light_can_run_the_cell_in_the_dr_region" {
+  command   = apply
+  state_key = "pilot_runs"
+  variables {
+    backup_retention_days     = 35
+    dr_region                 = "eu-west-1"
+    pilot_light               = true
+    dr_cidr                   = "10.65.0.0/16"
+    dr_availability_zones     = ["eu-west-1a", "eu-west-1b", "eu-west-1c"]
+    replica_lag_alarm_actions = ["arn:aws:sns:eu-west-1:222222222222:erp-oncall"]
+  }
+  override_resource {
+    target = aws_eks_cluster.dr
+    values = {
+      arn      = "arn:aws:eks:eu-west-1:222222222222:cluster/erp-dev1"
+      endpoint = "https://DR.gr7.eu-west-1.eks.amazonaws.com"
+      identity = [{ oidc = [{ issuer = "https://oidc.eks.eu-west-1.amazonaws.com/id/DR" }] }]
+    }
+  }
+  override_resource {
+    target = aws_iam_openid_connect_provider.dr
+    values = { arn = "arn:aws:iam::222222222222:oidc-provider/oidc.eks.eu-west-1.amazonaws.com/id/DR" }
+  }
+  override_resource {
+    target = aws_iam_role.dr_workload
+    values = { arn = "arn:aws:iam::222222222222:role/dr-mock" }
+  }
+  override_resource {
+    target = aws_kms_key.dr
+    values = { arn = "arn:aws:kms:eu-west-1:222222222222:key/dr-data" }
+  }
+  override_resource {
+    target = aws_kms_key.dr_cluster
+    values = { arn = "arn:aws:kms:eu-west-1:222222222222:key/dr-cluster" }
+  }
+  override_resource {
+    target = aws_kms_replica_key.fields
+    values = { arn = "arn:aws:kms:eu-west-1:222222222222:key/mrk-fields" }
+  }
+  override_resource {
+    target = aws_s3_bucket.replica
+    values = { arn = "arn:aws:s3:::erp-dev1-replica-x", bucket = "erp-dev1-replica-x" }
+  }
+  override_resource {
+    target = aws_db_instance.dr
+    values = { arn = "arn:aws:rds:eu-west-1:222222222222:db:erp-dev1-dr", address = "erp-dev1-dr.abc.eu-west-1.rds.amazonaws.com" }
+  }
+  override_resource {
+    target = aws_cloudwatch_log_group.dr_containers
+    values = { arn = "arn:aws:logs:eu-west-1:222222222222:log-group:/erp/dev1/containers" }
+  }
+  override_resource {
+    target = aws_launch_template.dr_nodes
+    values = { id = "lt-0dr", latest_version = 1 }
+  }
+
+  # The nodes.
+  assert {
+    condition     = aws_eks_node_group.dr["dr"].region == "eu-west-1" && aws_eks_node_group.dr["dr"].cluster_name == aws_eks_cluster.dr["dr"].name && aws_eks_node_group.dr["dr"].subnet_ids == toset(module.dr_network["dr"].private_subnet_ids)
+    error_message = "the node group is the DR cluster's, in the DR VPC's private subnets"
+  }
+  assert {
+    condition     = aws_eks_node_group.dr["dr"].scaling_config[0].min_size == 0 && aws_eks_node_group.dr["dr"].scaling_config[0].desired_size == 0
+    error_message = "the pilot light's nodes are at zero until a failover"
+  }
+  assert {
+    condition     = aws_eks_node_group.dr["dr"].scaling_config[0].max_size == 12 && output.pilot_light.node_scaling == { min = 3, desired = 3, max = 12 }
+    error_message = "the group may grow to the cell's size, which the runbook reads from the output"
+  }
+  assert {
+    condition     = aws_eks_node_group.dr["dr"].node_role_arn == aws_iam_role.nodes.arn && aws_eks_node_group.dr["dr"].instance_types == aws_eks_node_group.cell.instance_types && aws_eks_node_group.dr["dr"].ami_type == aws_eks_node_group.cell.ami_type
+    error_message = "the DR nodes are the home nodes' role, instance types and image"
+  }
+  assert {
+    condition     = aws_eks_node_group.dr["dr"].launch_template[0].id == "lt-0dr" && aws_launch_template.dr_nodes["dr"].region == "eu-west-1"
+    error_message = "the DR nodes launch from the DR launch template"
+  }
+  assert {
+    condition     = aws_launch_template.dr_nodes["dr"].block_device_mappings[0].ebs[0].encrypted == "true" && aws_launch_template.dr_nodes["dr"].block_device_mappings[0].ebs[0].kms_key_id == "arn:aws:kms:eu-west-1:222222222222:key/dr-cluster"
+    error_message = "the DR nodes' volumes are encrypted with the DR cluster key"
+  }
+  assert {
+    condition     = aws_launch_template.dr_nodes["dr"].metadata_options[0].http_tokens == "required" && aws_launch_template.dr_nodes["dr"].metadata_options[0].http_put_response_hop_limit == 1
+    error_message = "pods cannot reach the DR nodes' instance metadata; they use IRSA"
+  }
+  assert {
+    condition     = [for st in jsondecode(aws_kms_key.dr_cluster["dr"].policy).Statement : st.Principal.AWS if st.Sid == "AutoScalingVolumes"] == [var.autoscaling_role_arn] && [for st in jsondecode(aws_kms_key.dr_cluster["dr"].policy).Statement : st.Condition if st.Sid == "AutoScalingVolumeGrants"][0].Bool["kms:GrantIsForAWSResource"] == "true"
+    error_message = "Auto Scaling may launch the DR nodes' encrypted volumes, and grant for AWS resources only"
+  }
+  assert {
+    condition     = aws_eks_addon.dr_vpc_cni["dr"].region == "eu-west-1" && aws_eks_addon.dr_vpc_cni["dr"].cluster_name == aws_eks_cluster.dr["dr"].name && jsondecode(aws_eks_addon.dr_vpc_cni["dr"].configuration_values).enableNetworkPolicy == "true"
+    error_message = "the DR cluster's VPC CNI enforces network policies"
+  }
+
+  # The roles: the DR cluster's provider, and only it.
+  assert {
+    condition     = aws_iam_openid_connect_provider.dr["dr"].url == "https://oidc.eks.eu-west-1.amazonaws.com/id/DR" && aws_iam_openid_connect_provider.dr["dr"].client_id_list == toset(["sts.amazonaws.com"])
+    error_message = "the DR cluster's issuer is a provider of its own, for STS"
+  }
+  assert {
+    condition     = keys(aws_iam_role.dr_workload) == keys(aws_iam_role.workload) && keys(aws_iam_role_policy.dr_workload) == keys(aws_iam_role.workload)
+    error_message = "every service account with a role at home has one, and its policy, in the DR region"
+  }
+  assert {
+    condition = alltrue([for name, role in aws_iam_role.dr_workload :
+      jsondecode(role.assume_role_policy).Statement[0].Principal.Federated == aws_iam_openid_connect_provider.dr["dr"].arn &&
+      jsondecode(role.assume_role_policy).Statement[0].Condition.StringEquals == {
+        "oidc.eks.eu-west-1.amazonaws.com/id/DR:aud" = "sts.amazonaws.com"
+        "oidc.eks.eu-west-1.amazonaws.com/id/DR:sub" = jsondecode(aws_iam_role.workload[name].assume_role_policy).Statement[0].Condition.StringEquals["oidc.eks.eu-central-1.amazonaws.com/id/ABC:sub"]
+      }
+    ])
+    error_message = "each DR role trusts the DR cluster's provider for its home counterpart's service account alone"
+  }
+  assert {
+    condition     = alltrue([for role in aws_iam_role.dr_workload : length(jsondecode(role.assume_role_policy).Statement) == 1 && !strcontains(role.assume_role_policy, "eu-central-1") && !strcontains(role.assume_role_policy, "id/ABC")])
+    error_message = "no DR role trusts the home cluster's OIDC provider"
+  }
+  assert {
+    condition     = alltrue([for role in aws_iam_role.workload : !strcontains(role.assume_role_policy, "id/DR")])
+    error_message = "no home role trusts the DR cluster's OIDC provider"
+  }
+  assert {
+    condition     = alltrue([for name, policy in aws_iam_role_policy.dr_workload : toset(flatten([for st in jsondecode(policy.policy).Statement : st.Action])) == toset(flatten([for st in jsondecode(aws_iam_role_policy.workload[name].policy).Statement : st.Action]))])
+    error_message = "each DR role may do what its home counterpart does, no more"
+  }
+  assert {
+    condition     = alltrue([for name, policy in aws_iam_role_policy.dr_workload : !strcontains(policy.policy, "eu-central-1") && !strcontains(policy.policy, "objects-x") && !strcontains(policy.policy, "key/0000") if name != "cert_manager"])
+    error_message = "the DR roles use the DR region's bucket, keys, secrets and logs, none of the home region's"
+  }
+  assert {
+    condition     = [for st in jsondecode(aws_iam_role_policy.dr_workload["cert_manager"].policy).Statement : st.Resource] == [var.subordinate_ca_arn, var.subordinate_ca_arn]
+    error_message = "the DR issuer issues from the environment's subordinate CA, the only one it has"
+  }
+  assert {
+    condition     = aws_iam_role_policy_attachment.dr_ebs_csi["dr"].role == aws_iam_role.dr_workload["ebs_csi"].name
+    error_message = "the DR EBS CSI driver's role may operate volumes"
+  }
+
+  # What each DR role reaches.
+  assert {
+    condition     = [for st in jsondecode(aws_iam_role_policy.dr_workload["server"].policy).Statement : st.Resource] == ["arn:aws:s3:::erp-dev1-replica-x/*", "arn:aws:s3:::erp-dev1-replica-x", "arn:aws:kms:eu-west-1:222222222222:key/dr-data"]
+    error_message = "the DR server uses the bucket's replica under the DR key"
+  }
+  assert {
+    condition     = [for st in jsondecode(aws_iam_role_policy.dr_workload["analytics"].policy).Statement : st.Resource if st.Sid == "ReadSnapshots"] == ["arn:aws:s3:::erp-dev1-replica-x/analytics/*"] && [for st in jsondecode(aws_iam_role_policy.dr_workload["analytics"].policy).Statement : st.Condition if st.Sid == "SnapshotKey"][0].StringEquals["kms:ViaService"] == "s3.eu-west-1.amazonaws.com"
+    error_message = "DR analytics reads the replica's analytics/ alone, the key through S3 of the DR region"
+  }
+  assert {
+    condition     = alltrue([for arn in [for st in jsondecode(aws_iam_role_policy.dr_workload["external_secrets"].policy).Statement : st.Resource if st.Sid == "Secrets"][0] : startswith(arn, "arn:aws:secretsmanager:eu-west-1:222222222222:secret:erp/dev1/")]) && length([for st in jsondecode(aws_iam_role_policy.dr_workload["external_secrets"].policy).Statement : st.Resource if st.Sid == "Secrets"][0]) == length(var.secrets) - 3
+    error_message = "DR External Secrets reads the secrets' replicas, not the deploy key or the monitoring add-on's"
+  }
+  assert {
+    condition     = [for st in jsondecode(aws_iam_role_policy.dr_workload["external_secrets"].policy).Statement : st.Condition if st.Sid == "MasterSecret"][0].StringEquals["secretsmanager:ResourceTag/aws:rds:primaryDBInstanceArn"] == "arn:aws:rds:eu-west-1:222222222222:db:erp-dev1-dr"
+    error_message = "the master secret RDS makes for the promoted replica, and no other database's"
+  }
+  assert {
+    condition     = [for st in jsondecode(aws_iam_role_policy.dr_workload["external_secrets"].policy).Statement : st.Condition if st.Sid == "SecretsKey"][0].StringEquals["kms:ViaService"] == "secretsmanager.eu-west-1.amazonaws.com"
+    error_message = "the DR key is decrypted through Secrets Manager of the DR region only"
+  }
+  assert {
+    condition     = length([for st in jsondecode(aws_iam_role_policy.dr_workload["monitoring"].policy).Statement : st.Resource if st.Sid == "Secrets"][0]) == 2
+    error_message = "the DR monitoring role reads its two secrets' replicas"
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.dr_workload["logging"].policy).Statement[0].Resource == ["arn:aws:logs:eu-west-1:222222222222:log-group:/erp/dev1/containers", "arn:aws:logs:eu-west-1:222222222222:log-group:/erp/dev1/containers:log-stream:*"]
+    error_message = "DR Fluent Bit writes streams of the DR log group alone"
+  }
+  assert {
+    condition     = aws_cloudwatch_log_group.dr_containers["dr"].region == "eu-west-1" && aws_cloudwatch_log_group.dr_containers["dr"].name == "/erp/dev1/containers" && aws_cloudwatch_log_group.dr_containers["dr"].retention_in_days == 90 && aws_cloudwatch_log_group.dr_containers["dr"].kms_key_id == "arn:aws:kms:eu-west-1:222222222222:key/dr-cluster"
+    error_message = "the DR containers' log group is kept 90 days under the DR cluster key"
+  }
+  assert {
+    condition     = [for st in jsondecode(aws_iam_role_policy.dr_workload["ebs_csi"].policy).Statement : st.Resource] == ["arn:aws:kms:eu-west-1:222222222222:key/dr-cluster"]
+    error_message = "the DR EBS CSI driver uses the DR cluster key"
+  }
+  assert {
+    condition     = [for st in jsondecode(aws_iam_role_policy.dr_workload["load_balancer"].policy).Statement : st.Resource if st.Sid == "Targets"] == ["arn:aws:elasticloadbalancing:eu-west-1:222222222222:targetgroup/erp-*/*"]
+    error_message = "the DR load balancer controller registers targets of the DR region's groups alone"
+  }
+
+  # The field key's replica.
+  assert {
+    condition     = [for st in jsondecode(aws_kms_replica_key.fields["dr"].policy).Statement : st.Principal.AWS if st.Sid != "AdministerOnly"] == ["arn:aws:iam::222222222222:role/dr-mock", "arn:aws:iam::222222222222:role/dr-mock"]
+    error_message = "the DR server's role, and no other, wraps and unwraps tenant keys with the replica"
+  }
+  assert {
+    condition     = [for st in jsondecode(aws_kms_key.fields.policy).Statement : st.Principal.AWS if st.Sid != "AdministerOnly"] == [aws_iam_role.workload["server"].arn, aws_iam_role.workload["server"].arn]
+    error_message = "the home server's role wraps with the key at home"
+  }
+  assert {
+    condition = alltrue([
+      for st in jsondecode(aws_kms_replica_key.fields["dr"].policy).Statement :
+      !anytrue([for a in flatten([st.Action]) : can(regex("^kms:(\\*|Create\\*|CreateGrant|Decrypt|Encrypt|ReEncrypt.*|GenerateDataKey.*)$", a))])
+      if st.Sid != "ServerWrapsTenantKeys"
+    ]) && [for st in jsondecode(aws_kms_replica_key.fields["dr"].policy).Statement : st.Condition if st.Sid == "ServerWrapsTenantKeys"][0]["ForAllValues:StringEquals"]["kms:EncryptionContextKeys"] == ["tenant"]
+    error_message = "the replica's policy is the key's: administrators manage it but cannot use it, the server only with a tenant context"
+  }
+
+  # The values the cell takes there.
+  assert {
+    condition     = output.pilot_light.region == "eu-west-1" && output.pilot_light.cluster_name == "erp-dev1" && output.pilot_light.cluster_endpoint == "https://DR.gr7.eu-west-1.eks.amazonaws.com" && output.pilot_light.node_group == "erp-dev1-general"
+    error_message = "the DR cluster and its node group are outputs"
+  }
+  assert {
+    condition     = output.pilot_light.database_instance == "erp-dev1-dr" && output.pilot_light.database_endpoint == "erp-dev1-dr.abc.eu-west-1.rds.amazonaws.com" && output.pilot_light.database_master_secret_kms_key_arn == "arn:aws:kms:eu-west-1:222222222222:key/dr-data"
+    error_message = "the replica, the endpoint the cell's values take once it is promoted, and the key its master secret is made under"
+  }
+  assert {
+    condition     = output.pilot_light.object_bucket == "erp-dev1-replica-x" && output.pilot_light.field_kms_key_arn == "arn:aws:kms:eu-west-1:222222222222:key/mrk-fields" && output.pilot_light.cluster_kms_key_arn == "arn:aws:kms:eu-west-1:222222222222:key/dr-cluster" && output.pilot_light.container_log_group == "/erp/dev1/containers"
+    error_message = "the bucket's replica, the field key's replica, the DR cluster key and the DR log group are the cell's values there"
+  }
+  assert {
+    condition     = output.pilot_light.workload_role_arns == { for name, role in aws_iam_role.dr_workload : name => role.arn } && output.pilot_light.aws_endpoints == { sts = "https://sts.eu-west-1.amazonaws.com", kms = "https://kms.eu-west-1.amazonaws.com", s3 = "https://s3.eu-west-1.amazonaws.com" }
+    error_message = "the DR roles and the DR region's endpoints are the cell's values there"
+  }
+}
+
 run "a_cell_without_a_pilot_light_has_none" {
   command   = plan
   state_key = "dr"
@@ -581,6 +802,10 @@ run "a_cell_without_a_pilot_light_has_none" {
   assert {
     condition     = length(aws_db_instance.dr) == 0 && length(aws_eks_cluster.dr) == 0 && length(module.dr_network) == 0 && length(aws_ecs_cluster.drill) == 0 && output.restore_drill == null && !aws_kms_key.fields.multi_region && length(aws_kms_replica_key.fields) == 0 && alltrue([for s in aws_secretsmanager_secret.cell : length(s.replica) == 0])
     error_message = "staging has the backup copies only"
+  }
+  assert {
+    condition     = length(aws_eks_node_group.dr) == 0 && length(aws_iam_openid_connect_provider.dr) == 0 && length(aws_iam_role.dr_workload) == 0 && length(aws_cloudwatch_log_group.dr_containers) == 0 && output.pilot_light == null
+    error_message = "without a pilot light no DR nodes, provider, roles or log group"
   }
 }
 

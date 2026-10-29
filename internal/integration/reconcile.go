@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"math/big"
 	"slices"
 	"strconv"
 	"strings"
@@ -25,11 +26,12 @@ type Check struct {
 	Pass        bool   `json:"pass"`
 }
 
-// Diff is a difference behind a failed check: amounts in minor units, or
-// a vendor's bank account as bankAccount writes it.
+// Diff is a difference behind a failed check: amounts in minor units, a
+// vendor's bank account as bankAccount writes it, or an order item's
+// quantity invoiced in SAP (invoicedQuantities).
 type Diff struct {
 	CompanyCode string `json:"company_code"`
-	Key         string `json:"key"` // account number, "vendor <LIFNR>" or "bank account of vendor <LIFNR>"
+	Key         string `json:"key"` // account number, "vendor <LIFNR>", "down payments of vendor <LIFNR>", "bank account of vendor <LIFNR>", "order item <EBELN>/<EBELP>" or "GR/IR of order item <EBELN>/<EBELP>"
 	SAP         string `json:"sap"`
 	Platform    string `json:"platform"`
 }
@@ -131,11 +133,14 @@ func (rc *reconciler) totals(table, cc string, terms map[string][]money.Minor, w
 func (rc *reconciler) company(ctx context.Context, cc, cur string) error {
 	exp := rc.t.exponents[cur]
 	s := companyScope{cc: cc, le: rc.t.entities[cc].ID, cur: cur, format: func(v money.Minor) string { return v.Plain(exp) + " " + cur }}
-	sapOpen, err := rc.trialBalance(ctx, s)
+	j, err := rc.trialBalance(ctx, s)
 	if err != nil {
 		return err
 	}
-	if err := rc.openPayables(ctx, s, sapOpen); err != nil {
+	if err := rc.openPayables(ctx, s, j.open); err != nil {
+		return err
+	}
+	if err := rc.downPayments(ctx, s, j.downPay); err != nil {
 		return err
 	}
 	if err := rc.vendors(ctx, s); err != nil {
@@ -147,22 +152,30 @@ func (rc *reconciler) company(ctx context.Context, cc, cur string) error {
 	if err := rc.purchaseOrders(ctx, s); err != nil {
 		return err
 	}
-	return rc.parkedInvoices(ctx, s)
+	if err := rc.parkedInvoices(ctx, s); err != nil {
+		return err
+	}
+	if err := rc.invoicedQuantities(ctx, s); err != nil {
+		return err
+	}
+	return rc.grir(ctx, s)
 }
 
 // sapJournal is the SAP side of the journal controls of a company code.
 type sapJournal struct {
 	tb, open  map[string]money.Minor // per account; per "vendor <LIFNR>"
+	downPay   map[string]money.Minor // open down payments (special G/L A) per "vendor <LIFNR>"
 	debits    money.Minor
 	documents map[string]bool
 }
 
 // journal adds up the company's journal lines from the extract: per
-// account, debits, and open items per vendor. The load's quality gate
+// account, debits, and open items per vendor, the down payments (special
+// G/L A) apart. The load's quality gate
 // refused amounts and sums out of range, but a reconciliation run extracts
 // again without it, so they are checked here too.
 func (rc *reconciler) journal(s companyScope) sapJournal {
-	tb, open := map[string][]money.Minor{}, map[string][]money.Minor{}
+	tb, open, downPay := map[string][]money.Minor{}, map[string][]money.Minor{}, map[string][]money.Minor{}
 	var debits []money.Minor
 	documents := map[string]bool{}
 	for _, l := range rc.ext.ACDOCA {
@@ -180,26 +193,31 @@ func (rc *reconciler) journal(s companyScope) sapJournal {
 		debits = append(debits, max(amt, 0))
 		if l.LIFNR != "" && l.AUGBL == "" && rc.recon[s.cc+"/"+l.RACCT] {
 			vendor := "vendor " + sap.Alpha(l.LIFNR)
-			open[vendor] = append(open[vendor], amt)
+			if l.UMSKZ == specialDownPayment {
+				downPay[vendor] = append(downPay[vendor], amt)
+			} else {
+				open[vendor] = append(open[vendor], amt)
+			}
 		}
 	}
 	return sapJournal{
 		tb:        rc.totals("ACDOCA", s.cc, tb, func(a string) string { return "the lines of account " + a }),
 		open:      rc.totals("ACDOCA", s.cc, open, func(v string) string { return "the open items of " + v }),
+		downPay:   rc.totals("ACDOCA", s.cc, downPay, func(v string) string { return "the open down payments of " + v }),
 		debits:    rc.total("ACDOCA", s.cc, "the debits of company "+s.cc, debits),
 		documents: documents,
 	}
 }
 
 // trialBalance compares the trial balance per account, and debits when
-// every document came over. It returns SAP's open payables per vendor,
-// which come out of the same pass over the journal.
-func (rc *reconciler) trialBalance(ctx context.Context, s companyScope) (map[string]money.Minor, error) {
+// every document came over. It returns the SAP side, whose open payables
+// and down payments per vendor come out of the same pass over the journal.
+func (rc *reconciler) trialBalance(ctx context.Context, s companyScope) (sapJournal, error) {
 	j := rc.journal(s)
-	sapTB, sapOpen, sapDebits, documents := j.tb, j.open, j.debits, j.documents
+	sapTB, sapDebits, documents := j.tb, j.debits, j.documents
 	totals, err := rc.e.Reports.Totals(ctx, s.le, int16(rc.t.year))
 	if err != nil {
-		return nil, err
+		return j, err
 	}
 	tb := diffs(s.cc, sapTB, totals.ByAccount, s.format)
 	rc.rec.Diffs = append(rc.rec.Diffs, tb...)
@@ -212,15 +230,39 @@ func (rc *reconciler) trialBalance(ctx context.Context, s companyScope) (map[str
 			}
 		}
 	}
-	return sapOpen, nil
+	return j, nil
 }
 
-// openPayables compares open payables per vendor.
+// openPayables compares open payables per vendor, the down payments
+// (special G/L items) apart, as a payment run nets the one and not the
+// other (ADR-0037, T72c): a down payment loaded as an ordinary item fails
+// both comparisons.
 func (rc *reconciler) openPayables(ctx context.Context, s companyScope, sapOpen map[string]money.Minor) error {
 	open, err := rc.e.Reports.OpenPayables(ctx, s.le, int16(rc.t.year))
 	if err != nil {
 		return err
 	}
+	rc.openItems(s, "Open payables", "", sapOpen, open)
+	return nil
+}
+
+// downPayments compares the open down payments per vendor, when either
+// side has any, so a scope without them reports as before.
+func (rc *reconciler) downPayments(ctx context.Context, s companyScope, sapOpen map[string]money.Minor) error {
+	open, err := rc.e.Reports.OpenDownPayments(ctx, s.le, int16(rc.t.year))
+	if err != nil {
+		return err
+	}
+	if len(sapOpen) > 0 || len(open) > 0 {
+		rc.openItems(s, "Open down payments", "down payments of ", sapOpen, open)
+	}
+	return nil
+}
+
+// openItems compares open items per vendor, SAP's by "vendor <LIFNR>" and
+// the platform's per partner, as the checks name's total and vendors
+// with differences, each difference keyed prefix + "vendor <LIFNR>".
+func (rc *reconciler) openItems(s companyScope, name, prefix string, sapOpen map[string]money.Minor, open map[uuid.UUID]money.Minor) {
 	byVendor := map[string][]money.Minor{}
 	for id, amt := range open {
 		key := "partner " + id.String()
@@ -229,14 +271,17 @@ func (rc *reconciler) openPayables(ctx context.Context, s companyScope, sapOpen 
 		}
 		byVendor[key] = append(byVendor[key], amt)
 	}
-	platformOpen := rc.totals("platform", s.cc, byVendor, func(v string) string { return "the platform's open items of " + v })
+	what := strings.ToLower(name)
+	platformOpen := rc.totals("platform", s.cc, byVendor, func(v string) string { return "the platform's " + what + " of " + v })
 	ap := diffs(s.cc, sapOpen, platformOpen, s.format)
+	for i := range ap {
+		ap[i].Key = prefix + ap[i].Key
+	}
 	rc.rec.Diffs = append(rc.rec.Diffs, ap...)
-	sapTotal := rc.total("ACDOCA", s.cc, "the open payables of company "+s.cc, slices.Collect(maps.Values(sapOpen)))
-	platformTotal := rc.total("platform", s.cc, "the platform's open payables of company "+s.cc, slices.Collect(maps.Values(platformOpen)))
-	rc.add(s.cc, "Open payables total", s.format(sapTotal), s.format(platformTotal), sapTotal == platformTotal)
-	rc.add(s.cc, "Open payables: vendors with differences", "0", strconv.Itoa(len(ap)), len(ap) == 0)
-	return nil
+	sapTotal := rc.total("ACDOCA", s.cc, "the "+what+" of company "+s.cc, slices.Collect(maps.Values(sapOpen)))
+	platformTotal := rc.total("platform", s.cc, "the platform's "+what+" of company "+s.cc, slices.Collect(maps.Values(platformOpen)))
+	rc.add(s.cc, name+" total", s.format(sapTotal), s.format(platformTotal), sapTotal == platformTotal)
+	rc.add(s.cc, name+": vendors with differences", "0", strconv.Itoa(len(ap)), len(ap) == 0)
 }
 
 // vendors compares the vendors set up in the legal entity.
@@ -339,6 +384,98 @@ func (rc *reconciler) parkedInvoices(ctx context.Context, s companyScope) error 
 		}
 	}
 	return nil
+}
+
+// invoicedQuantities compares, per order item of the company, the net
+// quantity SAP's posted invoice documents invoiced (credit memos
+// negative, subsequent debit/credit items none) with what the platform took
+// over (T72b2), and lists the order items that differ. The check is shown
+// when either side has a quantity, so a scope without posted invoices
+// reports as before. SAP's side is the extract's, every posted document
+// on the company's orders, whether or not the load took it over yet.
+func (rc *reconciler) invoicedQuantities(ctx context.Context, s companyScope) error {
+	orders := map[string]bool{}
+	var ids []uuid.UUID
+	ebeln := map[uuid.UUID]string{}
+	for _, h := range rc.ext.EKKO {
+		if h.BUKRS != s.cc {
+			continue
+		}
+		orders[h.EBELN] = true
+		if id, ok := rc.r["EKKO/"+h.EBELN]; ok {
+			ids, ebeln[id] = append(ids, id), h.EBELN
+		}
+	}
+	sapQty := rc.sapInvoiced(s.cc, orders)
+	taken, err := rc.e.Invoiced.MigratedQuantities(ctx, ids)
+	if err != nil {
+		return err
+	}
+	ebelp := itemsByNo(rc.ext)
+	platform := map[string]*big.Rat{}
+	for id, items := range taken {
+		for no, qty := range items {
+			order := ebeln[id]
+			platform["order item "+order+"/"+ebelp[order+"/"+strconv.Itoa(int(no))]] = money.ParseRat(qty)
+		}
+	}
+	if len(sapQty) == 0 && len(platform) == 0 {
+		return nil
+	}
+	n := 0
+	for _, key := range sortedKeys(unionKeys(sapQty, platform)) {
+		a, b := orZero(sapQty[key]), orZero(platform[key])
+		if a.Cmp(b) != 0 {
+			n++
+			rc.rec.Diffs = append(rc.rec.Diffs, Diff{CompanyCode: s.cc, Key: key, SAP: plainQuantity(a), Platform: plainQuantity(b)})
+		}
+	}
+	rc.add(s.cc, "Quantities invoiced in SAP: order items with differences", "0", strconv.Itoa(n), n == 0)
+	return nil
+}
+
+// sapInvoiced is the net quantity the posted documents invoiced per item
+// of the company's orders, keyed "order item EBELN/EBELP". A
+// document whose kind or quantities cannot be told is refused, as the
+// quality gate refuses it.
+func (rc *reconciler) sapInvoiced(cc string, orders map[string]bool) map[string]*big.Rat {
+	_, issues := postedDocuments(rc.ext, cc)
+	for _, i := range issues {
+		rc.refuse(i.Table, i.Key, "%s", i.Message)
+	}
+	// Every company's documents, on the company's orders: the platform's
+	// side counts what was taken over on the orders, whichever document.
+	out := map[string]*big.Rat{}
+	for key, q := range invoicedNet(rc.ext) {
+		if order, _, _ := strings.Cut(key, "/"); orders[order] {
+			out["order item "+key] = q
+		}
+	}
+	return out
+}
+
+func orZero(r *big.Rat) *big.Rat {
+	if r == nil {
+		return new(big.Rat)
+	}
+	return r
+}
+
+func unionKeys[V any](a, b map[string]V) map[string]bool {
+	out := map[string]bool{}
+	for k := range a {
+		out[k] = true
+	}
+	for k := range b {
+		out[k] = true
+	}
+	return out
+}
+
+// plainQuantity renders an exact quantity of up to six decimals as the
+// extract and the platform write one: "12.5", "-3".
+func plainQuantity(r *big.Rat) string {
+	return strings.TrimSuffix(strings.TrimRight(r.FloatString(6), "0"), ".")
 }
 
 // extend is an item's net value: quantity times price per price unit,

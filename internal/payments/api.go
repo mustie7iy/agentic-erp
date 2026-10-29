@@ -44,11 +44,11 @@ func runOK(r Run) *gen.RejectPaymentRunOKHeaders {
 	return &gen.RejectPaymentRunOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: runToAPI(r)}
 }
 
-// paymentToAPI is payment p of run r; a payment that names no house bank
-// is paid by its run's.
-func paymentToAPI(p Payment, r Run) gen.Payment {
+// paymentToAPI is payment p of run r to the supplier named supplier; a
+// payment that names no house bank is paid by its run's.
+func paymentToAPI(p Payment, r Run, supplier string) gen.Payment {
 	currency, exp := r.Currency, r.Exponent
-	out := gen.Payment{ID: p.ID, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, PaymentRunID: p.RunID, SupplierID: p.SupplierID,
+	out := gen.Payment{ID: p.ID, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, PaymentRunID: p.RunID, SupplierID: p.SupplierID, SupplierName: supplier,
 		BankAccountID: p.BankAccountID, Amount: apitypes.Money(p.Amount, currency, exp), DiscountAmount: gen.NewOptMoney(apitypes.Money(p.Discount, currency, exp)),
 		WithholdingAmount: gen.NewOptMoney(apitypes.Money(p.Withholding, currency, exp)), EndToEndID: p.EndToEndID, JournalEntryID: apitypes.OptUUID(p.JournalEntryID), Kind: gen.NewOptString(p.Kind),
 		DownPaymentRequestID: apitypes.OptUUID(p.RequestID), HouseBankID: apitypes.OptUUID(p.HouseBankID), Items: make([]gen.PaymentItem, len(p.Items))}
@@ -189,9 +189,39 @@ func (e *Endpoints) ListPayments(ctx context.Context, params gen.ListPaymentsPar
 	if err != nil {
 		return nil, fmt.Errorf("payments: list payments of run %s: %w", r.ID, err)
 	}
-	items, next := apitypes.PageOf(ks, pays, idKey(func(p Payment) uuid.UUID { return p.ID }),
-		func(p Payment) gen.Payment { return paymentToAPI(p, r) })
-	return &gen.PaymentPage{Items: items, NextPageToken: next}, nil
+	page, next := pagination.Page(ks, pays, idKey(func(p Payment) uuid.UUID { return p.ID }))
+	names, err := e.supplierNames(ctx, page)
+	if err != nil {
+		return nil, fmt.Errorf("payments: list payments of run %s: %w", r.ID, err)
+	}
+	out := gen.PaymentPage{Items: make([]gen.Payment, len(page))}
+	for i, p := range page {
+		out.Items[i] = paymentToAPI(p, r, names[p.SupplierID])
+	}
+	if next != "" {
+		out.NextPageToken.SetTo(next)
+	}
+	return &out, nil
+}
+
+// supplierNames names the suppliers of the payments, one call for the
+// page; a supplier the partner context does not hold is an error, never
+// a payment shown without its payee.
+func (e *Endpoints) supplierNames(ctx context.Context, pays []Payment) (map[uuid.UUID]string, error) {
+	ids := make([]uuid.UUID, len(pays))
+	for i, p := range pays {
+		ids[i] = p.SupplierID
+	}
+	names, err := e.Payees.Names(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range pays {
+		if _, ok := names[p.SupplierID]; !ok {
+			return nil, fmt.Errorf("supplier %s of payment %s is not a business partner", p.SupplierID, p.ID)
+		}
+	}
+	return names, nil
 }
 
 // ListPaymentExclusions implements GET /v1/payment-runs/{id}/exclusions.
@@ -554,12 +584,14 @@ func (e *Endpoints) ListHouseBanks(ctx context.Context, params gen.ListHouseBank
 	if err != nil {
 		return nil, err
 	}
-	q, args := ks.SQL(`SELECT h.id, h.legal_entity_id, h.code, h.currency, h.iban_last4, h.bic, h.status FROM payments.house_bank h
-		WHERE ($1 OR h.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR h.legal_entity_id = $3)`, []any{access.All, access.IDs, le})
+	q, args := ks.SQL(`SELECT h.id, h.legal_entity_id, h.code, h.currency, h.iban_last4, h.bic, h.status, h.institution_number, h.transit_number
+		FROM payments.house_bank h WHERE ($1 OR h.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR h.legal_entity_id = $3)`, []any{access.All, access.IDs, le})
 	rows, _ := tx.Query(ctx, q, args...)
 	banks, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (gen.HouseBank, error) {
 		var b gen.HouseBank
-		err := r.Scan(&b.ID, &b.LegalEntityID, &b.Code, &b.Currency, &b.AccountLast4, &b.Bic, &b.Status)
+		var institution, transit *string // a Canadian bank's routing (T45d); NULL for an IBAN
+		err := r.Scan(&b.ID, &b.LegalEntityID, &b.Code, &b.Currency, &b.AccountLast4, &b.Bic, &b.Status, &institution, &transit)
+		b.InstitutionNumber, b.TransitNumber = apitypes.OptString(institution), apitypes.OptString(transit)
 		return b, errs.Wrapf(err, "scan house bank")
 	})
 	if err != nil {

@@ -8,7 +8,9 @@
 // the valuation price fixed then; movements on GR/IR orders post WE entries
 // through the ledger's Postings (T33). An order without an approved
 // requisition is released by the release strategy, and a released order
-// changes only through order changes, its versions (ADR-0034).
+// changes only through order changes, its versions (ADR-0034). A released
+// or closed order's document for its supplier is rendered from the stored
+// order as plain text on each read (ADR-0054).
 package procurement
 
 import (
@@ -42,6 +44,9 @@ type LegalEntities interface {
 type Suppliers interface {
 	Supplier(ctx context.Context, partnerID, legalEntity uuid.UUID) (partner.Supplier, bool, error)
 	PaymentTermExists(ctx context.Context, code string) (bool, error)
+	// PaymentTerm and OrderAddress fill the order document (ADR-0054).
+	PaymentTerm(ctx context.Context, code string) (partner.PaymentTerm, bool, error)
+	OrderAddress(ctx context.Context, partnerID uuid.UUID) (partner.Address, bool, error)
 }
 
 // Accounts is what procurement asks the ledger about accounts, the account
@@ -204,7 +209,7 @@ func (h OrderReleases) Approved(ctx context.Context, order, request uuid.UUID) e
 	if err != nil {
 		return err
 	}
-	_, err = h.Endpoints.release(ctx, tx, p, o, value, false)
+	_, err = h.Endpoints.release(ctx, tx, p, o, value, "")
 	return err
 }
 
@@ -247,4 +252,14 @@ func waitingOrder(ctx context.Context, tx pgx.Tx, order, request uuid.UUID) (Pur
 		return PurchaseOrder{}, fmt.Errorf("procurement: purchase order %s (%s) does not wait for request %s", order, o.Status, request)
 	}
 	return o, nil
+}
+
+// Resources is where the API reads each requisition (approvals.Locator).
+func (Approvals) Resources(_ context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	return approvals.Paths("/v1/requisitions/%s", ids), nil
+}
+
+// Resources is where the API reads each purchase order (approvals.Locator).
+func (OrderReleases) Resources(_ context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	return approvals.Paths("/v1/purchase-orders/%s", ids), nil
 }

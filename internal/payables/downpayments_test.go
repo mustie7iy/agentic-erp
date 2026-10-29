@@ -75,6 +75,20 @@ func TestDownPaymentRequests(t *testing.T) {
 	if _, ok := first["next_page_token"]; !ok {
 		t.Error("first page of 1: got no next_page_token, want one")
 	}
+	// The list joins ref.currency; page 2 proves the keyset condition still resolves.
+	second, _ := e.Must(200, "GET", "/v1/down-payment-requests?page_size=1&page_token="+first["next_page_token"].(string), "", "")
+	paged := map[any]bool{}
+	for _, p := range []map[string]any{first, second} {
+		for _, it := range p["items"].([]any) {
+			paged[it.(map[string]any)["id"]] = true
+		}
+	}
+	if want := map[any]bool{taxed["id"]: true, plain["id"]: true}; fmt.Sprint(paged) != fmt.Sprint(want) {
+		t.Errorf("requests over two pages of 1: got %v, want %v", paged, want)
+	}
+	if next, ok := second["next_page_token"]; ok {
+		t.Errorf("last page's next_page_token: got %v, want none", next)
+	}
 
 	e.Must(400, "GET", "/v1/down-payment-requests?page_token=not-a-token", "", "")
 	e.Must(412, "POST", "/v1/down-payment-requests/"+id(taxed)+":cancel", `{"reason": "x"}`, `"9"`)

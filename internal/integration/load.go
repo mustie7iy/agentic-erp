@@ -57,6 +57,14 @@ type loader struct {
 	vendors map[string]uuid.UUID // LIFNR -> partner
 	blocks  []uuid.UUID
 	entries map[string]loadedEntry // ACDOCA document key -> entry posted by this run
+	// downPayments are the documents holding an open down payment, which
+	// load as entries of their own in either mode (downPaymentDocs).
+	downPayments map[string][]sap.ACDOCA
+	// grir are the extract's GR/IR positions by EBELN/EBELP, and viaGRIR
+	// the orders this run released valued through GR/IR, whose open
+	// positions it takes over (T72f, takeOverGRIR).
+	grir    map[string]*grirPosition
+	viaGRIR map[string]bool
 }
 
 type loadedEntry struct {
@@ -107,8 +115,10 @@ func (l *loader) plain(minor money.Minor, currency string) string {
 	return minor.Plain(l.t.exponents[currency])
 }
 
-// load brings the extract over: suppliers, purchase orders, goods
-// receipts, parked invoices, then the journal (every document, or one
+// load brings the extract over: suppliers, purchase orders, the
+// quantities posted invoices invoiced, goods receipts, the open GR/IR
+// positions of the orders SAP valued through GR/IR, parked invoices,
+// then the journal (every document, or one
 // opening entry per company) with the clearings SAP recorded, and last the
 // posting blocks, which would refuse the postings before them.
 //
@@ -116,12 +126,22 @@ func (l *loader) plain(minor money.Minor, currency string) string {
 // them one clearing at a time, so it would take the ledger's entry locks
 // after its number-range locks and in several sets; it takes all of the
 // tenant's entry locks first instead (Postings.LockAllEntries), so it never
-// deadlocks with a payment proposal's reservation or a reversal.
+// deadlocks with a payment proposal's reservation or a reversal. The
+// take-over of invoiced quantities locks the items of orders an earlier
+// run may have loaded, so it comes before the receipts and the journal:
+// their gapless number ranges (goods_receipt, journal_we, the journal's)
+// stay locked until the load commits, and a goods movement or an
+// invoice's posting takes the order items first and those ranges after.
+// Before it the load holds only the partner and purchase order ranges,
+// which nothing that locks order items takes.
 func (l *loader) load(ctx context.Context) error {
 	if err := l.e.Postings.LockAllEntries(ctx); err != nil {
 		return err
 	}
-	for _, fn := range []func(context.Context) error{l.partners, l.orders, l.receipts, l.invoices, l.journal, l.clearings, l.blocked} {
+	l.downPayments = downPaymentDocs(l.ext)
+	l.grir, l.viaGRIR = grirPositions(l.ext, l.t), map[string]bool{}
+	for _, fn := range []func(context.Context) error{l.partners, l.orders, l.invoiced, l.receipts, l.takeOverGRIR, l.invoices, l.journal, l.clearings,
+		l.blocked} {
 		if err := fn(ctx); err != nil {
 			return err
 		}
@@ -225,8 +245,8 @@ func (l *loader) createSupplier(ctx context.Context, np partner.NewPartner, v sa
 }
 
 // itemNos numbers each order's items 1..n in SAP item order.
-func (l *loader) itemNos() map[string]int32 {
-	items := slices.Clone(l.ext.EKPO)
+func itemNos(e *sap.Extract) map[string]int32 {
+	items := slices.Clone(e.EKPO)
 	slices.SortFunc(items, func(a, b sap.EKPO) int { return cmp.Compare(a.EBELN+"/"+a.EBELP, b.EBELN+"/"+b.EBELP) })
 	out := map[string]int32{}
 	next := map[string]int32{}
@@ -244,9 +264,14 @@ func (l *loader) orders(ctx context.Context) error {
 	}
 	heads := slices.Clone(l.ext.EKKO)
 	slices.SortFunc(heads, func(a, b sap.EKKO) int { return cmp.Compare(a.EBELN, b.EBELN) })
+	via := grirOrders(l.grir)
 	for _, h := range heads {
 		if _, ok := l.refs["EKKO/"+h.EBELN]; ok {
 			continue
+		}
+		valuation := procurement.ValuationDirect
+		if via[h.EBELN] {
+			valuation = procurement.ValuationGRIR
 		}
 		date, _ := sapDate(h.BEDAT) // checked by the quality gate
 		in := procurement.NewOrder{LegalEntityID: l.t.entities[h.BUKRS].ID, SupplierID: l.vendors[h.LIFNR], Currency: h.WAERS, OrderDate: date}
@@ -264,7 +289,7 @@ func (l *loader) orders(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			if _, err := l.e.Orders.ReleaseLoadedOrder(ctx, o.ID, func(int32) error { return nil }); err != nil {
+			if _, err := l.e.Orders.ReleaseLoadedOrder(ctx, o.ID, func(int32) error { return nil }, valuation); err != nil {
 				return err
 			}
 			return l.addRef(ctx, "procurement.purchase_order", o.ID, "EKKO", h.EBELN)
@@ -274,6 +299,7 @@ func (l *loader) orders(ctx context.Context) error {
 		}
 		if done {
 			l.counts["purchase_orders"]++
+			l.viaGRIR[h.EBELN] = valuation == procurement.ValuationGRIR
 		}
 	}
 	return nil
@@ -284,7 +310,7 @@ func (l *loader) receipts(ctx context.Context) error {
 	for _, h := range l.ext.EKKO {
 		company[h.EBELN] = h.BUKRS
 	}
-	nos := l.itemNos()
+	nos := itemNos(l.ext)
 	docs := map[string][]sap.MSEG{}
 	for _, m := range l.ext.MSEG {
 		if m.BWART == "101" {
@@ -309,7 +335,7 @@ func (l *loader) receipts(ctx context.Context) error {
 				Quantity: m.MENGE, Unit: unit})
 		}
 		done, err := l.step(ctx, "MSEG", key, func() error {
-			g, err := l.e.Orders.PostReceipt(ctx, in)
+			g, err := l.e.Orders.PostLoadedReceipt(ctx, in)
 			if err != nil {
 				return err
 			}
@@ -329,7 +355,7 @@ func (l *loader) receipts(ctx context.Context) error {
 // (parkedKinds, T72b), so a credit memo is never a positive invoice that a
 // payment run pays.
 func (l *loader) invoices(ctx context.Context) error {
-	nos := l.itemNos()
+	nos := itemNos(l.ext)
 	items := invoiceItems(l.ext)
 	kinds := parkedKinds(l.ext)
 	heads := slices.Clone(l.ext.RBKP)
@@ -356,6 +382,63 @@ func (l *loader) invoices(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// invoiced takes over what SAP's posted invoice documents invoiced and
+// credited on the orders on the platform (T72b2), so that matching a
+// migrated credit memo or subsequent debit/credit, or a later invoice,
+// counts it. A document is taken over whole, once (its RBKP reference of
+// the source system, which also names it to payables):
+// it waits until every order of the extract it names is loaded, and its
+// items on orders outside the extract, none of the platform's, are left
+// out. Documents the quality gate refused are not taken over.
+func (l *loader) invoiced(ctx context.Context) error {
+	nos := itemNos(l.ext)
+	inExtract := map[string]bool{}
+	for _, h := range l.ext.EKKO {
+		inExtract[h.EBELN] = true
+	}
+	docs, _ := postedDocuments(l.ext, "") // the issues are the quality gate's, which stopped the load on any
+	for _, d := range docs {
+		if _, loaded := l.refs["RBKP/"+d.key]; loaded {
+			continue
+		}
+		in, ready := l.migratedInvoice(d, nos, inExtract)
+		if !ready || len(in.Items) == 0 {
+			continue
+		}
+		done, err := l.step(ctx, "RBKP", d.key, func() error {
+			id, err := l.e.Invoices.TakeOverInvoiced(ctx, in)
+			if err != nil {
+				return err
+			}
+			return l.addRef(ctx, "payables.migrated_invoice", id, "RBKP", d.key)
+		})
+		if err != nil {
+			return err
+		}
+		if done {
+			l.counts["posted_invoices_invoiced"]++
+		}
+	}
+	return nil
+}
+
+// migratedInvoice is what a posted document takes over, and whether every
+// order of the extract it names is on the platform.
+func (l *loader) migratedInvoice(d postedDocument, nos map[string]int32, inExtract map[string]bool) (payables.MigratedInvoice, bool) {
+	in := payables.MigratedInvoice{Reference: l.system + " " + d.key, Kind: d.kind}
+	for _, it := range d.items {
+		if !inExtract[it.EBELN] {
+			continue
+		}
+		po, ok := l.refs["EKKO/"+it.EBELN]
+		if !ok {
+			return in, false
+		}
+		in.Items = append(in.Items, payables.MigratedItem{ItemNo: it.no, PurchaseOrderID: po, POItemNo: nos[it.EBELN+"/"+it.EBELP], Quantity: it.MENGE})
+	}
+	return in, true
 }
 
 // invoiceInput is the payables document of one parked SAP document of the
@@ -395,13 +478,22 @@ func (l *loader) reconciliation(company, account string) bool {
 
 func documentKey(l sap.ACDOCA) string { return l.RBUKRS + "/" + l.GJAHR + "/" + l.BELNR }
 
+// journal posts the extract's documents, each as a journal entry, or in
+// balances mode one opening entry per company and the documents holding an
+// open down payment, which the opening entry leaves out: each is posted as
+// the platform posts a down payment, an entry of its own whose tax the
+// final invoice's clearing reverses (T72c).
 func (l *loader) journal(ctx context.Context) error {
 	if l.t.balances {
-		return l.openingEntries(ctx)
+		if err := l.openingEntries(ctx); err != nil {
+			return err
+		}
 	}
 	docs := map[string][]sap.ACDOCA{}
 	for _, line := range l.ext.ACDOCA {
-		docs[documentKey(line)] = append(docs[documentKey(line)], line)
+		if key := documentKey(line); !l.t.balances || l.downPayments[key] != nil {
+			docs[key] = append(docs[key], line)
+		}
 	}
 	currency := map[string]string{}
 	for _, c := range l.ext.T001 {
@@ -419,16 +511,28 @@ func (l *loader) journal(ctx context.Context) error {
 }
 
 // journalDocument posts one SAP document as a journal entry and keeps its
-// line numbers for the clearings that follow.
+// line numbers for the clearings that follow. A document holding an open
+// down payment is also taken over as a paid down payment request, in the
+// same savepoint, so a refusal of either leaves neither. The quality gate
+// refuses every take-over refusal that comes from the extract first, so
+// the shared savepoint is defence in depth (TestTakeOverDownPayment shows
+// the refusal propagating).
 func (l *loader) journalDocument(ctx context.Context, key string, lines []sap.ACDOCA, currency map[string]string) error {
 	in, posted := l.journalPosting(lines, currency)
+	_, downPayment := l.downPayments[key]
 	done, err := l.step(ctx, "ACDOCA", key, func() error {
 		entry, err := l.e.Postings.Post(ctx, in)
 		if err != nil {
 			return err
 		}
 		posted.ref = ledger.ItemRef{FiscalYear: entry.FiscalYear, EntryID: entry.ID}
-		return l.addRef(ctx, "ledger.journal_entry", entry.ID, "ACDOCA", key)
+		if err := l.addRef(ctx, "ledger.journal_entry", entry.ID, "ACDOCA", key); err != nil {
+			return err
+		}
+		if downPayment {
+			return l.takeOverDownPayment(ctx, key, lines, entry)
+		}
+		return nil
 	})
 	if err != nil {
 		return err
@@ -436,6 +540,9 @@ func (l *loader) journalDocument(ctx context.Context, key string, lines []sap.AC
 	if done {
 		l.entries[key] = posted
 		l.counts["journal_entries"]++
+		if downPayment {
+			l.counts["down_payments"]++
+		}
 	}
 	return nil
 }
@@ -454,6 +561,10 @@ func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) 
 		in.Reference = &first.XBLNR
 	}
 	posted := loadedEntry{lines: map[string]int32{}, date: date}
+	var dp *sap.ACDOCA
+	if open := openDownPayments(lines); len(open) == 1 {
+		dp = &open[0]
+	}
 	for _, line := range lines {
 		amt, _ := l.t.amount(line.HSL, in.Currency) // checked by the quality gate (journal)
 		if amt == 0 {
@@ -464,6 +575,7 @@ func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) 
 			partnerID := l.vendors[line.LIFNR]
 			pl.PartnerID = &partnerID
 		}
+		downPaymentPosting(&pl, line, dp)
 		in.Lines = append(in.Lines, pl)
 		posted.lines[line.DOCLN] = int32(len(in.Lines))
 	}
@@ -516,7 +628,9 @@ func (l *loader) openingEntry(ctx context.Context, c sap.T001, key string) error
 }
 
 // openingLines are a company's opening entry lines: account balances in
-// account order, then the open vendor items. It also returns the latest
+// account order, then the open vendor items; the documents holding an
+// open down payment are left out, posted on their own (journal). It also
+// returns the latest
 // posting date, the entry's date, and the sum of the cleared vendor items,
 // which must be zero.
 func (l *loader) openingLines(c sap.T001) ([]ledger.PostingLine, string, money.Minor) {
@@ -525,7 +639,7 @@ func (l *loader) openingLines(c sap.T001) ([]ledger.PostingLine, string, money.M
 	var cleared money.Minor
 	var last string
 	for _, line := range l.ext.ACDOCA {
-		if line.RBUKRS != c.BUKRS {
+		if line.RBUKRS != c.BUKRS || l.downPayments[documentKey(line)] != nil {
 			continue
 		}
 		// Parsed and in range: the quality gate refuses an extract whose

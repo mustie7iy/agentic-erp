@@ -44,6 +44,50 @@ and every reconciliation check passing.
 | `documents` | Every Universal Journal document, with SAP numbers kept in the IDs | The current fiscal year, when auditors want document-level history in the new system |
 | `balances` | One opening entry per company, with open vendor items kept as individual lines | Closed years, or when history stays in archived SAP |
 
+In either mode an open SAP down payment (a vendor line with special G/L
+indicator A, UMSKZ, not cleared) loads as the platform posts its own down
+payments (T72c, ADR-0037): its SAP document is an entry of its own, the down
+payment on the legal entity's `down_payment` account (from T074) as the
+supplier's special G/L item A on its tax code, beside its input tax, and it is
+recorded as a paid down payment request. A payment run never nets it, and the
+supplier's final invoice clears it and reverses its input tax
+(`supplier-invoices/{id}:clearDownPayments`). The quality gate refuses what it
+cannot read rather than guess: another special G/L indicator, an indicator off
+the down payment account or a line on it without one, a vendor line without
+one on an account T074 names or no vendor has as its reconciliation account
+(LFB1-AKONT), more than one open down
+payment in a document, a credit, a tax code that is not one deductible input
+tax, and a tax that is not the code's rate of the down payment (SAP's gross
+display, where the down payment includes its tax). A down payment SAP cleared
+loads in `balances` mode only, since SAP's clearing of it is not taken over.
+
+In either mode an order SAP valued through GR/IR (a line on its GR/IR account,
+T030 WRX, names the order item, ACDOCA EBELN/EBELP) loads valued through GR/IR
+(T72f, ADR-0034): its receipts (MSEG 101) are recorded without posting again,
+as SAP's journal carries them, and each item's open position is taken over in
+an entry of its own per order (document type WE): SAP's balance on the item's
+lines and its open quantity, what SAP's posted invoice documents invoiced less
+what it received, on the platform's order item, against the GR/IR account's
+lines that SAP's documents (or the opening entry) loaded without their order
+items. The GR/IR balances show it (`migrated_quantity`), an invoice after
+cutover clears it at the order price instead of booking the expense again, and
+a closed order's residual is cleared by a GR/IR clearing (SAP MR11). The
+quality gate refuses what it cannot read rather than guess: a line on the
+GR/IR account without its order item or naming one outside the extract, SAP's
+GR/IR account (T030 WRX) with lines when it is not the legal entity's
+`gr_ir` account, an order in another currency than the company's (the
+extract carries the company code amount, HSL, only), a movement other than a
+receipt or a receipt quantity that does not parse on an item with a position,
+an open quantity without a balance, and an item received without a GR/IR
+line on an order whose other items post one; a GR/IR line naming an order of
+another company of the scope is refused too. A position is taken over by the
+run that loads its order: what SAP posts on the order afterwards is not taken
+over by a later run: a delta run after SAP posted a receipt or an invoice on
+an order already loaded fails the reconciliation's open GR/IR check, and the
+migration cannot correct it. Moving an order already loaded
+valued directly onto GR/IR is not done (tracker: "Move open direct-valued
+orders onto GR/IR (optional)").
+
 ## Reconciliation controls
 
 Each control is computed twice: from the raw SAP extract and from the
@@ -52,7 +96,9 @@ They must be equal.
 
 - Trial balance per account (differences listed by account)
 - Total debits posted (`documents` mode)
-- Open payables, in total and per vendor
+- Open payables, in total and per vendor, without the down payments
+- Open down payments (special G/L A), in total and per vendor, where either
+  side has any (T72c)
 - Vendor count per company code
 - Each vendor's payments bank account: SAP's first LFBK row as it loads
   (scheme, bank country, Canadian routing, last four characters) against the
@@ -62,6 +108,15 @@ They must be equal.
   debits and subsequent credits where either side has one (posted ones are
   carried by their FI documents). The kind comes from RBKP-XRECH and
   RSEG-TBTKZ (T72b), so a credit memo loaded as an invoice fails two checks
+- Quantities invoiced in SAP per order item: what the posted invoice
+  documents' ordinary items invoiced, credit memos negative, against what the
+  load took over for matching (differences listed by order item; T72b2),
+  where either side has any
+- Open GR/IR per order item: SAP's balance on the GR/IR account and open
+  quantity against the platform's position, in total and per order item,
+  where either side has any (T72f). The take-over entries move balances
+  within the GR/IR account and have no SAP document, so the total debits
+  leave them out
 - Every SAP document in scope present on the platform (missing ones listed)
 
 ## What to check on a real SAP system
@@ -72,7 +127,16 @@ They must be equal.
 - The supplier invoice indicators RBKP-XRECH (invoice or credit memo) and
   RSEG-TBTKZ (subsequent debit/credit item) are in the extract. The OData
   mapping does not carry them yet, so the quality gate refuses an OData
-  extract's parked invoices until their properties are mapped (T72b).
+  extract's parked invoices until their properties are mapped (T72b), and
+  its posted ones too, whose invoiced quantities the load takes over by
+  their direction for matching (T72b2).
+- ACDOCA-EBELN and EBELP (a GR/IR line's order item) and T030 are in the
+  extract. The OData mapping carries neither yet: the quality gate refuses an
+  OData extract's lines on the legal entity's `gr_ir` account, and warns for
+  each company with goods receipts that SAP's GR/IR account (T030 WRX) cannot
+  be told, so lines on it are recognised only when it is the legal entity's
+  `gr_ir` account (T72f). Confirm that every line your system posts there
+  names its order item.
 - Canadian vendor bank accounts (LFBK, bank country CA) load as scheme `ca`
   only with the bank key (BANKL) in the Canadian Payments Association's
   electronic routing form, 0 + institution (3 digits) + transit (5 digits),

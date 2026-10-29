@@ -151,6 +151,42 @@ type ACDOCA struct {
 	LIFNR  string `json:"LIFNR"`
 	XBLNR  string `json:"XBLNR"`
 	AUGBL  string `json:"AUGBL"` // clearing document, empty if open
+	// UMSKZ is a vendor line's special G/L indicator, "" on an ordinary
+	// line; in the standard system "A" marks a general down payment (SAP
+	// Help, "Posting Keys and Special G/L Indicators",
+	// https://help.sap.com/saphelp_470/helpdata/en/01/a9c6e6455711d182b40000e829fbfe/content.htm),
+	// posted to the vendor's alternative reconciliation account
+	// (T074). Only A is migrated (T72c, ADR-0037). That ACDOCA carries the
+	// vendor line's indicator under this name, as BSEG and BSIK do, is from
+	// the ABAP dictionary as published mirrors show it, still to be
+	// confirmed by an SAP specialist on the pilot's release.
+	UMSKZ string `json:"UMSKZ,omitempty"`
+	// MWSKZ is the line's tax code. The load expects a down payment with
+	// tax to carry it on its vendor line and on its tax line (T72c), which
+	// an SAP specialist is still to confirm. With net display SAP posts
+	// the down payment without the tax and the tax to the input tax
+	// account; with gross display the down payment includes the tax and a
+	// tax clearing account offsets it (SAP Help, "Net or Gross Display of
+	// Down Payments",
+	// https://help.sap.com/saphelp_46c/helpdata/en/01/a9c838455711d182b40000e829fbfe/content.htm).
+	// The platform keeps a down payment net (ADR-0037), so only net
+	// display is migrated (the quality gate). The field name is the
+	// ABAP dictionary's as published mirrors show it, to be confirmed.
+	MWSKZ string `json:"MWSKZ,omitempty"`
+	// EBELN and EBELP are the purchase order and item a line belongs to.
+	// Goods receipts and invoice receipts of an order valued through GR/IR
+	// are offset to SAP's GR/IR clearing account (T030 WRX), which the
+	// invoice clears (SAP Help, "Postings at Goods Receipt and Invoice
+	// Receipt",
+	// https://help.sap.com/saphelp_46C/helpdata/EN/47/60ff6f49f011d1894c0000e829fbbd/content.htm);
+	// the load expects every line there to name its order item and takes
+	// each item's open position over onto the platform's (T72f). That
+	// ACDOCA carries them under these names, as MSEG and RSEG do, and on
+	// every GR/IR line, is from the ABAP dictionary as published mirrors
+	// show it, still to be confirmed by an SAP specialist on the pilot's
+	// release.
+	EBELN string `json:"EBELN,omitempty"`
+	EBELP string `json:"EBELP,omitempty"`
 }
 
 // --- Customizing (configuration) tables, read by the configuration agent ---
@@ -226,6 +262,26 @@ type T012K struct {
 	BANKN string `json:"BANKN,omitempty"`
 }
 
+// T074 - alternative reconciliation accounts of special G/L transactions:
+// for account type KOART ("K" vendors) and special G/L indicator UMSKZ,
+// the special G/L account SKONT that replaces the reconciliation account
+// HKONT, flattened per company code as T030 is. SAP "requires a special
+// G/L account for each special G/L transaction per chart of accounts",
+// defined by account type, special G/L indicator and reconciliation
+// account (SAP Help, "Special G/L Accounts",
+// https://help.sap.com/saphelp_470/helpdata/en/01/a9c70d455711d182b40000e829fbfe/content.htm).
+// It gives the configuration its down_payment
+// account (UMSKZ "A"; ADR-0037, T72c). SAP keeps T074 per chart of
+// accounts; the table and field names are the ABAP dictionary's as
+// published mirrors show them, still to be confirmed by an SAP specialist.
+type T074 struct {
+	BUKRS string `json:"BUKRS"`
+	KOART string `json:"KOART"`
+	UMSKZ string `json:"UMSKZ"`
+	HKONT string `json:"HKONT"`
+	SKONT string `json:"SKONT"`
+}
+
 // AGR_DEFINE - roles.
 type AGRDefine struct {
 	AGR_NAME string `json:"AGR_NAME"`
@@ -263,6 +319,7 @@ type Extract struct {
 	T030       []T030      `json:"T030,omitempty"`
 	T169G      []T169G     `json:"T169G,omitempty"`
 	T012K      []T012K     `json:"T012K,omitempty"`
+	T074       []T074      `json:"T074,omitempty"`
 	AGR_DEFINE []AGRDefine `json:"AGR_DEFINE,omitempty"`
 	AGR_TCODES []AGRTcode  `json:"AGR_TCODES,omitempty"`
 	AGR_USERS  []AGRUser   `json:"AGR_USERS,omitempty"`
@@ -275,6 +332,6 @@ func (e *Extract) Counts() map[string]int {
 		"LFBK": len(e.LFBK), "EKKO": len(e.EKKO), "EKPO": len(e.EKPO), "MSEG": len(e.MSEG),
 		"RBKP": len(e.RBKP), "RSEG": len(e.RSEG), "ACDOCA": len(e.ACDOCA),
 		"T052": len(e.T052), "T007A": len(e.T007A), "T030": len(e.T030), "T169G": len(e.T169G),
-		"T012K": len(e.T012K), "AGR_DEFINE": len(e.AGR_DEFINE), "AGR_TCODES": len(e.AGR_TCODES), "AGR_USERS": len(e.AGR_USERS),
+		"T012K": len(e.T012K), "T074": len(e.T074), "AGR_DEFINE": len(e.AGR_DEFINE), "AGR_TCODES": len(e.AGR_TCODES), "AGR_USERS": len(e.AGR_USERS),
 	}
 }

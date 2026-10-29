@@ -52,19 +52,19 @@ manual DB cluster snapshots, whose default quota (100 a region) a week of
 hourly copies passes; the module raises it to 250 in both regions.
 
 **Region failover: a pilot light (T41b2).** A production cell has, in its
-disaster-recovery region, a cross-region read replica of its database and a
-pilot-light stack: the VPC, the endpoints and an EKS control plane with no
-nodes, plus the cell's KMS keys' counterparts there (the field key is a
-multi-Region key replicated there, so tenant keys wrapped at home unwrap;
-the secrets are replicated). The node group at zero, the workload roles'
-trust of the DR cluster and their permissions on the DR bucket and keys
-follow (T41b3). Asynchronous
-replication keeps the replica seconds behind; an alarm fires when its lag
-passes 60 s, the RPO. On a region failure the operator (runbook below)
-promotes the replica, scales the node group up and lets Argo CD (ADR-0035)
-sync the cell's `release.json` there; the cell's directory entry is then
-switched to the new API address. Promotion takes minutes, nodes about five,
-the sync about ten: within the 30 minutes.
+disaster-recovery region, a cross-region read replica of its database and
+a pilot-light stack: the VPC, the endpoints and an EKS control plane whose
+node group is at zero, plus the cell's KMS keys' counterparts there (the
+field key is a multi-Region key replicated there, so tenant keys wrapped
+at home unwrap; the secrets are replicated), and the workloads' roles
+there, trusting the DR cluster and using the DR bucket and keys (T41b3,
+T72j; as built below). Asynchronous replication keeps the replica seconds
+behind; an alarm fires when its lag passes 60 s, the RPO. On a region
+failure the operator (runbook below) promotes the replica, scales the node
+group up and lets Argo CD (ADR-0035) sync the cell's `release.json` there;
+the cell's directory entry is then switched to the new API address.
+Promotion takes minutes, nodes about five, the sync about ten: within the
+30 minutes.
 
 To be confirmed on AWS staging before the pilot: that a Multi-AZ DB
 cluster accepts a cross-region read replica and that AWS Backup copies
@@ -229,20 +229,53 @@ RELOAD, RESUME). Only 503s, every retried post once, recovery within 60 s.
 ## Runbook
 
 **Region failover** (production cell `<cell>`, disaster-recovery region
-`<dr>`):
+`<dr>`). The values named below are the environment root's
+`cell.pilot_light` output, read and kept before any incident: Terraform
+cannot plan the root while the home region is down. Every command runs
+in `<dr>`. The steps marked *(staging)* are confirmed on AWS staging
+before the rehearsal (T41g). Until the global tier and the subordinate
+CA are recovered from a home-region failure (see "Not covered" below),
+steps 5, 7 and 8 cannot complete for the environment's home cell, the
+production pilot cell among them: its `cell.json` names the directory,
+whose password secret (`erp/global/directory-cell-password`) has no
+replica in `<dr>` and which the DR roles may not read, so erp-server does
+not start there, and step 8 needs the directory itself. No interim
+procedure is decided; T41g waits on that recovery.
 1. Declare the incident; freeze promotions to the cell.
 2. Read the replica's lag (`ReplicaLag`); note it as the data lost.
-3. Promote the replica (`aws rds promote-read-replica` in `<dr>`).
-4. Scale the pilot-light node group to the cell's size; install the
-   add-ons' Argo CD (ADR-0035) pointing at the cell's `release.json`, with
-   the database endpoint of the promoted replica in the cell's values.
-5. When Argo CD reports the cell synced: recreate the streams
+3. Promote the replica: `aws rds promote-read-replica
+   --db-instance-identifier <database_instance>`. Then have RDS manage
+   its master password in `<dr>` under the DR key *(staging)*:
+   `aws rds modify-db-instance --db-instance-identifier <database_instance>
+   --manage-master-user-password --master-user-secret-kms-key-id
+   <database_master_secret_kms_key_arn> --apply-immediately`; the new secret's ARN
+   is the cell's master secret there.
+4. Scale the node group to the cell's size (`node_scaling`): `aws eks
+   update-nodegroup-config --cluster-name <cluster_name> --nodegroup-name
+   <node_group> --scaling-config minSize=<min>,maxSize=<max>,desiredSize=<desired>`.
+   Once the nodes are ready, add the EBS CSI driver as its role *(staging)*:
+   `aws eks create-addon --cluster-name <cluster_name> --addon-name
+   aws-ebs-csi-driver --service-account-role-arn <workload_role_arns.ebs_csi>`
+   (with `--addon-version <ebs_csi_addon_version>` when it is set).
+5. Point the cell at `<dr>`, by one pull request: the cell's `cell.json`
+   takes the pilot light's values (the region, `cidr`, `vpc_id`, the
+   workload roles, the bucket's replica, the field key's replica, the DR
+   cluster key, the log group, the AWS endpoints, the promoted replica's
+   endpoint and master secret, and the registry's replica in `<dr>`), and
+   its `release.json` the same digests from the registry's replica in
+   `<dr>`.
+6. Bootstrap the cell's delivery on the DR cluster as ADR-0035's bootstrap
+   step 6 (`aws eks update-kubeconfig --region <dr> --name <cluster_name>`;
+   the deploy key from the replica of `erp/<cell>/argocd-repository` in
+   `<dr>`; Argo CD from its pinned archive; the project and the root
+   Application) *(staging)*.
+7. When Argo CD reports the cell synced: recreate the streams
    (`erp-server` creates them at start) and republish from the outboxes
    from the beginning, as above.
-6. The cell's directory sync rewrites its entries' API address when the
+8. The cell's directory sync rewrites its entries' API address when the
    cell starts with its new `api_url`; check it with `erp directory
    locate`, then run the restore verification (T41d).
-7. Record the RTO (incident to verified) and RPO in the incident; rebuild
+9. Record the RTO (incident to verified) and RPO in the incident; rebuild
    the home region as the new disaster-recovery region later.
 
 **Whole-cell restore to a point in time** (corruption, a bad migration):
@@ -304,3 +337,66 @@ RELOAD, RESUME). Only 503s, every retried post once, recovery within 60 s.
   reinstates such an entry.
 - The pre-pilot confirmation on staging can change the production database
   shape; T41b2 is written so that the replica is one resource to replace.
+
+## As built (2026-10-29, T72j): the pilot light made runnable
+
+`deploy/terraform/modules/cell` (`pilot_light.tf`,
+`pilot_light_workloads.tf`), tested with mocked providers in
+`tests/cell.tftest.hcl` and `modules/environment`'s tests:
+- **Nodes.** A managed node group in the DR cluster at zero (minimum and
+  desired), its maximum the cell's (`node_scaling.max`), with the home
+  nodes' role, instance types and image and a launch template of its own
+  whose volumes are encrypted with the DR cluster key (whose policy now
+  admits Auto Scaling as the home cluster key's does) and whose instance
+  metadata is closed to pods. The runbook scales it with the EKS API and
+  Terraform ignores the count afterwards. The VPC CNI is an add-on of the
+  DR cluster with its network policy agent, as at home; the EBS CSI driver
+  is added by the runbook after the scale-up, since its controller cannot
+  become ready without nodes and an add-on created at zero would leave the
+  apply failing on a degraded add-on.
+- **Roles.** The DR cluster's issuer is an OIDC provider of its own, and
+  every service account with a role at home (irsa.tf) has a DR role,
+  `erp-<cell>-dr-<workload>`, trusting that namespace and service account
+  of the DR cluster through that provider alone; no role trusts both
+  clusters, so a token of one cluster assumes nothing in the other region
+  (irsa.tf's rule: each role trusts one service account of one cluster).
+  Each may do what its home counterpart does (the tests hold the actions
+  equal) on the DR region's counterparts: the bucket's replica, the DR key
+  (replica bucket, secrets' replicas, the database replica), the DR
+  cluster key, the secrets' replicas, a containers' log group in the DR
+  region, target groups of the DR region (none exists there: the router
+  and its target groups stay at home). The field key's replica names
+  the DR server's role where the key names the home server's. External
+  Secrets also reads the master secret RDS makes for the promoted replica
+  (`rds!db-*` tagged with the replica's instance ARN) and, as at home,
+  neither the deploy key nor the monitoring add-on's secrets; the global
+  tier's secrets are not read there. cert-manager's issuer issues from the
+  environment's one subordinate CA, at home (ACM Private CA is regional).
+- **Values.** The cell module's `pilot_light` output (the environment's
+  `cell.pilot_light`): the DR cluster, its node group and the size to
+  scale it to, the replica's identifier and endpoint, the key of its
+  master secret, the bucket's and the field key's replicas, the DR cluster
+  key, the log group, the DR roles and the DR region's endpoints: the
+  cell's values there (runbook step 5).
+- **Argo CD.** Bootstrapped on the DR cluster by the runbook, as ADR-0035's
+  bootstrap installs every cell's: from its pinned archive, the deploy key
+  from its secret's replica, the project and the root Application. Not a
+  Terraform Helm or Kubernetes provider: ADR-0035 gives Terraform no access
+  to a cluster's API (private, reached by operators and the cell's own
+  Argo CD), the roots cannot plan while the home region is down, and the
+  DR cluster has no nodes to run Argo CD on until the failover.
+
+Confirmed on AWS staging before the rehearsal, the steps marked in the
+runbook and these assumptions: a replica secret's ARN is its primary's
+with the region changed; RDS tags a DB instance's managed secret
+`aws:rds:primaryDBInstanceArn`; a node group may be created at zero; the
+VPC CNI add-on becomes active without nodes.
+
+Not covered: the environment's global tier (the router's and the web
+workspace's load balancers, the directory) is in the home region and VPC,
+which the DR VPC is not peered with, so a region failure of the
+environment's home cell also takes the global tier, which no decision yet
+recovers; and the subordinate CA issues from the home region only.
+Raised to the product owner on 2026-10-29 and tracked as its own item
+(review:T72j), on which the rehearsal (T41g) waits; until then the
+runbook's steps 5, 7 and 8 cannot complete for the home cell (above).

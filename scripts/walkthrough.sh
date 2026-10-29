@@ -352,19 +352,19 @@ people() {
     n=$((n + 1))
   done <"$WORK/permissions"
   show erp call grantRolePermission -p "id=$staff" -body '{"permission_code": "..."}' "# $n permissions"
-  for code in Z_PURCH_MGR process_owner controller solution_architect Z_TREASURY_MGR; do
+  for code in Z_PURCH_MGR process_owner controller solution_architect Z_TREASURY_MGR vendor_master_approver; do
     # shellcheck disable=SC2046 # permission codes are single words
     grant "$(role "$code")" workflow.request.decide $(grep '\.approve$' "$WORK/permissions")
   done
   grant "$(role Z_TREASURY_MGR)" payments.run.release payments.file.transmit
-  say "  the approver roles Z_PURCH_MGR, process_owner, controller and solution_architect decide approval"
-  say "  requests; Z_TREASURY_MGR also releases payment runs and transmits bank files."
+  say "  the approver roles Z_PURCH_MGR, process_owner, controller, solution_architect and vendor_master_approver"
+  say "  decide approval requests; Z_TREASURY_MGR also releases payment runs and transmits bank files."
   QUIET=1 api 200 '' listRoles -p page_size=100
   cp "$WORK/last.json" "$WORK/roles.json"
   person ben "Ben Buyer" finance_staff
   person alex "Alex Payables" finance_staff
   person priya "Priya Purchasing Manager" finance_staff Z_PURCH_MGR process_owner
-  person carla "Carla Controller" finance_staff controller
+  person carla "Carla Controller" finance_staff controller vendor_master_approver
   person sam "Sam Solution Architect" finance_staff solution_architect
   person tom "Tom Treasurer" finance_staff Z_TREASURY_MGR
   person tara "Tara Treasury Manager" finance_staff Z_TREASURY_MGR
@@ -460,7 +460,8 @@ step_migrate() {
   grep -q ': reconciled$' "$WORK/migrate.out" || fail "the migration report does not say reconciled"
   for check in 'Trial balance: accounts with differences' 'Open payables total' 'Open payables: vendors with differences' \
     'Parked supplier invoices' 'Parked supplier credit memos' 'Parked subsequent debits' 'Parked subsequent credits' \
-    'Vendor bank accounts: vendors with differences'; do
+    'Vendor bank accounts: vendors with differences' 'Quantities invoiced in SAP: order items with differences' \
+    'Open down payments total' 'Open down payments: vendors with differences' 'Open GR/IR total' 'Open GR/IR: order items with differences'; do
     grep "$check" "$WORK/migrate.out" | grep -q 'PASS$' || fail "the reconciliation check '$check' did not pass"
   done
   say "The trial balance and the open payables agree with SAP's, recomputed from the raw extract, and so"
@@ -481,10 +482,95 @@ step_migrate() {
       listSupplierInvoices -p "legal_entity_id=$LE" -p "kind=$kind" -p status=parked | name_partners
     expect "parked migrated documents of kind $kind" "$(field '[.items[] | select(.source == "migration")] | length')" 1
   done
+  say "SAP had invoiced those orders already, in invoices it posted, which come over as journal entries. The load"
+  say "took over what they invoiced and credited on each order item (posted RSEG, by RBKP-XRECH; T72b2), and the"
+  say "reconciliation agrees with SAP per order item. So Alex matches the migrated credit memo and subsequent"
+  say "debit clean and posts them, with no exception to release: the credit memo credits less than SAP invoiced,"
+  say "the subsequent debit revalues an item SAP invoiced."
+  as alex
+  local doc
+  for kind in credit_memo subsequent_debit; do
+    QUIET=1 api 200 '' listSupplierInvoices -p "legal_entity_id=$LE" -p "kind=$kind" -p status=parked
+    doc=$(field '.items[0].id')
+    api 200 "$MATCHED" matchSupplierInvoice -p "id=$doc" -if-match '"1"'
+    expect "the match of the migrated $kind" "$(field .is_clean)" true
+    api 200 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), journal entry \(.journal_entry_id)"' \
+      postSupplierInvoice -p "id=$doc" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+    expect "the migrated $kind's status" "$(field .status)" posted
+  done
+  migrated_down_payment
+  migrated_grir
   passed
 }
 
-# The pilot's own settings, proposed with the pack: a CAD and a USD house
+# migrated_grir shows the GR/IR position SAP held open for an order item it
+# received and was not yet invoiced for (T72f), as the load took it over:
+# the order valued through GR/IR and the position on the platform's order
+# item. It keeps the order (GRIR_PO), its supplier (GRIR_SUPPLIER,
+# GRIR_NAME) and SAP's balance (GRIR_BALANCE) for step 5.
+migrated_grir() {
+  local ebeln lifnr grir
+  grir=$(jq -r --arg cc "$CC" '.T030[] | select(.BUKRS == $cc and .KTOSL == "WRX") | .KONTS' "$WORK/data/extract.json")
+  ebeln=$(jq -r --arg cc "$CC" --arg a "$grir" '[.ACDOCA[] | select(.RBUKRS == $cc and .RACCT == $a) | .EBELN] | first' "$WORK/data/extract.json")
+  lifnr=$(jq -r --arg o "$ebeln" '.EKKO[] | select(.EBELN == $o) | .LIFNR' "$WORK/data/extract.json")
+  GRIR_NAME=$(jq -r --arg v "$lifnr" '.LFA1[] | select(.LIFNR == $v) | .NAME1' "$WORK/data/extract.json")
+  say "SAP received $GRIR_NAME's shelving units on order $ebeln and has no invoice for them yet: the receipt's document"
+  say "debited the item's account and credited SAP's GR/IR account (T030 WRX $grir), both lines naming the order item"
+  say "(ACDOCA EBELN/EBELP):"
+  jq -r --arg cc "$CC" --arg o "$ebeln" '.ACDOCA[] | select(.RBUKRS == $cc and .EBELN == $o)
+    | "     ACDOCA \(.BELNR)/\(.DOCLN) \(.BLART): account \(.RACCT) \(.HSL), order item \(.EBELN)/\(.EBELP)"' "$WORK/data/extract.json"
+  say "The order came over valued through GR/IR, its receipt recorded without posting it again (SAP's journal carries"
+  say "it), and the open credit taken over onto the platform's order item in an entry of its own, reconciled per order"
+  say "item with SAP's above. The GR/IR balances show it beside the order, by number:"
+  api 200 "$GRIR_POSITION" listGrIrBalances -p "legal_entity_id=$LE"
+  expect "open GR/IR positions after the migration" "$(field '.items | length')" 1
+  expect "the migrated quantity" "$(field '.items[0].migrated_quantity.value')" -8
+  GRIR_BALANCE=$(field '.items[0].balance.amount')
+  expect "the migrated balance" "$GRIR_BALANCE" -1200.00
+  GRIR_PO=$(field '.items[0].purchase_order_id')
+  api 200 '"purchase order \(.document_number): \(.status), valued through \(.valuation)\([.items[] | ", item \(.item_no) \(.description): ordered \(.quantity.value), received \(.received_quantity.value)"] | join(""))"' \
+    getPurchaseOrder -p "id=$GRIR_PO"
+  expect "the migrated order's valuation" "$(field .valuation)" gr_ir
+  GRIR_SUPPLIER=$(field .supplier_id)
+}
+
+# migrated_down_payment shows SAP's open down payment as the AP clerk sees
+# it after the load (T72c): a paid down payment request of the supplier and
+# its open special G/L item A, reconciled apart from the open payables. It
+# keeps the supplier (DP_SUPPLIER, DP_NAME), the item and the supplier's
+# ordinary open items (DP_PAYABLE, what a run owes it) for steps 7 and 16.
+migrated_down_payment() {
+  local lifnr owed
+  lifnr=$(jq -r --arg cc "$CC" '.ACDOCA[] | select(.RBUKRS == $cc and .UMSKZ == "A" and .AUGBL == "") | .LIFNR' "$WORK/data/extract.json")
+  DP_NAME=$(jq -r --arg v "$lifnr" '.LFA1[] | select(.LIFNR == $v) | .NAME1' "$WORK/data/extract.json")
+  say "SAP had paid $DP_NAME a down payment it has not yet invoiced: a vendor line with special G/L indicator A"
+  say "(UMSKZ) on the down payment account T074 names, its input tax on V1 beside it in SAP's net display:"
+  jq -r --arg cc "$CC" '(.ACDOCA[] | select(.RBUKRS == $cc and .UMSKZ == "A")) as $d | .ACDOCA[] | select(.RBUKRS == $cc and .BELNR == $d.BELNR)
+    | "     ACDOCA \(.BELNR)/\(.DOCLN): account \(.RACCT) \(.HSL)\(if .UMSKZ then ", special G/L \(.UMSKZ)" else "" end)\(if .MWSKZ then ", tax code \(.MWSKZ)" else "" end)"' \
+    "$WORK/data/extract.json"
+  say "It came over as the platform's own down payments are posted: its document an entry of its own, the down"
+  say "payment net of tax as the supplier's special G/L item A, and a paid down payment request naming the entry."
+  QUIET=1 api 200 '' listBusinessPartners -p "name_prefix=$DP_NAME"
+  DP_SUPPLIER=$(field '.items[0].id')
+  api 200 '.items[] | "down payment request \(.document_number): \(.status), \(.amount.amount) \(.amount.currency) with tax \(.tax_amount.amount) on \(.tax_code), from \(.reference), journal entry \(.journal_entry_id)"' \
+    listDownPaymentRequests -p "legal_entity_id=$LE" -p status=paid -p "supplier_id=$DP_SUPPLIER"
+  expect "the migrated down payment requests of $DP_NAME" "$(field '.items | length')" 1
+  expect "the migrated down payment's tax" "$(field '.items[0].tax_amount.amount')" 100.00
+  DP_ENTRY=$(field '.items[0].journal_entry_id')
+  DP_REQUEST=$(field '.items[0].id')
+  api 200 '.items[] | "open item \(.document_number): \(.amount.amount) \(.amount.currency)\(if .special_gl then ", special G/L \(.special_gl)" else "" end)"' \
+    listOpenItems -p "partner_id=$DP_SUPPLIER" -p page_size=100
+  expect "the open down payment of $DP_NAME" "$(jq -r --arg e "$DP_ENTRY" '[.items[] | select(.special_gl == "A" and .journal_entry_id == $e) | .amount.amount] | join(" ")' "$WORK/last.json")" 2000.00
+  DP_LINE=$(jq -r --arg e "$DP_ENTRY" '.items[] | select(.journal_entry_id == $e) | "\(.fiscal_year) \(.line_no)"' "$WORK/last.json")
+  owed=$(jq -r '[.items[] | select(.special_gl == null) | .amount.amount | sub("\\."; "") | tonumber] | add // 0' "$WORK/last.json")
+  DP_PAYABLE=$(amount "$((0 - owed))")
+  say "A payment run nets the supplier's ordinary items only, $DP_PAYABLE CAD; the down payment waits for its invoice."
+}
+
+# The pilot's own settings, proposed with the pack. The company keeps
+# SAP's down payment account (T074, 159000; T72c), which the merge kept
+# over the pack's, so the pack's own, 1400, is left out: a company has one
+# down payment account (ADR-0037). Then a CAD and a USD house
 # bank at a Canadian bank with their accounts, the USD accounts revalued
 # at period end, statements matched by end-to-end id or amount and posted
 # with the controller's approval, a cash discount term, the cost center
@@ -504,7 +590,8 @@ PILOT_SETTINGS='
     {"code": "OP_SUPPLIERS", "name": "Supplier payments", "direction": "outflow", "parent": "OPERATING"}],
     "derivation": {"defaults": {"outflow": "OP_SUPPLIERS", "inflow": "REC_CUSTOMERS"}}}
 | (.companies[] | select(.code == "@CC@")) |= (
-    .chart_of_accounts += [
+    .chart_of_accounts |= map(select(.number != "1400"))
+    | .chart_of_accounts += [
       {"number": "1010", "name": "Bank clearing - RBC CAD", "type": "asset", "open_items": true},
       {"number": "1015", "name": "Bank incoming - RBC CAD", "type": "asset", "open_items": true},
       {"number": "1020", "name": "Bank clearing - RBC USD", "type": "asset", "open_items": true, "revalue_foreign_currency": true},
@@ -542,7 +629,8 @@ step_pack() {
   say "Ada adds the pilot's own settings to the proposal: RBC house banks in CAD and USD, USD accounts revalued"
   say "at month end, bank statement rules (match by end-to-end id, approval above CAD 10,000), payment runs"
   say "above CAD 4,000 released only after a second person approves, a 2/10 net 30 cash discount term,"
-  say "cost center categories, liquidity items and an output tax code for GST (step 11)."
+  say "cost center categories, liquidity items and an output tax code for GST (step 11). The company keeps SAP's"
+  say "down payment account (T074), so the pack's own, 1400, is left out: a company has one (ADR-0037)."
   local settings=${PILOT_SETTINGS//@YEAR@/$YEAR}
   settings=${settings//@CC@/$CC}
   jq "{title: \"Canada pack $version and the pilot's settings\", rationale: \"Pilot company set-up\", proposed: (.proposed | $settings)}" \
@@ -575,7 +663,9 @@ step_pack() {
   QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
   api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
   expect "status after activation" "$(field .status)" active
-  api 200 '.items[] | "house bank \(.code): \(.currency), account ending \(.account_last4)"' listHouseBanks -p "legal_entity_id=$LE"
+  api 200 '.items[] | "house bank \(.code): \(.currency), account ending \(.account_last4)\(if .institution_number then ", institution \(.institution_number), transit \(.transit_number)" else "" end)"' \
+    listHouseBanks -p "legal_entity_id=$LE"
+  expect "RBC's Canadian routing" "$(field '.items[] | select(.code == "RBC") | "\(.institution_number) \(.transit_number)"')" "003 00002"
   RBC=$(field '.items[] | select(.code == "RBC") | .id')
   RBCUS=$(field '.items[] | select(.code == "RBCUS") | .id')
   if [ -z "$RBC" ] || [ -z "$RBCUS" ]; then fail "the RBC house banks are not there"; fi
@@ -584,7 +674,7 @@ step_pack() {
 }
 
 step_procure() {
-  heading "Step 4 — Requisition, purchase order with its release strategy, goods receipt"
+  heading "Step 4 — Requisition, purchase order with its release strategy, its document for the supplier, goods receipt"
   as ben
   api 200 '.items[] | "supplier \(.number) \(.name), \(.country_code), \(.status)"' listBusinessPartners -p name_prefix=Tyrell
   SUPPLIER=$(field '.items[0].id')
@@ -592,9 +682,10 @@ step_procure() {
   local item expense
   expense=$(account 6000)
   item="{\"description\": \"Ergonomic office chairs\", \"quantity\": {\"value\": \"10\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"450.00\", \"currency\": \"CAD\"}, \"account_id\": \"$expense\"}"
-  say "Ben asks for ten office chairs from Tyrell, a supplier migrated from SAP."
-  api 201 '"requisition \(.id): \(.status), \(.total_amount.amount) \(.total_amount.currency)"' createRequisition \
-    -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"supplier_id\": \"$SUPPLIER\", \"items\": [$item]}"
+  say "Ben asks for ten office chairs from Tyrell, a supplier migrated from SAP, needed in two weeks."
+  NEEDED_BY=$(date_add "$TODAY" 14)
+  api 201 '"requisition \(.id): \(.status), \(.total_amount.amount) \(.total_amount.currency), needed by \(.needed_by)"' createRequisition \
+    -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"supplier_id\": \"$SUPPLIER\", \"needed_by\": \"$NEEDED_BY\", \"items\": [$item]}"
   local req request
   req=$(field .id)
   api 200 '"\(.status): approval request \(.workflow_request_id)"' submitRequisition -p "id=$req" -if-match "$ETAG"
@@ -615,11 +706,35 @@ step_procure() {
   as ben
   api 200 '"purchase order \(.document_number): \(.status), valued through \(.valuation)"' getPurchaseOrder -p "id=$PO"
   expect "order status" "$(field .status)" released
+  order_document
   say "The chairs arrive; Ben posts the goods receipt (debit expense, credit GR/IR)."
   api 201 '"goods receipt \(.id), journal entry \(.journal_entry_id)"' postGoodsReceipt \
     -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$PO\", \"po_item_no\": 1, \"quantity\": {\"value\": \"10\", \"unit\": \"EA\"}}]}"
   api 200 '.items[] | "item \(.item_no): ordered \(.quantity.value), received \(.received_quantity.value)"' getPurchaseOrder -p "id=$PO"
   passed
+}
+
+# order_document has Tyrell's order desk address added, as SAP's extract
+# holds no street, and shows the released order's document for Tyrell
+# (T72g, ADR-0054).
+order_document() {
+  local number change
+  number=$(field .document_number)
+  say "SAP's extract has no street for Tyrell. Ben asks for the address Tyrell takes orders at; Carla, who"
+  say "approves supplier master data, approves it."
+  api 201 '"partner change \(.id): \(.status)"' createPartnerChange -body "{\"partner_id\": \"$SUPPLIER\", \"kind\": \"update\", \"reason\": \"Order desk address confirmed by Tyrell\", \"payload\": {\"addresses\": [{\"purpose\": \"order_from\", \"line1\": \"220 King Street West\", \"line2\": \"Order desk, floor 3\", \"city\": \"Toronto\", \"region\": \"ON\", \"postal_code\": \"M5H 1K4\", \"country_code\": \"CA\", \"valid_from\": \"$TODAY\"}]}}"
+  change=$(field .id)
+  approve carla "$(field .workflow_request_id)" "Address confirmed"
+  as ben
+  QUIET=1 api 200 '' getPartnerChange -p "id=$change"
+  expect "partner change status" "$(field .status)" applied
+  say "Ben fetches the order's document to send to Tyrell (by hand: email and EDI are post-pilot)."
+  api 200 '' getPurchaseOrderDocument -p "id=$PO"
+  sed 's/^/     /' "$WORK/last.json"
+  local want
+  for want in "PURCHASE ORDER $number" "220 King Street West" "Payment terms: 2/10N30" "Needed by: $NEEDED_BY" "10 EA at 470.00 CAD per 1 EA" "Total 4700.00 CAD"; do
+    grep -qF "$want" "$WORK/last.json" || fail "the order's document does not show '$want'"
+  done
 }
 
 # invoice REFERENCE QUANTITY AMOUNT [KIND] enters a supplier invoice on
@@ -632,7 +747,7 @@ invoice() {
 MATCHED='"match: \(if .is_clean then "clean" else "issues" end)\(if .decision then ", \(.decision.outcome): \(.decision.reason)" else "" end)\([.issues[] | "\n  issue \(.code): \(.message)"] | join(""))"'
 
 step_invoices() {
-  heading "Step 5 — The invoice is matched and posted; a second one for more than was received is refused"
+  heading "Step 5 — The invoice is matched and posted; a second one for more than was received is refused; an invoice for SAP's receipt clears its migrated GR/IR"
   as alex
   say "Tyrell's invoice for the ten chairs, and then the same invoice again under another reference."
   say "Alex matches both before posting either: each looks clean on its own (10 received, nothing invoiced yet)."
@@ -656,7 +771,31 @@ step_invoices() {
   expect "the duplicate's status" "$(field .status)" on_hold
   api 200 '"\(.document_number): \(.status)"' cancelSupplierInvoice -p "id=$dup" -if-match "$ETAG" -body '{"reason": "Duplicate of TY-5001"}'
   DUPLICATE=$dup
+  migrated_grir_invoice
   passed
+}
+
+# migrated_grir_invoice posts the invoice for the shelving units SAP
+# received before cutover (step 3): it clears the migrated GR/IR credit at
+# the order price, and books no expense, which SAP's receipt booked.
+migrated_grir_invoice() {
+  say "$GRIR_NAME invoices the eight shelving units SAP received before cutover (step 3), CAD 1,200.00. Alex enters it"
+  say "on the migrated order, matches it (8 received in SAP, none invoiced) and posts it:"
+  local body doc entry
+  body="{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$GRIR_SUPPLIER\", \"supplier_reference\": \"SHELF-8\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"1200.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"0.00\", \"currency\": \"CAD\"}, \"purchase_order_id\": \"$GRIR_PO\", \"items\": [{\"purchase_order_id\": \"$GRIR_PO\", \"po_item_no\": 1, \"quantity\": {\"value\": \"8\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"1200.00\", \"currency\": \"CAD\"}}]}"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice -body "$body"
+  doc=$(field .id)
+  api 200 "$MATCHED" matchSupplierInvoice -p "id=$doc" -if-match '"1"'
+  expect "the match of the invoice for SAP's receipt" "$(field .is_clean)" true
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$doc" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the invoice's status" "$(field .status)" posted
+  entry=$(field .journal_entry_id)
+  say "Its entry debits the GR/IR account, clearing SAP's credit, and books no expense again:"
+  api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$entry"
+  expect "the invoice's lines" "$(field '.lines | length')" 2
+  expect "the invoice's GR/IR line" "$(field "[.lines[] | select(.purchase_order_id == \"$GRIR_PO\") | .amount.amount] | join(\" \")")" 1200.00
+  api 200 "$GRIR_POSITION" listGrIrBalances -p "legal_entity_id=$LE" -p "purchase_order_id=$GRIR_PO" -p open_only=false
+  expect "the migrated position after the invoice" "$(field '.items[0].balance.amount')" 0.00
 }
 
 step_credit() {
@@ -684,18 +823,21 @@ step_payment() {
   RUN=$(field .resource | sed 's|.*/||')
   api 200 '"run \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency), proposed by Tom"' getPaymentRun -p "id=$RUN"
   local version_etag=$ETAG
-  api 200 '.items[] | "payment \(.end_to_end_id): \(.amount.amount) \(.amount.currency)\(if .discount_amount.amount != "0.00" then ", discount \(.discount_amount.amount) until \(.discount_until)" else "" end)"' listPayments -p "id=$RUN" -p page_size=100
+  api 200 '.items[] | "payment \(.end_to_end_id) to \(.supplier_name): \(.amount.amount) \(.amount.currency)\(if .discount_amount.amount != "0.00" then ", discount \(.discount_amount.amount) until \(.discount_until)" else "" end)"' listPayments -p "id=$RUN" -p page_size=100
   cp "$WORK/last.json" "$WORK/payments.json"
   local tyrell
   # The payment of the walkthrough's own invoice and credit memo.
   tyrell=$(jq -r --arg a "$INVOICE_ENTRY" --arg c "$CREDIT_ENTRY" '.items[] | select(any(.items[]; .journal_entry_id == $a))
     | "\(.amount.amount) \(.discount_amount.amount) \(any(.items[]; .journal_entry_id == $c))"' "$WORK/payments.json")
   expect "the payment of TY-5001 less TY-CM-77: amount, discount, credit memo in it" "$tyrell" "4136.00 94.00 true"
+  expect "the payee of TY-5001, named by the API" "$(jq -r --arg a "$INVOICE_ENTRY" '.items[] | select(any(.items[]; .journal_entry_id == $a)) | .supplier_name' "$WORK/payments.json")" "Tyrell Office Products"
   api 200 '.items[] | "excluded: \(.reason_code), \(.amount.amount) \(.amount.currency), supplier \(.supplier_id)"' listPaymentExclusions -p "id=$RUN" |
     name_partners
   expect "suppliers left out for want of a bank account" "$(field '[.items[] | select(.reason_code == "no_bank_account")] | length')" 0
-  say "The migrated Canadian suppliers are in the run, paid to their Canadian accounts:"
-  jq -r '.items[] | "\(.end_to_end_id) \(.supplier_id) \(.amount.amount) \(.amount.currency)"' "$WORK/payments.json" | name_partners |
+  say "$DP_NAME's open down payment from SAP is not netted: the run pays the supplier's open invoices in full (T72c)."
+  expect "the payment to $DP_NAME" "$(jq -r --arg n "$DP_NAME" '[.items[] | select(.supplier_name == $n) | .amount.amount] | join(" ")' "$WORK/payments.json")" "$DP_PAYABLE"
+  say "The migrated Canadian suppliers are in the run, paid to their Canadian accounts, each payment naming its payee:"
+  jq -r '.items[] | "\(.end_to_end_id) \(.supplier_name) \(.amount.amount) \(.amount.currency)"' "$WORK/payments.json" |
     grep -E 'Laurentian|Prairie|Rideau|Fundy|Muskoka|Cabot' | sed 's/^/     payment /' || fail "the run pays none of the migrated Canadian suppliers"
   say "Tom holds the release permission too, but whoever proposes a run can never release it:"
   refused 403 identity.sod_conflict releasePaymentRun -p "id=$RUN" -if-match "$version_etag" -body '{}'
@@ -707,8 +849,10 @@ step_payment() {
     submitPaymentRun -p "id=$RUN" -if-match "$version_etag"
   local request
   request=$(field .release_approval.request_id)
+  say "The request leads to the run it releases:"
+  api 200 '"approval request \(.object_type): \(.object_resource)"' getApprovalRequest -p "id=$request"
+  expect "the request's object" "$(field .object_resource)" "/v1/payment-runs/$RUN"
   say "Tara asked for it, so she cannot approve it; Tom proposed the run, so he cannot either:"
-  QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
   refused 403 workflow.own_request approveApprovalRequest -p "id=$request" -if-match "$ETAG" -body '{}'
   as tom
   QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
@@ -1016,7 +1160,7 @@ step_reports() {
 }
 
 # GR/IR position of an order as the balances list it.
-GRIR_POSITION='.items[] | "item \(.po_item_no): received \(.received_quantity.value), invoiced \(.invoiced_quantity.value), cleared \(.cleared_quantity.value), balance \(.balance.amount) \(.balance.currency)"'
+GRIR_POSITION='(.items[] | "order \(.purchase_order_number) item \(.po_item_no) on \(.account_number) \(.account_name): received \(.received_quantity.value), invoiced \(.invoiced_quantity.value), cleared \(.cleared_quantity.value), migrated \(.migrated_quantity.value), balance \(.balance.amount) \(.balance.currency)"), "totals: \(.totals.positions) position(s), \(.totals.balance_lc.amount) \(.totals.balance_lc.currency)"'
 
 step_grir() {
   heading "Step 15 — GR/IR maintenance before the month-end close: the closed order's residual position is cleared (SAP MR11)"
@@ -1024,6 +1168,7 @@ step_grir() {
   say "Tyrell credited the damaged chair (step 6) and the buyer keeps it: nothing more will be delivered or invoiced,"
   say "so Ben closes the order."
   QUIET=1 api 200 '' getPurchaseOrder -p "id=$PO"
+  cp "$WORK/last.json" "$WORK/order.json"
   api 200 '"purchase order \(.document_number): \(.status)"' closePurchaseOrder -p "id=$PO" -if-match "$ETAG"
   expect "order status" "$(field .status)" closed
   as alex
@@ -1031,6 +1176,11 @@ step_grir() {
   say "invoiced net of the credit memo, a credit on the GR/IR account that no invoice will clear."
   api 200 "$GRIR_POSITION" listGrIrBalances -p "legal_entity_id=$LE" -p "purchase_order_id=$PO"
   expect "the residual balance" "$(field '.items[0].balance.amount')" -470.00
+  expect "the order, named by its number" "$(field '.items[0].purchase_order_number')" "$(jq -r .document_number "$WORK/order.json")"
+  expect "the order's total" "$(field '.totals.balance_lc.amount')" -470.00
+  say "Every open position of the company, totalled by the report (no adding up):"
+  api 200 '"\(.totals.positions) open position(s), \(.totals.balance_lc.amount) \(.totals.balance_lc.currency) (group \(.totals.balance_gc.amount) \(.totals.balance_gc.currency))\(if .totals.balance then ", \(.totals.balance.amount) \(.totals.balance.currency) in the orders'"'"' currency" else "" end)"' \
+    listGrIrBalances -p "legal_entity_id=$LE" -p page_size=1
   say "She proposes clearing it to the price difference account; the controller decides."
   api 201 '"GR/IR clearing of \(.purchase_order_number): \(.status), \(.total.amount) \(.total.currency) against \(.offset_account.number) \(.offset_account.name)\([.items[] | "\n  item \(.po_item_no) \(.description): \(.quantity.value) \(.quantity.unit), \(.amount.amount) \(.amount.currency)"] | join(""))"' \
     createGrIrClearing -p "id=$PO" -body "{\"reason\": \"Damaged chair credited by Tyrell and kept; no further delivery or invoice\", \"posting_date\": \"$TODAY\"}"
@@ -1041,7 +1191,8 @@ step_grir() {
   say "While it waits, a second proposal for the order is refused, and Alex, who holds no approver role, cannot approve it"
   say "(nor could a controller who proposed it: the proposer is never the approver):"
   refused 409 procurement.gr_ir_clearing_pending createGrIrClearing -p "id=$PO" -body "$body"
-  QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
+  api 200 '"approval request \(.object_type): \(.object_resource)"' getApprovalRequest -p "id=$request"
+  expect "the request's object" "$(field .object_resource)" "/v1/gr-ir-clearings/$clearing"
   refused 403 identity.permission_missing approveApprovalRequest -p "id=$request" -if-match "$ETAG" -body '{}'
   approve carla "$request" "Cleared before the month-end close"
   as alex
@@ -1063,8 +1214,36 @@ step_grir() {
   passed
 }
 
+step_downpayment() {
+  heading "Step 16 — SAP's open down payment is cleared against the supplier's final invoice (SAP F-54)"
+  as alex
+  say "$DP_NAME's final invoice arrives: CAD 5,000.00 plus 250.00 GST on V1. Alex enters and posts it."
+  local item invoice fy line
+  item="{\"account_id\": \"$(account 6000)\", \"description\": \"Machine, final invoice\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"5000.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$DP_SUPPLIER\", \"supplier_reference\": \"FINAL-DP\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"5250.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"250.00\", \"currency\": \"CAD\"}, \"items\": [$item]}"
+  invoice=$(field .id)
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the final invoice's status" "$(field .status)" posted
+  say "She clears the migrated down payment against it, as she would one the platform paid: the transfer credits"
+  say "the down payment account, reverses the 100.00 input tax SAP claimed on it (the invoice claims the whole tax)"
+  say "and debits the supplier's payables with the down payment, netted against the invoice in the next run."
+  read -r fy line <<<"$DP_LINE"
+  api 200 '"\(.document_number): \(.status)"' clearSupplierInvoiceDownPayments -p "id=$invoice" -if-match "$ETAG" \
+    -body "{\"posting_date\": \"$TODAY\", \"items\": [{\"fiscal_year\": $fy, \"journal_entry_id\": \"$DP_ENTRY\", \"line_no\": $line}]}"
+  api 200 '"down payment request \(.document_number): \(.status), cleared against \(.cleared_invoice_id) by entry \(.clearing_entry_id)"' \
+    getDownPaymentRequest -p "id=$DP_REQUEST"
+  expect "the migrated down payment request" "$(field .status)" cleared
+  api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)\(if .tax_code then ", tax code \(.tax_code)" else "" end)\(if .special_gl then ", special G/L \(.special_gl)" else "" end)"' \
+    getJournalEntry -p "id=$(field .clearing_entry_id)"
+  expect "the input tax reversed" "$(field '[.lines[] | select(.tax_code == "V1" and .special_gl == null) | .amount.amount] | join(" ")')" -100.00
+  api 200 '"open down payments of the supplier: \([.items[] | select(.special_gl == "A")] | length)"' listOpenItems -p "partner_id=$DP_SUPPLIER" -p page_size=100
+  expect "open down payments left" "$(field '[.items[] | select(.special_gl == "A")] | length')" 0
+  passed
+}
+
 step_audit() {
-  heading "Step 16 — The audit trail: who did what to Tyrell's invoices"
+  heading "Step 17 — The audit trail: who did what to Tyrell's invoices"
   as ada
   local inv
   for inv in "$INVOICE" "$DUPLICATE" "$CREDIT"; do
@@ -1101,7 +1280,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_audit'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit'
 
 main() {
   start

@@ -1728,7 +1728,7 @@ falls in (§7.7).
 | T72d | **SAP Canadian bank accounts** | Canadian vendor bank accounts (LFBK) load as scheme ca with institution and transit numbers, and Canadian house banks (T012K) load without an IBAN, so migrated Canadian suppliers can be paid |
 | T72e | **GR/IR maintenance (MR11)** | Residual GR/IR positions of closed orders can be cleared (SAP MR11) through the API, approved and audited, before the first month-end close |
 | T72f | **SAP open GR/IR positions** | Open GR/IR positions migrate with their order item (ACDOCA EBELN/EBELP): an invoice after cutover for goods received in SAP clears the GR/IR credit instead of booking the expense again; optionally, open direct-valued orders can be moved onto GR/IR |
-| T72g | **Purchase order output** | A purchase order document (a text/PDF form) is produced for the supplier through the API; email and EDI transmission stay post-pilot |
+| T72g | **Purchase order output** | A purchase order document (a text/PDF form) is produced for the supplier through the API; email and EDI transmission stay post-pilot. Built as plain text (`GET /v1/purchase-orders/{id}/document`, ADR-0054, walkthrough step 4); a PDF waits on a library decision (tracked) |
 | T72h | **Directory logins of their own** | The router and the cells connect to the directory with logins of their own and least privilege, never as the RDS master user `erp_admin` |
 | T72i | **Mirrored images signed in the release** | The release mirrors the PgBouncer and NATS images (`scripts/mirror-images.sh`) before signing, with copy provenance, so Kyverno's `erp-release-signed` admits them in production |
 | T72j | **Pilot light runnable** | The pilot light is runnable (DR node group, IRSA trust of the DR cluster's OIDC provider, Argo CD in Terraform), so the region failover rehearsal (T41g) can run; its confirmation needs AWS staging |
@@ -1867,7 +1867,11 @@ keep passing.
      `make generate` leaving no diff · the contract lint and the
      breaking-change check when the contract changes · the tests of the changed
      packages and of the packages that import them directly, against real PostgreSQL
-     with `-race`, once · 100% statement coverage of the changed packages;
+     with `-race`, once, plus `go test ./api -run TestProblemCodes` when a
+     `problem.*` code or a handler changes (`api` imports no context, it reads
+     the server's call graph), `internal/web`'s tests when `api/gen` is
+     regenerated, and `scripts/deploy-checks.sh` when infrastructure changes
+     (06 §6.5, 2026-10-29) · 100% statement coverage of the changed packages;
    - *the batch, green before every pull request:* `make ci-local` runs every
      gate, unchanged, at CI's pinned versions: `make lint-all` at 0 issues,
      `make test`, `make coverage` at 100%, `make fuzz`,

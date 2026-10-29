@@ -1039,6 +1039,19 @@ type Invoker interface {
 	//
 	// GET /v1/purchase-orders/{id}/changes/{change_id}
 	GetPurchaseOrderChange(ctx context.Context, params GetPurchaseOrderChangeParams) (GetPurchaseOrderChangeRes, error)
+	// GetPurchaseOrderDocument invokes getPurchaseOrderDocument operation.
+	//
+	// The order as a plain-text document (UTF-8) to send to the supplier, rendered from the stored order
+	// at the time of the call (ADR-0054): the buyer company, the supplier's name, number and address (its
+	// `order_from` address valid today, else its `legal` one; none when neither is held), the document
+	// number, revision, order date and currency, the purchasing organisation, the payment term with its
+	// description, the date the requisition needed the goods by, and each item with its quantity, unit,
+	// price per price unit, tax code and amount, with the order's total. Only a `released` or `closed`
+	// order has one (409 `procurement.invalid_status`). Producing it changes nothing: transmission to the
+	// supplier by email or EDI is not built (post-pilot).
+	//
+	// GET /v1/purchase-orders/{id}/document
+	GetPurchaseOrderDocument(ctx context.Context, params GetPurchaseOrderDocumentParams) (GetPurchaseOrderDocumentRes, error)
 	// GetRecommendation invokes getRecommendation operation.
 	//
 	// Returns one recommendation.
@@ -1370,12 +1383,16 @@ type Invoker interface {
 	// ListGrIrBalances invokes listGrIrBalances operation.
 	//
 	// The GR/IR position of each purchase order item of a legal entity in the leading ledger: its
-	// received, invoiced and cleared quantities and its balance on the GR/IR account (negative: received,
-	// not yet invoiced; positive: invoiced, not yet received). A position is zero in every currency once
-	// its received quantity equals its invoiced plus its cleared quantity; a closed order's residual
-	// position is cleared by a GR/IR clearing (createGrIrClearing). Only orders valued through GR/IR have
-	// positions. With `posting_date_to` the call reports one order's positions on that key date. Sortable
-	// by: `purchase_order_id`, `last_posting_date`.
+	// received, invoiced, cleared and migrated quantities and its balance on the GR/IR account (negative:
+	// received, not yet invoiced; positive: invoiced, not yet received). A position is zero in every
+	// currency once its received quantity equals its invoiced plus its cleared plus its migrated quantity;
+	// a closed order's residual position is cleared by a GR/IR clearing (createGrIrClearing). Only orders
+	// valued through GR/IR have positions; a migration run takes over the open positions SAP holds for the
+	// order items it loads (`migrated_quantity`), and an invoice posted after cutover clears them as it
+	// clears the platform's own. With `posting_date_to` the call reports one order's positions on that key
+	// date. Each position names its order by number and its account by number and name, and `totals` sums
+	// every position the filters select, on every page. Sortable by: `purchase_order_id`,
+	// `last_posting_date`.
 	//
 	// GET /v1/gr-ir-balances
 	ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (ListGrIrBalancesRes, error)
@@ -19845,6 +19862,145 @@ func (c *Client) sendGetPurchaseOrderChange(ctx context.Context, params GetPurch
 	return result, nil
 }
 
+// GetPurchaseOrderDocument invokes getPurchaseOrderDocument operation.
+//
+// The order as a plain-text document (UTF-8) to send to the supplier, rendered from the stored order
+// at the time of the call (ADR-0054): the buyer company, the supplier's name, number and address (its
+// `order_from` address valid today, else its `legal` one; none when neither is held), the document
+// number, revision, order date and currency, the purchasing organisation, the payment term with its
+// description, the date the requisition needed the goods by, and each item with its quantity, unit,
+// price per price unit, tax code and amount, with the order's total. Only a `released` or `closed`
+// order has one (409 `procurement.invalid_status`). Producing it changes nothing: transmission to the
+// supplier by email or EDI is not built (post-pilot).
+//
+// GET /v1/purchase-orders/{id}/document
+func (c *Client) GetPurchaseOrderDocument(ctx context.Context, params GetPurchaseOrderDocumentParams) (GetPurchaseOrderDocumentRes, error) {
+	res, err := c.sendGetPurchaseOrderDocument(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetPurchaseOrderDocument(ctx context.Context, params GetPurchaseOrderDocumentParams) (res GetPurchaseOrderDocumentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getPurchaseOrderDocument"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/purchase-orders/{id}/document"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetPurchaseOrderDocumentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/purchase-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/document"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetPurchaseOrderDocumentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetPurchaseOrderDocumentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetRecommendation invokes getRecommendation operation.
 //
 // Returns one recommendation.
@@ -28666,12 +28822,16 @@ func (c *Client) sendListGoodsReceipts(ctx context.Context, params ListGoodsRece
 // ListGrIrBalances invokes listGrIrBalances operation.
 //
 // The GR/IR position of each purchase order item of a legal entity in the leading ledger: its
-// received, invoiced and cleared quantities and its balance on the GR/IR account (negative: received,
-// not yet invoiced; positive: invoiced, not yet received). A position is zero in every currency once
-// its received quantity equals its invoiced plus its cleared quantity; a closed order's residual
-// position is cleared by a GR/IR clearing (createGrIrClearing). Only orders valued through GR/IR have
-// positions. With `posting_date_to` the call reports one order's positions on that key date. Sortable
-// by: `purchase_order_id`, `last_posting_date`.
+// received, invoiced, cleared and migrated quantities and its balance on the GR/IR account (negative:
+// received, not yet invoiced; positive: invoiced, not yet received). A position is zero in every
+// currency once its received quantity equals its invoiced plus its cleared plus its migrated quantity;
+// a closed order's residual position is cleared by a GR/IR clearing (createGrIrClearing). Only orders
+// valued through GR/IR have positions; a migration run takes over the open positions SAP holds for the
+// order items it loads (`migrated_quantity`), and an invoice posted after cutover clears them as it
+// clears the platform's own. With `posting_date_to` the call reports one order's positions on that key
+// date. Each position names its order by number and its account by number and name, and `totals` sums
+// every position the filters select, on every page. Sortable by: `purchase_order_id`,
+// `last_posting_date`.
 //
 // GET /v1/gr-ir-balances
 func (c *Client) ListGrIrBalances(ctx context.Context, params ListGrIrBalancesParams) (ListGrIrBalancesRes, error) {

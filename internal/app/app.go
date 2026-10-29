@@ -187,21 +187,8 @@ func New(cfg Config) (http.Handler, error) {
 		partnerAPI: &partner.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys, Schemas: configuration.Settings{}, Rules: configuration.Settings{},
 			PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, PlanningGroups: cash.PlanningGroups{}, Approvals: opener()},
 		ledgerAPI: &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
-			Numbers: configuration.Numbers{}, Approvals: opener(), Now: cfg.Now},
-		workflowAPI: &approvals.Endpoints{Pages: cfg.Pages, Decider: approvals.Decider{Roles: identity.Directory{}, AgentKind: identity.AgentKind, Metrics: cfg.Metrics, Handlers: map[string]approvals.Handler{
-			approvals.Requisition:       procurement.Approvals{},
-			approvals.PartnerChange:     partner.Approvals{Schemas: configuration.Settings{}},
-			approvals.ConfigChange:      configuration.Approvals{},
-			approvals.InvoiceException:  payables.Approvals{},
-			approvals.PeriodUnlock:      ledger.PeriodUnlocks{},
-			approvals.ManualEntry:       ledger.ManualEntries{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}},
-			approvals.PurchaseOrder:     procurement.OrderReleases{Endpoints: procurementEndpoints(cfg)},
-			approvals.OrderChange:       procurement.OrderChanges{Endpoints: procurementEndpoints(cfg)},
-			approvals.BankClearing:      payments.BankClearings{Endpoints: Payments(cfg)},
-			approvals.CenterChange:      ledger.CenterChanges{Now: cfg.Now},
-			approvals.PaymentRunRelease: payments.ReleaseApprovals{Endpoints: Payments(cfg)},
-			approvals.GRIRClearing:      procurement.GRIRClearings{Endpoints: procurementEndpoints(cfg)},
-		}}},
+			Numbers: configuration.Numbers{}, Orders: procurement.Orders{}, Approvals: opener(), Now: cfg.Now},
+		workflowAPI:    &approvals.Endpoints{Pages: cfg.Pages, Decider: approvals.Decider{Roles: identity.Directory{}, AgentKind: identity.AgentKind, Metrics: cfg.Metrics, Handlers: approvalHandlers(cfg)}},
 		procurementAPI: procurementEndpoints(cfg),
 		payablesAPI:    payablesEndpoints(cfg, upload),
 		paymentsAPI:    Payments(cfg),
@@ -303,6 +290,26 @@ func Payments(cfg Config) *payments.Endpoints {
 		Accounts: ledger.Accounts{}, DownPayments: downPayments{}, Approvals: opener(), Sessions: agents.Sessions{}, Now: cfg.Now}
 }
 
+// approvalHandlers are the contexts that own each approval object type:
+// each moves its objects on when their requests complete and says where the
+// API reads them (approvals.Locator).
+func approvalHandlers(cfg Config) map[string]approvals.Handler {
+	return map[string]approvals.Handler{
+		approvals.Requisition:       procurement.Approvals{},
+		approvals.PartnerChange:     partner.Approvals{Schemas: configuration.Settings{}},
+		approvals.ConfigChange:      configuration.Approvals{},
+		approvals.InvoiceException:  payables.Approvals{},
+		approvals.PeriodUnlock:      ledger.PeriodUnlocks{},
+		approvals.ManualEntry:       ledger.ManualEntries{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}},
+		approvals.PurchaseOrder:     procurement.OrderReleases{Endpoints: procurementEndpoints(cfg)},
+		approvals.OrderChange:       procurement.OrderChanges{Endpoints: procurementEndpoints(cfg)},
+		approvals.BankClearing:      payments.BankClearings{Endpoints: Payments(cfg)},
+		approvals.CenterChange:      ledger.CenterChanges{Now: cfg.Now},
+		approvals.PaymentRunRelease: payments.ReleaseApprovals{Endpoints: Payments(cfg)},
+		approvals.GRIRClearing:      procurement.GRIRClearings{Endpoints: procurementEndpoints(cfg)},
+	}
+}
+
 // Integration is the integration context as the API wires it: migration
 // runs load through the same endpoints the API serves, built the same way.
 func Integration(cfg Config) *integration.Endpoints {
@@ -310,7 +317,7 @@ func Integration(cfg Config) *integration.Endpoints {
 		PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, PlanningGroups: cash.PlanningGroups{}}
 	return &integration.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Settings: configuration.Settings{},
 		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{}, Orders: procurementEndpoints(cfg), OrderValues: procurement.Orders{},
-		Invoices: payablesEndpoints(cfg, uploads(cfg)), InvoiceCounts: payables.Invoices{}, Postings: postings(), Reports: ledger.Reports{},
+		Invoices: payablesEndpoints(cfg, uploads(cfg)), InvoiceCounts: payables.Invoices{}, Invoiced: payables.Invoices{}, Postings: postings(), Reports: ledger.Reports{},
 		Secrets: resolver(cfg.Secrets), Keys: cfg.FieldKeys, Resolver: net.DefaultResolver, ExtractDir: cfg.ExtractDir, Workflows: cfg.Workflows != nil, RefuseEBICS: cfg.RefuseEBICS}
 }
 

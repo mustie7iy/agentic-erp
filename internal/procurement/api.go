@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -519,7 +520,7 @@ func (e *Endpoints) UpdatePurchaseOrder(ctx context.Context, req *gen.PurchaseOr
 
 // ReleasePurchaseOrder implements POST /v1/purchase-orders/{id}:release.
 func (e *Endpoints) ReleasePurchaseOrder(ctx context.Context, params gen.ReleasePurchaseOrderParams) (gen.ReleasePurchaseOrderRes, error) {
-	o, err := e.releaseOrder(ctx, params.ID, etag.IfMatch(params.IfMatch), false)
+	o, err := e.releaseOrder(ctx, params.ID, etag.IfMatch(params.IfMatch), "")
 	if err != nil {
 		return nil, err
 	}
@@ -542,6 +543,15 @@ func (e *Endpoints) CancelPurchaseOrder(ctx context.Context, params gen.CancelPu
 		return nil, err
 	}
 	return orderOK(o), nil
+}
+
+// GetPurchaseOrderDocument implements GET /v1/purchase-orders/{id}/document.
+func (e *Endpoints) GetPurchaseOrderDocument(ctx context.Context, params gen.GetPurchaseOrderDocumentParams) (gen.GetPurchaseOrderDocumentRes, error) {
+	doc, err := e.OrderDocument(ctx, params.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.GetPurchaseOrderDocumentOK{Data: strings.NewReader(doc)}, nil
 }
 
 // --- order changes ----------------------------------------------------------
@@ -578,15 +588,17 @@ func (e *Endpoints) GetPurchaseOrderChange(ctx context.Context, params gen.GetPu
 	return &gen.GetPurchaseOrderChangeOKHeaders{ETag: gen.NewOptString(etag.Format(ch.Version)), Response: changeToAPI(ch)}, nil
 }
 
+// changeSort sorts the changes' list, whose select is wrapped: it joins the
+// order, so the keyset's tie-breaker id would be ambiguous on page 2.
 var changeSort = pagination.Sort{Default: "created_at", DefaultDesc: true, Fields: []pagination.Field{
-	{Name: "created_at", Column: "ch.created_at", Type: "timestamptz"},
+	{Name: "created_at", Column: "created_at", Type: "timestamptz"},
 }}
 
 // ListPurchaseOrderChanges implements GET /v1/purchase-orders/{id}/changes.
 func (e *Endpoints) ListPurchaseOrderChanges(ctx context.Context, params gen.ListPurchaseOrderChangesParams) (gen.ListPurchaseOrderChangesRes, error) {
 	items, next, err := listOfOrder(ctx, e, params.ID, orderList[PurchaseOrderChange, gen.PurchaseOrderChange]{sort: changeSort,
 		scope: "listPurchaseOrderChanges", page: apitypes.Page(params.OrderBy, params.PageSize, params.PageToken),
-		query: changeSelect + ` WHERE ch.purchase_order_id = $1`, what: "changes", scan: scanChange,
+		query: `SELECT * FROM (` + changeSelect + ` WHERE ch.purchase_order_id = $1) ch WHERE true`, what: "changes", scan: scanChange,
 		key: func(ch PurchaseOrderChange) (string, uuid.UUID) { return timestamp(ch.CreatedAt), ch.ID }, toAPI: changeToAPI})
 	if err != nil {
 		return nil, err
@@ -632,7 +644,7 @@ func (e *Endpoints) PostGoodsReceipt(ctx context.Context, req *gen.GoodsReceiptC
 	for i, it := range req.Items {
 		in.Items[i] = ReceiptItem{No: int32(i + 1), PurchaseOrderID: it.PurchaseOrderID, POItemNo: it.PoItemNo, Quantity: it.Quantity.Value, Unit: it.Quantity.Unit}
 	}
-	g, err := e.postReceipt(ctx, in)
+	g, err := e.postReceipt(ctx, in, true)
 	if err != nil {
 		return nil, err
 	}

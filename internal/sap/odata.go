@@ -74,7 +74,8 @@ var DefaultEntities = []EntityMapping{
 	// the API's properties for them are still to be confirmed against a
 	// system's $metadata. Until they are, the quality gate refuses the
 	// parked invoices of an OData extract, whose XRECH is absent, rather
-	// than load a credit memo as an invoice.
+	// than load a credit memo as an invoice, and its posted ones, whose
+	// invoiced quantities the load takes over by direction (T72b2).
 	{Table: "RBKP", Service: "API_SUPPLIERINVOICE_PROCESS_SRV", Entity: "A_SupplierInvoice", CompanyField: "CompanyCode", YearField: "FiscalYear",
 		Fields: map[string]string{"BELNR": "SupplierInvoice", "GJAHR": "FiscalYear", "BUKRS": "CompanyCode",
 			"LIFNR": "InvoicingParty", "XBLNR": "SupplierInvoiceIDByInvcgParty", "BLDAT": "DocumentDate",
@@ -83,6 +84,15 @@ var DefaultEntities = []EntityMapping{
 		Fields: map[string]string{"BELNR": "SupplierInvoice", "GJAHR": "FiscalYear", "BUZEI": "SupplierInvoiceItem",
 			"EBELN": "PurchaseOrder", "EBELP": "PurchaseOrderItem", "MENGE": "QuantityInPurchaseOrderUnit",
 			"WRBTR": "SupplierInvoiceItemAmount"}},
+	// ACDOCA-UMSKZ and MWSKZ (a down payment's special G/L indicator and
+	// tax code, T72c) are not mapped either, for the same reason: until
+	// they are, the quality gate refuses an OData extract's lines on the
+	// down payment account, whose indicator is absent, rather than infer it.
+	// Nor are ACDOCA-EBELN and EBELP (a GR/IR line's order item, T72f), nor
+	// T030: the gate refuses an OData extract's lines on the legal entity's
+	// gr_ir account, which come without them, and warns that SAP's GR/IR
+	// account cannot be told by T030 (WRX) for a company with receipts, so
+	// lines on it are refused only when it is the legal entity's gr_ir.
 	{Table: "ACDOCA", Service: "API_JOURNALENTRYITEMBASIC_SRV", Entity: "A_JournalEntryItemBasic", CompanyField: "CompanyCode", YearField: "FiscalYear",
 		Static: map[string]string{"RLDNR": "0L"},
 		Fields: map[string]string{"RBUKRS": "CompanyCode", "GJAHR": "FiscalYear", "BELNR": "AccountingDocument",

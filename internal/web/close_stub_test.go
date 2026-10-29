@@ -111,8 +111,8 @@ func TestChecksStubbed(t *testing.T) {
 		"GET /v1/me": answer(200, meJSON(permReadAccounts, permReadEntries, permReadStatements)),
 		"GET /v1/ledgers": answer(200, `{"items":[`+ledgerJSON(local, "2L", false, company)+","+ledgerJSON(other, "3L", false)+","+
 			ledgerJSON(leading, "0L", true, company)+`]}`),
-		"GET /v1/gr-ir-balances": answer(200, fmt.Sprintf(`{"items":[{"legal_entity_id":%q,"purchase_order_id":%q,"po_item_no":2,"account_id":%q,
-			"received_quantity":{"value":"3","unit":"KG"},"invoiced_quantity":{"value":"0","unit":"KG"},"cleared_quantity":{"value":"0","unit":"KG"},"balance":%s,"balance_lc":%s,"balance_gc":%s,
+		"GET /v1/gr-ir-balances": answer(200, fmt.Sprintf(`{"items":[{"legal_entity_id":%q,"purchase_order_id":%q,"po_item_no":2,"account_id":%q,"account_number":"219000","account_name":"GR/IR clearing",
+			"received_quantity":{"value":"3","unit":"KG"},"invoiced_quantity":{"value":"0","unit":"KG"},"cleared_quantity":{"value":"0","unit":"KG"},"migrated_quantity":{"value":"0","unit":"KG"},"balance":%s,"balance_lc":%s,"balance_gc":%s,
 			"last_posting_date":"2026-03-05"}],"next_page_token":"g2"}`, company, uuid.New(), uuid.New(), m, m, m)),
 		"GET /v1/ledger-reconciliation": answer(200, fmt.Sprintf(`{"ledger_id":%q,"compare_ledger_id":%q,"trial_balances":[
 			{"ledger_id":%q,"debit_lc":%s,"credit_lc":%s,"debit_gc":%s,"credit_gc":%s,"balanced":false}],

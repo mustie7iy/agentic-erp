@@ -306,6 +306,7 @@ type Entity struct {
 	ID               uuid.UUID
 	Code             string
 	Name             string
+	CountryCode      string
 	Status           string
 	LocalCurrency    string
 	FiscalCalendarID uuid.UUID
@@ -350,8 +351,8 @@ func entity(ctx context.Context, where string, arg any) (Entity, bool, error) {
 		return Entity{}, false, err
 	}
 	var e Entity
-	err = tx.QueryRow(ctx, `SELECT id, code, name, status, local_currency, fiscal_calendar_id FROM tenancy.legal_entity WHERE `+where, arg).
-		Scan(&e.ID, &e.Code, &e.Name, &e.Status, &e.LocalCurrency, &e.FiscalCalendarID)
+	err = tx.QueryRow(ctx, `SELECT id, code, name, country_code, status, local_currency, fiscal_calendar_id FROM tenancy.legal_entity WHERE `+where, arg).
+		Scan(&e.ID, &e.Code, &e.Name, &e.CountryCode, &e.Status, &e.LocalCurrency, &e.FiscalCalendarID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Entity{}, false, nil
 	}
@@ -380,6 +381,8 @@ type Unit struct {
 	ID            uuid.UUID
 	LegalEntityID uuid.UUID
 	Kind          string
+	Code          string
+	Name          string
 	Status        string
 }
 
@@ -390,7 +393,8 @@ func (Directory) OrgUnit(ctx context.Context, id uuid.UUID) (Unit, bool, error) 
 		return Unit{}, false, err
 	}
 	u := Unit{ID: id}
-	err = tx.QueryRow(ctx, `SELECT legal_entity_id, kind, status FROM tenancy.org_unit WHERE id = $1`, id).Scan(&u.LegalEntityID, &u.Kind, &u.Status)
+	err = tx.QueryRow(ctx, `SELECT legal_entity_id, kind, code, name, status FROM tenancy.org_unit WHERE id = $1`, id).
+		Scan(&u.LegalEntityID, &u.Kind, &u.Code, &u.Name, &u.Status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Unit{}, false, nil
 	}

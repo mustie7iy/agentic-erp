@@ -131,12 +131,16 @@ func companyLimits(co *config.Company) (limits, error) {
 
 // invoicedQuantities sums, per order item, what other posted invoices
 // already invoiced on the order, net of what posted credit memos credited
-// (subsequent debits and credits move no quantity).
+// (subsequent debits and credits move no quantity), and what the source
+// system's posted documents invoiced and credited before migration
+// (TakeOverInvoiced, T72b2).
 func invoicedQuantities(ctx context.Context, tx pgx.Tx, order, exclude uuid.UUID) (map[int32]string, error) {
-	rows, _ := tx.Query(ctx, `SELECT t.po_item_no, trim_scale(sum(CASE WHEN i.kind = 'credit_memo' THEN -t.quantity ELSE t.quantity END))::text
-		FROM payables.supplier_invoice_item t
-		JOIN payables.supplier_invoice i ON i.tenant_id = t.tenant_id AND i.id = t.supplier_invoice_id
-		WHERE t.purchase_order_id = $1 AND i.status = 'posted' AND i.id <> $2 AND NOT t.is_removed GROUP BY 1`, order, exclude)
+	rows, _ := tx.Query(ctx, `SELECT po_item_no, trim_scale(sum(CASE WHEN kind = 'credit_memo' THEN -quantity ELSE quantity END))::text FROM (
+			SELECT t.po_item_no, i.kind, t.quantity FROM payables.supplier_invoice_item t
+			JOIN payables.supplier_invoice i ON i.tenant_id = t.tenant_id AND i.id = t.supplier_invoice_id
+			WHERE t.purchase_order_id = $1 AND i.status = 'posted' AND i.id <> $2 AND NOT t.is_removed
+			UNION ALL
+			SELECT po_item_no, kind, quantity FROM payables.migrated_invoice_item WHERE purchase_order_id = $1) d GROUP BY 1`, order, exclude)
 	invoiced := map[int32]string{}
 	var no int32
 	var qty string

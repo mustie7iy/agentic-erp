@@ -25,6 +25,10 @@ on:
       - scripts/admission-checks.sh
       - scripts/mirror-images.sh
       - scripts/test-mirror-images.sh
+      # test-mirror-images.sh signs and verifies the copies with these.
+      - scripts/sign-images.sh
+      - scripts/verify-image.sh
+      - scripts/provenance.sh
       - scripts/nats-checks.sh
       - scripts/temporal-checks.sh
       - temporal/**
@@ -123,9 +127,10 @@ jobs:
           tar -xzf syft.tgz -C bin syft
           fetch prometheus.tgz "https://github.com/prometheus/prometheus/releases/download/v${PROMTOOL_VERSION}/prometheus-${PROMTOOL_VERSION}.linux-amd64.tar.gz" "$PROMTOOL_SHA256"
           tar -xzf prometheus.tgz --strip-components=1 -C bin "prometheus-${PROMTOOL_VERSION}.linux-amd64/promtool"
-          # The cosign the release signs with (ADR-0032).
+          # The cosign the release signs with (ADR-0032), and the crane it
+          # copies the upstream images with (images.sh's).
           GOBIN="$RUNNER_TEMP/bin" go install github.com/sigstore/cosign/v3/cmd/cosign@v3.1.1
-          GOBIN="$RUNNER_TEMP/bin" go install github.com/google/go-containerregistry/cmd/crane@v0.20.6
+          GOBIN="$RUNNER_TEMP/bin" go install github.com/google/go-containerregistry/cmd/crane@v0.21.7
           GOBIN="$RUNNER_TEMP/bin" go install github.com/open-policy-agent/conftest@v0.71.0
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Disk and memory before the checks

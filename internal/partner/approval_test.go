@@ -12,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 // TestChangesThroughApproval decides partner changes on their approval
@@ -148,8 +149,8 @@ func TestSuppliersPort(t *testing.T) {
 		if !ok || err != nil {
 			t.Fatalf("payment term NT30: got found %v, error %v; want it found", ok, err)
 		}
-		if got := fmt.Sprintf("%d %v", term.NetDays, term.Discounts); got != "30 []" {
-			t.Errorf("payment term NT30: got %s, want 30 days net without discounts", got)
+		if got := fmt.Sprintf("%s: %d %v", term.Description, term.NetDays, term.Discounts); got != "Net 30 days: 30 []" {
+			t.Errorf("payment term NT30: got %s, want Net 30 days, 30 days net without discounts", got)
 		}
 		if _, ok, err := s.PaymentTerm(ctx, "NT99"); ok || err != nil {
 			t.Errorf("payment term NT99: got %v %v, want not found", ok, err)
@@ -163,6 +164,7 @@ func TestSuppliersPort(t *testing.T) {
 		"supplier": func(ctx context.Context) error { _, _, err := s.Supplier(ctx, f.Supplier, f.DE); return err },
 		"terms":    func(ctx context.Context) error { _, err := s.PaymentTermExists(ctx, "NT30"); return err },
 		"term":     func(ctx context.Context) error { _, _, err := s.PaymentTerm(ctx, "NT30"); return err },
+		"address":  func(ctx context.Context) error { _, _, err := s.OrderAddress(ctx, f.Supplier); return err },
 	} {
 		t.Run(name, func(t *testing.T) {
 			if call(context.Background()) == nil {
@@ -170,5 +172,46 @@ func TestSuppliersPort(t *testing.T) {
 			}
 			apitest.EveryFailure(t, f.Tenant, f.Tenant.Human, name, call)
 		})
+	}
+}
+
+// TestOrderAddress: an order goes to the supplier's order_from address
+// valid today, else its legal one; addresses ended or not yet valid, and
+// those of other purposes, are not used.
+func TestOrderAddress(t *testing.T) {
+	f := fixture.New(t, perms...)
+	add := func(purpose, line1, from, to string) {
+		var until any // open-ended
+		if to != "" {
+			until = to
+		}
+		pgtest.Exec(t, `INSERT INTO partner.address (tenant_id, id, partner_id, purpose, line1, city, country_code, valid_from, valid_to, created_by)
+			VALUES ($1, gen_random_uuid(), $2, $3, $4, 'Springfield', 'US', current_date + $5::int, current_date + $6::int, $7)`,
+			f.Tenant.ID, f.Supplier, purpose, line1, from, until, f.Tenant.Human.ID)
+	}
+	read := func() string {
+		var got string
+		if err := apitest.InRequest(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error {
+			a, ok, err := partner.Suppliers{}.OrderAddress(ctx, f.Supplier)
+			got = fmt.Sprintf("%s %s %v", a.Purpose, a.Line1, ok)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	add("remit_to", "Remit", "-10", "")
+	add("order_from", "Ended", "-10", "0")
+	add("order_from", "Future", "1", "")
+	if got := read(); got != "  false" {
+		t.Errorf("without a legal or current order_from address: got %q, want none", got)
+	}
+	add("legal", "Legal", "-10", "")
+	if got := read(); got != "legal Legal true" {
+		t.Errorf("with a legal address: got %q, want it", got)
+	}
+	add("order_from", "Orders", "0", "1")
+	if got := read(); got != "order_from Orders true" {
+		t.Errorf("with an order_from address valid today: got %q, want it", got)
 	}
 }

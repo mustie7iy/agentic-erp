@@ -1,0 +1,131 @@
+package ledger_test
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"testing"
+
+	"github.com/google/uuid"
+
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+)
+
+// takeOverPosting takes over a source system's position of item 10 of the
+// order: the open quantity and the balance, as a migration run does.
+func (g grirEnv) takeOverPosting(order uuid.UUID, qty string, balance money.Minor) ledger.Posting {
+	return ledger.Posting{LegalEntityID: g.de, DocumentType: "SA", DocumentDate: date("2026-03-05"), PostingDate: date("2026-03-05"), Currency: "EUR",
+		SourceContext: "integration", SourceDocumentID: uuid.New(),
+		GRIR: []ledger.GRIRItem{{PurchaseOrderID: order, POItemNo: 10, Quantity: qty, Unit: "EA", TakesOver: &balance}}}
+}
+
+// projected reads an order item's projected position: received, invoiced,
+// migrated, balance and whether it is open.
+func (g grirEnv) projected(t *testing.T, order uuid.UUID) string {
+	t.Helper()
+	var received, invoiced, migrated string
+	var tc int64
+	var open bool
+	pgtest.Scan(t, `SELECT trim_scale(received)::text, trim_scale(invoiced)::text, trim_scale(migrated)::text, amount_tc, is_open
+		FROM ledger.gr_ir_position WHERE tenant_id = $1 AND purchase_order_id = $2 AND po_item_no = 10`, []any{g.ten.ID, order},
+		&received, &invoiced, &migrated, &tc, &open)
+	return fmt.Sprintf("received %s, invoiced %s, migrated %s, balance %d, open %t", received, invoiced, migrated, tc, open)
+}
+
+// TestGRIRTakeOver: a migration run takes a source system's open GR/IR
+// position over onto an order item without one (T72f): the item's GR/IR
+// line with SAP's balance and open quantity, against a line on the GR/IR
+// account without an order item, the quantity counted as migrated. An
+// invoice then clears it at the order price, without a price difference,
+// and the listing and the reconciliation's report show it.
+func TestGRIRTakeOver(t *testing.T) {
+	g := grirSetup(t)
+	order, p := uuid.New(), price{15000, 1}
+	entry := g.post(t, g.takeOverPosting(order, "-8", -120000))
+	lines := on(entry, g.grir)
+	if len(lines) != 2 || lines[0] != [3]money.Minor{-120000, -120000, -120000} || lines[1] != [3]money.Minor{120000, 120000, 120000} {
+		t.Fatalf("the take-over's GR/IR lines: got %v, want the position and its offset", lines)
+	}
+	if entry.Lines[0].PurchaseOrderID == nil || entry.Lines[1].PurchaseOrderID != nil {
+		t.Errorf("order items: got %v and %v, want the first line's only", entry.Lines[0].PurchaseOrderID, entry.Lines[1].PurchaseOrderID)
+	}
+	if got, want := g.projected(t, order), "received 0, invoiced 0, migrated -8, balance -120000, open true"; got != want {
+		t.Errorf("after the take-over: got %s, want %s", got, want)
+	}
+	page, _ := g.Must(200, "GET", "/v1/gr-ir-balances?legal_entity_id="+g.de.String()+"&purchase_order_id="+order.String()+"&posting_date_to=2026-03-31", "", "")
+	if got := fmt.Sprint(page["items"].([]any)[0].(map[string]any)["migrated_quantity"]); got != "map[unit:EA value:-8]" {
+		t.Errorf("migrated quantity on a key date: got %s, want -8 EA", got)
+	}
+	var open map[uuid.UUID]map[int32]ledger.OpenGRIR
+	if err := apitest.Committed(t, g.ten, g.ten.Human, func(ctx context.Context) (err error) {
+		open, err = ledger.Reports{}.OpenGRIR(ctx, g.de, []uuid.UUID{order})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := open[order][10]; got != (ledger.OpenGRIR{Quantity: "-8", LC: -120000}) {
+		t.Errorf("open GR/IR for the reconciliation: got %+v, want -8 and -120000", got)
+	}
+	invoice := g.post(t, g.invoicePosting("2026-03-20", "EUR", order, "8", p, 120000))
+	if got := one(t, invoice, g.grir, "the invoice's GR/IR line"); got != [3]money.Minor{120000, 120000, 120000} {
+		t.Errorf("the invoice's GR/IR line: got %v, want 1200.00 clearing the position", got)
+	}
+	if n := len(on(invoice, g.diff)) + len(on(invoice, g.expense)); n != 0 {
+		t.Errorf("price difference and expense lines of the invoice: got %d, want none", n)
+	}
+	if got, want := g.projected(t, order), "received 0, invoiced 8, migrated -8, balance 0, open false"; got != want {
+		t.Errorf("after the invoice: got %s, want %s", got, want)
+	}
+}
+
+// TestGRIRTakeOverRefusals: a position is taken over once, onto an item
+// without one, by an integration entry of take-over items only.
+func TestGRIRTakeOverRefusals(t *testing.T) {
+	g := grirSetup(t)
+	post := func(t *testing.T, in ledger.Posting) error {
+		t.Helper()
+		return apitest.Committed(t, g.ten, g.ten.Human, func(ctx context.Context) error {
+			_, err := postings().Post(ctx, in)
+			return err
+		})
+	}
+	taken := uuid.New()
+	g.post(t, g.takeOverPosting(taken, "-2", -500))
+	received := uuid.New()
+	g.post(t, g.receiptPosting("2026-03-02", "EUR", received, "-1", price{500, 1}))
+	twice := g.takeOverPosting(uuid.New(), "-1", -100)
+	twice.GRIR = append(twice.GRIR, twice.GRIR[0])
+	mixed := g.takeOverPosting(uuid.New(), "-1", -100)
+	mixed.GRIR = append(mixed.GRIR, g.receiptPosting("2026-03-02", "EUR", uuid.New(), "-1", price{500, 1}).GRIR...)
+	notMigrated := g.takeOverPosting(uuid.New(), "-1", -100)
+	notMigrated.SourceContext = "procurement"
+	bad := g.takeOverPosting(uuid.New(), "-1.1234567", -100)
+	settleRate(t, g.env, "USD", "2026-03-05", "1.5")
+	huge := g.takeOverPosting(uuid.New(), "-1", -math.MaxInt64)
+	huge.Currency = "USD"
+	for _, c := range []struct {
+		name   string
+		in     ledger.Posting
+		status int
+		code   string
+	}{
+		{"taken over before", g.takeOverPosting(taken, "-2", -500), 409, "ledger.gr_ir_position_exists"},
+		{"an item the platform moved", g.takeOverPosting(received, "-1", -500), 409, "ledger.gr_ir_position_exists"},
+		{"the same item twice", twice, 409, "ledger.gr_ir_position_exists"},
+		{"mixed with a receipt", mixed, 500, ""},
+		{"not a migration run's", notMigrated, 500, ""},
+		{"a quantity of seven decimals", bad, 500, ""},
+		{"a balance out of range once converted", huge, 422, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p := problem.From(post(t, c.in))
+			if p.Status != c.status || c.code != "" && p.Code != c.code {
+				t.Errorf("got %d %s, want %d %s", p.Status, p.Code, c.status, c.code)
+			}
+		})
+	}
+}

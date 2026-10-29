@@ -192,3 +192,115 @@ Its static files (the stylesheet and the one vendored script, htmx, pinned
 by SHA-256 and checked at startup and in a test) are embedded in the
 binary, served under content-hashed names; the image holds nothing else.
 It takes no part in the cgo exception.
+
+## Amendment (2026-10-28, T72i): the release signs the upstream images it copies
+
+The upstream images the cells run in the platform's namespaces (PgBouncer,
+NATS: `deploy/images/upstream.txt`, ADR-0035) are copied by every release
+and signed like the platform's own. Decided by this ADR's signing design;
+no new mechanism:
+
+- **Where in the release.** After the pushed images are checked against the
+  scanned build, the release logs in to tooling's ECR and runs
+  `scripts/mirror-images.sh` with `ERP_RELEASE_REGISTRY` (the registry's
+  host, a variable of the `release` environment): each pinned digest is
+  copied into `erp-<name>`, tagged with its upstream tag, its SBOM written
+  by syft, and appended to `images.txt`, so `sign-images.sh` signs it and
+  attests its SBOM and provenance, `verify-image.sh` checks it before the
+  release goes on, and the GitHub Release lists it with its SBOM. crane and
+  syft are `images.sh`'s versions, installed outside the checkout.
+- **Copy provenance.** The image is a copy, not a build, so its SLSA v1
+  provenance says so: build type
+  `https://github.com/mustie7iy/agentic-erp/mirror-images@v1`, the source,
+  tag and digest copied and the reference it was copied to as external
+  parameters, the source `oci://<source>:<tag>` by digest as a resolved
+  dependency. `mirror-images.sh` writes that part; `sign-images.sh`
+  completes it with what the build provenance says of the release (its
+  commit as the other resolved dependency, whether the checkout was clean,
+  the workflow, the run and the version) and attests it in place of the
+  build provenance, type `slsaprovenance1`, as for any image. The statement's
+  subject is the image's digest, which is the source's: the copy keeps it.
+- **Verification.** `verify-image.sh` tells a copy from a build by the build
+  type. A copy's provenance must name the image's own digest. Every release
+  pinning the same upstream digest attests the same image again, so a copy
+  passes when one of its provenances names the expected commit from a clean
+  checkout, the other releases' provenances counting neither way (a failed
+  release's would otherwise refuse the digest until its pin changed), while
+  a built image, whose digest
+  changes with every commit, must still name that commit alone. An image
+  whose provenances say both copy and build is refused. So a promotion
+  (`verify-image.sh` on each image of `release.json` with its commit)
+  accepts a cell's `images.pgbouncer` and `images.nats` only as the copies
+  the release at that commit made of its pins.
+- **Checked by** `scripts/test-mirror-images.sh` (the deploy checks), against
+  a local registry with a key made for the test: the copy signed with its
+  copy provenance at the release's commit beside a built image with its
+  build provenance, two releases verifying for either commit and not a
+  third or one from uncommitted changes, and refusals of a copy naming
+  another digest, an image both copy and build, a build attested at two
+  commits, and two copies of one digest or an unreadable one. The test's
+  crane is the release's (v0.21.7), and the release refuses to sign with
+  `PROVENANCE`, the tests' stand-in for `provenance.sh`, set.
+  `mirror-images.sh DRY_RUN=true` plans the real list's copies without a
+  registry, which the test runs on `deploy/images/upstream.txt`.
+
+The upstream images are not scanned by grype in the release: their pins are
+reviewed as code changes (ADR-0035), and whether a release should also fail
+on a fixable vulnerability in them is left to the product owner (T72i's
+report).
+
+## Amendment (2026-10-29, batch 21 review): the release's own images in tooling's ECR, and erp-temporal
+
+Three findings of T72i's review (tracker, `review:batch21`), as built:
+
+- **One release registry.** The release pushed the platform's images to
+  `ghcr.io/<owner>/agentic-erp/erp-*`, but a cell's `release.json` takes
+  only `<registry>/erp-<name>` (`promotion-checks.sh`) and the clusters'
+  `erp-release-signed` admits only the hosts of `release.registries`,
+  tooling's ECR (ADR-0035): no release's own image could be pinned or
+  admitted. The release now logs in to tooling's ECR before it pushes and
+  pushes, signs, attests, verifies and lists every image there, under
+  `ERP_RELEASE_REGISTRY` (refused unless it is a host alone), each binary
+  into its `erp-<name>` repository of `modules/ecr`, as the upstream copies
+  already were. Decided by ADR-0035 (one ECR repository per binary, the
+  release role pushes to ECR, the clusters pull from it) and by this
+  ADR's rule that what is verified and deployed is the pushed digest:
+  ghcr is dropped, not kept beside ECR, since nothing pulls from it and a
+  second copy would be signed for nobody; the workflow no longer asks for
+  `packages: write`. `scripts/test-images.sh` holds the release to it:
+  every image a release builds or copies lands in a repository
+  `modules/ecr` creates and every repository gets one, under the names
+  `promotion-checks.sh` requires, every image a `release.json` names is
+  one of them, and `release.yml` pushes and copies into
+  `ERP_RELEASE_REGISTRY` and names no other registry.
+- **erp-temporal is built.** `release.json` and erp-cell require
+  `images.temporal` from `erp-temporal`, which ADR-0035 (T40c4) defines as
+  the platform's own binary (`temporal/cmd/erp-temporal`, Temporal's server
+  with the platform's authorization, a Go module of its own) "built,
+  signed and attested with the platform's own", but nothing built it and
+  ECR had no repository for it. `scripts/images.sh` now builds it with ko
+  from `temporal/` (ko finds builds in its working directory's module
+  only), with a configuration written from `.ko.yaml`'s base and
+  platforms, so the base stays pinned once and the scan, the base check
+  and the provenance cover it unchanged: static, `-trimpath`, an empty
+  build id, one build at a time, listed after the four and before
+  erp-analytics, with ko's SBOMs; no version is stamped, as the module
+  has no `buildinfo`. `modules/ecr` gains `erp-temporal`, and changes to
+  `temporal/go.mod`, `go.sum` or `cmd/` run the image checks
+  (`scripts/ci-changes.sh`). It is not an upstream image, so it is not in
+  `deploy/images/upstream.txt`.
+- **Checks fail closed.** A check run inside `if` or `!` whose tool fails
+  must refuse, never pass: `verify-image.sh` asserts a built image's clean
+  checkout positively (`all(sourceModified == false)`), where
+  `select(sourceModified != false)` read a jq error as clean; and the same
+  class is fixed in `provenance.sh` (a failed `git status` read as a clean
+  checkout), `sign-images.sh` (an SBOM it could not read was skipped, which
+  could hide a second SBOM of an image), `next-version.sh` (a failed git
+  read as no release yet, no commit or no migration) and
+  `promotion-checks.sh` (a failed `git show` read as a file never there, so
+  a drill's record could be rewritten as new). Each has a test with the
+  tool made to fail. Left as they are, since their failure is closed
+  already: `mirror-images.sh`'s tag lookup (a failed lookup copies, and the
+  copy's digest is checked after), `signing-roundtrip.sh`'s `git status`
+  (a failure takes the stricter commit check) and the `rev-parse -q
+  --verify` tag tests of `changelog.sh` and the release workflow.

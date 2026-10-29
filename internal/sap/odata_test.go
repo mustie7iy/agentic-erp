@@ -175,6 +175,41 @@ func TestODataNumbersOutOfRangeKeepTheirLiteral(t *testing.T) {
 	}
 }
 
+// TestMockDownPayment: company 3000 has one open down payment (special G/L
+// A, T72c) to the supplier of its second order, on the down payment
+// account T074 names, with its input tax on V1 in SAP's net display.
+func TestMockDownPayment(t *testing.T) {
+	e := GenerateMock(42, "2026")
+	var lines []ACDOCA
+	for _, l := range e.ACDOCA {
+		if l.UMSKZ != "" || l.MWSKZ != "" {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) != 2 {
+		t.Fatalf("lines with an indicator or tax code: got %d, want the down payment's and its tax's", len(lines))
+	}
+	dp, tax := lines[0], lines[1]
+	var second string
+	for _, h := range e.EKKO {
+		if h.BUKRS == "3000" {
+			if second == "" {
+				second = "next"
+				continue
+			}
+			second = h.LIFNR
+			break
+		}
+	}
+	got := fmt.Sprintf("%s %s %s %s %s %s; %s %s %s", dp.RBUKRS, dp.RACCT, dp.HSL, dp.UMSKZ, dp.MWSKZ, dp.LIFNR, tax.RACCT, tax.HSL, tax.MWSKZ)
+	if want := "3000 0000159000 2000.00 A V1 " + second + "; 0000140000 100.00 V1"; got != want {
+		t.Errorf("down payment and tax lines: got %s, want %s", got, want)
+	}
+	if len(e.T074) != 1 || e.T074[0].SKONT != dp.RACCT {
+		t.Errorf("T074: got %v, want company 3000's down payment account %s", e.T074, dp.RACCT)
+	}
+}
+
 func TestMockIsBalancedAndDeterministic(t *testing.T) {
 	a, b := GenerateMock(7, "2026"), GenerateMock(7, "2026")
 	ja, _ := json.Marshal(a)

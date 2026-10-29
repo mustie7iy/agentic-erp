@@ -69,7 +69,7 @@ type GRIRClearing struct {
 }
 
 // GRIRClearingItem is one order item's position a clearing clears, as it
-// stood when proposed: invoiced + cleared - received, and the balance in
+// stood when proposed: invoiced + cleared + migrated - received, and the balance in
 // the order's currency.
 type GRIRClearingItem struct {
 	POItemNo    int32       `json:"po_item_no"`
@@ -380,4 +380,9 @@ func pendingClearing(ctx context.Context, tx pgx.Tx, clearing, request uuid.UUID
 		return GRIRClearing{}, fmt.Errorf("procurement: GR/IR clearing %s (%s) is not pending on request %s", clearing, c.Status, request)
 	}
 	return c, nil
+}
+
+// Resources is where the API reads each GR/IR clearing (approvals.Locator).
+func (GRIRClearings) Resources(_ context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	return approvals.Paths("/v1/gr-ir-clearings/%s", ids), nil
 }

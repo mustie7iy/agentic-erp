@@ -97,6 +97,13 @@ func TestFilterScopeKeepsOnlyTheScope(t *testing.T) {
 	if len(wrongYear.ACDOCA) != 0 {
 		t.Errorf("ACDOCA rows for another year: got %d, want 0", len(wrongYear.ACDOCA))
 	}
+	if len(us.T074) != 0 {
+		t.Errorf("T074 rows of company 1000: got %d, want 0", len(us.T074))
+	}
+	ca := FilterScope(all, Scope{CompanyCodes: []string{"3000"}, FiscalYear: "2026"})
+	if len(ca.T074) != 1 || ca.Counts()["T074"] != 1 {
+		t.Errorf("T074 rows of company 3000: got %d, want 1", len(ca.T074))
+	}
 	c := us.Counts()
 	if c["T001"] != 1 {
 		t.Errorf("T001 count: got %d, want 1 (%v)", c["T001"], c)

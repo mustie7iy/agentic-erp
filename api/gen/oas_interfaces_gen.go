@@ -469,6 +469,10 @@ type GetPurchaseOrderChangeRes interface {
 	getPurchaseOrderChangeRes()
 }
 
+type GetPurchaseOrderDocumentRes interface {
+	getPurchaseOrderDocumentRes()
+}
+
 type GetPurchaseOrderRes interface {
 	getPurchaseOrderRes()
 }

@@ -185,6 +185,26 @@ type Acknowledger interface {
 	Acknowledgement(ctx context.Context, objectID uuid.UUID) (string, error)
 }
 
+// Locator is a Handler that says where the API reads its objects: the
+// path of each, keyed by its id (an approval request's object_resource),
+// so a consumer goes from a request to its object without knowing every
+// context's paths. The owning context knows them, and an object read
+// through another, as an order change is through its order, only there.
+// A request whose Handler is not one has no path.
+type Locator interface {
+	Resources(ctx context.Context, objectIDs []uuid.UUID) (map[uuid.UUID]string, error)
+}
+
+// Paths is the path of each object an API path with one %s reads by its
+// own id, keyed by the id: what a Locator of such objects returns.
+func Paths(format string, objectIDs []uuid.UUID) map[uuid.UUID]string {
+	out := make(map[uuid.UUID]string, len(objectIDs))
+	for _, id := range objectIDs {
+		out[id] = fmt.Sprintf(format, id)
+	}
+	return out
+}
+
 // Step is one approval step of a request.
 type Step struct {
 	No        int16     `json:"step_no"`

@@ -139,6 +139,15 @@ func TestImportStatements(t *testing.T) {
 		if items := page["items"].([]any); len(items) != 1 || field(items[0], "id") != first["id"] || field(items[0], "lines") != nil {
 			t.Errorf("list: got %v, want the first statement without lines", page)
 		}
+		// The list joins ref.currency, so page 2's keyset condition must name the statement's id.
+		page, _ = e.in(t).Must(200, "GET", "/v1/bank-statements?house_bank_id="+e.bank.String()+"&status=imported&page_size=1&page_token="+
+			page["next_page_token"].(string), "", "")
+		if items := page["items"].([]any); len(items) != 1 || field(items[0], "id") != second["id"] {
+			t.Errorf("second page: got %v, want the second statement", items)
+		}
+		if page["next_page_token"] != nil {
+			t.Errorf("last page's next_page_token: got %v, want none", page["next_page_token"])
+		}
 		e.in(t).Problem(404, "request.not_found", "GET", "/v1/bank-statements/"+e.expense.String(), "", "")
 	})
 }

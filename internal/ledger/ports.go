@@ -219,6 +219,18 @@ type GRIRItem struct {
 	// primary cost account, as an invoice's price difference does. An
 	// entry that clears is all clearing items.
 	Clears *GRIRClearing
+	// TakesOver makes the item a migration run's take-over of the position
+	// the source system holds for the order item (T72f; SAP's GR/IR lines
+	// carry the order item, ACDOCA EBELN/EBELP): its balance there, in the
+	// entry's currency, onto an item without a position yet. Quantity is
+	// the position's open quantity, invoiced less received in the source
+	// system, and UnitPrice is not read. The GR/IR line carries both,
+	// against a line on the GR/IR account without an order item, which
+	// offsets the lines the run loaded from the source system's documents
+	// without theirs; the quantity counts as migrated, neither received nor
+	// invoiced. An entry that takes over is an integration entry of
+	// take-over items only.
+	TakesOver *money.Minor
 }
 
 // GRIRClearing is the position a clearing item was approved to clear: it
@@ -234,7 +246,7 @@ type GRIRClearing struct {
 // proposes to clear it.
 type GRIRPosition struct {
 	POItemNo int32
-	// Quantity is invoiced + cleared - received, signed as the GR/IR line
+	// Quantity is invoiced + cleared + migrated - received, signed as the GR/IR line
 	// (debit positive).
 	Quantity, Unit string
 	Balance        money.Minor // in Currency, the position's transaction currency
@@ -265,7 +277,7 @@ func (Postings) GRIROrder(ctx context.Context, legalEntity, order uuid.UUID) (GR
 	if err != nil {
 		return GRIROrder{}, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT po_item_no, trim_scale(invoiced + cleared - received)::text, uom_code, amount_tc, currency_tc, is_open
+	rows, _ := tx.Query(ctx, `SELECT po_item_no, trim_scale(invoiced + cleared + migrated - received)::text, uom_code, amount_tc, currency_tc, is_open
 		FROM ledger.gr_ir_position WHERE legal_entity_id = $1 AND purchase_order_id = $2 ORDER BY po_item_no`, legalEntity, order)
 	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (GRIRPosition, error) {
 		var p GRIRPosition

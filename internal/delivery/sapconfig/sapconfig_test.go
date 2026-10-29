@@ -302,6 +302,36 @@ func TestGRIRRowsDisagree(t *testing.T) {
 	}
 }
 
+// TestDownPaymentFromT074: a company's down payment account is the
+// special G/L account of T074 for vendors and indicator A (ADR-0037,
+// T72c); a company without such a row has none, rows of other account
+// types or indicators are ignored, and a second account is noted, as only
+// one is taken. The mock's company 3000 validates with it.
+func TestDownPaymentFromT074(t *testing.T) {
+	e := sap.GenerateMock(42, "2026")
+	e.T074 = append(e.T074, sap.T074{BUKRS: "3000", KOART: "K", UMSKZ: "A", HKONT: "0000212000", SKONT: "0000159100"},
+		sap.T074{BUKRS: "3000", KOART: "D", UMSKZ: "A", HKONT: "0000120000", SKONT: "0000159200"},
+		sap.T074{BUKRS: "3000", KOART: "K", UMSKZ: "I", HKONT: "0000211000", SKONT: "0000159300"},
+		sap.T074{BUKRS: "3000", KOART: "K", UMSKZ: "A", HKONT: "0000213000", SKONT: "0000159000"})
+	c, notes := Generate(e, DefaultOptions())
+	for code, want := range map[string]string{"1000": "", "3000": "159000"} {
+		if got := c.Company(code).AccountDetermination.DownPayment; got != want {
+			t.Errorf("company %s down payment account: got %q, want %q", code, got, want)
+		}
+	}
+	all := notesText(notes)
+	if want := "companies[3000].account_determination.down_payment: T074 names down payment accounts 159000 and 159100; 159000 taken"; !strings.Contains(all, want) {
+		t.Errorf("got notes without %q:\n%s", want, all)
+	}
+	if n := strings.Count(all, "T074"); n != 1 {
+		t.Errorf("T074 notes: got %d, want 1:\n%s", n, all)
+	}
+	plain, _ := Generate(sap.GenerateMock(42, "2026"), DefaultOptions())
+	if fs := config.Validate(plain, currency.Seeded()); config.HasErrors(fs) {
+		t.Errorf("draft with company 3000's down payment account does not validate: %v", fs)
+	}
+}
+
 // TestCanadianHouseBank: company 3000's house bank has no IBAN; its
 // account is taken by the routing in its bank key and its account number
 // (T72d), and a bank key in another form is noted and left for a reviewer,

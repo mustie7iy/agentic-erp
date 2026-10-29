@@ -764,8 +764,9 @@ Rules enforced in the database:
   `gr_ir`) names its order item (trigger `ledger.check_gr_ir_line`,
   constraint `journal_line_gr_ir_order_item`, 422 `ledger.automatic_account`):
   only goods receipts and invoices post it, never a manual entry. Entries a
-  migration run loaded (`integration`) are exempt, as SAP's GR/IR lines
-  arrive without their order items. The ledger's `IsPostable` answers false
+  migration run loaded (`integration`) are exempt, as SAP's documents'
+  GR/IR lines load without their order items; the run takes each open
+  position over onto its order item (below). The ledger's `IsPostable` answers false
   for the GR/IR account too, so no order or invoice item names it.
 - An order item's GR/IR position is the sum of its lines: quantity
   (invoiced plus cleared less received; a receipt's line is negative) and
@@ -817,11 +818,22 @@ Rules enforced in the database:
   and `price_difference` is still the account, that were approved. A
   clearing entry is procurement's (WE), so the ledger's `:reverse`
   refuses it; no path reverses one yet.
+  A migration run takes the GR/IR positions SAP holds open over (T72f,
+  migration 000167, ADR-0034 As built): an integration entry per order of
+  `GRIRItem.TakesOver` items, each the item's GR/IR line with SAP's balance
+  and open quantity (what SAP invoiced less what it received) against a
+  line on the GR/IR account without an order item, which offsets SAP's
+  documents' lines there; refused (409 `ledger.gr_ir_position_exists`) onto
+  an item that has a position. The projection adds an integration entry's
+  quantities to the position's `migrated`, neither received nor invoiced
+  (and the key-date report likewise), so a position's quantity is invoiced
+  + cleared + migrated - received and `is_open` reads all four.
   `GET /v1/gr-ir-balances` (T33e) pages the current positions from it by an
   index range scan (partial indexes `WHERE is_open` for the default,
   open-only listing); together they are the leading ledger's GR/IR balance
   from goods receipts and invoices (lines a migration run loaded without an
-  order item are on the account but in no position). A key date
+  order item are on the account but in no position; once the run has taken
+  SAP's open positions over, they net to zero). A key date
   (`posting_date_to`) is a report summed from one order's lines, so it
   needs `purchase_order_id`.
   A reversal mirrors its entry; where it brings an order item's quantity to
@@ -985,7 +997,11 @@ balance, and clearing, settlement and reservation refuse them
 (`ledger.special_gl_item`): they leave the account only by clearing against
 the supplier's invoice (T46d) or by a reversal, which keeps the indicator.
 Listing the `down_payment` account's open items (`account_id`) lists the
-supplier's down payments.
+supplier's down payments. A down payment migrated open from SAP (ACDOCA UMSKZ A,
+T72c) is posted as its SAP document, the special item on its tax code
+beside its tax lines, and recorded as a `paid` `down_payment_request`
+naming that entry, its reference the source document, so it behaves as one
+a run paid (ADR-0037, As built).
 
 Foreign-currency revaluation (T48, ADR-0042, migration 000107). The
 document currency is the entry's `currency_tc`; lines carry no currency of
@@ -1318,7 +1334,9 @@ pending_approval -> draft, draft -> released, released -> closed, and to
 cancelled from draft, pending_approval or released (trigger
 `purchase_order_transition`); an order waiting for approval is direct
 (`purchase_order_draft_direct`). A migration run's order is released as
-loaded.
+loaded, valued as SAP valued it: `gr_ir` when a line on SAP's GR/IR account
+names it (T72f), `direct` otherwise; its receipts are recorded without a WE
+entry, as the migrated journal carries their value.
 
 The lifecycle of a released order (valuation price, release strategy,
 order changes, returns, contract renewal and alerts) is ADR-0034.
@@ -1440,6 +1458,13 @@ erDiagram
     uuid account_id
     uuid cost_center_id "T56e"
     uuid profit_center_id "T56e" }
+  migrated_invoice_item { uuid migrated_invoice_id PK
+    int item_no PK
+    text reference
+    text kind "invoice | credit_memo"
+    uuid purchase_order_id
+    int po_item_no
+    numeric quantity }
   match_result { uuid id PK
     uuid supplier_invoice_id
     timestamptz evaluated_at
@@ -1497,7 +1522,8 @@ do (T34c).
 Each kind is matched and posted by its kind (T34c):
 
 - **Match**, per order item, against what other posted documents invoiced
-  net of credit memos:
+  net of credit memos, and what SAP's posted documents invoiced before
+  migration (`migrated_invoice_item`, below):
   - an invoice does not invoice more than received;
   - a credit memo does not credit more than invoiced
     (`quantity_exceeds_invoiced`);
@@ -1547,6 +1573,30 @@ Each kind is matched and posted by its kind (T34c):
   `payables.unknown_payment_term` for a term that is not configured). The
   invoice resource and `SupplierInvoicePosted` show them as
   `payment_terms`; a later change to the term changes neither.
+
+**Quantities invoiced before migration** (migration 000166, T72b2). SAP's
+posted invoice documents come over as journal entries, not as supplier
+invoices, so the match saw nothing invoiced on a migrated order and held
+every migrated credit memo (`quantity_exceeds_invoiced`) and subsequent
+debit or credit (`nothing_invoiced`). The migration load takes over, through
+`Endpoints.TakeOverInvoiced`, what each posted document (RBKP RBSTAT 5)
+invoiced or credited: `payables.migrated_invoice_item`, one row per ordinary
+item (RSEG-TBTKZ blank; a subsequent debit/credit item moves no quantity and
+is left out), its `kind` the document's direction (RBKP-XRECH: `invoice` or
+`credit_memo`), a positive `quantity`, the source document as `reference`
+(the connector's source system and BELNR/GJAHR, "SAP_PRD 5100000001/2026",
+as its external references name it) and the item's place in it as `item_no`. Rows are
+insert-only and taken over once per document and item
+(`migrated_invoice_item_once`, 409 `payables.already_taken_over`); the order
+item is checked through procurement's published API, with no foreign key,
+and its order's items are locked as a posting locks them, so a posting on
+the order waits for the take-over and counts it. The match, `:post`,
+simulations and regression suites count the rows as they count documents
+posted here, so a migrated correction matches when SAP's quantities allow
+it and is still held when they do not, and an invoice entered after
+cutover counts what SAP invoiced against the received quantity. The
+migration's reconciliation compares them per order item
+(`Invoices.MigratedQuantities`, docs/migration.md).
 
 A partial unique index on `(tenant_id, supplier_id, supplier_reference_norm)`
 for non-rejected invoices makes duplicate invoices impossible at the database
@@ -2284,7 +2334,7 @@ activate, and orders under them are refused.
 | `external_ref` | Maps any entity to its key in an external system (SAP object and key); unique per system/object/key |
 | `connector` | Configured connections (SAP OData, bank SFTP, EDI VAN, email); secrets by reference to the vault |
 | `message` | Inbound and outbound messages with status, attempts, payload reference |
-| `output_message` | Business output (purchase orders to suppliers) per channel |
+| `output_message` | Business output (purchase orders to suppliers) per channel, written when it is transmitted (post-pilot); not written yet. The printed form, `GET /v1/purchase-orders/{id}/document`, is rendered on read and not stored (ADR-0054) |
 | `migration_run` | Migration scope, mode, status, reconciliation report |
 | `webhook_subscription` | A tenant's webhook endpoint (https), its event types or `<context>.*`, status (`active`, `paused`, `disabled` with a reason, `deleted`), its sealed `whsec_` secret and, during a rotation, the previous one with its expiry (ADR-0041) |
 | `webhook_delivery` | One delivery of an event to a subscription, unique per (subscription, event): body, the event's `occurred_at` (the order a resource's deliveries are sent in), status (`pending` while an attempt is due, `delivered`, `dead`, `dropped` when its subscription was disabled), attempts, last HTTP status and error; kept 30 days. A paused subscription's stay pending until it resumes; the dispatcher leases one it sends by moving `next_attempt_at` (ADR-0041, T50f). Redelivery and replay reset deliveries to `pending` with no attempts; a ping is a delivery of type `webhook.ping` about its subscription, attempted once (T50g) |
@@ -2363,6 +2413,7 @@ line or reservation. An agent's budget is identity's
 | SKA1/SKB1 | `ledger.gl_account`, `ledger.company_account` |
 | ACDOCA | `ledger.journal_entry` + `ledger.journal_line` (TC/LC/GC amounts) |
 | BSEG clearing (AUGBL) | `ledger.clearing` + `ledger.clearing_item` |
+| ACDOCA lines on the GR/IR account (T030 WRX) with EBELN/EBELP | the order valued `gr_ir`; per open order item, SAP's balance and open quantity (posted RSEG invoiced less MSEG 101 received) taken over onto `ledger.gr_ir_position` (`migrated`) by an integration entry of `GRIRItem.TakesOver` items (T72f) |
 | LFA1/LFB1/LFBK, BUT000 | `partner.business_partner`, `supplier_company`, `bank_account`, `tax_identifier`; a Canadian LFBK (BANKS CA) as scheme `ca`, its institution and transit from BANKL as 0 + institution + transit (T72d) |
 | FLQLITEM/FLQLITEMT liquidity items, T035 planning groups, LFB1-FDGRV | `cash.liquidity_item`, `cash.planning_group`, `supplier_company.planning_group` (T53b) |
 | EBAN | `procurement.requisition` |
@@ -2374,7 +2425,7 @@ line or reservation. An agent's budget is identity's
 | Purchase order release strategy (T16FS/T16FC, EKKO-FRGKE/FRGZU) | `purchasing.order_release_approval` tiers, `purchase_order.status` `pending_approval`, `workflow.approval_request` (`purchase_order`) (T47c/d) |
 | PO change documents and versions (CDHDR/CDPOS EINKBELEG, EREV, EKKO-REVNO) | `procurement.purchase_order_change` (`proposed`, `previous`, `revision`), `purchase_order.revision`; increases approved as `order_change` (T47e/f) |
 | Outline agreement validity end and follow-on contract (EKKO-KDATE, reference agreement) | `contract.valid_to`, `contract.renewal_of_id`, `expiry_alerted_on` and `ContractExpiring` (T47g) |
-| RBKP/RSEG | `payables.supplier_invoice` + items; parked documents (RBSTAT A) by kind (T72b): RBKP-XRECH "X" an invoice, blank a credit memo; all items RSEG-TBTKZ "X" a subsequent debit (XRECH "X") or credit (blank), their items of quantity 0. An absent or unknown indicator stops the load; a document mixing subsequent and ordinary items is not migrated (warning) |
+| RBKP/RSEG | `payables.supplier_invoice` + items; parked documents (RBSTAT A) by kind (T72b): RBKP-XRECH "X" an invoice, blank a credit memo; all items RSEG-TBTKZ "X" a subsequent debit (XRECH "X") or credit (blank), their items of quantity 0. An absent or unknown indicator stops the load; a document mixing subsequent and ordinary items is not migrated (warning). Posted documents (RBSTAT 5): the quantities of their ordinary items, by XRECH, as `payables.migrated_invoice_item` for matching (T72b2); one whose XRECH, an item's TBTKZ or an ordinary item's quantity cannot be read stops the load |
 | REGUH/REGUP (F110) | `payments.payment_run`, `payment`, `payment_item` |
 | T012K | `payments.house_bank`; a Canadian one, without an IBAN, by `institution_number`, `transit_number` (from the bank key, as for LFBK) and `account_number` (BANKN) (T72d) |
 | T052 | `partner.payment_term` |

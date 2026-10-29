@@ -61,8 +61,8 @@ func TestReportsStubbed(t *testing.T) {
 		"GET /v1/balances":        answer(200, `{"items":[`+balanceJSON(company)+`],"next_page_token":"b2"}`),
 		"GET /v1/open-items": answer(200, `{"items":[`+openItemJSON(company)+`],"next_page_token":"o2","aging":[
 			{"bucket":"disputed","currency":"EUR","item_count":2,"amount_lc":`+m+`}]}`),
-		"GET /v1/gr-ir-balances": answer(200, fmt.Sprintf(`{"items":[{"legal_entity_id":%q,"purchase_order_id":%q,"po_item_no":2,"account_id":%q,
-			"received_quantity":{"value":"3","unit":"KG"},"invoiced_quantity":{"value":"0","unit":"KG"},"cleared_quantity":{"value":"0","unit":"KG"},"balance":%s,"balance_lc":%s,"balance_gc":%s,
+		"GET /v1/gr-ir-balances": answer(200, fmt.Sprintf(`{"items":[{"legal_entity_id":%q,"purchase_order_id":%q,"po_item_no":2,"account_id":%q,"account_number":"219000","account_name":"GR/IR clearing",
+			"received_quantity":{"value":"3","unit":"KG"},"invoiced_quantity":{"value":"0","unit":"KG"},"cleared_quantity":{"value":"0","unit":"KG"},"migrated_quantity":{"value":"0","unit":"KG"},"balance":%s,"balance_lc":%s,"balance_gc":%s,
 			"last_posting_date":"2026-03-05"}],"next_page_token":"g2"}`, company, uuid.New(), uuid.New(), m, m, m)),
 		"GET /v1/ledger-reconciliation/entries": answer(200, fmt.Sprintf(`{"items":[{"ledger_id":%q,"journal_entry_id":%q,"fiscal_year":2026,"line_no":1,
 			"document_number":"100042","posting_date":"2026-03-16","fiscal_period":3,"amount":%s,"amount_lc":%s,"amount_gc":%s}],"next_page_token":"e2"}`,
