@@ -5328,7 +5328,7 @@
        },
        {
         "s": "T",
-        "t": "x-problem-codes may omit codes an operation can answer: problemcodes_test.go's cut drops a direct call of a function-value parameter without proving its callers made the value; about 45 such sites, mostly ifMatch/fits/check/build passed through internal/app.handler's promotion wrappers, a few from struct fields (payables.Uploads.now, blobstore writeSidecar place, uow authenticate check, apitypes PageOf key/toAPI); checking them with givenMade adds codes such as request.version_mismatch and ledger.approval_required, each to be judged",
+        "t": "x-problem-codes may omit codes an operation can answer: problemcodes_test.go's cut drops a direct call of a function-value parameter without proving its callers made the value; 61 of 165 such call sites in production packages are unproven by holdsMade (counted in review round 2), mostly ifMatch/fits/check/build passed through internal/app.handler's promotion wrappers, others in shared platform helpers (uow.Act fn, uow.Job.Tx fn, database.BeginOr begin, pagination.Page key, worker.Recover fn) and struct fields (payables.Uploads.now, blobstore writeSidecar place, uow authenticate check, apitypes PageOf key/toAPI); checking them with givenMade adds codes such as request.version_mismatch and ledger.approval_required, each to be judged",
         "r": "api/problemcodes_test.go cut · ADR-0052 G7",
         "src": "review:batch23",
         "c": []
