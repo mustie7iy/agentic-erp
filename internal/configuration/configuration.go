@@ -765,3 +765,8 @@ func decided(ctx context.Context, id uuid.UUID, status, comment string) error {
 	}
 	return record(ctx, "config.change_request."+status, id, map[string]any{"from_status": c.Status, "comment": comment}, e)
 }
+
+// Resources is where the API reads each change request (approvals.Locator).
+func (Approvals) Resources(_ context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	return approvals.Paths("/v1/change-requests/%s", ids), nil
+}

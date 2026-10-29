@@ -152,6 +152,7 @@ func TestDualRelease(t *testing.T) {
 		r, _ := e.As(e.Approver).Must(200, "GET", "/v1/approval-requests/"+request, "", "")
 		wantField(t, r, "object_type", "payment_run_release")
 		wantField(t, r, "object_id", id(run))
+		wantField(t, r, "object_resource", "/v1/payment-runs/"+id(run))
 		wantField(t, r, "requester_id", e.Approver.ID)
 		wantField(t, r, "amount", map[string]any{"amount": "600.00", "currency": "EUR"})
 	}) && t.Run("refused while it waits", func(t *testing.T) {

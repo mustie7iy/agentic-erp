@@ -68,7 +68,7 @@ func TestReportBudgets(t *testing.T) {
 				return `{"bucket":"overdue","days_from":1,"days_to":30,"currency":"EUR","item_count":1000,"amount_lc":` + m + `}`
 			})+`]}`),
 		"GET /v1/gr-ir-balances": answer(200, `{"items":[`+many(reportPageSize, func() string {
-			return fmt.Sprintf(`{"legal_entity_id":%q,"purchase_order_id":%q,"po_item_no":2,"account_id":%q,"received_quantity":{"value":"3000","unit":"KG"},
+			return fmt.Sprintf(`{"legal_entity_id":%q,"purchase_order_id":%q,"po_item_no":2,"account_id":%q,"account_number":"219000","account_name":"GR/IR clearing","received_quantity":{"value":"3000","unit":"KG"},
 				"invoiced_quantity":{"value":"1250.5","unit":"KG"},"cleared_quantity":{"value":"0","unit":"KG"},"balance":%s,"balance_lc":%s,"balance_gc":%s,"last_posting_date":"2026-03-05"}`,
 				company, uuid.New(), uuid.New(), m, m, m)
 		})+`],"next_page_token":"g2"}`),

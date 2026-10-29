@@ -248,3 +248,13 @@ func waitingOrder(ctx context.Context, tx pgx.Tx, order, request uuid.UUID) (Pur
 	}
 	return o, nil
 }
+
+// Resources is where the API reads each requisition (approvals.Locator).
+func (Approvals) Resources(_ context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	return approvals.Paths("/v1/requisitions/%s", ids), nil
+}
+
+// Resources is where the API reads each purchase order (approvals.Locator).
+func (OrderReleases) Resources(_ context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	return approvals.Paths("/v1/purchase-orders/%s", ids), nil
+}

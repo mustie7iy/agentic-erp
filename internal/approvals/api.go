@@ -20,10 +20,14 @@ type Endpoints struct {
 	Decider
 }
 
-func toAPI(r Request) gen.ApprovalRequest {
+// toAPI renders a request, its object at resource ("": none known).
+func toAPI(r Request, resource string) gen.ApprovalRequest {
 	out := gen.ApprovalRequest{ID: r.ID, Version: r.Version, CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy, UpdatedAt: r.UpdatedAt,
 		ObjectType: r.ObjectType, ObjectID: r.ObjectID, Title: r.Title, RequesterID: r.RequesterID, Status: r.Status,
 		CurrentStep: int32(r.CurrentStep), Steps: make([]gen.ApprovalStep, len(r.Steps)), Decisions: make([]gen.Decision, len(r.Decisions))}
+	if resource != "" {
+		out.ObjectResource.SetTo(resource)
+	}
 	if r.Amount != nil {
 		out.Amount.SetTo(apitypes.Money(*r.Amount, *r.Currency, r.Exponent))
 	}
@@ -47,8 +51,54 @@ func toAPI(r Request) gen.ApprovalRequest {
 	return out
 }
 
-func ok(r Request) *gen.ApproveApprovalRequestOKHeaders {
-	return &gen.ApproveApprovalRequestOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: toAPI(r)}
+// rendered renders the requests with their objects' paths, asking each
+// object type's Locator once for all of its objects.
+func (e *Endpoints) rendered(ctx context.Context, rs []Request) ([]gen.ApprovalRequest, error) {
+	byType := map[string][]uuid.UUID{}
+	for _, r := range rs {
+		byType[r.ObjectType] = append(byType[r.ObjectType], r.ObjectID)
+	}
+	paths := map[string]map[uuid.UUID]string{}
+	for kind, ids := range byType {
+		l, ok := e.Handlers[kind].(Locator)
+		if !ok {
+			continue
+		}
+		found, err := l.Resources(ctx, ids)
+		if err != nil {
+			return nil, fmt.Errorf("approvals: paths of %d %s objects: %w", len(ids), kind, err)
+		}
+		paths[kind] = found
+	}
+	out := make([]gen.ApprovalRequest, len(rs))
+	for i, r := range rs {
+		out[i] = toAPI(r, paths[r.ObjectType][r.ObjectID])
+	}
+	return out, nil
+}
+
+// decided is what a decision answers: the request with its ETag.
+type decided interface {
+	gen.ApproveApprovalRequestRes
+	gen.RejectApprovalRequestRes
+	gen.CancelApprovalRequestRes
+}
+
+// one renders a request with its object's path.
+func (e *Endpoints) one(ctx context.Context, r Request) (gen.ApprovalRequest, error) {
+	out, err := e.rendered(ctx, []Request{r})
+	if err != nil {
+		return gen.ApprovalRequest{}, err
+	}
+	return out[0], nil
+}
+
+func (e *Endpoints) ok(ctx context.Context, r Request) (decided, error) {
+	out, err := e.one(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.ApproveApprovalRequestOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: out}, nil
 }
 
 // GetApprovalRequest implements GET /v1/approval-requests/{id}.
@@ -57,7 +107,11 @@ func (e *Endpoints) GetApprovalRequest(ctx context.Context, params gen.GetApprov
 	if err != nil {
 		return nil, err
 	}
-	return &gen.ApprovalRequestHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: toAPI(r)}, nil
+	out, err := e.one(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.ApprovalRequestHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: out}, nil
 }
 
 var requestSort = pagination.Sort{Default: "created_at", DefaultDesc: true, Fields: []pagination.Field{
@@ -104,10 +158,11 @@ func (e *Endpoints) ListApprovalRequests(ctx context.Context, params gen.ListApp
 			return nil, err
 		}
 	}
-	out := gen.ApprovalRequestPage{Items: make([]gen.ApprovalRequest, len(page))}
-	for i, r := range page {
-		out.Items[i] = toAPI(r)
+	items, err := e.rendered(ctx, page)
+	if err != nil {
+		return nil, err
 	}
+	out := gen.ApprovalRequestPage{Items: items}
 	if next != "" {
 		out.NextPageToken.SetTo(next)
 	}
@@ -120,7 +175,7 @@ func (e *Endpoints) ApproveApprovalRequest(ctx context.Context, req gen.OptDecis
 	if err != nil {
 		return nil, err
 	}
-	return ok(r), nil
+	return e.ok(ctx, r)
 }
 
 // RejectApprovalRequest implements POST /v1/approval-requests/{id}:reject.
@@ -129,7 +184,7 @@ func (e *Endpoints) RejectApprovalRequest(ctx context.Context, req *gen.CommentR
 	if err != nil {
 		return nil, err
 	}
-	return ok(r), nil
+	return e.ok(ctx, r)
 }
 
 // CancelApprovalRequest implements POST /v1/approval-requests/{id}:cancel.
@@ -138,5 +193,5 @@ func (e *Endpoints) CancelApprovalRequest(ctx context.Context, req *gen.CommentR
 	if err != nil {
 		return nil, err
 	}
-	return ok(r), nil
+	return e.ok(ctx, r)
 }

@@ -295,6 +295,16 @@ func TestListsAndAccess(t *testing.T) {
 	if rest["next_page_token"] != nil {
 		t.Errorf("payments second page token: got %v, want none", rest["next_page_token"])
 	}
+	for _, page := range []map[string]any{pays, rest} {
+		p := page["items"].([]any)[0].(map[string]any)
+		var name string
+		if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT name FROM partner.business_partner WHERE id = $1`, p["supplier_id"]).Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		if p["supplier_name"] != name {
+			t.Errorf("payment %v's supplier: got %v, want its partner's name %s", p["id"], p["supplier_name"], name)
+		}
+	}
 	if got := list("/v1/payment-runs/" + id(first) + "/payments?supplier_id=" + e.Vendor.String()); len(got["items"].([]any)) != 1 {
 		t.Fatalf("payments of the vendor: %v", got)
 	}

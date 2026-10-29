@@ -475,3 +475,24 @@ under that amendment (ADR-0053 §d):
   Canadian vendors and two of company 1000's, and a Canadian house bank, is
   generated after the others, so their data is unchanged; the pilot
   walkthrough migrates it instead of relabelling company 1000.
+
+## As built: payments name their supplier, house banks their Canadian routing (review:T72d)
+
+The API-consumer review of T72d (ADR-0053, REVIEW.md) found a run's payments
+giving their payee as a partner id only, and the house bank list leaving out
+a Canadian bank's routing. Decided by default:
+
+- **The supplier's name.** `listPayments` gives `supplier_name` beside
+  `supplier_id`, the business partner's `name` as it is now, read from the
+  partner context through its published port (`partner.Payees.Names`, one
+  call per page), never by payments reading partner tables. A payment whose
+  supplier the partner context does not hold fails the page (500) rather
+  than show a payment without its payee: payments are proposed only to
+  partners the context returned, so that is an inconsistency, not a case to
+  render. The run's exclusions still give the supplier by id only, beside
+  the reason (a pre-existing gap of the same class, for the coordinator).
+- **The routing.** `listHouseBanks` gives a Canadian bank's
+  `institution_number` and `transit_number` in clear text, as a supplier's
+  bank account does (they name the bank, as a BIC does, Amendment T45d), and
+  absent for an IBAN; `account_last4` is the IBAN's or the Canadian account
+  number's. The account number itself stays sealed.

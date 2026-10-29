@@ -329,3 +329,8 @@ func datePtr(t time.Time) *string {
 	s := dateText(t)
 	return &s
 }
+
+// Resources is where the API reads each center change (approvals.Locator).
+func (CenterChanges) Resources(_ context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	return approvals.Paths("/v1/center-changes/%s", ids), nil
+}

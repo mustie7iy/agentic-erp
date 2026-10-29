@@ -41,15 +41,22 @@ func TestListMemoRecords(t *testing.T) {
 		}
 		return fmt.Sprint(out)
 	}
+	// The list joins ref.currency; the next pages prove the keyset condition still resolves.
+	after := func(query string) string {
+		p, _ := e.Must(200, "GET", "/v1/memo-records?"+query, "", "")
+		return query + "&page_token=" + p["next_page_token"].(string)
+	}
 	for name, c := range map[string]struct{ query, want string }{
-		"by value date":        {"legal_entity_id=" + e.le.String(), fmt.Sprint([]string{id(b), id(c), id(a)})},
-		"by creation, latest":  {"order_by=created_at%20desc", fmt.Sprint([]string{id(c), id(b), id(a)})},
-		"a house bank":         {"house_bank_id=" + e.positionEnv.usd.String(), fmt.Sprint([]string{id(b), id(a)})},
-		"value dates":          {"value_from=2026-04-22&value_to=2026-04-22", fmt.Sprint([]string{id(c)})},
-		"a status":             {"status=cancelled", "[]"},
-		"a page":               {"page_size=2", fmt.Sprint([]string{id(b), id(c), "more:true"})},
-		"a page by creation":   {"page_size=1&order_by=created_at", fmt.Sprint([]string{id(a), "more:true"})},
-		"another legal entity": {"legal_entity_id=" + e.US.String(), "[]"},
+		"the last page":             {after("page_size=2"), fmt.Sprint([]string{id(a)})},
+		"the next page by creation": {after("page_size=1&order_by=created_at"), fmt.Sprint([]string{id(b), "more:true"})},
+		"by value date":             {"legal_entity_id=" + e.le.String(), fmt.Sprint([]string{id(b), id(c), id(a)})},
+		"by creation, latest":       {"order_by=created_at%20desc", fmt.Sprint([]string{id(c), id(b), id(a)})},
+		"a house bank":              {"house_bank_id=" + e.positionEnv.usd.String(), fmt.Sprint([]string{id(b), id(a)})},
+		"value dates":               {"value_from=2026-04-22&value_to=2026-04-22", fmt.Sprint([]string{id(c)})},
+		"a status":                  {"status=cancelled", "[]"},
+		"a page":                    {"page_size=2", fmt.Sprint([]string{id(b), id(c), "more:true"})},
+		"a page by creation":        {"page_size=1&order_by=created_at", fmt.Sprint([]string{id(a), "more:true"})},
+		"another legal entity":      {"legal_entity_id=" + e.US.String(), "[]"},
 	} {
 		t.Run(name, func(t *testing.T) { want(t, "ids", ids(c.query), c.want) })
 	}

@@ -3,7 +3,9 @@ package agents_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -130,7 +132,7 @@ func TestSessionsAndRecommendations(t *testing.T) {
 	if ev := apitest.Published(t, person.Tenant, outbox.Event{Context: "agents", Name: "recommendation_decided"}); len(ev) != 1 || ev[0]["outcome"] != "accepted" {
 		t.Fatalf("decided events: %v", ev)
 	}
-	agent.Must(201, "POST", "/v1/recommendations", body, "")
+	again, _ := agent.Must(201, "POST", "/v1/recommendations", body, "")
 	for query, n := range map[string]int{"?outcome=open": 1, "?outcome=accepted": 1, "?object_type=supplier_invoice&object_id=" + object + "&session_id=" + s["id"].(string): 2} {
 		t.Run(query, func(t *testing.T) {
 			person := person
@@ -140,9 +142,8 @@ func TestSessionsAndRecommendations(t *testing.T) {
 			}
 		})
 	}
-	page, _ := person.Must(200, "GET", "/v1/recommendations?page_size=1", "", "")
-	if page["next_page_token"] == nil {
-		t.Fatalf("recommendations page: %v", page)
+	if got, want := twoPages(t, person, "/v1/recommendations"), fmt.Sprint(sorted(rec["id"], again["id"])); got != want {
+		t.Errorf("recommendations over two pages of 1: got %v, want %v", got, want)
 	}
 	if got, _ := person.Must(200, "GET", recPath, "", ""); got["outcome"] != "accepted" {
 		t.Fatalf("get: %v", got)
@@ -172,15 +173,47 @@ func TestSessionsAndRecommendations(t *testing.T) {
 	if len(list["items"].([]any)) != 1 {
 		t.Fatalf("sessions: %v", list)
 	}
-	list, _ = person.Must(200, "GET", "/v1/agent-sessions?page_size=1", "", "")
-	if list["next_page_token"] == nil {
-		t.Fatalf("sessions page: %v", list)
+	if got, want := twoPages(t, person, "/v1/agent-sessions"), fmt.Sprint(sorted(s["id"], other["id"])); got != want {
+		t.Errorf("sessions over two pages of 1: got %v, want %v", got, want)
 	}
 	if got, _ := person.Must(200, "GET", path, "", ""); got["input_tokens"] != float64(0) {
 		t.Fatalf("get: %v", got)
 	}
 	person.Problem(404, "request.not_found", "GET", "/v1/agent-sessions/"+uuid.NewString(), "", "")
 	person.Problem(404, "request.not_found", "GET", "/v1/recommendations/"+uuid.NewString(), "", "")
+}
+
+// twoPages reads a list of exactly two items one per page, following page
+// 1's next_page_token, and returns the ids it saw, sorted. Both listings
+// wrap a join in a subselect, so page 2 proves the keyset condition still
+// resolves; the last page must carry no next_page_token.
+func twoPages(t *testing.T, c apitest.Client, path string) string {
+	t.Helper()
+	first, _ := c.Must(200, "GET", path+"?page_size=1", "", "")
+	token, ok := first["next_page_token"].(string)
+	if !ok {
+		t.Fatalf("%s page 1's next_page_token: got %v, want one", path, first["next_page_token"])
+	}
+	second, _ := c.Must(200, "GET", path+"?page_size=1&page_token="+url.QueryEscape(token), "", "")
+	if next, ok := second["next_page_token"]; ok {
+		t.Errorf("%s last page's next_page_token: got %v, want none", path, next)
+	}
+	var ids []any
+	for _, p := range []map[string]any{first, second} {
+		for _, it := range p["items"].([]any) {
+			ids = append(ids, it.(map[string]any)["id"])
+		}
+	}
+	return fmt.Sprint(sorted(ids...))
+}
+
+func sorted(ids ...any) []string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = fmt.Sprint(id)
+	}
+	slices.Sort(out)
+	return out
 }
 
 func TestDatabaseFailures(t *testing.T) {

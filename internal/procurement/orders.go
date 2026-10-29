@@ -12,8 +12,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-// Orders answers payables' questions about purchase orders, in the
-// request's transaction.
+// Orders answers payables' questions about purchase orders, and the
+// ledger's about their numbers, in the request's transaction.
 type Orders struct{}
 
 // OrderItem is a live item of a purchase order with its received quantity.
@@ -117,6 +117,25 @@ func (Orders) OrderByNumber(ctx context.Context, legalEntity uuid.UUID, number s
 		return uuid.Nil, false, fmt.Errorf("procurement: find purchase order %s: %w", number, err)
 	}
 	return id, true, nil
+}
+
+// Numbers returns the purchase orders' document numbers, keyed by id: what
+// the ledger's GR/IR report shows beside an order's id. An id that names
+// no order is left out.
+func (Orders) Numbers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT id, document_number FROM procurement.purchase_order WHERE id = ANY($1)`, ids)
+	out := map[uuid.UUID]string{}
+	var id uuid.UUID
+	var number string
+	_, err = pgx.ForEachRow(rows, []any{&id, &number}, func() error { out[id] = number; return nil })
+	if err != nil {
+		return out, fmt.Errorf("procurement: numbers of %d purchase orders: %w", len(ids), err)
+	}
+	return out, nil
 }
 
 // CreateOrder creates a draft purchase order, as POST /v1/purchase-orders
