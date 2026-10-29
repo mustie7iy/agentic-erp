@@ -466,6 +466,9 @@ step_migrate() {
     grep "$check" "$WORK/migrate.out" | grep -q 'PASS$' || fail "the reconciliation check '$check' did not pass"
   done
   delta_migration "$connector"
+  say "Each run names its connector by name beside its id, so a list of runs needs no call per run:"
+  api 200 '.items[] | "migration run \(.mode)\(if .is_rehearsal then " rehearsal" else "" end) from \(.connector_name): \(.status)"' listMigrationRuns -p page_size=10
+  expect "the connector the migration runs name" "$(field '[.items[].connector_name] | unique | join(" ")')" "SAP PRD"
   say "The trial balance and the open payables agree with SAP's, recomputed from the raw extract, and so"
   say "does each supplier's bank account. A Canadian supplier's account came over with its bank (T72d):"
   say "scheme ca, the institution and transit numbers from SAP's bank key (LFBK-BANKL), the account sealed."
@@ -1180,11 +1183,11 @@ step_cash() {
   expect "the house bank the memo record names" "$(field .house_bank_code)" RBC
   say "The position per bank and day from tomorrow (T53c): today's reconciled statement of step 8 opens it,"
   say "and the memo record flows on its value date (the next working day, if that is not one):"
-  api 200 '.banks[] | select(.code == "RBC") | "bank \(.code) \(.currency): statement balance \(.opening.balance.amount) of \(.opening.statement_date // "none")",
+  api 200 '.banks[] | select(.house_bank_code == "RBC") | "bank \(.house_bank_code) \(.currency): statement balance \(.opening.balance.amount) of \(.opening.statement_date // "none")",
     (.days[] | "  \(.date): \(.opening.amount) -> \(.closing.amount)\([.flows[]? | ", \(.source) \(.certainty) \(.amount.amount)"] | join(""))")' \
     getCashPosition -p "legal_entity_id=$LE" -p "from=$(date_add "$TODAY" 1)" -p days=7
-  expect "the statement balance the position opens with" "$(field '.banks[] | select(.code == "RBC") | .opening.balance.amount')" "$CLOSING"
-  expect "the memo record's flow" "$(field '[.banks[] | select(.code == "RBC") | .days[].flows[]? | select(.source == "memo") | .amount.amount] | join(" ")')" 25000.00
+  expect "the statement balance the position opens with" "$(field '.banks[] | select(.house_bank_code == "RBC") | .opening.balance.amount')" "$CLOSING"
+  expect "the memo record's flow" "$(field '[.banks[] | select(.house_bank_code == "RBC") | .days[].flows[]? | select(.source == "memo") | .amount.amount] | join(" ")')" 25000.00
   passed
 }
 

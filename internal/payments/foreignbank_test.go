@@ -243,7 +243,7 @@ func (sc mapleScenario) position(t *testing.T, day string) map[string]any {
 	c.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Now = func() time.Time { return read } })
 	p, _ := c.Must(200, "GET", "/v1/cash-position?days=1&legal_entity_id="+sc.le.String(), "", "")
 	for _, b := range p["banks"].([]any) {
-		if m := b.(map[string]any); m["code"] == "USD" {
+		if m := b.(map[string]any); m["house_bank_code"] == "USD" {
 			return m
 		}
 	}

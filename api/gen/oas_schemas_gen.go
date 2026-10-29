@@ -6799,7 +6799,13 @@ func (*CashPosition) getCashPositionRes() {}
 type CashPositionBank struct {
 	// The house bank.
 	HouseBankID uuid.UUID `json:"house_bank_id"`
-	// The house bank's code.
+	// The house bank's `code`, its name in the configuration.
+	HouseBankCode string `json:"house_bank_code"`
+	// Deprecated: use `house_bank_code`, which holds the same value and is the name every resource that
+	// names a house bank gives it. Given at least until its sunset (`x-sunset`, ADR-0041); its removal is
+	// planned for /v2.
+	//
+	// Deprecated: schema marks this property as deprecated.
 	Code string `json:"code"`
 	// The last four characters of the bank account.
 	AccountLast4 string `json:"account_last4"`
@@ -6815,6 +6821,11 @@ type CashPositionBank struct {
 // GetHouseBankID returns the value of HouseBankID.
 func (s *CashPositionBank) GetHouseBankID() uuid.UUID {
 	return s.HouseBankID
+}
+
+// GetHouseBankCode returns the value of HouseBankCode.
+func (s *CashPositionBank) GetHouseBankCode() string {
+	return s.HouseBankCode
 }
 
 // GetCode returns the value of Code.
@@ -6855,6 +6866,11 @@ func (s *CashPositionBank) GetDays() []CashPositionDay {
 // SetHouseBankID sets the value of HouseBankID.
 func (s *CashPositionBank) SetHouseBankID(val uuid.UUID) {
 	s.HouseBankID = val
+}
+
+// SetHouseBankCode sets the value of HouseBankCode.
+func (s *CashPositionBank) SetHouseBankCode(val string) {
+	s.HouseBankCode = val
 }
 
 // SetCode sets the value of Code.
@@ -23723,6 +23739,8 @@ type MigrationRun struct {
 	UpdatedBy OptUUID `json:"updated_by"`
 	// Source connector.
 	ConnectorID uuid.UUID `json:"connector_id"`
+	// The source connector's `name`, as it is now.
+	ConnectorName string `json:"connector_name"`
 	// Scope.
 	Scope MigrationScope `json:"scope"`
 	// Migrate open documents or balances only. Open enumeration: clients must accept and preserve values
@@ -23777,6 +23795,11 @@ func (s *MigrationRun) GetUpdatedBy() OptUUID {
 // GetConnectorID returns the value of ConnectorID.
 func (s *MigrationRun) GetConnectorID() uuid.UUID {
 	return s.ConnectorID
+}
+
+// GetConnectorName returns the value of ConnectorName.
+func (s *MigrationRun) GetConnectorName() string {
+	return s.ConnectorName
 }
 
 // GetScope returns the value of Scope.
@@ -23852,6 +23875,11 @@ func (s *MigrationRun) SetUpdatedBy(val OptUUID) {
 // SetConnectorID sets the value of ConnectorID.
 func (s *MigrationRun) SetConnectorID(val uuid.UUID) {
 	s.ConnectorID = val
+}
+
+// SetConnectorName sets the value of ConnectorName.
+func (s *MigrationRun) SetConnectorName(val string) {
+	s.ConnectorName = val
 }
 
 // SetScope sets the value of Scope.

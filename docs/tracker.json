@@ -928,6 +928,13 @@
         "r": "api/openapi.yaml PaymentRun · BankStatement · BankReconciliation · MemoRecord · BankFile house_bank_code · internal/payments bankCodes · withBank · internal/cash Payments.HouseBankCodes · internal/platform/idref · apitypes.PageWith · ADR-0038 As built (review:batch24) · ADR-0051 §7 As built · walkthrough steps 7, 8, 13",
         "src": "review:batch24",
         "c": []
+       },
+       {
+        "s": "D",
+        "t": "The cash position names a house bank's code as every other resource does (finding of the batch 24 review, API-consumer classes): CashPositionBank calls it code where PaymentRun, BankStatement, BankReconciliation, MemoRecord, BankFile and Payment call it house_bank_code; renaming a response field breaks /v1 (04 §4.10), so house_bank_code is added with the same value and code is marked deprecated until /v2",
+        "r": "api/openapi.yaml CashPositionBank house_bank_code · code deprecated · internal/cash bankToAPI · ADR-0038 As built (review:batch24, migration run and cash position) · walkthrough step 13",
+        "src": "review:batch24",
+        "c": []
        }
       ]
      },
@@ -2655,6 +2662,13 @@
       "t": "A migration run's report has a schema (pre-existing finding on grirtop): MigrationRun.report is an object with additionalProperties: true, so its loaded-count keys (gr_ir_positions, gr_ir_top_ups and the others) are documented only in docs/migration.md and a consumer of the contract cannot know them",
       "r": "api/openapi.yaml MigrationRunReport · internal/integration/report.go · docs/migration.md · ADR-0013 As built",
       "src": "review:batch23",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "A migration run names its connector (finding of the batch 24 review, API-consumer classes: an identifier without the name or reference its consumer needs): MigrationRun gives connector_id without the connector's name, so a consumer listing runs calls getConnector once per run; no other response gives connector_id",
+      "r": "api/openapi.yaml MigrationRun connector_name · internal/integration connectorsOf · connectorNames · idref.Resolve · apitypes.PageWith · TestRunsNameTheirConnector · ADR-0038 As built (review:batch24, migration run and cash position) · walkthrough step 3",
+      "src": "review:batch24",
       "c": []
      },
      {

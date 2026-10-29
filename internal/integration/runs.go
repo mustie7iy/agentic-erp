@@ -25,6 +25,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
+	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -110,32 +111,33 @@ type NewRun struct {
 }
 
 // CreateRun defines a queued migration run from an active source connector
-// over active legal entities the caller may act in.
-func (e *Endpoints) CreateRun(ctx context.Context, in NewRun) (Run, error) {
+// over active legal entities the caller may act in, with the connector
+// it reads from.
+func (e *Endpoints) CreateRun(ctx context.Context, in NewRun) (Run, Connector, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
-		return Run{}, err
+		return Run{}, Connector{}, err
 	}
 	if in.Mode != "documents" && in.Mode != "balances" {
-		return Run{}, invalid("integration.unknown_mode", "mode", "documents or balances")
+		return Run{}, Connector{}, invalid("integration.unknown_mode", "mode", "documents or balances")
 	}
 	c, err := getConnector(ctx, tx, in.ConnectorID, false)
 	if err != nil {
-		return Run{}, problem.Reference(err, "connector_id", "connector", "no connector with this id")
+		return Run{}, Connector{}, problem.Reference(err, "connector_id", "connector", "no connector with this id")
 	}
 	if c.Kind != SAPFile && c.Kind != SAPOData {
-		return Run{}, invalid("integration.not_a_source", "connector_id", "Migration runs read from an sap_file or sap_odata connector.")
+		return Run{}, Connector{}, invalid("integration.not_a_source", "connector_id", "Migration runs read from an sap_file or sap_odata connector.")
 	}
 	if _, err := e.entities(ctx, in.Scope); err != nil {
-		return Run{}, err
+		return Run{}, Connector{}, err
 	}
 	r, err := scanRun(tx.QueryRow(ctx, `INSERT INTO integration.migration_run (tenant_id, id, connector_id, scope, mode, is_rehearsal, status, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, 'queued', $7) RETURNING `+runColumns, p.TenantID, uuid.Must(uuid.NewV7()), c.ID, in.Scope, in.Mode,
 		in.IsRehearsal, p.ID))
 	if err != nil {
-		return Run{}, fmt.Errorf("integration: create migration run for connector %s: %w", c.ID, err)
+		return Run{}, Connector{}, fmt.Errorf("integration: create migration run for connector %s: %w", c.ID, err)
 	}
-	return r, record(ctx, "integration.migration_run.create", r.ID, map[string]any{"connector_id": c.ID, "mode": r.Mode, "is_rehearsal": r.IsRehearsal,
+	return r, c, record(ctx, "integration.migration_run.create", r.ID, map[string]any{"connector_id": c.ID, "mode": r.Mode, "is_rehearsal": r.IsRehearsal,
 		"scope": r.Scope})
 }
 
@@ -539,9 +541,39 @@ func (e *Endpoints) reconcileRun(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 	return finish(ctx, tx, p, r, op, status, "integration.migration_run.reconcile", report)
 }
 
-func runToAPI(r Run) gen.MigrationRun {
+// connectorRef is a run's connector as an error names one missing from
+// the integration context.
+var connectorRef = idref.Kind{Name: "connector", Context: "integration"}
+
+// connectorNames returns the names of the connectors tx holds, keyed by
+// id: what a run shows beside its connector's id. An id that names no
+// connector is left out.
+func connectorNames(tx pgx.Tx) func(context.Context, []uuid.UUID) (map[uuid.UUID]string, error) {
+	return func(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+		rows, _ := tx.Query(ctx, `SELECT id, name FROM integration.connector WHERE id = ANY($1)`, ids)
+		out := map[uuid.UUID]string{}
+		var id uuid.UUID
+		var name string
+		if _, err := pgx.ForEachRow(rows, []any{&id, &name}, func() error { out[id] = name; return nil }); err != nil {
+			return nil, fmt.Errorf("integration: names of %d connectors: %w", len(ids), err)
+		}
+		return out, nil
+	}
+}
+
+// connectorsOf gives the names of the connectors runs read from, one query
+// for them all (ADR-0038 As built, review:batch24): a connector the table
+// does not hold is an error, never a run shown without its name.
+func connectorsOf(ctx context.Context, tx pgx.Tx) func([]Run) (map[uuid.UUID]string, error) {
+	return func(runs []Run) (map[uuid.UUID]string, error) {
+		return idref.Resolve(ctx, connectorNames(tx), idref.Of(runs, func(r Run) *uuid.UUID { return &r.ConnectorID }), connectorRef)
+	}
+}
+
+// runToAPI shows a run with its connector's name from names.
+func runToAPI(r Run, names map[uuid.UUID]string) gen.MigrationRun {
 	out := gen.MigrationRun{ID: r.ID, Version: r.Version, CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy, UpdatedAt: r.UpdatedAt,
-		ConnectorID: r.ConnectorID, Scope: gen.MigrationScope{LegalEntityIds: r.Scope.LegalEntityIDs, FiscalYear: r.Scope.FiscalYear},
+		ConnectorID: r.ConnectorID, ConnectorName: names[r.ConnectorID], Scope: gen.MigrationScope{LegalEntityIds: r.Scope.LegalEntityIDs, FiscalYear: r.Scope.FiscalYear},
 		Mode: r.Mode, IsRehearsal: r.IsRehearsal, Status: r.Status}
 	if r.Report != nil {
 		out.Report.SetTo(reportToAPI(*r.Report))
@@ -560,13 +592,13 @@ func runToAPI(r Run) gen.MigrationRun {
 
 // CreateMigrationRun implements POST /v1/migration-runs.
 func (e *Endpoints) CreateMigrationRun(ctx context.Context, req *gen.MigrationRunCreate, _ gen.CreateMigrationRunParams) (gen.CreateMigrationRunRes, error) {
-	r, err := e.CreateRun(ctx, NewRun{ConnectorID: req.ConnectorID, Scope: Scope{LegalEntityIDs: req.Scope.LegalEntityIds, FiscalYear: req.Scope.FiscalYear},
+	r, c, err := e.CreateRun(ctx, NewRun{ConnectorID: req.ConnectorID, Scope: Scope{LegalEntityIDs: req.Scope.LegalEntityIds, FiscalYear: req.Scope.FiscalYear},
 		Mode: req.Mode, IsRehearsal: req.IsRehearsal})
 	if err != nil {
 		return nil, err
 	}
 	return &gen.MigrationRunHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Location: gen.NewOptString("/v1/migration-runs/" + r.ID.String()),
-		Response: runToAPI(r)}, nil
+		Response: runToAPI(r, map[uuid.UUID]string{c.ID: c.Name})}, nil
 }
 
 // GetMigrationRun implements GET /v1/migration-runs/{id}.
@@ -579,7 +611,11 @@ func (e *Endpoints) GetMigrationRun(ctx context.Context, params gen.GetMigration
 	if err != nil {
 		return nil, err
 	}
-	return &gen.GetMigrationRunOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: runToAPI(r)}, nil
+	names, err := connectorsOf(ctx, tx)([]Run{r})
+	if err != nil {
+		return nil, fmt.Errorf("integration: read migration run %s: %w", r.ID, err)
+	}
+	return &gen.GetMigrationRunOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: runToAPI(r, names)}, nil
 }
 
 var runSort = pagination.Sort{Default: "created_at", DefaultDesc: true, Fields: []pagination.Field{{Name: "created_at", Column: "created_at", Type: "timestamptz"}}}
@@ -607,9 +643,12 @@ func (e *Endpoints) ListMigrationRuns(ctx context.Context, params gen.ListMigrat
 	if err != nil {
 		return nil, fmt.Errorf("integration: list migration runs: %w", err)
 	}
-	items, next := apitypes.PageOf(ks, runs, func(r Run) (string, uuid.UUID) {
+	items, next, err := apitypes.PageWith(ks, runs, func(r Run) (string, uuid.UUID) {
 		return r.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), r.ID
-	}, runToAPI)
+	}, connectorsOf(ctx, tx), runToAPI)
+	if err != nil {
+		return nil, fmt.Errorf("integration: list migration runs: %w", err)
+	}
 	return &gen.MigrationRunPage{Items: items, NextPageToken: next}, nil
 }
 

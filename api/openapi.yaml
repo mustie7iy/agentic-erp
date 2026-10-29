@@ -29502,6 +29502,7 @@ components:
           days: 1
           banks:
             - house_bank_id: 0192a000-0000-7000-8000-000000000b01
+              house_bank_code: USD
               code: USD
               account_last4: "0001"
               currency: USD
@@ -29533,10 +29534,17 @@ components:
     CashPositionBank:
       type: object
       description: "A house bank's position, in its own currency: never converted."
-      required: [house_bank_id, code, account_last4, currency, opening, days]
+      required: [house_bank_id, house_bank_code, code, account_last4, currency, opening, days]
       properties:
         house_bank_id: {type: string, format: uuid, description: The house bank., readOnly: true}
-        code: {type: string, description: "The house bank's code.", readOnly: true}
+        house_bank_code: {type: string, description: "The house bank's `code`, its name in the configuration.", readOnly: true}
+        code:
+          type: string
+          description: "Deprecated: use `house_bank_code`, which holds the same value and is the name every resource that names a house bank gives it. Given at least until its sunset (`x-sunset`, ADR-0041); its removal is planned for /v2."
+          readOnly: true
+          deprecated: true
+          x-deprecated-at: "2026-10-29"
+          x-sunset: "2027-12-01"
         account_last4: {type: string, description: "The last four characters of the bank account.", readOnly: true}
         currency: {type: string, description: "The house bank's currency (ISO 4217).", readOnly: true}
         opening: {$ref: "#/components/schemas/CashPositionOpening"}
@@ -31465,6 +31473,7 @@ components:
         - type: object
           required:
             - connector_id
+            - connector_name
             - scope
             - mode
             - is_rehearsal
@@ -31474,6 +31483,10 @@ components:
               type: string
               format: uuid
               description: Source connector.
+              readOnly: true
+            connector_name:
+              type: string
+              description: "The source connector's `name`, as it is now."
               readOnly: true
             scope:
               $ref: "#/components/schemas/MigrationScope"
@@ -31526,6 +31539,7 @@ components:
           created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
           updated_at: "2026-10-09T14:03:11Z"
           connector_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db5"
+          connector_name: SAP PRD
           scope:
             legal_entity_ids:
               - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
@@ -31883,6 +31897,7 @@ components:
               created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
               updated_at: "2026-10-09T14:03:11Z"
               connector_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db5"
+              connector_name: SAP PRD
               scope:
                 legal_entity_ids:
                   - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
