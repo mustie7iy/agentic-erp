@@ -58,10 +58,13 @@ func TestProblemCodesEscapes(t *testing.T) {
 	}
 	problems := a.index().problems
 	for name, want := range map[string]string{
-		"Render":     "fieldcalls.Render executes a template with data whose type",
-		"RenderAny":  "anyData.P is of interface type any",
-		"RenderFunc": "funcData.F is a function",
-		"RenderErr":  "errData.E is of interface type error",
+		"Render":      "fieldcalls.Render executes a template with data whose type",
+		"RenderAny":   "anyData.P is of interface type any",
+		"RenderFunc":  "funcData.F is a function",
+		"RenderErr":   "errData.E is of interface type error",
+		"RenderFuncs": "registers template functions",
+		"HandOn":      "converts a template to any",
+		"HandOff":     "hands a template to",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if !slices.ContainsFunc(problems, func(p string) bool { return strings.Contains(p, want) }) {
@@ -69,8 +72,8 @@ func TestProblemCodesEscapes(t *testing.T) {
 			}
 		})
 	}
-	if got := len(problems); got != 4 {
-		t.Errorf("got %d template problems, want 4 (Render, RenderAny, RenderFunc, RenderErr)", got)
+	if got := len(problems); got != 7 {
+		t.Errorf("got %d template problems, want 7 (Render, RenderAny, RenderFunc, RenderErr, RenderFuncs, HandOn, HandOff)", got)
 	}
 	if got := a.escapes(a.fns["(*"+fixture+".Sub).Do"]); !strings.Contains(got, "a template executed in") {
 		t.Errorf("Sub.Do: got %q, want it escaping through RenderChain's template, by Book.Child's result", got)
@@ -263,12 +266,17 @@ func (a *codeAnalysis) exportedMethods(t types.Type) []*ssa.Function {
 // whose type the call does not show (an interface value handed on), or
 // reaching a value the template could call that the index does not see
 // (an interface or function in a field or a method's result), is
-// returned as a problem.
+// returned as a problem, as are data reaching the API's handler (a
+// template may call any of its methods, not only those api/gen does),
+// template functions (Funcs) and a template handed on (templateHandedOn).
 func (a *codeAnalysis) templateData(x *flowIndex) []string {
 	var out []string
 	for f := range a.all {
 		for _, b := range f.Blocks {
 			for _, in := range b.Instrs {
+				if p := a.templateHandedOn(in); p != "" {
+					out = append(out, fmt.Sprintf("%s %s (%s)", f, p, a.prog.Fset.Position(in.Pos())))
+				}
 				c, ok := in.(ssa.CallInstruction)
 				if !ok {
 					continue
@@ -289,6 +297,9 @@ func (a *codeAnalysis) templateData(x *flowIndex) []string {
 						a.prog.Fset.Position(in.Pos())))
 				}
 				for _, t := range r.types {
+					if isHandler(t) {
+						out = append(out, fmt.Sprintf("%s executes a template whose data reaches the API's handler, any of whose methods it may call", f))
+					}
 					for _, m := range append(a.exportedMethods(t), a.exportedMethods(types.NewPointer(t))...) {
 						x.templated[m] = append(x.templated[m], c)
 					}
@@ -378,6 +389,39 @@ func (r *templateReach) reachParts(t types.Type, k string) {
 		r.reach(u.Key(), k+"'s key", false)
 		r.reach(u.Elem(), k+"'s element", false)
 	}
+}
+
+// templateHandedOn is what is wrong with in for templateData: a function
+// registered with Funcs, whose results the template may call into, or a
+// template converted to an interface or handed to a function outside the
+// template packages, which may execute it with data the test does not see.
+func (a *codeAnalysis) templateHandedOn(in ssa.Instruction) string {
+	if mi, ok := in.(*ssa.MakeInterface); ok && isTemplateType(mi.X.Type()) {
+		return "converts a template to " + mi.Type().String() + ", which may execute it with any data"
+	}
+	c, ok := in.(ssa.CallInstruction)
+	if !ok {
+		return ""
+	}
+	g := c.Common().StaticCallee()
+	inTemplate := g != nil && g.Pkg != nil && isTemplate(g.Pkg.Pkg.Path())
+	switch {
+	case inTemplate && g.Name() == "Funcs":
+		return "registers template functions, whose results the template may call into"
+	case !inTemplate && slices.ContainsFunc(c.Common().Args, func(v ssa.Value) bool { return isTemplateType(v.Type()) }):
+		return fmt.Sprintf("hands a template to %s, which may execute it with any data", c.Common())
+	}
+	return ""
+}
+
+// isTemplateType reports whether t is a text/template or html/template
+// Template, or a pointer to one.
+func isTemplateType(t types.Type) bool {
+	if p, ok := t.(*types.Pointer); ok {
+		t = p.Elem()
+	}
+	n, ok := types.Unalias(t).(*types.Named)
+	return ok && n.Obj().Pkg() != nil && isTemplate(n.Obj().Pkg().Path()) && n.Obj().Name() == "Template"
 }
 
 func isTemplate(path string) bool { return path == "text/template" || path == "html/template" }

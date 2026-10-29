@@ -286,3 +286,21 @@ func (*Sub) Do(f func() error) error { return f() }
 func RenderChain(w io.Writer) error {
 	return template.Must(template.New("c").Parse("{{.Child}}")).Execute(w, &Book{})
 }
+
+// RenderFuncs registers a template function, whose result the template
+// may call into, HandOn converts a template to an interface and HandOff
+// gives one to a function value, either of which may execute it with any
+// data: all refused.
+func RenderFuncs(w io.Writer) error {
+	t := template.Must(template.New("s").Funcs(template.FuncMap{"sub": func() *Sub { return &Sub{} }}).Parse("{{sub}}"))
+	return t.Execute(w, 0)
+}
+
+func HandOn(w io.Writer) {
+	t := template.Must(template.New("h").Parse("{{.}}"))
+	_, _ = fmt.Fprintln(w, t.Name(), t)
+}
+
+var runTemplate = func(*template.Template) {}
+
+func HandOff() { runTemplate(template.New("o")) }

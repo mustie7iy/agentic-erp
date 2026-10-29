@@ -1357,7 +1357,12 @@ What the API gaps settled, and where they depart from §3:
   a field, element or key, or a function or an interface other than error
   in a method's result, which the template could call into or call and the
   flow does not see, fails the test (an error a method returns goes with
-  the method, which escapes). Two premises are stated, not checked, since
+  the method, which escapes). So do template functions registered with
+  `Funcs` (whose results the template may call into), a template converted
+  to an interface or handed to a function outside the template packages
+  (which may execute it with data the test does not see), and data
+  reaching the API's handler (a template may call any of its methods, not
+  only those api/gen does). Two premises are stated, not checked, since
   the analysis does not read the dependencies' code: code outside does not
   read a function from a field of a struct of the program it is given and
   call it, which only reflection could do; and the methods it calls by
@@ -1385,11 +1390,12 @@ What the API gaps settled, and where they depart from §3:
   a variable of code outside, a literal struct, an outside generic, a
   template's data, a method's result it chains through) and the refusals
   of `outsideImports` and of template data it cannot follow (untyped, an
-  `any` field, a function field, an error field). Not done, as precision
-  rather than soundness: a function nothing in the program calls and that
-  does not escape is never called, so its parameters could count as made,
-  which would cut through a value method's pointer wrapper; such a
-  function still proves nothing, but for the two wrapper kinds above.
+  `any` field, a function field, an error field, template functions, a
+  template converted or handed on). Not done, as precision rather than
+  soundness: a function nothing in the program calls and that does not
+  escape is never called, so its parameters could count as made, which
+  would cut through a value method's pointer wrapper; such a function
+  still proves nothing, but for the two wrapper kinds above.
 - **Client addresses in the API's audit trail (D2, PO 2026-10-21).**
   - erp-web forwards the signed-in person's address, as its own load
     balancer's PROXY header names it, in `Erp-Client-Address` on every
