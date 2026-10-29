@@ -42,11 +42,20 @@ type LFB1 struct {
 	ZTERM string `json:"ZTERM"` // payment terms key
 }
 
-// LFBK - vendor bank details.
+// LFBK - vendor bank details: the bank country, the bank key ("this may
+// be the bank number": a country-specific bank identification) and the
+// bank account number (SAP Help, "Defining Business Partner Banks",
+// https://help.sap.com/saphelp_46c/helpdata/en/9c/944bb81ca911d2954b00a0c9426c73/content.htm).
 type LFBK struct {
 	LIFNR string `json:"LIFNR"`
 	BANKS string `json:"BANKS"`
 	BANKN string `json:"BANKN"`
+	// BANKL is the bank key. A Canadian account (BANKS "CA") is loaded
+	// only with its bank key in the Canadian Payments Association's
+	// electronic routing form, 0 + institution + transit (ADR-0038, T72d);
+	// which form a given SAP system keeps it in is its customizing, still
+	// to be confirmed for the pilot's.
+	BANKL string `json:"BANKL,omitempty"`
 }
 
 // EKKO - purchasing document header.
@@ -200,6 +209,21 @@ type T012K struct {
 	HKONT string `json:"HKONT"` // G/L account of the bank
 	IBAN  string `json:"IBAN"`
 	SWIFT string `json:"SWIFT"`
+	// BANKS and BANKL are the house bank's bank country and bank key and
+	// BANKN the account's bank account number, flattened in here as IBAN
+	// and SWIFT are. That SAP keeps the first two with the house bank (T012)
+	// rather than its account is an assumption to confirm. A house bank has a
+	// bank country, a bank key (for Germany the bank number), an account ID
+	// and a bank account number, which is the company's account with the
+	// bank (SAP Help, "Necessary Customizing for the Electronic Bank
+	// Statement",
+	// https://help.sap.com/saphelp_46c/helpdata/en/64/20b8398a9111d2bc970060087d1bfc/content.htm).
+	// A Canadian account has no IBAN and is taken from these (T72d); the
+	// table and field names are the ABAP dictionary's as published mirrors
+	// show them, still to be confirmed by an SAP specialist.
+	BANKS string `json:"BANKS,omitempty"`
+	BANKL string `json:"BANKL,omitempty"`
+	BANKN string `json:"BANKN,omitempty"`
 }
 
 // AGR_DEFINE - roles.

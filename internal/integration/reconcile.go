@@ -25,10 +25,11 @@ type Check struct {
 	Pass        bool   `json:"pass"`
 }
 
-// Diff is a difference behind a failed check, in minor units.
+// Diff is a difference behind a failed check: amounts in minor units, or
+// a vendor's bank account as bankAccount writes it.
 type Diff struct {
 	CompanyCode string `json:"company_code"`
-	Key         string `json:"key"` // account number, or "vendor <LIFNR>"
+	Key         string `json:"key"` // account number, "vendor <LIFNR>" or "bank account of vendor <LIFNR>"
 	SAP         string `json:"sap"`
 	Platform    string `json:"platform"`
 }
@@ -138,6 +139,9 @@ func (rc *reconciler) company(ctx context.Context, cc, cur string) error {
 		return err
 	}
 	if err := rc.vendors(ctx, s); err != nil {
+		return err
+	}
+	if err := rc.bankAccounts(ctx, s); err != nil {
 		return err
 	}
 	if err := rc.purchaseOrders(ctx, s); err != nil {

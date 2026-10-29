@@ -832,9 +832,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "SAP load of Canadian accounts: vendor bank accounts (LFBK) as scheme ca with institution and transit numbers, and Canadian house banks (T012K) without an IBAN",
-        "r": "integration/load.go · delivery/sapconfig · after T45d · T72d",
+        "r": "integration/banks.go (load, quality gate LFBK, reconciliation check of vendor bank accounts) · delivery/sapconfig canadianAccount · cabank.SplitMemberID · partner.Suppliers.PaymentAccounts · ADR-0038 As built (T72d) · T72d",
         "src": "baseline",
         "c": []
        }
@@ -7997,9 +7997,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Canadian vendor bank accounts (LFBK) load as scheme ca with institution and transit numbers, and Canadian house banks (T012K) load without an IBAN, so migrated Canadian suppliers can be paid",
-      "r": "Phase 1 triage (PO 2026-10-21) · internal/integration load.go newSupplier · delivery/sapconfig house banks · T45d · T72d",
+      "r": "Phase 1 triage (PO 2026-10-21) · internal/integration banks.go · delivery/sapconfig canadianAccount · walkthrough steps 1, 3 and 7 · T72d",
       "src": "baseline",
       "c": []
      },
@@ -8088,9 +8088,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The mock SAP extract has a Canadian company (CAD, LAND1 CA, Canadian vendors and house banks), so the walkthrough migrates the Canadian pilot company from SAP instead of the mock's US and German companies",
-      "r": "walkthrough 2026-10-22 · internal/sap mock.go (companies 1000 US, 2000 DE) · T72d",
+      "r": "walkthrough 2026-10-22 · internal/sap mock.go company 3000 (CAD, CA) · scripts/walkthrough.sh migrates it · T72d",
       "src": "baseline",
       "c": []
      },

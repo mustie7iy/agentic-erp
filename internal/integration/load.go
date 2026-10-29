@@ -12,7 +12,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/mustie7iy/agentic-erp/internal/bankfile"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
@@ -135,12 +134,7 @@ func (l *loader) partners(ctx context.Context) error {
 	for _, c := range l.ext.LFB1 {
 		companies[c.LIFNR] = append(companies[c.LIFNR], c)
 	}
-	banks := map[string]sap.LFBK{}
-	for _, b := range l.ext.LFBK {
-		if _, ok := banks[b.LIFNR]; !ok {
-			banks[b.LIFNR] = b
-		}
-	}
+	banks := firstBanks(l.ext)
 	vendors := slices.Clone(l.ext.LFA1)
 	slices.SortFunc(vendors, func(a, b sap.LFA1) int { return cmp.Compare(a.LIFNR, b.LIFNR) })
 	reason := "Migration run " + l.run.ID.String()
@@ -201,12 +195,7 @@ func newSupplier(v sap.LFA1, in []partner.SupplierCompanyInput, banks map[string
 		np.TaxIdentifiers = []partner.TaxInput{{Scheme: v.LAND1 + "_TAX", Value: tax}}
 	}
 	if b, ok := banks[v.LIFNR]; ok {
-		scheme := "domestic"
-		if bankfile.ValidIBAN(b.BANKN) {
-			scheme = "iban"
-		}
-		np.BankAccounts = []partner.BankInput{{Purpose: "payments", AccountNumber: b.BANKN, AccountScheme: scheme, BankCountryCode: b.BANKS,
-			HolderName: v.NAME1, ValidFrom: today}}
+		np.BankAccounts = []partner.BankInput{supplierBank(v, b, today)}
 	}
 	return np
 }

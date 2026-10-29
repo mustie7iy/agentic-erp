@@ -10,7 +10,8 @@ import (
 )
 
 // GenerateMock builds a deterministic, internally consistent SAP extract for
-// development without an SAP system. It covers two company codes, vendors,
+// development without an SAP system. It covers three company codes (US,
+// German, and Canadian: 3000, the pilot's), vendors,
 // POs, goods receipts, posted and parked invoices, payments with clearing,
 // and a few deliberate data-quality problems that real migrations hit:
 //   - vendor 0000100005 has no tax number
@@ -22,6 +23,13 @@ import (
 // above the auto-post limit, and a gross/tax mismatch. Its first three
 // orders' invoices are followed by a parked credit memo, subsequent debit
 // and subsequent credit (corrections, T72b).
+//
+// Company 3000 is generated as 1000 is, after the others, so their data is
+// the same with or without it: its vendors are Canadian ones, with their
+// bank accounts by institution, transit and account number, and two of
+// 1000's, and its house bank is Canadian, without an IBAN (T72d). Being
+// generated as 1000 is, it has the same scenarios and corrections, the
+// corrections numbered on after 1000's.
 //
 // Revenue follows a monthly trend that grows about 7% a year, so extracts
 // for consecutive years support year-over-year analytics.
@@ -43,6 +51,7 @@ func GenerateMockThrough(seed uint64, fiscalYear string, throughMonth int) *Extr
 	g.masterData()
 	g.company("1000", 8, g.vendorsFor("1000"), true)
 	g.company("2000", 19, g.vendorsFor("2000"), false)
+	g.company("3000", 5, g.vendorsFor("3000"), true)
 	g.customizing()
 	return g.e
 }
@@ -62,13 +71,14 @@ type mockGen struct {
 }
 
 // mockDecimals is the digits of the mock's amounts: they are generated in
-// hundredths, and its companies are in USD and EUR, two-digit currencies
+// hundredths, and its companies are in USD, EUR and CAD, two-digit currencies
 // in ref.currency. SAP extracts write an amount with its currency's digits.
 const mockDecimals = 2
 
 var mockCompanies = []T001{
 	{BUKRS: "1000", BUTXT: "Acme Corp US", WAERS: "USD", LAND1: "US"},
 	{BUKRS: "2000", BUTXT: "Acme GmbH", WAERS: "EUR", LAND1: "DE"},
+	{BUKRS: "3000", BUTXT: "Maple Industries Canada", WAERS: "CAD", LAND1: "CA"},
 }
 
 var mockAccounts = []SKB1{
@@ -129,6 +139,35 @@ func (g *mockGen) masterData() {
 		if i >= 14 {
 			g.e.LFB1 = append(g.e.LFB1, LFB1{LIFNR: id, BUKRS: "2000", AKONT: "0000211000", ZTERM: terms[(i+1)%len(terms)]})
 		}
+	}
+	g.canadianVendors(terms)
+}
+
+// canadianVendorNames are company 3000's own vendors, numbered from
+// 0000300001.
+var canadianVendorNames = []string{
+	"Laurentian Paper", "Prairie Freight", "Rideau IT Services", "Fundy Chemicals", "Muskoka Office Supply", "Cabot Components",
+}
+
+// canadianShared are vendors of company 1000 that company 3000 buys from
+// too: Tyrell Office Products, and Massive Dynamic, posting-blocked, for
+// 3000's blocked-vendor scenario.
+var canadianShared = []string{"0000100011", blockedVendor}
+
+// canadianVendors adds company 3000's vendors: Canadian ones with a
+// Canadian bank account (BANKS CA; BANKL the routing as 0 + institution +
+// transit, cabank.MemberID; BANKN the account number), and canadianShared.
+// It draws nothing from the generator.
+func (g *mockGen) canadianVendors(terms []string) {
+	for i, name := range canadianVendorNames {
+		id := fmt.Sprintf("%010d", 300001+i)
+		g.e.LFA1 = append(g.e.LFA1, LFA1{LIFNR: id, NAME1: name, LAND1: "CA", STCD1: fmt.Sprintf("%09d", 800000000+i*7919)})
+		institution, transit := []string{"001", "002", "003", "004", "006", "010"}[i], fmt.Sprintf("%05d", 10+i*111)
+		g.e.LFBK = append(g.e.LFBK, LFBK{LIFNR: id, BANKS: "CA", BANKL: "0" + institution + transit, BANKN: fmt.Sprintf("%07d", 5000000+(i+1)*7777)})
+		g.e.LFB1 = append(g.e.LFB1, LFB1{LIFNR: id, BUKRS: "3000", AKONT: "0000211000", ZTERM: terms[i%len(terms)]})
+	}
+	for _, id := range canadianShared {
+		g.e.LFB1 = append(g.e.LFB1, LFB1{LIFNR: id, BUKRS: "3000", AKONT: "0000211000", ZTERM: "NT30"})
 	}
 }
 
@@ -275,7 +314,7 @@ func (g *mockGen) purchaseOrder(cc string, i int, taxPct int64, vendors []string
 }
 
 // corrections are the parked documents that follow the posted invoices of
-// company 1000's first three orders, one of each kind other than an
+// the first three orders of each company with scenarios (1000 and 3000), one of each kind other than an
 // invoice, by RBKP-XRECH and RSEG-TBTKZ (types.go).
 type mockCorrection struct{ prefix, xrech, tbtkz string }
 
@@ -430,6 +469,16 @@ func (g *mockGen) invoice(cc, ebeln, vendor string, month, i int, lines []mockPO
 	}
 }
 
+// mockHouseBank is a company's house bank MAIN: by IBAN, or for company
+// 3000 a Canadian account, which has none, by its bank key (the routing
+// as 0 + institution + transit) and account number.
+func mockHouseBank(cc string, banks map[string][2]string) T012K {
+	if cc == "3000" {
+		return T012K{BUKRS: cc, HBKID: "MAIN", HKONT: "0000100000", SWIFT: "ROYCCAT2", BANKS: "CA", BANKL: "000300001", BANKN: "5012345"}
+	}
+	return T012K{BUKRS: cc, HBKID: "MAIN", HKONT: "0000100000", IBAN: banks[cc][0], SWIFT: banks[cc][1]}
+}
+
 // customizing adds the configuration tables a real system carries, including
 // one deliberate segregation-of-duties conflict: user SUPER1 holds both
 // invoice posting (MIRO) and payment release (BNK_APP).
@@ -449,6 +498,9 @@ func (g *mockGen) customizing() {
 		if c.BUKRS == "2000" {
 			rate = "19"
 		}
+		if c.BUKRS == "3000" {
+			rate = "5"
+		}
 		g.e.T007A = append(g.e.T007A,
 			T007A{BUKRS: c.BUKRS, MWSKZ: "V1", TEXT1: "Input tax, standard rate", KBETR: rate, KONTS: "0000140000"},
 			T007A{BUKRS: c.BUKRS, MWSKZ: "V0", TEXT1: "Input tax exempt", KBETR: "0", KONTS: "0000140000"})
@@ -456,7 +508,7 @@ func (g *mockGen) customizing() {
 			T030{BUKRS: c.BUKRS, KTOSL: "VST", KONTS: "0000140000"},
 			T030{BUKRS: c.BUKRS, KTOSL: "BNK", KONTS: "0000100000"})
 		g.e.T169G = append(g.e.T169G, T169G{BUKRS: c.BUKRS, TOLSL: "PP", PROZ: "2", WERTO: "5.00"})
-		g.e.T012K = append(g.e.T012K, T012K{BUKRS: c.BUKRS, HBKID: "MAIN", HKONT: "0000100000", IBAN: banks[c.BUKRS][0], SWIFT: banks[c.BUKRS][1]})
+		g.e.T012K = append(g.e.T012K, mockHouseBank(c.BUKRS, banks))
 	}
 	roles := []struct {
 		name, text string

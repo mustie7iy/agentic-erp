@@ -50,9 +50,10 @@ func TestDiscountTermsFromT052(t *testing.T) {
 			e := sap.GenerateMock(42, "2026")
 			c.row.ZTERM, c.row.TEXT1 = "ZB01", "Terms"
 			e.T052 = append(e.T052, c.row)
-			e.SKB1 = append(e.SKB1, sap.SKB1{BUKRS: "1000", SAKNR: "0000475000", TXT50: "Cash discount received"},
-				sap.SKB1{BUKRS: "2000", SAKNR: "0000475000", TXT50: "Cash discount received"})
-			e.T030 = append(e.T030, sap.T030{BUKRS: "1000", KTOSL: "SKE", KONTS: "0000475000"}, sap.T030{BUKRS: "2000", KTOSL: "SKE", KONTS: "0000475000"})
+			for _, co := range e.T001 {
+				e.SKB1 = append(e.SKB1, sap.SKB1{BUKRS: co.BUKRS, SAKNR: "0000475000", TXT50: "Cash discount received"})
+				e.T030 = append(e.T030, sap.T030{BUKRS: co.BUKRS, KTOSL: "SKE", KONTS: "0000475000"})
+			}
 			cfg, notes := Generate(e, DefaultOptions())
 			term := cfg.PaymentTerm("ZB01")
 			if term.NetDays != c.net {

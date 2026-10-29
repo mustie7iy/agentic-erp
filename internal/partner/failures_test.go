@@ -76,6 +76,10 @@ func TestDatabaseFailures(t *testing.T) {
 			Bic: gen.NewOptString("COBADEFFXXX")}},
 		Extensions: gen.NewOptExtensions(gen.Extensions{"segment": []byte(`"x"`)})}
 	calls := map[string]func(ctx context.Context) error{
+		"payment accounts": func(ctx context.Context) error {
+			_, err := partner.Suppliers{}.PaymentAccounts(ctx, []uuid.UUID{u(a)})
+			return err
+		},
 		"sample for rules": func(ctx context.Context) error {
 			_, err := partner.RuleSamples{}.Sample(ctx, time.Time{}, 10)
 			return err

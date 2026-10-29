@@ -58,7 +58,7 @@ var DefaultEntities = []EntityMapping{
 		Fields: map[string]string{"LIFNR": "Supplier", "BUKRS": "CompanyCode", "AKONT": "ReconciliationAccount",
 			"ZTERM": "PaymentTerms"}},
 	{Table: "LFBK", Service: "API_BUSINESS_PARTNER", Entity: "A_BusinessPartnerBank",
-		Fields: map[string]string{"LIFNR": "BusinessPartner", "BANKS": "BankCountryKey", "BANKN": "BankAccount"}},
+		Fields: map[string]string{"LIFNR": "BusinessPartner", "BANKS": "BankCountryKey", "BANKN": "BankAccount", "BANKL": "BankNumber"}},
 	{Table: "EKKO", Service: "API_PURCHASEORDER_PROCESS_SRV", Entity: "A_PurchaseOrder", CompanyField: "CompanyCode",
 		Fields: map[string]string{"EBELN": "PurchaseOrder", "BUKRS": "CompanyCode", "LIFNR": "Supplier",
 			"WAERS": "DocumentCurrency", "BEDAT": "PurchaseOrderDate"}},

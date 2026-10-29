@@ -18,6 +18,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/cabank"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
 
@@ -291,6 +292,7 @@ func (g *gen) houseBanks(p, company string, ad *config.AccountDetermination) (co
 			continue
 		}
 		hb := config.HouseBank{Name: b.HBKID, IBAN: b.IBAN, BIC: b.SWIFT, GLAccount: sap.Alpha(b.HKONT)}
+		g.canadianAccount(p+".house_banks["+b.HBKID+"]", b, &hb)
 		switch {
 		case seen[b.HBKID]:
 			g.note(p+".house_banks["+b.HBKID+"]", "house bank "+b.HBKID+" has several accounts in T012K; only the first is taken")
@@ -309,6 +311,25 @@ func (g *gen) houseBanks(p, company string, ad *config.AccountDetermination) (co
 		seen[b.HBKID] = true
 	}
 	return main, further
+}
+
+// canadianAccount gives a Canadian house bank, which has no IBAN, its
+// account by institution, transit and account number (ADR-0038, T72d):
+// the routing from the bank key in the Canadian Payments Association's
+// electronic form, 0 + institution + transit (cabank.MemberID). A bank key
+// in another form is left out with a note, and validation then refuses
+// the bank until a reviewer enters the routing.
+func (g *gen) canadianAccount(path string, b sap.T012K, hb *config.HouseBank) {
+	if b.IBAN != "" || b.BANKS != "CA" {
+		return
+	}
+	hb.AccountNumber = b.BANKN
+	institution, transit, ok := cabank.SplitMemberID(b.BANKL)
+	if !ok {
+		g.note(path, fmt.Sprintf("bank key %q is not a Canadian routing number as 0 + institution (3 digits) + transit (5 digits); enter institution_number and transit_number", b.BANKL))
+		return
+	}
+	hb.InstitutionNumber, hb.TransitNumber = institution, transit
 }
 
 // chartOfAccounts is the company's G/L accounts; an account whose type the
