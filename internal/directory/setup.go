@@ -209,6 +209,34 @@ const expectedACL = `(d.classid = 'pg_class'::regclass AND d.objid IN ('director
 		'directory.issuer'::regclass, 'directory.placement'::regclass, 'web.session'::regclass, 'web.login_client'::regclass))
 	OR (d.classid = 'pg_namespace'::regclass AND d.objid IN ('directory'::regnamespace, 'web'::regnamespace))`
 
+// publicRights are the rights PUBLIC, and so every login, holds on the
+// object kinds pg_shdepend records no right of PUBLIC's for (it records
+// roles alone, and PUBLIC is none) and Grants does not take back: large
+// objects (pg_largeobject_metadata.lomacl, and lo_compat_privileges,
+// which turns their privilege checks off), foreign-data wrappers
+// (pg_foreign_data_wrapper.fdwacl), foreign servers
+// (pg_foreign_server.srvacl), trusted languages but sql and plpgsql
+// (pg_language.lanacl) and the server's parameters (pg_parameter_acl);
+// a null ACL is its kind's default (acldefault), and aclexplode gives
+// PUBLIC as grantee 0 (PostgreSQL 17 manual, §9.27 table 9.72). They are
+// refused, not taken back: the directory makes and uses none of these
+// objects, and the owner Setup runs as need not own one someone else
+// made, when its REVOKE would only warn (REVOKE, Notes). sql's and
+// plpgsql's USAGE, PUBLIC's by default (§5.8 table 5.2), stands: Grants'
+// DO blocks need plpgsql's (DO, Notes) where the owner is no superuser,
+// as on RDS, and a login, which may create no function, runs a DO block
+// with its own rights alone.
+const publicRights = `ARRAY(SELECT kind || ' ' || name FROM (
+			SELECT 'large object' AS kind, oid::text AS name, coalesce(lomacl, acldefault('L', lomowner)) AS acl FROM pg_largeobject_metadata
+			UNION ALL SELECT 'foreign-data wrapper', fdwname::text, coalesce(fdwacl, acldefault('F', fdwowner)) FROM pg_foreign_data_wrapper
+			UNION ALL SELECT 'foreign server', srvname::text, coalesce(srvacl, acldefault('S', srvowner)) FROM pg_foreign_server
+			UNION ALL SELECT 'language', lanname::text, coalesce(lanacl, acldefault('l', lanowner)) FROM pg_language
+				WHERE lanpltrusted AND lanname NOT IN ('sql', 'plpgsql')
+			UNION ALL SELECT 'parameter', parname, paracl FROM pg_parameter_acl) o
+			WHERE EXISTS (SELECT FROM aclexplode(o.acl) a WHERE a.grantee = 0)
+		UNION ALL SELECT 'parameter lo_compat_privileges = on' WHERE current_setting('lo_compat_privileges')::bool
+		ORDER BY 1)`
+
 // checkLogin refuses a login that may do more than its role: one an
 // operator made a superuser, gave a right to create roles or databases,
 // to replicate or to bypass row security, made a member of another role
@@ -217,13 +245,14 @@ const expectedACL = `(d.classid = 'pg_class'::regclass AND d.objid IN ('director
 // (pg_shdepend: an owned object, the database included, a right on any
 // object, shared ones such as databases and parameters too, a policy) in
 // this database or the server's, but the rights Grants gives the roles;
-// and any schema in the database beyond the system's, public, directory
-// and web, whose PUBLIC rights Setup does not govern.
+// any schema in the database beyond the system's, public, directory and
+// web, whose PUBLIC rights Setup does not govern; and any of
+// publicRights.
 // Setup does not take such rights back: someone gave them, and the
 // release stops until they look.
 func checkLogin(ctx context.Context, tx pgx.Tx, l Login) error {
 	var attributes, admin bool
-	var others, deps, schemas []string
+	var others, deps, schemas, public []string
 	err := tx.QueryRow(ctx, `SELECT r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication OR r.rolbypassrls,
 		EXISTS (SELECT FROM pg_auth_members m WHERE m.member = r.oid AND m.admin_option),
 		ARRAY(SELECT p.rolname || ' in ' || g.rolname FROM pg_auth_members m JOIN pg_roles g ON g.oid = m.roleid JOIN pg_roles p ON p.oid = m.member
@@ -235,14 +264,15 @@ func checkLogin(ctx context.Context, tx pgx.Tx, l Login) error {
 				AND NOT (d.deptype = 'a' AND o.rolname = ANY($3) AND (`+expectedACL+`))
 			ORDER BY 1),
 		ARRAY(SELECT nspname::text FROM pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'public', 'directory', 'web')
-			AND nspname NOT LIKE 'pg\_toast%' AND nspname NOT LIKE 'pg\_temp\_%' ORDER BY 1)
-		FROM pg_roles r WHERE r.rolname = $1`, l.Name, l.Role, []string{RouterRole, CellRole, WebRole}).Scan(&attributes, &admin, &others, &deps, &schemas)
+			AND nspname NOT LIKE 'pg\_toast%' AND nspname NOT LIKE 'pg\_temp\_%' ORDER BY 1),
+		`+publicRights+`
+		FROM pg_roles r WHERE r.rolname = $1`, l.Name, l.Role, []string{RouterRole, CellRole, WebRole}).Scan(&attributes, &admin, &others, &deps, &schemas, &public)
 	if err != nil {
 		return fmt.Errorf("login %s: read its rights: %w", l.Name, err)
 	}
-	if attributes || admin || len(others) > 0 || len(deps) > 0 || len(schemas) > 0 {
-		return fmt.Errorf("%w %s: holds more than %s (role attributes %t, admin of its role %t, memberships %v, owned or granted %v; other schemas %v)",
-			ErrLogin, l.Name, l.Role, attributes, admin, others, deps, schemas)
+	if attributes || admin || len(others) > 0 || len(deps) > 0 || len(schemas) > 0 || len(public) > 0 {
+		return fmt.Errorf("%w %s: holds more than %s (role attributes %t, admin of its role %t, memberships %v, owned or granted %v; other schemas %v; PUBLIC's rights %v)",
+			ErrLogin, l.Name, l.Role, attributes, admin, others, deps, schemas, public)
 	}
 	return nil
 }

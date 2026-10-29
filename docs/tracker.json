@@ -6746,9 +6746,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "PUBLIC's rights on object kinds pg_shdepend does not record are taken back or refused by the directory's Setup (follow-up of T72h's review, the class: a right given by hand that Setup neither takes back nor refuses): large objects, foreign servers and wrappers, languages, and server-wide parameter ACLs",
-        "r": "internal/directory/setup.go",
+        "r": "internal/directory/setup.go publicRights · TestSetupRefusesOwners · TestSetupRefusesPublicsParameters · ADR-0035 amendment 2026-10-28",
         "src": "review:T72h",
         "c": []
        },
