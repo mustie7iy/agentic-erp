@@ -258,10 +258,15 @@ func want(t *testing.T, what string, got, want any) {
 	}
 }
 
+// bankOf finds a bank by house_bank_code; the deprecated code it still
+// gives within /v1 must hold the same value (ADR-0038 As built).
 func bankOf(t *testing.T, p map[string]any, code string) map[string]any {
 	t.Helper()
 	for _, b := range p["banks"].([]any) {
-		if m := b.(map[string]any); m["code"] == code {
+		if m := b.(map[string]any); m["house_bank_code"] == code {
+			if m["code"] != code {
+				t.Errorf("bank %s: deprecated code got %v, want %s", code, m["code"], code)
+			}
 			return m
 		}
 	}

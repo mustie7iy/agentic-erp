@@ -18657,6 +18657,10 @@ func (s *CashPositionBank) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.HouseBankID)
 	}
 	{
+		e.FieldStart("house_bank_code")
+		e.Str(s.HouseBankCode)
+	}
+	{
 		e.FieldStart("code")
 		e.Str(s.Code)
 	}
@@ -18694,15 +18698,16 @@ func (s *CashPositionBank) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfCashPositionBank = [8]string{
+var jsonFieldsNameOfCashPositionBank = [9]string{
 	0: "house_bank_id",
-	1: "code",
-	2: "account_last4",
-	3: "currency",
-	4: "opening",
-	5: "credit_line",
-	6: "book_balance",
-	7: "days",
+	1: "house_bank_code",
+	2: "code",
+	3: "account_last4",
+	4: "currency",
+	5: "opening",
+	6: "credit_line",
+	7: "book_balance",
+	8: "days",
 }
 
 // Decode decodes CashPositionBank from json.
@@ -18710,7 +18715,7 @@ func (s *CashPositionBank) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode CashPositionBank to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -18726,8 +18731,20 @@ func (s *CashPositionBank) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"house_bank_id\"")
 			}
-		case "code":
+		case "house_bank_code":
 			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.HouseBankCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"house_bank_code\"")
+			}
+		case "code":
+			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
 				v, err := d.Str()
 				s.Code = string(v)
@@ -18739,7 +18756,7 @@ func (s *CashPositionBank) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"code\"")
 			}
 		case "account_last4":
-			requiredBitSet[0] |= 1 << 2
+			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.AccountLast4 = string(v)
@@ -18751,7 +18768,7 @@ func (s *CashPositionBank) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"account_last4\"")
 			}
 		case "currency":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.Currency = string(v)
@@ -18763,7 +18780,7 @@ func (s *CashPositionBank) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"currency\"")
 			}
 		case "opening":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				if err := s.Opening.Decode(d); err != nil {
 					return err
@@ -18793,7 +18810,7 @@ func (s *CashPositionBank) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"book_balance\"")
 			}
 		case "days":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				s.Days = make([]CashPositionDay, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -18819,8 +18836,9 @@ func (s *CashPositionBank) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
-		0b10011111,
+	for i, mask := range [2]uint8{
+		0b00111111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -68631,6 +68649,10 @@ func (s *MigrationRun) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.ConnectorID)
 	}
 	{
+		e.FieldStart("connector_name")
+		e.Str(s.ConnectorName)
+	}
+	{
 		e.FieldStart("scope")
 		s.Scope.Encode(e)
 	}
@@ -68672,7 +68694,7 @@ func (s *MigrationRun) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMigrationRun = [15]string{
+var jsonFieldsNameOfMigrationRun = [16]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -68680,14 +68702,15 @@ var jsonFieldsNameOfMigrationRun = [15]string{
 	4:  "updated_at",
 	5:  "updated_by",
 	6:  "connector_id",
-	7:  "scope",
-	8:  "mode",
-	9:  "is_rehearsal",
-	10: "status",
-	11: "report",
-	12: "operation_id",
-	13: "started_at",
-	14: "finished_at",
+	7:  "connector_name",
+	8:  "scope",
+	9:  "mode",
+	10: "is_rehearsal",
+	11: "status",
+	12: "report",
+	13: "operation_id",
+	14: "started_at",
+	15: "finished_at",
 }
 
 // Decode decodes MigrationRun from json.
@@ -68781,8 +68804,20 @@ func (s *MigrationRun) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"connector_id\"")
 			}
-		case "scope":
+		case "connector_name":
 			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				v, err := d.Str()
+				s.ConnectorName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"connector_name\"")
+			}
+		case "scope":
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				if err := s.Scope.Decode(d); err != nil {
 					return err
@@ -68792,7 +68827,7 @@ func (s *MigrationRun) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"scope\"")
 			}
 		case "mode":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				v, err := d.Str()
 				s.Mode = string(v)
@@ -68804,7 +68839,7 @@ func (s *MigrationRun) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"mode\"")
 			}
 		case "is_rehearsal":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				v, err := d.Bool()
 				s.IsRehearsal = bool(v)
@@ -68816,7 +68851,7 @@ func (s *MigrationRun) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"is_rehearsal\"")
 			}
 		case "status":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.Status = string(v)
@@ -68878,7 +68913,7 @@ func (s *MigrationRun) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11011111,
-		0b00000111,
+		0b00001111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

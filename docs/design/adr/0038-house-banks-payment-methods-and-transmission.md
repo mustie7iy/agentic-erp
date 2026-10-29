@@ -664,3 +664,45 @@ query parameters). Decided by default, as for `Payment` above:
 - **The walkthrough.** Step 7 expects RBC's code on the proposed run and on
   every bank file, step 8 on the reconciled statement and the reconciliation
   report, and step 13 on the memo record Tom creates.
+
+## As built: a migration run names its connector; the cash position's bank code takes the common name (review:batch24)
+
+The review of batch 24 found two more instances of the class above. A
+`MigrationRun` gave `connector_id` alone, so a consumer listing runs called
+`getConnector` once per run; and `CashPositionBank` named the house bank's
+code `code` where every other resource that names a house bank calls it
+`house_bank_code`. A search of `api/openapi.yaml` found no other response with
+`connector_id` (`MigrationRunCreate` is a request body; `HouseBank` does not
+expose its channel's connector). Decided by default, as above:
+
+- **The connector's name.** `MigrationRun` gains `connector_name`, the
+  `Connector` resource's `name` as it is now (a renamed connector shows its
+  new name on its old runs), required as `connector_id` is: the foreign key
+  to `integration.connector` and connectors never being deleted mean every
+  run has one. The guarantee is the foreign key (no `ON DELETE`, so
+  restrict, 000010): a step that adds a connector delete must keep it, or
+  `idref.Resolve` would answer 500 for its runs. A page or a single read
+  asks `integration.connector` once for the names of the page's connectors (`connectorsOf`, through
+  `idref.Resolve` and `apitypes.PageWith`, in the request's transaction);
+  the create answer uses the connector it has just checked, with no query.
+  The connectors are integration's own, so no port is involved.
+- **`house_bank_code` beside `code`.** Renaming a response field is a
+  breaking change, which `/v1` does not take (04 §4.10, ADR-0041). So
+  `CashPositionBank` gains `house_bank_code`, required, holding the same
+  value, and `code` stays, deprecated as ADR-0041 deprecates an operation:
+  `deprecated: true`, `x-deprecated-at: 2026-10-29` and `x-sunset:
+  2027-12-01`, more than 365 days later with a month's margin for the batch
+  to merge (oasdiff's `--deprecation-days-stable=365` counts from the day
+  it runs and refuses a deprecated response property without a sunset), and
+  a description pointing at `house_bank_code`. The field is given at least
+  until the sunset and its removal is planned for `/v2`. ADR-0041's other
+  parts are an operation's: no `Deprecation`/`Sunset` headers, which name a
+  whole answer, and no `externalDocs` page, since the one-line move to
+  `house_bank_code` fits the description. The banks are still ordered by the
+  code; oasdiff reports no breaking change.
+- **Events.** `MigrationRunCompleted` and `BankFileTransmitted` carry
+  `connector_id` alone; event payloads are left as they are, as for
+  `house_bank_id` above.
+- **The walkthrough.** Step 3 lists the migration runs and expects every one
+  to name the `SAP PRD` connector; step 13 reads the cash position's RBC
+  bank by `house_bank_code`.
