@@ -71,8 +71,12 @@ func TestClearingAcrossRuns(t *testing.T) {
 
 			events := count(t, `SELECT count(*) FROM ledger.outbox WHERE tenant_id = $1`, e.Tenant.ID)
 			same := e.run(t, conn, "documents", false, e.DE.String())
-			if _, got := e.act(t, same, "start"); got["status"] != "loaded" || len(got["report"].(map[string]any)["loaded"].(map[string]any)) != 0 {
-				t.Errorf("the same extract again: got %v, want nothing loaded", got["report"])
+			_, got = e.act(t, same, "start")
+			if got["status"] != "loaded" {
+				t.Fatalf("the same extract again: got %v, want loaded: %v", got["status"], got["report"])
+			}
+			if loaded := got["report"].(map[string]any)["loaded"].(map[string]any); len(loaded) != 0 {
+				t.Errorf("loaded by the same extract again: got %v, want nothing", loaded)
 			}
 			if n := count(t, `SELECT count(*) FROM ledger.outbox WHERE tenant_id = $1`, e.Tenant.ID); n != events {
 				t.Errorf("ledger events after the same extract again: got %d, want %d", n, events)

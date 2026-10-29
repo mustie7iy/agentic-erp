@@ -366,12 +366,28 @@ func TestMigrationPorts(t *testing.T) {
 		if together, err := postings().ClearedTogether(ctx, []ledger.ItemRef{item(invoice), item(payment)}); err != nil || !together {
 			t.Errorf("cleared together after the clearing: got %t %v, want true", together, err)
 		}
-		if together, _ := postings().ClearedTogether(ctx, []ledger.ItemRef{item(invoice), item(other)}); together {
-			t.Error("cleared together with an open item: got true, want false")
+		if together, err := postings().ClearedTogether(ctx, []ledger.ItemRef{item(invoice), item(other)}); err != nil || together {
+			t.Errorf("cleared together with an open item: got %t %v, want false", together, err)
 		}
 		return nil
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	// Items of two clearings are not cleared together.
+	invoice2, payment2 := post(2000, &e.supplier), post(-2000, &e.supplier)
+	if err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+		if err := clear(item(invoice), item(payment))(ctx); err != nil {
+			return err
+		}
+		if _, err := postings().Clear(ctx, e.de, date("2026-03-20"), item(payment2), []ledger.ItemRef{item(invoice2), item(payment2)}); err != nil {
+			return err
+		}
+		if together, err := postings().ClearedTogether(ctx, []ledger.ItemRef{item(invoice), item(invoice2)}); err != nil || together {
+			t.Errorf("cleared together across two clearings: got %t %v, want false", together, err)
+		}
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	for name, call := range map[string]func(ctx context.Context) error{

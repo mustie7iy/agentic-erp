@@ -362,9 +362,10 @@ question for positions:
   whose items one clearing cleared already (`Postings.ClearedTogether`)
   is left as it is, so the same extract again posts nothing, publishes no
   `items_cleared` and counts nothing. Items the platform has cleared or
-  reversed since (a reversal clears the reversed entry's items) are not
-  cleared again: `Postings.Clear` refuses them (409
-  `ledger.item_already_cleared`, `ledger.entry_reversed`), reported under
+  reversed since (a reversal clears the reversed entry's items), or that a
+  payment proposal holds, are not cleared: `Postings.Clear` refuses them
+  (409 `ledger.item_already_cleared`, `ledger.entry_reversed`,
+  `ledger.item_reserved`), reported under
   `clearing <BUKRS>/<AUGBL>`, and the load is rolled back as on every
   refusal, rather than SAP's clearing guessed onto other items.
 - **No fiscal-year guard.** Unlike a GR/IR position, a clearing is read

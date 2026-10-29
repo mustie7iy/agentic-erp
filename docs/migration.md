@@ -100,10 +100,11 @@ SAP's clearing document, or by the latest document of the clearing when the
 clearing document is not in the extract, once every document of the
 clearing is on the platform: a later run, such as the final delta run at
 cutover, clears an open item an earlier run loaded with the payment it
-loads, and a clearing whose documents earlier runs loaded with nothing done
-on them since. A clearing already done is left as it is, so a run of the
-same extract again clears nothing; an item the platform cleared or reversed
-since is refused rather than cleared twice. A clearing whose counter-item is
+loads. It also clears a clearing whose documents earlier runs all loaded.
+A clearing already done is left as it is, so a run of the same extract
+again clears nothing; an item the platform has cleared or reversed since,
+or that a payment proposal holds, is refused and fails the run rather than
+being cleared twice. A clearing whose counter-item is
 another fiscal year's (a prior-year invoice paid this year) is not in the
 extract, which holds the scope's fiscal year only and not SAP's clearing
 date (AUGDT): its clearing does not net to zero and fails the run, as the
