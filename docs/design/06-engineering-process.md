@@ -294,8 +294,10 @@ gates on each pull request:
     `account_number`, `account_name`) passed oasdiff, which treats a new
     required response field as non-breaking, rightly for consumers; but the
     strict generated client rejects a stub response that lacks one, so
-    `internal/web`'s stubs failed. Layer: `internal/web`'s tests, which are
-    the layer that catches it. Changed: the stubs answer the new fields.
+    `internal/web`'s stubs failed. Layer: the contract check lets it through
+    by design, so `internal/web`'s tests are the layer that catches it, and
+    a lane that adds required response fields runs them. Changed: no gate;
+    the stubs answer the new fields.
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
   documentation changed (`docs/`, Markdown) since the base: a pull
