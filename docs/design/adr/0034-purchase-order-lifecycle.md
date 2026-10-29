@@ -318,7 +318,20 @@ taken by default (ADR-0053 §d), each settled by an existing rule:
   an invoice's posting and a GR/IR clearing take them in, since an order
   an earlier run loaded is visible to them.
 - **Which orders.** Those an earlier run loaded valued through GR/IR on the
-  platform. One loaded valued directly (SAP had not received it yet) is not
+  platform, when every take-over on the order is a run's of the later
+  run's fiscal year. A run's extract carries its fiscal year's journal and
+  invoices only (`sap.Source`, ACDOCA and RBKP), while receipts are not
+  limited to it, so it reads SAP's position right only for an order whose
+  history it holds: topping up a take-over of another year's run would
+  move the position wrongly while the GR/IR account still nets to zero and
+  the reconciliation, from the same extract, agrees (review:batch21,
+  round 1). So an order taken over by another year's run, and one an
+  earlier run loaded with no position open, which has no take-over to
+  tell its run's year by (the take-over entries' source document is their
+  run), are left with a warning in the load report and stay differences
+  in the reconciliation, as before. The second also leaves a same-year
+  order SAP received again after a load that found nothing open; that gap
+  is a tracker item (review:batch23). One loaded valued directly (SAP had not received it yet) is not
   moved onto GR/IR, which stays the optional tracker leaf: its position
   remains a difference in the reconciliation. In balances mode a later run
   does not load the opening entry again, so its trial balance check fails

@@ -224,14 +224,16 @@ type GRIRItem struct {
 	// carry the order item, ACDOCA EBELN/EBELP): its balance there, in the
 	// entry's currency. Quantity is the position's open quantity, invoiced
 	// less received in the source system, and UnitPrice is not read. The
-	// GR/IR line moves what earlier take-overs took over of the item
-	// (TakenOver) to both, a later run's take-over topping it up by what
-	// the source system's position moved since, against a line on the
-	// GR/IR account without an order item, which offsets the lines the run
-	// loaded from the source system's documents without theirs; the
-	// quantity counts as migrated, neither received nor invoiced, and what
-	// the platform itself posted on the item is left as it is. An entry
+	// quantity counts as migrated, neither received nor invoiced. An entry
 	// that takes over is an integration entry of take-over items only.
+	//
+	// The item's GR/IR line moves what earlier take-overs took over of the
+	// item (TakenOver) to that balance and quantity: all of them the first
+	// time, what the source system's position moved since on a later run's
+	// top-up. A line on the GR/IR account without an order item offsets
+	// it, as the run loaded the source system's documents' lines there
+	// without theirs. What the platform itself posted on the item is left
+	// as it is.
 	TakesOver *money.Minor
 	// TakenOver is what earlier take-overs took over of the item as the
 	// caller read it (Postings.TakenOverGRIR), nil when they took over

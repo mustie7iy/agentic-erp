@@ -23,14 +23,22 @@ import (
 // take-overs together always hold the source system's position, beside
 // whatever the platform itself posted on the item (review:batch21).
 
+// GRIRTakenOverOrder is what migration runs' take-overs took over of an
+// order's GR/IR positions: by item, and the source documents of their
+// entries (the runs), so a caller can tell which runs it would top up.
+type GRIRTakenOverOrder struct {
+	Items   map[int32]GRIRTakenOver
+	Sources []uuid.UUID
+}
+
 // TakenOverGRIR locks the orders' GR/IR positions until the transaction
 // ends, as a posting on them does (lockOrders), and reads what migration
-// runs' take-overs took over of their items in the legal entity, by order
-// and item; an item they took nothing over of is left out. A later run
-// passes it as GRIRItem.TakenOver to top a position up. The lock is taken
+// runs' take-overs took over of their items in the legal entity, by order;
+// an order they took nothing over of is left out. A later run passes an
+// item's as GRIRItem.TakenOver to top its position up. The lock is taken
 // before any period or number range, as a posting takes it, and keeps
 // what was read current until the caller commits.
-func (Postings) TakenOverGRIR(ctx context.Context, legalEntity uuid.UUID, orders []uuid.UUID) (map[uuid.UUID]map[int32]GRIRTakenOver, error) {
+func (Postings) TakenOverGRIR(ctx context.Context, legalEntity uuid.UUID, orders []uuid.UUID) (map[uuid.UUID]GRIRTakenOverOrder, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
@@ -42,36 +50,53 @@ func (Postings) TakenOverGRIR(ctx context.Context, legalEntity uuid.UUID, orders
 	if err := lockOrders(ctx, tx, keys); err != nil {
 		return nil, err
 	}
-	taken, err := takenOver(ctx, tx, legalEntity, orders)
-	out := map[uuid.UUID]map[int32]GRIRTakenOver{}
-	for k, t := range taken {
-		if out[k.order] == nil {
-			out[k.order] = map[int32]GRIRTakenOver{}
-		}
-		out[k.order][k.item] = t
+	taken, sources, err := takenOver(ctx, tx, legalEntity, orders)
+	if err != nil {
+		return nil, err
 	}
-	return out, err
+	out := map[uuid.UUID]GRIRTakenOverOrder{}
+	for k, t := range taken {
+		o := out[k.order]
+		if o.Items == nil {
+			o = GRIRTakenOverOrder{Items: map[int32]GRIRTakenOver{}}
+		}
+		o.Items[k.item] = t
+		for _, s := range sources[k] {
+			if !slices.Contains(o.Sources, s) {
+				o.Sources = append(o.Sources, s)
+			}
+		}
+		out[k.order] = o
+	}
+	return out, nil
 }
 
 // takenOver reads what take-overs took over of the orders' items in the
-// legal entity: the sum of the order item lines of integration entries,
-// which only take-overs post (journal documents load without their order
-// items), in the leading ledger, reversals included. The caller holds the
-// orders' GR/IR locks, under which take-overs post.
-func takenOver(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, orders []uuid.UUID) (map[orderItem]GRIRTakenOver, error) {
-	rows, _ := tx.Query(ctx, `SELECT l.purchase_order_id, l.po_item_no, trim_scale(coalesce(sum(l.quantity), 0))::text, sum(l.amount_tc)::bigint
+// legal entity, and the source documents of their entries: the sum of the
+// order item lines of integration entries, which only take-overs post
+// (journal documents load without their order items), in the leading
+// ledger, reversals included (a reversal keeps its entry's source
+// document). The caller holds the orders' GR/IR locks, under which
+// take-overs post.
+func takenOver(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, orders []uuid.UUID) (map[orderItem]GRIRTakenOver, map[orderItem][]uuid.UUID, error) {
+	rows, _ := tx.Query(ctx, `SELECT l.purchase_order_id, l.po_item_no, trim_scale(coalesce(sum(l.quantity), 0))::text, sum(l.amount_tc)::bigint,
+			coalesce(array_agg(DISTINCT e.source_document_id) FILTER (WHERE e.source_document_id IS NOT NULL), '{}')
 		FROM ledger.journal_line l
 		JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id AND e.source_context = 'integration'
 		JOIN ledger.ledger lg ON lg.tenant_id = l.tenant_id AND lg.id = l.ledger_id AND lg.is_leading
 		WHERE l.legal_entity_id = $1 AND l.purchase_order_id = ANY($2)
 		GROUP BY l.purchase_order_id, l.po_item_no`, legalEntity, orders)
-	out := map[orderItem]GRIRTakenOver{}
+	out, sources := map[orderItem]GRIRTakenOver{}, map[orderItem][]uuid.UUID{}
 	var k orderItem
 	var t GRIRTakenOver
-	if _, err := pgx.ForEachRow(rows, []any{&k.order, &k.item, &t.Quantity, &t.Balance}, func() error { out[k] = t; return nil }); err != nil {
-		return nil, fmt.Errorf("ledger: read what was taken over of the GR/IR positions of %d orders: %w", len(orders), err)
+	var from []uuid.UUID
+	if _, err := pgx.ForEachRow(rows, []any{&k.order, &k.item, &t.Quantity, &t.Balance, &from}, func() error {
+		out[k], sources[k] = t, from
+		return nil
+	}); err != nil {
+		return nil, nil, fmt.Errorf("ledger: read what was taken over of the GR/IR positions of %d orders: %w", len(orders), err)
 	}
-	return out, nil
+	return out, sources, nil
 }
 
 // takenOver is what take-overs took over of the entry's items, when it
@@ -84,7 +109,8 @@ func (g grirPosting) takenOver(ctx context.Context, tx pgx.Tx, keys []orderItem)
 	for i, k := range keys {
 		orders[i] = k.order
 	}
-	return takenOver(ctx, tx, g.le.ID, orders)
+	taken, _, err := takenOver(ctx, tx, g.le.ID, orders) // the guard compares amounts only
+	return taken, err
 }
 
 // checkTakeOver refuses an entry that mixes take-over items with others,

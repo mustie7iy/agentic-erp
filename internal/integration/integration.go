@@ -116,7 +116,7 @@ type InvoicedQuantities interface {
 // what earlier runs took over of GR/IR positions (ledger).
 type Postings interface {
 	Post(ctx context.Context, in ledger.Posting) (ledger.Entry, error)
-	TakenOverGRIR(ctx context.Context, legalEntity uuid.UUID, orders []uuid.UUID) (map[uuid.UUID]map[int32]ledger.GRIRTakenOver, error)
+	TakenOverGRIR(ctx context.Context, legalEntity uuid.UUID, orders []uuid.UUID) (map[uuid.UUID]ledger.GRIRTakenOverOrder, error)
 	Clear(ctx context.Context, legalEntity uuid.UUID, date time.Time, by ledger.ItemRef, items []ledger.ItemRef) (uuid.UUID, error)
 	LockAllEntries(ctx context.Context) error
 }

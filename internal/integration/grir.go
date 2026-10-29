@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
@@ -265,8 +266,9 @@ func (q *qualityCheck) grirReceipts(orders map[string]bool, positions map[string
 // position is never taken over twice, and running an extract again posts
 // nothing; what the platform itself posted on the item stays beside it.
 // An order an earlier run loaded valued directly is not moved onto GR/IR
-// (the optional tracker leaf): its positions stay differences in the
-// reconciliation. The entry's WE number range is the configuration's,
+// (the optional tracker leaf), and one whose run's fiscal year cannot be
+// told to be this run's is left with a warning (cannotTopUp): their
+// positions stay differences in the reconciliation. The entry's WE number range is the configuration's,
 // which a GR/IR account requires; a period or range the ledger refuses is
 // reported as the record's refusal.
 //
@@ -285,10 +287,18 @@ func (l *loader) takeOverGRIR(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	years, err := l.runYears(ctx, taken)
+	if err != nil {
+		return err
+	}
 	nos := itemNos(l.ext)
 	for _, order := range sortedKeys(orders) {
-		items := l.grirItems(order, nos, taken[orders[order]])
+		items := l.grirItems(order, nos, taken[orders[order]].Items)
 		if len(items) == 0 {
+			continue
+		}
+		if why := l.cannotTopUp(order, taken[orders[order]], years); why != "" {
+			l.issues = append(l.issues, Issue{Severity: SevWarning, Table: "EKKO", Key: order, Message: why})
 			continue
 		}
 		key, count := order, "gr_ir_positions"
@@ -340,14 +350,14 @@ func (l *loader) grirValued(ctx context.Context) (map[string]uuid.UUID, error) {
 // takenOver locks the orders' GR/IR positions and reads what earlier runs
 // took over of their items, legal entity by legal entity, by order and
 // item.
-func (l *loader) takenOver(ctx context.Context, orders map[string]uuid.UUID) (map[uuid.UUID]map[int32]ledger.GRIRTakenOver, error) {
+func (l *loader) takenOver(ctx context.Context, orders map[string]uuid.UUID) (map[uuid.UUID]ledger.GRIRTakenOverOrder, error) {
 	byCompany := map[string][]uuid.UUID{}
 	for _, p := range l.grir {
 		if id, ok := orders[p.order]; ok && !slices.Contains(byCompany[p.company], id) {
 			byCompany[p.company] = append(byCompany[p.company], id)
 		}
 	}
-	out := map[uuid.UUID]map[int32]ledger.GRIRTakenOver{}
+	out := map[uuid.UUID]ledger.GRIRTakenOverOrder{}
 	for _, company := range sortedKeys(byCompany) {
 		taken, err := l.e.Postings.TakenOverGRIR(ctx, l.t.entities[company].ID, byCompany[company])
 		if err != nil {
@@ -356,6 +366,51 @@ func (l *loader) takenOver(ctx context.Context, orders map[string]uuid.UUID) (ma
 		maps.Copy(out, taken)
 	}
 	return out, nil
+}
+
+// runYears are the fiscal years of the runs whose take-overs the orders
+// hold, by run.
+func (l *loader) runYears(ctx context.Context, taken map[uuid.UUID]ledger.GRIRTakenOverOrder) (map[uuid.UUID]int32, error) {
+	var runs []uuid.UUID
+	for _, o := range taken {
+		runs = append(runs, o.Sources...)
+	}
+	rows, _ := l.tx.Query(ctx, `SELECT id, (scope->>'fiscal_year')::int FROM integration.migration_run WHERE id = ANY($1)`, runs)
+	out := map[uuid.UUID]int32{}
+	var id uuid.UUID
+	var year int32
+	if _, err := pgx.ForEachRow(rows, []any{&id, &year}, func() error { out[id] = year; return nil }); err != nil {
+		return nil, fmt.Errorf("integration: read the fiscal years of %d migration runs: %w", len(runs), err)
+	}
+	return out, nil
+}
+
+// cannotTopUp says why the run leaves the GR/IR positions of an order an
+// earlier run loaded as they are, or "" when it tops them up. A run's
+// extract carries its fiscal year's journal and invoices only
+// (sap.Source), while receipts are not limited to it, so it can tell SAP's
+// position of an order only when every take-over on it is a run's of its
+// own fiscal year; topping up from another year's would move the position
+// wrongly, the GR/IR account still netting to zero and the reconciliation,
+// from the same extract, agreeing (review:batch21, round 1). An order an
+// earlier run loaded with no position open has no take-over to tell its
+// run's year by, so it is left too. Either stays a difference in the
+// reconciliation, as before.
+func (l *loader) cannotTopUp(order string, o ledger.GRIRTakenOverOrder, years map[uuid.UUID]int32) string {
+	if l.viaGRIR[order] {
+		return ""
+	}
+	if len(o.Sources) == 0 {
+		return fmt.Sprintf("order %s, which an earlier run loaded with no GR/IR position open, has none taken over to tell the fiscal year "+
+			"of its run by: its GR/IR positions are not topped up, and the reconciliation shows them as differences", order)
+	}
+	for _, run := range o.Sources {
+		if year, ok := years[run]; ok && year != l.run.Scope.FiscalYear {
+			return fmt.Sprintf("order %s's GR/IR positions were taken over by a run of fiscal year %d: this run's extract holds fiscal year %d's "+
+				"journal only, so it cannot tell SAP's position and does not top it up", order, year, l.run.Scope.FiscalYear)
+		}
+	}
+	return ""
 }
 
 // grirItem is an order item whose take-over moves: SAP's position on it,

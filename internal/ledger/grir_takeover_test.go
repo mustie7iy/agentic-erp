@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -90,9 +91,9 @@ func TestGRIRTopUp(t *testing.T) {
 	g := grirSetup(t)
 	order := uuid.New()
 	g.post(t, g.takeOverPosting(order, "-2", -500))
-	taken := func(t *testing.T) map[uuid.UUID]map[int32]ledger.GRIRTakenOver {
+	taken := func(t *testing.T) map[uuid.UUID]ledger.GRIRTakenOverOrder {
 		t.Helper()
-		var out map[uuid.UUID]map[int32]ledger.GRIRTakenOver
+		var out map[uuid.UUID]ledger.GRIRTakenOverOrder
 		if err := apitest.Committed(t, g.ten, g.ten.Human, func(ctx context.Context) (err error) {
 			out, err = ledger.Postings{}.TakenOverGRIR(ctx, g.de, []uuid.UUID{order})
 			return err
@@ -101,7 +102,7 @@ func TestGRIRTopUp(t *testing.T) {
 		}
 		return out
 	}
-	read := taken(t)[order][10]
+	read := taken(t)[order].Items[10]
 	if read != (ledger.GRIRTakenOver{Quantity: "-2", Balance: -500}) {
 		t.Fatalf("taken over: got %+v, want -2 and -500", read)
 	}
@@ -118,8 +119,12 @@ func TestGRIRTopUp(t *testing.T) {
 	if got, want := g.projected(t, order), "received 1, invoiced 0, migrated -5, balance -1500, open true"; got != want {
 		t.Errorf("after the top-up: got %s, want %s", got, want)
 	}
-	if got := taken(t)[order][10]; got != (ledger.GRIRTakenOver{Quantity: "-5", Balance: -1250}) {
+	after := taken(t)[order]
+	if got := after.Items[10]; got != (ledger.GRIRTakenOver{Quantity: "-5", Balance: -1250}) {
 		t.Errorf("taken over after the top-up: got %+v, want -5 and -1250", got)
+	}
+	if got := len(after.Sources); got != 2 || !slices.Contains(after.Sources, topUp.SourceDocumentID) {
+		t.Errorf("the take-overs' source documents: got %v, want the first take-over's and %s", after.Sources, topUp.SourceDocumentID)
 	}
 	// The source system's position invoiced in full: topped up to nothing.
 	cleared := g.takeOverPosting(order, "0", 0)
@@ -128,7 +133,7 @@ func TestGRIRTopUp(t *testing.T) {
 	if got, want := g.projected(t, order), "received 1, invoiced 0, migrated 0, balance -250, open true"; got != want {
 		t.Errorf("topped up to nothing: got %s, want %s", got, want)
 	}
-	if got := taken(t)[order][10]; got != (ledger.GRIRTakenOver{Quantity: "0", Balance: 0}) {
+	if got := taken(t)[order].Items[10]; got != (ledger.GRIRTakenOver{Quantity: "0", Balance: 0}) {
 		t.Errorf("taken over at the end: got %+v, want nothing", got)
 	}
 }
