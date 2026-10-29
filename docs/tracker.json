@@ -490,7 +490,7 @@
        },
        {
         "s": "T",
-        "t": "Migrated entries in a foreign document currency (pre-existing finding on T72c): internal/integration/load.go journalPosting posts every migrated entry in company-code currency (HSL), so a down payment SAP made in a foreign document currency would load as a local-currency item and request and a final invoice in the original currency could not clear it (ledger.mixed_items); the quality gate refuses such entries until WSL/RWCUR are migrated",
+        "t": "Migrated entries in a foreign document currency (pre-existing finding on T72c): internal/integration/load.go journalPosting posts every migrated entry in company-code currency (HSL), so a down payment SAP made in a foreign document currency would load as a local-currency item and request and a final invoice in the original currency could not clear it (ledger.mixed_items); the quality gate should refuse such entries (sap.ACDOCA first carrying RWCUR/WSL) until they are migrated",
         "r": "internal/integration/load.go journalPosting · T72c",
         "src": "review:batch20",
         "c": []
