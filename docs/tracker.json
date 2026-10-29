@@ -8639,7 +8639,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "scripts/coverage.sh sets a go test timeout (finding on T72b): under load internal/analytics/extract and internal/web hit go test's default 10 minutes and make coverage fails though nothing is wrong",
       "r": "scripts/coverage.sh",
       "src": "review:T72b",
@@ -8656,6 +8656,13 @@
       "s": "D",
       "t": "govulncheck, staticcheck and gosec cover erp-temporal's own module (temporal/) as well as the root's, through scripts/each-module.sh, in ci-local, ci.yml's test job and weekly (govulncheck): every gate ran ./... from the root, which skips a module of its own, so nothing checked erp-temporal's standard-library or call-reachable vulnerabilities, and ko's SBOM, which grype scans, lists no standard library (pre-existing finding on batch 21)",
       "r": "scripts/each-module.sh · scripts/test-each-module.sh · scripts/ci-local.sh · .github/workflows/ci.yml · .github/workflows/weekly.yml · 06 §6.5",
+      "src": "review:batch21",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "The deploy checks run when the files they read change, not only their scripts and deploy/: temporal-checks.sh's lint rules (.golangci.yml), the module nats-checks.sh builds its nats-server from (go.mod, go.sum), and the ko and signing configurations test-mirror-images.sh reads through provenance.sh and sign-images.sh (.ko.yaml, release/signing-config.json); a change to any of them alone skipped those checks locally and on main (finding of the batch 21 review); scripts/ci-tools.sh stays out, as its golangci-lint pin is held equal to deploy.yml's by ci-local-tools.sh",
+      "r": "scripts/ci-changes.sh deploy class · .github/workflows/deploy.yml on.push.paths · scripts/test-ci-changes.sh · 06 §6.5",
       "src": "review:batch21",
       "c": []
      }

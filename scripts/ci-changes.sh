@@ -79,8 +79,15 @@ fi
 images="$(changed '^(go\.(mod|sum)|temporal/(go\.(mod|sum)|cmd/)|\.ko\.yaml|\.dockerignore|deploy/images/|Makefile|cmd/|release/|scripts/(image|test-images|lib/sbom-root|sign|verify-image|provenance|free-disk)|\.github/workflows/(ci|weekly)\.yml)')"
 release="$(changed '^(scripts/(next-version|changelog|test-release-scripts)\.sh|cliff\.toml|Makefile|\.github/workflows/(ci|release|weekly)\.yml)')"
 # deploy.yml's paths: deploy/ but its environments (promotion.yml's), the
-# scripts it runs, temporal/, scripts/lib/ and the workflows it lints.
-deploy="$(changed '^(deploy/|temporal/|scripts/lib/|scripts/(deploy-checks|helm-checks|admission-checks|mirror-images|test-mirror-images|sign-images|verify-image|provenance|nats-checks|temporal-checks)\.sh$|\.github/workflows/)' "$(grep -v '^deploy/environments/' <<<"$files" || true)")"
+# scripts it runs, temporal/, scripts/lib/ and the workflows it lints; and
+# the other files those scripts read: the lint rules temporal-checks.sh
+# applies (.golangci.yml), the module whose nats-server nats-checks.sh
+# builds (go.mod, go.sum), and the ko configuration provenance.sh and the
+# signing configuration sign-images.sh read in test-mirror-images.sh. Not
+# scripts/ci-tools.sh: the golangci-lint it pins for ci-local.sh's run of
+# temporal-checks.sh is held equal to deploy.yml's (ci-local-tools.sh), so
+# changing it changes a workflow too.
+deploy="$(changed '^(deploy/|temporal/|scripts/lib/|scripts/(deploy-checks|helm-checks|admission-checks|mirror-images|test-mirror-images|sign-images|verify-image|provenance|nats-checks|temporal-checks)\.sh$|\.golangci\.yml$|go\.(mod|sum)$|\.ko\.yaml$|release/signing-config\.json$|\.github/workflows/)' "$(grep -v '^deploy/environments/' <<<"$files" || true)")"
 promotion="$(changed '^(scripts/(promotion-checks|test-promotion-checks|promotion-approvals|test-promotion-approvals|verify-image|rollback-drill|test-rollback-drill|restore-drill|test-restore-drill)\.sh|\.github/approvers|\.github/workflows/promotion(-self-test|-review)?\.yml)$')"
 code="$(grep -Ev '^docs/|\.md$' <<<"$files" || true)"
 if [ -n "$files" ] && [ -z "$code" ]; then

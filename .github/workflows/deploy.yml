@@ -33,6 +33,15 @@ on:
       - scripts/temporal-checks.sh
       - temporal/**
       - scripts/lib/**
+      # The other files the scripts read: temporal-checks.sh's lint rules;
+      # the module nats-checks.sh builds its nats-server from; the ko and
+      # signing configurations test-mirror-images.sh reads through
+      # provenance.sh and sign-images.sh.
+      - .golangci.yml
+      - go.mod
+      - go.sum
+      - .ko.yaml
+      - release/signing-config.json
       # The workflows themselves, which deploy-checks.sh lints.
       - .github/workflows/**
 
