@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
@@ -45,18 +46,22 @@ func runOK(r Run) *gen.RejectPaymentRunOKHeaders {
 	return &gen.RejectPaymentRunOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: runToAPI(r)}
 }
 
-// paymentToAPI is payment p of run r to the supplier named supplier; a
-// payment that names no house bank is paid by its run's. numbers are the
-// document numbers of the down payment requests and journal entries it
-// references, keyed by id.
-func paymentToAPI(p Payment, r Run, supplier string, numbers map[uuid.UUID]string) gen.Payment {
-	currency, exp := r.Currency, r.Exponent
-	out := gen.Payment{ID: p.ID, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, PaymentRunID: p.RunID, SupplierID: p.SupplierID, SupplierName: supplier,
-		BankAccountID: p.BankAccountID, Amount: apitypes.Money(p.Amount, currency, exp), DiscountAmount: gen.NewOptMoney(apitypes.Money(p.Discount, currency, exp)),
-		WithholdingAmount: gen.NewOptMoney(apitypes.Money(p.Withholding, currency, exp)), EndToEndID: p.EndToEndID, JournalEntryID: apitypes.OptUUID(p.JournalEntryID), Kind: gen.NewOptString(p.Kind),
-		DownPaymentRequestID: apitypes.OptUUID(p.RequestID), HouseBankID: apitypes.OptUUID(p.HouseBankID), Items: make([]gen.PaymentItem, len(p.Items))}
-	if p.HouseBankID == nil {
-		out.HouseBankID = apitypes.OptUUID(r.HouseBankID)
+// paymentToAPI is payment p of run r, named by refs; a payment that names
+// no house bank is paid by its run's.
+func paymentToAPI(p Payment, r Run, refs paymentRefs) gen.Payment {
+	currency, exp, numbers, account := r.Currency, r.Exponent, refs.numbers, refs.accounts[p.BankAccountID]
+	out := gen.Payment{ID: p.ID, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, PaymentRunID: p.RunID, SupplierID: p.SupplierID, SupplierName: refs.suppliers[p.SupplierID],
+		BankAccountID: p.BankAccountID, BankAccountLast4: account.AccountLast4, BankAccountScheme: account.AccountScheme, BankAccountHolderName: account.HolderName,
+		BankAccountBic: apitypes.OptString(account.BIC), BankAccountInstitutionNumber: apitypes.OptString(account.InstitutionNumber),
+		BankAccountTransitNumber: apitypes.OptString(account.TransitNumber), Amount: apitypes.Money(p.Amount, currency, exp),
+		DiscountAmount: gen.NewOptMoney(apitypes.Money(p.Discount, currency, exp)), WithholdingAmount: gen.NewOptMoney(apitypes.Money(p.Withholding, currency, exp)),
+		EndToEndID: p.EndToEndID, JournalEntryID: apitypes.OptUUID(p.JournalEntryID), Kind: gen.NewOptString(p.Kind),
+		DownPaymentRequestID: apitypes.OptUUID(p.RequestID), HouseBankID: apitypes.OptUUID(bankOf(r, p)), Items: make([]gen.PaymentItem, len(p.Items))}
+	if bank := bankOf(r, p); bank != nil {
+		out.HouseBankCode.SetTo(refs.houseBanks[*bank])
+	}
+	if p.JournalEntryID != nil {
+		out.JournalEntryNumber.SetTo(numbers[*p.JournalEntryID])
 	}
 	if p.Method != nil {
 		out.PaymentMethod.SetTo(*p.Method)
@@ -196,17 +201,13 @@ func (e *Endpoints) ListPayments(ctx context.Context, params gen.ListPaymentsPar
 		return nil, fmt.Errorf("payments: list payments of run %s: %w", r.ID, err)
 	}
 	page, next := pagination.Page(ks, pays, idKey(func(p Payment) uuid.UUID { return p.ID }))
-	names, err := supplierNames(ctx, e.Payees, page, func(p Payment) (uuid.UUID, string) { return p.SupplierID, "payment " + p.ID.String() })
-	if err != nil {
-		return nil, fmt.Errorf("payments: list payments of run %s: %w", r.ID, err)
-	}
-	numbers, err := e.paymentNumbers(ctx, page)
+	refs, err := e.paymentRefs(ctx, r, page)
 	if err != nil {
 		return nil, fmt.Errorf("payments: list payments of run %s: %w", r.ID, err)
 	}
 	out := gen.PaymentPage{Items: make([]gen.Payment, len(page))}
 	for i, p := range page {
-		out.Items[i] = paymentToAPI(p, r, names[p.SupplierID], numbers)
+		out.Items[i] = paymentToAPI(p, r, refs)
 	}
 	if next != "" {
 		out.NextPageToken.SetTo(next)
@@ -270,7 +271,7 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 	if err != nil {
 		return nil, fmt.Errorf("payments: list exclusions of run %s: %w", r.ID, err)
 	}
-	numbers, err := documentNumbers(ctx, e.DownPayments.Numbers, requestsOf(page, func(x Exclusion) *uuid.UUID { return x.RequestID }), downPaymentRequest)
+	numbers, err := resolve(ctx, e.DownPayments.Numbers, idsOf(page, func(x Exclusion) *uuid.UUID { return x.RequestID }), requestRef)
 	if err != nil {
 		return nil, fmt.Errorf("payments: list exclusions of run %s: %w", r.ID, err)
 	}
@@ -288,21 +289,52 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 	return &out, nil
 }
 
+// paymentRefs are what a page's payments reference, each keyed by id: the
+// suppliers' names, the document numbers of the down payment requests and
+// journal entries (the payments' postings and their items'), the house
+// banks' codes, and the suppliers' bank accounts, masked.
+type paymentRefs struct {
+	suppliers, numbers, houseBanks map[uuid.UUID]string
+	accounts                       map[uuid.UUID]partner.BankAccount
+}
+
+// paymentRefs reads what the page's payments of run r reference, one call
+// to each context for the page.
+func (e *Endpoints) paymentRefs(ctx context.Context, r Run, page []Payment) (paymentRefs, error) {
+	var refs paymentRefs
+	var err error
+	if refs.suppliers, err = supplierNames(ctx, e.Payees, page, func(p Payment) (uuid.UUID, string) { return p.SupplierID, "payment " + p.ID.String() }); err != nil {
+		return refs, err
+	}
+	if refs.numbers, err = e.paymentNumbers(ctx, page); err != nil {
+		return refs, err
+	}
+	accounts := make([]uuid.UUID, len(page))
+	for i, p := range page {
+		accounts[i] = p.BankAccountID
+	}
+	if refs.accounts, err = resolve(ctx, e.Payees.BankAccounts, accounts, accountRef); err != nil {
+		return refs, err
+	}
+	refs.houseBanks, err = resolve(ctx, houseBankCodes, idsOf(page, func(p Payment) *uuid.UUID { return bankOf(r, p) }), houseBankRef)
+	return refs, err
+}
+
 // paymentNumbers gives the document numbers of the down payment requests
-// and the open items' journal entries a page's payments reference, keyed
-// by id: one call to each context for the page.
+// and the journal entries a page's payments reference (their postings and
+// their open items'), keyed by id: one call to each context for the page.
 func (e *Endpoints) paymentNumbers(ctx context.Context, page []Payment) (map[uuid.UUID]string, error) {
-	requests, err := documentNumbers(ctx, e.DownPayments.Numbers, requestsOf(page, func(p Payment) *uuid.UUID { return p.RequestID }), downPaymentRequest)
+	requests, err := resolve(ctx, e.DownPayments.Numbers, idsOf(page, func(p Payment) *uuid.UUID { return p.RequestID }), requestRef)
 	if err != nil {
 		return nil, err
 	}
-	var entries []uuid.UUID
+	entries := idsOf(page, func(p Payment) *uuid.UUID { return p.JournalEntryID })
 	for _, p := range page {
 		for _, it := range p.Items {
 			entries = append(entries, it.EntryID)
 		}
 	}
-	numbers, err := documentNumbers(ctx, e.OpenItems.Numbers, entries, journalEntry)
+	numbers, err := resolve(ctx, e.OpenItems.Numbers, entries, entryRef)
 	if err != nil {
 		return nil, err
 	}
@@ -310,47 +342,67 @@ func (e *Endpoints) paymentNumbers(ctx context.Context, page []Payment) (map[uui
 	return numbers, nil
 }
 
-// requestsOf are the down payment requests a page's rows reference, request
-// giving a row's or nil.
-func requestsOf[T any](rows []T, request func(T) *uuid.UUID) []uuid.UUID {
+// houseBankCodes returns the house banks' codes, keyed by id: what a
+// payment shows beside its house bank's id. An id that names no house bank
+// is left out.
+func houseBankCodes(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT id, code FROM payments.house_bank WHERE id = ANY($1)`, ids)
+	out := map[uuid.UUID]string{}
+	var id uuid.UUID
+	var code string
+	if _, err = pgx.ForEachRow(rows, []any{&id, &code}, func() error { out[id] = code; return nil }); err != nil {
+		return nil, fmt.Errorf("payments: codes of %d house banks: %w", len(ids), err)
+	}
+	return out, nil
+}
+
+// idsOf are the ids a page's rows reference (down payment requests,
+// postings, house banks), ref giving a row's or nil.
+func idsOf[T any](rows []T, ref func(T) *uuid.UUID) []uuid.UUID {
 	var ids []uuid.UUID
 	for _, row := range rows {
-		if id := request(row); id != nil {
+		if id := ref(row); id != nil {
 			ids = append(ids, *id)
 		}
 	}
 	return ids
 }
 
-// A referenced document's kind and the context that holds it, as an error
-// names a document missing from it.
-type documentKind struct{ name, context string }
+// A referenced object's kind and the context that holds it, as an error
+// names an object missing from it.
+type refKind struct{ name, context string }
 
 var (
-	downPaymentRequest = documentKind{"down payment request", "payables"}
-	journalEntry       = documentKind{"journal entry", "ledger"}
+	requestRef   = refKind{"down payment request", "payables"}
+	entryRef     = refKind{"journal entry", "ledger"}
+	accountRef   = refKind{"bank account", "partner"}
+	houseBankRef = refKind{"house bank", "payments"}
 )
 
-// documentNumbers gives the document numbers of the documents a page
-// references (ids, of the kind), from the context that holds them: one call
-// for the page and none for a page that references none. A document the
-// context does not hold is an error, never a row shown without its
-// document's number.
-func documentNumbers(ctx context.Context, lookup func(context.Context, []uuid.UUID) (map[uuid.UUID]string, error), ids []uuid.UUID,
-	kind documentKind) (map[uuid.UUID]string, error) {
+// resolve gives what names the objects a page references (ids, of the
+// kind: a document's number, a house bank's code, a bank account), from the
+// context that holds them: one call for the page and none for a page that
+// references none. An object the context does not hold is an error, never
+// a row shown without its name.
+func resolve[V any](ctx context.Context, lookup func(context.Context, []uuid.UUID) (map[uuid.UUID]V, error), ids []uuid.UUID,
+	kind refKind) (map[uuid.UUID]V, error) {
 	if len(ids) == 0 {
-		return map[uuid.UUID]string{}, nil
+		return map[uuid.UUID]V{}, nil
 	}
-	numbers, err := lookup(ctx, ids)
+	named, err := lookup(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
 	for _, id := range ids {
-		if _, ok := numbers[id]; !ok {
+		if _, ok := named[id]; !ok {
 			return nil, fmt.Errorf("%s %s is not held by the %s context", kind.name, id, kind.context)
 		}
 	}
-	return numbers, nil
+	return named, nil
 }
 
 // GetBankFile implements GET /v1/bank-files/{id}.

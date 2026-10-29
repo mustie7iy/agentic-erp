@@ -327,6 +327,7 @@ func (e env) payments(t *testing.T, run map[string]any) []any {
 	page, _ := e.Must(200, "GET", "/v1/payment-runs/"+id(run)+"/payments", "", "")
 	wantRequestNumbers(t, "payment", page)
 	wantItemNumbers(t, page)
+	wantPaymentRefs(t, page)
 	return page["items"].([]any)
 }
 

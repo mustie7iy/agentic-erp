@@ -923,6 +923,20 @@ step_payment() {
   wait_op
   api 200 '"run \(.document_number): \(.status)"' getPaymentRun -p "id=$RUN"
   expect "run status" "$(field .status)" released
+  say "Each payment, once posted, names its posting by its document number, its house bank by its code and the"
+  say "supplier's account by its last four characters and its bank; the account number never appears:"
+  api 200 '.items[] | select(.supplier_name == "Tyrell Office Products" or .supplier_name == "Laurentian Paper") | "payment \(.end_to_end_id) to \(.supplier_name): posted as \(.journal_entry_number), from \(.house_bank_code), to \(.bank_account_scheme) …\(.bank_account_last4)\(if .bank_account_institution_number then " at \(.bank_account_institution_number)-\(.bank_account_transit_number)" else "" end), holder \(.bank_account_holder_name)"' \
+    listPayments -p "id=$RUN" -p page_size=100
+  cp "$WORK/last.json" "$WORK/posted.json"
+  expect "the house bank every payment names" "$(field '[.items[].house_bank_code] | unique | join(" ")')" RBC
+  expect "payments without their posting's number" "$(field '[.items[] | select(.journal_entry_number == null)] | length')" 0
+  expect "Laurentian Paper's account, by its scheme, bank and branch" \
+    "$(field '.items[] | select(.supplier_name == "Laurentian Paper") | "\(.bank_account_scheme) \(.bank_account_institution_number) \(.bank_account_transit_number)"')" "ca 001 00010"
+  local posting
+  posting=$(jq -r --arg a "$INVOICE_ENTRY" '.items[] | select(any(.items[]; .journal_entry_id == $a)) | .journal_entry_id' "$WORK/posted.json")
+  api 200 '"the payment of TY-5001 is journal entry \(.document_number)"' getJournalEntry -p "id=$posting"
+  expect "the posting's number the payment of TY-5001 gives" \
+    "$(jq -r --arg a "$INVOICE_ENTRY" '.items[] | select(any(.items[]; .journal_entry_id == $a)) | .journal_entry_number' "$WORK/posted.json")" "$(field .document_number)"
   api 200 '.items[] | "bank file \(.id): \(.format), \(.status)"' listBankFiles -p "payment_run_id=$RUN"
   local file
   file=$(field '.items[0].id')

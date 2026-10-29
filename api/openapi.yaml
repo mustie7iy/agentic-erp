@@ -28767,6 +28767,9 @@ components:
             - supplier_id
             - supplier_name
             - bank_account_id
+            - bank_account_last4
+            - bank_account_scheme
+            - bank_account_holder_name
             - amount
             - end_to_end_id
             - items
@@ -28789,6 +28792,38 @@ components:
               type: string
               format: uuid
               description: Supplier bank account valid on the run date.
+              readOnly: true
+            bank_account_last4:
+              type: string
+              description: "The bank account's `account_last4`, as the partner's bank account gives it: the last up to four characters of its number, which is never returned."
+              pattern: "^[A-Z0-9]{1,4}$"
+              readOnly: true
+            bank_account_scheme:
+              type: string
+              description: "The bank account's `account_scheme`: `iban`, `domestic`, or `ca` for a Canadian account. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - iban
+                - domestic
+                - ca
+              readOnly: true
+            bank_account_holder_name:
+              type: string
+              description: "The bank account's `holder_name`, as it is now."
+              readOnly: true
+            bank_account_bic:
+              type: string
+              description: "The bank account's `bic`; absent when it has none."
+              pattern: "^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$"
+              readOnly: true
+            bank_account_institution_number:
+              type: string
+              description: "The bank account's `institution_number`, of a scheme `ca` account (the bank, not masked); absent for the others."
+              pattern: "^[0-9]{3}$"
+              readOnly: true
+            bank_account_transit_number:
+              type: string
+              description: "The bank account's `transit_number`, of a scheme `ca` account (the branch); absent for the others."
+              pattern: "^[0-9]{5}$"
               readOnly: true
             amount:
               $ref: "#/components/schemas/Money"
@@ -28817,6 +28852,10 @@ components:
               format: uuid
               description: Payment journal entry, once posted.
               readOnly: true
+            journal_entry_number:
+              type: string
+              description: "The payment journal entry's document number; present exactly when `journal_entry_id` is."
+              readOnly: true
             kind:
               type: string
               description: "What the payment pays: `items`, the supplier's open items netted (at most one such payment per supplier and run), or `down_payment`, one down payment request (ADR-0037), paid whole and never netted, whose posting puts the down payment on the down payment account. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -28838,6 +28877,10 @@ components:
               format: uuid
               description: "House bank that pays it: the run's, or for a run proposed without one, the first ranked for its payment method and currency (T45c)."
               readOnly: true
+            house_bank_code:
+              type: string
+              description: "The house bank's `code`, its name in the configuration; present exactly when `house_bank_id` is."
+              readOnly: true
             payment_method:
               type: string
               description: "Payment method it is paid by (SAP ZLSCH); absent in a run proposed for one house bank."
@@ -28856,10 +28899,18 @@ components:
           supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
           supplier_name: Tyrell Office Products
           bank_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db2"
+          bank_account_last4: "4321"
+          bank_account_scheme: iban
+          bank_account_holder_name: Tyrell Office Products GmbH
+          bank_account_bic: COBADEFFXXX
           amount:
             amount: "1080.00"
             currency: EUR
           end_to_end_id: "2600000017-000042"
+          journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc1"
+          journal_entry_number: "1500000042"
+          house_bank_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d60"
+          house_bank_code: MAIN
           items:
             - fiscal_year: 2026
               journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dae"
@@ -28877,6 +28928,10 @@ components:
           supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
           supplier_name: Tyrell Office Products
           bank_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db2"
+          bank_account_last4: "4321"
+          bank_account_scheme: iban
+          bank_account_holder_name: Tyrell Office Products GmbH
+          bank_account_bic: COBADEFFXXX
           amount:
             amount: "1190.00"
             currency: EUR
@@ -28914,10 +28969,18 @@ components:
               supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
               supplier_name: Tyrell Office Products
               bank_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db2"
+              bank_account_last4: "4321"
+              bank_account_scheme: iban
+              bank_account_holder_name: Tyrell Office Products GmbH
+              bank_account_bic: COBADEFFXXX
               amount:
                 amount: "1080.00"
                 currency: EUR
               end_to_end_id: "2600000017-000042"
+              journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc1"
+              journal_entry_number: "1500000042"
+              house_bank_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d60"
+              house_bank_code: MAIN
               items:
                 - fiscal_year: 2026
                   journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dae"

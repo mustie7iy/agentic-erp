@@ -393,6 +393,10 @@ func fileAndPortCalls(t *testing.T, e env, h *payments.Endpoints, s *failureRuns
 			_, err := partner.Payees{Keys: apitest.FieldKeys()}.BankDetails(ctx, []uuid.UUID{uuid.New()})
 			return err
 		},
+		"bank accounts": func(ctx context.Context) error {
+			_, err := partner.Payees{}.BankAccounts(ctx, []uuid.UUID{uuid.New()})
+			return err
+		},
 	}
 }
 

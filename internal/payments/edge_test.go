@@ -298,6 +298,7 @@ func TestListsAndAccess(t *testing.T) {
 	wantSupplierNames(t, "payment", pays, rest)
 	wantItemNumbers(t, pays, rest)
 	wantRequestNumbers(t, "payment", pays, rest)
+	wantPaymentRefs(t, pays, rest)
 	if got := list("/v1/payment-runs/" + id(first) + "/payments?supplier_id=" + e.Vendor.String()); len(got["items"].([]any)) != 1 {
 		t.Fatalf("payments of the vendor: %v", got)
 	}
@@ -469,4 +470,63 @@ func documentNumber(t *testing.T, query string, id any) string {
 		t.Fatal(err)
 	}
 	return number
+}
+
+// wantPaymentRefs: every payment on the pages names its posting by the
+// entry's document number exactly when it is posted, its house bank by
+// its code, and its bank account as the partner context holds it, masked,
+// on a later page as on the first.
+func wantPaymentRefs(t *testing.T, pages ...map[string]any) {
+	t.Helper()
+	for _, page := range pages {
+		for _, it := range page["items"].([]any) {
+			p := it.(map[string]any)
+			wantNamed(t, p, "journal_entry_id", "journal_entry_number", `SELECT document_number FROM ledger.journal_entry WHERE id = $1`)
+			wantNamed(t, p, "house_bank_id", "house_bank_code", `SELECT code FROM payments.house_bank WHERE id = $1`)
+			wantBankAccount(t, p)
+		}
+	}
+}
+
+// wantNamed: payment p gives the name field, as query reads it for its id
+// field, exactly when it gives the id.
+func wantNamed(t *testing.T, p map[string]any, idField, nameField, query string) {
+	t.Helper()
+	ref, ok := p[idField]
+	if !ok {
+		if name, has := p[nameField]; has {
+			t.Errorf("payment %v without %s: got %s %v, want none", p["id"], idField, nameField, name)
+		}
+		return
+	}
+	if want := documentNumber(t, query, ref); p[nameField] != want {
+		t.Errorf("payment %v: got %s %v, want %s", p["id"], nameField, p[nameField], want)
+	}
+}
+
+// wantBankAccount: payment p shows its bank account's masked fields as the
+// partner context holds them, an optional one absent when the account has
+// none, and never the account number.
+func wantBankAccount(t *testing.T, p map[string]any) {
+	t.Helper()
+	var last4, scheme, holder string
+	var bic, institution, transit *string
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT account_last4, account_scheme, holder_name, bic, institution_number, transit_number
+		FROM partner.bank_account WHERE id = $1`, p["bank_account_id"]).Scan(&last4, &scheme, &holder, &bic, &institution, &transit); err != nil {
+		t.Fatal(err)
+	}
+	for field, want := range map[string]any{"bank_account_last4": last4, "bank_account_scheme": scheme, "bank_account_holder_name": holder,
+		"bank_account_bic": text(bic), "bank_account_institution_number": text(institution), "bank_account_transit_number": text(transit)} {
+		if got := p[field]; got != want {
+			t.Errorf("payment %v: got %s %v, want %v", p["id"], field, got, want)
+		}
+	}
+}
+
+// text is v as a decoded JSON response gives it: nil for an absent field.
+func text(v *string) any {
+	if v == nil {
+		return nil
+	}
+	return *v
 }

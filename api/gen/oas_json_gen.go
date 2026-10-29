@@ -75975,6 +75975,36 @@ func (s *Payment) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.BankAccountID)
 	}
 	{
+		e.FieldStart("bank_account_last4")
+		e.Str(s.BankAccountLast4)
+	}
+	{
+		e.FieldStart("bank_account_scheme")
+		e.Str(s.BankAccountScheme)
+	}
+	{
+		e.FieldStart("bank_account_holder_name")
+		e.Str(s.BankAccountHolderName)
+	}
+	{
+		if s.BankAccountBic.Set {
+			e.FieldStart("bank_account_bic")
+			s.BankAccountBic.Encode(e)
+		}
+	}
+	{
+		if s.BankAccountInstitutionNumber.Set {
+			e.FieldStart("bank_account_institution_number")
+			s.BankAccountInstitutionNumber.Encode(e)
+		}
+	}
+	{
+		if s.BankAccountTransitNumber.Set {
+			e.FieldStart("bank_account_transit_number")
+			s.BankAccountTransitNumber.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("amount")
 		s.Amount.Encode(e)
 	}
@@ -76007,6 +76037,12 @@ func (s *Payment) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.JournalEntryNumber.Set {
+			e.FieldStart("journal_entry_number")
+			s.JournalEntryNumber.Encode(e)
+		}
+	}
+	{
 		if s.Kind.Set {
 			e.FieldStart("kind")
 			s.Kind.Encode(e)
@@ -76031,6 +76067,12 @@ func (s *Payment) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.HouseBankCode.Set {
+			e.FieldStart("house_bank_code")
+			s.HouseBankCode.Encode(e)
+		}
+	}
+	{
 		if s.PaymentMethod.Set {
 			e.FieldStart("payment_method")
 			s.PaymentMethod.Encode(e)
@@ -76046,7 +76088,7 @@ func (s *Payment) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPayment = [19]string{
+var jsonFieldsNameOfPayment = [27]string{
 	0:  "id",
 	1:  "created_at",
 	2:  "created_by",
@@ -76054,18 +76096,26 @@ var jsonFieldsNameOfPayment = [19]string{
 	4:  "supplier_id",
 	5:  "supplier_name",
 	6:  "bank_account_id",
-	7:  "amount",
-	8:  "discount_amount",
-	9:  "withholding_amount",
-	10: "discount_until",
-	11: "end_to_end_id",
-	12: "journal_entry_id",
-	13: "kind",
-	14: "down_payment_request_id",
-	15: "down_payment_request_number",
-	16: "house_bank_id",
-	17: "payment_method",
-	18: "items",
+	7:  "bank_account_last4",
+	8:  "bank_account_scheme",
+	9:  "bank_account_holder_name",
+	10: "bank_account_bic",
+	11: "bank_account_institution_number",
+	12: "bank_account_transit_number",
+	13: "amount",
+	14: "discount_amount",
+	15: "withholding_amount",
+	16: "discount_until",
+	17: "end_to_end_id",
+	18: "journal_entry_id",
+	19: "journal_entry_number",
+	20: "kind",
+	21: "down_payment_request_id",
+	22: "down_payment_request_number",
+	23: "house_bank_id",
+	24: "house_bank_code",
+	25: "payment_method",
+	26: "items",
 }
 
 // Decode decodes Payment from json.
@@ -76073,7 +76123,7 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode Payment to nil")
 	}
-	var requiredBitSet [3]uint8
+	var requiredBitSet [4]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -76161,8 +76211,74 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"bank_account_id\"")
 			}
-		case "amount":
+		case "bank_account_last4":
 			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				v, err := d.Str()
+				s.BankAccountLast4 = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"bank_account_last4\"")
+			}
+		case "bank_account_scheme":
+			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.BankAccountScheme = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"bank_account_scheme\"")
+			}
+		case "bank_account_holder_name":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.BankAccountHolderName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"bank_account_holder_name\"")
+			}
+		case "bank_account_bic":
+			if err := func() error {
+				s.BankAccountBic.Reset()
+				if err := s.BankAccountBic.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"bank_account_bic\"")
+			}
+		case "bank_account_institution_number":
+			if err := func() error {
+				s.BankAccountInstitutionNumber.Reset()
+				if err := s.BankAccountInstitutionNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"bank_account_institution_number\"")
+			}
+		case "bank_account_transit_number":
+			if err := func() error {
+				s.BankAccountTransitNumber.Reset()
+				if err := s.BankAccountTransitNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"bank_account_transit_number\"")
+			}
+		case "amount":
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				if err := s.Amount.Decode(d); err != nil {
 					return err
@@ -76202,7 +76318,7 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"discount_until\"")
 			}
 		case "end_to_end_id":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				v, err := d.Str()
 				s.EndToEndID = string(v)
@@ -76222,6 +76338,16 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"journal_entry_id\"")
+			}
+		case "journal_entry_number":
+			if err := func() error {
+				s.JournalEntryNumber.Reset()
+				if err := s.JournalEntryNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"journal_entry_number\"")
 			}
 		case "kind":
 			if err := func() error {
@@ -76263,6 +76389,16 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"house_bank_id\"")
 			}
+		case "house_bank_code":
+			if err := func() error {
+				s.HouseBankCode.Reset()
+				if err := s.HouseBankCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"house_bank_code\"")
+			}
 		case "payment_method":
 			if err := func() error {
 				s.PaymentMethod.Reset()
@@ -76274,7 +76410,7 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"payment_method\"")
 			}
 		case "items":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[3] |= 1 << 2
 			if err := func() error {
 				s.Items = make([]PaymentItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -76300,9 +76436,10 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [3]uint8{
+	for i, mask := range [4]uint8{
 		0b11111111,
-		0b00001000,
+		0b00100011,
+		0b00000010,
 		0b00000100,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
