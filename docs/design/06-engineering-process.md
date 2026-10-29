@@ -309,6 +309,14 @@ gates on each pull request:
     `scripts/test-images.sh`'s consistency check holds the release's push
     target and built images, `modules/ecr`'s repositories and
     `release.json`'s names to each other.
+  - 2026-10-29 (T72i follow-ups, batch21): adding erp-temporal to
+    `modules/ecr` left `envs/tooling`'s `terraform test` expecting seven
+    repositories, as the lane did not run `scripts/deploy-checks.sh` (the
+    `terraform test` of the roots that use the module). Layer: the lane
+    fast loop. Changed: a lane that changes infrastructure runs
+    `scripts/deploy-checks.sh`, or `terraform test` on every root and
+    module that uses a changed module; the test now names the
+    repositories rather than counting them.
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
   documentation changed (`docs/`, Markdown) since the base: a pull
