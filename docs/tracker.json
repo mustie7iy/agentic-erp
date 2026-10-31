@@ -8373,10 +8373,10 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Cost and profit center changes take effect from the company's date, not UTC (the validity a posting's center is derived from); waits for the product owner's confirmation, as it decides which center a posting of that day takes",
-        "r": "internal/ledger centerchange.go, costcenters.go, profitcenters.go today() (UTC) · ADR-0050 · product owner question, recommendation: the company's date · T72n4",
-        "src": "split:T72l",
+        "s": "D",
+        "t": "Cost and profit center changes take effect from the company's date, not UTC: a change's check that a default center stays usable (ledger.default_center_in_use), the setup's controlling check, and a requisition's assignments at submission judge on the company's date in its time zone, the refusal naming the date and zone; product owner 2026-10-31: the company's date",
+        "r": "ADR-0050 §11 as built (T72n4) · internal/ledger companyday.go companyDays, ledger.Settings, keepsDefaultCostCenter/ProfitCenter, readControlling · internal/procurement checkSubmitted · TestCenterChangesOnTheCompanysDate · TestControllingDefaultsOnTheCompanysDate · TestSubmissionOnTheCompanysDate · T72n4",
+        "src": "split:T72l · po:2026-10-31",
         "c": []
        },
        {

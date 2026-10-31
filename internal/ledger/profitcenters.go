@@ -122,7 +122,7 @@ func (e *Endpoints) RequestProfitCenterChange(ctx context.Context, id uuid.UUID,
 	if err := e.accessible(ctx, payload.LegalEntityIDs); err != nil {
 		return CenterChange{}, err
 	}
-	if _, err := planProfitCenter(ctx, tx, c, kind, payload, e.today()); err != nil {
+	if _, err := planProfitCenter(ctx, tx, c, kind, payload, e.days()); err != nil {
 		return CenterChange{}, err
 	}
 	return requestChange(ctx, tx, e.Approvals, profitCenterRef(id, c.Code), kind, payload, reason)
@@ -131,7 +131,7 @@ func (e *Endpoints) RequestProfitCenterChange(ctx context.Context, id uuid.UUID,
 // planProfitCenter computes the profit center's periods after the change
 // and checks it, against the lines posted on it too (profitCenterInUse);
 // it refuses a change that changes nothing.
-func planProfitCenter(ctx context.Context, tx pgx.Tx, c ProfitCenter, kind string, p profitCenterPayload, today time.Time) ([]span[ProfitCenterAttrs], error) {
+func planProfitCenter(ctx context.Context, tx pgx.Tx, c ProfitCenter, kind string, p profitCenterPayload, days companyDays) ([]span[ProfitCenterAttrs], error) {
 	from, to := parseDate(p.ValidFrom), parseDate(p.ValidTo)
 	switch kind {
 	case KindCreate:
@@ -166,7 +166,7 @@ func planProfitCenter(ctx context.Context, tx pgx.Tx, c ProfitCenter, kind strin
 	if err := profitCenterInUse(ctx, tx, c, spans); err != nil {
 		return nil, err
 	}
-	return spans, keepsDefaultProfitCenter(ctx, tx, c.ID, spans, today)
+	return spans, keepsDefaultProfitCenter(ctx, tx, c.ID, spans, days)
 }
 
 func equalIDs(a, b *uuid.UUID) bool {
@@ -219,15 +219,15 @@ func redatedProfitCenter(ctx context.Context, tx pgx.Tx, c ProfitCenter, from, t
 }
 
 // applyProfitCenterChange applies an approved change of a profit center,
-// as of today.
-func applyProfitCenterChange(ctx context.Context, tx pgx.Tx, ch CenterChange, today time.Time) error {
+// as of the date of each company it is the default of (days).
+func applyProfitCenterChange(ctx context.Context, tx pgx.Tx, ch CenterChange, days companyDays) error {
 	c, err := getProfitCenter(ctx, tx, *ch.ProfitCenterID, forUpdate)
 	if err != nil {
 		return err
 	}
 	var p profitCenterPayload
 	decode(ch.Payload, &p)
-	spans, err := planProfitCenter(ctx, tx, c, ch.Kind, p, today)
+	spans, err := planProfitCenter(ctx, tx, c, ch.Kind, p, days)
 	if err != nil {
 		return err
 	}

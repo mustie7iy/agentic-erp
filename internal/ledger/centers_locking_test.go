@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
-	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
@@ -70,7 +69,7 @@ func TestCenterChangesSerialize(t *testing.T) {
 			pc[len("/v1/profit-centers/"):]), tag)
 		approve := func(ch map[string]any) func(ctx context.Context) error {
 			return func(ctx context.Context) error {
-				return ledger.CenterChanges{}.Approved(ctx, uuid.MustParse(ch["id"].(string)), uuid.MustParse(ch["workflow_request_id"].(string)))
+				return changes().Approved(ctx, uuid.MustParse(ch["id"].(string)), uuid.MustParse(ch["workflow_request_id"].(string)))
 			}
 		}
 		first, second := serializeOn(t, c.ten, "the profit center", rowLockWaits(t), approve(move), approve(redate))

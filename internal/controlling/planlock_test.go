@@ -10,9 +10,11 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // requestPlanLock requests a plan lock of the cost center over the dates
@@ -118,7 +120,7 @@ func TestPlanLockAndBatchSerialize(t *testing.T) {
 	}
 	approve := func(ch map[string]any) func(ctx context.Context) error {
 		return func(ctx context.Context) error {
-			return ledger.CenterChanges{}.Approved(ctx, uuid.MustParse(ch["id"].(string)), uuid.MustParse(ch["workflow_request_id"].(string)))
+			return ledger.CenterChanges{LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}}.Approved(ctx, uuid.MustParse(ch["id"].(string)), uuid.MustParse(ch["workflow_request_id"].(string)))
 		}
 	}
 

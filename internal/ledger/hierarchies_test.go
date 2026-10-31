@@ -500,7 +500,7 @@ func TestHierarchyChangesReplanned(t *testing.T) {
 		bUnderA := h.request(t, fmt.Sprintf("/nodes/%s:move", b), fmt.Sprintf(`{"parent_id": %q, "reason": "r"}`, a))
 		approve := func(ch map[string]any) func(ctx context.Context) error {
 			return func(ctx context.Context) error {
-				return ledger.CenterChanges{}.Approved(ctx, uuid.MustParse(ch["id"].(string)), uuid.MustParse(ch["workflow_request_id"].(string)))
+				return changes().Approved(ctx, uuid.MustParse(ch["id"].(string)), uuid.MustParse(ch["workflow_request_id"].(string)))
 			}
 		}
 		first, second := serializeOn(t, c.ten, "the hierarchy", rowLockWaits(t), approve(aUnderB), approve(bUnderA))

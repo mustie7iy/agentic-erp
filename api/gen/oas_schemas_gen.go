@@ -36021,11 +36021,12 @@ type RequisitionItem struct {
 	// Account assignment (ADR-0050 §6, SAP's account assignment category; open enumeration: clients must
 	// accept and preserve values not listed here): `cost_center` with `cost_center_id`, or `none` without
 	// (422 `procurement.invalid_account_assignment`). Absent: `cost_center` when a cost center is given,
-	// else `none`. Checked against the ledger when the requisition is submitted, on that day, as its
-	// postings will be: on a primary cost account the item names a cost center while cost center
-	// accounting applies (422 `ledger.cost_center_required`; the account's default is not taken), and the
-	// cost center is one of the legal entity, active, valid on the day and not locked for costs (422
-	// `ledger.cost_center_invalid` with the reason).
+	// else `none`. Checked against the ledger when the requisition is submitted, on its company's date in
+	// its time zone (`companies[].time_zone`, UTC when it sets none; T72n4), which a refusal's `detail`
+	// names, as its postings will be: on a primary cost account the item names a cost center while cost
+	// center accounting applies (422 `ledger.cost_center_required`; the account's default is not taken),
+	// and the cost center is one of the legal entity, active, valid on the day and not locked for costs
+	// (422 `ledger.cost_center_invalid` with the reason).
 	AccountAssignment OptString `json:"account_assignment"`
 	// Cost center the item is charged to, with `account_assignment` `cost_center`.
 	CostCenterID OptUUID `json:"cost_center_id"`

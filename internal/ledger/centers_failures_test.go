@@ -26,7 +26,7 @@ func decided(ctx context.Context, res any, err error, outcome string) error {
 	default:
 		return fmt.Errorf("unexpected response %T", res)
 	}
-	h := ledger.CenterChanges{}
+	h := changes()
 	switch outcome {
 	case "approve":
 		return h.Approved(ctx, ch.ID, ch.WorkflowRequestID.Value)

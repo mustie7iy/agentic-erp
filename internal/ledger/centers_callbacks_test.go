@@ -9,7 +9,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
-	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -22,7 +21,7 @@ func TestCenterChangeCallbacks(t *testing.T) {
 		"valid_from": "2026-01-01", "reason": "r"}`), "")
 	ch, _ := c.Must(200, "GET", "/v1/center-changes/"+pc["pending_change_id"].(string), "", "")
 	change, request := uuid.MustParse(ch["id"].(string)), uuid.MustParse(ch["workflow_request_id"].(string))
-	h := ledger.CenterChanges{}
+	h := changes()
 	for name, fn := range map[string]func(ctx context.Context) error{
 		"approve": func(ctx context.Context) error { return h.Approved(ctx, change, request) },
 		"reject":  func(ctx context.Context) error { return h.Rejected(ctx, change, request, "c") },

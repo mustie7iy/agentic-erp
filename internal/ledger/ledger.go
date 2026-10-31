@@ -40,7 +40,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -81,11 +80,16 @@ type Endpoints struct {
 	Numbers       Numbers
 	Orders        OrderNumbers
 	Approvals     Opener // opens the unlock requests of locked periods
+	// Settings gives each company's time zone (T72n4).
+	Settings Settings
 	// Now is the clock center changes read today by, as the controlling
 	// rules' setup does (Setup.Now): a default center stays usable from
-	// today on (keepsDefaultCostCenter). nil: the wall clock.
+	// the company's date in its time zone on (keepsDefaultCostCenter).
+	// nil: the wall clock.
 	Now func() time.Time
 }
 
-// today is the date of the endpoints' clock.
-func (e *Endpoints) today() time.Time { return day(clock.Now(e.Now)) }
+// days tells the companies' dates by the endpoints' clock.
+func (e *Endpoints) days() companyDays {
+	return companyDays{now: e.Now, entities: e.LegalEntities, settings: e.Settings}
+}

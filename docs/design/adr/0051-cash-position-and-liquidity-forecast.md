@@ -728,8 +728,8 @@ zone", split into T72n1-T72n6):
   and the list, as it fails the position.
 - **Not yet** (tracked under the same item): the payment release's cash
   discount check (T72n3, done: see below); cost and
-  profit center changes' effective day (T72n4, the product owner's
-  confirmation); purchasing contracts' expiry (T72n6).
+  profit center changes' effective day (T72n4, done: ADR-0050 §11 as
+  built); purchasing contracts' expiry (T72n6).
   Documents are still dated by their callers; the one posting date that
   defaults to a today, a goods movement reversal's, is tracked (found in
   T72n5, below).
@@ -760,10 +760,11 @@ company's time zone):
   column's default, its own UTC rule; the not-null rule is validated in
   000171.
 - **Not this rule.** Procurement's other dates read the database's
-  `current_date` (UTC) for different decisions: the account assignment
-  check at a requisition's submission (the submission day, not the
-  requisition's), a contract's number, and a goods movement reversal's
-  default posting date; they are tracked separately (review:batch26).
+  `current_date` (UTC) for different decisions: a contract's number and a
+  goods movement reversal's default posting date; they are tracked
+  separately (review:batch26). The account assignment check at a
+  requisition's submission judges on the submission day, not the
+  requisition's, in the company's zone since T72n4.
   Contracts' expiry and its notice are T72n6.
 
 As built (T72n3, a payment run's cash discount judged on the company's

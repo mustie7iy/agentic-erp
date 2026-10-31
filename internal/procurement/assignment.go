@@ -2,6 +2,8 @@ package procurement
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -63,6 +65,35 @@ func (e *Endpoints) checkAssignments(ctx context.Context, le uuid.UUID, date tim
 		return nil
 	}
 	return e.Accounts.CheckAssignments(ctx, le, date, items, false)
+}
+
+// checkSubmitted checks a requisition's assignments as it is submitted
+// for approval (T56e), on its company's date in its time zone: a center
+// change takes effect from the company's date, not UTC's (product owner
+// 2026-10-31, T72n4), so a Toronto requisition submitted at 22:00 is
+// judged on that day. A refusal names the date it was judged on and the
+// zone, so a consumer told a center is not valid yet sees which day it was.
+func (e *Endpoints) checkSubmitted(ctx context.Context, r Requisition) error {
+	le, found, err := e.LegalEntities.Entity(ctx, r.LegalEntityID)
+	if err == nil && !found {
+		err = errors.New("no such legal entity")
+	}
+	if err != nil {
+		return fmt.Errorf("procurement: legal entity %s of requisition %s: %w", r.LegalEntityID, r.ID, err)
+	}
+	day, loc, err := e.today(ctx, le.Code)
+	if err != nil {
+		return err
+	}
+	err = e.checkAssignments(ctx, r.LegalEntityID, day, assignments(r.Items, 0))
+	var p *problem.Problem
+	if errors.As(err, &p) {
+		// A copy: the ledger's refusal is not changed in place.
+		q := *p
+		q.Detail += " A requisition's assignments are checked on the company's date in its time zone as it is submitted: " + day.Format(time.DateOnly) + " in " + loc.String() + "."
+		return &q
+	}
+	return err
 }
 
 // assignments are the items from position from on as the ledger checks

@@ -428,8 +428,12 @@ document (product owner 2026-10-31); a document activated before then
 may lack it and is read as UTC. A change is tier 3. The cash position's
 read date is the company's date in it (ADR-0051 as built, T72n1), and so
 are a memo record's status (T72n2), a payment run's discount lapse (T72n3)
-and a requisition's date (T72n5); the other business dates still in UTC
-are T72n4 and T72n6.
+and a requisition's date (T72n5). A center change's check that a
+default cost or profit center stays usable from today, the setup's check
+of the controlling rules, and a requisition's account assignments at
+submission judge on the company's date in it too, the refusal naming the
+date and zone (T72n4, ADR-0050 §11 as built). The other business dates
+still in UTC are T72n6's.
 
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,

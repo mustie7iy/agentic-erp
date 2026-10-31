@@ -223,20 +223,21 @@ func (e *Endpoints) account(ctx context.Context, le, id uuid.UUID, field string)
 	return nil
 }
 
-// today is the company's date now, in its time zone (T72n5): a Toronto
-// requisition raised at 22:00 is dated that day, not the next UTC one. A
-// stored zone the binary cannot load fails the call rather than dating
-// the document in UTC.
-func (e *Endpoints) today(ctx context.Context, company string) (time.Time, error) {
+// today is the company's date now and the time zone it is told in (T72n5):
+// a Toronto requisition raised at 22:00 is dated that day, not the next UTC
+// one. The zone is returned so a refusal can name it beside the date. A
+// stored zone the binary cannot load fails the call rather than dating the
+// document in UTC.
+func (e *Endpoints) today(ctx context.Context, company string) (time.Time, *time.Location, error) {
 	doc, _, err := e.Settings.Document(ctx)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("procurement: configuration: %w", err)
+		return time.Time{}, nil, fmt.Errorf("procurement: configuration: %w", err)
 	}
 	loc, err := doc.CompanyLocation(company)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("procurement: company %s: %w", company, err)
+		return time.Time{}, nil, fmt.Errorf("procurement: company %s: %w", company, err)
 	}
-	return clock.DayIn(clock.Now(e.Now), loc), nil
+	return clock.DayIn(clock.Now(e.Now), loc), loc, nil
 }
 
 // number allocates the next document number of the type for the date's
