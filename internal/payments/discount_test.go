@@ -197,12 +197,18 @@ func TestDiscountRefusals(t *testing.T) {
 	late.bankAccount(t, late.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
 	late.invoice(t, late.Supplier, "INV-1", "100.00", "2026-03-01")
 	run := late.run(t, "2026-03-10", "2026-03-20")
+	pgtest.Exec(t, `UPDATE partner.business_partner SET name = 'Tyrell Office Products', version = version + 1 WHERE id = $1`, late.Supplier)
 	refused := late.decide(t, 409, run, "release", "")
 	if refused["code"] != "payments.discount_lapsed" {
 		t.Errorf("release after the discount's last day: got %v, want payments.discount_lapsed", refused["code"])
 	}
 	if want := "it is 2026-03-16 in UTC"; !strings.Contains(fmt.Sprint(refused["detail"]), want) {
 		t.Errorf("lapse detail of a company in UTC: got %v, want it to say %q", refused["detail"], want)
+	}
+	// The consumer told to reject the run learns whose payment lost its
+	// discount without listing the payments: the supplier's number and name.
+	if want := "payment to supplier BP90000001 Tyrell Office Products (" + late.Supplier.String() + ") takes"; !strings.Contains(fmt.Sprint(refused["detail"]), want) {
+		t.Errorf("lapse detail's supplier: got %v, want it to say %q", refused["detail"], want)
 	}
 }
 

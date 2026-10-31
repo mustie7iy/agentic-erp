@@ -46,6 +46,13 @@
         "r": "internal/money",
         "src": "baseline",
         "c": []
+       },
+       {
+        "s": "T",
+        "t": "Postings other contexts make through the ledger's posting port (a supplier invoice's posting and reversal, a goods receipt's posting and reversal, a bank statement line's posting, a down payment clearing), a journal entry's reversal and a parked entry's posting name their field errors by the request's own fields, not createJournalEntry's (legal_entity_id, currency, lines[i].account_id, lines[i].cost_center_id and the like), which those requests lack (an API-consumer class, REVIEW.md)",
+        "r": "found in apinames4's sweep of the class (review:batch26 bootstrap leaf) · internal/ledger journal.go prepare (:948), postReversal (:1190), checkedAccounts (:663-736), :972, :1070-1096, manual.go postableEntity (:196) and :35, targets.go, assignment.go · reached through ledger ports.go Post/Reverse, bankposting.go PostBank, dpclearing.go ClearDownPayments · approveApprovalRequest documents the parked entry's fields",
+        "src": "review:batch26",
+        "c": []
        }
       ]
      },
@@ -1002,9 +1009,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "payments.discount_lapsed names the supplier by its code and name, not only its UUID, so the consumer told to reject the run knows which payment lost its discount (an API-consumer class, REVIEW.md)",
-      "r": "found in batch 26's lane reviews · internal/payments release.go checkDiscounts (problem.Conflict payments.discount_lapsed, :438, pay.SupplierID) · ADR-0038",
+      "r": "found in batch 26's lane reviews · internal/payments release.go checkDiscounts (problem.Conflict payments.discount_lapsed, :438, pay.SupplierID) · ADR-0038 · done in apinames4: release.go refuse names the supplier by number and name (partner Names), in payments.discount_lapsed and both payments.proposal_outdated refusals · ADR-0038 as built (a release's refusals name the supplier)",
       "src": "review:batch26",
       "c": []
      }
@@ -2466,6 +2473,13 @@
       "t": "On foundation: released orders closed when nothing more is expected; receipts and invoice matching refuse a closed order; PurchaseOrderClosed",
       "r": "internal/procurement · purchase-orders/{id}:close",
       "src": "baseline",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A purchase order's update, its changes' create, update and submit, and a requisition's and order's bodiless submit and release name their field errors by the request's fields: legal_entity_id (procurement common.go legalEntity on the stored order), items and items[i].<field> (order_change_apply.go invalidChange, assignment.go, ledger itemassign.go asItems) are fields those requests do not have (an API-consumer class, REVIEW.md)",
+      "r": "found in apinames4's sweep of the class (review:batch26 bootstrap leaf) · internal/procurement common.go :173, :178 from purchase_orders.go updateOrder (:478) and order_changes.go proposal (:280) · order_change_apply.go :34, :62 · assignment.go :36, :88 · purchase_orders.go :606 · ledger itemassign.go :78",
+      "src": "review:batch26",
       "c": []
      }
     ]
@@ -7481,9 +7495,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A tenant's bootstrap names its field errors by the request's field (document. for bootstrap, configuration. for createTenant), not proposed., which only a change request's submission has (an API-consumer class, REVIEW.md)",
-      "r": "found in batch 26's lane reviews · internal/configuration configuration.go failed (Field: \"proposed.\" + f.Path) · bootstrap and the control plane's createTenant",
+      "r": "found in batch 26's lane reviews · internal/configuration configuration.go failed (Field: \"proposed.\" + f.Path) · bootstrap and the control plane's createTenant · done in apinames4: Bootstrap takes the request's field (provisioning.DocumentField, createTenant's configuration; bootstrap is reached only through provisioning, which has no document field), the missing document named configuration too; config.no_number_range carries no document_type field error, which the operations drawing a number lack; api/control.yaml's 422 says so",
       "src": "review:batch26",
       "c": []
      }
@@ -7698,9 +7712,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The configuration agent's prompt says a company's time zone, now required (T72n7), is asked of the person when the request does not give it, never guessed from the country",
-      "r": "found in T72n7's review (nit 3) · internal/delivery/configagent configagent.go system · ADR-0051 as built (the zone required)",
+      "r": "found in T72n7's review (nit 3) · internal/delivery/configagent configagent.go system · ADR-0051 as built (the zone required) · done in apinames4: the prompt says so, configagent's test reads it, the configuration suite's replays still reach level 2; a live run of evals/configuration is the operator's",
       "src": "review:batch26",
       "c": []
      }
@@ -8155,6 +8169,13 @@
       "t": "On foundation: with a workflow engine, migration and reconciliation runs leave the request and run as Temporal workflows (one activity, the run's unit of work); an unreadable source fails the operation and hands the run back; erp migrate waits for the operation",
       "r": "workflows.MigrateRun · integration.Endpoints.Execute · migration 000031",
       "src": "baseline",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A migration run's start and reconciliation, which take no body, name a company no longer active without the field scope.legal_entity_ids[i], which only createMigrationRun's request has (an API-consumer class, REVIEW.md)",
+      "r": "found in apinames4's sweep of the class (review:batch26 bootstrap leaf) · internal/integration runs.go entities (:153-158) from prepare (:224), runStep/Execute · startMigrationRun, reconcileMigrationRun (integration.legal_entity_not_active)",
+      "src": "review:batch26",
       "c": []
      }
     ]

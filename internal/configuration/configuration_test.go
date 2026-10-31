@@ -81,7 +81,7 @@ func setup(t *testing.T, bare bool, extra ...string) env {
 func (e env) bootstrap(t *testing.T, doc string) error {
 	t.Helper()
 	return apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {
-		_, err := configuration.Bootstrap(ctx, deps(), json.RawMessage(doc))
+		_, err := configuration.Bootstrap(ctx, deps(), json.RawMessage(doc), "configuration")
 		return err
 	})
 }

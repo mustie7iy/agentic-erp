@@ -397,6 +397,10 @@ func fileAndPortCalls(t *testing.T, e env, h *payments.Endpoints, s *failureRuns
 			_, err := partner.Payees{}.BankAccounts(ctx, []uuid.UUID{uuid.New()})
 			return err
 		},
+		"supplier names": func(ctx context.Context) error {
+			_, err := partner.Payees{}.Names(ctx, []uuid.UUID{e.Supplier})
+			return err
+		},
 	}
 }
 

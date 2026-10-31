@@ -867,7 +867,10 @@ As built (the zone required; product owner 2026-10-31, Pilot readiness
   control plane's `createTenant`, `erp-server provision`), and offline in
   `erp config validate` and `erp config generate`; the consumer gets 422
   `config.validation_failed` with one error per company on
-  `proposed.companies[<code>].time_zone`, the code already declared on
+  `proposed.companies[<code>].time_zone` (on a bootstrap,
+  `configuration.companies[<code>].time_zone`: each field error is under
+  the request's own field that carries the document, createTenant's
+  `configuration`; review:batch26), the code already declared on
   `submitChangeRequest`, so the contract gains no code. Reading the
   active document (`config.ParseActive`) does not validate: a document
   activated before the rule keeps its meaning, its companies' dates in
@@ -879,6 +882,15 @@ As built (the zone required; product owner 2026-10-31, Pilot readiness
   Activation does not validate again, so a change request submitted
   before the rule and approved after it activates without a zone, read
   as UTC like any older document.
+- **The configuration agent** (review:batch26). Its prompt says every
+  company needs its zone and that a zone the request does not give is
+  asked of the person, never guessed from the country, nothing filed
+  until they answer. Evidence: `configagent`'s test reads the
+  instruction in the prompt the model is sent, and the configuration
+  suite's replays still reach level 2 (`TestEvalSuites`); replays script
+  the model's calls, so the agent's behaviour on a request without a zone
+  is shown only by a live run of `evals/configuration` (ADR-0039), left
+  to the operator.
 - **The pilots.** Canada in the company's own zone (`America/Toronto` in
   the walkthrough; Canada spans six zones, so none is derived from the
   country), the UAE in `Asia/Dubai`.

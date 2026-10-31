@@ -415,12 +415,16 @@ func TestProposalOutdated(t *testing.T) {
 	pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica;
 		UPDATE partner.bank_account SET valid_to = '2026-02-01' WHERE partner_id = '%s'; END $$`, e.Supplier))
 	e.bankAccount(t, e.Supplier, "DE02120300000000202051", "Supplier", "2026-02-01", "", "create")
+	pgtest.Exec(t, `UPDATE partner.business_partner SET name = 'Tyrell Office Products', version = version + 1 WHERE id = $1`, e.Supplier)
 	got := e.decide(t, 409, run, "release", "")
 	if got["code"] != "payments.proposal_outdated" {
 		t.Errorf("bank account changed code: got %v, want payments.proposal_outdated", got["code"])
 	}
 	if detail := got["detail"].(string); !strings.Contains(detail, "bank_account_changed") {
 		t.Errorf("bank account changed detail: got %q, want it to name bank_account_changed", detail)
+	}
+	if want := "Supplier BP90000001 Tyrell Office Products (" + e.Supplier.String() + ") can no longer"; !strings.Contains(fmt.Sprint(got["detail"]), want) {
+		t.Errorf("bank account changed detail's supplier: got %v, want it to say %q", got["detail"], want)
 	}
 	pgtest.Exec(t, `UPDATE partner.supplier_company SET is_payment_blocked = true, version = version + 1 WHERE partner_id = $1`, e.Supplier)
 	if got := e.decide(t, 409, run, "release", ""); !strings.Contains(got["detail"].(string), "payment_blocked") {

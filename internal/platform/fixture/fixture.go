@@ -180,7 +180,7 @@ func NewWith(tb testing.TB, companies []Company, extend func(*config.Config), pe
 	e.Approver, e.Approver2 = e.person(tb, "approver1"), e.person(tb, "approver2")
 	b, _ := json.Marshal(doc)
 	if err := apitest.Committed(tb, ten, ten.Human, func(ctx context.Context) error {
-		_, err := configuration.Bootstrap(ctx, Deps(), b)
+		_, err := configuration.Bootstrap(ctx, Deps(), b, "configuration") // as provisioning names it (DocumentField)
 		return err
 	}); err != nil {
 		tb.Fatal(err)

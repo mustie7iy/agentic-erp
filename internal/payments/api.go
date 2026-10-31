@@ -62,7 +62,7 @@ func runOK(ctx context.Context, r Run) (*gen.RejectPaymentRunOKHeaders, error) {
 // no house bank is paid by its run's.
 func paymentToAPI(p Payment, r Run, refs paymentRefs) gen.Payment {
 	currency, exp, numbers, account := r.Currency, r.Exponent, refs.numbers, refs.accounts[p.BankAccountID]
-	out := gen.Payment{ID: p.ID, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, PaymentRunID: p.RunID, SupplierID: p.SupplierID, SupplierName: refs.suppliers[p.SupplierID],
+	out := gen.Payment{ID: p.ID, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, PaymentRunID: p.RunID, SupplierID: p.SupplierID, SupplierName: refs.suppliers[p.SupplierID].Name,
 		BankAccountID: p.BankAccountID, BankAccountLast4: account.AccountLast4, BankAccountScheme: account.AccountScheme, BankAccountHolderName: account.HolderName,
 		BankAccountBic: apitypes.OptString(account.BIC), BankAccountInstitutionNumber: apitypes.OptString(account.InstitutionNumber),
 		BankAccountTransitNumber: apitypes.OptString(account.TransitNumber), Amount: apitypes.Money(p.Amount, currency, exp),
@@ -239,7 +239,7 @@ func (e *Endpoints) ListPayments(ctx context.Context, params gen.ListPaymentsPar
 // its exclusions), one call for the page; a supplier the partner context
 // does not hold is an error, never a row shown without its supplier's
 // name. supplier gives a row's supplier and how the error names the row.
-func supplierNames[T any](ctx context.Context, payees Payees, rows []T, supplier func(T) (uuid.UUID, string)) (map[uuid.UUID]string, error) {
+func supplierNames[T any](ctx context.Context, payees Payees, rows []T, supplier func(T) (uuid.UUID, string)) (map[uuid.UUID]partner.Named, error) {
 	ids := make([]uuid.UUID, len(rows))
 	for i, row := range rows {
 		ids[i], _ = supplier(row) // the row's label is only for the error below
@@ -297,7 +297,7 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 	}
 	out := gen.PaymentExclusionPage{Items: make([]gen.PaymentExclusion, len(page))}
 	for i, x := range page {
-		out.Items[i] = gen.PaymentExclusion{SupplierID: x.SupplierID, SupplierName: names[x.SupplierID], DownPaymentRequestID: apitypes.OptUUID(x.RequestID),
+		out.Items[i] = gen.PaymentExclusion{SupplierID: x.SupplierID, SupplierName: names[x.SupplierID].Name, DownPaymentRequestID: apitypes.OptUUID(x.RequestID),
 			ReasonCode: x.Reason, Amount: apitypes.Money(x.Amount, r.Currency, r.Exponent)}
 		if x.RequestID != nil {
 			out.Items[i].DownPaymentRequestNumber.SetTo(numbers[*x.RequestID])
@@ -314,8 +314,9 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 // journal entries (the payments' postings and their items'), the house
 // banks' codes, and the suppliers' bank accounts, masked.
 type paymentRefs struct {
-	suppliers, numbers, houseBanks map[uuid.UUID]string
-	accounts                       map[uuid.UUID]partner.BankAccount
+	suppliers           map[uuid.UUID]partner.Named
+	numbers, houseBanks map[uuid.UUID]string
+	accounts            map[uuid.UUID]partner.BankAccount
 }
 
 // paymentRefs reads what the page's payments of run r reference, one call
@@ -412,6 +413,7 @@ func bankOfStatement(s Statement) *uuid.UUID { return &s.HouseBankID }
 // A referenced object's kind and the context that holds it, as an error
 // names an object missing from it.
 var (
+	supplierRef  = idref.Kind{Name: "supplier", Context: "partner"}
 	requestRef   = idref.Kind{Name: "down payment request", Context: "payables"}
 	entryRef     = idref.Kind{Name: "journal entry", Context: "ledger"}
 	accountRef   = idref.Kind{Name: "bank account", Context: "partner"}

@@ -91,7 +91,7 @@ func setup(tb testing.TB) env {
 		ten.ID, e.us, e.de, e.usCal, e.deCal, ten.Human.ID)
 	doc, _ := json.Marshal(document(tb))
 	if err := apitest.Committed(tb, ten, ten.Human, func(ctx context.Context) error {
-		_, err := configuration.Bootstrap(ctx, deps(), doc)
+		_, err := configuration.Bootstrap(ctx, deps(), doc, "configuration")
 		return err
 	}); err != nil {
 		tb.Fatal(err)

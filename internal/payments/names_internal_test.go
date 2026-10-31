@@ -19,13 +19,13 @@ type payeePort = Payees
 // for bank accounts); it answers nothing else.
 type partners struct {
 	payeePort
-	names       map[uuid.UUID]string
+	names       map[uuid.UUID]partner.Named
 	err         error
 	accounts    map[uuid.UUID]partner.BankAccount
 	accountsErr error
 }
 
-func (p partners) Names(context.Context, []uuid.UUID) (map[uuid.UUID]string, error) {
+func (p partners) Names(context.Context, []uuid.UUID) (map[uuid.UUID]partner.Named, error) {
 	return p.names, p.err
 }
 
@@ -46,8 +46,8 @@ func TestSupplierNames(t *testing.T) {
 		pays     []Payment
 		want     string
 	}{
-		"every supplier named":        {partners{names: map[uuid.UUID]string{known: "Tyrell"}}, pays[:1], ""},
-		"a supplier unknown":          {partners{names: map[uuid.UUID]string{known: "Tyrell"}}, pays, "supplier " + unknown.String() + " of payment " + pays[1].ID.String() + " is not a business partner"},
+		"every supplier named":        {partners{names: map[uuid.UUID]partner.Named{known: {Number: "BP1", Name: "Tyrell"}}}, pays[:1], ""},
+		"a supplier unknown":          {partners{names: map[uuid.UUID]partner.Named{known: {Number: "BP1", Name: "Tyrell"}}}, pays, "supplier " + unknown.String() + " of payment " + pays[1].ID.String() + " is not a business partner"},
 		"the partner context failing": {partners{err: failed}, pays[:1], failed.Error()},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -59,8 +59,8 @@ func TestSupplierNames(t *testing.T) {
 			if got != c.want {
 				t.Fatalf("error: got %q, want %q", got, c.want)
 			}
-			if err == nil && names[known] != "Tyrell" {
-				t.Errorf("name: got %q, want Tyrell", names[known])
+			if err == nil && names[known].Name != "Tyrell" {
+				t.Errorf("name: got %q, want Tyrell", names[known].Name)
 			}
 		})
 	}
@@ -155,7 +155,7 @@ func TestPaymentNumbers(t *testing.T) {
 func TestPaymentRefs(t *testing.T) {
 	supplier, account, unknown := uuid.New(), uuid.New(), uuid.New()
 	page := []Payment{{ID: uuid.New(), SupplierID: supplier, BankAccountID: account}}
-	held := partners{names: map[uuid.UUID]string{supplier: "Tyrell"}, accounts: map[uuid.UUID]partner.BankAccount{account: {ID: account, AccountLast4: "4321"}}}
+	held := partners{names: map[uuid.UUID]partner.Named{supplier: {Number: "BP1", Name: "Tyrell"}}, accounts: map[uuid.UUID]partner.BankAccount{account: {ID: account, AccountLast4: "4321"}}}
 	partnerDown, ledgerDown := errors.New("partner down"), errors.New("ledger down")
 	bank, posting := uuid.New(), uuid.New()
 	posted := []Payment{{ID: uuid.New(), SupplierID: supplier, BankAccountID: account, JournalEntryID: &posting}}
@@ -185,6 +185,33 @@ func TestPaymentRefs(t *testing.T) {
 			}
 			if err == nil && refs.accounts[account].AccountLast4 != "4321" {
 				t.Errorf("the bank account: got %+v, want its last4 4321", refs.accounts[account])
+			}
+		})
+	}
+}
+
+// TestRefuse: a release refused because of a supplier's payment names the
+// supplier by number and name, with its id; the partner context failing,
+// or not holding the supplier, fails the release instead of a refusal
+// that leaves the supplier unnamed.
+func TestRefuse(t *testing.T) {
+	supplier := uuid.New()
+	down := errors.New("partner down")
+	detail := func(s string) string { return "The payment to supplier " + s + " is refused." }
+	for name, c := range map[string]struct {
+		partners partners
+		want     string // the error
+	}{
+		"named": {partners{names: map[uuid.UUID]partner.Named{supplier: {Number: "BP1", Name: "Tyrell"}}},
+			"payments.proposal_outdated (409): The payment to supplier BP1 Tyrell (" + supplier.String() + ") is refused."},
+		"the partner context failing": {partners{err: down}, "payments: name supplier " + supplier.String() + ": partner down"},
+		"a supplier unknown": {partners{names: map[uuid.UUID]partner.Named{}},
+			"payments: name supplier " + supplier.String() + ": supplier " + supplier.String() + " is not held by the partner context"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := &Endpoints{Payees: c.partners}
+			if got := e.refuse(context.Background(), "payments.proposal_outdated", supplier, detail).Error(); got != c.want {
+				t.Errorf("got %q, want %q", got, c.want)
 			}
 		})
 	}
