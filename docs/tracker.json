@@ -8349,9 +8349,51 @@
      {
       "s": "T",
       "t": "Company time zone: business dates (statement staleness, value dates, 'today' in cash, close calendars) in the company's time zone, not UTC (found in T53c)",
-      "r": "found in T53c (ADR-0051 as built: the cash position's read date is the clock's date in UTC; a Canadian or UAE company's evening is the next UTC day) · T72l",
-      "src": "baseline",
-      "c": []
+      "r": "found in T53c (ADR-0051 as built: the cash position's read date is the clock's date in UTC; a Canadian or UAE company's evening is the next UTC day) · T72l · split 2026-10-31 into T72n1-T72n6 (ADR-0053 slices); statement staleness and value dates are judged by the position's read date, so T72n1 covers them; no close calendar reads a today yet (period locks go by posting date, T32)",
+      "c": [
+       {
+        "s": "T",
+        "t": "The company's time zone (companies[].time_zone, an IANA name, validated; none is UTC; tier 3) and the cash position read on the company's date in it: what is today, late and stale for a treasurer in Toronto or Dubai, with the zone shown (time_zone)",
+        "r": "ADR-0051 as built (T72n1) · internal/config Company.TimeZone, Location · clock.DayIn · internal/cash position.go readDate · getCashPosition time_zone · walkthrough steps 1 and 13 · T72n1",
+        "src": "split:T72l · adr:ADR-0051",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Memo records judged on the company's date: a record's status (expired) in reads, lists and the upload, and the memo flows' read date, by its legal entity's time zone, not UTC, with the zone shown",
+        "r": "internal/cash memo_api.go read() (clock.Day, UTC) · ADR-0051 §7 · T72n2",
+        "src": "split:T72l · adr:ADR-0051",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A payment run's release checks a cash discount's last day on the paying company's date, not UTC (payments.discount_lapsed); a money rule: waits for the product owner",
+        "r": "internal/payments release.go recheckDiscounts (UTC today) · T36d · product owner question (money rule), recommendation: the paying company's date · T72n3",
+        "src": "split:T72l",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Cost and profit center changes take effect from the company's date, not UTC (the validity a posting's center is derived from); waits for the product owner's confirmation, as it decides which center a posting of that day takes",
+        "r": "internal/ledger centerchange.go, costcenters.go, profitcenters.go today() (UTC) · ADR-0050 · product owner question, recommendation: the company's date · T72n4",
+        "src": "split:T72l",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A requisition's amount is routed at the rate of the day it was raised in its company's time zone, not UTC (approval thresholds in the company's currency); a money rule (which day's rate): waits for the product owner",
+        "r": "internal/procurement requisitions.go (CreatedAt in UTC) · 03-data-model (requisition converted on the day it was raised, UTC) · product owner question, recommendation: the company's date · T72n5",
+        "src": "split:T72l",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Purchasing contracts expire after their valid_to day ends in the company's time zone, not on the database's UTC current_date",
+        "r": "internal/procurement expiry.go expireDue (valid_to < current_date) · T72n6",
+        "src": "split:T72l",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",
