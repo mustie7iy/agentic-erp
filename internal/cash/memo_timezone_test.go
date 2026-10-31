@@ -24,7 +24,7 @@ type zoneCase struct {
 	at   time.Time
 	// lastDay is the record's last day: Maple's record is active on the
 	// 17th when it is the 17th, expired when it is the 16th, and UTC's
-	// date (Acme US has no zone) judges the other way.
+	// date (Acme US is in UTC) judges the other way.
 	lastDay, maple, acme string
 }
 
@@ -64,8 +64,9 @@ func (e memoEnv) statuses(t *testing.T, query string) map[string]string {
 // when the list shows it active. At 22:00 on 17 April in Toronto a record
 // whose last day is the 17th is still active, though UTC is on the 18th;
 // at 01:00 on the 17th in Dubai one whose last day was the 16th has
-// expired, though UTC is still on the 16th. Acme US, without a zone, is
-// judged by UTC's date in the same list.
+// expired, though UTC is still on the 16th. Acme US, in UTC, is judged by
+// UTC's date in the same list (without a zone, as an older document may
+// leave it, TestMemoRecordsOfACompanyWithoutAZone).
 func TestMemoRecordStatusInTheCompanysZone(t *testing.T) {
 	for _, c := range zoneCases {
 		t.Run(c.zone, func(t *testing.T) {
@@ -143,6 +144,48 @@ func TestMemoRecordsOfAnUnprovisionedCompany(t *testing.T) {
 		t.Fatalf("got %v, want Maple's record active", items)
 	}
 	want(t, "Maple's", fmt.Sprint(items[0].Status, " ", items[0].ReadDate.Format(time.DateOnly), " ", items[0].TimeZone), "active 2026-04-17 America/Toronto")
+}
+
+// zoneless is the active configuration with Acme US (company 1000)
+// without a time zone, as a document activated before the zone was
+// required (T72n7) may be: validation now refuses one, so no fixture can
+// bootstrap it.
+type zoneless struct{ cash.Settings }
+
+func (z zoneless) Document(ctx context.Context) (*config.Config, int32, error) {
+	doc, n, err := z.Settings.Document(ctx)
+	if err == nil {
+		doc.Company("1000").TimeZone = ""
+	}
+	return doc, n, err
+}
+
+// TestMemoRecordsOfACompanyWithoutAZone: in a list, a legal entity whose
+// company has no time zone is judged by UTC's date beside a zoned one
+// judged by its own (T72n2): at 22:00 on 17 April in Toronto, Maple's
+// record whose last day is the 17th is active and Acme US's has expired.
+func TestMemoRecordsOfACompanyWithoutAZone(t *testing.T) {
+	c := zoneCases[0]
+	e := setupMemoIn(t, c.zone, c.at)
+	fields := `"value_date": "` + c.lastDay + `", "expires_on": "` + c.lastDay + `", "liquidity_item": "REC_CUSTOMERS"`
+	maple, _ := e.create(t, e.usd("70.00")+", "+fields)
+	acme, _ := e.Must(201, "POST", "/v1/memo-records", `{"legal_entity_id": "`+e.US.String()+`", "amount": {"amount": "5.00", "currency": "USD"}, `+fields+`}`, "")
+	endpoints := app.Cash(app.Config{Now: func() time.Time { return c.at }, Pages: codec(t)})
+	endpoints.Settings = zoneless{endpoints.Settings}
+	var res gen.ListMemoRecordsRes
+	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
+		res, err = endpoints.ListMemoRecords(ctx, gen.ListMemoRecordsParams{})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, it := range res.(*gen.MemoRecordPage).Items {
+		got[it.ID.String()] = fmt.Sprint(it.Status, " ", it.ReadDate.Format(time.DateOnly), " ", it.TimeZone)
+	}
+	want(t, "Maple's", got[id(maple)], "active 2026-04-17 America/Toronto")
+	want(t, "Acme's, judged by UTC's date", got[id(acme)], "expired 2026-04-18 UTC")
 }
 
 // codec is a page token codec for endpoints called directly.

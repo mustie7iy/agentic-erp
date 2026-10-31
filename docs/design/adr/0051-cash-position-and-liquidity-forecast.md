@@ -726,16 +726,18 @@ zone", split into T72n1-T72n6):
   date (it compares values, and realised and cancelled are stored), so
   nothing in it changes. A stored zone that does not load fails the read
   and the list, as it fails the position.
-- **Not yet** (tracked under the same item): the payment release's cash
-  discount check (T72n3, done: see below); cost and
-  profit center changes' effective day (T72n4, done: ADR-0050 §11 as
-  built); purchasing contracts' expiry (T72n6).
-  Documents are otherwise dated by their callers. Three posting dates
-  default to the database's `current_date` (UTC) when the caller leaves
-  them out: a supplier invoice's when it is posted and when it is
-  reversed, and a goods movement reversal's. They decide the period and
-  the rates, a money rule, so they wait for the product owner, tracked
-  with the recommendation to use the company's date (review:batch26).
+- **Not yet** (each tracked under the same item): purchasing contracts'
+  expiry (T72n6); a contract's number, drawn for UTC's date; the suppliers
+  a migration run creates, dated in UTC; and, waiting for the product
+  owner, the tax rates in force at a tax setup's activation (a tax rule)
+  and three posting dates that default to the database's `current_date`
+  (UTC) when the caller leaves them out: a supplier invoice's when it is
+  posted and when it is reversed, and a goods movement reversal's. Those
+  decide the period and the rates, a money rule; the recommendation for
+  both is the company's date (review:batch26). Every other document is
+  dated by its caller. The payment release's discount check (T72n3) and
+  center changes' effective day (T72n4, ADR-0050 §11) are built: see
+  below.
 
 As built (T72n5, a requisition's date; product owner 2026-10-31: a
 requisition is routed at the rate of the day it was raised in its

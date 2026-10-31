@@ -432,8 +432,11 @@ and a requisition's date (T72n5). A center change's check that a
 default cost or profit center stays usable from today, the setup's check
 of the controlling rules, and a requisition's account assignments at
 submission judge on the company's date in it too, the refusal naming the
-date and zone (T72n4, ADR-0050 §11 as built). The other business dates
-still in UTC are T72n6's.
+date and zone (T72n4, ADR-0050 §11 as built). Still judged in UTC, each
+tracked: purchasing contracts' expiry (T72n6), a contract's number, the
+posting dates a supplier invoice's posting and reversal and a goods
+movement reversal default to, the suppliers a migration run creates, and
+the tax rates in force at a tax setup's activation (ADR-0051 as built).
 
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,

@@ -202,7 +202,7 @@ func TestDiscountRefusals(t *testing.T) {
 		t.Errorf("release after the discount's last day: got %v, want payments.discount_lapsed", refused["code"])
 	}
 	if want := "it is 2026-03-16 in UTC"; !strings.Contains(fmt.Sprint(refused["detail"]), want) {
-		t.Errorf("lapse detail of a company without a time zone: got %v, want it to say %q", refused["detail"], want)
+		t.Errorf("lapse detail of a company in UTC: got %v, want it to say %q", refused["detail"], want)
 	}
 }
 
