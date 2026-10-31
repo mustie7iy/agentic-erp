@@ -1021,6 +1021,13 @@
       "r": "internal/payments propose.go:472, :499 errTooLarge(\"supplier \" + c.supplier.String()) · release.go refuse (partner.Named, idref.Resolve) is the pattern · REVIEW.md API-consumer class: an identifier without the name its consumer needs · done in apinames5: propose returns supplierTooLarge, paymentsFor names it through supplierNamed, which refuse shares · ADR-0038 as built (a proposal too large names the supplier)",
       "src": "review:batch27",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "Payments' events name the company by its code beside legal_entity_id, and PaymentExcluded its supplier by number and name beside supplier_id: the payment run, bank file and bank statement events give the ids alone",
+      "r": "api/asyncapi.yaml payments channel (PaymentRunProposed/Released/Rejected/Failed, PaymentExcluded, BankStatement* events) · internal/payments runEvent, exclusions, statements · release.go supplierNamed and procurement expiry_names.go are the patterns (optional fields, eventcompat) · REVIEW.md API-consumer class: an identifier without the name its consumer needs",
+      "src": "review:batch28",
+      "c": []
      }
     ]
    },
@@ -2541,6 +2548,13 @@
         "t": "ContractExpiredV1 and ContractExpiringV1 name the supplier by its number and name and the company by its code, not only supplier_id and legal_entity_id, so a consumer alerting a buyer need not look them up",
         "r": "api/asyncapi.yaml ContractExpiredV1, ContractExpiringV1 (supplier_id, legal_entity_id only) · internal/procurement expiry.go, expiry_alerts.go (the events' payloads) · REVIEW.md API-consumer class: an identifier without the name its consumer needs · T72n6 · done in apinames5: both give legal_entity_code, supplier_number and supplier_name (optional, eventcompat), read by expiry_names.go eventNames through LegalEntities and a new Partners port (partner Payees.Names) · ADR-0034 as built (a contract's expiry events name the company and the supplier)",
         "src": "review:batch27",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Procurement's other events name the supplier by its number and name and the company by its code beside supplier_id and legal_entity_id, as ContractExpired and ContractExpiring do since batch 28: ContractActivated, ContractTerminated, ContractCancelled, RequisitionSubmitted and the purchase order events (Released, Changed, Cancelled, Closed) give both ids alone; the goods movement, requisition decision and GrIrCleared events give legal_entity_id alone",
+        "r": "api/asyncapi.yaml procurement channel · internal/procurement purchase_orders.go (orderEvent), order_change_apply.go, contracts.go, requisitions · expiry_names.go eventNames is the pattern (optional fields, eventcompat) · REVIEW.md API-consumer class: an identifier without the name its consumer needs · ADR-0034 as built (a contract's expiry events name the company and the supplier)",
+        "src": "review:batch28",
         "c": []
        }
       ]
