@@ -482,7 +482,11 @@ As built in T56c (migration 000140):
   nothing when no assignment changes. Lines carry no center until T56d, so
   every line on a newly refused account counts. The ledger now imports
   configuration's published `Simulator` and `Evidence`, as payables does
-  (no cycle: configuration does not import the ledger).
+  (no cycle: configuration does not import the ledger). Since the
+  invoices' simulation replays the window of the regression suite (07
+  T72l decisions), `Simulator` is given that window; the assignment replay
+  keeps the 90 days above, as the suite samples invoices, not journal
+  lines, and records them as `assignment_window_days`.
 - **Packs.** A pack's accounts may carry `cost_element`, checked by the
   pack validator (`config.Account.CostElementProblem`) and merged with the
   account. The released `ca/2026.1` pack is unchanged, and `ca/2026.2`

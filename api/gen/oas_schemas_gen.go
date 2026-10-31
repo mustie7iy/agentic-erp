@@ -13777,9 +13777,14 @@ type Evidence struct {
 	Summary string `json:"summary"`
 	// Detailed result. For `simulation` evidence, the replayed invoices, decisions and posting rules of
 	// the companies the reader may access alone, counted over those: a reader of no company is shown none
-	// and counts of zero. For `regression` evidence, likewise the suite's cases of those companies
-	// (`cases`, their count; `changed`, `regressions`, or `stale` when the suite no longer matches its
-	// version). The verdict (`passed`) is over every company the change touches.
+	// and counts of zero. The invoices are those of the last `window_days` before the simulation ran
+	// (`recorded_at`): a window as long as the one the base version's latest regression suite, which
+	// `window_suite` names, was captured over before its capture. The two kinds of evidence thus look back
+	// as far, but the simulation's window ends when it ran, so it covers the suite's cases only as far as
+	// the two windows overlap. Without a suite, `window_suite` is absent and the window is 90 days. For
+	// `regression` evidence, likewise the suite's cases of those companies (`cases`, their count;
+	// `changed`, `regressions`, or `stale` when the suite no longer matches its version). The verdict
+	// (`passed`) is over every company the change touches.
 	Detail EvidenceDetail `json:"detail"`
 	// When the evidence was recorded.
 	RecordedAt time.Time `json:"recorded_at"`
@@ -13849,9 +13854,14 @@ func (s *Evidence) SetRecordedBy(val uuid.UUID) {
 
 // Detailed result. For `simulation` evidence, the replayed invoices, decisions and posting rules of
 // the companies the reader may access alone, counted over those: a reader of no company is shown none
-// and counts of zero. For `regression` evidence, likewise the suite's cases of those companies
-// (`cases`, their count; `changed`, `regressions`, or `stale` when the suite no longer matches its
-// version). The verdict (`passed`) is over every company the change touches.
+// and counts of zero. The invoices are those of the last `window_days` before the simulation ran
+// (`recorded_at`): a window as long as the one the base version's latest regression suite, which
+// `window_suite` names, was captured over before its capture. The two kinds of evidence thus look back
+// as far, but the simulation's window ends when it ran, so it covers the suite's cases only as far as
+// the two windows overlap. Without a suite, `window_suite` is absent and the window is 90 days. For
+// `regression` evidence, likewise the suite's cases of those companies (`cases`, their count;
+// `changed`, `regressions`, or `stale` when the suite no longer matches its version). The verdict
+// (`passed`) is over every company the change touches.
 type EvidenceDetail map[string]jx.Raw
 
 func (s *EvidenceDetail) init() EvidenceDetail {

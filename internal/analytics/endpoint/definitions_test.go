@@ -140,32 +140,32 @@ func TestSimulation(t *testing.T) {
 	sim := func(r reader) Simulation {
 		return Simulation{Endpoints: &Endpoints{Companies: codes{}, Reader: r}, Now: func() time.Time { return time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC) }}
 	}
-	if got, err := sim(reader{}).Simulate(ctx, nil, section(t, func(a *config.Analytics) { metric(a, "revenue").Label = "Sales" })); err != nil || !got.Passed || got.Summary != "" {
+	if got, err := sim(reader{}).Simulate(ctx, nil, section(t, func(a *config.Analytics) { metric(a, "revenue").Label = "Sales" }), 0); err != nil || !got.Passed || got.Summary != "" {
 		t.Errorf("words only: got %+v, %v; want a silent pass", got, err)
 	}
-	pgtest.CheckErr(t, errOf(sim(reader{}).Simulate(ctx, section(t, broken), nil)), "the base model")
-	pgtest.CheckErr(t, errOf(sim(reader{}).Simulate(ctx, nil, section(t, broken))), "the proposed model")
-	pgtest.CheckErr(t, errOf(sim(reader{}).Simulate(ctx, nil, margin)), "no transaction and principal")
+	pgtest.CheckErr(t, errOf(sim(reader{}).Simulate(ctx, section(t, broken), nil, 0)), "the base model")
+	pgtest.CheckErr(t, errOf(sim(reader{}).Simulate(ctx, nil, section(t, broken), 0)), "the proposed model")
+	pgtest.CheckErr(t, errOf(sim(reader{}).Simulate(ctx, nil, margin, 0)), "no transaction and principal")
 	inRequest(t, 0, func(ctx context.Context) {
-		got, err := Simulation{Endpoints: &Endpoints{Companies: codes{}}}.Simulate(ctx, nil, margin)
+		got, err := Simulation{Endpoints: &Endpoints{Companies: codes{}}}.Simulate(ctx, nil, margin, 0)
 		if err != nil || got.Passed || !strings.Contains(got.Summary, "operating_margin could not be computed") {
 			t.Errorf("no store: got %+v, %v; want a failed simulation", got, err)
 		}
 		failing := Simulation{Endpoints: &Endpoints{Companies: codes{errors.New("directory down")}}}
-		pgtest.CheckErr(t, errOf(failing.Simulate(ctx, nil, margin)), "directory down")
-		if problem.From(errOf(sim(reader{}).Simulate(ctx, nil, invoices))).Status != 403 {
+		pgtest.CheckErr(t, errOf(failing.Simulate(ctx, nil, margin, 0)), "directory down")
+		if problem.From(errOf(sim(reader{}).Simulate(ctx, nil, invoices, 0))).Status != 403 {
 			t.Error("invoices without payables.invoice.read: want 403")
 		}
 	})
 	inRequestWith(t, []string{"ledger.entry.read"}, 0, func(ctx context.Context) {
-		if err := errOf(sim(reader{}).Simulate(ctx, nil, margin)); problem.From(err).Code != "identity.permission_missing" {
+		if err := errOf(sim(reader{}).Simulate(ctx, nil, margin, 0)); problem.From(err).Code != "identity.permission_missing" {
 			t.Errorf("without analytics.query.run: got %v, want 403", err)
 		}
 	})
 	inRequestWith(t, allPermissions, 0, func(ctx context.Context) {
 		fresh(t, ctx)
 		zero := reader{rows: []wire.Row{{By: []string{"2000", "2026"}, Currency: "EUR", Exponent: 2}}}
-		got, err := sim(zero).Simulate(ctx, nil, margin)
+		got, err := sim(zero).Simulate(ctx, nil, margin, 0)
 		if err != nil {
 			t.Fatalf("a ratio over zero: %v", err)
 		}
@@ -182,7 +182,7 @@ func TestSimulation(t *testing.T) {
 			a.Metrics = append(a.Metrics, config.Metric{Name: "aa_total", Type: analytics.Money, Source: "gl_lines", Aggregate: "sum"})
 		})
 		mixed := reader{rows: []wire.Row{{Currency: "EUR", Exponent: 2, Amount: 1}, {Currency: "USD", Exponent: 2, Amount: 1}}}
-		if err := errOf(sim(mixed).Simulate(ctx, nil, added)); problem.From(err).Code != "analytics.invalid_query" {
+		if err := errOf(sim(mixed).Simulate(ctx, nil, added, 0)); problem.From(err).Code != "analytics.invalid_query" {
 			t.Errorf("amounts of two currencies: got %v, want 422 analytics.invalid_query (fails the operation, never retried)", err)
 		}
 	})
