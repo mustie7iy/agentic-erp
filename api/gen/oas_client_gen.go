@@ -2509,7 +2509,7 @@ type Invoker interface {
 	//
 	// Submits a draft for approval and opens an approval request. Its items' account assignments are
 	// checked on the company's date in its time zone (`companies[].time_zone`, UTC when it sets none;
-	// T72n4), which a refusal's `detail` names (422 `ledger.cost_center_invalid`,
+	// T72n4); a refusal's `detail` names the date and the zone (422 `ledger.cost_center_invalid`,
 	// `ledger.cost_center_required`, `ledger.profit_center_invalid`). Requires status `draft`.
 	//
 	// POST /v1/requisitions/{id}:submit
@@ -48703,7 +48703,7 @@ func (c *Client) sendSubmitPurchaseOrderChange(ctx context.Context, params Submi
 //
 // Submits a draft for approval and opens an approval request. Its items' account assignments are
 // checked on the company's date in its time zone (`companies[].time_zone`, UTC when it sets none;
-// T72n4), which a refusal's `detail` names (422 `ledger.cost_center_invalid`,
+// T72n4); a refusal's `detail` names the date and the zone (422 `ledger.cost_center_invalid`,
 // `ledger.cost_center_required`, `ledger.profit_center_invalid`). Requires status `draft`.
 //
 // POST /v1/requisitions/{id}:submit
