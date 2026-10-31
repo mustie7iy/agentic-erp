@@ -39,10 +39,10 @@ type Simulation struct {
 // Simulator replays recent transactions under the base and the proposed
 // configuration in the request's transaction, reading committed data and
 // writing nothing (the payables context implements it). It replays those
-// of the window back from now: the window the base version's latest
-// regression suite was captured over, so that the simulation and the
-// regression evidence cover the same span of invoices, or zero, when no
-// suite is captured, for the simulator's own default.
+// of the window back from now: as long as the window the base version's
+// latest regression suite was captured over, so that the simulation looks
+// back as far as the regression evidence, each from its own day; or zero,
+// when no suite is captured, for the simulator's own default.
 type Simulator interface {
 	Simulate(ctx context.Context, base, proposed *config.Config, window time.Duration) (Simulation, error)
 }

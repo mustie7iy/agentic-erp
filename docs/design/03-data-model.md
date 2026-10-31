@@ -369,10 +369,11 @@ request in status `draft` on the active version, with the merge's notes in
 proposed by hand), recorded when it is created; the request then goes the
 usual way, and nothing is activated by applying.
 
-A change request's simulation replays the invoices of the window the base
-version's latest regression suite was captured over (`window_days`, the
-suite named by `window_suite`; 90 days when no suite is captured), so that
-the simulation and the regression evidence cover the same span. It replays
+A change request's simulation replays the invoices of a window as long as
+the one the base version's latest regression suite was captured over
+(`window_days`, the suite named by `window_suite`; 90 days when no suite is
+captured), ending when the simulation runs: both kinds of evidence look
+back as far, each from its own day. It replays
 the invoices of every company, so
 that its verdict covers the whole change, but each reader is shown the
 invoices of the companies they may access alone, and the detail's and

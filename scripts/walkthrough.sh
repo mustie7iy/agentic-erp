@@ -773,7 +773,7 @@ step_pack() {
     -body '{"name": "Before the Canada pack, no invoices yet", "window_days": 366, "allow_empty": true}'
   local suite
   suite=$(field .number)
-  say "The simulation replays the invoices of the suite's window, 366 days, so both kinds of evidence cover the same span."
+  say "The simulation replays the invoices of the last 366 days, as far back as the suite looked when it was captured."
   QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
   api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
   wait_op

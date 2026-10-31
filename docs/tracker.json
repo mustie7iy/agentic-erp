@@ -8391,7 +8391,7 @@
      {
       "s": "D",
       "t": "Simulation evidence replays the invoices of a fixed 90-day window whatever window the regression suite was captured with: take the window from the base version's latest suite (or the change request) so both kinds of evidence cover the same invoices",
-      "r": "walkthrough 2026-10-22 · internal/payables simulate.go Simulation.Window · configuration regression suites window_days · built: configuration.Simulator takes the window of the base version's latest suite (simulateOver), the evidence names it (detail.window_suite), 90 days without a suite; change requests carry no window; the ledger's assignment replay keeps ADR-0050's 90 days · 03 §3.5 · 07 T72l decisions · walkthrough step 2",
+      "r": "walkthrough 2026-10-22 · internal/payables simulate.go Simulation.Window · configuration regression suites window_days · built: configuration.Simulator takes the window of the base version's latest suite (simulateOver), the evidence names it (detail.window_suite), 90 days without a suite; the same length ending when the simulation runs, not the suite's dates, since the simulation shows the change on recent invoices (both cover the same invoices when simulated on the capture day); change requests carry no window; the ledger's assignment replay keeps ADR-0050's 90 days · 03 §3.5 · 07 T72l decisions · walkthrough step 2",
       "src": "baseline",
       "c": []
      }
