@@ -48,7 +48,7 @@ func TestCompanyDayFailures(t *testing.T) {
 		want string
 	}{
 		"the directory fails":       {Endpoints{LegalEntities: zoneDirectory{err: down}, Now: at}, "payables: legal entity"},
-		"an unknown legal entity":   {Endpoints{LegalEntities: zoneDirectory{absent: true}, Now: at}, "payables: legal entity"},
+		"an unknown legal entity":   {Endpoints{LegalEntities: zoneDirectory{absent: true}, Now: at}, "request.reference_not_found"},
 		"the configuration fails":   {Endpoints{LegalEntities: zoneDirectory{}, Settings: zoneSettings{err: down}, Now: at}, "payables: time zone of company 2000: down"},
 		"a zone that does not load": {Endpoints{LegalEntities: zoneDirectory{}, Settings: zoneSettings{zone: "America/Nowhere"}, Now: at}, "payables: company 2000"},
 	} {

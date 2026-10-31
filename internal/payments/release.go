@@ -28,6 +28,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // StartRelease is the F110 release, by a person other than the proposer,
@@ -461,17 +462,15 @@ func (e *Endpoints) refuse(ctx context.Context, code string, supplier uuid.UUID,
 }
 
 // companyDay is the date now of run r's company, in the time zone its
-// configuration sets (UTC when none), and that zone.
+// configuration sets (UTC when none), and that zone (config.EntityDay: a
+// run's legal entity the directory does not know is refused, 422
+// request.reference_not_found, as every company date refuses it).
 func (e *Endpoints) companyDay(ctx context.Context, r Run, doc *config.Config) (time.Time, *time.Location, error) {
-	le, err := e.entityOf(ctx, r)
+	d, err := doc.EntityDay(ctx, tenancy.CompanyCode(e.LegalEntities), r.LegalEntityID, clock.Now(e.Now))
 	if err != nil {
-		return time.Time{}, nil, err
+		return time.Time{}, nil, fmt.Errorf("payments: run %s: %w", r.ID, err)
 	}
-	loc, err := doc.CompanyLocation(le.Code)
-	if err != nil {
-		return time.Time{}, nil, fmt.Errorf("payments: company %s of run %s: %w", le.Code, r.ID, err)
-	}
-	return clock.DayIn(clock.Now(e.Now), loc), loc, nil
+	return d.Date, d.Zone, nil
 }
 
 // unpayableText says why an item can no longer be paid (OpenItems.Unpayable).

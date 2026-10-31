@@ -8527,9 +8527,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The company's date is read by one shared helper with one rule for a legal entity that is not found (refuse), not six lookups that differ on one (cash reads UTC's date, the others refuse, ledger and payments each in their own way)",
-        "r": "procurement common.go todayOf (refuses) · ledger companyday.go companyDays.of (refuses) · payments release.go companyDay via entityOf · cash readday.go readDaysOf (a missing legal entity reads UTC's date) · payables companyday.go companyDay (refuses) · procurement expiry_days.go companyDays (refuses; added in batch 27, T72n6) · each port reads the legal entity differently (Entity, Company, ByCode), so one helper needs a shared port: not done in batch 27's integration · ADR-0051 as built",
+        "r": "found in batch 27's integration review: procurement common.go todayOf · ledger companyday.go companyDays.of · payments release.go companyDay via entityOf · cash readday.go readDaysOf (a missing legal entity read UTC's date) · payables companyday.go companyDay · procurement expiry_days.go companyDays (T72n6) · built: internal/config companyday.go config.EntityDay and (*Config).EntityDay, (*Config).CompanyDay, config.EntityCode, config.ErrNoLegalEntity (422 request.reference_not_found naming the legal entity, a common code) · tenancy.CompanyCode, the one adapter of the tenancy port the four contexts reading tenancy.Entity share; cash adapts its own Company port · cash readday.go recordDay (a memo record read alone refuses), readDaysOf (a list filter naming an unknown legal entity reads no date: it matches no record and answers an empty page, as for one the caller cannot access) · TestEntityDay · TestEntityDayRefusals · TestCompanyCode · TestRecordDay · TestReadDaysOfUnknownFilter · TestCompanyDayUnknownZone · TestCheckSubmittedFailures · TestCompanyDayFailures · TestCompanyDays · TestContractExpiryUnknownZone · ADR-0051 as built (one company-date helper) · no walkthrough step: a refactoring",
         "src": "review:batch27",
         "c": []
        }

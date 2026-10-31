@@ -58,7 +58,7 @@ func TestCompanyDays(t *testing.T) {
 		"no configuration":        {companyDays{now: at, entities: entities{}}, le, "no legal entities or configuration"},
 		"no directory":            {companyDays{now: at, settings: settings{}}, le, "no legal entities or configuration"},
 		"the directory fails":     {companyDays{now: at, entities: entities{err: down}, settings: settings{}}, le, "down"},
-		"an unknown entity":       {companyDays{now: at, entities: entities{}, settings: settings{}}, uuid.Nil, "not found"},
+		"an unknown entity":       {companyDays{now: at, entities: entities{}, settings: settings{}}, uuid.Nil, "request.reference_not_found"},
 		"the configuration fails": {companyDays{now: at, entities: entities{}, settings: settings{err: down}}, le, "time zone of company 2000: down"},
 		"a zone that does not load": {companyDays{now: at, entities: entities{}, settings: settings{zone: "America/Nowhere"}}, le,
 			"company 2000: time zone \"America/Nowhere\""},

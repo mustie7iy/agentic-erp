@@ -324,6 +324,17 @@ type EntityReader interface {
 	Entity(ctx context.Context, id uuid.UUID) (Entity, bool, error)
 }
 
+// CompanyCode reads legal entities' company codes through r, in the form
+// config.(*Config).EntityDay looks one up (config.EntityCode): found is
+// false for a legal entity r does not know. Every context whose port reads
+// a legal entity dates it through this one adapter.
+func CompanyCode(r EntityReader) func(ctx context.Context, id uuid.UUID) (string, bool, error) {
+	return func(ctx context.Context, id uuid.UUID) (string, bool, error) {
+		e, found, err := r.Entity(ctx, id)
+		return e.Code, found, err
+	}
+}
+
 // Accessible returns the legal entity with the id that a request refers to
 // in field, when it exists and access allows it. Otherwise it refuses with
 // 422 request.reference_not_found: a legal entity the caller may not act in

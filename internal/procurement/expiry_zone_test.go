@@ -125,7 +125,7 @@ func TestContractExpiryUnknownZone(t *testing.T) {
 		want     string
 	}{
 		"a zone that does not load":    {settingsOf{doc: lost}, tenancy.Directory{}, "procurement: company 2000"},
-		"a legal entity without entry": {configuration.Settings{}, absentEntities{}, "of active contracts not found"},
+		"a legal entity without entry": {configuration.Settings{}, absentEntities{}, "request.reference_not_found"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			x := expirer(t, &pgtest.SyncBuffer{}, tc.settings)

@@ -2,7 +2,6 @@ package procurement
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -10,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
@@ -234,24 +234,22 @@ func (e *Endpoints) today(ctx context.Context, company string) (time.Time, *time
 	if err != nil {
 		return time.Time{}, nil, fmt.Errorf("procurement: configuration: %w", err)
 	}
-	loc, err := doc.CompanyLocation(company)
+	d, err := doc.CompanyDay(company, clock.Now(e.Now))
 	if err != nil {
-		return time.Time{}, nil, fmt.Errorf("procurement: company %s: %w", company, err)
+		return time.Time{}, nil, fmt.Errorf("procurement: %w", err)
 	}
-	return clock.DayIn(clock.Now(e.Now), loc), loc, nil
+	return d.Date, d.Zone, nil
 }
 
 // todayOf is legal entity le's date now in its company's time zone, and
-// the zone (today).
+// the zone (config.EntityDay: a legal entity the directory does not know
+// is refused).
 func (e *Endpoints) todayOf(ctx context.Context, le uuid.UUID) (time.Time, *time.Location, error) {
-	ent, found, err := e.LegalEntities.Entity(ctx, le)
-	if err == nil && !found {
-		err = errors.New("no such legal entity")
-	}
+	d, err := config.EntityDay(ctx, e.Settings, tenancy.CompanyCode(e.LegalEntities), le, clock.Now(e.Now))
 	if err != nil {
-		return time.Time{}, nil, fmt.Errorf("procurement: legal entity %s: %w", le, err)
+		return time.Time{}, nil, fmt.Errorf("procurement: %w", err)
 	}
-	return e.today(ctx, ent.Code)
+	return d.Date, d.Zone, nil
 }
 
 // number allocates the next document number of the type for the date's

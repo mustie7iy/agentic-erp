@@ -86,11 +86,11 @@ func (e *Endpoints) memoOut(ctx context.Context, m MemoRecord) (gen.MemoRecord, 
 	if err != nil {
 		return gen.MemoRecord{}, err
 	}
-	reads, err := e.readDaysOf(ctx, &m.LegalEntityID)
+	day, err := e.recordDay(ctx, m.LegalEntityID)
 	if err != nil {
 		return gen.MemoRecord{}, err
 	}
-	return memoToAPI(m, reads.of(m.LegalEntityID), codes), nil
+	return memoToAPI(m, day, codes), nil
 }
 
 func (e *Endpoints) headers(ctx context.Context, m MemoRecord) (*gen.MemoRecordHeaders, error) {

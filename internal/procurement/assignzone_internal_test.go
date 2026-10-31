@@ -46,8 +46,8 @@ func TestCheckSubmittedFailures(t *testing.T) {
 		want string
 	}{
 		"the directory fails":       {Endpoints{LegalEntities: zoneDirectory{err: down}}, "down"},
-		"an unknown legal entity":   {Endpoints{LegalEntities: zoneDirectory{absent: true}}, "no such legal entity"},
-		"the configuration fails":   {Endpoints{LegalEntities: zoneDirectory{}, Settings: zoneSettings{err: down}}, "procurement: configuration: down"},
+		"an unknown legal entity":   {Endpoints{LegalEntities: zoneDirectory{absent: true}}, "request.reference_not_found"},
+		"the configuration fails":   {Endpoints{LegalEntities: zoneDirectory{}, Settings: zoneSettings{err: down}}, "procurement: time zone of company 2000: down"},
 		"a zone that does not load": {Endpoints{LegalEntities: zoneDirectory{}, Settings: zoneSettings{zone: "America/Nowhere"}}, "procurement: company 2000"},
 	} {
 		t.Run(name, func(t *testing.T) {
