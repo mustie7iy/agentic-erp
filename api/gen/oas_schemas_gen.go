@@ -35638,6 +35638,11 @@ type Requisition struct {
 	ContractID OptUUID `json:"contract_id"`
 	// Currency of the estimate.
 	Currency string `json:"currency"`
+	// The company's date when the requisition was raised, in the company's configured `time_zone` (UTC
+	// when it has none): at 22:00 in America/Toronto it is still that day. Its number is drawn for this
+	// day, and its amount is converted into the company's currency at this day's rate to route it to an
+	// approval tier (T72n5).
+	RequisitionDate time.Time `json:"requisition_date"`
 	// Date the goods or services are needed.
 	NeededBy OptDate `json:"needed_by"`
 	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
@@ -35713,6 +35718,11 @@ func (s *Requisition) GetContractID() OptUUID {
 // GetCurrency returns the value of Currency.
 func (s *Requisition) GetCurrency() string {
 	return s.Currency
+}
+
+// GetRequisitionDate returns the value of RequisitionDate.
+func (s *Requisition) GetRequisitionDate() time.Time {
+	return s.RequisitionDate
 }
 
 // GetNeededBy returns the value of NeededBy.
@@ -35808,6 +35818,11 @@ func (s *Requisition) SetContractID(val OptUUID) {
 // SetCurrency sets the value of Currency.
 func (s *Requisition) SetCurrency(val string) {
 	s.Currency = val
+}
+
+// SetRequisitionDate sets the value of RequisitionDate.
+func (s *Requisition) SetRequisitionDate(val time.Time) {
+	s.RequisitionDate = val
 }
 
 // SetNeededBy sets the value of NeededBy.

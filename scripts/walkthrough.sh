@@ -817,10 +817,14 @@ step_procure() {
   expense=$(account 6000)
   item="{\"description\": \"Ergonomic office chairs\", \"quantity\": {\"value\": \"10\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"450.00\", \"currency\": \"CAD\"}, \"account_id\": \"$expense\"}"
   say "Ben asks for ten office chairs from Tyrell, a supplier migrated from SAP, needed in two weeks."
+  say "The requisition is dated on Maple's date in Toronto, not UTC's: raised on a Toronto evening it is still"
+  say "that day, and its amount is routed at that day's rate (T72n5)."
   NEEDED_BY=$(date_add "$TODAY" 14)
-  api 201 '"requisition \(.id): \(.status), \(.total_amount.amount) \(.total_amount.currency), needed by \(.needed_by)"' createRequisition \
+  local req request before
+  before=$(TZ=America/Toronto date +%F)
+  api 201 '"requisition \(.id) of \(.requisition_date): \(.status), \(.total_amount.amount) \(.total_amount.currency), needed by \(.needed_by)"' createRequisition \
     -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"supplier_id\": \"$SUPPLIER\", \"needed_by\": \"$NEEDED_BY\", \"items\": [$item]}"
-  local req request
+  [ "$(field .requisition_date)" = "$before" ] || expect "the requisition's date, Toronto's" "$(field .requisition_date)" "$(TZ=America/Toronto date +%F)"
   req=$(field .id)
   api 200 '"\(.status): approval request \(.workflow_request_id)"' submitRequisition -p "id=$req" -if-match "$ETAG"
   request=$(field .workflow_request_id)

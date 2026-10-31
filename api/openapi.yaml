@@ -8317,6 +8317,7 @@ paths:
       x-autonomy: propose
       x-problem-codes:
         - config.no_number_range
+        - config.not_bootstrapped
         - config.number_range_exhausted
         - ledger.no_fiscal_period
         - procurement.account_not_postable
@@ -26251,6 +26252,7 @@ components:
             - legal_entity_id
             - requester_id
             - currency
+            - requisition_date
             - status
             - items
             - total_amount
@@ -26283,6 +26285,11 @@ components:
               description: Currency of the estimate.
               pattern: "^[A-Z]{3}$"
               example: EUR
+            requisition_date:
+              type: string
+              format: date
+              description: "The company's date when the requisition was raised, in the company's configured `time_zone` (UTC when it has none): at 22:00 in America/Toronto it is still that day. Its number is drawn for this day, and its amount is converted into the company's currency at this day's rate to route it to an approval tier (T72n5)."
+              readOnly: true
             needed_by:
               type: string
               format: date
@@ -26330,6 +26337,7 @@ components:
           legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
           requester_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d4f"
           currency: EUR
+          requisition_date: "2026-10-09"
           status: draft
           items:
             - description: Office chairs, ergonomic
