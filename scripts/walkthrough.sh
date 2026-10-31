@@ -460,12 +460,15 @@ step_migrate() {
   sed 's/^/     /' "$WORK/migrate.out"
   grep -q ': reconciled$' "$WORK/migrate.out" || fail "the migration report does not say reconciled"
   for check in 'Trial balance: accounts with differences' 'Open payables total' 'Open payables: vendors with differences' \
-    'Parked supplier invoices' 'Parked supplier credit memos' 'Parked subsequent debits' 'Parked subsequent credits' \
+    'Open payable items' 'Open payable items: vendors with differences' 'Parked supplier invoices' 'Parked supplier credit memos' 'Parked subsequent debits' 'Parked subsequent credits' \
     'Vendor bank accounts: vendors with differences' 'Quantities invoiced in SAP: order items with differences' \
     'Open down payments total' 'Open down payments: vendors with differences' 'Open GR/IR total' 'Open GR/IR: order items with differences'; do
     grep "$check" "$WORK/migrate.out" | grep -q 'PASS$' || fail "the reconciliation check '$check' did not pass"
   done
   delta_migration "$connector"
+  say "Each run names its connector by name beside its id, so a list of runs needs no call per run:"
+  api 200 '.items[] | "migration run \(.mode)\(if .is_rehearsal then " rehearsal" else "" end) from \(.connector_name): \(.status)"' listMigrationRuns -p page_size=10
+  expect "the connector the migration runs name" "$(field '[.items[].connector_name] | unique | join(" ")')" "SAP PRD"
   say "The trial balance and the open payables agree with SAP's, recomputed from the raw extract, and so"
   say "does each supplier's bank account. A Canadian supplier's account came over with its bank (T72d):"
   say "scheme ca, the institution and transit numbers from SAP's bank key (LFBK-BANKL), the account sealed."
@@ -511,7 +514,13 @@ step_migrate() {
 # their document crediting the GR/IR account 750.00; the final delta run's
 # (delta.json) has three more received on 25 June, in a receipt and a
 # document of their own crediting it 450.00, both lines naming the order
-# item. Account balances are the mock's either way.
+# item. SAP's latest vendor payment is in the delta only: the first
+# extract has the invoice it pays open and no payment, so the delta run
+# clears the open item the first run loaded (review:batch22); it keeps
+# the payment's document number in PAID_LATER. An order SAP valued
+# through GR/IR with nothing open at the first run is received on again
+# in the delta (closed_order_extract). Account balances are the mock's at
+# cutover.
 parallel_run_extract() {
   local grir
   grir=$(jq -r --arg cc "$CC" '.T030[] | select(.BUKRS == $cc and .KTOSL == "WRX") | .KONTS' "$WORK/data/extract.json")
@@ -524,15 +533,65 @@ parallel_run_extract() {
     | .ACDOCA = [.ACDOCA[] | if .RBUKRS == $cc and .GJAHR == $g.GJAHR and .BELNR == $g.BELNR then .HSL |= value("750.00") | .WSL |= value("750.00") else . end]
       + [$doc[] | .BELNR = "0199999999" | .BUDAT = $d | .HSL |= value("450.00") | .WSL |= value("450.00")]' \
     "$WORK/data/extract.json" >"$WORK/data/delta.json" || fail "the delta extract could not be made"
-  jq '.MSEG = [.MSEG[] | select(.MBLNR != "5099999999")] | .ACDOCA = [.ACDOCA[] | select(.BELNR != "0199999999")]' \
+  closed_order_extract "$grir"
+  PAID_LATER=$(jq -r --arg cc "$CC" '[.ACDOCA[] | select(.RBUKRS == $cc and .BLART == "KZ" and .LIFNR != "" and .AUGBL == .BELNR)]
+    | max_by(.BUDAT) | .BELNR' "$WORK/data/delta.json")
+  [ -n "$PAID_LATER" ] && [ "$PAID_LATER" != null ] || fail "the extract has no vendor payment to load in the delta run"
+  jq --arg cc "$CC" --arg p "$PAID_LATER" '.MSEG = [.MSEG[] | select(.MBLNR != "5099999999" and .MBLNR != "5099999998")]
+    | .ACDOCA = [.ACDOCA[] | select(.BELNR != "0199999999" and .BELNR != "0199999997" and (.RBUKRS != $cc or .BELNR != $p))
+      | if .RBUKRS == $cc and .AUGBL == $p then .AUGBL = "" else . end]' \
     "$WORK/data/delta.json" >"$WORK/data/extract.json" || fail "the parallel run's extract could not be made"
+}
+
+# closed_order_extract makes an order of the pilot's that SAP received and
+# invoiced in full one valued through GR/IR (review:batch23), in both
+# extracts: the first single-item order received in one receipt and
+# invoiced in one posted invoice (CLOSED, its item's price CLOSED_PRICE)
+# gets a receipt document debiting the item's account and crediting the
+# GR/IR account (GR_IR account $1), and its invoice debits the GR/IR
+# account instead of the item's, both on the order item; so the first run
+# loads it with no position open. Its order is for one more unit, which
+# SAP receives on 25 June in the delta only (receipt 5099999998, document
+# 0199999997), so the delta run tops a position up the order never had.
+closed_order_extract() {
+  CLOSED=$(jq -r --arg cc "$CC" '. as $x | [.RBKP[] | select(.BUKRS == $cc and .RBSTAT == "5") | .BELNR] as $posted
+    | [.EKKO[] | select(.BUKRS == $cc) | .EBELN as $o
+      | ([$x.EKPO[] | select(.EBELN == $o)]) as $items | ([$x.MSEG[] | select(.EBELN == $o)]) as $receipts
+      | ([$x.RSEG[] | select(.EBELN == $o)]) as $invoiced
+      | select(($items | length) == 1 and ($receipts | length) == 1 and ($invoiced | length) == 1 and $items[0].PEINH == "1"
+          and ($posted | index($invoiced[0].BELNR)) != null and $receipts[0].MENGE == $items[0].MENGE and $invoiced[0].MENGE == $items[0].MENGE)
+      | $o] | first // ""' "$WORK/data/delta.json")
+  [ -n "$CLOSED" ] || fail "the extract has no order received and invoiced in full to value through GR/IR"
+  CLOSED_PRICE=$(jq -r --arg o "$CLOSED" '.EKPO[] | select(.EBELN == $o) | .NETPR' "$WORK/data/delta.json")
+  jq --arg cc "$CC" --arg a "$1" --arg o "$CLOSED" --arg d "${YEAR}0625" '
+    def neg: if startswith("-") then .[1:] else "-" + . end;
+    def we(belnr; date): (.BELNR = belnr | .BLART = "WE" | .XBLNR = "" | .BUDAT = date)
+      | (.DOCLN = "000001"), (.DOCLN = "000002" | .RACCT = $a | .HSL |= neg | .WSL |= neg);
+    ([.EKPO[] | select(.EBELN == $o)] | first) as $i
+    | ([.MSEG[] | select(.EBELN == $o)] | first) as $m
+    | ([.RSEG[] | select(.EBELN == $o)] | first) as $s
+    | ([.RBKP[] | select(.BELNR == $s.BELNR and .GJAHR == $s.GJAHR)] | first) as $r
+    | ([.ACDOCA[] | select(.RBUKRS == $cc and .BLART == "RE" and .XBLNR == $r.XBLNR and .RACCT == $i.SAKTO)] | first) as $x
+    | ($x | .EBELN = $o | .EBELP = $i.EBELP) as $line
+    | .EKPO = [.EKPO[] | if .EBELN == $o then .MENGE = ((.MENGE | tonumber) + 1 | tostring) else . end]
+    | .MSEG += [$m + {MBLNR: "5099999998", MENGE: "1", BUDAT: $d}]
+    | .ACDOCA = [.ACDOCA[] | if . == $x then $line | .RACCT = $a else . end]
+      + [$line | we("0199999998"; $m.BUDAT)] + [$line | .HSL = $i.NETPR | .WSL = $i.NETPR | we("0199999997"; $d)]' \
+    "$WORK/data/delta.json" >"$WORK/data/closed.json" && mv "$WORK/data/closed.json" "$WORK/data/delta.json" ||
+    fail "the order received and invoiced in full could not be valued through GR/IR"
 }
 
 # delta_migration runs the final delta migration at cutover (docs/migration.md
 # §4): SAP received the last three shelving units after the first run
 # loaded their order, so the run loads the receipt and its document and
 # tops the order item's migrated GR/IR position up to SAP's (review:batch21),
-# and the open GR/IR check passes again.
+# and the open GR/IR check passes again. SAP also received one more unit
+# on an order the first run loaded with no GR/IR position open
+# (closed_order_extract): the run that loaded it, of the same fiscal year,
+# tells the delta run its history is in the extract, so it tops that
+# position up too (review:batch23). SAP also paid an invoice the first
+# run loaded open: the run loads the payment and clears the invoice's open
+# item with it (review:batch22), and the open payable items agree.
 delta_migration() {
   say "That first run loaded SAP as it stood during the parallel run. SAP then received three more of the"
   say "shelving units before postings were frozen for cutover: a receipt and a document of their own, on an"
@@ -540,16 +599,34 @@ delta_migration() {
   say "GR/IR position up to SAP's, from what the first run took over:"
   jq -r --arg cc "$CC" '.ACDOCA[] | select(.RBUKRS == $cc and .BELNR == "0199999999")
     | "     ACDOCA \(.BELNR)/\(.DOCLN) \(.BLART): account \(.RACCT) \(.HSL), order item \(.EBELN)/\(.EBELP)"' "$WORK/data/delta.json"
+  say "SAP had received and invoiced order $CLOSED in full through GR/IR before the first run, so that run loaded"
+  say "it with no position open; SAP then received one more unit on it. The run that loaded the order is of the"
+  say "same fiscal year, so the delta run tops up a position the order never had:"
+  jq -r --arg cc "$CC" --arg o "$CLOSED" '.ACDOCA[] | select(.RBUKRS == $cc and .EBELN == $o)
+    | "     ACDOCA \(.BELNR)/\(.DOCLN) \(.BLART): account \(.RACCT) \(.HSL), order item \(.EBELN)/\(.EBELP)\(if .BELNR == "0199999997" then " (delta)" else "" end)"' \
+    "$WORK/data/delta.json"
+  say "SAP also paid an invoice the first run loaded as an open item. The payment clears both vendor lines"
+  say "(AUGBL), and the delta run clears the platform's open item with the payment it loads:"
+  jq -r --arg cc "$CC" --arg p "$PAID_LATER" '.ACDOCA[] | select(.RBUKRS == $cc and .AUGBL == $p)
+    | "     ACDOCA \(.BELNR)/\(.DOCLN) \(.BLART): vendor \(.LIFNR) \(.HSL), cleared by \(.AUGBL)"' "$WORK/data/delta.json"
   cp "$WORK/data/delta.json" "$WORK/data/extract.json"
   show erp migrate -connector "$1" -legal-entities "$LE" -year "$YEAR"
   "$ERP" migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" >"$WORK/delta.out" 2>&1 ||
     { sed 's/^/     /' "$WORK/delta.out"; fail "the delta migration did not reconcile"; }
-  grep -E '^(Migration run|Loaded)|Open GR/IR' "$WORK/delta.out" | sed 's/^/     /'
-  grep -q '"gr_ir_top_ups":1' "$WORK/delta.out" || fail "the delta run did not top up the GR/IR position"
+  grep -E '^(Migration run|Loaded)|Open GR/IR|Open payable items' "$WORK/delta.out" | sed 's/^/     /'
+  grep -q '"gr_ir_top_ups":2' "$WORK/delta.out" || fail "the delta run did not top up both GR/IR positions"
+  grep -q '"clearings":1' "$WORK/delta.out" || fail "the delta run did not clear the invoice the first run loaded"
   local check
-  for check in 'Open GR/IR total' 'Open GR/IR: order items with differences' 'Trial balance: accounts with differences'; do
+  for check in 'Open GR/IR total' 'Open GR/IR: order items with differences' 'Trial balance: accounts with differences' \
+    'Open payables total' 'Open payable items' 'Open payable items: vendors with differences'; do
     grep "$check" "$WORK/delta.out" | grep -q 'PASS$' || fail "the delta run's check '$check' did not pass"
   done
+  if grep -q "order $CLOSED" "$WORK/delta.out"; then fail "the delta run warned about order $CLOSED instead of topping it up"; fi
+  say "Order $CLOSED's position, topped up by the delta run to SAP's, one unit received and not invoiced:"
+  QUIET=1 api 200 '' listGrIrBalances -p "legal_entity_id=$LE"
+  jq -r '.items[] | select(.migrated_quantity.value == "-1")
+    | "     order \(.purchase_order_number) item \(.po_item_no): migrated \(.migrated_quantity.value), balance \(.balance.amount) \(.balance.currency)"' "$WORK/last.json"
+  expect "the topped-up position of order $CLOSED" "$(jq -r '[.items[] | select(.migrated_quantity.value == "-1") | .balance.amount] | join(" ")' "$WORK/last.json")" "-$CLOSED_PRICE"
 }
 
 # migrated_grir shows the GR/IR position SAP held open for an order item it
@@ -572,11 +649,12 @@ migrated_grir() {
   say "them), and the open credit taken over onto the platform's order item, by the first run and topped up by the"
   say "delta run in an entry each, reconciled per order item with SAP's above. The GR/IR balances show it by number:"
   api 200 "$GRIR_POSITION" listGrIrBalances -p "legal_entity_id=$LE"
-  expect "open GR/IR positions after the migration" "$(field '.items | length')" 1
-  expect "the migrated quantity" "$(field '.items[0].migrated_quantity.value')" -8
-  GRIR_BALANCE=$(field '.items[0].balance.amount')
+  expect "open GR/IR positions after the migration, the shelving units' and order $CLOSED's" "$(field '.items | length')" 2
+  local shelving='[.items[] | select(.migrated_quantity.value == "-8")]'
+  expect "the migrated positions of eight units" "$(field "$shelving | length")" 1
+  GRIR_BALANCE=$(field "$shelving[0].balance.amount")
   expect "the migrated balance" "$GRIR_BALANCE" -1200.00
-  GRIR_PO=$(field '.items[0].purchase_order_id')
+  GRIR_PO=$(field "$shelving[0].purchase_order_id")
   api 200 '"purchase order \(.document_number): \(.status), valued through \(.valuation)\([.items[] | ", item \(.item_no) \(.description): ordered \(.quantity.value), received \(.received_quantity.value)"] | join(""))"' \
     getPurchaseOrder -p "id=$GRIR_PO"
   expect "the migrated order's valuation" "$(field .valuation)" gr_ir
@@ -1180,11 +1258,11 @@ step_cash() {
   expect "the house bank the memo record names" "$(field .house_bank_code)" RBC
   say "The position per bank and day from tomorrow (T53c): today's reconciled statement of step 8 opens it,"
   say "and the memo record flows on its value date (the next working day, if that is not one):"
-  api 200 '.banks[] | select(.code == "RBC") | "bank \(.code) \(.currency): statement balance \(.opening.balance.amount) of \(.opening.statement_date // "none")",
+  api 200 '.banks[] | select(.house_bank_code == "RBC") | "bank \(.house_bank_code) \(.currency): statement balance \(.opening.balance.amount) of \(.opening.statement_date // "none")",
     (.days[] | "  \(.date): \(.opening.amount) -> \(.closing.amount)\([.flows[]? | ", \(.source) \(.certainty) \(.amount.amount)"] | join(""))")' \
     getCashPosition -p "legal_entity_id=$LE" -p "from=$(date_add "$TODAY" 1)" -p days=7
-  expect "the statement balance the position opens with" "$(field '.banks[] | select(.code == "RBC") | .opening.balance.amount')" "$CLOSING"
-  expect "the memo record's flow" "$(field '[.banks[] | select(.code == "RBC") | .days[].flows[]? | select(.source == "memo") | .amount.amount] | join(" ")')" 25000.00
+  expect "the statement balance the position opens with" "$(field '.banks[] | select(.house_bank_code == "RBC") | .opening.balance.amount')" "$CLOSING"
+  expect "the memo record's flow" "$(field '[.banks[] | select(.house_bank_code == "RBC") | .days[].flows[]? | select(.source == "memo") | .amount.amount] | join(" ")')" 25000.00
   passed
 }
 

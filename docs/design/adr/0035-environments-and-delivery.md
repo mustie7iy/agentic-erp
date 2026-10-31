@@ -756,6 +756,24 @@ their own and least privilege, never as the RDS master user `erp_admin`
   schema `public`, before granting the roles' again; and refuses a schema
   in the database beyond the system's, `public`, `directory` and `web`,
   whose `PUBLIC` rights it would not govern.
+  It also refuses (batch 25, from T72h's review) any right `PUBLIC`, and
+  so every login, holds on the object kinds `pg_shdepend` records no
+  right of `PUBLIC`'s for, since it records roles alone (PostgreSQL 17
+  manual, `pg_shdepend`, `SHARED_DEPENDENCY_ACL`): large objects
+  (`pg_largeobject_metadata.lomacl`), and `lo_compat_privileges`,
+  which turns their privilege checks off (§19.13.1), on in Setup's
+  session or set at all in `pg_db_role_setting` for the login, the
+  owner (whose own setting would hide the server's) or every role, in
+  the database or all; foreign-data
+  wrappers (`pg_foreign_data_wrapper.fdwacl`) and foreign servers
+  (`pg_foreign_server.srvacl`); trusted languages but `sql` and
+  `plpgsql` (`pg_language.lanacl`); and the server's parameters
+  (`pg_parameter_acl.paracl`, `SET` or `ALTER SYSTEM`). A null ACL is
+  read as its kind's default (`acldefault`; `aclexplode` gives `PUBLIC`
+  as grantee 0, §9.27 table 9.72), so a trusted language made by hand,
+  which `PUBLIC` uses by default, is refused too. `TestSetupRefusesOwners`
+  grants each by hand and `TestSetupRefusesServerWideRights` the
+  server-wide ones, inside a transaction it rolls back.
   A password reaches the server only as its SCRAM-SHA-256 verifier,
   computed in Go, so no log or statistics of the statement (PostgreSQL
   logs a failed statement whole, `log_min_error_statement`, to
@@ -789,6 +807,18 @@ their own and least privilege, never as the RDS master user `erp_admin`
   new connections in the window between the hook and the refresh fail and
   are retried, the window accepted for the master password above. To
   change one: write the new value, release.
+- `PUBLIC`'s rights on large objects, foreign-data wrappers and servers,
+  languages and parameters are refused, not taken back (batch 25): it is
+  `checkLogin`'s rule for rights on objects `Grants` does not name; the
+  directory makes and uses none of them; and the owner Setup runs as, no
+  superuser on RDS, need not own one someone else made, when its
+  `REVOKE` would only warn and leave the right (PostgreSQL 17 manual,
+  `REVOKE`, Notes). `PUBLIC`'s default `USAGE` on `sql` and `plpgsql`
+  (§5.8 table 5.2) stands: `Grants`' `DO` blocks need `plpgsql`'s where
+  the owner is no superuser (`DO`, Notes), and a login, which may create
+  no function, runs a `DO` block with its own rights alone. Not checked
+  against an RDS instance: whether RDS itself grants `PUBLIC` a right on
+  a parameter, which would stop the release until an operator looks.
 - One login for the cells: only the home cell's VPC reaches the
   directory today (`modules/global`, its security group).
 - On a first install erp-cell's server, synced in the same wave as
@@ -796,6 +826,39 @@ their own and least privilege, never as the RDS master user `erp_admin`
   login and is restarted until then, as erp-web did while the schema was
   missing. Before the first release with this change operators set the
   three passwords.
+
+**As built (2026-10-29, review of T72h): erp-cell's hook Jobs resolve
+the writer on a first install.** erp-cell's `erp-migrate` and
+`erp-temporal-schema` hook network policies isolated their Jobs' egress and
+admitted the writer alone, counting on the default deny's DNS rule. Helm
+runs a pre-install hook "after templates are rendered, but before any
+resources are created in Kubernetes" (Helm, Chart Hooks), and Argo CD runs
+it as PreSync (Argo CD, Helm: hooks), so on a first install the default
+deny, a resource of the release, is not there yet and the Jobs could not
+resolve the writer; on an upgrade it is, and they could. Each policy now,
+as erp-global's `erp-directory-setup` does, isolates its Job both ways,
+takes nothing in, and admits the cluster's DNS (kube-system's `kube-dns`,
+UDP and TCP 53: the default deny's rule, one helper `erp-cell.dnsEgress`)
+and the writer in the VPC, nothing else.
+
+- *Decided by default:* ordering was not the cause and is unchanged. The
+  policies are hooks of weight -10 and the Jobs of weight 0, and Helm sorts
+  hooks by weight ascending (Argo CD: the weight is the sync wave), so each
+  policy is there before its Job's Pods. The default deny stays a release
+  resource rather than a hook, since Helm does not track or manage hook
+  resources as part of the release and the deny must outlive every
+  release's hooks.
+- *Checks:* `deploy/helm/policy` (conftest, every chart) refuses a
+  pre-install hook Job not held, before the default deny exists, by
+  pre-install hook policies of a lower weight selecting its Pods that
+  isolate them both ways, take nothing in and admit the cluster's DNS;
+  `helm-checks.sh`'s `reach` holds each chart's pre-install hook Jobs, on
+  a first install and on an upgrade, to the cluster's DNS and the
+  database's port in the VPC alone.
+- Sources: Helm, Chart Hooks, https://helm.sh/docs/topics/charts_hooks/
+  (the hook lifecycle, weights, "not tracked or managed as part of the
+  release"); Argo CD, Helm, https://argo-cd.readthedocs.io/en/stable/user-guide/helm/
+  (pre-install and pre-upgrade as PreSync, the weight as the sync wave).
 
 **Rotation (product owner, 2026-10-28):** the passwords stay as built for
 now; before production the three logins move to RDS IAM database

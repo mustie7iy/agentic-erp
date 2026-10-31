@@ -928,6 +928,13 @@
         "r": "api/openapi.yaml PaymentRun · BankStatement · BankReconciliation · MemoRecord · BankFile house_bank_code · internal/payments bankCodes · withBank · internal/cash Payments.HouseBankCodes · internal/platform/idref · apitypes.PageWith · ADR-0038 As built (review:batch24) · ADR-0051 §7 As built · walkthrough steps 7, 8, 13",
         "src": "review:batch24",
         "c": []
+       },
+       {
+        "s": "D",
+        "t": "The cash position names a house bank's code as every other resource does (finding of the batch 24 review, API-consumer classes): CashPositionBank calls it code where PaymentRun, BankStatement, BankReconciliation, MemoRecord, BankFile and Payment call it house_bank_code; renaming a response field breaks /v1 (04 §4.10), so house_bank_code is added with the same value and code is marked deprecated until /v2",
+        "r": "api/openapi.yaml CashPositionBank house_bank_code · code deprecated · internal/cash bankToAPI · ADR-0038 As built (review:batch24, migration run and cash position) · walkthrough step 13",
+        "src": "review:batch24",
+        "c": []
        }
       ]
      },
@@ -2644,9 +2651,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A later migration run tops up the GR/IR positions of an order an earlier run of the same fiscal year loaded with no position open: the top-up tells a take-over's run, and so its fiscal year, by the take-over entry's source document, and an order loaded with nothing open has none, so it is left with a warning and a reconciliation difference when SAP receives or invoices on it again before cutover",
-      "r": "internal/integration/grir.go cannotTopUp · ADR-0034 As built (later runs)",
+      "r": "internal/integration/grir.go cannotTopUp, loadedBy · load.go addRef · migrations 000168-000169 (integration.external_ref.migration_run_id) · ADR-0034 As built (an order loaded with no position open) · walkthrough step 3",
       "src": "review:batch23",
       "c": []
      },
@@ -2655,6 +2662,13 @@
       "t": "A migration run's report has a schema (pre-existing finding on grirtop): MigrationRun.report is an object with additionalProperties: true, so its loaded-count keys (gr_ir_positions, gr_ir_top_ups and the others) are documented only in docs/migration.md and a consumer of the contract cannot know them",
       "r": "api/openapi.yaml MigrationRunReport · internal/integration/report.go · docs/migration.md · ADR-0013 As built",
       "src": "review:batch23",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "A migration run names its connector (finding of the batch 24 review, API-consumer classes: an identifier without the name or reference its consumer needs): MigrationRun gives connector_id without the connector's name, so a consumer listing runs calls getConnector once per run; no other response gives connector_id",
+      "r": "api/openapi.yaml MigrationRun connector_name · internal/integration connectorsOf · connectorNames · idref.Resolve · apitypes.PageWith · TestRunsNameTheirConnector · ADR-0038 As built (review:batch24, migration run and cash position) · walkthrough step 3",
+      "src": "review:batch24",
       "c": []
      },
      {
@@ -5355,9 +5369,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "x-problem-codes' givenMade treats the calls the call graph shows as every call of a function (pre-existing finding of the pcsound review, batch 24): code without SSA bodies (the standard library, third-party packages, api/gen) could also call a function whose value or receiver escapes to it, passing a function another operation made, and the cut would drop that function's codes. List the functions with a function-typed parameter whose function value or receiver type escapes to code outside the program; none: record the premise in ADR-0052 G7; some: keep their edges",
-        "r": "api/problemcodes_test.go givenMade · ADR-0052 G7",
+        "r": "api/problemcodes_test.go givenMade, checkParamPremise · api/problemcodes_escape_test.go escapes, outsideImports, templateData · api/testdata/fieldcalls callE, Runner, Keeper, Slots, RenderPage · TestProblemCodesFieldCalls · TestProblemCodesEscapes · ADR-0052 G7: functions code outside the program can call",
         "src": "review:batch24",
         "c": []
        },
@@ -6746,17 +6760,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "PUBLIC's rights on object kinds pg_shdepend does not record are taken back or refused by the directory's Setup (follow-up of T72h's review, the class: a right given by hand that Setup neither takes back nor refuses): large objects, foreign servers and wrappers, languages, and server-wide parameter ACLs",
-        "r": "internal/directory/setup.go",
+        "r": "internal/directory/setup.go publicRights · TestSetupRefusesOwners · TestSetupRefusesServerWideRights · ADR-0035 amendment 2026-10-28",
         "src": "review:T72h",
         "c": []
        },
        {
         "s": "T",
-        "t": "The directory's logins reach no other database on the directory's server (follow-up of T72h's review): PUBLIC's CONNECT and TEMPORARY defaults and hand grants on other databases (e.g. postgres) stay usable by every login; refuse or document a server holding other databases, or take PUBLIC's CONNECT on them with the IAM authentication step",
+        "t": "The directory's logins reach no other database on the directory's server (follow-up of T72h's review): PUBLIC's CONNECT and TEMPORARY defaults and hand grants on other databases (e.g. postgres) stay usable by every login; refuse or document a server holding other databases, or take PUBLIC's CONNECT on them with the IAM authentication step. Waits for the product owner (security posture; dirhard step 2, batch 25): the option offered is that Setup is given the list of the server's other databases, revokes PUBLIC's CONNECT and TEMPORARY on each and then refuses while PUBLIC or a login still holds either, checks rdsadmin (RDS's own database) too, and is confirmed on a real RDS instance with \\l",
         "r": "internal/directory/setup.go · ADR-0035",
-        "src": "review:T72h",
+        "src": "review:T72h · review:batch25",
         "c": []
        }
       ]
@@ -8081,10 +8095,17 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A vendor line SAP cleared stays open when its clearing spans runs or the extract (pre-existing finding on fxgate): internal/integration/load.go clearingItems returns false when one of the clearing's documents was loaded by an earlier run, and Postings.Clear refuses with ledger.clearing_not_balanced when the counter-item is outside the extract (e.g. a prior-year invoice paid this year); neither is retried and it shows only as a run issue or a reconciliation difference",
-      "r": "internal/integration/load.go clearings",
+      "r": "internal/integration/load.go clearings, earlierEntries · ledger Postings.EntryYears, ClearedTogether, Reports.OpenPayableItems · reconcile.go openPayableItems · ADR-0034 As built (review:batch22) · walkthrough step 3: across runs built; the counter-item outside the extract is the next item",
       "src": "review:batch22",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A vendor item SAP cleared against an item of another fiscal year fails the migration run (split from the item before, waits for the product owner): the extract holds the scope's fiscal year only and AUGBL without SAP's clearing date and year (AUGDT, AUGGJ), so a prior-year invoice paid this year fails documents mode (ledger.clearing_not_balanced) in either year's run and balances mode (cleared vendor items do not net to zero). Decide which items a year's migration holds open: open at the extract's date (today) or at the fiscal year's end (SAP's key-date reading by AUGDT), and with it how the later year's run clears the earlier year's item. Recommended (batch 25, sapclear case 2): open at the fiscal year's end, which needs SAP's clearing date and year (AUGDT, AUGGJ) in the extract",
+      "r": "internal/sap FilterScope, ACDOCA · internal/integration/load.go clearings, openingLines · reconcile.go journal",
+      "src": "review:batch22 · review:batch25",
       "c": []
      },
      {
@@ -8270,10 +8291,17 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "erp-cell's erp-migrate and erp-temporal-schema hook network policies admit the cluster's DNS: on a first install the default deny is not there yet and the hook Jobs cannot resolve the writer",
-      "r": "deploy/helm/erp-cell/templates/network-policy.yaml · scripts/helm-checks.sh · T72h",
+      "r": "deploy/helm/erp-cell/templates/network-policy.yaml · deploy/helm/policy/workloads.rego · scripts/helm-checks.sh · T72h · ADR-0035 amendment 2026-10-28 (As built 2026-10-29)",
       "src": "review:T72h",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "conftest fmt --check fails on deploy/helm/policy's rego files (workloads.rego, workloads_test.rego), already on main, and no gate runs it: format them with conftest fmt and add the check to helm-checks.sh beside the policy's unit tests",
+      "r": "deploy/helm/policy · scripts/helm-checks.sh · ADR-0035",
+      "src": "review:batch25",
       "c": []
      },
      {

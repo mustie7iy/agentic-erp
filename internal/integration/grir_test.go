@@ -361,11 +361,14 @@ func halfReceived() *sap.Extract {
 	return x
 }
 
-// laterReceipt is halfReceived after SAP received the second unit: its
-// receipt (MSEG 5000000002) and the receipt's document crediting the GR/IR
-// account 50.00, both lines naming the order item.
-func laterReceipt() *sap.Extract {
-	x := halfReceived()
+// laterReceipt is halfReceived after SAP received the second unit.
+func laterReceipt() *sap.Extract { return receivedAgain(halfReceived()) }
+
+// receivedAgain is the extract x, holding halfReceived's receipt of one
+// unit, after SAP received the second: its receipt (MSEG 5000000002) and
+// the receipt's document crediting the GR/IR account 50.00, both lines
+// naming the order item.
+func receivedAgain(x *sap.Extract) *sap.Extract {
 	x.MSEG = append(x.MSEG, sap.MSEG{MBLNR: "5000000002", MJAHR: "2026", ZEILE: "0001", BWART: "101", EBELN: "4500000001", EBELP: "00010",
 		MENGE: "1", BUDAT: "20260306"})
 	for _, l := range x.ACDOCA {
@@ -504,17 +507,22 @@ func invoicedInFull() *sap.Extract {
 // TestGRIRTopUpLeftAlone: a later run does not top up a position whose
 // earlier run it cannot tell to be of its own fiscal year (review:batch21,
 // round 1): one taken over by a run of another fiscal year, whose extract
-// held another year's journal, and one an earlier run loaded with nothing
-// open, which has no take-over to tell its run by. Each is a warning, and
-// the position stays a difference in the reconciliation.
+// held another year's journal, one loaded with nothing open by such a run,
+// and one loaded with nothing open before the runs were recorded on what
+// they load (review:batch23), which names neither its run nor a take-over.
+// Each is a warning, and the position stays a difference in the
+// reconciliation.
 func TestGRIRTopUpLeftAlone(t *testing.T) {
 	for _, c := range []struct {
 		name, want string
 		first      *sap.Extract
 		year       bool // the first run's scope is moved to 2025
+		unrecorded bool // the first run's references name no run, as before 000168
 	}{
-		{"taken over by another year's run", "were taken over by a run of fiscal year 2025", halfReceived(), true},
-		{"loaded with nothing open", "has none taken over to tell the fiscal year of its run by", invoicedInFull(), false},
+		{"taken over by another year's run", "were taken over by a run of fiscal year 2025", halfReceived(), true, false},
+		{"loaded with nothing open by another year's run", "was loaded by a run of fiscal year 2025", invoicedInFull(), true, false},
+		{"loaded with nothing open, its run not recorded", "has neither its run nor a take-over to tell the fiscal year of its run by",
+			invoicedInFull(), false, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			e := grirSetup(t, c.first)
@@ -525,6 +533,9 @@ func TestGRIRTopUpLeftAlone(t *testing.T) {
 			}
 			if c.year {
 				pgtest.Exec(t, `UPDATE integration.migration_run SET scope = jsonb_set(scope, '{fiscal_year}', '2025'), version = version + 1 WHERE id = $1`, first["id"])
+			}
+			if c.unrecorded {
+				pgtest.Exec(t, `UPDATE integration.external_ref SET migration_run_id = NULL WHERE migration_run_id = $1`, first["id"])
 			}
 			write(t, e.dir, "grir.json", revalued(c.first))
 			delta := e.run(t, conn, "documents", false, e.DE.String())
@@ -540,5 +551,88 @@ func TestGRIRTopUpLeftAlone(t *testing.T) {
 				t.Errorf("open GR/IR: passed %t, differences %s, want the item's", ok, diffs)
 			}
 		})
+	}
+}
+
+// closedHalf is halfReceived with its one unit received invoiced by an
+// invoice SAP posted (50.00, debiting the GR/IR account on the order item),
+// so the order has GR/IR lines and no position open, and nothing parked.
+func closedHalf() *sap.Extract {
+	x := halfReceived()
+	x.RBKP = []sap.RBKP{{BELNR: "5100000030", GJAHR: "2026", BUKRS: "2000", LIFNR: "0000000001", XBLNR: "P-30", BLDAT: "20260307", WAERS: "EUR",
+		RMWWR: "50.00", WMWST1: "0.00", RBSTAT: "5", XRECH: sap.Indicator("X")}}
+	x.RSEG = []sap.RSEG{{BELNR: "5100000030", GJAHR: "2026", BUZEI: "000001", EBELN: "4500000001", EBELP: "00010", MENGE: "1", WRBTR: "50.00"}}
+	x.ACDOCA = append(x.ACDOCA,
+		sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", RWCUR: "EUR", GJAHR: "2026", BELNR: "0100000030", DOCLN: "000001", RACCT: "0000219000", HSL: "50.00",
+			BUDAT: "20260307", BLART: "RE", EBELN: "4500000001", EBELP: "00010"},
+		sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", RWCUR: "EUR", GJAHR: "2026", BELNR: "0100000030", DOCLN: "000002", RACCT: "0000211000", HSL: "-50.00",
+			BUDAT: "20260307", BLART: "RE", LIFNR: "0000000001"})
+	return x
+}
+
+// TestGRIRTopUpLoadedClosed: an order an earlier run of the same fiscal
+// year loaded valued through GR/IR with no position open, which SAP then
+// received on again before cutover, is topped up by the later run like any
+// other (review:batch23): the run that loaded it, which its reference
+// names, tells its fiscal year. The open GR/IR check passes, and fails
+// without the top-up; the same extract again posts nothing and publishes
+// nothing.
+func TestGRIRTopUpLoadedClosed(t *testing.T) {
+	e := grirSetup(t, closedHalf())
+	c := e.connector(t, "grir.json")
+	first := e.run(t, c, "documents", false, e.DE.String())
+	if _, got := e.act(t, first, "start"); got["status"] != "loaded" {
+		t.Fatalf("first run: got %v, want loaded: %v", got["status"], got["report"])
+	} else if _, ok := got["report"].(map[string]any)["loaded"].(map[string]any)["gr_ir_positions"]; ok {
+		t.Errorf("first run: got %v, want no GR/IR position taken over", got["report"])
+	}
+	order, number := e.orderOf(t, "4500000001")
+	write(t, e.dir, "grir.json", receivedAgain(closedHalf()))
+	delta := e.run(t, c, "documents", false, e.DE.String())
+	_, got := e.act(t, delta, "start")
+	report := got["report"].(map[string]any)
+	if got["status"] != "loaded" {
+		t.Errorf("delta run's status: got %v, want loaded", got["status"])
+	}
+	if loaded := fmt.Sprint(report["loaded"]); loaded != "map[goods_receipts:1 gr_ir_top_ups:1 journal_entries:1]" {
+		t.Errorf("loaded by the delta run: got %s, want the receipt, its document and the top-up", loaded)
+	}
+	if warnings := fmt.Sprint(report["load"]); strings.Contains(warnings, "4500000001") {
+		t.Errorf("the load's warnings: got %s, want none on the order", warnings)
+	}
+	if got, want := e.position(t, order, ""), "order "+number+" item 1: received 0, invoiced 0, cleared 0, migrated -1, balance -50.00"; got != want {
+		t.Errorf("topped up: got %s, want %s", got, want)
+	}
+
+	// Without the top-up (reversed) the check fails, as it did before
+	// review:batch23; the next run tops the order up again, and it passes.
+	var topUp string
+	pgtest.Scan(t, `SELECT entity_id::text FROM integration.external_ref WHERE tenant_id = $1 AND object = 'GRIR' AND external_key = $2`,
+		[]any{e.Tenant.ID, "4500000001/" + delta["id"].(string)}, &topUp)
+	_, tag := e.Must(200, "GET", "/v1/journal-entries/"+topUp, "", "")
+	e.Must(200, "POST", "/v1/journal-entries/"+topUp+":reverse", `{}`, tag)
+	ok, diffs := e.grirReconciled(t, delta)
+	if want := "key:GR/IR of order item 4500000001/00010 platform: sap:-50.00 EUR, quantity -1"; ok || !strings.Contains(diffs, want) {
+		t.Errorf("open GR/IR without the top-up: passed %t, differences %s, want %s", ok, diffs, want)
+	}
+	again := e.run(t, c, "documents", false, e.DE.String())
+	if _, got := e.act(t, again, "start"); fmt.Sprint(got["report"].(map[string]any)["loaded"]) != "map[gr_ir_top_ups:1]" {
+		t.Errorf("the run after the reversal: got %v, want the top-up alone", got["report"])
+	}
+	if ok, diffs := e.grirReconciled(t, again); !ok {
+		t.Errorf("open GR/IR topped up: differences %s, want none", diffs)
+	}
+
+	// The same extract again: nothing to load, no entry, no event.
+	events := count(t, `SELECT count(*) FROM ledger.outbox WHERE tenant_id = $1`, e.Tenant.ID)
+	same := e.run(t, c, "documents", false, e.DE.String())
+	if _, got := e.act(t, same, "start"); got["status"] != "loaded" || len(got["report"].(map[string]any)["loaded"].(map[string]any)) != 0 {
+		t.Errorf("the same extract again: got %v, want nothing loaded", got["report"])
+	}
+	if n := count(t, `SELECT count(*) FROM ledger.outbox WHERE tenant_id = $1`, e.Tenant.ID); n != events {
+		t.Errorf("ledger events after the same extract again: got %d, want %d", n, events)
+	}
+	if ok, diffs := e.grirReconciled(t, same); !ok {
+		t.Errorf("open GR/IR after the same extract again: differences %s, want none", diffs)
 	}
 }

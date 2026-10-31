@@ -1,10 +1,20 @@
 // Package fieldcalls is TestProblemCodesFieldCalls' program (ADR-0052 G7):
 // calls of a function value given as a parameter or held in a field of a
 // struct parameter, which the call graph joins across callers, told apart
-// where every caller makes the value, and followed where one may not.
+// where every caller makes the value, and followed where one may not or
+// where code outside the program can call the function.
 package fieldcalls
 
-import "github.com/mustie7iy/agentic-erp/internal/platform/problem"
+import (
+	"flag"
+	"fmt"
+	"io"
+	"slices"
+	"sync"
+	"text/template"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+)
 
 // step is a move and the work it does, as integration's runStep takes it.
 type step struct {
@@ -139,3 +149,158 @@ func CallQB() error { return callQ(qb) }
 
 func qa() error { return problem.New(409, "fixture.qa", "QA", "") }
 func qb() error { return problem.New(409, "fixture.qb", "QB", "") }
+
+// callE is given only functions its callers make, but its value goes to
+// code outside the program (a sync.Map), which may call it with any
+// function: the edge stays, and each caller gets both codes.
+func callE(f func() error) error { return f() }
+
+var registry sync.Map
+
+func Register() { registry.Store("e", callE) }
+
+func CallEA() error { return callE(ea) }
+func CallEB() error { return callE(eb) }
+
+func ea() error { return problem.New(409, "fixture.ea", "EA", "") }
+func eb() error { return problem.New(409, "fixture.eb", "EB", "") }
+
+// Runner's Run is given only functions its callers make, but a *Runner goes
+// to code outside the program in an interface (fmt.Sprint), which could
+// call Run with any function: the edge stays.
+type Runner struct{}
+
+func (*Runner) Run(f func() error) error { return f() }
+
+func Show() string { return fmt.Sprint(&Runner{}) }
+
+func CallRA() error { return (&Runner{}).Run(ra) }
+func CallRB() error { return (&Runner{}).Run(rb) }
+
+func ra() error { return problem.New(409, "fixture.ra", "RA", "") }
+func rb() error { return problem.New(409, "fixture.rb", "RB", "") }
+
+// A *Keeper in an interface stays in the program (a variable whose loads
+// it calls Keep on), so Keep is cut to each caller's own code.
+type keeper interface{ Keep(f func() error) error }
+
+type Keeper struct{}
+
+func (*Keeper) Keep(f func() error) error { return f() }
+
+var kept keeper = &Keeper{}
+
+func CallKA() error { return kept.Keep(ka) }
+func CallKB() error { return (&Keeper{}).Keep(kb) }
+
+func ka() error { return problem.New(409, "fixture.ka", "KA", "") }
+func kb() error { return problem.New(409, "fixture.kb", "KB", "") }
+
+// Render executes a template with data whose type it does not show:
+// TestProblemCodesEscapes' templateData refuses it.
+func Render(w io.Writer, data any) error {
+	return template.Must(template.New("t").Parse("{{.}}")).Execute(w, data)
+}
+
+// RenderPage's template may call any exported method of what its data
+// holds: a *Page in an exported field, whose Title then escapes.
+type Page struct{}
+
+func (*Page) Title(f func() error) error { return f() }
+
+type pageData struct{ P *Page }
+
+func RenderPage(w io.Writer) error {
+	return template.Must(template.New("p").Parse("{{.P}}")).Execute(w, pageData{P: &Page{}})
+}
+
+// The ways escapes follows a value, each in TestProblemCodesEscapes:
+// callF is stored in a field of the program's struct and read back into
+// fmt.Sprint's arguments (a slice); callS is stored in another struct's,
+// read back only to be called (every value of a struct type shares its
+// fields, so a second type keeps them apart); callR is
+// returned by giveR, whose result goes to the sync.Map; Hook's closure is
+// stored in flag.Usage, a variable of code outside; callL is stored in a
+// literal struct with an exported field, which code outside can spell; a
+// *Gen instantiates slices.Contains, which has no body here.
+type slot struct{ f func(func() error) error }
+
+type keptSlot struct{ f func(func() error) error }
+
+func callF(f func() error) error { return f() }
+func callS(f func() error) error { return f() }
+func callR(f func() error) error { return f() }
+func callL(f func() error) error { return f() }
+
+func Slots() string {
+	held, kept := slot{f: callF}, keptSlot{f: callS}
+	_ = kept.f(qa)
+	return fmt.Sprint(held.f)
+}
+
+func giveR() func(func() error) error { return callR }
+
+func RegisterR() { registry.Store("r", giveR()) }
+
+func Hook() { flag.Usage = func() { _ = callQ(qa) } }
+
+func Literal() string { return fmt.Sprint(struct{ F func(func() error) error }{F: callL}) }
+
+type Gen struct{}
+
+func (*Gen) Run(f func() error) error { return f() }
+
+func Generic() bool { return slices.Contains([]*Gen{}, nil) }
+
+// A template's data holding a value of interface type, or a function, in
+// a field could reach anything, an error's too (a template may call any
+// method of its value): RenderAny, RenderFunc and RenderErr are refused.
+// RenderChain's template reaches a *Sub through Book.Child's result, so
+// Sub's Do escapes.
+type anyData struct{ P any }
+
+type funcData struct{ F func(func() error) error }
+
+func RenderAny(w io.Writer) error {
+	return template.Must(template.New("a").Parse("{{.P}}")).Execute(w, anyData{P: &Page{}})
+}
+
+func RenderFunc(w io.Writer) error {
+	return template.Must(template.New("f").Parse("{{.F}}")).Execute(w, funcData{F: callQ})
+}
+
+type errData struct{ E error }
+
+func RenderErr(w io.Writer) error {
+	return template.Must(template.New("e").Parse("{{.E}}")).Execute(w, errData{E: io.EOF})
+}
+
+type Book struct{}
+
+type Sub struct{}
+
+func (*Book) Child() *Sub { return &Sub{} }
+
+func (*Sub) Do(f func() error) error { return f() }
+
+func RenderChain(w io.Writer) error {
+	return template.Must(template.New("c").Parse("{{.Child}}")).Execute(w, &Book{})
+}
+
+// RenderFuncs registers a template function, whose result the template
+// may call into, HandOn converts a template to an interface and HandOff
+// gives one to a function value, either of which may execute it with any
+// data: all refused.
+func RenderFuncs(w io.Writer) error {
+	t := template.Must(template.New("s").Funcs(template.FuncMap{"sub": func() *Sub { return &Sub{} }}).Parse("{{sub}}"))
+	return t.Execute(w, 0)
+}
+
+func HandOn(w io.Writer) {
+	t := template.Must(template.New("h").Parse("{{.}}"))
+	_, _ = fmt.Fprintln(w, t.Name(), t)
+}
+
+var runTemplate = func(*template.Template) {}
+
+func HandOff() { runTemplate(template.New("o")) }

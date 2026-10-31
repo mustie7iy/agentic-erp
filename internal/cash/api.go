@@ -42,9 +42,14 @@ func optAmount(m *money.Minor, amount func(money.Minor) gen.Money) gen.OptMoney 
 
 func bankToAPI(b BankPosition) gen.CashPositionBank {
 	amount := amounts(b.Currency, b.Exponent)
-	out := gen.CashPositionBank{HouseBankID: b.ID, Code: b.Code, AccountLast4: b.Last4, Currency: b.Currency,
+	out := gen.CashPositionBank{HouseBankID: b.ID, HouseBankCode: b.Code, AccountLast4: b.Last4, Currency: b.Currency,
 		Opening:    gen.CashPositionOpening{Balance: amount(b.Opening.Balance), Stale: b.Opening.Stale, Gap: b.Opening.Gap},
 		CreditLine: optAmount(b.CreditLine, amount), Days: daysToAPI(b.Days, amount)}
+	// The contract deprecates code for house_bank_code; /v1 gives it until
+	// its sunset (ADR-0038 As built). Both linters are told: the standalone
+	// staticcheck of ci-local reads lint:ignore, golangci-lint reads nolint.
+	//lint:ignore SA1019 code is given until its sunset
+	out.Code = b.Code //nolint:staticcheck // code is given until its sunset (ADR-0038 As built)
 	if b.Opening.Date != nil {
 		out.Opening.StatementDate.SetTo(*b.Opening.Date)
 	}

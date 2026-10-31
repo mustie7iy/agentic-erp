@@ -287,7 +287,11 @@ func (l *loader) takeOverGRIR(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	years, err := l.runYears(ctx, taken)
+	loaded, err := l.loadedBy(ctx, orders)
+	if err != nil {
+		return err
+	}
+	years, err := l.runYears(ctx, taken, loaded)
 	if err != nil {
 		return err
 	}
@@ -297,7 +301,7 @@ func (l *loader) takeOverGRIR(ctx context.Context) error {
 		if len(items) == 0 {
 			continue
 		}
-		if why := l.cannotTopUp(order, taken[orders[order]], years); why != "" {
+		if why := l.cannotTopUp(order, taken[orders[order]], loaded[order], years); why != "" {
 			l.issues = append(l.issues, Issue{Severity: SevWarning, Table: "EKKO", Key: order, Message: why})
 			continue
 		}
@@ -368,10 +372,32 @@ func (l *loader) takenOver(ctx context.Context, orders map[string]uuid.UUID) (ma
 	return out, nil
 }
 
-// runYears are the fiscal years of the runs whose take-overs the orders
-// hold, by run.
-func (l *loader) runYears(ctx context.Context, taken map[uuid.UUID]ledger.GRIRTakenOverOrder) (map[uuid.UUID]int32, error) {
-	var runs []uuid.UUID
+// loadedBy are the runs that loaded the orders an earlier run loaded, by
+// EBELN: the run their order's external reference names (000168,
+// review:batch23). A reference recorded before names none, and its order
+// is left out.
+func (l *loader) loadedBy(ctx context.Context, orders map[string]uuid.UUID) (map[string]uuid.UUID, error) {
+	var earlier []string
+	for order := range orders {
+		if !l.viaGRIR[order] {
+			earlier = append(earlier, order)
+		}
+	}
+	rows, _ := l.tx.Query(ctx, `SELECT external_key, migration_run_id FROM integration.external_ref
+		WHERE system = $1 AND object = 'EKKO' AND external_key = ANY($2) AND migration_run_id IS NOT NULL`, l.system, earlier)
+	out := map[string]uuid.UUID{}
+	var order string
+	var run uuid.UUID
+	if _, err := pgx.ForEachRow(rows, []any{&order, &run}, func() error { out[order] = run; return nil }); err != nil {
+		return nil, fmt.Errorf("integration: read the migration runs that loaded %d orders: %w", len(earlier), err)
+	}
+	return out, nil
+}
+
+// runYears are the fiscal years of the runs that loaded the orders or whose
+// take-overs the orders hold, by run.
+func (l *loader) runYears(ctx context.Context, taken map[uuid.UUID]ledger.GRIRTakenOverOrder, loaded map[string]uuid.UUID) (map[uuid.UUID]int32, error) {
+	runs := slices.Collect(maps.Values(loaded))
 	for _, o := range taken {
 		runs = append(runs, o.Sources...)
 	}
@@ -389,26 +415,33 @@ func (l *loader) runYears(ctx context.Context, taken map[uuid.UUID]ledger.GRIRTa
 // earlier run loaded as they are, or "" when it tops them up. A run's
 // extract carries its fiscal year's journal and invoices only
 // (sap.Source), while receipts are not limited to it, so it can tell SAP's
-// position of an order only when every take-over on it is a run's of its
-// own fiscal year; topping up from another year's would move the position
-// wrongly, the GR/IR account still netting to zero and the reconciliation,
-// from the same extract, agreeing (review:batch21, round 1). An order an
-// earlier run loaded with no position open has no take-over to tell its
-// run's year by, so it is left too. Either stays a difference in the
-// reconciliation, as before.
-func (l *loader) cannotTopUp(order string, o ledger.GRIRTakenOverOrder, years map[uuid.UUID]int32) string {
+// position of an order only when the run that loaded it (loadingRun, uuid.Nil
+// when its reference predates 000168) and every take-over on it are runs
+// of its own fiscal year; topping up from another year's would move the
+// position wrongly, the GR/IR account still netting to zero and the
+// reconciliation, from the same extract, agreeing (review:batch21, round
+// 1). So an order loaded with no position open is topped up by the run
+// that loaded it (review:batch23). One whose loading run is not recorded
+// and that has no take-over to tell a run's year by is left too. Either
+// stays a difference in the reconciliation, as before.
+func (l *loader) cannotTopUp(order string, o ledger.GRIRTakenOverOrder, loadingRun uuid.UUID, years map[uuid.UUID]int32) string {
 	if l.viaGRIR[order] {
 		return ""
 	}
-	if len(o.Sources) == 0 {
-		return fmt.Sprintf("order %s, which an earlier run loaded with no GR/IR position open, has none taken over to tell the fiscal year "+
-			"of its run by: its GR/IR positions are not topped up, and the reconciliation shows them as differences", order)
+	if loadingRun == uuid.Nil && len(o.Sources) == 0 {
+		return fmt.Sprintf("order %s, which an earlier run loaded with no GR/IR position open before migration runs were recorded on what "+
+			"they load, has neither its run nor a take-over to tell the fiscal year of its run by: its GR/IR positions are not topped up, and "+
+			"the reconciliation shows them as differences", order)
 	}
 	for _, run := range o.Sources {
 		if year, ok := years[run]; ok && year != l.run.Scope.FiscalYear {
 			return fmt.Sprintf("order %s's GR/IR positions were taken over by a run of fiscal year %d: this run's extract holds fiscal year %d's "+
 				"journal only, so it cannot tell SAP's position and does not top it up", order, year, l.run.Scope.FiscalYear)
 		}
+	}
+	if year, ok := years[loadingRun]; ok && year != l.run.Scope.FiscalYear {
+		return fmt.Sprintf("order %s was loaded by a run of fiscal year %d: this run's extract holds fiscal year %d's journal only, so it "+
+			"cannot tell SAP's position and does not top it up", order, year, l.run.Scope.FiscalYear)
 	}
 	return ""
 }

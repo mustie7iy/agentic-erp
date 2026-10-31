@@ -31,7 +31,7 @@ type Check struct {
 // quantity invoiced in SAP (invoicedQuantities).
 type Diff struct {
 	CompanyCode string `json:"company_code"`
-	Key         string `json:"key"` // account number, "vendor <LIFNR>", "down payments of vendor <LIFNR>", "partner <id> (<name>)" or "down payments of partner <id> (<name>)" (a platform supplier that is no migrated vendor), "bank account of vendor <LIFNR>", "order item <EBELN>/<EBELP>" or "GR/IR of order item <EBELN>/<EBELP>"
+	Key         string `json:"key"` // account number, "vendor <LIFNR>", "down payments of vendor <LIFNR>", "partner <id> (<name>)" or "down payments of partner <id> (<name>)" (a platform supplier that is no migrated vendor), "bank account of vendor <LIFNR>", "order item <EBELN>/<EBELP>", "GR/IR of order item <EBELN>/<EBELP>", "open items of vendor <LIFNR>" or "open items of partner <id> (<name>)"
 	SAP         string `json:"sap"`
 	Platform    string `json:"platform"`
 }
@@ -140,6 +140,9 @@ func (rc *reconciler) company(ctx context.Context, cc, cur string) error {
 	if err := rc.openPayables(ctx, s, j.open); err != nil {
 		return err
 	}
+	if err := rc.openPayableItems(ctx, s, j.openItems); err != nil {
+		return err
+	}
 	if err := rc.downPayments(ctx, s, j.downPay); err != nil {
 		return err
 	}
@@ -164,6 +167,7 @@ func (rc *reconciler) company(ctx context.Context, cc, cur string) error {
 // sapJournal is the SAP side of the journal controls of a company code.
 type sapJournal struct {
 	tb, open  map[string]money.Minor // per account; per "vendor <LIFNR>"
+	openItems map[string]int         // the number of open items (not of amount 0) per "vendor <LIFNR>"
 	downPay   map[string]money.Minor // open down payments (special G/L A) per "vendor <LIFNR>"
 	debits    money.Minor
 	documents map[string]bool
@@ -177,7 +181,7 @@ type sapJournal struct {
 func (rc *reconciler) journal(s companyScope) sapJournal {
 	tb, open, downPay := map[string][]money.Minor{}, map[string][]money.Minor{}, map[string][]money.Minor{}
 	var debits []money.Minor
-	documents := map[string]bool{}
+	documents, openItems := map[string]bool{}, map[string]int{}
 	for _, l := range rc.ext.ACDOCA {
 		if l.RBUKRS != s.cc {
 			continue
@@ -197,6 +201,9 @@ func (rc *reconciler) journal(s companyScope) sapJournal {
 				downPay[vendor] = append(downPay[vendor], amt)
 			} else {
 				open[vendor] = append(open[vendor], amt)
+				if amt != 0 {
+					openItems[vendor]++
+				}
 			}
 		}
 	}
@@ -206,6 +213,7 @@ func (rc *reconciler) journal(s companyScope) sapJournal {
 		downPay:   rc.totals("ACDOCA", s.cc, downPay, func(v string) string { return "the open down payments of " + v }),
 		debits:    rc.total("ACDOCA", s.cc, "the debits of company "+s.cc, debits),
 		documents: documents,
+		openItems: openItems,
 	}
 }
 
@@ -243,6 +251,42 @@ func (rc *reconciler) openPayables(ctx context.Context, s companyScope, sapOpen 
 		return err
 	}
 	return rc.openItems(ctx, s, "Open payables", "", sapOpen, open)
+}
+
+// openPayableItems compares the number of open payable items per vendor
+// (review:batch22). A clearing SAP recorded and the platform did not
+// leaves both items open, which nets away in the open payables; the
+// count shows it, keyed "open items of vendor <LIFNR>" (or of a partner
+// that is no migrated vendor). The load leaves out lines of amount 0, so
+// they are not counted.
+func (rc *reconciler) openPayableItems(ctx context.Context, s companyScope, sapItems map[string]int) error {
+	counts, err := rc.e.Reports.OpenPayableItems(ctx, s.le, int16(rc.t.year))
+	if err != nil {
+		return err
+	}
+	platform, keys := map[string]int{}, map[string]bool{}
+	for id, n := range counts {
+		key, err := rc.vendorKey(ctx, s, id)
+		if err != nil {
+			return err
+		}
+		platform[key], keys[key] = platform[key]+n, true
+	}
+	for key := range sapItems {
+		keys[key] = true
+	}
+	var sapTotal, platformTotal, differ int
+	for _, key := range sortedKeys(keys) {
+		sapTotal, platformTotal = sapTotal+sapItems[key], platformTotal+platform[key]
+		if sapItems[key] != platform[key] {
+			differ++
+			rc.rec.Diffs = append(rc.rec.Diffs, Diff{CompanyCode: s.cc, Key: "open items of " + key, SAP: strconv.Itoa(sapItems[key]),
+				Platform: strconv.Itoa(platform[key])})
+		}
+	}
+	rc.add(s.cc, "Open payable items", strconv.Itoa(sapTotal), strconv.Itoa(platformTotal), sapTotal == platformTotal)
+	rc.add(s.cc, "Open payable items: vendors with differences", "0", strconv.Itoa(differ), differ == 0)
+	return nil
 }
 
 // downPayments compares the open down payments per vendor, when either

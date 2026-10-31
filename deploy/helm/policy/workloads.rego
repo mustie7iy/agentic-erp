@@ -7,7 +7,9 @@
 #   - images by digest;
 #   - CPU and memory requested, memory bounded;
 #   - every Deployment of more than one replica under a disruption budget;
-#   - a default-deny network policy in the release.
+#   - a default-deny network policy in the release;
+#   - each pre-install hook Job held, before the default deny exists, by
+#     hook network policies of its own that admit the cluster's DNS.
 # Kubernetes' Pod Security admission enforces the profile in the cluster
 # too (erp-cluster's namespaces); this catches it before a release.
 package workloads
@@ -131,4 +133,84 @@ default_deny if {
 	"Ingress" in np.spec.policyTypes
 	"Egress" in np.spec.policyTypes
 	not np.spec.ingress
+}
+
+# A pre-install hook runs after the templates are rendered and before any
+# of the release's resources are created, in ascending order of weight
+# (Helm's chart hooks; Argo CD runs it as PreSync, the weight as its sync
+# wave). On a first install the default deny is not there yet: a hook
+# Job's Pods are held only by the pre-install hook NetworkPolicies of a
+# lower weight that select them, which must isolate them both ways, take
+# nothing in, and admit the cluster's DNS themselves, or the Job cannot
+# resolve the database it was made to reach (review of T72h).
+annotations(doc) := object.get(doc.metadata, "annotations", {})
+
+hook_events(doc) := {trim_space(e) |
+	some e in split(object.get(annotations(doc), "helm.sh/hook", ""), ",")
+	trim_space(e) != ""
+}
+
+hook_weight(doc) := to_number(object.get(annotations(doc), "helm.sh/hook-weight", "0"))
+
+first_install_jobs contains doc if {
+	some doc in workloads
+	doc.kind == "Job"
+	"pre-install" in hook_events(doc)
+}
+
+# A selector by expressions is not judged: the Job counts as not held.
+selects(np, job) if {
+	not np.spec.podSelector.matchExpressions
+	labels := object.get(object.get(job.spec.template, "metadata", {}), "labels", {})
+	every k, v in object.get(np.spec.podSelector, "matchLabels", {}) {
+		labels[k] == v
+	}
+}
+
+holding(job) := {np |
+	some np in documents
+	np.kind == "NetworkPolicy"
+	"pre-install" in hook_events(np)
+	hook_weight(np) < hook_weight(job)
+	selects(np, job)
+}
+
+dns_rule(r) if {
+	some peer in r.to
+	peer.namespaceSelector.matchLabels == {"kubernetes.io/metadata.name": "kube-system"}
+	peer.podSelector.matchLabels == {"k8s-app": "kube-dns"}
+	count({["UDP", 53], ["TCP", 53]} - {[p.protocol, p.port] | some p in r.ports}) == 0
+}
+
+deny contains msg if {
+	some job in first_install_jobs
+	some direction in ["Ingress", "Egress"]
+	not isolated(job, direction)
+	msg := sprintf("%s: on a first install no pre-install hook NetworkPolicy of a lower weight isolates its Pods' %s (the default deny is not there yet)", [name(job), lower(direction)])
+}
+
+isolated(job, direction) if {
+	some np in holding(job)
+	direction in np.spec.policyTypes
+}
+
+deny contains msg if {
+	some job in first_install_jobs
+	some np in holding(job)
+
+	# Any ingress field, an empty list too, is refused: strict, as default_deny.
+	np.spec.ingress
+	msg := sprintf("%s: hook NetworkPolicy %s lets connections in to the Job's Pods", [name(job), np.metadata.name])
+}
+
+deny contains msg if {
+	some job in first_install_jobs
+	not admits_dns(job)
+	msg := sprintf("%s: on a first install its hook NetworkPolicies must admit the cluster's DNS (kube-system's kube-dns, UDP and TCP 53): the default deny that does is not there yet", [name(job)])
+}
+
+admits_dns(job) if {
+	some np in holding(job)
+	some r in object.get(np.spec, "egress", [])
+	dns_rule(r)
 }

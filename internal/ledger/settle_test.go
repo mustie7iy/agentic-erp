@@ -339,6 +339,7 @@ func TestMigrationPorts(t *testing.T) {
 		if got := open[e.vendor]; got != -500 {
 			t.Errorf("open payables of the vendor: got %d, want -500", got)
 		}
+		e.migrationReaders(ctx, t, invoice, payment)
 		for name, c := range map[string]struct {
 			items []ledger.ItemRef
 			code  string
@@ -358,13 +359,37 @@ func TestMigrationPorts(t *testing.T) {
 		if err := clear(item(invoice))(ctx); problem.From(err).Code != "ledger.item_already_cleared" {
 			t.Errorf("cleared twice: %v", err)
 		}
-		open, _ = ledger.Reports{}.OpenPayables(ctx, e.de, 2026)
+		if open, err = (ledger.Reports{}).OpenPayables(ctx, e.de, 2026); err != nil {
+			return err
+		}
 		if _, ok := open[e.supplier]; ok {
 			t.Errorf("cleared items still open: %v", open)
+		}
+		if together, err := postings().ClearedTogether(ctx, []ledger.ItemRef{item(invoice), item(payment)}); err != nil || !together {
+			t.Errorf("cleared together after the clearing: got %t %v, want true", together, err)
+		}
+		if together, err := postings().ClearedTogether(ctx, []ledger.ItemRef{item(invoice), item(other)}); err != nil || together {
+			t.Errorf("cleared together with an open item: got %t %v, want false", together, err)
 		}
 		return nil
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	// Items of two clearings are not cleared together.
+	invoice2, payment2 := post(2000, &e.supplier), post(-2000, &e.supplier)
+	if err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+		if err := clear(item(invoice), item(payment))(ctx); err != nil {
+			return err
+		}
+		if _, err := postings().Clear(ctx, e.de, date("2026-03-20"), item(payment2), []ledger.ItemRef{item(invoice2), item(payment2)}); err != nil {
+			return err
+		}
+		if together, err := postings().ClearedTogether(ctx, []ledger.ItemRef{item(invoice), item(invoice2)}); err != nil || together {
+			t.Errorf("cleared together across two clearings: got %t %v, want false", together, err)
+		}
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	for name, call := range map[string]func(ctx context.Context) error{
@@ -384,6 +409,18 @@ func TestMigrationPorts(t *testing.T) {
 			return err
 		},
 		"clear": clear(item(invoice), item(payment)),
+		"open payable items": func(ctx context.Context) error {
+			_, err := ledger.Reports{}.OpenPayableItems(ctx, e.de, 2026)
+			return err
+		},
+		"entry years": func(ctx context.Context) error {
+			_, err := postings().EntryYears(ctx, []uuid.UUID{invoice.ID})
+			return err
+		},
+		"cleared together": func(ctx context.Context) error {
+			_, err := postings().ClearedTogether(ctx, []ledger.ItemRef{item(invoice)})
+			return err
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if call(context.Background()) == nil {
@@ -391,6 +428,35 @@ func TestMigrationPorts(t *testing.T) {
 			}
 			apitest.EveryFailure(t, e.ten, e.ten.Human, name, call)
 		})
+	}
+}
+
+// migrationReaders checks what a migration reads of earlier runs' entries
+// before the invoice and the payment are cleared: their fiscal years (an
+// id that names no entry left out), that they are not cleared together,
+// and the open payable items per partner.
+func (e env) migrationReaders(ctx context.Context, t *testing.T, invoice, payment ledger.Entry) {
+	t.Helper()
+	years, err := postings().EntryYears(ctx, []uuid.UUID{invoice.ID, payment.ID, uuid.New()})
+	if err != nil {
+		t.Errorf("entry years: %v", err)
+	}
+	if want := map[uuid.UUID]int16{invoice.ID: 2026, payment.ID: 2026}; !maps.Equal(years, want) {
+		t.Errorf("entry years: got %v, want %v", years, want)
+	}
+	refs := []ledger.ItemRef{{FiscalYear: 2026, EntryID: invoice.ID, LineNo: 2}, {FiscalYear: 2026, EntryID: payment.ID, LineNo: 2}}
+	if together, err := postings().ClearedTogether(ctx, refs); err != nil || together {
+		t.Errorf("cleared together while open: got %t %v, want false", together, err)
+	}
+	items, err := ledger.Reports{}.OpenPayableItems(ctx, e.de, 2026)
+	if err != nil {
+		t.Errorf("open payable items: %v", err)
+	}
+	if got := items[e.supplier]; got != 2 {
+		t.Errorf("open payable items of the supplier: got %d, want the invoice and the payment", got)
+	}
+	if got := items[e.vendor]; got != 1 {
+		t.Errorf("open payable items of the vendor: got %d, want 1", got)
 	}
 }
 
