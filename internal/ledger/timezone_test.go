@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -150,20 +151,23 @@ func TestCenterChangesWithoutZones(t *testing.T) {
 // center's validity on the company's date in the zone the document gives
 // it (T72n4). LATER is valid from 1 June: at 22:00 on 31 May in Toronto
 // (1 June in UTC) it is not valid yet, at 01:00 on 1 June in Dubai (31 May
-// in UTC) it is. A zone the binary cannot load fails the check.
+// in UTC) it is. A zone the binary cannot load leaves the defaults
+// unchecked (validation reports the zone) and fails the application.
 func TestControllingDefaultsOnTheCompanysDate(t *testing.T) {
 	c := setupCenters(t)
 	c.profitCenter(t, "DUMMY", "", c.de)
 	later, _ := c.Must(201, "POST", "/v1/cost-centers", c.ccBody(fmt.Sprintf(`{"legal_entity_id": %q, "code": "LATER", "name": "L",
 		"responsible": "J", "category": "ADMIN", "valid_from": "2026-06-01", "reason": "r"}`, c.de)), "")
 	c.decide(t, later["pending_change_id"], "approve")
-	check := func(zone string, at time.Time) ([]config.Finding, error) {
-		doc := controlling(t, func(_ *config.Config, co *config.Company) {
+	doc := func(zone string) *config.Config {
+		return controlling(t, func(_ *config.Config, co *config.Company) {
 			co.DefaultAssignments[0].CostCenter, co.TimeZone = "LATER", zone
 		})
+	}
+	check := func(zone string, at time.Time) ([]config.Finding, error) {
 		var out []config.Finding
 		err := apitest.Committed(t, c.ten, c.ten.Human, func(ctx context.Context) (err error) {
-			out, err = ledger.Setup{LegalEntities: tenancy.Directory{}, Now: func() time.Time { return at }}.Check(ctx, nil, doc)
+			out, err = ledger.Setup{LegalEntities: tenancy.Directory{}, Now: func() time.Time { return at }}.Check(ctx, nil, doc(zone))
 			return err
 		})
 		return out, err
@@ -181,7 +185,68 @@ func TestControllingDefaultsOnTheCompanysDate(t *testing.T) {
 	if i := slices.IndexFunc(fs, func(f config.Finding) bool { return f.Path == path }); i >= 0 {
 		t.Errorf("in Dubai on 1 June: got %v, want LATER usable", fs[i])
 	}
-	if _, err := check("America/Nowhere", time.Date(2026, 6, 1, 2, 0, 0, 0, time.UTC)); err == nil || !strings.Contains(err.Error(), "America/Nowhere") {
-		t.Errorf("an unknown zone: got %v, want the zone named", err)
+	fs, err = check("America/Nowhere", time.Date(2026, 6, 1, 2, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Errorf("checking an unknown zone: got %v, want findings", err)
 	}
+	if i := slices.IndexFunc(fs, func(f config.Finding) bool { return f.Path == path }); i >= 0 {
+		t.Errorf("an unknown zone: got %v, want the defaults left unchecked", fs[i])
+	}
+	err = apitest.Committed(t, c.ten, c.ten.Human, func(ctx context.Context) error {
+		return ledger.Setup{LegalEntities: tenancy.Directory{}}.Apply(ctx, doc("America/Nowhere"))
+	})
+	if err == nil || !strings.Contains(err.Error(), "America/Nowhere") {
+		t.Errorf("applying an unknown zone: got %v, want the zone named", err)
+	}
+}
+
+// TestDefaultInUseHidesOtherCompanies: a refusal names the company's date
+// and zone only to a caller who can access the company: a requester
+// locking a profit center that an inaccessible company defaults to, and
+// an approver deciding a change of a cost center in one, are told it is
+// locked on the date of a company they cannot access.
+func TestDefaultInUseHidesOtherCompanies(t *testing.T) {
+	a := setupAssigned(t)
+	h := endpoints()
+	h.Settings, h.Now = toronto.zone, toronto.now
+	var change map[string]any
+	if err := apitest.Committed(t, a.ten, a.ten.Human, func(ctx context.Context) error {
+		dubaiH := endpoints()
+		dubaiH.Settings, dubaiH.Now = dubai.zone, dubai.now
+		res, err := dubaiH.LockCostCenter(ctx, &gen.CostCenterLock{ValidFrom: date("2026-04-01"), ValidTo: gen.NewOptDate(date("2026-04-17")),
+			LockActualCost: gen.NewOptBool(true), Reason: "r"}, gen.LockCostCenterParams{ID: a.cc1000, IfMatch: "*"})
+		ch, _ := res.(*gen.LockCostCenterOKHeaders)
+		change = changeOf(ch)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pgtest.Exec(t, `UPDATE identity.principal SET all_companies = false, version = version + 1 WHERE tenant_id = $1 AND id = $2`, a.ten.ID, a.ten.Human.ID)
+	pgtest.Exec(t, `INSERT INTO identity.company_access (tenant_id, id, principal_id, legal_entity_id, valid_from, created_by)
+		VALUES ($1, gen_random_uuid(), $2, $3, current_date - 1, $2)`, a.ten.ID, a.ten.Human.ID, a.us)
+	const hidden = "the date of a company you cannot access"
+	wantHidden := func(what string, err error) {
+		t.Helper()
+		p := problem.From(err)
+		if p.Code != "ledger.default_center_in_use" {
+			t.Fatalf("%s: got %v, want ledger.default_center_in_use", what, err)
+		}
+		if !strings.Contains(p.Detail, hidden) {
+			t.Errorf("%s: detail %q, want it to say %q", what, p.Detail, hidden)
+		}
+		if strings.Contains(p.Detail, string(toronto.zone)) || strings.Contains(p.Detail, toronto.today) {
+			t.Errorf("%s: detail %q names the company's zone or date", what, p.Detail)
+		}
+	}
+	err := apitest.Committed(t, a.ten, a.ten.Human, func(ctx context.Context) error {
+		_, err := h.LockProfitCenter(ctx, &gen.ProfitCenterLock{ValidFrom: date("2026-04-01"), ValidTo: gen.NewOptDate(date("2026-04-17")), Locked: true, Reason: "r"},
+			gen.LockProfitCenterParams{ID: a.dummy, IfMatch: "*"})
+		return err
+	})
+	wantHidden("the profit center's lock", err)
+	err = apitest.Committed(t, a.ten, a.ten.Human, func(ctx context.Context) error {
+		h := ledger.CenterChanges{LegalEntities: tenancy.Directory{}, Settings: toronto.zone, Now: toronto.now}
+		return h.Approved(ctx, uuid.MustParse(change["id"].(string)), uuid.MustParse(change["workflow_request_id"].(string)))
+	})
+	wantHidden("the cost center lock's approval", err)
 }

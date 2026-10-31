@@ -87,7 +87,10 @@ func (e *Endpoints) checkSubmitted(ctx context.Context, r Requisition) error {
 	err = e.checkAssignments(ctx, r.LegalEntityID, day, assignments(r.Items, 0))
 	var p *problem.Problem
 	if errors.As(err, &p) {
-		p.Detail += " A requisition's assignments are checked on the company's date in its time zone as it is submitted: " + day.Format(time.DateOnly) + "."
+		// A copy: the ledger's refusal is not changed in place.
+		q := *p
+		q.Detail += " A requisition's assignments are checked on the company's date in its time zone as it is submitted: " + day.Format(time.DateOnly) + "."
+		return &q
 	}
 	return err
 }

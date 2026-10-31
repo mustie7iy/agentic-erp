@@ -44,8 +44,11 @@ func TestCompanyDays(t *testing.T) {
 	le := uuid.New()
 	down := errors.New("down")
 	got, err := companyDays{now: at, entities: entities{}, settings: settings{zone: "America/Toronto"}}.of(context.Background(), le)
-	if err != nil || got.text() != "2026-04-16 (the company's date in America/Toronto)" {
-		t.Errorf("Toronto at 02:00 UTC on the 17th: got %q, %v, want 2026-04-16 in America/Toronto", got.text(), err)
+	if err != nil {
+		t.Fatalf("Toronto: %v", err)
+	}
+	if got.text() != "2026-04-16 (the company's date in America/Toronto)" {
+		t.Errorf("Toronto at 02:00 UTC on the 17th: got %q, want 2026-04-16 in America/Toronto", got.text())
 	}
 	for name, tc := range map[string]struct {
 		d    companyDays
@@ -65,5 +68,17 @@ func TestCompanyDays(t *testing.T) {
 				t.Errorf("got %v, want an error saying %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// TestVisibleOutsideARequest: the caller's access is read in the request,
+// and without one the date is not given at all.
+func TestVisibleOutsideARequest(t *testing.T) {
+	d := companyDays{now: time.Now, entities: entities{}, settings: settings{zone: "Asia/Dubai"}}
+	if _, err := d.visible(context.Background(), uuid.New()); err == nil || !strings.Contains(err.Error(), "company access") {
+		t.Errorf("got %v, want the access read's failure", err)
+	}
+	if _, err := (companyDays{}).visible(context.Background(), uuid.New()); err == nil {
+		t.Error("without a configuration: got nil, want an error")
 	}
 }

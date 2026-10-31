@@ -1096,7 +1096,11 @@ not UTC's, as they decide which center a posting of that day takes):
   force. A profit center may be the default of companies in several
   zones: each judges it on its own date. A handler wired without the
   configuration, or a stored zone the binary cannot load, fails the
-  change rather than judging it in UTC.
+  change rather than judging it in UTC. The setup's check of a document
+  whose zone does not load leaves the date-dependent controlling checks
+  for that company out: validation reports the zone
+  (`companies[<code>].time_zone`, 422), and the application, which only
+  sees validated documents, fails.
 - **Left as they are.** A posting derives and validates its centers on its
   own posting date (§5), an order on its order date, an order change on
   its changed order date and a supplier invoice on its posting or invoice
@@ -1110,7 +1114,12 @@ not UTC's, as they decide which center a posting of that day takes):
   time-dependent ("today's tree", decision P7) and read no date.
 - **What the consumer sees.** The refusal's `detail` names the date and
   the zone (`… after the change it is locked from 2026-04-16 (the
-  company's date in America/Toronto) …`), as do the setup's findings; a
+  company's date in America/Toronto) …`), as do the setup's findings;
+  to a caller who cannot access the company (a requester locking a
+  profit center an inaccessible company defaults to, an approver deciding
+  a change of a cost center in one) it says "the date of a company you
+  cannot access" instead, as the refusal already leaves out how many
+  companies default to a profit center; a
   requisition's refusal at submission says it was checked on the
   company's date and names it. The problem schema has no extension
   members, so they are in the detail, as T72n3's are. The contract's

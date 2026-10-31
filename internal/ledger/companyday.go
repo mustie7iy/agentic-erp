@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 )
 
@@ -24,6 +25,9 @@ type Settings interface {
 type companyDay struct {
 	day  time.Time
 	zone *time.Location
+	// hidden: the caller cannot access the company, so a refusal does not
+	// name its date or zone (visible).
+	hidden bool
 }
 
 // dayOfCompany is the company's date at instant now in the zone the
@@ -40,6 +44,9 @@ func dayOfCompany(now time.Time, co config.Company) (companyDay, error) {
 // text names the date and the zone it is the company's date in, as a
 // refusal or finding gives them: the consumer sees which day "today" was.
 func (d companyDay) text() string {
+	if d.hidden {
+		return "the date of a company you cannot access"
+	}
 	return dateText(d.day) + " (the company's date in " + d.zone.String() + ")"
 }
 
@@ -75,4 +82,22 @@ func (d companyDays) of(ctx context.Context, le uuid.UUID) (companyDay, error) {
 		return companyDay{}, fmt.Errorf("ledger: company %s: %w", e.Code, err)
 	}
 	return companyDay{day: clock.DayIn(clock.Now(d.now), loc), zone: loc}, nil
+}
+
+// visible is legal entity le's date now as a refusal to the caller may
+// give it: hidden when the caller cannot access the company, as when a
+// profit center is the default of a company the requester has no access
+// to, or an approver decides a change of a cost center in such a company
+// (the zone and date are that company's attributes).
+func (d companyDays) visible(ctx context.Context, le uuid.UUID) (companyDay, error) {
+	day, err := d.of(ctx, le)
+	if err != nil {
+		return day, err
+	}
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return day, fmt.Errorf("ledger: company access: %w", err)
+	}
+	day.hidden = !access.Allows(le)
+	return day, nil
 }

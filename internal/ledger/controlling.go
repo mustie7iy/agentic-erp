@@ -56,6 +56,12 @@ type companyControlling struct {
 func readControlling(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID, co config.Company, now time.Time, lock bool,
 	out *findings) (companyControlling, error) {
 	today, err := dayOfCompany(now, co)
+	if err != nil && !lock {
+		// A check of a document whose zone does not load: validation
+		// reports it (companies[].time_zone), and nothing judged on the
+		// company's date can be checked until it does.
+		return companyControlling{}, nil
+	}
 	if err != nil {
 		return companyControlling{}, err
 	}
@@ -379,7 +385,7 @@ func keepsDefaultCostCenter(ctx context.Context, tx pgx.Tx, c CostCenter, spans 
 	if len(accounts) == 0 {
 		return nil
 	}
-	today, err := days.of(ctx, c.LegalEntityID)
+	today, err := days.visible(ctx, c.LegalEntityID)
 	if err != nil {
 		return err
 	}
@@ -402,7 +408,7 @@ func keepsDefaultProfitCenter(ctx context.Context, tx pgx.Tx, id uuid.UUID, span
 		return fmt.Errorf("ledger: companies defaulting to profit center %s: %w", id, err)
 	}
 	for _, le := range companies {
-		today, err := days.of(ctx, le)
+		today, err := days.visible(ctx, le)
 		if err != nil {
 			return err
 		}
