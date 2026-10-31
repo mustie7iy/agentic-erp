@@ -712,7 +712,8 @@ expose its channel's connector). Decided by default, as above:
 - **Decision (product owner 2026-10-31).** The release's check that a
   payment's cash discount is still earned (T36d, 409
   `payments.discount_lapsed`) judges the last day on the paying company's
-  date in its time zone (`companies[].time_zone`, T72n1; UTC when none),
+  date in its time zone (`companies[].time_zone`, T72n1; UTC in a document activated before
+  the zone was required, 2026-10-31),
   not on the UTC date: a Toronto treasurer releasing at 22:00 on the last
   day keeps the discount the supplier grants until that day ends for the
   company, and a Dubai company's release after its midnight no longer

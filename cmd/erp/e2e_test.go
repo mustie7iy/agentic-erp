@@ -110,7 +110,8 @@ func TestEndToEnd(t *testing.T) {
 	if got := must(t, "gen-mock-sap", "-out", "extract.json", "-year", "2025", "-through", "6"); !strings.Contains(got, "ACDOCA") {
 		t.Fatalf("mock: %s", got)
 	}
-	if got := must(t, "config", "generate", "-source", "file:extract.json", "-company", "1000,2000", "-year", "2025", "-out", "draft.yaml"); !strings.Contains(got, "no findings") {
+	if got := must(t, "config", "generate", "-source", "file:extract.json", "-company", "1000,2000", "-year", "2025",
+		"-time-zone", "1000=America/New_York,2000=Europe/Berlin", "-out", "draft.yaml"); !strings.Contains(got, "no findings") {
 		t.Fatalf("draft: %s", got)
 	}
 	must(t, "config", "validate", "-file", "draft.yaml")

@@ -1,16 +1,18 @@
 package config
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 )
 
 // TestCompanyTimeZone: a company's time zone is an IANA name, the pilots'
-// zones and UTC among them; none is UTC (T72n1). A change to it is
-// posting-relevant: it moves which day is today for the company.
+// zones and UTC among them (T72n1). A change to it is posting-relevant: it
+// moves which day is today for the company.
 func TestCompanyTimeZone(t *testing.T) {
-	for zone, want := range map[string]string{"": "UTC", "UTC": "UTC", "America/Toronto": "America/Toronto", "America/Vancouver": "America/Vancouver",
+	for zone, want := range map[string]string{"UTC": "UTC", "America/Toronto": "America/Toronto", "America/Vancouver": "America/Vancouver",
 		"Asia/Dubai": "Asia/Dubai", "Etc/GMT+5": "Etc/GMT+5", "America/Argentina/Buenos_Aires": "America/Argentina/Buenos_Aires"} {
 		t.Run("zone "+want, func(t *testing.T) {
 			c := fixture(t)
@@ -55,5 +57,40 @@ func TestCompanyTimeZone(t *testing.T) {
 	}
 	if changes[0].Tier != TierPostingRelated {
 		t.Errorf("tier: got %v, want %v", changes[0].Tier, TierPostingRelated)
+	}
+}
+
+// TestCompanyTimeZoneRequired: validation refuses a company without a time
+// zone, naming the company and the key (product owner 2026-10-31); a
+// document activated before then is read with none, its dates in UTC.
+func TestCompanyTimeZoneRequired(t *testing.T) {
+	c := fixture(t)
+	c.Companies[0].TimeZone = ""
+	var errs []Finding
+	for _, f := range Validate(c, currency.Seeded()) {
+		if f.Severity == SevError {
+			errs = append(errs, f)
+		}
+	}
+	if len(errs) != 1 || errs[0].Path != "companies[1000].time_zone" {
+		t.Fatalf("validate without a time zone: got %v, want one error on companies[1000].time_zone", errs)
+	}
+	if want := "time zone is required"; !strings.HasPrefix(errs[0].Message, want) {
+		t.Errorf("message: got %q, want it to start %q", errs[0].Message, want)
+	}
+	doc, err := c.Marshal()
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	active, unknown, err := ParseActive(doc)
+	if err != nil || len(unknown) != 0 {
+		t.Fatalf("read the activated document: got %v, %v, want it read whole", unknown, err)
+	}
+	loc, err := active.CompanyLocation("1000")
+	if err != nil {
+		t.Fatalf("location: got %v, want none", err)
+	}
+	if loc != time.UTC {
+		t.Errorf("location without a time zone: got %v, want UTC", loc)
 	}
 }

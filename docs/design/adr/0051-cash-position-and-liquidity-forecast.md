@@ -693,7 +693,8 @@ zone", split into T72n1-T72n6):
   open; offsets such as `-05:00` do not load
   (`companies[<code>].time_zone`). Empty is UTC, as every date was before:
   documents activated earlier keep their meaning (tolerant read), and the
-  response says which zone was used. A change is tier 3
+  response says which zone was used. Since 2026-10-31 a new or changed
+  document must set it (see "the zone required" below). A change is tier 3
   (posting-relevant): it moves which day is today for the company by up
   to a day, and the later slices date checks by it.
 - **The read date.** The cash position's read date is the clock's instant
@@ -747,6 +748,48 @@ date; product owner 2026-10-31):
   (`StartRelease`), before the operation is queued; the release workflow
   and its activities do not judge the discount, so no workflow code reads
   a clock.
+
+As built (the zone required; product owner 2026-10-31, Pilot readiness
+"Company time zone"):
+- **Strict write, tolerant read** (06 §6.4). `config.Validate` refuses a
+  company without `time_zone` (`companies[<code>].time_zone`: "time zone
+  is required: the IANA name of the zone the company's business dates
+  are in, such as America/Toronto or Asia/Dubai, as the company states
+  it"). Validate runs on a change request's submission and a tenant's
+  bootstrap (the
+  control plane's `createTenant`, `erp-server provision`), and offline in
+  `erp config validate` and `erp config generate`; the consumer gets 422
+  `config.validation_failed` with one error per company on
+  `proposed.companies[<code>].time_zone`, the code already declared on
+  `submitChangeRequest`, so the contract gains no code. Reading the
+  active document (`config.ParseActive`) does not validate: a document
+  activated before the rule keeps its meaning, its companies' dates in
+  UTC, and the cash position and the release still name `UTC` as the
+  zone used. The first change to such a document must set every
+  company's zone, since the proposal is validated whole, and is tier 3
+  (posting-relevant) like any change to the zone, `""` to `UTC` included;
+  no data migration rewrites the stored versions, which are immutable.
+  Activation does not validate again, so a change request submitted
+  before the rule and approved after it activates without a zone, read
+  as UTC like any older document.
+- **The pilots.** Canada in the company's own zone (`America/Toronto` in
+  the walkthrough; Canada spans six zones, so none is derived from the
+  country), the UAE in `Asia/Dubai`.
+- **SAP drafts.** `erp config generate -time-zone CODE=ZONE,…`
+  (`sapconfig.Options.TimeZones`) gives each company's zone; the draft
+  notes it as given. The extract carries no time zone for a company code
+  (its T001 rows hold `BUKRS`, `BUTXT`, `WAERS`, `LAND1`), so a company
+  given none is drafted without one, with a note, and the draft does not
+  validate until a reviewer sets it. Whether the company code's address
+  in SAP carries a time zone that could be extracted reliably is not
+  settled here (no primary source checked); it is listed for an SAP
+  specialist rather than assumed.
+- **Shipped documents.** The test fixture's companies
+  (`internal/config/testdata/valid.yaml`) are in `UTC`, as their dates
+  were judged before; the evaluation configurations' German and French
+  companies are in `Europe/Berlin` and `Europe/Paris`; the walkthrough
+  generates its pilot company with `-time-zone 3000=America/Toronto` and
+  shows the draft without it refused.
 
 ### 9. Liquidity forecast
 `GET /v1/liquidity-forecast?company=…&horizon=…` (`cash.forecast.read`):

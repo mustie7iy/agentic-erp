@@ -6712,8 +6712,9 @@ type CashPosition struct {
 	// The company's date when the position was read, in `time_zone`: what is late, stale and converted is
 	// judged by it, and `from` is never before it.
 	ReadDate time.Time `json:"read_date"`
-	// The IANA time zone the read date is in: the company's configured `time_zone`, or `UTC` when it has
-	// none (T72n1). At 22:00 in America/Toronto the read date is still that day.
+	// The IANA time zone the read date is in: the company's configured `time_zone`, or `UTC` when a
+	// document activated before the zone was required (2026-10-31) sets none (T72n1). At 22:00 in
+	// America/Toronto the read date is still that day.
 	TimeZone string `json:"time_zone"`
 	// The first day.
 	From time.Time `json:"from"`

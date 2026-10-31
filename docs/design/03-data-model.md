@@ -418,8 +418,9 @@ that nothing was replayed (T72l).
 A company's business dates are in its `companies[].time_zone`, an IANA
 zone name (`America/Toronto`, `Asia/Dubai`) that validation loads from the
 zone database built into the binary, host-only names (`Local`,
-`posix/…`) and offsets refused; none is
-UTC. A change is tier 3. The cash position's read date is the company's
+`posix/…`) and offsets refused. It is required of a new or changed
+document (product owner 2026-10-31); a document activated before then
+may lack it and is read as UTC. A change is tier 3. The cash position's read date is the company's
 date in it (ADR-0051 as built, T72n1); the other business dates still in
 UTC are T72n2-T72n6.
 

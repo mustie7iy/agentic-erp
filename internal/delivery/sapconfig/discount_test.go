@@ -54,7 +54,7 @@ func TestDiscountTermsFromT052(t *testing.T) {
 				e.SKB1 = append(e.SKB1, sap.SKB1{BUKRS: co.BUKRS, SAKNR: "0000475000", TXT50: "Cash discount received"})
 				e.T030 = append(e.T030, sap.T030{BUKRS: co.BUKRS, KTOSL: "SKE", KONTS: "0000475000"})
 			}
-			cfg, notes := Generate(e, DefaultOptions())
+			cfg, notes := Generate(e, zoned())
 			term := cfg.PaymentTerm("ZB01")
 			if term.NetDays != c.net {
 				t.Errorf("net days: got %d, want %d", term.NetDays, c.net)

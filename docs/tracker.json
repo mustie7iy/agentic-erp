@@ -8349,7 +8349,7 @@
      {
       "s": "P",
       "t": "Company time zone: business dates (statement staleness, value dates, 'today' in cash, close calendars) in the company's time zone, not UTC (found in T53c)",
-      "r": "found in T53c (ADR-0051 as built: the cash position's read date is the clock's date in UTC; a Canadian or UAE company's evening is the next UTC day) · T72l · split 2026-10-31 into T72n1-T72n6 (ADR-0053 slices); statement staleness and value dates are judged by the position's read date, so T72n1 covers them; no close calendar reads a today yet (period locks go by posting date, T32)",
+      "r": "found in T53c (ADR-0051 as built: the cash position's read date is the clock's date in UTC; a Canadian or UAE company's evening is the next UTC day) · T72l · split 2026-10-31 into T72n1-T72n6 (ADR-0053 slices); statement staleness and value dates are judged by the position's read date, so T72n1 covers them; no close calendar reads a today yet (period locks go by posting date, T32) · T72n7: the zone required of every new or changed configuration (product owner 2026-10-31)",
       "c": [
        {
         "s": "D",
@@ -8391,6 +8391,13 @@
         "t": "Purchasing contracts expire after their valid_to day ends in the company's time zone, not on the database's UTC current_date",
         "r": "internal/procurement expiry.go expireDue (valid_to < current_date) · T72n6",
         "src": "split:T72l",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A company's time zone is required of a new or changed configuration (refused with config.validation_failed on companies[<code>].time_zone), while documents activated before keep reading as UTC; SAP drafts take each zone as an input (erp config generate -time-zone); the pilots: Canada in the company's zone (America/Toronto), the UAE in Asia/Dubai",
+        "r": "ADR-0051 as built (the zone required) · internal/config validate.go company · sapconfig Options.TimeZones · erp config generate -time-zone · walkthrough step 1 · T72n7",
+        "src": "po:2026-10-31",
         "c": []
        }
       ]
