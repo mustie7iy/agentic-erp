@@ -13059,7 +13059,7 @@ paths:
       tags:
         - cash
       summary: List memo records
-      description: "The memo records of the legal entities the caller may act in (ADR-0051 §7, T53d): expected receipts and payments entered by people, uploaded, or proposed by an agent. `status` is the record's as of the read date: an `active` record whose last occurrence's expiry date has passed is `expired` (it no longer counts until a person moves, extends or cancels it). Sortable by: `value_date` (default), `created_at`."
+      description: "The memo records of the legal entities the caller may act in (ADR-0051 §7, T53d): expected receipts and payments entered by people, uploaded, or proposed by an agent. `status` is the record's as of the read date, each record's legal entity's date at the read in its company's configured time zone (`read_date`, `time_zone`; UTC when it has none), the date the cash position reads that company on (T72n2): an `active` record whose last occurrence's expiry date has passed is `expired` (it no longer counts until a person moves, extends or cancels it). Sortable by: `value_date` (default), `created_at`."
       x-permission: cash.memo.read
       x-problem-codes:
         - request.invalid_order_by
@@ -13070,7 +13070,7 @@ paths:
         - name: status
           in: query
           required: false
-          description: Only memo records in this status as of the read date.
+          description: "Only memo records in this status as of the read date, each judged on its legal entity's date in its company's time zone (`read_date`)."
           schema:
             type: string
             description: "Memo record status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -29666,7 +29666,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [legal_entity_id, amount, direction, value_date, expires_on, certainty, liquidity_item, status, origin]
+          required: [legal_entity_id, amount, direction, value_date, expires_on, certainty, liquidity_item, status, read_date, time_zone, origin]
           properties:
             legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
             house_bank_id: {type: string, format: uuid, description: "The house bank it is expected on; absent: forecast only.", readOnly: true}
@@ -29692,9 +29692,11 @@ components:
             occurrence_date: {type: string, format: date, description: "The occurrence of the series it overrides.", readOnly: true}
             status:
               type: string
-              description: "`proposed` (an agent's, counting nowhere until a person accepts it), `active`, `expired` (active, its last occurrence's expiry date past at the read), `realised`, `cancelled`, `rejected`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "`proposed` (an agent's, counting nowhere until a person accepts it), `active`, `expired` (active, its last occurrence's expiry date before `read_date`), `realised`, `cancelled`, `rejected`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum: [proposed, active, expired, realised, cancelled, rejected]
               readOnly: true
+            read_date: {type: string, format: date, description: "The legal entity's date at the read, in `time_zone`, that `status` is judged on: the cash position's `read_date` for the company at the same instant (T72n2).", readOnly: true}
+            time_zone: {type: string, description: "The IANA time zone `read_date` is in: the company's configured `time_zone`, or `UTC` when it has none. At 22:00 in America/Toronto a record whose last day is that day is still `active`.", readOnly: true}
             origin:
               type: string
               description: "How it was made. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -29730,6 +29732,8 @@ components:
           description: Northwind's October invoices
           reference: INV-2026-0912
           status: active
+          read_date: "2026-10-21"
+          time_zone: America/Toronto
           origin: manual
     MemoRecurrence:
       type: object

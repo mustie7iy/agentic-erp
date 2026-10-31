@@ -8359,9 +8359,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Memo records judged on the company's date: a record's status (expired) in reads, lists and the upload, and the memo flows' read date, by its legal entity's time zone, not UTC, with the zone shown",
-        "r": "internal/cash memo_api.go read() (clock.Day, UTC) · ADR-0051 §7 · T72n2",
+        "r": "ADR-0051 as built (T72n2) · internal/cash readday.go (companyDay, readDaysOf), memo_api.go · MemoRecord read_date, time_zone · the memo flows' read date is the position's since T72n1; the upload's response has no status · walkthrough step 13 · T72n2",
         "src": "split:T72l · adr:ADR-0051",
         "c": []
        },

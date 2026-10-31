@@ -40,6 +40,8 @@ type Endpoints struct {
 // LegalEntities finds a legal entity (tenancy context).
 type LegalEntities interface {
 	Company(ctx context.Context, id uuid.UUID) (Company, bool, error)
+	// ByCode is the id of the legal entity with the company code.
+	ByCode(ctx context.Context, code string) (uuid.UUID, bool, error)
 }
 
 // Company is a legal entity as the cash position reads it.
@@ -313,14 +315,8 @@ func (e *Endpoints) company(ctx context.Context, id uuid.UUID) (Company, error) 
 // company (ADR-0051 as built, T72n1). A Toronto treasurer's evening is
 // still that day, not the next UTC one.
 func (e *Endpoints) readDate(doc *config.Config, code string) (time.Time, string, error) {
-	loc := time.UTC
-	if co := doc.Company(code); co != nil {
-		var err error
-		if loc, err = co.Location(); err != nil {
-			return time.Time{}, "", fmt.Errorf("cash: company %s: %w", code, err)
-		}
-	}
-	return clock.DayIn(clock.Now(e.Now), loc), loc.String(), nil
+	d, err := companyDay(doc, code, clock.Now(e.Now))
+	return d.Date, d.Zone, err
 }
 
 // companyCash is the company's cash settings, the defaults when the

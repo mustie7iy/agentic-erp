@@ -1460,7 +1460,9 @@ type Handler interface {
 	//
 	// The memo records of the legal entities the caller may act in (ADR-0051 §7, T53d): expected receipts
 	// and payments entered by people, uploaded, or proposed by an agent. `status` is the record's as of
-	// the read date: an `active` record whose last occurrence's expiry date has passed is `expired` (it no
+	// the read date, each record's legal entity's date at the read in its company's configured time zone
+	// (`read_date`, `time_zone`; UTC when it has none), the date the cash position reads that company on
+	// (T72n2): an `active` record whose last occurrence's expiry date has passed is `expired` (it no
 	// longer counts until a person moves, extends or cancels it). Sortable by: `value_date` (default),
 	// `created_at`.
 	//

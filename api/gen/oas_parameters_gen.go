@@ -33525,7 +33525,8 @@ func decodeListMatchResultsParams(args [1]string, argsEscaped bool, r *http.Requ
 type ListMemoRecordsParams struct {
 	// Only resources of this legal entity (company code).
 	LegalEntityID OptUUID `json:",omitempty,omitzero"`
-	// Only memo records in this status as of the read date.
+	// Only memo records in this status as of the read date, each judged on its legal entity's date in its
+	// company's time zone (`read_date`).
 	Status OptString `json:",omitempty,omitzero"`
 	// Only memo records of this house bank.
 	HouseBankID OptUUID `json:",omitempty,omitzero"`

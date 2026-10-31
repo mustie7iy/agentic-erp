@@ -1274,6 +1274,24 @@ step_cash() {
   expect "the zone the position is read in" "$(field .time_zone)" America/Toronto
   [ "$(field .read_date)" = "$before" ] || expect "the read date, Toronto's" "$(field .read_date)" "$after"
   expect "the first day, the read date" "$(field .from)" "$(field .read_date)"
+  local toronto judged status listed counted
+  toronto=$(TZ=America/Toronto date +%F)
+  say "A receipt promised for today ($toronto in Toronto), its last day today, is active until Toronto's day ends:"
+  say "a memo record's status is judged on Maple's date in its zone, as the position is, not on UTC's (T72n2)."
+  api 201 '"memo record \(.reference): \(.status) on \(.read_date) in \(.time_zone), last day \(.expires_on)"' createMemoRecord \
+    -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBC\", \"amount\": {\"amount\": \"1000.00\", \"currency\": \"CAD\"}, \"value_date\": \"$toronto\", \"expires_on\": \"$toronto\", \"liquidity_item\": \"REC_CUSTOMERS\", \"reference\": \"WT-1043\"}"
+  expect "the zone the memo record's status is judged in" "$(field .time_zone)" America/Toronto
+  judged=$(field .read_date)
+  [ "$judged" = "$toronto" ] || expect "the memo record's read date, Toronto's" "$judged" "$(TZ=America/Toronto date +%F)"
+  status=active
+  [ "$judged" = "$toronto" ] || status=expired # Toronto's midnight passed between the two reads
+  expect "the memo record's status on Maple's date" "$(field .status)" "$status"
+  api 200 '.items[] | "  \(.reference // "-"): \(.status) on \(.read_date) in \(.time_zone)"' listMemoRecords -p "legal_entity_id=$LE" -p status=active
+  listed=$(field '[.items[] | select(.reference == "WT-1043")] | length')
+  api 200 '"position read on \(.read_date): memo flows at RBC \([.banks[] | select(.house_bank_code == "RBC") | .days[].flows[]? | select(.source == "memo") | .amount.amount] | join(" "))"' \
+    getCashPosition -p "legal_entity_id=$LE" -p days=7
+  counted=$(field '[.banks[] | select(.house_bank_code == "RBC") | .days[].flows[]? | select(.source == "memo" and .amount.amount == "1000.00")] | length')
+  [ "$(field .read_date)" != "$toronto" ] || expect "the record listed active and counted in the position on Toronto's date" "$listed $counted" "1 1"
   passed
 }
 

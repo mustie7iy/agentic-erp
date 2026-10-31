@@ -707,8 +707,25 @@ zone", split into T72n1-T72n6):
   which day "today" was. A stored zone the binary cannot load (only a
   zone database that lost it) fails the read rather than falling back to
   UTC.
-- **Not yet** (tracked under the same item): memo records' own status
-  in their reads, lists and uploads (T72n2); the payment release's cash
+- **Memo records' status (T72n2).** A memo record's `expired` is judged
+  on its legal entity's date at the read in its company's zone, the
+  date the position reads that company on (one function,
+  `companyDay`), so a record the position counts at 22:00 in Toronto is
+  listed `active`, not `expired` by the next UTC day. Every response
+  carrying a record (create, read, change, the closing and proposal
+  decisions, the list) gives `read_date` and `time_zone` beside `status`,
+  so a consumer knows which day judged it. The list judges each record by
+  its own legal entity's date in the `status` filter and in the items
+  alike, from one instant: the dates of the companies with a zone are
+  read once per list (their legal entities found by company code through
+  the tenancy port, `LegalEntities.ByCode`; a tenant without zones reads
+  none, and a list filtered by legal entity reads only its), and every
+  other legal entity is judged by UTC's date, as before. The upload's
+  response gives counts, not statuses, and an upload judges nothing by
+  date (it compares values, and realised and cancelled are stored), so
+  nothing in it changes. A stored zone that does not load fails the read
+  and the list, as it fails the position.
+- **Not yet** (tracked under the same item): the payment release's cash
   discount check (T72n3, a money rule, the product owner's); cost and
   profit center changes' effective day (T72n4, the product owner's
   confirmation); the day whose rate routes a requisition (T72n5, a money

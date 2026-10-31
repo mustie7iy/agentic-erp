@@ -65473,6 +65473,14 @@ func (s *MemoRecord) encodeFields(e *jx.Encoder) {
 		e.Str(s.Status)
 	}
 	{
+		e.FieldStart("read_date")
+		json.EncodeDate(e, s.ReadDate)
+	}
+	{
+		e.FieldStart("time_zone")
+		e.Str(s.TimeZone)
+	}
+	{
 		e.FieldStart("origin")
 		e.Str(s.Origin)
 	}
@@ -65530,7 +65538,7 @@ func (s *MemoRecord) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMemoRecord = [30]string{
+var jsonFieldsNameOfMemoRecord = [32]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -65552,15 +65560,17 @@ var jsonFieldsNameOfMemoRecord = [30]string{
 	18: "recurrence_of",
 	19: "occurrence_date",
 	20: "status",
-	21: "origin",
-	22: "session_id",
-	23: "reason",
-	24: "evidence",
-	25: "batch_key",
-	26: "realised_by",
-	27: "decided_by",
-	28: "decided_at",
-	29: "comment",
+	21: "read_date",
+	22: "time_zone",
+	23: "origin",
+	24: "session_id",
+	25: "reason",
+	26: "evidence",
+	27: "batch_key",
+	28: "realised_by",
+	29: "decided_by",
+	30: "decided_at",
+	31: "comment",
 }
 
 // Decode decodes MemoRecord from json.
@@ -65806,8 +65816,32 @@ func (s *MemoRecord) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
-		case "origin":
+		case "read_date":
 			requiredBitSet[2] |= 1 << 5
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.ReadDate = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"read_date\"")
+			}
+		case "time_zone":
+			requiredBitSet[2] |= 1 << 6
+			if err := func() error {
+				v, err := d.Str()
+				s.TimeZone = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"time_zone\"")
+			}
+		case "origin":
+			requiredBitSet[2] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.Origin = string(v)
@@ -65917,7 +65951,7 @@ func (s *MemoRecord) Decode(d *jx.Decoder) error {
 	for i, mask := range [4]uint8{
 		0b01011111,
 		0b01111110,
-		0b00110000,
+		0b11110000,
 		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
