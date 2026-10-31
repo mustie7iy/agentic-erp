@@ -277,8 +277,18 @@ func (s *lifecycle) requestRules(t *testing.T) {
 	}
 	noDoc := p.problem(422, "tenancy.invalid_tenant", "ops|alice", "POST", tenants, `{"name": "Acme", "region": "eu-west", "group_currency": "EUR",
 		"administrator": {"subject": "idp|ada", "display_name": "Ada"}}`, "Idempotency-Key", "key-"+uuid.NewString())
-	if errs := noDoc["errors"].([]any); errs[0].(map[string]any)["field"] != "document" {
+	if errs := noDoc["errors"].([]any); errs[0].(map[string]any)["field"] != "configuration" {
 		t.Fatalf("missing document: %v", noDoc)
+	}
+	// A document that reads but fails validation names its errors under
+	// the request's configuration field, as the consumer sent it.
+	zoneless := fixture.Document(t)
+	zoneless.Company("1000").TimeZone = ""
+	doc, _ := json.Marshal(zoneless)
+	refused := p.problem(422, "config.validation_failed", "ops|alice", "POST", tenants, `{"name": "Acme", "region": "eu-west", "group_currency": "EUR",
+		"administrator": {"subject": "idp|ada", "display_name": "Ada"}, "configuration": `+string(doc)+`}`, "Idempotency-Key", "key-"+uuid.NewString())
+	if errs := refused["errors"].([]any); errs[0].(map[string]any)["field"] != "configuration.companies[1000].time_zone" {
+		t.Errorf("invalid configuration's field: got %v, want configuration.companies[1000].time_zone", errs[0].(map[string]any)["field"])
 	}
 }
 

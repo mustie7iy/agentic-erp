@@ -815,7 +815,10 @@ As built (the zone required; product owner 2026-10-31, Pilot readiness
   control plane's `createTenant`, `erp-server provision`), and offline in
   `erp config validate` and `erp config generate`; the consumer gets 422
   `config.validation_failed` with one error per company on
-  `proposed.companies[<code>].time_zone`, the code already declared on
+  `proposed.companies[<code>].time_zone` (on a bootstrap,
+  `configuration.companies[<code>].time_zone`: each field error is under
+  the request's own field that carries the document, createTenant's
+  `configuration`; review:batch26), the code already declared on
   `submitChangeRequest`, so the contract gains no code. Reading the
   active document (`config.ParseActive`) does not validate: a document
   activated before the rule keeps its meaning, its companies' dates in

@@ -25,11 +25,12 @@ func zoneless(t *testing.T) *config.Config {
 }
 
 // timeZoneFields are the fields of a problem's errors that name a
-// company's time zone.
-func timeZoneFields(fields []string) []string {
+// company's time zone, under the request's field that carries the
+// document (prefix).
+func timeZoneFields(prefix string, fields []string) []string {
 	var out []string
 	for _, f := range fields {
-		if f == "proposed.companies[1000].time_zone" || f == "proposed.companies[2000].time_zone" {
+		if f == prefix+".companies[1000].time_zone" || f == prefix+".companies[2000].time_zone" {
 			out = append(out, f)
 		}
 	}
@@ -37,7 +38,11 @@ func timeZoneFields(fields []string) []string {
 	return out
 }
 
-var bothZones = []string{"proposed.companies[1000].time_zone", "proposed.companies[2000].time_zone"}
+// bothZones are the field errors of both companies' time zones under the
+// request's field that carries the document.
+func bothZones(prefix string) []string {
+	return []string{prefix + ".companies[1000].time_zone", prefix + ".companies[2000].time_zone"}
+}
 
 // TestTimeZoneRequired: a company's time zone is required of a new or
 // changed configuration (product owner 2026-10-31), refused with the
@@ -55,7 +60,8 @@ func TestTimeZoneRequired(t *testing.T) {
 	for _, f := range p.Errors {
 		fields = append(fields, f.Field)
 	}
-	if got := timeZoneFields(fields); !slices.Equal(got, bothZones) {
+	// The bootstrap's document is the createTenant request's configuration.
+	if got := timeZoneFields("configuration", fields); !slices.Equal(got, bothZones("configuration")) {
 		t.Errorf("bootstrap without time zones: got errors %v, want one on each company's time_zone", p.Errors)
 	}
 	if err := e.bootstrap(t, jsonOf(t, document(t))); err != nil {
@@ -94,7 +100,7 @@ func TestTimeZoneRequired(t *testing.T) {
 	for _, f := range refused["errors"].([]any) {
 		fields = append(fields, f.(map[string]any)["field"].(string))
 	}
-	if got := timeZoneFields(fields); !slices.Equal(got, bothZones) {
+	if got := timeZoneFields("proposed", fields); !slices.Equal(got, bothZones("proposed")) {
 		t.Errorf("change without time zones: got errors %v, want one on each company's time_zone", refused["errors"])
 	}
 	zoned := document(t)
