@@ -148,8 +148,8 @@ type Rates interface {
 	Conversion(ctx context.Context, from, to string, date time.Time) (ledger.Conversion, error)
 }
 
-// Settings reads the active configuration: tolerances and limits
-// (configuration context).
+// Settings reads the active configuration: tolerances and limits, and the
+// time zone a company's date is told in (configuration context).
 type Settings interface {
 	Document(ctx context.Context) (*config.Config, int32, error)
 }
@@ -190,6 +190,10 @@ type Endpoints struct {
 	Extractor     capture.Extractor // reads captured documents; nil: capture is not available
 	Objects       blobstore.Store   // keeps captured documents; nil: only their hash is recorded, and downloads answer 503
 	Uploads       *Uploads          // direct uploads of large documents; nil or without a store: uploads answer 503
+	// Now is the clock a posting date the caller leaves out is read from,
+	// as the company's date in its time zone (companyDay); nil is the
+	// system clock.
+	Now func() time.Time
 }
 
 // Item is a live invoice item.

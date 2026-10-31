@@ -2,6 +2,7 @@ package procurement
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -238,6 +239,19 @@ func (e *Endpoints) today(ctx context.Context, company string) (time.Time, *time
 		return time.Time{}, nil, fmt.Errorf("procurement: company %s: %w", company, err)
 	}
 	return clock.DayIn(clock.Now(e.Now), loc), loc, nil
+}
+
+// todayOf is legal entity le's date now in its company's time zone, and
+// the zone (today).
+func (e *Endpoints) todayOf(ctx context.Context, le uuid.UUID) (time.Time, *time.Location, error) {
+	ent, found, err := e.LegalEntities.Entity(ctx, le)
+	if err == nil && !found {
+		err = errors.New("no such legal entity")
+	}
+	if err != nil {
+		return time.Time{}, nil, fmt.Errorf("procurement: legal entity %s: %w", le, err)
+	}
+	return e.today(ctx, ent.Code)
 }
 
 // number allocates the next document number of the type for the date's

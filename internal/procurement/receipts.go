@@ -14,7 +14,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
-	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -359,8 +358,20 @@ func recordMovement(ctx context.Context, g GoodsReceipt) error {
 		event(name, "goods_movement", g.ID, payload))
 }
 
+// reversalDate is the date a reversal of movement orig posts on: the
+// given one, else its company's date now in its time zone (product owner
+// 2026-10-31, ADR-0051 as built): at 22:00 on 31 March in Toronto, 02:00
+// UTC on 1 April, it is the 31st, so the reversal falls in March's period.
+func (e *Endpoints) reversalDate(ctx context.Context, orig GoodsReceipt, postingDate *time.Time) (time.Time, error) {
+	if postingDate != nil {
+		return *postingDate, nil
+	}
+	day, _, err := e.todayOf(ctx, orig.LegalEntityID)
+	return day, err
+}
+
 // reverseReceipt posts the movement that reverses a receipt (102) or a
-// return (123), on the given date or today. A movement is reversed once,
+// return (123), on the given date or its company's date (reversalDate). A movement is reversed once,
 // and never so that the received quantity leaves its bounds.
 func (e *Endpoints) reverseReceipt(ctx context.Context, id uuid.UUID, ifMatch func(GoodsReceipt) error, postingDate *time.Time) (GoodsReceipt, error) {
 	tx, p, err := reqctx.Request(ctx)
@@ -394,12 +405,9 @@ func (e *Endpoints) reverseReceipt(ctx context.Context, id uuid.UUID, ifMatch fu
 	if err != nil {
 		return GoodsReceipt{}, err
 	}
-	date, err := database.Today(ctx, tx)
+	date, err := e.reversalDate(ctx, orig, postingDate)
 	if err != nil {
 		return GoodsReceipt{}, err
-	}
-	if postingDate != nil {
-		date = *postingDate
 	}
 	rev, err := e.insertMovement(ctx, tx, p, GoodsReceipt{LegalEntityID: orig.LegalEntityID, PlantID: orig.PlantID, MovementType: reversal,
 		DocumentDate: date, PostingDate: date, Reference: orig.Reference, ReversalOfID: &orig.ID, Items: items}, current, true)

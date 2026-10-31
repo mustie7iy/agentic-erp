@@ -149,16 +149,32 @@ func (s Setup) checkCompany(ctx context.Context, tx pgx.Tx, co config.Company, w
 	if err := checkTaxCodesFixed(ctx, tx, p, le.ID, co, out); err != nil {
 		return err
 	}
-	if err := checkTaxRatesUnposted(ctx, tx, p, le.ID, le.FiscalCalendarID, co, out); err != nil {
-		return err
+	// One date per company: the rates and the controlling switches are
+	// judged on the same company's date. A document whose zone does not
+	// load is not judged on it: validation reports the zone
+	// (companies[].time_zone).
+	today, dated := checkDay(clock.Now(s.Now), co)
+	if dated {
+		if err := checkTaxRatesUnposted(ctx, tx, p, le.ID, le.FiscalCalendarID, co, today, out); err != nil {
+			return err
+		}
 	}
 	if err := checkOpenItemsUnposted(ctx, tx, p, le.ID, co, was, out); err != nil {
 		return err
 	}
-	if _, err := readControlling(ctx, tx, p, le.ID, co, clock.Now(s.Now), false, out); err != nil {
-		return err
+	if dated {
+		if _, err := readControlling(ctx, tx, p, le.ID, co, today, false, out); err != nil {
+			return err
+		}
 	}
 	return checkGRIRUnposted(ctx, tx, p, le.ID, co, out)
+}
+
+// checkDay is the company's date at now in its time zone, and whether its
+// zone loads; a check judges nothing on the date of one that does not.
+func checkDay(now time.Time, co config.Company) (companyDay, bool) {
+	d, err := dayOfCompany(now, co)
+	return d, err == nil
 }
 
 // checkOpenItemsUnposted reports accounts the proposal makes open-item
@@ -297,7 +313,13 @@ func (s Setup) applyCompany(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	if err := applyAccounts(ctx, tx, p, le.ID, chart, co); err != nil {
 		return err
 	}
-	if err := applyControlling(ctx, tx, p, le.ID, chart, co, clock.Now(s.Now)); err != nil {
+	// One date per company, as checkCompany's; a zone that does not load
+	// fails the activation rather than judging it in UTC.
+	today, err := dayOfCompany(clock.Now(s.Now), co)
+	if err != nil {
+		return err
+	}
+	if err := applyControlling(ctx, tx, p, le.ID, chart, co, today); err != nil {
 		return err
 	}
 	ad := co.AccountDetermination
@@ -316,7 +338,7 @@ func (s Setup) applyCompany(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	if err := s.calendar(ctx, tx, p, le.FiscalCalendarID, le.ID, co, doc); err != nil {
 		return err
 	}
-	if err := taxCodes(ctx, tx, p, le.ID, le.FiscalCalendarID, chart, co); err != nil {
+	if err := taxCodes(ctx, tx, p, le.ID, le.FiscalCalendarID, chart, co, today); err != nil {
 		return err
 	}
 	if err := withholdingTaxCodes(ctx, tx, p, le.ID, chart, co); err != nil {

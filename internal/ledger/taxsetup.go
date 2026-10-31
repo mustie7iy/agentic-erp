@@ -33,8 +33,14 @@ func init() {
 // code or component the document no longer has keeps its rows, its rates
 // ending today. The single-rate form's undated rate (config.TaxCode) is
 // kept in force while unchanged; a new code starts with the company's
-// first fiscal period, a changed rate today.
-func taxCodes(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, calendar, chart uuid.UUID, co config.Company) error {
+// first fiscal period, a changed rate today. Today is the company's date at
+// now in its time zone (product owner 2026-10-31, ADR-0051 as built): the
+// rate in force at the activation, and the day a changed one starts, are
+// the company's, so an activation at 22:00 on 31 December in Toronto
+// changes the rate from the 31st, not from UTC's 1 January
+// (applyCompany reads it; a zone that does not load fails the activation
+// rather than judging it in UTC).
+func taxCodes(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, calendar, chart uuid.UUID, co config.Company, today companyDay) error {
 	// Postings hold their codes' definitions FOR KEY SHARE (lockTaxCodes):
 	// this waits for those in flight, so the rate check sees their lines.
 	if _, err := tx.Exec(ctx, `SELECT FROM ledger.tax_code_definition WHERE legal_entity_id = $1 ORDER BY code FOR UPDATE`, le); err != nil {
@@ -46,11 +52,29 @@ func taxCodes(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, calendar, 
 	if err := requireTaxCodesFixed(ctx, tx, le, co); err != nil {
 		return err
 	}
-	have, err := loadTaxRates(ctx, tx, le, calendar, true)
+	have, err := loadTaxRates(ctx, tx, le, calendar, today.day, true)
 	if err != nil {
 		return err
 	}
-	return have.apply(ctx, tx, p, le, have.plan(co))
+	return namedDay(have.apply(ctx, tx, p, le, have.plan(co)), today)
+}
+
+// namedDay adds to a refusal of the rates (409 ledger.tax_rate_in_use) the
+// day the activation dated the change on and the zone it is the company's
+// date in, so the consumer sees which day "today" was.
+func namedDay(err error, today companyDay) error {
+	if err == nil {
+		return nil
+	}
+	// The database's refusal (constraint tax_rate_in_use) is the registered
+	// problem only once translated; a fresh one each time, so it is
+	// changed here without touching another request's.
+	pr := problem.From(err)
+	if pr.Code != "ledger.tax_rate_in_use" {
+		return err
+	}
+	pr.Detail += " The activation dates a changed rate from " + today.text() + "."
+	return pr
 }
 
 // checkTaxRatesUnposted reports, on submission, the rate changes the
@@ -59,9 +83,10 @@ func taxCodes(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, calendar, 
 // that would move a posting of the code into or out of a rate, so a change
 // request that re-rates the past is refused before two approvers approve
 // it. A posting or a later day of activation can still make the activation
-// refuse what passed here; the database stays the rule.
-func checkTaxRatesUnposted(ctx context.Context, tx pgx.Tx, p string, le, calendar uuid.UUID, co config.Company, out *findings) error {
-	have, err := loadTaxRates(ctx, tx, le, calendar, false)
+// refuse what passed here; the database stays the rule. Today is the
+// company's date in its time zone, as the activation's (taxCodes).
+func checkTaxRatesUnposted(ctx context.Context, tx pgx.Tx, p string, le, calendar uuid.UUID, co config.Company, today companyDay, out *findings) error {
+	have, err := loadTaxRates(ctx, tx, le, calendar, today.day, false)
 	if err != nil {
 		return err
 	}
@@ -89,8 +114,8 @@ func checkTaxRatesUnposted(ctx context.Context, tx pgx.Tx, p string, le, calenda
 	for _, u := range found {
 		out.add(ratePath(p, co, u.Code, u.Key), "the change would re-rate postings of tax code %s (its last posting is dated %s): "+
 			"a rate postings used never changes, is withdrawn or ends before them, and no new rate covers posted dates; date the change after "+
-			"the last posting (a code in the single-rate form, or one removed, changes on the day of activation: submit it on a day after the "+
-			"last posting)", u.Code, u.Last.Format(time.DateOnly))
+			"the last posting (a code in the single-rate form, or one removed, changes on the day of activation, the company's date: it is %s; "+
+			"submit it on a day after the last posting)", u.Code, u.Last.Format(time.DateOnly), today.text())
 	}
 	return nil
 }
@@ -224,7 +249,7 @@ type taxRates struct {
 	byKey map[[2]string][]taxRate
 	// started are the codes that ever had a rate, withdrawn ones included.
 	started map[string]bool
-	today   time.Time
+	today   time.Time // the company's date in its time zone (taxCodes)
 	first   time.Time // the company's first fiscal period, else today
 }
 
@@ -234,14 +259,14 @@ const (
 	taxRatesForUpdate = taxRatesQuery + ` FOR UPDATE`
 )
 
-// loadTaxRates reads the legal entity's rates, locking them for an
-// activation (lock); a submission's check reads them without holding up
-// the postings.
-func loadTaxRates(ctx context.Context, tx pgx.Tx, le, calendar uuid.UUID, lock bool) (taxRates, error) {
-	h := taxRates{byKey: map[[2]string][]taxRate{}, started: map[string]bool{}}
-	if err := tx.QueryRow(ctx, `SELECT current_date, coalesce((SELECT min(start_date) FROM ledger.fiscal_period WHERE calendar_id = $1), current_date)`,
-		calendar).Scan(&h.today, &h.first); err != nil {
-		return h, fmt.Errorf("ledger: tax rates of %s: today: %w", le, err)
+// loadTaxRates reads the legal entity's rates as they stand on today, the
+// company's date, locking them for an activation (lock); a submission's
+// check reads them without holding up the postings.
+func loadTaxRates(ctx context.Context, tx pgx.Tx, le, calendar uuid.UUID, today time.Time, lock bool) (taxRates, error) {
+	h := taxRates{byKey: map[[2]string][]taxRate{}, started: map[string]bool{}, today: today}
+	if err := tx.QueryRow(ctx, `SELECT coalesce((SELECT min(start_date) FROM ledger.fiscal_period WHERE calendar_id = $1), $2::date)`,
+		calendar, today).Scan(&h.first); err != nil {
+		return h, fmt.Errorf("ledger: tax rates of %s: first period: %w", le, err)
 	}
 	query := taxRatesQuery
 	if lock {
