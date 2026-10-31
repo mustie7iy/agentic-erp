@@ -726,8 +726,7 @@ zone", split into T72n1-T72n6):
   date (it compares values, and realised and cancelled are stored), so
   nothing in it changes. A stored zone that does not load fails the read
   and the list, as it fails the position.
-- **Not yet** (each tracked under the same item): a contract's number,
-  drawn for UTC's date; the suppliers
+- **Not yet** (each tracked under the same item): the suppliers
   a migration run creates, dated in UTC; and, waiting for the product
   owner, the tax rates in force at a tax setup's activation (a tax rule)
   and three posting dates that default to the database's `current_date`
@@ -765,9 +764,10 @@ company's time zone):
   column's default, its own UTC rule; the not-null rule is validated in
   000171.
 - **Not this rule.** Procurement's other dates read the database's
-  `current_date` (UTC) for different decisions: a contract's number and a
-  goods movement reversal's default posting date; they are tracked
-  separately (review:batch26). The account assignment check at a
+  `current_date` (UTC) for a different decision: a goods movement
+  reversal's default posting date, tracked separately (review:batch26). A
+  contract's number is drawn for the company's date since T72n6's step
+  (see below). The account assignment check at a
   requisition's submission judges on the submission day, not the
   requisition's, in the company's zone since T72n4.
   Contracts' expiry and its notice are judged on the company's date
@@ -844,6 +844,14 @@ company's date; Pilot readiness "Company time zone"):
   the next interval and the failure logged.
 - **Determinism.** The expirer is a scheduled job, not a workflow, and
   takes its instant from an injected clock, as before.
+- **A contract's number** (review:batch26) is drawn from the range of
+  the fiscal year the company's date is in at its creation, procurement's
+  `today` as for a requisition (T72n5), and so is a renewal's (the same
+  draft path): a Toronto contract created at 22:00 on 31 December takes
+  that year's range, not the next. The contract stores no document date
+  (its validity is the caller's), so the number is what the consumer
+  sees of it; nothing in the contract changes. A zone that does not load
+  fails the creation, as it fails the requisition's.
 
 As built (the zone required; product owner 2026-10-31, Pilot readiness
 "Company time zone"):

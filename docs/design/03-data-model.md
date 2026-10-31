@@ -428,14 +428,13 @@ document (product owner 2026-10-31); a document activated before then
 may lack it and is read as UTC. A change is tier 3. The cash position's
 read date is the company's date in it (ADR-0051 as built, T72n1), and so
 are a memo record's status (T72n2), a payment run's discount lapse (T72n3),
-a requisition's date (T72n5) and purchasing contracts' expiry and its
-notice (T72n6). A center change's check that a
+a requisition's date (T72n5), purchasing contracts' expiry and its
+notice (T72n6) and the fiscal year a contract is numbered in. A center change's check that a
 default cost or profit center stays usable from today, the setup's check
 of the controlling rules, and a requisition's account assignments at
 submission judge on the company's date in it too, the refusal naming the
 date and zone (T72n4, ADR-0050 §11 as built). Still judged in UTC, each
-tracked: a contract's number, the
-posting dates a supplier invoice's posting and reversal and a goods
+tracked: the posting dates a supplier invoice's posting and reversal and a goods
 movement reversal default to, the suppliers a migration run creates, and
 the tax rates in force at a tax setup's activation (ADR-0051 as built).
 

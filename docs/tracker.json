@@ -8429,9 +8429,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A purchasing contract's number is drawn for the company's date at creation, not the database's UTC current_date (a Toronto contract created on a 31 December evening takes the next year's range)",
-        "r": "found in T72n5 · internal/procurement contracts.go createContract (database.Today) · the requisition's number follows its date since T72n5",
+        "r": "found in T72n5 · internal/procurement contracts.go createContract (database.Today) · the requisition's number follows its date since T72n5 · done after T72n6: contracts.go draftContract (procurement today; renewals too) · ADR-0051 as built (T72n6) · TestContractNumberTimeZone · no walkthrough step: the walkthrough runs on the wall clock, which cannot be set to a year's last evening",
         "src": "review:batch26",
         "c": []
        },
