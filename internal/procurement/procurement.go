@@ -49,6 +49,12 @@ type Suppliers interface {
 	OrderAddress(ctx context.Context, partnerID uuid.UUID) (partner.Address, bool, error)
 }
 
+// SupplierNames reads suppliers' numbers and names (partner context), for
+// the contract expiry job's events.
+type SupplierNames interface {
+	Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]partner.Named, error)
+}
+
 // Accounts is what procurement asks the ledger about accounts, the account
 // determination and tax codes.
 type Accounts interface {

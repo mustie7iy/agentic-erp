@@ -420,3 +420,33 @@ fiscal year's migration holds open (open at the extract's date, as the
 load reads AUGBL now, or at the year's end, SAP's key-date reading of
 BSIK/BSAK by the clearing date AUGDT) is an accounting rule nothing here
 settles; the options are in the tracker item that follows this one.
+
+## As built: a contract's expiry events name the company and the supplier (review:batch27)
+
+- **Decision.** `ContractExpired` and `ContractExpiring` gave the company
+  and the supplier by `legal_entity_id` and `supplier_id` alone, so a
+  consumer alerting a buyer had to look both up (REVIEW.md, API-consumer
+  classes: an identifier without the name its consumer needs). Both now
+  give `legal_entity_code` (the company code, as `LegalEntityCreated`
+  names it `code`), and `supplier_number` and `supplier_name` (as
+  `BusinessPartnerCreated` gives them, and as the payments' and the
+  release refusals' supplier names since batches 22 and 27). Each is named
+  `<x>_code`, `<x>_number`, `<x>_name` beside `<x>_id`, as ADR-0038's
+  payments name their house bank and documents. Decided by default from
+  those precedents.
+- **Optional.** The fields are optional in the schemas: asyncapi's v1
+  rule (and `api/eventcompat.go`) admits new optional payload fields only,
+  a newly required one being a breaking change. The job gives all three on
+  every event it publishes now; an event published before them has none.
+- **Where.** `eventNames` (`expiry_names.go`) reads the code through the
+  expirer's `LegalEntities` port, once per legal entity per round, and the
+  supplier's number and name through a new `Partners` port
+  (`SupplierNames`, partner's `Payees.Names`, the port payments reads them
+  with; procurement already depends on partner, so no dependency direction
+  changes). A legal entity or supplier its context does not hold, or the
+  context failing, fails the tenant's round (it is retried the next round,
+  idempotently) rather than publishing an event that leaves it unnamed,
+  as `idref.Resolve` does for pages. The legal entity is read apart from
+  the round's company dates (`companyDays`), which read it too: those
+  lookups are being unified into one helper (tracker, review:batch27), so
+  this change leaves them alone; the helper can then hand the code over.

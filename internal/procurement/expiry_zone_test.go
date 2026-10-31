@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -49,7 +50,7 @@ func TestContractExpiryTimeZone(t *testing.T) {
 			soonPath := "/v1/contracts/" + id(soon)
 			pgtest.Exec(t, `UPDATE procurement.contract SET valid_from = '2026-01-01', valid_to = $2, version = version + 1 WHERE id = $1`, uuidOf(soon), c.ending)
 			x := &procurement.ContractExpirer{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(&pgtest.SyncBuffer{}, nil)),
-				Settings: configuration.Settings{}, LegalEntities: tenancy.Directory{}, Now: func() time.Time { return c.at }}
+				Settings: configuration.Settings{}, LegalEntities: tenancy.Directory{}, Partners: partner.Payees{}, Now: func() time.Time { return c.at }}
 			rounds := func() {
 				t.Helper()
 				for round := 1; round <= 2; round++ { // run twice: nothing happens twice

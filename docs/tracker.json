@@ -2537,9 +2537,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "ContractExpiredV1 and ContractExpiringV1 name the supplier by its number and name and the company by its code, not only supplier_id and legal_entity_id, so a consumer alerting a buyer need not look them up",
-        "r": "api/asyncapi.yaml ContractExpiredV1, ContractExpiringV1 (supplier_id, legal_entity_id only) · internal/procurement expiry.go, expiry_alerts.go (the events' payloads) · REVIEW.md API-consumer class: an identifier without the name its consumer needs · T72n6",
+        "r": "api/asyncapi.yaml ContractExpiredV1, ContractExpiringV1 (supplier_id, legal_entity_id only) · internal/procurement expiry.go, expiry_alerts.go (the events' payloads) · REVIEW.md API-consumer class: an identifier without the name its consumer needs · T72n6 · done in apinames5: both give legal_entity_code, supplier_number and supplier_name (optional, eventcompat), read by expiry_names.go eventNames through LegalEntities and a new Partners port (partner Payees.Names) · ADR-0034 as built (a contract's expiry events name the company and the supplier)",
         "src": "review:batch27",
         "c": []
        }

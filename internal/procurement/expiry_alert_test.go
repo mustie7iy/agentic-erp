@@ -13,6 +13,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -37,7 +38,7 @@ func (e env) ending(t *testing.T, days int) (map[string]any, string) {
 func expirer(t *testing.T, logs *pgtest.SyncBuffer, settings procurement.Settings) *procurement.ContractExpirer {
 	t.Helper()
 	return &procurement.ContractExpirer{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(logs, nil)),
-		Settings: settings, LegalEntities: tenancy.Directory{}, Now: func() time.Time { return time.Date(2026, 3, 1, 9, 30, 0, 0, time.UTC) }}
+		Settings: settings, LegalEntities: tenancy.Directory{}, Partners: partner.Payees{}, Now: func() time.Time { return time.Date(2026, 3, 1, 9, 30, 0, 0, time.UTC) }}
 }
 
 func TestContractExpiryAlerts(t *testing.T) {
@@ -50,6 +51,7 @@ func TestContractExpiryAlerts(t *testing.T) {
 	e.Must(201, "POST", renewedPath+":renew", renewalOf(t, e, renewedPath), "*")
 	draft := e.contract(t, e.Supplier.String(), "")
 	pgtest.Exec(t, `UPDATE procurement.contract SET valid_to = '2026-03-06', valid_from = '2026-02-24', version = version + 1 WHERE id = $1`, uuidOf(draft))
+	pgtest.Exec(t, `UPDATE partner.business_partner SET name = 'Supplier GmbH', version = version + 1 WHERE id = $1`, e.Supplier)
 	x := expirer(t, &pgtest.SyncBuffer{}, configuration.Settings{})
 	round, err := x.Expire(ctx, e.Tenant.ID) // the tenant's round: others' contracts share the database
 	if err != nil {
@@ -67,7 +69,10 @@ func TestContractExpiryAlerts(t *testing.T) {
 		t.Fatalf("ContractExpiring events: got %v, want one for %v and one for %v", alerts, soon["id"], last["id"])
 	}
 	want(t, "alert", byID[soon["id"]], map[string]any{"days_left": float64(10), "document_number": soon["document_number"], "alerted_on": "2026-03-01",
-		"time_zone": "UTC"})
+		"time_zone": "UTC", "legal_entity_code": "2000", "supplier_number": "BP90000001", "supplier_name": "Supplier GmbH"})
+	// The second alert of the round names its company too, from the code
+	// the round read for the first.
+	want(t, "second alert", byID[last["id"]], map[string]any{"legal_entity_code": "2000"})
 	want(t, "alert target", byID[soon["id"]]["target_value"].(map[string]any), map[string]any{"amount": "1000.00", "currency": "EUR"})
 	want(t, "alert on the last day", byID[last["id"]], map[string]any{"days_left": float64(30)})
 	got, _ := e.Must(200, "GET", soonPath, "", "")
