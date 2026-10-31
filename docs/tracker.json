@@ -8413,6 +8413,20 @@
         "r": "found in T72n5 · internal/procurement receipts.go reverseReceipt (database.Today) · ADR-0051 as built (T72n1, T72n5)",
         "src": "review:batch26",
         "c": []
+       },
+       {
+        "s": "T",
+        "t": "Contract procurement.requisition.requisition_date: drop its UTC default once no release before T72n5 runs, so an insert path that leaves the date out fails instead of dating the requisition in UTC",
+        "r": "found in T72n5 review round 1 · migration 000170 (the default bridges the previous release in a mixed cell, 06 §6.4 expand / contract) · ADR-0051 as built (T72n5)",
+        "src": "review:batch26",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The cash position's read date takes the company's zone through config.CompanyLocation, the helper T72n5 added, instead of its own copy of that lookup",
+        "r": "found in T72n5 review round 1 · internal/cash position.go readDate · config.(*Config).CompanyLocation · left untouched in T72n5 while T72n2 changes internal/cash",
+        "src": "review:batch26",
+        "c": []
        }
       ]
      },

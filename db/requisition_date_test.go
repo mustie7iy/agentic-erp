@@ -10,29 +10,47 @@ import (
 
 // TestRequisitionDate: every requisition has a date (T72n5, migrations
 // 000170-000171). The application dates it in its company's time zone; a
-// row the previous release inserts without one is dated by its rule, UTC;
-// none is without a date.
+// row the previous release inserts without one is dated by its rule, UTC's
+// today; none is without a date.
 func TestRequisitionDate(t *testing.T) {
 	need(t)
-	insert := func(f fixture, tx pgx.Tx, column, value string) error {
-		r := id()
-		return exec(tx, `INSERT INTO procurement.requisition (tenant_id, id, document_number, legal_entity_id, requester_id, currency, status,
-			created_by, updated_by`+column+`) VALUES ($1, $2, $3, $4, $5, 'USD', 'draft', $5, $5`+value+`)`, f.tenant, r, r.String()[24:], f.entity, f.actor)
-	}
-	for _, c := range []struct{ name, column, value, want string }{
-		{"dated by the application", ", requisition_date", ", '2026-12-31'", ""},
-		{"dated by the previous release's rule", "", "", ""},
-		{"without a date", ", requisition_date", ", NULL", "requisition_dated"},
+	for _, c := range []struct {
+		name, column string
+		given        *string // the date inserted, when column names it
+		want         string  // the constraint the insert fails, if any
+	}{
+		{"dated by the application", ", requisition_date", new("2026-12-31"), ""},
+		{"dated by the previous release's rule", "", nil, ""},
+		{"without a date", ", requisition_date", nil, "requisition_dated"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f := newFixture(t)
-			err := asApp(t, f.tenant, func(tx pgx.Tx) error { return insert(f, tx, c.column, c.value) })
+			r, value := id(), ""
+			if c.column != "" {
+				value = ", $6::date"
+			}
+			args := []any{f.tenant, r, r.String()[24:], f.entity, f.actor}
+			if c.column != "" {
+				args = append(args, c.given)
+			}
+			var dated bool
+			err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+				if err := exec(tx, `INSERT INTO procurement.requisition (tenant_id, id, document_number, legal_entity_id, requester_id, currency, status,
+					created_by, updated_by`+c.column+`) VALUES ($1, $2, $3, $4, $5, 'USD', 'draft', $5, $5`+value+`)`, args...); err != nil {
+					return err
+				}
+				return tx.QueryRow(context.Background(), `SELECT requisition_date = coalesce($2::date, (now() AT TIME ZONE 'UTC')::date)
+					FROM procurement.requisition WHERE id = $1`, r, c.given).Scan(&dated)
+			})
 			if c.want != "" {
 				failsWith(t, err, c.want)
 				return
 			}
 			if err != nil {
 				t.Fatalf("got %v, want no error", err)
+			}
+			if !dated {
+				t.Errorf("requisition_date: got another date, want %v (nil: UTC's today)", c.given)
 			}
 		})
 	}

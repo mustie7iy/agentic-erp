@@ -8317,6 +8317,7 @@ paths:
       x-autonomy: propose
       x-problem-codes:
         - config.no_number_range
+        - config.not_bootstrapped
         - config.number_range_exhausted
         - ledger.no_fiscal_period
         - procurement.account_not_postable
