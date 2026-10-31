@@ -24,6 +24,16 @@ import (
 func TestContractExpiry(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
+	logs := &pgtest.SyncBuffer{}
+	at := time.Date(2026, 3, 1, 9, 30, 0, 0, time.UTC)
+	x := &procurement.ContractExpirer{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(logs, nil)),
+		Settings: configuration.Settings{}, LegalEntities: tenancy.Directory{}, Now: func() time.Time { return at }}
+	// The round is the cell's, and other tests leave due contracts in
+	// tenants whose round they made fail: a first round expires them, so
+	// the counts below are this tenant's.
+	if _, err := x.RunOnce(ctx); err != nil {
+		t.Fatalf("clearing round: %v", err)
+	}
 	past := e.contract(t, e.Supplier.String(), "")
 	pastPath := "/v1/contracts/" + id(past)
 	e.act(t, pastPath, "release", "")
@@ -34,10 +44,6 @@ func TestContractExpiry(t *testing.T) {
 	// before it, the draft too.
 	pgtest.Exec(t, `UPDATE procurement.contract SET valid_from = '2025-01-01', valid_to = '2026-02-28', version = version + 1 WHERE id IN ($1, $2)`,
 		uuid.MustParse(id(past)), uuid.MustParse(id(draft)))
-	logs := &pgtest.SyncBuffer{}
-	at := time.Date(2026, 3, 1, 9, 30, 0, 0, time.UTC)
-	x := &procurement.ContractExpirer{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(logs, nil)),
-		Settings: configuration.Settings{}, LegalEntities: tenancy.Directory{}, Now: func() time.Time { return at }}
 	round, err := x.RunOnce(ctx)
 	if err != nil {
 		t.Fatalf("round: %v", err)
