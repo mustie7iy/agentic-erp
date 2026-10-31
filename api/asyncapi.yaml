@@ -4282,7 +4282,7 @@ components:
         consumed_value: {"$ref": "#/components/schemas/Money", "description": "Sum of contract releases at expiry."}
         previous_status: {"type": "string", "description": "Open enum; active in v1."}
         status: {"type": "string", "description": "Open enum; expired in v1."}
-        expired_on: {"$ref": "#/components/schemas/Date", "description": "The company's date the contract was judged past `valid_to` on, in `time_zone` (T72n6): the first day after it in the company's zone."}
+        expired_on: {"$ref": "#/components/schemas/Date", "description": "The company's date, in `time_zone`, at the round that expired the contract (T72n6): the first day after `valid_to` unless a round was missed."}
         time_zone: {"type": "string", "description": "The IANA time zone `expired_on` is in: the contract's company's configured `time_zone`, or `UTC` when it has none. At 22:00 in America/Toronto a contract whose last day is that day has not expired."}
     ContractExpiringV1:
       type: object

@@ -2,6 +2,7 @@ package procurement
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -168,22 +169,27 @@ func expireContract(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now 
 }
 
 // RunOnce runs a round for every tenant with contracts due across the
-// cell and returns what it did.
+// cell and returns what it did and every tenant's failure.
 func (x *ContractExpirer) RunOnce(ctx context.Context) (Round, error) {
 	now := clock.Now(x.Now).UTC()
 	tenants, err := x.due(ctx, now)
 	if err != nil {
 		return Round{}, err
 	}
+	// A tenant's failed round does not hold up the others': a zone that
+	// no longer loads fails that tenant's every round until it is fixed,
+	// and each failure is returned, so logged, every round.
 	var r Round
+	var failures []error
 	for _, t := range tenants {
 		k, err := x.expire(ctx, t, now)
 		if err != nil {
-			return r, fmt.Errorf("procurement: run contract expiry: %w", err)
+			failures = append(failures, fmt.Errorf("procurement: run contract expiry in tenant %s: %w", t, err))
+			continue
 		}
 		r.Expired, r.Alerted = r.Expired+k.Expired, r.Alerted+k.Alerted
 	}
-	return r, nil
+	return r, errors.Join(failures...)
 }
 
 // Run rounds until ctx ends, logging failures and work done.

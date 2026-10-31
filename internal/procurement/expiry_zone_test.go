@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -140,5 +141,44 @@ func TestContractExpiryUnknownZone(t *testing.T) {
 	}
 	if got["expiry_alerted_on"] != nil {
 		t.Errorf("contract %s after the failed rounds: got alerted on %v, want no alert", id(c), got["expiry_alerted_on"])
+	}
+}
+
+// tenantSettings is the stored configuration, but the lost document for
+// one tenant.
+type tenantSettings struct {
+	lost   uuid.UUID
+	doc    *config.Config
+	stored configuration.Settings
+}
+
+func (s tenantSettings) Document(ctx context.Context) (*config.Config, int32, error) {
+	if p, ok := reqctx.PrincipalFrom(ctx); ok && p.TenantID == s.lost {
+		return s.doc, 1, nil
+	}
+	return s.stored.Document(ctx)
+}
+
+// TestContractExpiryOtherTenants: a tenant whose round fails on a zone
+// that does not load does not hold up the tenants after it in the cell's
+// round: their contracts still expire, and the failure is returned
+// naming the tenant.
+func TestContractExpiryOtherTenants(t *testing.T) {
+	failing := setup(t)
+	failing.ending(t, -1)
+	other := setup(t)
+	_, otherPath := other.ending(t, -1)
+	if other.Tenant.ID.String() < failing.Tenant.ID.String() {
+		t.Fatalf("tenants: got %s before %s, want the failing tenant's round first", other.Tenant.ID, failing.Tenant.ID)
+	}
+	lost := fixture.Document(t)
+	lost.Company("2000").TimeZone = "America/Nowhere"
+	x := expirer(t, &pgtest.SyncBuffer{}, tenantSettings{lost: failing.Tenant.ID, doc: lost})
+	_, err := x.RunOnce(context.Background())
+	if err == nil || !strings.Contains(err.Error(), failing.Tenant.ID.String()) {
+		t.Errorf("round: got %v, want the failing tenant's error", err)
+	}
+	if got, _ := other.Must(200, "GET", otherPath, "", ""); got["status"] != "expired" {
+		t.Errorf("other tenant's contract: got status %v, want expired", got["status"])
 	}
 }

@@ -52,9 +52,11 @@ func (x *ContractExpirer) document(ctx context.Context) (doc *config.Config, ok 
 // contracts: the round's instant in its company's zone
 // (config.CompanyLocation: UTC when the company sets none, or the tenant
 // has no configuration). A stored zone the binary cannot load fails the
-// round rather than judging the company's contracts in UTC. A contract
-// activated in a further legal entity after this read is judged next
-// round: the statements that pick contracts join these dates.
+// round rather than judging the company's contracts in UTC. The read
+// takes no lock: the statements that pick contracts join these dates and
+// lock and check each contract's status themselves, so the dates only
+// narrow what they pick, and a contract activated in a further legal
+// entity after this read is judged next round.
 func (x *ContractExpirer) companyDays(ctx context.Context, tx pgx.Tx, doc *config.Config, now time.Time) (companyDays, error) {
 	rows, _ := tx.Query(ctx, `SELECT DISTINCT legal_entity_id FROM procurement.contract WHERE status = 'active'`)
 	ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])

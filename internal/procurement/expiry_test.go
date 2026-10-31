@@ -97,8 +97,10 @@ func TestContractExpiry(t *testing.T) {
 	// An expired contract takes no new orders and cannot be terminated.
 	e.Problem(409, "procurement.invalid_status", "POST", pastPath+":terminate", `{"reason": "Late"}`, "*")
 	// Every statement and transaction failing in turn is reported: the
-	// cell's list of tenants, the first tenant's round, and this tenant's
-	// round statement by statement (others' contracts share the database).
+	// cell's list of tenants, the first tenant's round (the rounds after
+	// it go on, so this tenant's contract may expire: it is made active
+	// again), and this tenant's round statement by statement (others'
+	// contracts share the database).
 	e.act(t, "/v1/contracts/"+id(draft), "release", "")
 	pool := pgtest.Pool(t)
 	for n := 1; n <= 2; n++ {
@@ -114,6 +116,7 @@ func TestContractExpiry(t *testing.T) {
 			t.Fatalf("round, statement %d failing: got %v, want the injected failure", n, err)
 		}
 	}
+	pgtest.Exec(t, `UPDATE procurement.contract SET status = 'active', version = version + 1 WHERE id = $1`, uuid.MustParse(id(draft)))
 	x.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
 	if _, err := x.RunOnce(ctx); err == nil {
 		t.Fatal("round without a database: got nil error, want an error")

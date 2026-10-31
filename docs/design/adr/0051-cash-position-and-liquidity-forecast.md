@@ -845,7 +845,10 @@ company's date; Pilot readiness "Company time zone"):
 - **Failure.** A stored zone the binary cannot load, or a contract's
   legal entity the directory does not know, fails the tenant's round, so
   nothing is expired or alerted on a UTC date; the round is retried at
-  the next interval and the failure logged.
+  the next interval and the failure logged. The other tenants' rounds go
+  on: the cell's round collects each tenant's failure and returns them
+  all (`errors.Join`), as the audit anchorer and the key rotator do, so
+  one tenant's zone cannot stop expiry for the rest.
 - **Determinism.** The expirer is a scheduled job, not a workflow, and
   takes its instant from an injected clock, as before.
 - **A contract's number** (review:batch26) is drawn from the range of
