@@ -726,10 +726,14 @@ zone", split into T72n1-T72n6):
   date (it compares values, and realised and cancelled are stored), so
   nothing in it changes. A stored zone that does not load fails the read
   and the list, as it fails the position.
-- **Not yet** (each tracked under the same item): the suppliers
-  a migration run creates, dated in UTC; and, waiting for the product
-  owner, the tax rates in force at a tax setup's activation (a tax rule)
-  and three posting dates that default to the database's `current_date`
+- **Not yet** (each tracked under the same item), waiting for the
+  product owner: the suppliers a migration run creates, dated in UTC
+  (the date is their payments bank account's `valid_from`, which
+  partner refuses before its own UTC day and payments read to choose the
+  account a payment goes to; a partner spans companies in several zones,
+  so it needs one partner-wide rule, not the run's alone); the tax
+  rates in force at a tax setup's activation (a tax rule) and three
+  posting dates that default to the database's `current_date`
   (UTC) when the caller leaves them out: a supplier invoice's when it is
   posted and when it is reversed, and a goods movement reversal's. Those
   decide the period and the rates, a money rule; the recommendation for
