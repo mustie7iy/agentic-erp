@@ -730,9 +730,12 @@ zone", split into T72n1-T72n6):
   discount check (T72n3, done: see below); cost and
   profit center changes' effective day (T72n4, done: ADR-0050 §11 as
   built); purchasing contracts' expiry (T72n6).
-  Documents are still dated by their callers; the one posting date that
-  defaults to a today, a goods movement reversal's, is tracked (found in
-  T72n5, below).
+  Documents are otherwise dated by their callers. Three posting dates
+  default to the database's `current_date` (UTC) when the caller leaves
+  them out: a supplier invoice's when it is posted and when it is
+  reversed, and a goods movement reversal's. They decide the period and
+  the rates, a money rule, so they wait for the product owner, tracked
+  with the recommendation to use the company's date (review:batch26).
 
 As built (T72n5, a requisition's date; product owner 2026-10-31: a
 requisition is routed at the rate of the day it was raised in its
@@ -784,9 +787,9 @@ date; product owner 2026-10-31):
 - **The shared helper.** `config.(*Config).CompanyLocation(code)` is a
   company's zone by its code, UTC when the document has no such company
   or the company sets none; payments' `companyDay` takes it with
-  `clock.DayIn`. The cash position's `readDate` (T72n1) does the same
-  lookup inline; it is left as it is while T72n2 changes that package and
-  can take the helper then.
+  `clock.DayIn`, as procurement's `today` (T72n5, T72n4), the ledger's
+  center checks (T72n4) and, since batch 26's integration, the cash
+  position's and memo records' `companyDay` (T72n1, T72n2) do.
 - **What the consumer sees.** The problem's `detail` names the discount's
   last day, the company's date that judged it and the zone (`… earned
   until 2026-03-15; it is 2026-03-16 in Asia/Dubai, the time zone the

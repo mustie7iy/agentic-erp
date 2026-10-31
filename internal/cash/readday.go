@@ -23,16 +23,14 @@ type readDay struct {
 	Zone string
 }
 
-// companyDay is company code's date at instant now in its time zone: UTC
-// when it has none, or the document has no such company. A stored zone the
+// companyDay is company code's date at instant now in its time zone
+// (config.CompanyLocation, the lookup every company date shares): UTC when
+// it has none, or the document has no such company. A stored zone the
 // binary cannot load fails rather than reading the date in UTC.
 func companyDay(doc *config.Config, code string, now time.Time) (readDay, error) {
-	loc := time.UTC
-	if co := doc.Company(code); co != nil {
-		var err error
-		if loc, err = co.Location(); err != nil {
-			return readDay{}, fmt.Errorf("cash: company %s: %w", code, err)
-		}
+	loc, err := doc.CompanyLocation(code)
+	if err != nil {
+		return readDay{}, fmt.Errorf("cash: company %s: %w", code, err)
 	}
 	return readDay{Date: clock.DayIn(now, loc), Zone: loc.String()}, nil
 }

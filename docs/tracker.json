@@ -1000,6 +1000,13 @@
       "r": "db/migrations/000042 · T31",
       "src": "baseline",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "payments.discount_lapsed names the supplier by its code and name, not only its UUID, so the consumer told to reject the run knows which payment lost its discount (an API-consumer class, REVIEW.md)",
+      "r": "found in batch 26's lane reviews · internal/payments release.go checkDiscounts (problem.Conflict payments.discount_lapsed, :438, pay.SupplierID) · ADR-0038",
+      "src": "review:batch26",
+      "c": []
      }
     ]
    },
@@ -7465,6 +7472,13 @@
       "r": "(post-pilot, PO 2026-10-21)",
       "src": "baseline",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "A tenant's bootstrap names its field errors by the request's field (document. for bootstrap, configuration. for createTenant), not proposed., which only a change request's submission has (an API-consumer class, REVIEW.md)",
+      "r": "found in batch 26's lane reviews · internal/configuration configuration.go failed (Field: \"proposed.\" + f.Path) · bootstrap and the control plane's createTenant",
+      "src": "review:batch26",
+      "c": []
      }
     ]
    },
@@ -7674,6 +7688,13 @@
       "t": "On foundation: proposes change requests through API tools in a recorded session",
       "r": "internal/delivery/configagent · apitools",
       "src": "baseline",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "The configuration agent's prompt says a company's time zone, now required (T72n7), is asked of the person when the request does not give it, never guessed from the country",
+      "r": "found in T72n7's review (nit 3) · internal/delivery/configagent configagent.go system · ADR-0051 as built (the zone required)",
+      "src": "review:batch26",
       "c": []
      }
     ]
@@ -8394,9 +8415,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A requisition's submission checks its items' account assignments (cost center validity) on the company's date, not the database's UTC current_date; the submission's day, not the requisition's date, and with T72n4's effective day of center changes",
-        "r": "found in T72n5 · internal/procurement requisitions.go submitRequisition (database.Today) · T56e · ADR-0050",
+        "r": "found in T72n5 · internal/procurement requisitions.go submitRequisition (database.Today) · T56e · ADR-0050 · done by T72n4 (procurement assignment.go checkSubmitted, on the company's date; the refusal names the date and the zone since batch 26's integration)",
         "src": "review:batch26",
         "c": []
        },
@@ -8409,8 +8430,8 @@
        },
        {
         "s": "T",
-        "t": "A goods movement reversal without a posting date is posted on the company's date, not the database's UTC current_date (a posting date, so the period it lands in); a posting date default, a different rule from the requisition's date",
-        "r": "found in T72n5 · internal/procurement receipts.go reverseReceipt (database.Today) · ADR-0051 as built (T72n1, T72n5)",
+        "t": "A posting date the caller leaves out is the company's date in its time zone, not the database's UTC current_date: a supplier invoice posted or reversed without one, a goods movement reversal without one. The date decides the period and the rates, so this waits for the product owner (money rule); recommended (batch 26): the company's date in its zone, as T72n1-T72n5 judge their dates",
+        "r": "found in T72n5 and T72n4 · internal/payables post.go invoicePostingDate (:402) and the reversal's default (:553), internal/procurement receipts.go reverseReceipt (:397), each database.Today · ADR-0050 §11 as built (left as they are) · ADR-0051 as built (T72n1, T72n5)",
         "src": "review:batch26",
         "c": []
        },
@@ -8422,9 +8443,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The cash position's read date takes the company's zone through config.CompanyLocation, the helper T72n5 added, instead of its own copy of that lookup",
-        "r": "found in T72n5 review round 1 · internal/cash position.go readDate · config.(*Config).CompanyLocation · left untouched in T72n5 while T72n2 changes internal/cash",
+        "r": "found in T72n5 review round 1 · internal/cash position.go readDate · config.(*Config).CompanyLocation · left untouched in T72n5 while T72n2 changes internal/cash · done in batch 26's integration: cash readday.go companyDay takes config.CompanyLocation, which the position's readDate and the memo records' dates share",
         "src": "review:batch26",
         "c": []
        },
@@ -8433,6 +8454,20 @@
         "t": "A company's time zone is required of a new or changed configuration (refused with config.validation_failed on companies[<code>].time_zone), while documents activated before keep reading as UTC; SAP drafts take each zone as an input (erp config generate -time-zone); the pilots: Canada in the company's zone (America/Toronto), the UAE in Asia/Dubai",
         "r": "ADR-0051 as built (the zone required) · internal/config validate.go company · sapconfig Options.TimeZones · erp config generate -time-zone · walkthrough step 1 · T72n7",
         "src": "po:2026-10-31",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A migration run dates the suppliers it creates on the company's date in its time zone, not the database's UTC current_date",
+        "r": "found in batch 26's lane reviews · internal/integration runs.go loadRun (database.Today, :472) passed to load.go newSupplier (:180) · ADR-0051 as built (T72n1)",
+        "src": "review:batch26",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The tax rate in force at a tax setup's activation is judged on the company's date in its time zone, not the database's UTC current_date. A tax rule, so it waits for the product owner; recommended (batch 26): the company's date",
+        "r": "found in batch 26's lane reviews · internal/ledger taxsetup.go loadTaxRates (SELECT current_date, :242) · ADR-0051 as built (T72n1)",
+        "src": "review:batch26",
         "c": []
        }
       ]
