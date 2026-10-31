@@ -8380,17 +8380,38 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "A requisition's amount is routed at the rate of the day it was raised in its company's time zone, not UTC (approval thresholds in the company's currency); a money rule (which day's rate): waits for the product owner",
-        "r": "internal/procurement requisitions.go (CreatedAt in UTC) · 03-data-model (requisition converted on the day it was raised, UTC) · product owner question, recommendation: the company's date · T72n5",
-        "src": "split:T72l",
+        "s": "D",
+        "t": "A requisition's amount is routed at the rate of the day it was raised in its company's time zone, not UTC (approval thresholds in the company's currency): the requisition is dated (requisition_date, stored, shown) and numbered on the company's date at creation",
+        "r": "product owner 2026-10-31: the company's date · ADR-0051 as built (T72n5) · migrations 000170-000171 procurement.requisition.requisition_date · config.CompanyLocation · internal/procurement common.go today, requisitions.go · Requisition.requisition_date · 03-data-model · walkthrough step 4 · T72n5",
+        "src": "split:T72l · po:2026-10-31",
         "c": []
        },
        {
         "s": "T",
         "t": "Purchasing contracts expire after their valid_to day ends in the company's time zone, not on the database's UTC current_date",
-        "r": "internal/procurement expiry.go expireDue (valid_to < current_date) · T72n6",
+        "r": "internal/procurement expiry.go expireDue (valid_to < current_date) · the expiry notice too, expiry_alerts.go (days left and expiry_alerted_on from current_date; found in T72n5) · T72n6",
         "src": "split:T72l",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A requisition's submission checks its items' account assignments (cost center validity) on the company's date, not the database's UTC current_date; the submission's day, not the requisition's date, and with T72n4's effective day of center changes",
+        "r": "found in T72n5 · internal/procurement requisitions.go submitRequisition (database.Today) · T56e · ADR-0050",
+        "src": "review:batch26",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A purchasing contract's number is drawn for the company's date at creation, not the database's UTC current_date (a Toronto contract created on a 31 December evening takes the next year's range)",
+        "r": "found in T72n5 · internal/procurement contracts.go createContract (database.Today) · the requisition's number follows its date since T72n5",
+        "src": "review:batch26",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A goods movement reversal without a posting date is posted on the company's date, not the database's UTC current_date (a posting date, so the period it lands in); a posting date default, a different rule from the requisition's date",
+        "r": "found in T72n5 · internal/procurement receipts.go reverseReceipt (database.Today) · ADR-0051 as built (T72n1, T72n5)",
+        "src": "review:batch26",
         "c": []
        }
       ]

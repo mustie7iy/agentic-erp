@@ -711,10 +711,42 @@ zone", split into T72n1-T72n6):
   in their reads, lists and uploads (T72n2); the payment release's cash
   discount check (T72n3, a money rule, the product owner's); cost and
   profit center changes' effective day (T72n4, the product owner's
-  confirmation); the day whose rate routes a requisition (T72n5, a money
-  rule, the product owner's); purchasing contracts' expiry (T72n6).
-  Documents are still dated by their callers; no posting date defaults to
-  a today.
+  confirmation); purchasing contracts' expiry (T72n6).
+  Documents are still dated by their callers; the one posting date that
+  defaults to a today, a goods movement reversal's, is tracked (found in
+  T72n5, below).
+
+As built (T72n5, a requisition's date; product owner 2026-10-31: a
+requisition is routed at the rate of the day it was raised in its
+company's time zone):
+- **The date.** `procurement.requisition.requisition_date` (migration
+  000170) is the company's date when the requisition is created: the
+  clock's instant in the zone of the legal entity's company
+  (`config.CompanyLocation`, `clock.DayIn`; UTC when the company has
+  none), so at 22:00 on 31 December in Toronto (03:00 UTC on 1 January) it
+  is the 31st and at 01:00 on 17 April in Dubai (21:00 UTC on the 16th) it
+  is the 17th. Stored, not derived from `created_at` on each submission: a
+  later change of the zone (tier 3) would otherwise move the day a
+  requisition already raised, and resubmitted, is routed at. The response
+  gives it (`requisition_date`, read-only), so a consumer sees which day's
+  rate routed it. A stored zone the binary cannot load fails the creation
+  rather than dating it in UTC.
+- **What follows it.** Submission converts the amount into the company's
+  currency at the average rate of that day (03-data-model, F12, F19), and the
+  requisition's number is drawn from that day's fiscal year's range: the
+  same document date, so a Toronto requisition of 31 December is numbered
+  in the year it is dated in.
+- **Earlier requisitions.** 000170 dates the rows raised before it as they
+  were routed, `created_at`'s date in UTC, without touching their version
+  or `updated_at`; the previous release's inserts in a mixed cell take the
+  column's default, its own UTC rule; the not-null rule is validated in
+  000171.
+- **Not this rule.** Procurement's other dates read the database's
+  `current_date` (UTC) for different decisions: the account assignment
+  check at a requisition's submission (the submission day, not the
+  requisition's), a contract's number, and a goods movement reversal's
+  default posting date; they are tracked separately (review:batch26).
+  Contracts' expiry and its notice are T72n6.
 
 ### 9. Liquidity forecast
 `GET /v1/liquidity-forecast?company=…&horizon=…` (`cash.forecast.read`):

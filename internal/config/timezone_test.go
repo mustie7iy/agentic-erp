@@ -40,3 +40,26 @@ func TestCompanyTimeZone(t *testing.T) {
 		t.Errorf("tier: got %v, want %v", changes[0].Tier, TierPostingRelated)
 	}
 }
+
+// TestCompanyLocation: the zone of a company by its code is the company's
+// own, UTC when the document has no such company (T72n5), and a zone that
+// does not load is an error, not UTC.
+func TestCompanyLocation(t *testing.T) {
+	c := fixture(t)
+	c.Companies[0].TimeZone = "Asia/Dubai"
+	for code, want := range map[string]string{c.Companies[0].Code: "Asia/Dubai", "9999": "UTC"} {
+		t.Run(code, func(t *testing.T) {
+			loc, err := c.CompanyLocation(code)
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+			if loc.String() != want {
+				t.Errorf("got %s, want %s", loc, want)
+			}
+		})
+	}
+	c.Companies[0].TimeZone = "America/Nowhere"
+	if _, err := c.CompanyLocation(c.Companies[0].Code); err == nil {
+		t.Error("got no error, want the zone refused")
+	}
+}

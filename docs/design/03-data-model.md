@@ -420,8 +420,8 @@ zone name (`America/Toronto`, `Asia/Dubai`) that validation loads from the
 zone database built into the binary, host-only names (`Local`,
 `posix/…`) and offsets refused; none is
 UTC. A change is tier 3. The cash position's read date is the company's
-date in it (ADR-0051 as built, T72n1); the other business dates still in
-UTC are T72n2-T72n6.
+date in it (ADR-0051 as built, T72n1), and so is a requisition's date
+(T72n5); the other business dates still in UTC are T72n2-T72n4 and T72n6.
 
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
@@ -450,8 +450,11 @@ another currency is converted into the company's currency with the
 ledger's posting lookup (the latest average
 rate of the pair; when only the reverse is recorded, the amount is
 divided by it exactly, never multiplied by a rounded reciprocal, F19) on the
-document's date: a requisition on the day it was raised (UTC; in the
-company's time zone is T72n5), so a
+document's date: a requisition on its `requisition_date`, the company's
+date in its time zone when it was raised (stored, so a later change of the
+zone does not move it; its number is drawn for that day too; T72n5,
+product owner 2026-10-31; requisitions raised before migration 000170 keep
+the UTC date they were routed at), so a
 resubmission is routed at the same rate, an invoice on its invoice date
 (a posting converts on the posting date instead). The converted amount is
 compared with the configured one exactly, as amount × rate before any
@@ -1187,6 +1190,7 @@ erDiagram
     uuid supplier_id
     uuid contract_id
     char currency
+    date requisition_date
     text status
     uuid workflow_request_id
     int version }
