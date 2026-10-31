@@ -15448,6 +15448,14 @@ func (s *GetMemoRecordOKHeaders) Validate() error {
 	return nil
 }
 
+func (s *GetMemoRecordUnprocessableEntity) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *GetMigrationRunBadRequest) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {

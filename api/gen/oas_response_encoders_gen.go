@@ -22487,6 +22487,18 @@ func encodeGetMemoRecordResponse(response GetMemoRecordRes, w http.ResponseWrite
 
 		return nil
 
+	case *GetMemoRecordUnprocessableEntity:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(422)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
 	case *TooManyRequestsHeaders:
 		w.Header().Set("Content-Type", "application/problem+json")
 		w.Header().Set("Access-Control-Expose-Headers", "Retry-After")

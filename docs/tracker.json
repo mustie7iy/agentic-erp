@@ -1028,6 +1028,13 @@
       "r": "api/asyncapi.yaml payments channel (PaymentRunProposed/Released/Rejected/Failed, PaymentExcluded, BankStatement* events) · internal/payments runEvent, exclusions, statements · release.go supplierNamed and procurement expiry_names.go are the patterns (optional fields, eventcompat) · REVIEW.md API-consumer class: an identifier without the name its consumer needs",
       "src": "review:batch28",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "payments.withholding_too_large's detail gives the withholding, the cash discount and the amount owed as raw minor units without currency or scaling, and names the item only by its journal entry's UUID (fiscal year/entry id/line), not by the supplier's number and name and the invoice's document number",
+      "r": "internal/payments propose.go withholdingWithin (fmt %d of money.Minor, it.EntryID) · money.EventAmount / the amount formatting other refusals use, release.go supplierNamed (batch 28's apinames5) are the patterns · REVIEW.md API-consumer classes: an amount without its currency and scale, an identifier without the name its consumer needs · T46f",
+      "src": "review:batch28",
+      "c": []
      }
     ]
    },
@@ -8545,6 +8552,13 @@
         "t": "The company's date is read by one shared helper with one rule for a legal entity that is not found (refuse), not six lookups that differ on one (cash reads UTC's date, the others refuse, ledger and payments each in their own way)",
         "r": "found in batch 27's integration review: procurement common.go todayOf · ledger companyday.go companyDays.of · payments release.go companyDay via entityOf · cash readday.go readDaysOf (a missing legal entity read UTC's date) · payables companyday.go companyDay · procurement expiry_days.go companyDays (T72n6) · built: internal/config companyday.go config.EntityDay and (*Config).EntityDay, (*Config).CompanyDay, config.EntityCode, config.ErrNoLegalEntity (422 request.reference_not_found naming the legal entity, a common code) · tenancy.CompanyCode, the one adapter of the tenancy port the four contexts reading tenancy.Entity share; cash adapts its own Company port · cash readday.go recordDay (a memo record read alone refuses), readDaysOf (a list filter naming an unknown legal entity reads no date: it matches no record and answers an empty page, as for one the caller cannot access) · TestEntityDay · TestEntityDayRefusals · TestCompanyCode · TestRecordDay · TestReadDaysOfUnknownFilter · TestCompanyDayUnknownZone · TestCheckSubmittedFailures · TestCompanyDayFailures · TestCompanyDays · TestContractExpiryUnknownZone · ADR-0051 as built (one company-date helper) · no walkthrough step: a refactoring",
         "src": "review:batch27",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "getMemoRecord lists the 422 response it gives since the one company-date helper refuses a memo record whose legal entity the directory does not know (request.reference_not_found); every other operation whose call graph reaches config.EntityDay lists 422 already",
+        "r": "found in batch 28's integration review: api/openapi.yaml getMemoRecord listed no 422 · checked by the operations whose handler reaches config.EntityDay in TestProblemCodes' call graph: acceptMemoRecordProposal, approveApprovalRequest, assignProfitCenter, cancelMemoRecord, createCostCenter, createMemoRecord, getMemoRecord, listMemoRecords, lockCostCenter, lockProfitCenter, moveCostCenter, moveProfitCenter, postSupplierInvoice, proposeMemoRecord, realiseMemoRecord, redateCostCenter, redateProfitCenter, rejectMemoRecordProposal, releasePaymentRun, reverseGoodsReceipt, reverseSupplierInvoice, submitRequisition, updateMemoRecord; listMemoRecords reaches it only through readDaysOf's filter, which answers an empty page rather than refusing, so it gives no 422 · built: getMemoRecord's 422 response (additive, oasdiff) and its description · ADR-0051 as built (one company-date helper) · no walkthrough step: a contract fix",
+        "src": "review:batch28",
         "c": []
        }
       ]
