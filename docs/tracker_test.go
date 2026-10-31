@@ -20,7 +20,7 @@ import (
 // references, ADRs and history. It must match exactly and only ever falls: an
 // item given its real source, or removed, lowers it here, so no new item can
 // take a baseline item's place unseen in the diff.
-const baselineItems = 953
+const baselineItems = 952
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

@@ -198,6 +198,11 @@ func TestLocalPreparationErrors(t *testing.T) {
 	fails(t, "invalid -source", "config", "generate", "-source", "extract.json")
 	fails(t, "127.0.0.1", "config", "generate", "-source", "odata:http://127.0.0.1:1")
 	fails(t, "not a directory", "config", "generate", "-source", "file:extract.json", "-out", "file/draft.yaml")
+	fails(t, "invalid -time-zone", "config", "generate", "-source", "file:extract.json", "-time-zone", "1000")
+	fails(t, "invalid -time-zone", "config", "generate", "-source", "file:extract.json", "-time-zone", "1000=")
+	// SAP's extract has no time zone for a company code: without one given,
+	// the draft names the company and key to set (product owner 2026-10-31).
+	fails(t, "[error] companies[1000].time_zone: time zone is required", "config", "generate", "-source", "file:extract.json", "-out", "draft.yaml")
 	fails(t, "flag provided", "config", "validate", "-x")
 	fails(t, "missing.yaml", "config", "validate", "-file", "missing.yaml")
 

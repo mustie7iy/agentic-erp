@@ -603,9 +603,9 @@ As built (T53c):
 - **Request.** `GET /v1/cash-position?legal_entity_id=…&from=…&days=…&display_currency=…`
   (`cash.position.read`, migration 000149; `x-slo-class: report`; agents
   read it as people do, banks by code and last four characters). `from`
-  defaults to the read date, the clock's date in UTC (the companies have no
-  time zone yet: business dates in the company's time zone are T72l in
-  Pilot readiness), and is never before it (422): past days are actuals,
+  defaults to the read date, the company's date in its time zone (T72n1,
+  below; the clock's date in UTC when T53c was built), and is never before
+  it (422): past days are actuals,
   whose balances come from the statements of those days (T53f), not from
   what is open now, `days` 1-31 default 14, the display currency the
   company's. A legal entity the caller cannot act in is 404 (fail closed).
@@ -672,6 +672,179 @@ As built (T53c):
   bank (T53e) join the days as a further source (memo records on a bank
   did in T53d, §7); drill-down to the payments of a day is through payments' own
   API (`GET /v1/payment-runs`).
+
+As built (T72n1, the company's time zone; Pilot readiness "Company time
+zone", split into T72n1-T72n6):
+- **Where the zone lives.** `companies[].time_zone` in the configuration
+  document, an IANA zone name (`America/Toronto`, `Asia/Dubai`), beside the
+  company's `country`, `currency` and `fiscal_year_start_month` and the
+  calendar of its working days (ADR-0048), which are configuration too: the
+  existing behaviour settles it, so no new ADR. Not the legal entity row:
+  the business-date rules (working days, value days) are read from the
+  document already, and a change to the zone is approved and versioned as
+  they are. Not derived from `country`: Canada spans six zones.
+- **Validation.** A name `time.LoadLocation` loads; the zone database is
+  built into the binary (`time/tzdata`), so the standard names load on any
+  host, an image without zoneinfo included. LoadLocation tries the host's
+  zoneinfo first, so the names only some hosts accept are refused: `Local`
+  (the reading host's zone) and any name not in IANA form (every part
+  starting with a capital), so `localtime`, `posixrules`, the `posix/` and
+  `right/` trees and a lower-case name a case-insensitive filesystem would
+  open; offsets such as `-05:00` do not load
+  (`companies[<code>].time_zone`). Empty is UTC, as every date was before:
+  documents activated earlier keep their meaning (tolerant read), and the
+  response says which zone was used. Since 2026-10-31 a new or changed
+  document must set it (see "the zone required" below). A change is tier 3
+  (posting-relevant): it moves which day is today for the company by up
+  to a day, and the later slices date checks by it.
+- **The read date.** The cash position's read date is the clock's instant
+  in the company's zone, as a date (`clock.DayIn`): at 22:00 on 17 April
+  in Toronto (02:00 UTC on the 18th) and at 01:00 on 17 April in Dubai
+  (21:00 UTC on the 16th) it is the 17th. Everything judged by the read
+  date follows it: the default and earliest `from`, `stale` (the working
+  day before the read date), `late` payments and memo records, and the
+  conversion rate's validity and age. The response gives `time_zone`
+  beside `read_date` (UTC when the company has none), so a consumer knows
+  which day "today" was. A stored zone the binary cannot load (only a
+  zone database that lost it) fails the read rather than falling back to
+  UTC.
+- **Memo records' status (T72n2).** A memo record's `expired` is judged
+  on its legal entity's date at the read in its company's zone, the
+  date the position reads that company on (one function,
+  `companyDay`), so a record the position counts at 22:00 in Toronto is
+  listed `active`, not `expired` by the next UTC day. Every response
+  carrying a record (create, read, change, the closing and proposal
+  decisions, the list) gives `read_date` and `time_zone` beside `status`,
+  so a consumer knows which day judged it. The list judges each record by
+  its own legal entity's date in the `status` filter and in the items
+  alike, from one instant: the dates of the companies with a zone are
+  read once per list (their legal entities found by company code through
+  the tenancy port, `LegalEntities.ByCode`; a tenant without zones reads
+  none, and a list filtered by legal entity reads only its), and every
+  other legal entity is judged by UTC's date, as before. The upload's
+  response gives counts, not statuses, and an upload judges nothing by
+  date (it compares values, and realised and cancelled are stored), so
+  nothing in it changes. A stored zone that does not load fails the read
+  and the list, as it fails the position.
+- **Not yet** (each tracked under the same item): purchasing contracts'
+  expiry (T72n6); a contract's number, drawn for UTC's date; the suppliers
+  a migration run creates, dated in UTC; and, waiting for the product
+  owner, the tax rates in force at a tax setup's activation (a tax rule)
+  and three posting dates that default to the database's `current_date`
+  (UTC) when the caller leaves them out: a supplier invoice's when it is
+  posted and when it is reversed, and a goods movement reversal's. Those
+  decide the period and the rates, a money rule; the recommendation for
+  both is the company's date (review:batch26). Every other document is
+  dated by its caller. The payment release's discount check (T72n3) and
+  center changes' effective day (T72n4, ADR-0050 §11) are built: see
+  below.
+
+As built (T72n5, a requisition's date; product owner 2026-10-31: a
+requisition is routed at the rate of the day it was raised in its
+company's time zone):
+- **The date.** `procurement.requisition.requisition_date` (migration
+  000170) is the company's date when the requisition is created: the
+  clock's instant in the zone of the legal entity's company
+  (`config.CompanyLocation`, `clock.DayIn`; UTC when the company has
+  none), so at 22:00 on 31 December in Toronto (03:00 UTC on 1 January) it
+  is the 31st and at 01:00 on 17 April in Dubai (21:00 UTC on the 16th) it
+  is the 17th. Stored, not derived from `created_at` on each submission: a
+  later change of the zone (tier 3) would otherwise move the day a
+  requisition already raised, and resubmitted, is routed at. The response
+  gives it (`requisition_date`, read-only), so a consumer sees which day's
+  rate routed it. A stored zone the binary cannot load fails the creation
+  rather than dating it in UTC.
+- **What follows it.** Submission converts the amount into the company's
+  currency at the average rate of that day (03-data-model, F12, F19), and the
+  requisition's number is drawn from that day's fiscal year's range: the
+  same document date, so a Toronto requisition of 31 December is numbered
+  in the year it is dated in.
+- **Earlier requisitions.** 000170 dates the rows raised before it as they
+  were routed, `created_at`'s date in UTC, without touching their version
+  or `updated_at`; the previous release's inserts in a mixed cell take the
+  column's default, its own UTC rule; the not-null rule is validated in
+  000171.
+- **Not this rule.** Procurement's other dates read the database's
+  `current_date` (UTC) for different decisions: a contract's number and a
+  goods movement reversal's default posting date; they are tracked
+  separately (review:batch26). The account assignment check at a
+  requisition's submission judges on the submission day, not the
+  requisition's, in the company's zone since T72n4.
+  Contracts' expiry and its notice are T72n6.
+
+As built (T72n3, a payment run's cash discount judged on the company's
+date; product owner 2026-10-31):
+- **The rule.** The release of a proposed run refuses a payment whose cash
+  discount's last day (`discount_until`) is before the paying company's
+  date at the release, in its `time_zone` (UTC when it sets none): 409
+  `payments.discount_lapsed`. At 22:00 on the last day in Toronto (02:00
+  UTC the next day) the discount is still earned; at 01:00 the next day in
+  Dubai (21:00 UTC on the last day) it has lapsed. ADR-0038 records it
+  with the release.
+- **Every place a lapse is judged.** Only the release reads a today for a
+  discount. The proposal judges each item's tier, and whether it would
+  lose its discount by the due-by date, on the run's `run_date`, the date
+  the payments post and are executed on, which the proposer chooses: no
+  clock and no zone are involved, so nothing there changes.
+- **The shared helper.** `config.(*Config).CompanyLocation(code)` is a
+  company's zone by its code, UTC when the document has no such company
+  or the company sets none; payments' `companyDay` takes it with
+  `clock.DayIn`, as procurement's `today` (T72n5, T72n4), the ledger's
+  center checks (T72n4) and, since batch 26's integration, the cash
+  position's and memo records' `companyDay` (T72n1, T72n2) do.
+- **What the consumer sees.** The problem's `detail` names the discount's
+  last day, the company's date that judged it and the zone (`… earned
+  until 2026-03-15; it is 2026-03-16 in Asia/Dubai, the time zone the
+  paying company's date is judged in …`; UTC when the company sets none);
+  the problem schema has no extension members, so the date
+  and zone are in the detail, as other payments problems give their
+  facts.
+- **Determinism.** The check runs in the `:release` request
+  (`StartRelease`), before the operation is queued; the release workflow
+  and its activities do not judge the discount, so no workflow code reads
+  a clock.
+
+As built (the zone required; product owner 2026-10-31, Pilot readiness
+"Company time zone"):
+- **Strict write, tolerant read** (06 §6.4). `config.Validate` refuses a
+  company without `time_zone` (`companies[<code>].time_zone`: "time zone
+  is required: the IANA name of the zone the company's business dates
+  are in, such as America/Toronto or Asia/Dubai, as the company states
+  it"). Validate runs on a change request's submission and a tenant's
+  bootstrap (the
+  control plane's `createTenant`, `erp-server provision`), and offline in
+  `erp config validate` and `erp config generate`; the consumer gets 422
+  `config.validation_failed` with one error per company on
+  `proposed.companies[<code>].time_zone`, the code already declared on
+  `submitChangeRequest`, so the contract gains no code. Reading the
+  active document (`config.ParseActive`) does not validate: a document
+  activated before the rule keeps its meaning, its companies' dates in
+  UTC, and the cash position and the release still name `UTC` as the
+  zone used. The first change to such a document must set every
+  company's zone, since the proposal is validated whole, and is tier 3
+  (posting-relevant) like any change to the zone, `""` to `UTC` included;
+  no data migration rewrites the stored versions, which are immutable.
+  Activation does not validate again, so a change request submitted
+  before the rule and approved after it activates without a zone, read
+  as UTC like any older document.
+- **The pilots.** Canada in the company's own zone (`America/Toronto` in
+  the walkthrough; Canada spans six zones, so none is derived from the
+  country), the UAE in `Asia/Dubai`.
+- **SAP drafts.** `erp config generate -time-zone CODE=ZONE,…`
+  (`sapconfig.Options.TimeZones`) gives each company's zone; the draft
+  notes it as given. The extract carries no time zone for a company code
+  (its T001 rows hold `BUKRS`, `BUTXT`, `WAERS`, `LAND1`), so a company
+  given none is drafted without one, with a note, and the draft does not
+  validate until a reviewer sets it. Whether the company code's address
+  in SAP carries a time zone that could be extracted reliably is not
+  settled here (no primary source checked); it is listed for an SAP
+  specialist rather than assumed.
+- **Shipped documents.** The test fixture's companies
+  (`internal/config/testdata/valid.yaml`) are in `UTC`, as their dates
+  were judged before; the evaluation configurations' German and French
+  companies are in `Europe/Berlin` and `Europe/Paris`; the walkthrough
+  generates its pilot company with `-time-zone 3000=America/Toronto` and
+  shows the draft without it refused.
 
 ### 9. Liquidity forecast
 `GET /v1/liquidity-forecast?company=…&horizon=…` (`cash.forecast.read`):

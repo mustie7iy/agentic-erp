@@ -122,6 +122,13 @@ func (sc *evidenceScenario) withoutASuite(t *testing.T) {
 	if summary := apitest.String(t, regression, "summary"); !strings.Contains(summary, "No regression suite captured on version 1") {
 		t.Errorf("regression evidence summary: got %q, want no suite on version 1", summary)
 	}
+	// Without a suite the simulators replay their own default window, and the evidence names no suite.
+	if sc.passing.window != 0 {
+		t.Errorf("without a suite: got window %v, want 0 (the simulators' default)", sc.passing.window)
+	}
+	if suite, ok := apitest.Object(t, evidenceOf(t, got, "simulation"), "detail")["window_suite"]; ok {
+		t.Errorf("without a suite: got window_suite %v, want none", suite)
+	}
 	done := s.status(t, sc.opPath)
 	if done["status"] != "succeeded" {
 		t.Errorf("operation status: got %v, want succeeded", done["status"])
@@ -224,6 +231,13 @@ func (sc *evidenceScenario) staleSuite(t *testing.T) {
 	}
 	if summary := apitest.String(t, last, "summary"); !strings.Contains(summary, "no longer matches version 1") {
 		t.Errorf("stale: got summary %q, want the suite no longer matching version 1", summary)
+	}
+	// The simulation replays the window of the latest suite, RS-0002 (45 days), and names it.
+	if want := 45 * 24 * time.Hour; sc.passing.window != want {
+		t.Errorf("with a suite: got window %v, want %v (the latest suite's)", sc.passing.window, want)
+	}
+	if suite := apitest.Object(t, evidenceOf(t, got, "simulation"), "detail")["window_suite"]; suite != "RS-0002" {
+		t.Errorf("with a suite: got window_suite %v, want RS-0002", suite)
 	}
 	delete(sc.reg.failures, "19")
 }

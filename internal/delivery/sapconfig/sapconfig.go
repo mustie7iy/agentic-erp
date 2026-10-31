@@ -39,6 +39,12 @@ type Options struct {
 	// ManualEntryApprovalLimit is each company's limit for manual journal
 	// entries posted without approval (T35).
 	ManualEntryApprovalLimit string
+	// TimeZones are the companies' IANA time zones by company code, which
+	// the configuration requires (product owner 2026-10-31). They are an
+	// input, not read from SAP: the extract's company code (T001) carries
+	// no time zone. A company without one is drafted without it, with a
+	// note, and the draft does not validate until a reviewer sets it.
+	TimeZones map[string]string
 }
 
 // DefaultOptions suit a standard S/4HANA procure-to-pay role design.
@@ -245,6 +251,7 @@ func (g *gen) company(t sap.T001) config.Company {
 		AutoPostLimit: g.opts.AutoPostLimit, ManualEntryApprovalLimit: g.opts.ManualEntryApprovalLimit, OverDeliveryPercent: 0,
 	}
 	g.note(p+".fiscal_year_start_month", "fiscal year variant not in extract; assumed calendar year (K4)")
+	g.timeZone(p, &co)
 	g.note(p+".auto_post_limit", "no SAP equivalent; invoices above "+g.opts.AutoPostLimit+" always go to a person")
 	g.note(p+".manual_entry_approval_limit", "SAP releases parked documents by amount in its FI workflow, not in the extract; manual entries above "+
 		g.opts.ManualEntryApprovalLimit+" need the controller's approval")
@@ -276,6 +283,19 @@ func (g *gen) company(t sap.T001) config.Company {
 	co.InvoiceTolerance = g.invoiceTolerance(p, t.BUKRS)
 	co.HouseBank, co.HouseBanks = g.houseBanks(p, t.BUKRS, &co.AccountDetermination)
 	return co
+}
+
+// timeZone sets the company's zone from the options, or notes that the
+// draft lacks it: the extract has none to take, and a guess from the
+// country would be wrong for a country of several zones (Canada).
+func (g *gen) timeZone(p string, co *config.Company) {
+	co.TimeZone = g.opts.TimeZones[co.Code]
+	if co.TimeZone == "" {
+		g.note(p+".time_zone", "not in the SAP extract and not given (erp config generate -time-zone "+co.Code+
+			"=ZONE); set the IANA zone the company's business dates are in: the draft does not validate without it")
+		return
+	}
+	g.note(p+".time_zone", co.TimeZone+", as given: the SAP extract has no time zone for the company code")
 }
 
 // houseBanks is the company's main house bank, its first T012K row, and

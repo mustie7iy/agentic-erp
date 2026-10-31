@@ -369,7 +369,12 @@ request in status `draft` on the active version, with the merge's notes in
 proposed by hand), recorded when it is created; the request then goes the
 usual way, and nothing is activated by applying.
 
-A change request's simulation replays the invoices of every company, so
+A change request's simulation replays the invoices of a window as long as
+the one the base version's latest regression suite was captured over
+(`window_days`, the suite named by `window_suite`; 90 days when no suite is
+captured), ending when the simulation runs: both kinds of evidence look
+back as far, each from its own day. It replays
+the invoices of every company, so
 that its verdict covers the whole change, but each reader is shown the
 invoices of the companies they may access alone, and the detail's and
 summary's counts over those (04-api-design §4.9). The evidence is recorded
@@ -415,6 +420,24 @@ needs a comment acknowledging it (`approvals.Acknowledger`, 422
 `workflow.acknowledgement_required`), so the approvers decide knowing
 that nothing was replayed (T72l).
 
+A company's business dates are in its `companies[].time_zone`, an IANA
+zone name (`America/Toronto`, `Asia/Dubai`) that validation loads from the
+zone database built into the binary, host-only names (`Local`,
+`posix/…`) and offsets refused. It is required of a new or changed
+document (product owner 2026-10-31); a document activated before then
+may lack it and is read as UTC. A change is tier 3. The cash position's
+read date is the company's date in it (ADR-0051 as built, T72n1), and so
+are a memo record's status (T72n2), a payment run's discount lapse (T72n3)
+and a requisition's date (T72n5). A center change's check that a
+default cost or profit center stays usable from today, the setup's check
+of the controlling rules, and a requisition's account assignments at
+submission judge on the company's date in it too, the refusal naming the
+date and zone (T72n4, ADR-0050 §11 as built). Still judged in UTC, each
+tracked: purchasing contracts' expiry (T72n6), a contract's number, the
+posting dates a supplier invoice's posting and reversal and a goods
+movement reversal default to, the suppliers a migration run creates, and
+the tax rates in force at a tax setup's activation (ADR-0051 as built).
+
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
 in the currency of the requisition's company), the order release
@@ -442,7 +465,11 @@ another currency is converted into the company's currency with the
 ledger's posting lookup (the latest average
 rate of the pair; when only the reverse is recorded, the amount is
 divided by it exactly, never multiplied by a rounded reciprocal, F19) on the
-document's date: a requisition on the day it was raised (UTC), so a
+document's date: a requisition on its `requisition_date`, the company's
+date in its time zone when it was raised (stored, so a later change of the
+zone does not move it; its number is drawn for that day too; T72n5,
+product owner 2026-10-31; requisitions raised before migration 000170 keep
+the UTC date they were routed at), so a
 resubmission is routed at the same rate, an invoice on its invoice date
 (a posting converts on the posting date instead). The converted amount is
 compared with the configured one exactly, as amount × rate before any
@@ -1178,6 +1205,7 @@ erDiagram
     uuid supplier_id
     uuid contract_id
     char currency
+    date requisition_date
     text status
     uuid workflow_request_id
     int version }
@@ -2055,7 +2083,8 @@ discount fails at proposal without a `cash_discount` account (422
 discounts are earned (`discount_until`, migration 000070, shown on the
 payment so the approver knows the release-by date), and the release
 of a proposed run after it is refused (409 `payments.discount_lapsed`,
-days in UTC): the run is rejected and proposed again, at the discount then
+judged on the paying company's date in its `time_zone`, T72n3, which the
+problem's detail names): the run is rejected and proposed again, at the discount then
 earned; a release being resumed is not refused, since some of its
 payments may have posted.
 

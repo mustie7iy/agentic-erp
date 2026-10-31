@@ -397,9 +397,20 @@ step_tenant() {
   show erp gen-mock-sap -out data/extract.json -year "$YEAR" -through 9 -seed 42
   "$ERP" gen-mock-sap -out "$WORK/data/extract.json" -year "$YEAR" -through 9 -seed 42 >/dev/null || fail "gen-mock-sap failed"
   jq -r '.T001[] | "     SAP company \(.BUKRS) \(.BUTXT), \(.WAERS), \(.LAND1)"' "$WORK/data/extract.json"
+  say "SAP's extract has no time zone for a company code, and the configuration requires one (product owner"
+  say "2026-10-31): a draft without it names the company and key to set."
   show erp config generate -source file:data/extract.json -company "$CC" -year "$YEAR" -out config.yaml
-  "$ERP" config generate -source "file:$WORK/data/extract.json" -company "$CC" -year "$YEAR" -out "$WORK/config.yaml" >"$WORK/generate.out" 2>&1 ||
-    { sed 's/^/     /' "$WORK/generate.out"; fail "config generate failed"; }
+  if "$ERP" config generate -source "file:$WORK/data/extract.json" -company "$CC" -year "$YEAR" -out "$WORK/config.yaml" >"$WORK/generate.out" 2>&1; then
+    fail "a draft without the company's time zone validated"
+  fi
+  grep -q "\[error\] companies\[$CC\]\.time_zone: time zone is required" "$WORK/generate.out" ||
+    { sed 's/^/     /' "$WORK/generate.out"; fail "the draft without a time zone was not refused on companies[$CC].time_zone"; }
+  grep "\[error\] companies\[$CC\]\.time_zone: time zone is required" "$WORK/generate.out" | sed 's/^ */     /'
+  say "The company does business in Eastern Time: its business dates (today in its cash position) are in"
+  say "America/Toronto, given as the draft is generated (T72n1)."
+  show erp config generate -source file:data/extract.json -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" -out config.yaml
+  "$ERP" config generate -source "file:$WORK/data/extract.json" -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" \
+    -out "$WORK/config.yaml" >"$WORK/generate.out" 2>&1 || { sed 's/^/     /' "$WORK/generate.out"; fail "config generate failed"; }
   grep -q 'Validation: no findings' "$WORK/generate.out" || { sed 's/^/     /' "$WORK/generate.out"; fail "the generated configuration has findings"; }
   say "  the configuration generated from SAP's customizing validates with no findings."
   say "SAP's house bank (T012K) is Canadian: no IBAN, its account by institution, transit and account number:"
@@ -416,6 +427,7 @@ ledgers:
   - {code: "2L", name: Local GAAP (ASPE), accounting_principle: ASPE}
 YAML
   grep -q 'ledgers: \["0L", "2L"\]' "$WORK/config.yaml" || fail "the company's ledgers were not added to the configuration"
+  grep -q '^    time_zone: America/Toronto$' "$WORK/config.yaml" || fail "the company's time zone is not in the configuration"
   show erp-server provision -name "Maple pilot" -region ca-central -currency CAD -admin-subject ada -admin-name "Ada Admin" -config config.yaml
   "$BIN/erp-server" provision -name "Maple pilot" -region ca-central -currency CAD -admin-subject ada -admin-name "Ada Admin" \
     -config "$WORK/config.yaml" >"$WORK/last.json" 2>"$WORK/stderr" || fail "provision failed: $(cat "$WORK/stderr")"
@@ -771,12 +783,16 @@ step_pack() {
   say "Ada records that there is nothing to replay: a suite of no cases, which the evidence and the approvers will show."
   api 201 '"regression suite \(.number): \(.case_count) cases"' createRegressionSuite \
     -body '{"name": "Before the Canada pack, no invoices yet", "window_days": 366, "allow_empty": true}'
+  local suite
+  suite=$(field .number)
+  say "The simulation replays the invoices of the last 366 days, as far back as the suite looked when it was captured."
   QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
   api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
   wait_op
   api 200 '.evidence[] | "evidence \(.kind): \(if .passed then "passed" else "FAILED" end), \(.summary)"' getChangeRequest -p "id=$cr"
   expect "status after the evidence" "$(field .status)" pending_approval
   expect "the regression evidence says no case was replayed" "$(field '.evidence[] | select(.kind == "regression") | .detail.no_cases')" true
+  expect "the simulation's window is the suite's" "$(field '.evidence[] | select(.kind == "simulation") | "\(.detail.window_days) days of \(.detail.window_suite)"')" "366 days of $suite"
   local request
   request=$(field .workflow_request_id)
   say "Two approvers, neither of them its author: the solution architect, then the controller. Nothing was"
@@ -810,10 +826,14 @@ step_procure() {
   expense=$(account 6000)
   item="{\"description\": \"Ergonomic office chairs\", \"quantity\": {\"value\": \"10\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"450.00\", \"currency\": \"CAD\"}, \"account_id\": \"$expense\"}"
   say "Ben asks for ten office chairs from Tyrell, a supplier migrated from SAP, needed in two weeks."
+  say "The requisition is dated on Maple's date in Toronto, not UTC's: raised on a Toronto evening it is still"
+  say "that day, and its amount is routed at that day's rate (T72n5)."
   NEEDED_BY=$(date_add "$TODAY" 14)
-  api 201 '"requisition \(.id): \(.status), \(.total_amount.amount) \(.total_amount.currency), needed by \(.needed_by)"' createRequisition \
+  local req request before
+  before=$(TZ=America/Toronto date +%F)
+  api 201 '"requisition \(.id) of \(.requisition_date): \(.status), \(.total_amount.amount) \(.total_amount.currency), needed by \(.needed_by)"' createRequisition \
     -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"supplier_id\": \"$SUPPLIER\", \"needed_by\": \"$NEEDED_BY\", \"items\": [$item]}"
-  local req request
+  [ "$(field .requisition_date)" = "$before" ] || expect "the requisition's date, Toronto's" "$(field .requisition_date)" "$(TZ=America/Toronto date +%F)"
   req=$(field .id)
   api 200 '"\(.status): approval request \(.workflow_request_id)"' submitRequisition -p "id=$req" -if-match "$ETAG"
   request=$(field .workflow_request_id)
@@ -1263,6 +1283,32 @@ step_cash() {
     getCashPosition -p "legal_entity_id=$LE" -p "from=$(date_add "$TODAY" 1)" -p days=7
   expect "the statement balance the position opens with" "$(field '.banks[] | select(.house_bank_code == "RBC") | .opening.balance.amount')" "$CLOSING"
   expect "the memo record's flow" "$(field '[.banks[] | select(.house_bank_code == "RBC") | .days[].flows[]? | select(.source == "memo") | .amount.amount] | join(" ")')" 25000.00
+  say "Today for the position is Maple's date in Toronto, not UTC's: in a Toronto evening UTC is already tomorrow (T72n1)."
+  local before after
+  before=$(TZ=America/Toronto date +%F)
+  api 200 '"read on \(.read_date) in \(.time_zone), from \(.from)"' getCashPosition -p "legal_entity_id=$LE" -p days=1
+  after=$(TZ=America/Toronto date +%F)
+  expect "the zone the position is read in" "$(field .time_zone)" America/Toronto
+  [ "$(field .read_date)" = "$before" ] || expect "the read date, Toronto's" "$(field .read_date)" "$after"
+  expect "the first day, the read date" "$(field .from)" "$(field .read_date)"
+  local toronto judged status listed counted
+  toronto=$(TZ=America/Toronto date +%F)
+  say "A receipt promised for today ($toronto in Toronto), its last day today, is active until Toronto's day ends:"
+  say "a memo record's status is judged on Maple's date in its zone, as the position is, not on UTC's (T72n2)."
+  api 201 '"memo record \(.reference): \(.status) on \(.read_date) in \(.time_zone), last day \(.expires_on)"' createMemoRecord \
+    -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBC\", \"amount\": {\"amount\": \"1000.00\", \"currency\": \"CAD\"}, \"value_date\": \"$toronto\", \"expires_on\": \"$toronto\", \"liquidity_item\": \"REC_CUSTOMERS\", \"reference\": \"WT-1043\"}"
+  expect "the zone the memo record's status is judged in" "$(field .time_zone)" America/Toronto
+  judged=$(field .read_date)
+  [ "$judged" = "$toronto" ] || expect "the memo record's read date, Toronto's" "$judged" "$(TZ=America/Toronto date +%F)"
+  status=active
+  [ "$judged" = "$toronto" ] || status=expired # Toronto's midnight passed between the two reads
+  expect "the memo record's status on Maple's date" "$(field .status)" "$status"
+  api 200 '.items[] | "  \(.reference // "-"): \(.status) on \(.read_date) in \(.time_zone)"' listMemoRecords -p "legal_entity_id=$LE" -p status=active
+  listed=$(field '[.items[] | select(.reference == "WT-1043")] | length')
+  api 200 '"position read on \(.read_date): memo flows at RBC \([.banks[] | select(.house_bank_code == "RBC") | .days[].flows[]? | select(.source == "memo") | .amount.amount] | join(" "))"' \
+    getCashPosition -p "legal_entity_id=$LE" -p days=7
+  counted=$(field '[.banks[] | select(.house_bank_code == "RBC") | .days[].flows[]? | select(.source == "memo" and .amount.amount == "1000.00")] | length')
+  [ "$(field .read_date)" != "$toronto" ] || expect "the record listed active and counted in the position on Toronto's date" "$listed $counted" "1 1"
   passed
 }
 

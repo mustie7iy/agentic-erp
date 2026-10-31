@@ -59,7 +59,7 @@ func TestAssignmentSimulation(t *testing.T) {
 	simulate := func(t *testing.T, base, proposed *config.Config) configuration.Simulation {
 		t.Helper()
 		if err := apitest.InRequest(t, c.ten, c.ten.Human, func(ctx context.Context) (err error) {
-			got, err = sim.Simulate(ctx, base, proposed)
+			got, err = sim.Simulate(ctx, base, proposed, 0)
 			return err
 		}); err != nil {
 			t.Fatalf("simulate: %v", err)
@@ -163,10 +163,10 @@ func TestAssignmentSimulation(t *testing.T) {
 	})
 	t.Run("failing statements", func(t *testing.T) {
 		apitest.EveryFailure(t, c.ten, c.ten.Human, "simulate", func(ctx context.Context) error {
-			_, err := sim.Simulate(ctx, document(t), proposed)
+			_, err := sim.Simulate(ctx, document(t), proposed, 0)
 			return err
 		})
-		if _, err := sim.Simulate(context.Background(), document(t), proposed); err == nil {
+		if _, err := sim.Simulate(context.Background(), document(t), proposed, 0); err == nil {
 			t.Error("simulated outside a request: got no error, want one")
 		}
 	})

@@ -187,7 +187,7 @@ func New(cfg Config) (http.Handler, error) {
 		partnerAPI: &partner.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys, Schemas: configuration.Settings{}, Rules: configuration.Settings{},
 			PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, PlanningGroups: cash.PlanningGroups{}, Approvals: opener()},
 		ledgerAPI: &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
-			Numbers: configuration.Numbers{}, Orders: procurement.Orders{}, Approvals: opener(), Now: cfg.Now},
+			Numbers: configuration.Numbers{}, Orders: procurement.Orders{}, Approvals: opener(), Settings: configuration.Settings{}, Now: cfg.Now},
 		workflowAPI:    &approvals.Endpoints{Pages: cfg.Pages, Decider: approvals.Decider{Roles: identity.Directory{}, AgentKind: identity.AgentKind, Metrics: cfg.Metrics, Handlers: approvalHandlers(cfg)}},
 		procurementAPI: procurementEndpoints(cfg),
 		payablesAPI:    payablesEndpoints(cfg, upload),
@@ -304,7 +304,7 @@ func approvalHandlers(cfg Config) map[string]approvals.Handler {
 		approvals.PurchaseOrder:     procurement.OrderReleases{Endpoints: procurementEndpoints(cfg)},
 		approvals.OrderChange:       procurement.OrderChanges{Endpoints: procurementEndpoints(cfg)},
 		approvals.BankClearing:      payments.BankClearings{Endpoints: Payments(cfg)},
-		approvals.CenterChange:      ledger.CenterChanges{Now: cfg.Now},
+		approvals.CenterChange:      ledger.CenterChanges{LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now},
 		approvals.PaymentRunRelease: payments.ReleaseApprovals{Endpoints: Payments(cfg)},
 		approvals.GRIRClearing:      procurement.GRIRClearings{Endpoints: procurementEndpoints(cfg)},
 	}
@@ -326,7 +326,7 @@ func procurementEndpoints(cfg Config) *procurement.Endpoints {
 	return &procurement.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{},
 		Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{}, Calendar: calendar(),
 		Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{}, Approvals: opener(),
-		Invoices: payables.Invoices{}, Postings: postings()}
+		Invoices: payables.Invoices{}, Postings: postings(), Now: cfg.Now}
 }
 
 // payablesEndpoints is the payables context as the API wires it, capturing

@@ -182,9 +182,9 @@ func TestControllingDefaults(t *testing.T) {
 		"an unknown cost center": {func(_ *config.Config, co *config.Company) { co.DefaultAssignments[0].CostCenter = "NOPE" },
 			p + ".default_assignments[520000].cost_center", "NOPE is not an active cost center of the company"},
 		"a cost center ending": {func(_ *config.Config, co *config.Company) { co.DefaultAssignments[0].CostCenter = "ENDS" },
-			p + ".default_assignments[520000].cost_center", "ENDS is not valid from today with no end date"},
+			p + ".default_assignments[520000].cost_center", "ENDS is not valid from 2026-05-01 (the company's date in UTC) with no end date"},
 		"a cost center starting later": {func(_ *config.Config, co *config.Company) { co.DefaultAssignments[0].CostCenter = "LATER" },
-			p + ".default_assignments[520000].cost_center", "LATER is not valid from today"},
+			p + ".default_assignments[520000].cost_center", "LATER is not valid from 2026-05-01 (the company's date in UTC)"},
 		"a cost center locked later": {func(_ *config.Config, co *config.Company) { co.DefaultAssignments[0].CostCenter = "LOCKED" },
 			p + ".default_assignments[520000].cost_center", "LOCKED is locked from 2026-09-01"},
 		"an unknown profit center": {func(_ *config.Config, co *config.Company) { co.DefaultProfitCenter = "NOPE" },
@@ -192,7 +192,7 @@ func TestControllingDefaults(t *testing.T) {
 		"a profit center of another company": {func(_ *config.Config, co *config.Company) { co.DefaultProfitCenter = "USONLY" },
 			p + ".default_profit_center", "USONLY is not assigned to the company"},
 		"a profit center ending": {func(_ *config.Config, co *config.Company) { co.DefaultProfitCenter = "ENDS" },
-			p + ".default_profit_center", "ENDS is not valid from today with no end date"},
+			p + ".default_profit_center", "ENDS is not valid from 2026-05-01 (the company's date in UTC) with no end date"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			doc := controlling(t, tc.mutate)
@@ -357,7 +357,7 @@ func TestCategoryRemovedWhileAMoveIsApproved(t *testing.T) {
 	without := document(t)
 	without.Controlling.CostCenterCategories = without.Controlling.CostCenterCategories[:1] // ADMIN
 	approve := func(ctx context.Context) error {
-		return ledger.CenterChanges{}.Approved(ctx, uuid.MustParse(move["id"].(string)), uuid.MustParse(move["workflow_request_id"].(string)))
+		return changes().Approved(ctx, uuid.MustParse(move["id"].(string)), uuid.MustParse(move["workflow_request_id"].(string)))
 	}
 	activate := func(ctx context.Context) error {
 		return ledger.Setup{LegalEntities: tenancy.Directory{}, Now: at(t, "2026-05-01")}.Apply(ctx, without)

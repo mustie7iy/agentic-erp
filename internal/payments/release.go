@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/bankfile"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
@@ -405,7 +406,7 @@ func (e *Endpoints) recheck(ctx context.Context, r Run, pays []Payment) error {
 				"); reject the run and propose again.")
 		}
 	}
-	if err := e.recheckDiscounts(r, pays); err != nil {
+	if err := e.recheckDiscounts(ctx, r, pays, doc); err != nil {
 		return err
 	}
 	if err := e.recheckRequests(ctx, r, pays); err != nil {
@@ -417,21 +418,42 @@ func (e *Endpoints) recheck(ctx context.Context, r Run, pays []Payment) error {
 // recheckDiscounts refuses the release of a proposed run after the last day
 // a payment's cash discounts are earned (409 payments.discount_lapsed):
 // paying later would take a discount the supplier no longer grants; the
-// run is rejected and proposed again, at the discount then earned. Days
-// are compared in UTC. A releasing run being resumed is not refused: some
-// of its payments may have posted already.
-func (e *Endpoints) recheckDiscounts(r Run, pays []Payment) error {
-	if r.Status != Proposed {
+// run is rejected and proposed again, at the discount then earned. The
+// day is the paying company's date in its time zone (companyDay, product
+// owner 2026-10-31, T72n3), which the refusal names: a Toronto company's
+// evening of the last day still earns it, a Dubai company's first hours of
+// the next day no longer do. A releasing run being resumed is not refused:
+// some of its payments may have posted already.
+func (e *Endpoints) recheckDiscounts(ctx context.Context, r Run, pays []Payment, doc *config.Config) error {
+	first := slices.IndexFunc(pays, func(p Payment) bool { return p.DiscountUntil != nil })
+	if r.Status != Proposed || first < 0 {
 		return nil
 	}
-	today := clock.Now(e.Now).UTC().Truncate(24 * time.Hour)
-	for _, pay := range pays {
+	today, loc, err := e.companyDay(ctx, r, doc)
+	if err != nil {
+		return err
+	}
+	for _, pay := range pays[first:] {
 		if pay.DiscountUntil != nil && today.After(*pay.DiscountUntil) {
-			return problem.Conflict("payments.discount_lapsed", fmt.Sprintf("The payment to supplier %s takes cash discount earned until %s; reject the run and propose again.",
-				pay.SupplierID, pay.DiscountUntil.Format(time.DateOnly)))
+			return problem.Conflict("payments.discount_lapsed", fmt.Sprintf("The payment to supplier %s takes cash discount earned until %s; it is %s in %s, "+
+				"the time zone the paying company's date is judged in: reject the run and propose again.", pay.SupplierID, pay.DiscountUntil.Format(time.DateOnly), today.Format(time.DateOnly), loc))
 		}
 	}
 	return nil
+}
+
+// companyDay is the date now of run r's company, in the time zone its
+// configuration sets (UTC when none), and that zone.
+func (e *Endpoints) companyDay(ctx context.Context, r Run, doc *config.Config) (time.Time, *time.Location, error) {
+	le, err := e.entityOf(ctx, r)
+	if err != nil {
+		return time.Time{}, nil, err
+	}
+	loc, err := doc.CompanyLocation(le.Code)
+	if err != nil {
+		return time.Time{}, nil, fmt.Errorf("payments: company %s of run %s: %w", le.Code, r.ID, err)
+	}
+	return clock.DayIn(clock.Now(e.Now), loc), loc, nil
 }
 
 // unpayableText says why an item can no longer be paid (OpenItems.Unpayable).

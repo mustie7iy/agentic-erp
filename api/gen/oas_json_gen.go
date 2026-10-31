@@ -18445,6 +18445,10 @@ func (s *CashPosition) encodeFields(e *jx.Encoder) {
 		json.EncodeDate(e, s.ReadDate)
 	}
 	{
+		e.FieldStart("time_zone")
+		e.Str(s.TimeZone)
+	}
+	{
 		e.FieldStart("from")
 		json.EncodeDate(e, s.From)
 	}
@@ -18474,14 +18478,15 @@ func (s *CashPosition) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfCashPosition = [7]string{
+var jsonFieldsNameOfCashPosition = [8]string{
 	0: "legal_entity_id",
 	1: "read_date",
-	2: "from",
-	3: "days",
-	4: "banks",
-	5: "currencies",
-	6: "converted",
+	2: "time_zone",
+	3: "from",
+	4: "days",
+	5: "banks",
+	6: "currencies",
+	7: "converted",
 }
 
 // Decode decodes CashPosition from json.
@@ -18517,8 +18522,20 @@ func (s *CashPosition) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"read_date\"")
 			}
-		case "from":
+		case "time_zone":
 			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.TimeZone = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"time_zone\"")
+			}
+		case "from":
+			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.From = v
@@ -18530,7 +18547,7 @@ func (s *CashPosition) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"from\"")
 			}
 		case "days":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				v, err := d.Int32()
 				s.Days = int32(v)
@@ -18542,7 +18559,7 @@ func (s *CashPosition) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"days\"")
 			}
 		case "banks":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				s.Banks = make([]CashPositionBank, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -18560,7 +18577,7 @@ func (s *CashPosition) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"banks\"")
 			}
 		case "currencies":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				s.Currencies = make([]CashPositionCurrency, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -18578,7 +18595,7 @@ func (s *CashPosition) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"currencies\"")
 			}
 		case "converted":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				if err := s.Converted.Decode(d); err != nil {
 					return err
@@ -18597,7 +18614,7 @@ func (s *CashPosition) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b01111111,
+		0b11111111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -65456,6 +65473,14 @@ func (s *MemoRecord) encodeFields(e *jx.Encoder) {
 		e.Str(s.Status)
 	}
 	{
+		e.FieldStart("read_date")
+		json.EncodeDate(e, s.ReadDate)
+	}
+	{
+		e.FieldStart("time_zone")
+		e.Str(s.TimeZone)
+	}
+	{
 		e.FieldStart("origin")
 		e.Str(s.Origin)
 	}
@@ -65513,7 +65538,7 @@ func (s *MemoRecord) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMemoRecord = [30]string{
+var jsonFieldsNameOfMemoRecord = [32]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -65535,15 +65560,17 @@ var jsonFieldsNameOfMemoRecord = [30]string{
 	18: "recurrence_of",
 	19: "occurrence_date",
 	20: "status",
-	21: "origin",
-	22: "session_id",
-	23: "reason",
-	24: "evidence",
-	25: "batch_key",
-	26: "realised_by",
-	27: "decided_by",
-	28: "decided_at",
-	29: "comment",
+	21: "read_date",
+	22: "time_zone",
+	23: "origin",
+	24: "session_id",
+	25: "reason",
+	26: "evidence",
+	27: "batch_key",
+	28: "realised_by",
+	29: "decided_by",
+	30: "decided_at",
+	31: "comment",
 }
 
 // Decode decodes MemoRecord from json.
@@ -65789,8 +65816,32 @@ func (s *MemoRecord) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
-		case "origin":
+		case "read_date":
 			requiredBitSet[2] |= 1 << 5
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.ReadDate = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"read_date\"")
+			}
+		case "time_zone":
+			requiredBitSet[2] |= 1 << 6
+			if err := func() error {
+				v, err := d.Str()
+				s.TimeZone = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"time_zone\"")
+			}
+		case "origin":
+			requiredBitSet[2] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.Origin = string(v)
@@ -65900,7 +65951,7 @@ func (s *MemoRecord) Decode(d *jx.Decoder) error {
 	for i, mask := range [4]uint8{
 		0b01011111,
 		0b01111110,
-		0b00110000,
+		0b11110000,
 		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
@@ -95564,6 +95615,10 @@ func (s *Requisition) encodeFields(e *jx.Encoder) {
 		e.Str(s.Currency)
 	}
 	{
+		e.FieldStart("requisition_date")
+		json.EncodeDate(e, s.RequisitionDate)
+	}
+	{
 		if s.NeededBy.Set {
 			e.FieldStart("needed_by")
 			s.NeededBy.Encode(e, json.EncodeDate)
@@ -95603,7 +95658,7 @@ func (s *Requisition) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfRequisition = [19]string{
+var jsonFieldsNameOfRequisition = [20]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -95616,13 +95671,14 @@ var jsonFieldsNameOfRequisition = [19]string{
 	9:  "supplier_id",
 	10: "contract_id",
 	11: "currency",
-	12: "needed_by",
-	13: "status",
-	14: "workflow_request_id",
-	15: "items",
-	16: "total_amount",
-	17: "extensions",
-	18: "expanded",
+	12: "requisition_date",
+	13: "needed_by",
+	14: "status",
+	15: "workflow_request_id",
+	16: "items",
+	17: "total_amount",
+	18: "extensions",
+	19: "expanded",
 }
 
 // Decode decodes Requisition from json.
@@ -95772,6 +95828,18 @@ func (s *Requisition) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"currency\"")
 			}
+		case "requisition_date":
+			requiredBitSet[1] |= 1 << 4
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.RequisitionDate = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"requisition_date\"")
+			}
 		case "needed_by":
 			if err := func() error {
 				s.NeededBy.Reset()
@@ -95783,7 +95851,7 @@ func (s *Requisition) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"needed_by\"")
 			}
 		case "status":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.Status = string(v)
@@ -95805,7 +95873,7 @@ func (s *Requisition) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"workflow_request_id\"")
 			}
 		case "items":
-			requiredBitSet[1] |= 1 << 7
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				s.Items = make([]RequisitionItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -95823,7 +95891,7 @@ func (s *Requisition) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"items\"")
 			}
 		case "total_amount":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				if err := s.TotalAmount.Decode(d); err != nil {
 					return err
@@ -95833,7 +95901,7 @@ func (s *Requisition) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"total_amount\"")
 			}
 		case "extensions":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				if err := s.Extensions.Decode(d); err != nil {
 					return err
@@ -95863,8 +95931,8 @@ func (s *Requisition) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [3]uint8{
 		0b11011111,
-		0b10101001,
-		0b00000011,
+		0b01011001,
+		0b00000111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

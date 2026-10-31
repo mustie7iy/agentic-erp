@@ -23,12 +23,18 @@ func Cash(cfg Config) *cash.Endpoints {
 		Pages: cfg.Pages, Now: cfg.Now}
 }
 
-// cashCompanies gives the cash context the legal entity's code and currency.
+// cashCompanies gives the cash context a legal entity's code and currency,
+// and the legal entity of a company code.
 type cashCompanies struct{}
 
 func (cashCompanies) Company(ctx context.Context, id uuid.UUID) (cash.Company, bool, error) {
 	le, ok, err := tenancy.Directory{}.Entity(ctx, id)
 	return cash.Company{Code: le.Code, Currency: le.LocalCurrency}, ok, err
+}
+
+func (cashCompanies) ByCode(ctx context.Context, code string) (uuid.UUID, bool, error) {
+	le, ok, err := tenancy.Directory{}.EntityByCode(ctx, code)
+	return le.ID, ok, err
 }
 
 // cashPayments gives the cash context the payments context's house banks,

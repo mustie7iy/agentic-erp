@@ -11,7 +11,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"time"
+	// The zone database is built in so that the standard IANA names load
+	// on any host, an image without zoneinfo included; host-only names
+	// are refused by Company.Location (T72n1).
+	_ "time/tzdata"
 
 	"gopkg.in/yaml.v3"
 
@@ -171,11 +176,17 @@ func (n NumberRange) Key() string {
 }
 
 type Company struct {
-	Code                 string               `yaml:"code" json:"code"`
-	Name                 string               `yaml:"name" json:"name"`
-	Currency             string               `yaml:"currency" json:"currency"`
-	Country              string               `yaml:"country" json:"country"`
-	FiscalYearStartMonth int                  `yaml:"fiscal_year_start_month" json:"fiscal_year_start_month"`
+	Code                 string `yaml:"code" json:"code"`
+	Name                 string `yaml:"name" json:"name"`
+	Currency             string `yaml:"currency" json:"currency"`
+	Country              string `yaml:"country" json:"country"`
+	FiscalYearStartMonth int    `yaml:"fiscal_year_start_month" json:"fiscal_year_start_month"`
+	// TimeZone is the IANA name of the zone the company's business dates
+	// are in (America/Toronto, Asia/Dubai): which day is today for it.
+	// Validation requires it (product owner 2026-10-31); a document
+	// activated before then may lack it and is read as UTC, as every date
+	// was before it was set (T72n1).
+	TimeZone             string               `yaml:"time_zone,omitempty" json:"time_zone,omitempty"`
 	ChartOfAccounts      []Account            `yaml:"chart_of_accounts" json:"chart_of_accounts"`
 	AccountDetermination AccountDetermination `yaml:"account_determination" json:"account_determination"`
 	TaxCodes             []TaxCode            `yaml:"tax_codes" json:"tax_codes"`
@@ -635,6 +646,45 @@ func (c *Config) Company(code string) *Company {
 		}
 	}
 	return nil
+}
+
+// zoneName is the IANA form of a zone name, every part starting with a
+// capital (America/Toronto, Etc/GMT+5, UTC).
+var zoneName = regexp.MustCompile(`^[A-Z][A-Za-z0-9_+-]*(/[A-Z][A-Za-z0-9_+-]*)*$`)
+
+// Location is the company's time zone; UTC when none is set, as in a
+// document activated before validation required one (tolerant read,
+// strict write: 06 §6.4). Validation refuses a name that does not load, and the names only some hosts accept
+// (LoadLocation tries the host's zoneinfo before the embedded copy): Local,
+// the reading host's zone, and any name not in IANA form, so localtime,
+// posixrules, the posix/ and right/ trees and a lower-case name a
+// case-insensitive filesystem would open are refused too.
+func (c *Company) Location() (*time.Location, error) {
+	switch {
+	case c.TimeZone == "":
+		return time.UTC, nil
+	case c.TimeZone == "Local", !zoneName.MatchString(c.TimeZone):
+		return nil, fmt.Errorf("time zone %q is not a standard IANA zone name every host has", c.TimeZone)
+	}
+	loc, err := time.LoadLocation(c.TimeZone)
+	if err != nil {
+		return nil, fmt.Errorf("time zone %q is not an IANA zone name: %w", c.TimeZone, err)
+	}
+	return loc, nil
+}
+
+// CompanyLocation is the time zone of the company with the code, which its
+// business dates are in: UTC when the document has no such company, or the
+// company sets none (a document activated before the zone was required,
+// T72n7). Every business date judged for a company is its date in this zone:
+// the cash position's read date (T72n1), a payment run's discount lapse
+// (T72n3) and a requisition's date (T72n5).
+func (c *Config) CompanyLocation(code string) (*time.Location, error) {
+	co := c.Company(code)
+	if co == nil {
+		return time.UTC, nil
+	}
+	return co.Location()
 }
 
 func (c *Company) Account(number string) *Account {

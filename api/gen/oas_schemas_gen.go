@@ -6709,8 +6709,13 @@ func (s *CashFlowTotal) SetCount(val int32) {
 type CashPosition struct {
 	// The legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// The day the position was read (UTC): what is late, stale and converted is judged by it.
+	// The company's date when the position was read, in `time_zone`: what is late, stale and converted is
+	// judged by it, and `from` is never before it.
 	ReadDate time.Time `json:"read_date"`
+	// The IANA time zone the read date is in: the company's configured `time_zone`, or `UTC` when a
+	// document activated before the zone was required (2026-10-31) sets none (T72n1). At 22:00 in
+	// America/Toronto the read date is still that day.
+	TimeZone string `json:"time_zone"`
 	// The first day.
 	From time.Time `json:"from"`
 	// How many days.
@@ -6730,6 +6735,11 @@ func (s *CashPosition) GetLegalEntityID() uuid.UUID {
 // GetReadDate returns the value of ReadDate.
 func (s *CashPosition) GetReadDate() time.Time {
 	return s.ReadDate
+}
+
+// GetTimeZone returns the value of TimeZone.
+func (s *CashPosition) GetTimeZone() string {
+	return s.TimeZone
 }
 
 // GetFrom returns the value of From.
@@ -6765,6 +6775,11 @@ func (s *CashPosition) SetLegalEntityID(val uuid.UUID) {
 // SetReadDate sets the value of ReadDate.
 func (s *CashPosition) SetReadDate(val time.Time) {
 	s.ReadDate = val
+}
+
+// SetTimeZone sets the value of TimeZone.
+func (s *CashPosition) SetTimeZone(val string) {
+	s.TimeZone = val
 }
 
 // SetFrom sets the value of From.
@@ -13777,9 +13792,14 @@ type Evidence struct {
 	Summary string `json:"summary"`
 	// Detailed result. For `simulation` evidence, the replayed invoices, decisions and posting rules of
 	// the companies the reader may access alone, counted over those: a reader of no company is shown none
-	// and counts of zero. For `regression` evidence, likewise the suite's cases of those companies
-	// (`cases`, their count; `changed`, `regressions`, or `stale` when the suite no longer matches its
-	// version). The verdict (`passed`) is over every company the change touches.
+	// and counts of zero. The invoices are those of the last `window_days` before the simulation ran
+	// (`recorded_at`): a window as long as the one the base version's latest regression suite, which
+	// `window_suite` names, was captured over before its capture. The two kinds of evidence thus look back
+	// as far, but the simulation's window ends when it ran, so it covers the suite's cases only as far as
+	// the two windows overlap. Without a suite, `window_suite` is absent and the window is 90 days. For
+	// `regression` evidence, likewise the suite's cases of those companies (`cases`, their count;
+	// `changed`, `regressions`, or `stale` when the suite no longer matches its version). The verdict
+	// (`passed`) is over every company the change touches.
 	Detail EvidenceDetail `json:"detail"`
 	// When the evidence was recorded.
 	RecordedAt time.Time `json:"recorded_at"`
@@ -13849,9 +13869,14 @@ func (s *Evidence) SetRecordedBy(val uuid.UUID) {
 
 // Detailed result. For `simulation` evidence, the replayed invoices, decisions and posting rules of
 // the companies the reader may access alone, counted over those: a reader of no company is shown none
-// and counts of zero. For `regression` evidence, likewise the suite's cases of those companies
-// (`cases`, their count; `changed`, `regressions`, or `stale` when the suite no longer matches its
-// version). The verdict (`passed`) is over every company the change touches.
+// and counts of zero. The invoices are those of the last `window_days` before the simulation ran
+// (`recorded_at`): a window as long as the one the base version's latest regression suite, which
+// `window_suite` names, was captured over before its capture. The two kinds of evidence thus look back
+// as far, but the simulation's window ends when it ran, so it covers the suite's cases only as far as
+// the two windows overlap. Without a suite, `window_suite` is absent and the window is 90 days. For
+// `regression` evidence, likewise the suite's cases of those companies (`cases`, their count;
+// `changed`, `regressions`, or `stale` when the suite no longer matches its version). The verdict
+// (`passed`) is over every company the change touches.
 type EvidenceDetail map[string]jx.Raw
 
 func (s *EvidenceDetail) init() EvidenceDetail {
@@ -21982,10 +22007,16 @@ type MemoRecord struct {
 	// The occurrence of the series it overrides.
 	OccurrenceDate OptDate `json:"occurrence_date"`
 	// `proposed` (an agent's, counting nowhere until a person accepts it), `active`, `expired` (active,
-	// its last occurrence's expiry date past at the read), `realised`, `cancelled`, `rejected`. Open
+	// its last occurrence's expiry date before `read_date`), `realised`, `cancelled`, `rejected`. Open
 	// enumeration: clients must accept and preserve values not listed here; values may be added within
 	// /v1.
 	Status string `json:"status"`
+	// The legal entity's date at the read, in `time_zone`, that `status` is judged on: the cash position's
+	// `read_date` for the company at the same instant (T72n2).
+	ReadDate time.Time `json:"read_date"`
+	// The IANA time zone `read_date` is in: the company's configured `time_zone`, or `UTC` when it has
+	// none. At 22:00 in America/Toronto a record whose last day is that day is still `active`.
+	TimeZone string `json:"time_zone"`
 	// How it was made. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
 	Origin string `json:"origin"`
@@ -22109,6 +22140,16 @@ func (s *MemoRecord) GetOccurrenceDate() OptDate {
 // GetStatus returns the value of Status.
 func (s *MemoRecord) GetStatus() string {
 	return s.Status
+}
+
+// GetReadDate returns the value of ReadDate.
+func (s *MemoRecord) GetReadDate() time.Time {
+	return s.ReadDate
+}
+
+// GetTimeZone returns the value of TimeZone.
+func (s *MemoRecord) GetTimeZone() string {
+	return s.TimeZone
 }
 
 // GetOrigin returns the value of Origin.
@@ -22259,6 +22300,16 @@ func (s *MemoRecord) SetOccurrenceDate(val OptDate) {
 // SetStatus sets the value of Status.
 func (s *MemoRecord) SetStatus(val string) {
 	s.Status = val
+}
+
+// SetReadDate sets the value of ReadDate.
+func (s *MemoRecord) SetReadDate(val time.Time) {
+	s.ReadDate = val
+}
+
+// SetTimeZone sets the value of TimeZone.
+func (s *MemoRecord) SetTimeZone(val string) {
+	s.TimeZone = val
 }
 
 // SetOrigin sets the value of Origin.
@@ -29275,8 +29326,9 @@ type Payment struct {
 	// The withholding tax deducted from the payment's items (T46f), their total, posted to the withholding
 	// tax codes' accounts when the payment posts; 0.00 when none.
 	WithholdingAmount OptMoney `json:"withholding_amount"`
-	// The last day the payment's cash discounts are earned (T36d): a release of the run after it is
-	// refused with 409 `payments.discount_lapsed`. Absent when the payment takes no discount.
+	// The last day the payment's cash discounts are earned (T36d): a release of the run after it, judged
+	// on the paying company's date in its time zone (T72n3), is refused with 409
+	// `payments.discount_lapsed`. Absent when the payment takes no discount.
 	DiscountUntil OptDate `json:"discount_until"`
 	// ISO 20022 end-to-end id.
 	EndToEndID string `json:"end_to_end_id"`
@@ -35588,6 +35640,11 @@ type Requisition struct {
 	ContractID OptUUID `json:"contract_id"`
 	// Currency of the estimate.
 	Currency string `json:"currency"`
+	// The company's date when the requisition was raised, in the company's configured `time_zone` (UTC
+	// when it has none): at 22:00 in America/Toronto it is still that day. Its number is drawn for this
+	// day, and its amount is converted into the company's currency at this day's rate to route it to an
+	// approval tier (T72n5).
+	RequisitionDate time.Time `json:"requisition_date"`
 	// Date the goods or services are needed.
 	NeededBy OptDate `json:"needed_by"`
 	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
@@ -35663,6 +35720,11 @@ func (s *Requisition) GetContractID() OptUUID {
 // GetCurrency returns the value of Currency.
 func (s *Requisition) GetCurrency() string {
 	return s.Currency
+}
+
+// GetRequisitionDate returns the value of RequisitionDate.
+func (s *Requisition) GetRequisitionDate() time.Time {
+	return s.RequisitionDate
 }
 
 // GetNeededBy returns the value of NeededBy.
@@ -35758,6 +35820,11 @@ func (s *Requisition) SetContractID(val OptUUID) {
 // SetCurrency sets the value of Currency.
 func (s *Requisition) SetCurrency(val string) {
 	s.Currency = val
+}
+
+// SetRequisitionDate sets the value of RequisitionDate.
+func (s *Requisition) SetRequisitionDate(val time.Time) {
+	s.RequisitionDate = val
 }
 
 // SetNeededBy sets the value of NeededBy.
@@ -35954,11 +36021,12 @@ type RequisitionItem struct {
 	// Account assignment (ADR-0050 §6, SAP's account assignment category; open enumeration: clients must
 	// accept and preserve values not listed here): `cost_center` with `cost_center_id`, or `none` without
 	// (422 `procurement.invalid_account_assignment`). Absent: `cost_center` when a cost center is given,
-	// else `none`. Checked against the ledger when the requisition is submitted, on that day, as its
-	// postings will be: on a primary cost account the item names a cost center while cost center
-	// accounting applies (422 `ledger.cost_center_required`; the account's default is not taken), and the
-	// cost center is one of the legal entity, active, valid on the day and not locked for costs (422
-	// `ledger.cost_center_invalid` with the reason).
+	// else `none`. Checked against the ledger when the requisition is submitted, on its company's date in
+	// its time zone (`companies[].time_zone`, UTC when it sets none; T72n4), which a refusal's `detail`
+	// names, as its postings will be: on a primary cost account the item names a cost center while cost
+	// center accounting applies (422 `ledger.cost_center_required`; the account's default is not taken),
+	// and the cost center is one of the legal entity, active, valid on the day and not locked for costs
+	// (422 `ledger.cost_center_invalid` with the reason).
 	AccountAssignment OptString `json:"account_assignment"`
 	// Cost center the item is charged to, with `account_assignment` `cost_center`.
 	CostCenterID OptUUID `json:"cost_center_id"`

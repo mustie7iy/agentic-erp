@@ -21,15 +21,18 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
-// fakeSimulator answers every replay the same way.
+// fakeSimulator answers every replay the same way and keeps the window it
+// was last asked to replay.
 type fakeSimulator struct {
-	sim   configuration.Simulation
-	err   error
-	calls int
+	sim    configuration.Simulation
+	err    error
+	calls  int
+	window time.Duration
 }
 
-func (f *fakeSimulator) Simulate(context.Context, *config.Config, *config.Config) (configuration.Simulation, error) {
+func (f *fakeSimulator) Simulate(_ context.Context, _, _ *config.Config, window time.Duration) (configuration.Simulation, error) {
 	f.calls++
+	f.window = window
 	return f.sim, f.err
 }
 
@@ -62,7 +65,9 @@ func (s sim) suite(t *testing.T) {
 	deps := fixture.Deps()
 	deps.Regressor = &fakeRegressor{cases: []configuration.RegressionCase{caseOf(1, "2000", "auto_post")}}
 	if err := apitest.Committed(t, s.Tenant, s.Tenant.Human, func(ctx context.Context) error {
-		_, err := configuration.CaptureRegressionSuite(ctx, deps, configuration.NewRegressionSuite{Name: "Baseline"})
+		// 45 days, not the simulators' default, so that a test tells the
+		// suite's window replayed.
+		_, err := configuration.CaptureRegressionSuite(ctx, deps, configuration.NewRegressionSuite{Name: "Baseline", WindowDays: 45})
 		return err
 	}); err != nil {
 		t.Fatal(err)

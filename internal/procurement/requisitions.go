@@ -12,7 +12,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
-	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -92,6 +91,7 @@ type Requisition struct {
 	ContractID        *uuid.UUID
 	Currency          string
 	Exponent          int
+	RequisitionDate   time.Time // the company's date it was raised, in its time zone: its number's and routing rate's day (T72n5)
 	NeededBy          *time.Time
 	Status            string
 	WorkflowRequestID *uuid.UUID
@@ -108,7 +108,7 @@ type Requisition struct {
 func (r Requisition) Total() money.Minor { return total(r.Items) }
 
 const requisitionSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.requester_id, r.supplier_id, r.contract_id, r.currency, c.exponent,
-		r.needed_by, r.status, r.workflow_request_id, r.extensions, r.version, r.created_at, r.created_by, r.updated_at, r.updated_by,
+		r.requisition_date, r.needed_by, r.status, r.workflow_request_id, r.extensions, r.version, r.created_at, r.created_by, r.updated_at, r.updated_by,
 		coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'material_id', i.material_id, 'description', i.description,
 			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code, 'unit_price', i.unit_price, 'price_unit', i.price_unit,
 			'account_id', i.account_id, 'account_assignment', i.account_assignment, 'cost_center_id', i.cost_center_id) ORDER BY i.item_no)
@@ -118,7 +118,7 @@ const requisitionSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.
 func scanRequisition(row pgx.Row) (Requisition, error) {
 	var r Requisition
 	if err := row.Scan(&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.RequesterID, &r.SupplierID, &r.ContractID, &r.Currency, &r.Exponent,
-		&r.NeededBy, &r.Status, &r.WorkflowRequestID, &r.Extensions, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy, &r.Items); err != nil {
+		&r.RequisitionDate, &r.NeededBy, &r.Status, &r.WorkflowRequestID, &r.Extensions, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy, &r.Items); err != nil {
 		return Requisition{}, fmt.Errorf("scan requisition: %w", err)
 	}
 	return r, nil
@@ -270,7 +270,7 @@ func (e *Endpoints) createRequisition(ctx context.Context, in NewRequisition) (R
 	if err != nil {
 		return Requisition{}, err
 	}
-	day, err := database.Today(ctx, tx)
+	day, _, err := e.today(ctx, le.Code)
 	if err != nil {
 		return Requisition{}, err
 	}
@@ -280,9 +280,9 @@ func (e *Endpoints) createRequisition(ctx context.Context, in NewRequisition) (R
 	}
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.requisition (tenant_id, id, document_number, legal_entity_id, requester_id, supplier_id, contract_id,
-			currency, needed_by, status, extensions, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10, $5, $5)`,
-		p.TenantID, id, number, le.ID, p.ID, supplier, in.ContractID, in.Currency, in.NeededBy, in.Extensions); err != nil {
+			currency, requisition_date, needed_by, status, extensions, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft', $11, $5, $5)`,
+		p.TenantID, id, number, le.ID, p.ID, supplier, in.ContractID, in.Currency, day, in.NeededBy, in.Extensions); err != nil {
 		return Requisition{}, fmt.Errorf("procurement: create requisition %s: %w", number, err)
 	}
 	if err := writeRequisitionItems(ctx, tx, p.TenantID, id, items); err != nil {
@@ -451,13 +451,7 @@ func (e *Endpoints) submitRequisition(ctx context.Context, id uuid.UUID, ifMatch
 	if err != nil {
 		return Requisition{}, err
 	}
-	// Submission releases a requisition for approval: its items'
-	// assignments are checked on the day it is submitted (T56e).
-	today, err := database.Today(ctx, tx)
-	if err != nil {
-		return Requisition{}, err
-	}
-	if err := e.checkAssignments(ctx, r.LegalEntityID, today, assignments(r.Items, 0)); err != nil {
+	if err := e.checkSubmitted(ctx, r); err != nil {
 		return Requisition{}, err
 	}
 	sum, err := documentTotal(r.Items)
@@ -465,12 +459,10 @@ func (e *Endpoints) submitRequisition(ctx context.Context, id uuid.UUID, ifMatch
 		return Requisition{}, err
 	}
 	// The thresholds are in the company's currency: the amount is converted
-	// at the rate of the day the requisition was raised (UTC), its document
-	// date, so a resubmission is routed at the same rate.
-	raised := r.CreatedAt.UTC()
+	// at the rate of the requisition's date, the company's day it was raised
+	// in its time zone (T72n5), so a resubmission is routed at the same rate.
 	request, needed, err := e.Approvals.Open(ctx, approvals.NewRequest{ObjectType: approvals.Requisition, ObjectID: id,
-		Title: "Requisition " + r.DocumentNumber, Amount: &sum, Currency: &r.Currency, LegalEntityID: r.LegalEntityID,
-		Date: time.Date(raised.Year(), raised.Month(), raised.Day(), 0, 0, 0, 0, time.UTC)})
+		Title: "Requisition " + r.DocumentNumber, Amount: &sum, Currency: &r.Currency, LegalEntityID: r.LegalEntityID, Date: r.RequisitionDate})
 	if err != nil {
 		return Requisition{}, err
 	}

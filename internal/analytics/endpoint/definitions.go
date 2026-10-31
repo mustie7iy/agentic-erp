@@ -124,8 +124,9 @@ type MetricChange struct {
 	Values  []Value `json:"values"`
 }
 
-// Simulate implements configuration.Simulator.
-func (s Simulation) Simulate(ctx context.Context, base, proposed *config.Config) (configuration.Simulation, error) {
+// Simulate implements configuration.Simulator. It computes the current and
+// the previous fiscal year's values, so it has no window to replay.
+func (s Simulation) Simulate(ctx context.Context, base, proposed *config.Config, _ time.Duration) (configuration.Simulation, error) {
 	before, err := analytics.FromConfig(base)
 	if err != nil {
 		return configuration.Simulation{}, fmt.Errorf("analytics: simulate: the base model: %w", err)

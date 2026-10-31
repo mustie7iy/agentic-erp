@@ -29,3 +29,31 @@ func TestDay(t *testing.T) {
 		t.Errorf("Day: got %v, want %v", got, want)
 	}
 }
+
+// TestDayIn: an instant's calendar date in a zone, at midnight UTC; the
+// same instant is another day in Toronto, Dubai and UTC.
+func TestDayIn(t *testing.T) {
+	toronto, err := time.LoadLocation("America/Toronto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dubai, err := time.LoadLocation("Asia/Dubai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 4, 18, 2, 0, 0, 0, time.UTC) // 22:00 on the 17th in Toronto, 06:00 on the 18th in Dubai
+	for name, c := range map[string]struct {
+		loc  *time.Location
+		want time.Time
+	}{
+		"Toronto": {toronto, time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC)},
+		"Dubai":   {dubai, time.Date(2026, 4, 18, 0, 0, 0, 0, time.UTC)},
+		"UTC":     {time.UTC, time.Date(2026, 4, 18, 0, 0, 0, 0, time.UTC)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := DayIn(at, c.loc); !got.Equal(c.want) || got.Location() != time.UTC {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
+	}
+}

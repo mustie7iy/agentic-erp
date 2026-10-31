@@ -865,3 +865,19 @@ now; before production the three logins move to RDS IAM database
 authentication, a tracker step of its own (src po:2026-10-28). The
 directory's master password keeps its RDS-managed weekly rotation.
 
+**As built (2026-10-31, review of batch 25): the policies' Rego is held to
+`conftest fmt`.** No gate ran `conftest fmt --check`, and both policy
+directories had drifted from its layout (`deploy/helm/policy`'s
+`workloads_test.rego`, `deploy/policy`'s `endpoints_test.rego`). They are
+formatted by the pinned conftest (v0.71.0, as the deploy workflow installs
+it), a change of layout alone: the unit tests are the same 22 in each and
+pass unchanged. `scripts/lib/rego-fmt.sh`'s `check_rego_fmt` runs
+`conftest fmt --check` on a directory, first proving the check bites on a
+copy given a rule written `x:=1`, which fmt always rewrites.
+`helm-checks.sh` runs it on `deploy/helm/policy` before the policy's unit
+tests, and `deploy-checks.sh` on `deploy/policy` before its own; these two
+directories hold every `.rego` file in the repository.
+
+- *Decided by default:* the check covers `deploy/policy` too, since
+  the item's gap (Rego no gate formats) held there as well, and one
+  helper serves both scripts rather than a copy in each.

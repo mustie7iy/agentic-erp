@@ -85,7 +85,8 @@ export ERP_PAGE_TOKEN_KEY=$(head -c 32 /dev/urandom | base64) ERP_FIELD_KEY=$(he
 export ERP_ENV=development ERP_DEV_ISSUER=true ERP_MIGRATE_ON_START=true ERP_EXTRACT_DIR=$PWD/data ERP_OBJECT_DIR=$PWD/data/objects
 go build -o bin/erp ./cmd/erp && go build -o bin/erp-server ./cmd/erp-server && go build -o bin/erp-router ./cmd/erp-router && go build -o bin/erp-web ./cmd/erp-web
 mkdir -p data/objects && ./bin/erp gen-mock-sap -out data/extract.json
-./bin/erp config generate -source file:data/extract.json -company 1000,2000 -out data/config.yaml
+./bin/erp config generate -source file:data/extract.json -company 1000,2000 \
+  -time-zone 1000=America/New_York,2000=Europe/Berlin -out data/config.yaml   # each company's zone is required; SAP's extract has none
 ./bin/erp-server &                                   # migrates, then serves :8080 (API) and :9090 (admin)
 ./bin/erp-server provision -name Acme -region eu-west -currency EUR \
   -admin-subject ada -admin-name "Ada" -config data/config.yaml     # prints the tenant and administrator ids

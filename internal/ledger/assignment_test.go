@@ -312,7 +312,7 @@ func TestAssignmentAndCenterLockSerialize(t *testing.T) {
 		ch, _ := a.in(t).Must(200, "POST", path+":lock", fmt.Sprintf(`{"valid_from": "2026-%s-01", "valid_to": "2026-%s-01", "lock_actual_cost": true,
 			"reason": "r"}`, month, next[month]), tag)
 		return func(ctx context.Context) error {
-			return ledger.CenterChanges{}.Approved(ctx, uuid.MustParse(ch["id"].(string)), uuid.MustParse(ch["workflow_request_id"].(string)))
+			return changes().Approved(ctx, uuid.MustParse(ch["id"].(string)), uuid.MustParse(ch["workflow_request_id"].(string)))
 		}
 	}
 	post := func(day string) func(ctx context.Context) error {

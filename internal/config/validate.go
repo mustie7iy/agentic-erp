@@ -235,6 +235,17 @@ func (v *validator) company(p string, co *Company) {
 	if co.FiscalYearStartMonth < 1 || co.FiscalYearStartMonth > 12 {
 		v.err(p+".fiscal_year_start_month", "must be 1-12")
 	}
+	// Required of a document submitted or bootstrapped since the product
+	// owner's decision of 2026-10-31: a document activated before carries
+	// none and is read as UTC (Company.Location), as is one a change request
+	// submitted before then activates, since activation does not validate
+	// again.
+	if co.TimeZone == "" {
+		v.err(p+".time_zone", "time zone is required: the IANA name of the zone the company's business dates are in, such as America/Toronto or Asia/Dubai, "+
+			"as the company states it (a country can span several zones)")
+	} else if _, err := co.Location(); err != nil {
+		v.err(p+".time_zone", "%v", err)
+	}
 	v.chartOfAccounts(p, co)
 	v.accountDetermination(p, co)
 	v.taxCodes(p, co)

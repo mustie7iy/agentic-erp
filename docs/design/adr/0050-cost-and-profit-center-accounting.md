@@ -482,7 +482,11 @@ As built in T56c (migration 000140):
   nothing when no assignment changes. Lines carry no center until T56d, so
   every line on a newly refused account counts. The ledger now imports
   configuration's published `Simulator` and `Evidence`, as payables does
-  (no cycle: configuration does not import the ledger).
+  (no cycle: configuration does not import the ledger). Since the
+  invoices' simulation replays the window of the regression suite (07
+  T72l decisions), `Simulator` is given that window; the assignment replay
+  keeps the 90 days above, as the suite samples invoices, not journal
+  lines, and records them as `assignment_window_days`.
 - **Packs.** A pack's accounts may carry `cost_element`, checked by the
   pack validator (`config.Account.CostElementProblem`) and merged with the
   account. The released `ca/2026.1` pack is unchanged, and `ca/2026.2`
@@ -617,7 +621,8 @@ As built in T56d, T56d2 and T56d4 (migrations 000155-000160; the commit-time che
   posting and a lock's approval serialize both ways.
 - **One clock.** `keepsDefaultCostCenter`/`keepsDefaultProfitCenter` take
   today from `Endpoints.Now` and `CenterChanges.Now`, wired to the server's
-  clock as `Setup.Now` is, instead of the database's `current_date`.
+  clock as `Setup.Now` is, instead of the database's `current_date` (on
+  the company's date in its time zone from T72n4, §11 as built).
 - **Simulation.** `AssignmentSimulation` leaves out lines whose cost center
   is not the account's active default: their document gave it, the rules
   do not decide it (the column does not record whether a center was
@@ -694,7 +699,8 @@ As built in T56e (migrations 000161-000162; the capture agent's proposals are T5
   entity, active, valid on the date and not locked for costs (422
   `ledger.cost_center_invalid` with the reason), its profit center valid
   and unlocked (`ledger.profit_center_invalid`). A requisition is checked
-  when it is submitted, on that day; an order when it is released, on its
+  when it is submitted, on that day (the company's date in its time zone
+  from T72n4, §11 as built); an order when it is released, on its
   order date, before approval is asked and again as the release is
   approved; an order change's added items when it is submitted and as it
   is approved, on the changed order date. An order a migration run releases
@@ -1070,6 +1076,73 @@ decided, `ledger.cost_center.texts` (which texts, not their values); the same fo
 (`CostCenterChanged`, `ProfitCenterChanged`, `SegmentChanged`; the person
 responsible is left out of events). Locking and unlocking are `x-agent:
 false`; the other change requests are `x-autonomy: propose`.
+
+As built (T72n4, center changes on the company's date; product owner
+2026-10-31: changes take effect from the company's date in its time zone,
+not UTC's, as they decide which center a posting of that day takes):
+- **Every place a center's validity is judged against a today.** (1) A
+  center change's check that a default cost or profit center stays usable
+  from today on (409 `ledger.default_center_in_use`), at the request
+  (`redate`/`lock` of either kind) and again at the approval
+  (`CenterChanges`); (2) the setup's check of the controlling rules
+  (`readControlling`, Check and Apply): whether a default center is valid
+  and unlocked from today, and the fiscal year of today that center
+  accounting is turned on from; (3) a requisition's account assignments
+  as it is submitted (§6 as built: "on that day"), until now the
+  database's `current_date`. Each now judges on the company's date in its
+  `companies[].time_zone` (UTC when it sets none), with `clock.DayIn` on
+  the server's clock (`Endpoints.Now`, `CenterChanges.Now`, `Setup.Now`,
+  procurement's `Endpoints.Now`). The ledger reads the zone from the
+  active configuration (`ledger.Settings`, wired to
+  `configuration.Settings`, the port payments and procurement use) by the
+  legal entity's code (`config.CompanyLocation`); the setup reads it from
+  the document it checks or applies, the zone that document puts in
+  force. A profit center may be the default of companies in several
+  zones: each judges it on its own date. A handler wired without the
+  configuration, or a stored zone the binary cannot load, fails the
+  change rather than judging it in UTC. The setup's check of a document
+  whose zone does not load leaves the date-dependent controlling checks
+  for that company out: validation reports the zone
+  (`companies[<code>].time_zone`, 422), and the application, which only
+  sees validated documents, fails.
+- **Left as they are.** A posting derives and validates its centers on its
+  own posting date (§5), an order on its order date, an order change on
+  its changed order date and a supplier invoice on its posting or invoice
+  date (`CheckAssignments`): those dates are the documents', chosen by
+  their callers, and no clock or zone is involved. A posting date that a
+  caller leaves out and the context defaults to the database's
+  `current_date` (a supplier invoice posted or reversed without one, a
+  goods receipt reversed without one) is dated in UTC; that default
+  decides the period and the rates too, beyond centers, and is not this
+  step's (reported for the product owner). Hierarchies are not
+  time-dependent ("today's tree", decision P7) and read no date.
+- **What the consumer sees.** The refusal's `detail` names the date and
+  the zone (`… after the change it is locked from 2026-04-16 (the
+  company's date in America/Toronto) …`), as do the setup's findings;
+  to a caller who cannot access the company (a requester locking a
+  profit center an inaccessible company defaults to, an approver deciding
+  a change of a cost center in one) it says "the date of a company you
+  cannot access" instead, as the refusal already leaves out how many
+  companies default to a profit center; a
+  requisition's refusal at submission says it was checked on the
+  company's date and names the date and the zone (integration of batch
+  26, once T72n5's `today` helper gave the zone). The problem schema has no extension
+  members, so they are in the detail, as T72n3's are. The contract's
+  descriptions of `redateCostCenter`, `lockCostCenter`,
+  `redateProfitCenter`, `lockProfitCenter`, `submitRequisition` and the
+  requisition item's `account_assignment` say so.
+- **Determinism.** The checks run in requests and in the approval's
+  deciding transaction; no workflow code reads a clock.
+- **No migration.** The zone is configuration (ADR-0051 as built T72n1);
+  nothing is stored.
+- **Walkthrough.** Not extended: the step changes the time base of
+  existing rules, its server runs on the host's clock, and its company has
+  no default centers (step 12 creates centers without turning center
+  accounting on), so neither refusal can be shown at a chosen hour; the
+  package tests (`TestCenterChangesOnTheCompanysDate`,
+  `TestControllingDefaultsOnTheCompanysDate`,
+  `TestSubmissionOnTheCompanysDate`) fix the clock at 22:00 in Toronto and
+  01:00 in Dubai, each failing when judged in UTC.
 
 ### 12. Agents
 Agents may propose: a cost center on captured invoices and parked entries;

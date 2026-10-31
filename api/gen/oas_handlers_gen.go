@@ -17395,32 +17395,34 @@ func (s *Server) handleGetBusinessPartnerRequest(args [1]string, argsEscaped boo
 //
 // The daily cash position of a legal entity (ADR-0051 §8, T53c), computed at the read from one
 // database state (a repeatable-read snapshot): per house bank, in its own currency, and day from
-// `from` (default the read date, UTC; an earlier day is 422, past days being actuals) for `days` days
-// (1-31, default 14), the opening balance, the flows of the day by source and certainty, and the
-// closing balance. The first day opens at the closing balance of the bank's latest statement closing
-// before it (`opening.statement_date`; none: zero), plus the flows dated before it; it is `stale` when
-// that statement closes before the working day before the read date (the company's calendar: weekends
-// and its holidays) or there is none, and `gap` when a statement of the bank up to it does not open at
-// its previous one's closing balance (ADR-0047). Flows: `in_transit`, the released payments whose line
-// on the bank's clearing account is still open and that no statement line up to the opening statement
-// matches (a revaluation's valuation and reset lines on the account are not payments and never count),
-// and `payment_run`, the payments of runs `proposed` or `releasing` not posted yet, both `confirmed`,
-// each dated its run date plus the bank's `cash.value_days` (by method), moved to the next working
-// day; one dated before the read date is expected the working day after it and marked `late`; and
-// `memo`, the `active` memo records on the bank not expired at the read (`GET /v1/memo-records`), at
-// their own certainty, each occurrence of a series once, on its value date moved to the next working
-// day, late as a payment is. `book_balance` checks the opening statement against the ledger as the
-// reconciliation report does (`GET /v1/house-banks/{id}/reconciliation`: the main bank account's
-// balance on the statement's date, in the bank's currency, and what the statement lines explain of the
-// difference), with the payments in transit, posted and not yet at the bank. A bank's
-// `cash.credit_lines` amount is shown, and added to its closing balance as `available`; no limit is
-// enforced. `currencies` sums the banks of each currency. `converted` totals every currency in
-// `display_currency` (default the company's currency) at the latest rate of the company's
-// `cash.rate_type` (default `planning`; with no planning rate, `average`) valid on the read date, one
-// rate for every day; a rate valid from more than `cash.rate_max_age_days` (default 7) before the read
-// date is used and marked `stale`, and a currency without a rate is left out of the total and listed
-// in `incomplete_currencies`. Bank accounts appear by house bank code and last four characters, so
-// agents read the position as people do. A legal entity the caller cannot act in is 404.
+// `from` (default the read date: the company's date in its configured time zone, shown as `time_zone`,
+// UTC in a document activated before the zone was required (2026-10-31) that sets none; an earlier day
+// is 422, past days being actuals) for `days` days (1-31, default 14), the opening balance, the flows
+// of the day by source and certainty, and the closing balance. The first day opens at the closing
+// balance of the bank's latest statement closing before it (`opening.statement_date`; none: zero),
+// plus the flows dated before it; it is `stale` when that statement closes before the working day
+// before the read date (the company's calendar: weekends and its holidays) or there is none, and `gap`
+// when a statement of the bank up to it does not open at its previous one's closing balance
+// (ADR-0047). Flows: `in_transit`, the released payments whose line on the bank's clearing account is
+// still open and that no statement line up to the opening statement matches (a revaluation's valuation
+// and reset lines on the account are not payments and never count), and `payment_run`, the payments of
+// runs `proposed` or `releasing` not posted yet, both `confirmed`, each dated its run date plus the
+// bank's `cash.value_days` (by method), moved to the next working day; one dated before the read date
+// is expected the working day after it and marked `late`; and `memo`, the `active` memo records on the
+// bank not expired at the read (`GET /v1/memo-records`), at their own certainty, each occurrence of a
+// series once, on its value date moved to the next working day, late as a payment is. `book_balance`
+// checks the opening statement against the ledger as the reconciliation report does
+// (`GET /v1/house-banks/{id}/reconciliation`: the main bank account's balance on the statement's date,
+// in the bank's currency, and what the statement lines explain of the difference), with the payments
+// in transit, posted and not yet at the bank. A bank's `cash.credit_lines` amount is shown, and added
+// to its closing balance as `available`; no limit is enforced. `currencies` sums the banks of each
+// currency. `converted` totals every currency in `display_currency` (default the company's currency)
+// at the latest rate of the company's `cash.rate_type` (default `planning`; with no planning rate,
+// `average`) valid on the read date, one rate for every day; a rate valid from more than
+// `cash.rate_max_age_days` (default 7) before the read date is used and marked `stale`, and a currency
+// without a rate is left out of the total and listed in `incomplete_currencies`. Bank accounts appear
+// by house bank code and last four characters, so agents read the position as people do. A legal
+// entity the caller cannot act in is 404.
 //
 // GET /v1/cash-position
 func (s *Server) handleGetCashPositionRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -21171,8 +21173,9 @@ func (s *Server) handleGetMatchResultRequest(args [1]string, argsEscaped bool, w
 
 // handleGetMemoRecordRequest handles getMemoRecord operation.
 //
-// One memo record, with its status as of the read date. A memo record of a legal entity the caller
-// cannot act in is not found.
+// One memo record, with its status as of the read date: its legal entity's date at the read in its
+// company's configured time zone (`read_date`, `time_zone`; UTC when it has none; T72n2). A memo
+// record of a legal entity the caller cannot act in is not found.
 //
 // GET /v1/memo-records/{id}
 func (s *Server) handleGetMemoRecordRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -35316,7 +35319,9 @@ func (s *Server) handleListMatchResultsRequest(args [1]string, argsEscaped bool,
 //
 // The memo records of the legal entities the caller may act in (ADR-0051 §7, T53d): expected receipts
 // and payments entered by people, uploaded, or proposed by an agent. `status` is the record's as of
-// the read date: an `active` record whose last occurrence's expiry date has passed is `expired` (it no
+// the read date, each record's legal entity's date at the read in its company's configured time zone
+// (`read_date`, `time_zone`; UTC when it has none), the date the cash position reads that company on
+// (T72n2): an `active` record whose last occurrence's expiry date has passed is `expired` (it no
 // longer counts until a person moves, extends or cancels it). Sortable by: `value_date` (default),
 // `created_at`.
 //
@@ -42304,11 +42309,13 @@ func (s *Server) handleListWebhookSubscriptionsRequest(args [0]string, argsEscap
 // unlocking are people's decisions: agents may not request them. A cost center that is a company's
 // default cost center for accounts (the configuration's `default_assignments`, ADR-0050 §4) must stay
 // valid from today with no end and unlocked for actual costs, so automatic postings can use it (409
-// `ledger.default_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
-// its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
-// decides, never its requester and never an agent; the change is applied when the request is approved.
-// One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409
-// `ledger.invalid_center_status`).
+// `ledger.default_center_in_use`). Today is the cost center's company's date in its time zone
+// (`companies[].time_zone`, UTC when it sets none; T72n4), at the request and again at the approval,
+// and the problem's `detail` names that date and zone. Opens a pending center change
+// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
+// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
+// The center must be `active` (409 `ledger.invalid_center_status`).
 //
 // POST /v1/cost-centers/{id}:lock
 func (s *Server) handleLockCostCenterRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -42921,11 +42928,13 @@ func (s *Server) handleLockPlanCategoryRequest(args [1]string, argsEscaped bool,
 // checked at the request and again at the approval (ADR-0050 §3). Locking and unlocking are people's
 // decisions: agents may not request them. A company's default profit center (the configuration's
 // `default_profit_center`, ADR-0050 §4) must stay valid from today with no end and unlocked (409
-// `ledger.default_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
-// its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
-// decides, never its requester and never an agent; the change is applied when the request is approved.
-// One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409
-// `ledger.invalid_center_status`).
+// `ledger.default_center_in_use`). Today is the date of each company it is the default of, in that
+// company's time zone (`companies[].time_zone`, UTC when it sets none; T72n4), at the request and
+// again at the approval, and the problem's `detail` names that date and zone. Opens a pending center
+// change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller
+// holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is
+// applied when the request is approved. One pending change per center (409
+// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
 //
 // POST /v1/profit-centers/{id}:lock
 func (s *Server) handleLockProfitCenterRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -48246,11 +48255,13 @@ func (s *Server) handleRecordAgentToolCallRequest(args [1]string, argsEscaped bo
 // again at the approval (ADR-0050 §3). A cost center that is a company's default cost center for
 // accounts (the configuration's `default_assignments`, ADR-0050 §4) must stay valid from today with
 // no end and unlocked for actual costs, so automatic postings can use it (409
-// `ledger.default_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
-// its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
-// decides, never its requester and never an agent; the change is applied when the request is approved.
-// One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409
-// `ledger.invalid_center_status`).
+// `ledger.default_center_in_use`). Today is the cost center's company's date in its time zone
+// (`companies[].time_zone`, UTC when it sets none; T72n4), at the request and again at the approval,
+// and the problem's `detail` names that date and zone. Opens a pending center change
+// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
+// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
+// The center must be `active` (409 `ledger.invalid_center_status`).
 //
 // POST /v1/cost-centers/{id}:redate
 func (s *Server) handleRedateCostCenterRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -48468,11 +48479,13 @@ func (s *Server) handleRedateCostCenterRequest(args [1]string, argsEscaped bool,
 // `ledger.profit_center_period_in_use`), both checked at the request and again at the approval
 // (ADR-0050 §3). A company's default profit center (the configuration's `default_profit_center`,
 // ADR-0050 §4) must stay valid from today with no end and unlocked (409
-// `ledger.default_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
-// its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
-// decides, never its requester and never an agent; the change is applied when the request is approved.
-// One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409
-// `ledger.invalid_center_status`).
+// `ledger.default_center_in_use`). Today is the date of each company it is the default of, in that
+// company's time zone (`companies[].time_zone`, UTC when it sets none; T72n4), at the request and
+// again at the approval, and the problem's `detail` names that date and zone. Opens a pending center
+// change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller
+// holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is
+// applied when the request is approved. One pending change per center (409
+// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
 //
 // POST /v1/profit-centers/{id}:redate
 func (s *Server) handleRedateProfitCenterRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -49970,7 +49983,10 @@ func (s *Server) handleReleaseContractRequest(args [1]string, argsEscaped bool, 
 // `ledger.no_exchange_rate` when the company has a limit and no rate converts the run's currency on
 // the run date. Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a
 // failed release operation, which resumes it. 409 `payments.discount_lapsed` when a payment takes a
-// cash discount whose last day has passed (T36d): reject the run and propose again. 409
+// cash discount whose last day has passed (T36d): reject the run and propose again. The day is judged
+// on the paying company's date in its time zone (`companies[].time_zone`, required since 2026-10-31;
+// UTC in a document activated before that sets none; T72n3), and the problem's `detail` names that
+// date and zone, so a Toronto company's release at 22:00 on the last day still earns the discount. 409
 // `ledger.withholding_changed` when an item would withhold another amount than its payment deducted
 // (T46f); the payment is not posted.
 //
@@ -54571,7 +54587,10 @@ func (s *Server) handleSubmitPurchaseOrderChangeRequest(args [2]string, argsEsca
 
 // handleSubmitRequisitionRequest handles submitRequisition operation.
 //
-// Submits a draft for approval and opens an approval request. Requires status `draft`.
+// Submits a draft for approval and opens an approval request. Its items' account assignments are
+// checked on the company's date in its time zone (`companies[].time_zone`, UTC when it sets none;
+// T72n4); a refusal's `detail` names the date and the zone (422 `ledger.cost_center_invalid`,
+// `ledger.cost_center_required`, `ledger.profit_center_invalid`). Requires status `draft`.
 //
 // POST /v1/requisitions/{id}:submit
 func (s *Server) handleSubmitRequisitionRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

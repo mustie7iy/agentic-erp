@@ -97,6 +97,14 @@ func TestValidationRules(t *testing.T) {
 		{"currency", func(c *Config) { c.Companies[0].Currency = "usd" }, "companies[1000].currency"},
 		{"country", func(c *Config) { c.Companies[0].Country = "USA" }, "companies[1000].country"},
 		{"fiscal", func(c *Config) { c.Companies[0].FiscalYearStartMonth = 13 }, "companies[1000].fiscal_year_start_month"},
+		{"time zone unknown", func(c *Config) { c.Companies[0].TimeZone = "America/Montreal_Nowhere" }, "companies[1000].time_zone"},
+		{"time zone of the host", func(c *Config) { c.Companies[0].TimeZone = "Local" }, "companies[1000].time_zone"},
+		{"time zone of the host's file", func(c *Config) { c.Companies[0].TimeZone = "localtime" }, "companies[1000].time_zone"},
+		{"time zone posixrules", func(c *Config) { c.Companies[0].TimeZone = "posixrules" }, "companies[1000].time_zone"},
+		{"time zone of the posix tree", func(c *Config) { c.Companies[0].TimeZone = "posix/America/Toronto" }, "companies[1000].time_zone"},
+		{"time zone of the right tree", func(c *Config) { c.Companies[0].TimeZone = "right/America/Toronto" }, "companies[1000].time_zone"},
+		{"time zone in lower case", func(c *Config) { c.Companies[0].TimeZone = "america/toronto" }, "companies[1000].time_zone"},
+		{"time zone an offset", func(c *Config) { c.Companies[0].TimeZone = "-05:00" }, "companies[1000].time_zone"},
 		{"account number", func(c *Config) { c.Companies[0].ChartOfAccounts[0].Number = "12-34" }, "companies[1000].chart_of_accounts[12-34]"},
 		{"duplicate account", func(c *Config) {
 			co := &c.Companies[0]

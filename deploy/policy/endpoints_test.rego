@@ -6,7 +6,9 @@ import rego.v1
 vpc_with(services) := file(object.union({"aws_vpc": {"cell": [{"cidr_block": "10.0.0.0/16"}]}}, {"aws_vpc_endpoint": {s: [{
 	"vpc_id": "${aws_vpc.cell.id}",
 	"service_name": sprintf("com.amazonaws.${data.aws_region.current.region}.%s", [s]),
-}] | some s in services}}))
+}] |
+	some s in services
+}}))
 
 test_a_vpc_with_the_three_endpoints_passes if {
 	count(deny) == 0 with input as vpc_with(["s3", "kms", "sts", "ecr.api"])

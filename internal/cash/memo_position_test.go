@@ -86,7 +86,8 @@ func TestMemoRecordStatusOnTheReadDate(t *testing.T) {
 	}{{"one-off", old, "expired"}, {"a series ended in February", ended, "expired"}, {"a series without end", open, "active"}} {
 		t.Run(c.name, func(t *testing.T) {
 			got, _ := e.In(t).Must(200, "GET", path(c.m, ""), "", "")
-			want(t, "status", got["status"], c.want)
+			want(t, "status, judged on UTC's date for a company in UTC", fmt.Sprint(got["status"], " ", got["read_date"], " ", got["time_zone"]),
+				c.want+" 2026-04-17 UTC")
 		})
 	}
 	listed := func(status string) string {

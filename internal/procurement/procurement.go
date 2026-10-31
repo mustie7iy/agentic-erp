@@ -94,6 +94,9 @@ type Endpoints struct {
 	Approvals     Opener
 	Invoices      Invoices
 	Postings      Postings
+	// Now dates requisitions in their company's time zone (T72n5); nil
+	// means the wall clock. Tests fix it.
+	Now func() time.Time
 }
 
 // checkRules evaluates the tenant's validation rules on a purchase order's

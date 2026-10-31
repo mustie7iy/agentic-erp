@@ -38,9 +38,13 @@ type Simulation struct {
 
 // Simulator replays recent transactions under the base and the proposed
 // configuration in the request's transaction, reading committed data and
-// writing nothing (the payables context implements it).
+// writing nothing (the payables context implements it). It replays those
+// of the window back from now: as long as the window the base version's
+// latest regression suite was captured over, so that the simulation looks
+// back as far as the regression evidence, each from its own day; or zero,
+// when no suite is captured, for the simulator's own default.
 type Simulator interface {
-	Simulate(ctx context.Context, base, proposed *config.Config) (Simulation, error)
+	Simulate(ctx context.Context, base, proposed *config.Config, window time.Duration) (Simulation, error)
 }
 
 // Simulators simulates one change in several contexts (the payables
@@ -50,11 +54,11 @@ type Simulator interface {
 type Simulators []Simulator
 
 // Simulate implements Simulator.
-func (s Simulators) Simulate(ctx context.Context, base, proposed *config.Config) (Simulation, error) {
+func (s Simulators) Simulate(ctx context.Context, base, proposed *config.Config, window time.Duration) (Simulation, error) {
 	out := Simulation{Passed: true, Detail: map[string]any{}}
 	var summaries []string
 	for _, sim := range s {
-		r, err := sim.Simulate(ctx, base, proposed)
+		r, err := sim.Simulate(ctx, base, proposed, window)
 		if err != nil {
 			return Simulation{}, err
 		}
@@ -237,8 +241,9 @@ func assessed(ctx context.Context, tx pgx.Tx, c ChangeRequest) (*config.Config, 
 // evidence simulates the change request and, when its tier asks for it,
 // replays the regression suite, recording both, and reports whether all
 // passed with the detail for the audit entry. The simulation and the
-// regression suite are the evidence a tier needs (config.RequiredEvidence).
-// A problem fails the operation and returns no detail: the job is done.
+// regression suite are the evidence a tier needs (config.RequiredEvidence);
+// both use the base version's latest suite, the simulation its window. A
+// problem fails the operation and returns no detail: the job is done.
 func (w *SimulationWorker) evidence(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, c ChangeRequest, fail func(*problem.Problem) error) (bool, map[string]any, error) {
 	base, proposed, err := assessed(ctx, tx, c)
 	if err != nil {
@@ -252,10 +257,11 @@ func (w *SimulationWorker) evidence(ctx context.Context, tx pgx.Tx, actor reqctx
 		}
 		return false, nil, err
 	}
-	sim, err := w.Dependencies.Simulator.Simulate(ctx, base, proposed)
-	if err == nil {
-		sim, err = w.replayRules(ctx, c, base, proposed, sim)
+	suite, err := latestSuite(ctx, tx, c.BaseVersion)
+	if err != nil {
+		return false, nil, err
 	}
+	sim, err := w.simulateOver(ctx, c, base, proposed, suite)
 	if err != nil {
 		return false, nil, failOrRetry(err, fail)
 	}
@@ -265,7 +271,7 @@ func (w *SimulationWorker) evidence(ctx context.Context, tx pgx.Tx, actor reqctx
 	passed := sim.Passed
 	detail := map[string]any{"kind": "simulation", "passed": sim.Passed, "summary": sim.Summary}
 	if slices.Contains(config.RequiredEvidence(config.Tier(c.Tier)), "regression") {
-		reg, err := regression(ctx, tx, w.Dependencies, c, base, proposed)
+		reg, err := regression(ctx, w.Dependencies, c, base, proposed, suite)
 		if err != nil {
 			return false, nil, failOrRetry(err, fail)
 		}
@@ -276,6 +282,30 @@ func (w *SimulationWorker) evidence(ctx context.Context, tx pgx.Tx, actor reqctx
 		detail["regression_passed"], detail["regression_summary"] = reg.Passed, reg.Summary
 	}
 	return passed, detail, nil
+}
+
+// windowSuiteKey is the simulation detail's key for the number of the
+// regression suite whose window the simulation replayed; absent, no suite
+// was captured on the base version and each simulator replayed its default.
+const windowSuiteKey = "window_suite"
+
+// simulateOver simulates the change request over the window of the base
+// version's latest regression suite (nil when none is captured), with the
+// replays of the rules it changes, and names the suite in the detail.
+func (w *SimulationWorker) simulateOver(ctx context.Context, c ChangeRequest, base, proposed *config.Config, suite *RegressionSuite) (Simulation, error) {
+	var window time.Duration
+	if suite != nil {
+		window = time.Duration(suite.WindowDays) * 24 * time.Hour
+	}
+	sim, err := w.Dependencies.Simulator.Simulate(ctx, base, proposed, window)
+	if err != nil {
+		return Simulation{}, err
+	}
+	sim, err = w.replayRules(ctx, c, base, proposed, sim)
+	if err == nil && suite != nil {
+		sim.Detail[windowSuiteKey] = suite.Number // replayRules returns a detail of its own
+	}
+	return sim, err
 }
 
 // advance moves a change request whose evidence passed on to approval and

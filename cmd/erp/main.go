@@ -433,6 +433,7 @@ func configGenerate(ctx context.Context, args []string) error {
 	companies := fs.String("company", "1000", "comma-separated company codes")
 	year := fs.String("year", "2026", "fiscal year (for the extract)")
 	outPath := fs.String("out", "data/config-draft.yaml", "where to write the draft")
+	zones := fs.String("time-zone", "", "comma-separated CODE=ZONE, each company's IANA time zone (e.g. 3000=America/Toronto); SAP's extract has none")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -440,11 +441,15 @@ func configGenerate(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	opts := sapconfig.DefaultOptions()
+	if opts.TimeZones, err = parseZones(*zones); err != nil {
+		return err
+	}
 	e, err := src.Extract(ctx, sap.Scope{CompanyCodes: strings.Split(*companies, ","), FiscalYear: *year})
 	if err != nil {
 		return err
 	}
-	cfg, notes := sapconfig.Generate(e, sapconfig.DefaultOptions())
+	cfg, notes := sapconfig.Generate(e, opts)
 	doc, _ := cfg.Marshal() // Config.Marshal cannot fail
 	if err := os.WriteFile(*outPath, doc, 0o600); err != nil {
 		return fmt.Errorf("config generate: write draft %s: %w", *outPath, err)
@@ -458,6 +463,23 @@ func configGenerate(ctx context.Context, args []string) error {
 		return fmt.Errorf("config generate: print notes: %w", err)
 	}
 	return printFindings(config.Validate(cfg, currency.Seeded()))
+}
+
+// parseZones reads -time-zone: the zones are checked by the draft's
+// validation, which names the company of one that does not load.
+func parseZones(s string) (map[string]string, error) {
+	zones := map[string]string{}
+	if s == "" {
+		return zones, nil
+	}
+	for _, pair := range strings.Split(s, ",") {
+		code, zone, ok := strings.Cut(pair, "=")
+		if !ok || code == "" || zone == "" {
+			return nil, fmt.Errorf("invalid -time-zone %q: want CODE=ZONE, e.g. 3000=America/Toronto", pair)
+		}
+		zones[code] = zone
+	}
+	return zones, nil
 }
 
 func configValidate(args []string) error {

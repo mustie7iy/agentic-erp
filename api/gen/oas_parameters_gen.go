@@ -11654,7 +11654,8 @@ func decodeGetBusinessPartnerParams(args [1]string, argsEscaped bool, r *http.Re
 type GetCashPositionParams struct {
 	// Legal entity (required).
 	LegalEntityID uuid.UUID
-	// The first day, the read date (UTC) or later; default the read date.
+	// The first day, the read date (the company's date in its `time_zone`) or later; default the read
+	// date.
 	From OptDate `json:",omitempty,omitzero"`
 	// How many days, 1 to 31; default 14.
 	Days OptInt32 `json:",omitempty,omitzero"`
@@ -33524,7 +33525,8 @@ func decodeListMatchResultsParams(args [1]string, argsEscaped bool, r *http.Requ
 type ListMemoRecordsParams struct {
 	// Only resources of this legal entity (company code).
 	LegalEntityID OptUUID `json:",omitempty,omitzero"`
-	// Only memo records in this status as of the read date.
+	// Only memo records in this status as of the read date, each judged on its legal entity's date in its
+	// company's time zone (`read_date`).
 	Status OptString `json:",omitempty,omitzero"`
 	// Only memo records of this house bank.
 	HouseBankID OptUUID `json:",omitempty,omitzero"`
