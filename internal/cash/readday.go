@@ -75,8 +75,8 @@ func (e *Endpoints) readDaysOf(ctx context.Context, only *uuid.UUID) (readDays, 
 	now := clock.Now(e.Now)
 	r := readDays{byEntity: map[uuid.UUID]readDay{}, utc: readDay{Date: clock.Day(now), Zone: time.UTC.String()}}
 	if only != nil {
-		// One that does not exist has no code, so no company and UTC's
-		// date; it has no records to judge either.
+		// One that does not exist (ok is false) has the empty code, which
+		// finds no company, so UTC's date; it has no records to judge either.
 		co, _, err := e.LegalEntities.Company(ctx, *only)
 		if err != nil {
 			return readDays{}, fmt.Errorf("cash: legal entity %s: %w", *only, err)

@@ -13062,6 +13062,7 @@ paths:
       description: "The memo records of the legal entities the caller may act in (ADR-0051 §7, T53d): expected receipts and payments entered by people, uploaded, or proposed by an agent. `status` is the record's as of the read date, each record's legal entity's date at the read in its company's configured time zone (`read_date`, `time_zone`; UTC when it has none), the date the cash position reads that company on (T72n2): an `active` record whose last occurrence's expiry date has passed is `expired` (it no longer counts until a person moves, extends or cancels it). Sortable by: `value_date` (default), `created_at`."
       x-permission: cash.memo.read
       x-problem-codes:
+        - config.not_bootstrapped
         - request.invalid_order_by
         - request.invalid_page_size
         - request.invalid_page_token
@@ -13138,6 +13139,7 @@ paths:
         - cash.occurrence_invalid
         - cash.occurrence_overridden
         - cash.unknown_currency
+        - config.not_bootstrapped
         - request.invalid_amount
         - request.validation_failed
       parameters:
@@ -13202,6 +13204,7 @@ paths:
         - cash.occurrence_overridden
         - cash.statement_line_invalid
         - cash.unknown_currency
+        - config.not_bootstrapped
         - request.invalid_amount
         - request.validation_failed
       parameters:
@@ -13311,9 +13314,10 @@ paths:
       tags:
         - cash
       summary: Get a memo record
-      description: "One memo record, with its status as of the read date. A memo record of a legal entity the caller cannot act in is not found."
+      description: "One memo record, with its status as of the read date: its legal entity's date at the read in its company's time zone (`read_date`, `time_zone`, T72n2). A memo record of a legal entity the caller cannot act in is not found."
       x-permission: cash.memo.read
-      x-problem-codes: []
+      x-problem-codes:
+        - config.not_bootstrapped
       parameters:
         - $ref: "#/components/parameters/Id"
       responses:
@@ -13355,6 +13359,7 @@ paths:
         - cash.occurrence_overridden
         - cash.series_has_overrides
         - cash.unknown_currency
+        - config.not_bootstrapped
         - request.invalid_amount
         - request.validation_failed
         - request.version_mismatch
@@ -13418,6 +13423,7 @@ paths:
         - cash.occurrence_invalid
         - cash.occurrence_overridden
         - cash.statement_line_invalid
+        - config.not_bootstrapped
         - request.validation_failed
         - request.version_mismatch
       parameters:
@@ -13493,6 +13499,7 @@ paths:
         - cash.occurrence_invalid
         - cash.occurrence_overridden
         - cash.statement_line_invalid
+        - config.not_bootstrapped
         - request.validation_failed
         - request.version_mismatch
       parameters:
@@ -13568,6 +13575,7 @@ paths:
         - cash.memo_upload_concurrent
         - cash.occurrence_overridden
         - cash.unknown_currency
+        - config.not_bootstrapped
         - request.invalid_amount
         - request.validation_failed
         - request.version_mismatch
@@ -13631,6 +13639,7 @@ paths:
         - cash.memo_upload_concurrent
         - cash.occurrence_overridden
         - cash.unknown_currency
+        - config.not_bootstrapped
         - request.invalid_amount
         - request.validation_failed
         - request.version_mismatch

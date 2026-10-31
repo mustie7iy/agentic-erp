@@ -86,8 +86,9 @@ func TestMemoRecordStatusInTheCompanysZone(t *testing.T) {
 			want(t, "Acme's, listed", all[id(acme)], acmeWant)
 			for _, status := range []string{"active", "expired"} {
 				t.Run(status, func(t *testing.T) {
-					want(t, "Maple's filtered", e.statuses(t, "&status="+status)[id(maple)] != "", status == c.maple)
-					want(t, "Acme's filtered", e.statuses(t, "&status="+status)[id(acme)] != "", status == c.acme)
+					filtered := e.statuses(t, "&status="+status)
+					want(t, "Maple's filtered", filtered[id(maple)] != "", status == c.maple)
+					want(t, "Acme's filtered", filtered[id(acme)] != "", status == c.acme)
 					want(t, "Maple's filtered by its legal entity", e.statuses(t, "&status="+status+"&legal_entity_id="+e.le.String())[id(maple)] != "",
 						status == c.maple)
 				})
