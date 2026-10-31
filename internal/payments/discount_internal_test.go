@@ -132,13 +132,33 @@ func (code entities) Entity(_ context.Context, id uuid.UUID) (tenancy.Entity, bo
 
 // TestCompanyDayUnknownZone: a stored document whose company names a zone
 // this build cannot load (validation refuses one, so only a zone database
-// that lost it) fails the release rather than judging the discount in UTC.
+// that lost it) fails the release rather than judging the discount in UTC,
+// and a run's legal entity the directory does not know is refused as
+// every company date refuses it (config.EntityDay, review:batch27).
 func TestCompanyDayUnknownZone(t *testing.T) {
-	e := &Endpoints{LegalEntities: entities("2000"), Now: func() time.Time { return time.Date(2026, 3, 16, 2, 0, 0, 0, time.UTC) }}
+	at := func() time.Time { return time.Date(2026, 3, 16, 2, 0, 0, 0, time.UTC) }
 	doc := &config.Config{Companies: []config.Company{{Code: "2000", TimeZone: "America/Nowhere"}}}
 	until := day("2026-03-15")
-	err := e.recheckDiscounts(context.Background(), Run{ID: uuid.New(), Status: Proposed}, []Payment{{}, {DiscountUntil: &until}}, doc)
-	if err == nil || !strings.Contains(err.Error(), "payments: company 2000 of run") {
-		t.Errorf("got %v, want the company's zone refused", err)
+	for name, tc := range map[string]struct {
+		entities LegalEntities
+		want     string
+	}{
+		"a zone that does not load": {entities("2000"), `company 2000: time zone "America/Nowhere"`},
+		"an unknown legal entity":   {noEntities{}, "request.reference_not_found"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := &Endpoints{LegalEntities: tc.entities, Now: at}
+			err := e.recheckDiscounts(context.Background(), Run{ID: uuid.New(), Status: Proposed}, []Payment{{}, {DiscountUntil: &until}}, doc)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("got %v, want an error saying %q", err, tc.want)
+			}
+		})
 	}
+}
+
+// noEntities is a legal entity directory that knows none.
+type noEntities struct{}
+
+func (noEntities) Entity(context.Context, uuid.UUID) (tenancy.Entity, bool, error) {
+	return tenancy.Entity{}, false, nil
 }

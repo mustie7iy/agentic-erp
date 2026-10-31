@@ -2,6 +2,7 @@ package cash
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -24,15 +25,40 @@ type readDay struct {
 }
 
 // companyDay is company code's date at instant now in its time zone
-// (config.CompanyLocation, the lookup every company date shares): UTC when
-// it has none, or the document has no such company. A stored zone the
-// binary cannot load fails rather than reading the date in UTC.
+// (config.CompanyDay, the lookup every company date shares): UTC when it
+// has none, or the document has no such company. A stored zone the binary
+// cannot load fails rather than reading the date in UTC.
 func companyDay(doc *config.Config, code string, now time.Time) (readDay, error) {
-	loc, err := doc.CompanyLocation(code)
+	d, err := doc.CompanyDay(code, now)
 	if err != nil {
-		return readDay{}, fmt.Errorf("cash: company %s: %w", code, err)
+		return readDay{}, fmt.Errorf("cash: %w", err)
 	}
-	return readDay{Date: clock.DayIn(now, loc), Zone: loc.String()}, nil
+	return readDay{Date: d.Date, Zone: d.Zone.String()}, nil
+}
+
+// entityDay is legal entity le's date at instant now in its company's time
+// zone (config.EntityDay): a legal entity the directory does not know is
+// refused, as every company date refuses it, never read on UTC's date.
+func (e *Endpoints) entityDay(ctx context.Context, doc *config.Config, le uuid.UUID, now time.Time) (readDay, error) {
+	d, err := doc.EntityDay(ctx, func(ctx context.Context, id uuid.UUID) (string, bool, error) {
+		co, found, err := e.LegalEntities.Company(ctx, id)
+		return co.Code, found, err
+	}, le, now)
+	if err != nil {
+		return readDay{}, fmt.Errorf("cash: %w", err)
+	}
+	return readDay{Date: d.Date, Zone: d.Zone.String()}, nil
+}
+
+// recordDay is the date a memo record of legal entity le is judged on at
+// a read of it alone: a stored record's legal entity the directory does
+// not know is refused (entityDay).
+func (e *Endpoints) recordDay(ctx context.Context, le uuid.UUID) (readDay, error) {
+	doc, _, err := e.Settings.Document(ctx)
+	if err != nil {
+		return readDay{}, fmt.Errorf("cash: configuration: %w", err)
+	}
+	return e.entityDay(ctx, doc, le, clock.Now(e.Now))
 }
 
 // readDays are the legal entities' dates at one read: those whose company
@@ -61,10 +87,16 @@ func (r readDays) args() ([]uuid.UUID, []time.Time) {
 	return ids, dates
 }
 
-// readDaysOf reads the dates, at one instant, of the legal entities a read
-// may show: only's when it is given, else those of every company of the
-// configuration with a time zone, found by code (one with no legal entity
-// yet has no records). A tenant without zones reads no legal entity.
+// readDaysOf reads the dates, at one instant, of the legal entities a list
+// may show: only's when the list is filtered by it, else those of every
+// company of the configuration with a time zone, found by code (one with
+// no legal entity yet has no records). A tenant without zones reads no
+// legal entity. A filter naming a legal entity the directory does not
+// know reads no date for it: it matches no record, so no record is judged
+// on a date, and the list answers an empty page, as it does for a legal
+// entity the caller cannot access, so whether one exists does not leak
+// (tenancy.Accessible's rule). Every read that judges a record on its
+// legal entity's date refuses such a legal entity (entityDay).
 func (e *Endpoints) readDaysOf(ctx context.Context, only *uuid.UUID) (readDays, error) {
 	doc, _, err := e.Settings.Document(ctx)
 	if err != nil {
@@ -73,15 +105,14 @@ func (e *Endpoints) readDaysOf(ctx context.Context, only *uuid.UUID) (readDays, 
 	now := clock.Now(e.Now)
 	r := readDays{byEntity: map[uuid.UUID]readDay{}, utc: readDay{Date: clock.Day(now), Zone: time.UTC.String()}}
 	if only != nil {
-		// One that does not exist (ok is false) has the empty code, which
-		// finds no company, so UTC's date; it has no records to judge either.
-		co, _, err := e.LegalEntities.Company(ctx, *only)
-		if err != nil {
-			return readDays{}, fmt.Errorf("cash: legal entity %s: %w", *only, err)
+		d, err := e.entityDay(ctx, doc, *only, now)
+		if errors.Is(err, config.ErrNoLegalEntity) {
+			return r, nil
 		}
-		if r.byEntity[*only], err = companyDay(doc, co.Code, now); err != nil {
+		if err != nil {
 			return readDays{}, err
 		}
+		r.byEntity[*only] = d
 		return r, nil
 	}
 	for i := range doc.Companies {

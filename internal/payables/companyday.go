@@ -2,13 +2,14 @@ package payables
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // A posting date the caller leaves out is the company's date in its time
@@ -19,25 +20,14 @@ import (
 // a company that sets a zone.
 
 // companyDay is legal entity le's date now in its company's time zone
-// (config.CompanyLocation: UTC when the company sets none). A stored zone
-// the binary cannot load fails the post rather than dating it in UTC.
+// (config.EntityDay: UTC when the company sets none). A stored zone the
+// binary cannot load fails the post rather than dating it in UTC, and so
+// does a stored invoice's legal entity the directory does not know (its
+// company's date cannot be told, and UTC's is not it).
 func (e *Endpoints) companyDay(ctx context.Context, le uuid.UUID) (time.Time, error) {
-	ent, found, err := e.LegalEntities.Entity(ctx, le)
-	if err == nil && !found {
-		// A stored invoice's legal entity exists (its foreign key); were it
-		// gone, its company's date could not be told, and UTC's is not it.
-		err = errors.New("no such legal entity")
-	}
+	d, err := config.EntityDay(ctx, e.Settings, tenancy.CompanyCode(e.LegalEntities), le, clock.Now(e.Now))
 	if err != nil {
-		return time.Time{}, fmt.Errorf("payables: legal entity %s: %w", le, err)
+		return time.Time{}, fmt.Errorf("payables: %w", err)
 	}
-	doc, _, err := e.Settings.Document(ctx)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("payables: time zone of company %s: %w", ent.Code, err)
-	}
-	loc, err := doc.CompanyLocation(ent.Code)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("payables: company %s: %w", ent.Code, err)
-	}
-	return clock.DayIn(clock.Now(e.Now), loc), nil
+	return d.Date, nil
 }

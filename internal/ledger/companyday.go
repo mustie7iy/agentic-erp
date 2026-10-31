@@ -11,6 +11,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // Settings reads the active configuration (configuration context): the
@@ -61,27 +62,18 @@ type companyDays struct {
 	settings Settings
 }
 
-// of is legal entity le's date now in its company's time zone.
+// of is legal entity le's date now in its company's time zone
+// (config.EntityDay: a legal entity the directory does not know is
+// refused).
 func (d companyDays) of(ctx context.Context, le uuid.UUID) (companyDay, error) {
 	if d.entities == nil || d.settings == nil {
 		return companyDay{}, errors.New("ledger: no legal entities or configuration to read a company's time zone from")
 	}
-	e, found, err := d.entities.Entity(ctx, le)
+	day, err := config.EntityDay(ctx, d.settings, tenancy.CompanyCode(d.entities), le, clock.Now(d.now))
 	if err != nil {
-		return companyDay{}, fmt.Errorf("ledger: legal entity %s: %w", le, err)
+		return companyDay{}, fmt.Errorf("ledger: %w", err)
 	}
-	if !found {
-		return companyDay{}, fmt.Errorf("ledger: legal entity %s not found", le)
-	}
-	doc, _, err := d.settings.Document(ctx)
-	if err != nil {
-		return companyDay{}, fmt.Errorf("ledger: time zone of company %s: %w", e.Code, err)
-	}
-	loc, err := doc.CompanyLocation(e.Code)
-	if err != nil {
-		return companyDay{}, fmt.Errorf("ledger: company %s: %w", e.Code, err)
-	}
-	return companyDay{day: clock.DayIn(clock.Now(d.now), loc), zone: loc}, nil
+	return companyDay{day: day.Date, zone: day.Zone}, nil
 }
 
 // visible is legal entity le's date now as a refusal to the caller may

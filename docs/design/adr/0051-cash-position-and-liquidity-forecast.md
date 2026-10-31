@@ -956,6 +956,55 @@ recommended"):
   the reversal rather than dating it in UTC. No workflow posts these
   documents without a date, so no workflow code reads a clock.
 
+As built (one company-date helper; review:batch27, Pilot readiness
+"Company time zone"; a refactoring, no new decision of the product owner):
+- **One helper.** Every company date is told by `internal/config`
+  (`companyday.go`): `(*Config).CompanyDay(code, instant)` is a company's
+  date and zone by its code (`CompanyLocation`, `clock.DayIn`), and
+  `config.EntityDay(ctx, documents, codeOf, legal entity, instant)` a legal
+  entity's: its company code through the context's port, then the active
+  configuration, then `CompanyDay`; `(*Config).EntityDay` is the same for a
+  caller that has read the document already. Six lookups had grown, one per
+  context (procurement's `todayOf` and the contract expirer's
+  `companyDays`, the ledger's `companyDays.of`, payments' `companyDay`,
+  cash's `readDaysOf`, payables' `companyDay`), differing on a legal entity
+  the directory does not know. It lives in `config`, whose published API
+  every context already imports and which holds `CompanyLocation`: in
+  `internal/platform` it would make the platform depend on a context, a
+  new dependency direction (ADR-0001). The configuration knows companies
+  by code, not legal entities, so each context hands in its port as
+  `config.EntityCode`; `tenancy.CompanyCode` adapts a tenancy
+  `EntityReader`, which the procurement, ledger, payments and payables
+  ports are, and cash adapts its own `Company` port. Neither `config` nor
+  `tenancy` imports the other (the adapter returns a plain function type).
+- **One rule for a legal entity not found.** Refused, never dated in UTC:
+  its company, and so its zone, cannot be told, and UTC's date may be
+  another day. Legal entities are never deleted and every caller passes
+  one that a request or a stored row names, so the refusal reports broken
+  data: 422 `request.reference_not_found` naming the legal entity (a code
+  in the document's common list, though not every operation lists the
+  422 status: `getMemoRecord` does not), with no field error, and
+  `config.ErrNoLegalEntity` as its cause for `errors.Is`. Before, the
+  release's discount check, the ledger's center checks, procurement's
+  dates and payables' posting dates failed with a 500, and a memo record
+  read alone (create, read, change, the closing and proposal decisions)
+  was judged on UTC's date; each now gives the 422. The contract expirer's
+  round fails, as before, with the refusal in its log.
+- **The memo list keeps its answer, explicitly.** A memo-record list
+  filtered by a legal entity the directory does not know reads no date for
+  it: it matches no record, so nothing is judged on a date, and the list
+  answers an empty page, as for a legal entity the caller cannot access, so
+  whether one exists does not leak (`tenancy.Accessible`'s rule). Refusing
+  the filter would tell a caller which ids exist. Every other legal entity
+  of the list without a zone of its own is judged by UTC's date, the rule
+  for a company that sets none (above).
+- **Unchanged.** Every date for a known legal entity: the same zone, the
+  same instant, the same errors for a zone that does not load or a
+  configuration that cannot be read (their wording now the helper's). The
+  ledger's tax setup and controlling settings judge a proposed document's
+  company (`dayOfCompany`, `config.(*Company).Location`), not a legal
+  entity looked up, so they keep that path.
+
 ### 9. Liquidity forecast
 `GET /v1/liquidity-forecast?company=…&horizon=…` (`cash.forecast.read`):
 - **Buckets** from the company's configuration (`cash.buckets`, default:
