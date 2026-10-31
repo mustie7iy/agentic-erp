@@ -8954,7 +8954,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "internal/controlplane's bootstrap tests check the errors list's length before reading errs[0], so a response without errors fails the assertion instead of panicking the test",
       "r": "internal/controlplane controlplane_test.go:275, :280 (errs[0] without a length check) and :290 (the time-zone assertion added in batch 27 copies it) · CLAUDE.md tests: one clear assertion message per check",
       "src": "review:batch27",
