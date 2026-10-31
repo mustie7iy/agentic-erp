@@ -144,6 +144,7 @@ func TestUnpayableItemsOfAProposedRun(t *testing.T) {
 	first := e.invoice(t, e.Supplier, "INV-1", "100.00", "2026-03-01")
 	run := e.run(t, "2026-04-15", "2026-04-15")
 	e.unpayable(t, first)
+	pgtest.Exec(t, `UPDATE partner.business_partner SET name = 'Tyrell Office Products', version = version + 1 WHERE id = $1`, e.Supplier)
 	refused := e.decide(t, 409, run, "release", "")
 	if refused["code"] != "payments.proposal_outdated" {
 		t.Errorf("release of a proposed run with a reversed item: got %v, want payments.proposal_outdated", refused["code"])
@@ -151,7 +152,7 @@ func TestUnpayableItemsOfAProposedRun(t *testing.T) {
 	if detail, _ := refused["detail"].(string); !strings.Contains(detail, "reversed") {
 		t.Errorf("detail: got %q, want it to say the item is reversed", refused["detail"])
 	}
-	if detail, want := refused["detail"].(string), "payment to supplier BP90000001 BP90000001 ("+e.Supplier.String()+") settles"; !strings.Contains(detail, want) {
+	if detail, want := refused["detail"].(string), "payment to supplier BP90000001 Tyrell Office Products ("+e.Supplier.String()+") settles"; !strings.Contains(detail, want) {
 		t.Errorf("detail's supplier: got %v, want it to say %q", refused["detail"], want)
 	}
 	e.decide(t, 200, run, "reject", `{"reason": "Invoice reversed"}`)
