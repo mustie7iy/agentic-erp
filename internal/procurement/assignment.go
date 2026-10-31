@@ -3,7 +3,6 @@ package procurement
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -74,14 +73,7 @@ func (e *Endpoints) checkAssignments(ctx context.Context, le uuid.UUID, date tim
 // judged on that day. A refusal names the date it was judged on and the
 // zone, so a consumer told a center is not valid yet sees which day it was.
 func (e *Endpoints) checkSubmitted(ctx context.Context, r Requisition) error {
-	le, found, err := e.LegalEntities.Entity(ctx, r.LegalEntityID)
-	if err == nil && !found {
-		err = errors.New("no such legal entity")
-	}
-	if err != nil {
-		return fmt.Errorf("procurement: legal entity %s of requisition %s: %w", r.LegalEntityID, r.ID, err)
-	}
-	day, loc, err := e.today(ctx, le.Code)
+	day, loc, err := e.todayOf(ctx, r.LegalEntityID)
 	if err != nil {
 		return err
 	}

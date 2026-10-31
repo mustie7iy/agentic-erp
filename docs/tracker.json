@@ -8436,10 +8436,10 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "A posting date the caller leaves out is the company's date in its time zone, not the database's UTC current_date: a supplier invoice posted or reversed without one, a goods movement reversal without one. The date decides the period and the rates, so this waits for the product owner (money rule); recommended (batch 26): the company's date in its zone, as T72n1-T72n5 judge their dates",
-        "r": "found in T72n5 and T72n4 · internal/payables post.go invoicePostingDate (:402) and the reversal's default (:553), internal/procurement receipts.go reverseReceipt (:397), each database.Today · ADR-0050 §11 as built (left as they are) · ADR-0051 as built (T72n1, T72n5)",
-        "src": "review:batch26",
+        "s": "D",
+        "t": "A posting date the caller leaves out is the company's date in its time zone, not the database's UTC current_date: a supplier invoice posted or reversed without one, a goods movement reversal without one, so the date and its period are the company's; product owner 2026-10-31: the company's date",
+        "r": "found in T72n5 and T72n4 · product owner 2026-10-31 (as recommended) · ADR-0051 as built (posting dates the caller leaves out) · internal/payables companyday.go companyDay, post.go invoicePostingDate and ReverseInvoice, Endpoints.Now · internal/procurement common.go todayOf, receipts.go reversalDate · the posted invoice's and the reversal movement's posting_date, the invoice reversal's entry · TestPostingDateTimeZone · TestReversalDateTimeZone · walkthrough step 6 (the credit memo posted without a date)",
+        "src": "review:batch26 · po:2026-10-31",
         "c": []
        },
        {
@@ -8471,10 +8471,10 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "The tax rate in force at a tax setup's activation is judged on the company's date in its time zone, not the database's UTC current_date. A tax rule, so it waits for the product owner; recommended (batch 26): the company's date",
-        "r": "found in batch 26's lane reviews · internal/ledger taxsetup.go loadTaxRates (SELECT current_date, :242) · ADR-0051 as built (T72n1)",
-        "src": "review:batch26",
+        "s": "D",
+        "t": "The tax rate in force at a tax setup's activation, and the day a changed single-rate code's rate starts, are judged on the company's date in its time zone, not the database's UTC current_date, the submission's finding and the activation's refusal naming that date and zone; product owner 2026-10-31: the company's date",
+        "r": "found in batch 26's lane reviews · product owner 2026-10-31 (as recommended) · ADR-0049 as built (the activation day is the company's date) · ADR-0051 as built · internal/ledger taxsetup.go taxCodes, loadTaxRates, checkTaxRatesUnposted, namedDay · setup.go checkDay, applyCompany (one company date shared with readControlling) · TestTaxRateChangeOnTheCompanysDate · TestTaxRateChangeUnknownZone · no walkthrough step: the walkthrough's tax change is activated with the real clock and its rates are in no response",
+        "src": "review:batch26 · po:2026-10-31",
         "c": []
        }
       ]

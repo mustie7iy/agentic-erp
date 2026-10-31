@@ -50,23 +50,13 @@ type companyControlling struct {
 // application: the company's period statuses from the current year on, so
 // postings under way finish first and later ones see the switch, and the
 // centers for share, so they do not change before the transaction ends.
-// Today is the company's date at now in the time zone the document gives
-// it (T72n4), so the switches' year and the defaults' validity follow the
-// company's calendar, not UTC's.
-func readControlling(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID, co config.Company, now time.Time, lock bool,
+// Today is the company's date in the time zone the document gives it
+// (T72n4, dayOfCompany), so the switches' year and the defaults' validity
+// follow the company's calendar, not UTC's.
+func readControlling(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID, co config.Company, today companyDay, lock bool,
 	out *findings) (companyControlling, error) {
-	today, err := dayOfCompany(now, co)
-	if err != nil && !lock {
-		// A check of a document whose zone does not load: validation
-		// reports it (companies[].time_zone), and nothing judged on the
-		// company's date can be checked until it does.
-		return companyControlling{}, nil
-	}
-	if err != nil {
-		return companyControlling{}, err
-	}
 	c := companyControlling{costCenters: map[string]uuid.UUID{}, today: today, year: fiscalYearOf(today.day, co.FiscalYearStartMonth)}
-	err = tx.QueryRow(ctx, `SELECT (SELECT cost_center_accounting_from FROM ledger.company_controlling WHERE legal_entity_id = $1),
+	err := tx.QueryRow(ctx, `SELECT (SELECT cost_center_accounting_from FROM ledger.company_controlling WHERE legal_entity_id = $1),
 			(SELECT profit_center_accounting_from FROM ledger.company_controlling WHERE legal_entity_id = $1)`, le).Scan(&c.costFrom, &c.profitFrom)
 	if err != nil {
 		return c, fmt.Errorf("ledger: controlling of company %s: %w", co.Code, err)
@@ -309,9 +299,9 @@ func refused(f findings) error {
 // center and the default cost centers by account, deactivating the
 // defaults it no longer has. It refuses the activation when the document
 // no longer fits the tenant's data (readControlling).
-func applyControlling(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart uuid.UUID, co config.Company, now time.Time) error {
+func applyControlling(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart uuid.UUID, co config.Company, today companyDay) error {
 	var f findings
-	c, err := readControlling(ctx, tx, "companies["+co.Code+"]", le, co, now, true, &f)
+	c, err := readControlling(ctx, tx, "companies["+co.Code+"]", le, co, today, true, &f)
 	if err != nil {
 		return err
 	}

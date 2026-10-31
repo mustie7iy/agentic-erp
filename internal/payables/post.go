@@ -14,7 +14,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
-	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
@@ -51,7 +50,7 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err := requireReference(ctx, tx, v); err != nil {
 		return Invoice{}, err
 	}
-	date, err := invoicePostingDate(ctx, tx, v, postingDate)
+	date, err := e.invoicePostingDate(ctx, v, postingDate)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -92,8 +91,8 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 // (capturedExtensions); none posts without its required fields. Nor does
 // one a rule refuses: a captured invoice held by a rule and released by
 // hand is judged again on its header as it stands, with the posting date
-// the post uses (the request's, else the invoice's, else today), not the
-// one stored.
+// the post uses (the request's, else the invoice's, else the company's
+// date), not the one stored.
 func (e *Endpoints) postable(ctx context.Context, v Invoice, date *time.Time) error {
 	if _, err := e.extensions().Check(ctx, v.Extensions); err != nil {
 		return err
@@ -392,14 +391,14 @@ func approvedAsIs(v Invoice, approved *int32) bool {
 }
 
 // invoicePostingDate is the requested posting date, else the invoice's,
-// else today.
-func invoicePostingDate(ctx context.Context, tx pgx.Tx, v Invoice, postingDate *time.Time) (*time.Time, error) {
+// else the company's date now in its time zone (companyDay).
+func (e *Endpoints) invoicePostingDate(ctx context.Context, v Invoice, postingDate *time.Time) (*time.Time, error) {
 	date := postingDate
 	if date == nil {
 		date = v.PostingDate
 	}
 	if date == nil {
-		d, err := database.Today(ctx, tx)
+		d, err := e.companyDay(ctx, v.LegalEntityID)
 		if err != nil {
 			return nil, err
 		}
@@ -550,7 +549,7 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 		return Invoice{}, problem.Conflict("payables.invoice_in_payment_run", "The invoice is in payment run "+run+". Reject the run once it is proposed; a releasing run pays the invoice (resume a stopped release with :release), then reverse the payment first.")
 	}
 	if postingDate == nil {
-		d, err := database.Today(ctx, tx)
+		d, err := e.companyDay(ctx, v.LegalEntityID)
 		if err != nil {
 			return Invoice{}, err
 		}

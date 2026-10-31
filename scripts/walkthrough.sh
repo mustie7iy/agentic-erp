@@ -952,8 +952,13 @@ step_credit() {
   invoice TY-CM-77 1 470.00 credit_memo
   CREDIT=$(field .id)
   api 200 "$MATCHED" matchSupplierInvoice -p "id=$CREDIT" -if-match '"1"'
-  api 200 '"\(.kind) \(.document_number): \(.status)"' postSupplierInvoice -p "id=$CREDIT" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  say "Alex posts it without a posting date: it is dated Maple's date in Toronto, not UTC's, so on a Toronto"
+  say "evening it is still that day, in that day's period (product owner 2026-10-31)."
+  local before
+  before=$(TZ=America/Toronto date +%F)
+  api 200 '"\(.kind) \(.document_number): \(.status) on \(.posting_date)"' postSupplierInvoice -p "id=$CREDIT" -if-match '"1"' -body '{}'
   expect "credit memo status" "$(field .status)" posted
+  [ "$(field .posting_date)" = "$before" ] || expect "the credit memo's posting date, Toronto's" "$(field .posting_date)" "$(TZ=America/Toronto date +%F)"
   CREDIT_ENTRY=$(field .journal_entry_id)
   api 200 '.items[] | "open item \(.amount.amount) \(.amount.currency)"' listOpenItems -p "partner_id=$SUPPLIER"
   passed
