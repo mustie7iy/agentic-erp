@@ -964,8 +964,8 @@ type Invoker interface {
 	// GetMemoRecord invokes getMemoRecord operation.
 	//
 	// One memo record, with its status as of the read date: its legal entity's date at the read in its
-	// company's time zone (`read_date`, `time_zone`, T72n2). A memo record of a legal entity the caller
-	// cannot act in is not found.
+	// company's configured time zone (`read_date`, `time_zone`; UTC when it has none; T72n2). A memo
+	// record of a legal entity the caller cannot act in is not found.
 	//
 	// GET /v1/memo-records/{id}
 	GetMemoRecord(ctx context.Context, params GetMemoRecordParams) (GetMemoRecordRes, error)
@@ -18117,8 +18117,8 @@ func (c *Client) sendGetMatchResult(ctx context.Context, params GetMatchResultPa
 // GetMemoRecord invokes getMemoRecord operation.
 //
 // One memo record, with its status as of the read date: its legal entity's date at the read in its
-// company's time zone (`read_date`, `time_zone`, T72n2). A memo record of a legal entity the caller
-// cannot act in is not found.
+// company's configured time zone (`read_date`, `time_zone`; UTC when it has none; T72n2). A memo
+// record of a legal entity the caller cannot act in is not found.
 //
 // GET /v1/memo-records/{id}
 func (c *Client) GetMemoRecord(ctx context.Context, params GetMemoRecordParams) (GetMemoRecordRes, error) {

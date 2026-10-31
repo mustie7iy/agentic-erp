@@ -21173,8 +21173,8 @@ func (s *Server) handleGetMatchResultRequest(args [1]string, argsEscaped bool, w
 // handleGetMemoRecordRequest handles getMemoRecord operation.
 //
 // One memo record, with its status as of the read date: its legal entity's date at the read in its
-// company's time zone (`read_date`, `time_zone`, T72n2). A memo record of a legal entity the caller
-// cannot act in is not found.
+// company's configured time zone (`read_date`, `time_zone`; UTC when it has none; T72n2). A memo
+// record of a legal entity the caller cannot act in is not found.
 //
 // GET /v1/memo-records/{id}
 func (s *Server) handleGetMemoRecordRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
