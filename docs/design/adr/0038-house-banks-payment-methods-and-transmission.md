@@ -733,3 +733,26 @@ expose its channel's connector). Decided by default, as above:
   run for the same supplier's items, for no evidence of the zone; the
   package tests (`TestDiscountLapseTimeZone`) fix the clock at those
   hours instead.
+
+## As built: a release's refusals name the supplier (review:batch26)
+
+- **Decision.** A release refused because of one supplier's payment names
+  that supplier by its number and name, with the id the run's payments
+  give: `payments.discount_lapsed`, and both of
+  `payments.proposal_outdated`'s refusals (the supplier can no longer be
+  paid as proposed, or an item its payment settles is reversed or no
+  longer open). Before, the detail gave the supplier's UUID alone, so the
+  consumer told to reject the run had to list the payments to learn whose
+  payment was refused (REVIEW.md, API-consumer classes: an identifier
+  without the name its consumer needs). Settled by the class and by the
+  payments' `supplier_name` (batch 22); the number is the business
+  partner's, as the order document names its supplier.
+- **Where.** `refuse` in `release.go` reads the number and name from the
+  partner context's `Names` port (which now gives both; the payments'
+  `supplier_name` keeps the name), one call, only when the release is
+  refused. The partner context failing, or not holding the supplier, fails
+  the release (500) rather than refusing it with an unnamed supplier, as
+  a page of payments does (`idref.Resolve`).
+- **Contract.** A `detail` text change only: `releasePaymentRun`'s
+  description says the detail names the supplier. No new field; oasdiff
+  reports no breaking change.

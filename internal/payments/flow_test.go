@@ -422,6 +422,9 @@ func TestProposalOutdated(t *testing.T) {
 	if detail := got["detail"].(string); !strings.Contains(detail, "bank_account_changed") {
 		t.Errorf("bank account changed detail: got %q, want it to name bank_account_changed", detail)
 	}
+	if want := "Supplier BP90000001 BP90000001 (" + e.Supplier.String() + ") can no longer"; !strings.Contains(fmt.Sprint(got["detail"]), want) {
+		t.Errorf("bank account changed detail's supplier: got %v, want it to say %q", got["detail"], want)
+	}
 	pgtest.Exec(t, `UPDATE partner.supplier_company SET is_payment_blocked = true, version = version + 1 WHERE partner_id = $1`, e.Supplier)
 	if got := e.decide(t, 409, run, "release", ""); !strings.Contains(got["detail"].(string), "payment_blocked") {
 		t.Fatalf("payment blocked: %v", got)

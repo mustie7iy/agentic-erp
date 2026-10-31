@@ -131,7 +131,7 @@ type Postings interface {
 type Payees interface {
 	Payees(ctx context.Context, legalEntity uuid.UUID, partners []uuid.UUID, on time.Time) (map[uuid.UUID]partner.Payee, error)
 	BankDetails(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]partner.BankDetail, error)
-	Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)                     // what a payment shows beside its supplier's id
+	Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]partner.Named, error)              // what a payment shows beside its supplier's id, and a refusal names it by
 	BankAccounts(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]partner.BankAccount, error) // masked: what a payment shows beside its bank account's id
 }
 

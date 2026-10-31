@@ -151,6 +151,9 @@ func TestUnpayableItemsOfAProposedRun(t *testing.T) {
 	if detail, _ := refused["detail"].(string); !strings.Contains(detail, "reversed") {
 		t.Errorf("detail: got %q, want it to say the item is reversed", refused["detail"])
 	}
+	if detail, want := refused["detail"].(string), "payment to supplier BP90000001 BP90000001 ("+e.Supplier.String()+") settles"; !strings.Contains(detail, want) {
+		t.Errorf("detail's supplier: got %v, want it to say %q", refused["detail"], want)
+	}
 	e.decide(t, 200, run, "reject", `{"reason": "Invoice reversed"}`)
 
 	second := e.invoice(t, e.Supplier, "INV-2", "50.00", "2026-03-02")

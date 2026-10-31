@@ -1002,9 +1002,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "payments.discount_lapsed names the supplier by its code and name, not only its UUID, so the consumer told to reject the run knows which payment lost its discount (an API-consumer class, REVIEW.md)",
-      "r": "found in batch 26's lane reviews · internal/payments release.go checkDiscounts (problem.Conflict payments.discount_lapsed, :438, pay.SupplierID) · ADR-0038",
+      "r": "found in batch 26's lane reviews · internal/payments release.go checkDiscounts (problem.Conflict payments.discount_lapsed, :438, pay.SupplierID) · ADR-0038 · done in apinames4: release.go refuse names the supplier by number and name (partner Names), in payments.discount_lapsed and both payments.proposal_outdated refusals · ADR-0038 as built (a release's refusals name the supplier)",
       "src": "review:batch26",
       "c": []
      }

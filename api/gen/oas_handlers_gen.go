@@ -49956,13 +49956,14 @@ func (s *Server) handleReleaseContractRequest(args [1]string, argsEscaped bool, 
 // (ADR-0012): the run moves to `releasing`, each payment is posted with the entry that clears its
 // items (one transaction per payment, progress on the operation), and the bank file is produced; the
 // run is `released` when the operation succeeds. Every supplier, and every item of a proposed run, is
-// checked again before anything is posted (409 `payments.proposal_outdated`). A payment not posted yet
-// whose item was reversed, or is no longer open, since the proposal can never post: the release drops
-// it (the supplier is excluded with `item_reversed` or `item_not_open`, its items are freed, the run's
-// total no longer counts it, `PaymentExcluded` is published) and goes on with the others; a release
-// that drops every payment fails with `payments.nothing_to_pay` and returns the run to `proposed`, to
-// be rejected. Human-only. Segregation of duties: the proposer can never release or reject the run
-// (403 `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). The
+// checked again before anything is posted (409 `payments.proposal_outdated`, whose `detail` names the
+// supplier by its number and name). A payment not posted yet whose item was reversed, or is no longer
+// open, since the proposal can never post: the release drops it (the supplier is excluded with
+// `item_reversed` or `item_not_open`, its items are freed, the run's total no longer counts it,
+// `PaymentExcluded` is published) and goes on with the others; a release that drops every payment
+// fails with `payments.nothing_to_pay` and returns the run to `proposed`, to be rejected. Human-only.
+// Segregation of duties: the proposer can never release or reject the run (403
+// `identity.sod_conflict`; the database enforces `decided_by` differs from `proposed_by`). The
 // releaser holds the active configuration's `payments.release_role` today (403
 // `payments.release_role_missing`; 422 `workflow.unknown_role` when it names no active role). A
 // configuration asking for more than one releaser (`payments.release_approvals` above 1, which
@@ -49986,7 +49987,8 @@ func (s *Server) handleReleaseContractRequest(args [1]string, argsEscaped bool, 
 // cash discount whose last day has passed (T36d): reject the run and propose again. The day is judged
 // on the paying company's date in its time zone (`companies[].time_zone`, required since 2026-10-31;
 // UTC in a document activated before that sets none; T72n3), and the problem's `detail` names that
-// date and zone, so a Toronto company's release at 22:00 on the last day still earns the discount. 409
+// date and zone, and the supplier whose payment lost the discount by its number and name, so a Toronto
+// company's release at 22:00 on the last day still earns the discount. 409
 // `ledger.withholding_changed` when an item would withhold another amount than its payment deducted
 // (T46f); the payment is not posted.
 //
