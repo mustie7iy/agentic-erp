@@ -20,6 +20,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/cabank"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
@@ -466,8 +467,12 @@ func (e *Endpoints) supplierNamed(ctx context.Context, supplier uuid.UUID) (stri
 	if err != nil {
 		return "", fmt.Errorf("payments: name supplier %s: %w", supplier, err)
 	}
-	n := named[supplier]
-	return n.Number + " " + n.Name + " (" + supplier.String() + ")", nil
+	return supplierLabel(supplier, named[supplier]), nil
+}
+
+// supplierLabel is supplier's number and name, with its id.
+func supplierLabel(supplier uuid.UUID, n partner.Named) string {
+	return n.Number + " " + n.Name + " (" + supplier.String() + ")"
 }
 
 // companyDay is the date now of run r's company, in the time zone its

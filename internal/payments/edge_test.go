@@ -383,7 +383,7 @@ func TestProposalTotalsOutOfRange(t *testing.T) {
 		of     func(e env) string // whose open items the detail names
 	}{
 		{"one supplier", func(_ *testing.T, e env) uuid.UUID { return e.Supplier },
-			func(e env) string { return "supplier BP90000001 BP90000001 (" + e.Supplier.String() + ")" }},
+			func(e env) string { return "supplier BP90000001 Supplier GmbH (" + e.Supplier.String() + ")" }},
 		{"the run", func(t *testing.T, e env) uuid.UUID {
 			t.Helper()
 			e.bankAccount(t, e.Vendor, "DE02120300000000202051", "Vendor AG", "2026-01-01", "", "create")
@@ -392,6 +392,8 @@ func TestProposalTotalsOutOfRange(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := setup(t)
+			// The name differs from the number, so the detail is seen to give each.
+			pgtest.Exec(t, `UPDATE partner.business_partner SET name = 'Supplier GmbH', version = version + 1 WHERE id = $1`, e.Supplier)
 			e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier GmbH", "2026-01-01", "", "create")
 			e.invoice(t, e.Supplier, "INV-1", half, "2026-03-01")
 			e.invoice(t, tc.second(t, e), "INV-2", half, "2026-03-01")

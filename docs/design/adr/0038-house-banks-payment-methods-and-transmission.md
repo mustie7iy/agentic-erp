@@ -769,10 +769,14 @@ expose its channel's connector). Decided by default, as above:
   release's refusals above.
 - **Where.** The proposal computes without a context, so `propose` and
   `pay` return `supplierTooLarge` with the supplier's id, and
-  `paymentsFor` names it (`nameTooLarge`) through `supplierNamed`, the
-  helper `refuse` now shares: one partner `Names` call, only when the
-  proposal fails. The partner context failing, or not holding the
-  supplier, fails the proposal with that error, as a refusal does.
+  `paymentsFor` names it (`nameTooLarge`): one partner `Names` call, only
+  when the proposal fails, formatted by `supplierLabel`, which `refuse`
+  shares. The partner context failing is an error, so the proposal job is
+  retried. A supplier it does not hold (a journal line names its partner
+  without a foreign key) still fails the run with 422
+  `payments.amount_too_large`, naming the supplier by its id: an error
+  there would retry the job first in its tenant's queue forever, as
+  `build` says of a missing legal entity (review:batch28 round 1).
 - **Contract.** A `detail` text change only: `proposePaymentRun`'s
   description names the problem and says its detail names the supplier.
   No new field; oasdiff reports no breaking change.

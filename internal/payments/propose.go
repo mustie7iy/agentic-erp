@@ -159,17 +159,25 @@ func (s supplierTooLarge) Error() string {
 
 // nameTooLarge turns a supplierTooLarge into errTooLarge naming the
 // supplier as its consumer knows it (REVIEW.md, an identifier without the
-// name its consumer needs); any other error passes unchanged.
+// name its consumer needs); any other error passes unchanged. The partner
+// context failing stays an error, so the job is retried. A supplier it
+// does not hold (journal lines name their partner without a foreign key)
+// still fails the run, naming the supplier by its id: left an error, the
+// job would be retried first in its tenant's queue forever (build).
 func (e *Endpoints) nameTooLarge(ctx context.Context, err error) error {
 	var tl supplierTooLarge
 	if !errors.As(err, &tl) {
 		return err
 	}
-	named, err := e.supplierNamed(ctx, tl.supplier)
+	named, err := e.Payees.Names(ctx, []uuid.UUID{tl.supplier})
 	if err != nil {
-		return err
+		return fmt.Errorf("payments: name supplier %s: %w", tl.supplier, err)
 	}
-	return errTooLarge("supplier " + named)
+	n, ok := named[tl.supplier]
+	if !ok {
+		return errTooLarge("supplier " + tl.supplier.String())
+	}
+	return errTooLarge("supplier " + supplierLabel(tl.supplier, n))
 }
 
 // total is what is owed the supplier after the cash discounts its items

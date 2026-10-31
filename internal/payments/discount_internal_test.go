@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -85,12 +86,13 @@ func TestProposalDiscountsOutOfRange(t *testing.T) {
 	huge := money.Minor(9_000_000_000_000_000_000)
 	c := candidate{supplier: supplier, items: []Item{{Amount: huge, Discount: huge - 1}, {Amount: huge, Discount: huge - 1}}}
 	var pr proposal
-	if err := pr.pay(c, bank, via{}, 1, Run{}, "2000"); err == nil {
-		t.Error("a supplier's discounts beyond an amount: got none, want an error")
+	if err := pr.pay(c, bank, via{}, 1, Run{}, "2000"); !errors.As(err, new(supplierTooLarge)) {
+		t.Errorf("a supplier's discounts beyond an amount: got %v, want supplierTooLarge", err)
 	}
 	pr = proposal{discount: huge}
-	if err := pr.pay(candidate{supplier: supplier, items: []Item{{Amount: huge, Discount: huge - 1}}}, bank, via{}, 1, Run{}, "2000"); err == nil {
-		t.Error("a run's discounts beyond an amount: got none, want an error")
+	err = pr.pay(candidate{supplier: supplier, items: []Item{{Amount: huge, Discount: huge - 1}}}, bank, via{}, 1, Run{}, "2000")
+	if got := problem.From(err).Code; got != "payments.amount_too_large" || errors.As(err, new(supplierTooLarge)) {
+		t.Errorf("a run's discounts beyond an amount: got %v, want the run's payments.amount_too_large", err)
 	}
 }
 

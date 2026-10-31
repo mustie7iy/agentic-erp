@@ -220,8 +220,9 @@ func TestRefuse(t *testing.T) {
 
 // TestNameTooLarge: a proposal failing on one supplier's totals names the
 // supplier by number and name, with its id, as a release's refusals do;
-// the partner context failing fails the proposal with that error, and any
-// other error passes unchanged.
+// the partner context failing is an error (the job is retried), a supplier
+// it does not hold still fails the run (a problem) naming it by id, and
+// any other error passes unchanged.
 func TestNameTooLarge(t *testing.T) {
 	supplier := uuid.New()
 	down, other := errors.New("partner down"), errors.New("something else")
@@ -236,7 +237,9 @@ func TestNameTooLarge(t *testing.T) {
 		"wrapped": {named, fmt.Errorf("propose: %w", supplierTooLarge{supplier}),
 			"payments.amount_too_large (422): The open items of supplier BP1 Tyrell (" + supplier.String() + ") add up to more than an amount can hold."},
 		"the partner context failing": {partners{err: down}, supplierTooLarge{supplier}, "payments: name supplier " + supplier.String() + ": partner down"},
-		"another error":               {partners{err: down}, other, "something else"},
+		"a supplier unknown": {partners{names: map[uuid.UUID]partner.Named{}}, supplierTooLarge{supplier},
+			"payments.amount_too_large (422): The open items of supplier " + supplier.String() + " add up to more than an amount can hold."},
+		"another error": {partners{err: down}, other, "something else"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := &Endpoints{Payees: c.partners}
