@@ -771,12 +771,16 @@ step_pack() {
   say "Ada records that there is nothing to replay: a suite of no cases, which the evidence and the approvers will show."
   api 201 '"regression suite \(.number): \(.case_count) cases"' createRegressionSuite \
     -body '{"name": "Before the Canada pack, no invoices yet", "window_days": 366, "allow_empty": true}'
+  local suite
+  suite=$(field .number)
+  say "The simulation replays the invoices of the suite's window, 366 days, so both kinds of evidence cover the same span."
   QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
   api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
   wait_op
   api 200 '.evidence[] | "evidence \(.kind): \(if .passed then "passed" else "FAILED" end), \(.summary)"' getChangeRequest -p "id=$cr"
   expect "status after the evidence" "$(field .status)" pending_approval
   expect "the regression evidence says no case was replayed" "$(field '.evidence[] | select(.kind == "regression") | .detail.no_cases')" true
+  expect "the simulation's window is the suite's" "$(field '.evidence[] | select(.kind == "simulation") | "\(.detail.window_days) days of \(.detail.window_suite)"')" "366 days of $suite"
   local request
   request=$(field .workflow_request_id)
   say "Two approvers, neither of them its author: the solution architect, then the controller. Nothing was"

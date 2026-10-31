@@ -28,8 +28,8 @@ const (
 	DecisionNotEvaluable = "not_evaluable"
 )
 
-// Simulation replays the supplier invoices on purchase orders of the last
-// Window under two configurations, for the configuration context's change
+// Simulation replays the supplier invoices on purchase orders of a recent
+// window under two configurations, for the configuration context's change
 // requests: which invoices would be decided differently (tolerances, the
 // auto-post limit) and which posting rules move (account determination,
 // tax codes). It reads committed data in the request's transaction and
@@ -38,7 +38,7 @@ type Simulation struct {
 	LegalEntities LegalEntities
 	Orders        Orders
 	Rates         Rates
-	Window        time.Duration // how far back invoices are replayed; default 90 days
+	Window        time.Duration // how far back invoices are replayed when the simulation is given no window; default 90 days
 	Limit         int           // at most this many invoices, newest first; default 2000
 	Now           func() time.Time
 }
@@ -95,9 +95,14 @@ type Posting struct {
 // examples is how many changes and breaks the detail lists.
 const examples = 50
 
-// Simulate implements configuration.Simulator.
-func (s Simulation) Simulate(ctx context.Context, base, proposed *config.Config) (configuration.Simulation, error) {
-	window, limit := s.Window, s.Limit
+// Simulate implements configuration.Simulator: it replays the invoices of
+// the window given, that of the regression suite the change request's
+// regression evidence replays, or else of Window.
+func (s Simulation) Simulate(ctx context.Context, base, proposed *config.Config, window time.Duration) (configuration.Simulation, error) {
+	limit := s.Limit
+	if window <= 0 {
+		window = s.Window
+	}
 	if window <= 0 {
 		window = 90 * 24 * time.Hour
 	}

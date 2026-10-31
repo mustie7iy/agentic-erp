@@ -35,20 +35,21 @@ type simulated struct {
 func (s simulation) run(tb testing.TB, from, to *config.Config, window time.Duration) simulated {
 	tb.Helper()
 	sim, err := s.e.simulated(tb, payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates, Window: window,
-		Now: func() time.Time { return s.today }}, from, to)
+		Now: func() time.Time { return s.today }}, from, to, 0)
 	if err != nil {
 		tb.Fatal(err)
 	}
 	return sim
 }
 
-// simulated runs the simulation as the requester and returns it as they
-// are shown it; the summary recorded carries no count.
-func (e env) simulated(tb testing.TB, s payables.Simulation, from, to *config.Config) (simulated, error) {
+// simulated runs the simulation over the window given (0: the
+// simulation's own) as the requester and returns it as they are shown it;
+// the summary recorded carries no count.
+func (e env) simulated(tb testing.TB, s payables.Simulation, from, to *config.Config, window time.Duration) (simulated, error) {
 	tb.Helper()
 	var shown configuration.Evidence
 	err := apitest.InRequest(tb, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-		sim, err := s.Simulate(ctx, from, to)
+		sim, err := s.Simulate(ctx, from, to, window)
 		if err != nil {
 			return err
 		}
@@ -124,7 +125,7 @@ func TestSimulationReplaysInvoices(t *testing.T) {
 	}
 	t.Run("every statement failing", func(t *testing.T) {
 		simulate := func(ctx context.Context) error {
-			_, err := payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates, Now: func() time.Time { return s.today }}.Simulate(ctx, base, tolerant)
+			_, err := payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates, Now: func() time.Time { return s.today }}.Simulate(ctx, base, tolerant, 0)
 			return err
 		}
 		if simulate(context.Background()) == nil {
@@ -301,5 +302,18 @@ func checkDropped(t *testing.T, s simulation, base, tolerant *config.Config) {
 	}
 	if sim = s.run(t, base, tolerant, 24*time.Hour); sim.Invoices != 0 || !sim.Passed {
 		t.Fatalf("short window: %+v", sim)
+	}
+	// The window given (the regression suite's) wins over the simulation's own.
+	short := payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates, Window: 24 * time.Hour,
+		Now: func() time.Time { return s.today }}
+	given, err := s.e.simulated(t, short, base, tolerant, 45*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if given.WindowDays != 45 {
+		t.Errorf("given window: got %d days, want 45", given.WindowDays)
+	}
+	if given.Invoices != 3 {
+		t.Errorf("given window: got %d invoices, want 3", given.Invoices)
 	}
 }

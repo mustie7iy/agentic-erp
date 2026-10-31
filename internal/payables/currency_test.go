@@ -270,7 +270,7 @@ var day = time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
 func (e env) simulate(t *testing.T, base, proposed *config.Config) (simulated, error) {
 	t.Helper()
 	return e.simulated(t, payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates,
-		Now: func() time.Time { return day }}, base, proposed)
+		Now: func() time.Time { return day }}, base, proposed, 0)
 }
 
 func (e env) capture(t *testing.T, doc *config.Config) ([]configuration.RegressionCase, error) {

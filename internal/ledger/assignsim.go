@@ -117,8 +117,10 @@ func recordedAssignmentSummary(days int) string {
 }
 
 // Simulate implements configuration.Simulator; a proposal that changes no
-// assignment records nothing.
-func (s AssignmentSimulation) Simulate(ctx context.Context, base, proposed *config.Config) (configuration.Simulation, error) {
+// assignment records nothing. It replays the lines of its own Window, not
+// the regression suite's window it is given: ADR-0050 §4 sets the last 90
+// days, and the suite samples invoices, not journal lines.
+func (s AssignmentSimulation) Simulate(ctx context.Context, base, proposed *config.Config, _ time.Duration) (configuration.Simulation, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return configuration.Simulation{}, err

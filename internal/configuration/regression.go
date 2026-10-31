@@ -197,16 +197,16 @@ func GetRegressionSuite(ctx context.Context, id uuid.UUID) (RegressionSuite, err
 }
 
 // latestSuite is the newest suite captured on a configuration version, or
-// ok = false when there is none.
-func latestSuite(ctx context.Context, tx pgx.Tx, version int32) (RegressionSuite, bool, error) {
+// nil when there is none.
+func latestSuite(ctx context.Context, tx pgx.Tx, version int32) (*RegressionSuite, error) {
 	s, err := scanSuite(tx.QueryRow(ctx, suiteSelect+` WHERE s.config_version = $1 ORDER BY s.captured_at DESC, s.id DESC LIMIT 1`, version))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return RegressionSuite{}, false, nil
+		return nil, nil
 	}
 	if err != nil {
-		return s, false, fmt.Errorf("configuration: read the latest regression suite of version %d: %w", version, err)
+		return nil, fmt.Errorf("configuration: read the latest regression suite of version %d: %w", version, err)
 	}
-	return s, true, nil
+	return &s, nil
 }
 
 var companyPath = regexp.MustCompile(`^companies\[([^\]]+)\]`)
@@ -224,25 +224,22 @@ func touched(c ChangeRequest) map[string]bool {
 }
 
 // regression is the regression evidence of a change request: the latest
-// suite of its base version replayed under the proposal. It passes when the
+// suite of its base version (nil when none is captured) replayed under the
+// proposal. It passes when the
 // suite still matches the base version and no case outside the companies
 // the change touches is decided differently; differences inside them are
 // the change at work, listed for the approvers. The cases are recorded by
 // company and the summary with no count (regressionRecord), so that each
 // reader is shown those of their own companies alone (regressionShown).
-func regression(ctx context.Context, tx pgx.Tx, deps Dependencies, c ChangeRequest, base, proposed *config.Config) (Simulation, error) {
-	suite, ok, err := latestSuite(ctx, tx, c.BaseVersion)
-	if err != nil {
-		return Simulation{}, err
-	}
-	if !ok {
+func regression(ctx context.Context, deps Dependencies, c ChangeRequest, base, proposed *config.Config, suite *RegressionSuite) (Simulation, error) {
+	if suite == nil {
 		return Simulation{Passed: false, Summary: fmt.Sprintf("No regression suite captured on version %d; capture one (createRegressionSuite) and simulate again.", c.BaseVersion),
 			Detail: map[string]any{"config_version": c.BaseVersion}}, nil
 	}
 	if suite.CaseCount == 0 {
-		return noCases(suite, c.BaseVersion), nil
+		return noCases(*suite, c.BaseVersion), nil
 	}
-	rec := newRegressionRecord(suite, c.BaseVersion)
+	rec := newRegressionRecord(*suite, c.BaseVersion)
 	inScope := touched(c)
 	stale, err := deps.Regressor.Replay(ctx, base, suite.Cases)
 	if err != nil {

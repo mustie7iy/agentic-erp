@@ -197,7 +197,7 @@ func TestSimulators(t *testing.T) {
 	a := &fakeSimulator{sim: configuration.Simulation{Passed: true, Summary: "Invoices unchanged.", Detail: map[string]any{"invoices": 3}}}
 	b := &fakeSimulator{sim: configuration.Simulation{Passed: false, Summary: "Metrics not computed.", Detail: map[string]any{"metrics": []string{"revenue"}}}}
 	quiet := &fakeSimulator{sim: configuration.Simulation{Passed: true}}
-	got, err := configuration.Simulators{a, quiet, b}.Simulate(context.Background(), nil, nil)
+	got, err := configuration.Simulators{a, quiet, b}.Simulate(context.Background(), nil, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestSimulators(t *testing.T) {
 		t.Errorf("detail: got %v, want both simulations'", got.Detail)
 	}
 	failing := &fakeSimulator{err: errors.New("down")}
-	if _, err := (configuration.Simulators{failing, a}).Simulate(context.Background(), nil, nil); err == nil || a.calls != 1 {
+	if _, err := (configuration.Simulators{failing, a}).Simulate(context.Background(), nil, nil, 0); err == nil || a.calls != 1 {
 		t.Errorf("failing: got %v after %d more calls, want its error and none", err, a.calls-1)
 	}
 }
