@@ -8298,9 +8298,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "conftest fmt --check fails on deploy/helm/policy's rego files (workloads.rego, workloads_test.rego), already on main, and no gate runs it: format them with conftest fmt and add the check to helm-checks.sh beside the policy's unit tests",
-      "r": "deploy/helm/policy · scripts/helm-checks.sh · ADR-0035",
+      "r": "deploy/helm/policy and deploy/policy formatted by conftest v0.71.0 (layout only) · scripts/lib/rego-fmt.sh (check_rego_fmt: conftest fmt --check, after proving it refuses an unformatted copy) · scripts/helm-checks.sh (deploy/helm/policy) · scripts/deploy-checks.sh (deploy/policy) · ADR-0035 As built 2026-10-31 · 06 §6.5",
       "src": "review:batch25",
       "c": []
      },
