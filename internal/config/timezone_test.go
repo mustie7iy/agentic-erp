@@ -11,7 +11,7 @@ import (
 // posting-relevant: it moves which day is today for the company.
 func TestCompanyTimeZone(t *testing.T) {
 	for zone, want := range map[string]string{"": "UTC", "UTC": "UTC", "America/Toronto": "America/Toronto", "America/Vancouver": "America/Vancouver",
-		"Asia/Dubai": "Asia/Dubai"} {
+		"Asia/Dubai": "Asia/Dubai", "Etc/GMT+5": "Etc/GMT+5", "America/Argentina/Buenos_Aires": "America/Argentina/Buenos_Aires"} {
 		t.Run("zone "+want, func(t *testing.T) {
 			c := fixture(t)
 			c.Companies[0].TimeZone = zone

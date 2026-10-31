@@ -686,9 +686,11 @@ zone", split into T72n1-T72n6):
 - **Validation.** A name `time.LoadLocation` loads; the zone database is
   built into the binary (`time/tzdata`), so the standard names load on any
   host, an image without zoneinfo included. LoadLocation tries the host's
-  zoneinfo first, so the names only some hosts have are refused: `Local`
-  and `localtime` (the reading host's zone), the `posix/` and `right/`
-  trees and `posixrules`; offsets such as `-05:00` do not load
+  zoneinfo first, so the names only some hosts accept are refused: `Local`
+  (the reading host's zone) and any name not in IANA form (every part
+  starting with a capital), so `localtime`, `posixrules`, the `posix/` and
+  `right/` trees and a lower-case name a case-insensitive filesystem would
+  open; offsets such as `-05:00` do not load
   (`companies[<code>].time_zone`). Empty is UTC, as every date was before:
   documents activated earlier keep their meaning (tolerant read), and the
   response says which zone was used. A change is tier 3

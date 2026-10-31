@@ -11,7 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
+	"regexp"
 	"time"
 	// The zone database is built in so that the standard IANA names load
 	// on any host, an image without zoneinfo included; host-only names
@@ -646,18 +646,21 @@ func (c *Config) Company(code string) *Company {
 	return nil
 }
 
+// zoneName is the IANA form of a zone name, every part starting with a
+// capital (America/Toronto, Etc/GMT+5, UTC).
+var zoneName = regexp.MustCompile(`^[A-Z][A-Za-z0-9_+-]*(/[A-Z][A-Za-z0-9_+-]*)*$`)
+
 // Location is the company's time zone, UTC when none is set. Validation
-// refuses a name that does not load, and the names only some hosts'
-// zoneinfo has (LoadLocation tries the host's before the embedded copy):
-// "Local" and "localtime", the reading host's zone, and the posix/ and
-// right/ trees and posixrules, so a name valid where the document was
-// checked loads on every replica.
+// refuses a name that does not load, and the names only some hosts accept
+// (LoadLocation tries the host's zoneinfo before the embedded copy): Local,
+// the reading host's zone, and any name not in IANA form, so localtime,
+// posixrules, the posix/ and right/ trees and a lower-case name a
+// case-insensitive filesystem would open are refused too.
 func (c *Company) Location() (*time.Location, error) {
 	switch {
 	case c.TimeZone == "":
 		return time.UTC, nil
-	case c.TimeZone == "Local", c.TimeZone == "localtime", c.TimeZone == "posixrules",
-		strings.HasPrefix(c.TimeZone, "posix/"), strings.HasPrefix(c.TimeZone, "right/"):
+	case c.TimeZone == "Local", !zoneName.MatchString(c.TimeZone):
 		return nil, fmt.Errorf("time zone %q is not a standard IANA zone name every host has", c.TimeZone)
 	}
 	loc, err := time.LoadLocation(c.TimeZone)

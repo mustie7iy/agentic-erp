@@ -103,6 +103,7 @@ func TestValidationRules(t *testing.T) {
 		{"time zone posixrules", func(c *Config) { c.Companies[0].TimeZone = "posixrules" }, "companies[1000].time_zone"},
 		{"time zone of the posix tree", func(c *Config) { c.Companies[0].TimeZone = "posix/America/Toronto" }, "companies[1000].time_zone"},
 		{"time zone of the right tree", func(c *Config) { c.Companies[0].TimeZone = "right/America/Toronto" }, "companies[1000].time_zone"},
+		{"time zone in lower case", func(c *Config) { c.Companies[0].TimeZone = "america/toronto" }, "companies[1000].time_zone"},
 		{"time zone an offset", func(c *Config) { c.Companies[0].TimeZone = "-05:00" }, "companies[1000].time_zone"},
 		{"account number", func(c *Config) { c.Companies[0].ChartOfAccounts[0].Number = "12-34" }, "companies[1000].chart_of_accounts[12-34]"},
 		{"duplicate account", func(c *Config) {
