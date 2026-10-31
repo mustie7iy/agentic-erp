@@ -409,6 +409,34 @@ func TestCashPositionTimeZone(t *testing.T) {
 	}
 }
 
+// zoneLost is the active configuration with company 3000's time zone one
+// this build cannot load, as a document stored under a zone database that
+// later lost the name would read (validation refuses it).
+type zoneLost struct{ cash.Settings }
+
+func (z zoneLost) Document(ctx context.Context) (*config.Config, int32, error) {
+	doc, n, err := z.Settings.Document(ctx)
+	if err == nil {
+		doc.Company("3000").TimeZone = "America/Nowhere"
+	}
+	return doc, n, err
+}
+
+// TestCashPositionZoneLost: a company whose stored zone does not load
+// fails the read rather than reading the date in UTC.
+func TestCashPositionZoneLost(t *testing.T) {
+	e := setupPosition(t)
+	endpoints := app.Cash(app.Config{Now: func() time.Time { return readAt }})
+	endpoints.Settings = zoneLost{endpoints.Settings}
+	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		_, err := endpoints.Position(ctx, cash.Query{LegalEntity: e.le})
+		return err
+	})
+	if err == nil || !strings.Contains(err.Error(), "America/Nowhere") {
+		t.Errorf("got %v, want the company's zone refused", err)
+	}
+}
+
 // TestCashPositionWithoutStatements: a bank without a statement opens at
 // zero, stale, with no book balance check; a company without house banks
 // has an empty position.

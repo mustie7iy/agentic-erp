@@ -11,10 +11,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
-	// The zone database is built in so that validation and every read
-	// resolve a company's time_zone alike on any host, whatever zoneinfo
-	// the image or the operator's machine carries (T72n1).
+	// The zone database is built in so that the standard IANA names load
+	// on any host, an image without zoneinfo included; host-only names
+	// are refused by Company.Location (T72n1).
 	_ "time/tzdata"
 
 	"gopkg.in/yaml.v3"
@@ -646,14 +647,18 @@ func (c *Config) Company(code string) *Company {
 }
 
 // Location is the company's time zone, UTC when none is set. Validation
-// refuses a name that does not load, and "Local", the zone of whichever
-// host reads it.
+// refuses a name that does not load, and the names only some hosts'
+// zoneinfo has (LoadLocation tries the host's before the embedded copy):
+// "Local" and "localtime", the reading host's zone, and the posix/ and
+// right/ trees and posixrules, so a name valid where the document was
+// checked loads on every replica.
 func (c *Company) Location() (*time.Location, error) {
-	switch c.TimeZone {
-	case "":
+	switch {
+	case c.TimeZone == "":
 		return time.UTC, nil
-	case "Local":
-		return nil, errors.New("time zone Local is the host's, not an IANA zone name")
+	case c.TimeZone == "Local", c.TimeZone == "localtime", c.TimeZone == "posixrules",
+		strings.HasPrefix(c.TimeZone, "posix/"), strings.HasPrefix(c.TimeZone, "right/"):
+		return nil, fmt.Errorf("time zone %q is not a standard IANA zone name every host has", c.TimeZone)
 	}
 	loc, err := time.LoadLocation(c.TimeZone)
 	if err != nil {

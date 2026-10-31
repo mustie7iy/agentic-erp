@@ -683,10 +683,12 @@ zone", split into T72n1-T72n6):
   the business-date rules (working days, value days) are read from the
   document already, and a change to the zone is approved and versioned as
   they are. Not derived from `country`: Canada spans six zones.
-- **Validation.** A name `time.LoadLocation` loads, from the zone database
-  built into the binary (`time/tzdata`, so validation and every replica
-  agree whatever zoneinfo the image carries); `Local`, the reading host's
-  zone, and offsets such as `-05:00` are refused
+- **Validation.** A name `time.LoadLocation` loads; the zone database is
+  built into the binary (`time/tzdata`), so the standard names load on any
+  host, an image without zoneinfo included. LoadLocation tries the host's
+  zoneinfo first, so the names only some hosts have are refused: `Local`
+  and `localtime` (the reading host's zone), the `posix/` and `right/`
+  trees and `posixrules`; offsets such as `-05:00` do not load
   (`companies[<code>].time_zone`). Empty is UTC, as every date was before:
   documents activated earlier keep their meaning (tolerant read), and the
   response says which zone was used. A change is tier 3
