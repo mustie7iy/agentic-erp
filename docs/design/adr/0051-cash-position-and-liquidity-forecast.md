@@ -933,8 +933,9 @@ recommended"):
   its booking date, and every other posting (manual and parked entries,
   receipts, payment runs, GR/IR clearings) takes the caller's date, which
   the contract requires. A
-  contract's number and a migration run's suppliers are dated in UTC
-  still, tracked separately; master-data validity defaults (role and
+  migration run's suppliers are dated in UTC still, waiting for the
+  product owner; a contract's number is on the company's date (T72n6's
+  section above); master-data validity defaults (role and
   company access grants, partner changes, `valid_from` today) are not
   posting dates and are not this rule. The web workspace's forms still
   pre-fill their dates (a manual entry's, a payment run's, a report's key

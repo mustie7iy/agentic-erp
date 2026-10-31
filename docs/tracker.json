@@ -8528,8 +8528,8 @@
        },
        {
         "s": "T",
-        "t": "The company's date is read by one shared helper with one rule for a legal entity that is not found (refuse), not five lookups with three behaviours",
-        "r": "procurement common.go todayOf (refuses) · ledger companyday.go companyDays.of (refuses) · payments release.go companyDay via entityOf · cash readday.go readDaysOf (a missing legal entity reads UTC's date) · payables companyday.go companyDay (refuses) · each port reads the legal entity differently (Entity, Company, ByCode), so one helper needs a shared port: not done in batch 27's integration · ADR-0051 as built",
+        "t": "The company's date is read by one shared helper with one rule for a legal entity that is not found (refuse), not six lookups that differ on one (cash reads UTC's date, the others refuse, ledger and payments each in their own way)",
+        "r": "procurement common.go todayOf (refuses) · ledger companyday.go companyDays.of (refuses) · payments release.go companyDay via entityOf · cash readday.go readDaysOf (a missing legal entity reads UTC's date) · payables companyday.go companyDay (refuses) · procurement expiry_days.go companyDays (refuses; added in batch 27, T72n6) · each port reads the legal entity differently (Entity, Company, ByCode), so one helper needs a shared port: not done in batch 27's integration · ADR-0051 as built",
         "src": "review:batch27",
         "c": []
        }
