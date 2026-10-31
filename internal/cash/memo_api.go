@@ -11,7 +11,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
-	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -39,9 +38,10 @@ func (e *Endpoints) bankCodes(ctx context.Context, ms []MemoRecord) (map[uuid.UU
 	return codes, nil
 }
 
-// memoToAPI shows a record with its status as of the read date, its house
-// bank named by its code from codes.
-func memoToAPI(m MemoRecord, read time.Time, codes map[uuid.UUID]string) gen.MemoRecord {
+// memoToAPI shows a record with its status as of read, its legal entity's
+// date at the read and the zone it is in, its house bank named by its code
+// from codes.
+func memoToAPI(m MemoRecord, read readDay, codes map[uuid.UUID]string) gen.MemoRecord {
 	direction := "inflow"
 	if m.Amount < 0 {
 		direction = "outflow"
@@ -50,7 +50,7 @@ func memoToAPI(m MemoRecord, read time.Time, codes map[uuid.UUID]string) gen.Mem
 		LegalEntityID: m.LegalEntityID, HouseBankID: apitypes.OptUUID(m.HouseBankID), Amount: apitypes.Money(m.Amount, m.Currency, m.Exponent),
 		Direction: direction, ValueDate: m.ValueDate, ExpiresOn: m.ExpiresOn, Certainty: m.Certainty, LiquidityItem: m.Item,
 		Description: apitypes.OptString(m.Description), Reference: apitypes.OptString(m.Reference), RecurrenceOf: apitypes.OptUUID(m.RecurrenceOf),
-		OccurrenceDate: apitypes.OptDate(m.OccurrenceDate), Status: m.StatusOn(read), Origin: m.Origin, SessionID: apitypes.OptUUID(m.SessionID),
+		OccurrenceDate: apitypes.OptDate(m.OccurrenceDate), Status: m.StatusOn(read.Date), ReadDate: read.Date, TimeZone: read.Zone, Origin: m.Origin, SessionID: apitypes.OptUUID(m.SessionID),
 		Reason: apitypes.OptString(m.Reason), Evidence: make([]gen.StatementLineRef, len(m.Evidence)), BatchKey: apitypes.OptString(m.BatchKey),
 		DecidedBy: apitypes.OptUUID(m.DecidedBy), Comment: apitypes.OptString(m.Comment)}
 	for i, l := range m.Evidence {
@@ -79,17 +79,18 @@ func recurrenceOf(r gen.OptMemoRecurrence) *Recurrence {
 	return &Recurrence{Frequency: v.Frequency, Until: apitypes.Ptr[time.Time](v.Until), Count: apitypes.Ptr[int32](v.Count)}
 }
 
-// read is the read date, as a record's status is judged by it.
-func (e *Endpoints) read() time.Time { return clock.Day(clock.Now(e.Now)) }
-
-// memoOut is record m as a single read shows it, its house bank's code read
-// for it.
+// memoOut is record m as a single read shows it, its house bank's code and
+// its legal entity's date read for it.
 func (e *Endpoints) memoOut(ctx context.Context, m MemoRecord) (gen.MemoRecord, error) {
 	codes, err := e.bankCodes(ctx, []MemoRecord{m})
 	if err != nil {
 		return gen.MemoRecord{}, err
 	}
-	return memoToAPI(m, e.read(), codes), nil
+	reads, err := e.readDaysOf(ctx, &m.LegalEntityID)
+	if err != nil {
+		return gen.MemoRecord{}, err
+	}
+	return memoToAPI(m, reads.of(m.LegalEntityID), codes), nil
 }
 
 func (e *Endpoints) headers(ctx context.Context, m MemoRecord) (*gen.MemoRecordHeaders, error) {
@@ -227,13 +228,19 @@ func (e *Endpoints) RejectMemoRecordProposal(ctx context.Context, req *gen.Reaso
 	return e.changed(ctx, m)
 }
 
+// readDayOf is, in the list's query, the record's legal entity's date at
+// the read: its own from the zoned entities ($9) and their dates ($10),
+// else UTC's ($11).
+const readDayOf = `COALESCE(($10::date[])[array_position($9::uuid[], m.legal_entity_id)], $11::date)`
+
 var memoSort = pagination.Sort{Default: "value_date", Fields: []pagination.Field{
 	{Name: "value_date", Column: "m.value_date", Type: "date"}, {Name: "created_at", Column: "m.created_at", Type: "timestamptz"},
 }}
 
 // ListMemoRecords implements GET /v1/memo-records: the records of the
-// legal entities the caller may act in, a status judged as of the read
-// date.
+// legal entities the caller may act in, each one's status judged as of its
+// legal entity's date at one read (T72n2): the filter and the items by
+// the same dates, a legal entity without a date of its own by UTC's.
 func (e *Endpoints) ListMemoRecords(ctx context.Context, params gen.ListMemoRecordsParams) (gen.ListMemoRecordsRes, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -250,13 +257,17 @@ func (e *Endpoints) ListMemoRecords(ctx context.Context, params gen.ListMemoReco
 	if err != nil {
 		return nil, err
 	}
-	read := e.read()
+	reads, err := e.readDaysOf(ctx, le)
+	if err != nil {
+		return nil, err
+	}
+	zoned, dates := reads.args()
 	q, args := ks.SQL(memoSelect+` WHERE ($1 OR m.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR m.legal_entity_id = $3)
 		AND ($4::uuid IS NULL OR m.house_bank_id = $4) AND ($5 = '' OR m.batch_key = $5) AND ($6::date IS NULL OR m.value_date >= $6)
 		AND ($7::date IS NULL OR m.value_date <= $7)
-		AND CASE $8 WHEN '' THEN true WHEN 'expired' THEN m.status = 'active' AND m.counts_until < $9
-			WHEN 'active' THEN m.status = 'active' AND (m.counts_until IS NULL OR m.counts_until >= $9) ELSE m.status = $8 END`,
-		[]any{access.All, access.IDs, le, bank, params.BatchKey.Value, from, to, params.Status.Value, read})
+		AND CASE $8 WHEN '' THEN true WHEN 'expired' THEN m.status = 'active' AND m.counts_until < `+readDayOf+`
+			WHEN 'active' THEN m.status = 'active' AND (m.counts_until IS NULL OR m.counts_until >= `+readDayOf+`) ELSE m.status = $8 END`,
+		[]any{access.All, access.IDs, le, bank, params.BatchKey.Value, from, to, params.Status.Value, zoned, dates, reads.utc.Date})
 	rows, _ := tx.Query(ctx, q, args...)
 	ms, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (MemoRecord, error) { return scanMemo(r) })
 	if err != nil {
@@ -268,7 +279,9 @@ func (e *Endpoints) ListMemoRecords(ctx context.Context, params gen.ListMemoReco
 		}
 		return m.ValueDate.Format(time.DateOnly), m.ID
 	}, func(page []MemoRecord) (map[uuid.UUID]string, error) { return e.bankCodes(ctx, page) },
-		func(m MemoRecord, codes map[uuid.UUID]string) gen.MemoRecord { return memoToAPI(m, read, codes) })
+		func(m MemoRecord, codes map[uuid.UUID]string) gen.MemoRecord {
+			return memoToAPI(m, reads.of(m.LegalEntityID), codes)
+		})
 	if err != nil {
 		return nil, err
 	}

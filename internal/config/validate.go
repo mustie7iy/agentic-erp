@@ -235,6 +235,9 @@ func (v *validator) company(p string, co *Company) {
 	if co.FiscalYearStartMonth < 1 || co.FiscalYearStartMonth > 12 {
 		v.err(p+".fiscal_year_start_month", "must be 1-12")
 	}
+	if _, err := co.Location(); err != nil {
+		v.err(p+".time_zone", "%v", err)
+	}
 	v.chartOfAccounts(p, co)
 	v.accountDetermination(p, co)
 	v.taxCodes(p, co)

@@ -17,7 +17,12 @@ func Now(now func() time.Time) time.Time {
 
 // Day is t's calendar date in UTC, at midnight: the business date of an
 // instant where no time zone of the company is known.
-func Day(t time.Time) time.Time {
-	y, m, d := t.UTC().Date()
+func Day(t time.Time) time.Time { return DayIn(t, time.UTC) }
+
+// DayIn is t's calendar date in zone loc, at midnight UTC as every date is
+// held: the business date of an instant for a company in that zone (its
+// configured time_zone, T72n1), so a Toronto evening is still that day.
+func DayIn(t time.Time, loc *time.Location) time.Time {
+	y, m, d := t.In(loc).Date()
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }

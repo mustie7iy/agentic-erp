@@ -40,6 +40,8 @@ type Endpoints struct {
 // LegalEntities finds a legal entity (tenancy context).
 type LegalEntities interface {
 	Company(ctx context.Context, id uuid.UUID) (Company, bool, error)
+	// ByCode is the id of the legal entity with the company code.
+	ByCode(ctx context.Context, code string) (uuid.UUID, bool, error)
 }
 
 // Company is a legal entity as the cash position reads it.
@@ -166,7 +168,8 @@ type Query struct {
 // Position is a legal entity's cash position.
 type Position struct {
 	LegalEntity uuid.UUID
-	ReadDate    time.Time
+	ReadDate    time.Time // the company's date at the read, in TimeZone
+	TimeZone    string    // the IANA zone the read date is in
 	From        time.Time
 	Days        int
 	Banks       []BankPosition
@@ -254,8 +257,12 @@ func (e *Endpoints) Position(ctx context.Context, q Query) (Position, error) {
 	if err != nil {
 		return Position{}, fmt.Errorf("cash: configuration: %w", err)
 	}
-	r := reader{doc: doc, company: co.Code, settings: companyCash(doc, co.Code), read: clock.Day(clock.Now(e.Now)), sums: &sums{}}
-	p := Position{LegalEntity: q.LegalEntity, ReadDate: r.read, From: r.read, Days: cmp.Or(q.Days, DefaultDays)}
+	read, zone, err := e.readDate(doc, co.Code)
+	if err != nil {
+		return Position{}, err
+	}
+	r := reader{doc: doc, company: co.Code, settings: companyCash(doc, co.Code), read: read, sums: &sums{}}
+	p := Position{LegalEntity: q.LegalEntity, ReadDate: read, TimeZone: zone, From: read, Days: cmp.Or(q.Days, DefaultDays)}
 	if q.From != nil {
 		if p.From = clock.Day(*q.From); p.From.Before(r.read) {
 			return Position{}, problem.Unprocessable("request.validation_failed", "The position starts on the read date or later; past days are actuals.",
@@ -301,6 +308,15 @@ func (e *Endpoints) company(ctx context.Context, id uuid.UUID) (Company, error) 
 		return Company{}, problem.NotFoundOf("legal entity")
 	}
 	return co, nil
+}
+
+// readDate is the company's date at the read, in its time zone, and the
+// zone's name: UTC when the company has none, or the document has no such
+// company (ADR-0051 as built, T72n1). A Toronto treasurer's evening is
+// still that day, not the next UTC one.
+func (e *Endpoints) readDate(doc *config.Config, code string) (time.Time, string, error) {
+	d, err := companyDay(doc, code, clock.Now(e.Now))
+	return d.Date, d.Zone, err
 }
 
 // companyCash is the company's cash settings, the defaults when the

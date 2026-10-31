@@ -62,6 +62,11 @@ var tierRules = []struct {
 	{rx(`^companies\[\*\]\.(code|currency|fiscal_year_start_month)$`), TierStructural},
 	{rx(`^companies\[\*\]\.chart_of_accounts\[\*\]\.name$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.ledgers`), TierStructural},
+	// The zone moves which day is today for the company by up to a day:
+	// what is late or stale in its cash position now, and the checks its
+	// later slices date by it (T72n). Posting-relevant, so it is approved
+	// as one and never takes effect unseen.
+	{rx(`^companies\[\*\]\.time_zone$`), TierPostingRelated},
 	// Flagging an account for revaluation changes what runs post (ADR-0042).
 	{rx(`^companies\[\*\]\.chart_of_accounts\[\*\]\.revalue_foreign_currency$`), TierPostingRelated},
 	// Which cost object an account's lines need, and the default cost

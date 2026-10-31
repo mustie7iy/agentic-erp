@@ -287,7 +287,7 @@ func TestCashPosition(t *testing.T) {
 	e := setupPosition(t)
 	e.scenario(t)
 	p := e.positionOf(t, "&days=5")
-	want(t, "header", fmt.Sprint(p["read_date"], " ", p["from"], " ", p["days"]), "2026-04-17 2026-04-17 5")
+	want(t, "header", fmt.Sprint(p["read_date"], " ", p["time_zone"], " ", p["from"], " ", p["days"]), "2026-04-17 UTC 2026-04-17 5")
 
 	usd := bankOf(t, p, "USD")
 	want(t, "USD bank", fmt.Sprint(usd["currency"], " ", usd["account_last4"], " ", amount(usd["credit_line"])), "USD 0001 5000.00 USD")
@@ -377,6 +377,63 @@ func TestCashPositionDays(t *testing.T) {
 		if code, _, _ := e.Do("GET", "/v1/cash-position?legal_entity_id="+e.le.String()+q, "", ""); code != 400 {
 			t.Errorf("%s: got %d, want 400", q, code)
 		}
+	}
+}
+
+// TestCashPositionTimeZone: the read date is the company's date in its
+// time zone (T72n1). At 22:00 on Friday 17 April in Toronto it is already
+// the 18th in UTC; at 01:00 on the 17th in Dubai it is still the 16th. In
+// both the read date is the 17th, shown with the zone: the position starts
+// on it by default, the 16th is refused as past, and Thursday's statement
+// is not stale. Read in UTC, Toronto's would have started on Saturday with
+// the statement stale, and Dubai's on the 16th.
+func TestCashPositionTimeZone(t *testing.T) {
+	for zone, at := range map[string]time.Time{
+		"America/Toronto": time.Date(2026, 4, 18, 2, 0, 0, 0, time.UTC),  // 22:00 EDT on the 17th
+		"Asia/Dubai":      time.Date(2026, 4, 16, 21, 0, 0, 0, time.UTC), // 01:00 GST on the 17th
+	} {
+		t.Run(zone, func(t *testing.T) {
+			e := setupPositionWith(t, func(doc *config.Config) {
+				withPosition(doc)
+				doc.Company("3000").TimeZone = zone
+			}, "cash.position.read")
+			e.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Now = func() time.Time { return at } })
+			e.scenario(t)
+			p := e.positionOf(t, "&days=1")
+			want(t, "header", fmt.Sprint(p["read_date"], " ", p["time_zone"], " ", p["from"]), "2026-04-17 "+zone+" 2026-04-17")
+			usd := bankOf(t, p, "USD")
+			want(t, "Thursday's statement on Friday", usd["opening"].(map[string]any)["stale"], false)
+			want(t, "the first day", days(t, usd["days"]), []string{"2026-04-17 4800.00 USD>4800.00 USD (9800.00 USD)"})
+			e.Problem(422, "request.validation_failed", "GET", "/v1/cash-position?legal_entity_id="+e.le.String()+"&from=2026-04-16", "", "")
+		})
+	}
+}
+
+// zoneLost is the active configuration with company 3000's time zone one
+// this build cannot load, as a document stored under a zone database that
+// later lost the name would read (validation refuses it).
+type zoneLost struct{ cash.Settings }
+
+func (z zoneLost) Document(ctx context.Context) (*config.Config, int32, error) {
+	doc, n, err := z.Settings.Document(ctx)
+	if err == nil {
+		doc.Company("3000").TimeZone = "America/Nowhere"
+	}
+	return doc, n, err
+}
+
+// TestCashPositionZoneLost: a company whose stored zone does not load
+// fails the read rather than reading the date in UTC.
+func TestCashPositionZoneLost(t *testing.T) {
+	e := setupPosition(t)
+	endpoints := app.Cash(app.Config{Now: func() time.Time { return readAt }})
+	endpoints.Settings = zoneLost{endpoints.Settings}
+	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		_, err := endpoints.Position(ctx, cash.Query{LegalEntity: e.le})
+		return err
+	})
+	if err == nil || !strings.Contains(err.Error(), "America/Nowhere") {
+		t.Errorf("got %v, want the company's zone refused", err)
 	}
 }
 

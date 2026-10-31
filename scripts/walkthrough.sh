@@ -408,7 +408,9 @@ step_tenant() {
   grep -A 6 '^    house_bank:$' "$WORK/config.yaml" | grep -q 'institution_number: "003"' || fail "the house bank was not generated with its institution number"
   say "A second ledger, 2L for local GAAP (ASPE), is added beside the leading IFRS ledger 0L before"
   say "provisioning: parallel ledgers are set up while the company has no postings (ADR-0045)."
-  awk '{ print } /^    fiscal_year_start_month: 1$/ { print "    ledgers: [\"0L\", \"2L\"]" }' "$WORK/config.yaml" >"$WORK/config.tmp"
+  say "The company does business in Eastern Time: its business dates (today in its cash position) are in"
+  say "time_zone America/Toronto, an IANA zone the configuration validates, not UTC (T72n1)."
+  awk '{ print } /^    fiscal_year_start_month: 1$/ { print "    ledgers: [\"0L\", \"2L\"]"; print "    time_zone: America/Toronto" }' "$WORK/config.yaml" >"$WORK/config.tmp"
   mv "$WORK/config.tmp" "$WORK/config.yaml"
   cat >>"$WORK/config.yaml" <<'YAML'
 ledgers:
@@ -416,6 +418,7 @@ ledgers:
   - {code: "2L", name: Local GAAP (ASPE), accounting_principle: ASPE}
 YAML
   grep -q 'ledgers: \["0L", "2L"\]' "$WORK/config.yaml" || fail "the company's ledgers were not added to the configuration"
+  grep -q '^    time_zone: America/Toronto$' "$WORK/config.yaml" || fail "the company's time zone was not added to the configuration"
   show erp-server provision -name "Maple pilot" -region ca-central -currency CAD -admin-subject ada -admin-name "Ada Admin" -config config.yaml
   "$BIN/erp-server" provision -name "Maple pilot" -region ca-central -currency CAD -admin-subject ada -admin-name "Ada Admin" \
     -config "$WORK/config.yaml" >"$WORK/last.json" 2>"$WORK/stderr" || fail "provision failed: $(cat "$WORK/stderr")"
@@ -1267,6 +1270,32 @@ step_cash() {
     getCashPosition -p "legal_entity_id=$LE" -p "from=$(date_add "$TODAY" 1)" -p days=7
   expect "the statement balance the position opens with" "$(field '.banks[] | select(.house_bank_code == "RBC") | .opening.balance.amount')" "$CLOSING"
   expect "the memo record's flow" "$(field '[.banks[] | select(.house_bank_code == "RBC") | .days[].flows[]? | select(.source == "memo") | .amount.amount] | join(" ")')" 25000.00
+  say "Today for the position is Maple's date in Toronto, not UTC's: in a Toronto evening UTC is already tomorrow (T72n1)."
+  local before after
+  before=$(TZ=America/Toronto date +%F)
+  api 200 '"read on \(.read_date) in \(.time_zone), from \(.from)"' getCashPosition -p "legal_entity_id=$LE" -p days=1
+  after=$(TZ=America/Toronto date +%F)
+  expect "the zone the position is read in" "$(field .time_zone)" America/Toronto
+  [ "$(field .read_date)" = "$before" ] || expect "the read date, Toronto's" "$(field .read_date)" "$after"
+  expect "the first day, the read date" "$(field .from)" "$(field .read_date)"
+  local toronto judged status listed counted
+  toronto=$(TZ=America/Toronto date +%F)
+  say "A receipt promised for today ($toronto in Toronto), its last day today, is active until Toronto's day ends:"
+  say "a memo record's status is judged on Maple's date in its zone, as the position is, not on UTC's (T72n2)."
+  api 201 '"memo record \(.reference): \(.status) on \(.read_date) in \(.time_zone), last day \(.expires_on)"' createMemoRecord \
+    -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBC\", \"amount\": {\"amount\": \"1000.00\", \"currency\": \"CAD\"}, \"value_date\": \"$toronto\", \"expires_on\": \"$toronto\", \"liquidity_item\": \"REC_CUSTOMERS\", \"reference\": \"WT-1043\"}"
+  expect "the zone the memo record's status is judged in" "$(field .time_zone)" America/Toronto
+  judged=$(field .read_date)
+  [ "$judged" = "$toronto" ] || expect "the memo record's read date, Toronto's" "$judged" "$(TZ=America/Toronto date +%F)"
+  status=active
+  [ "$judged" = "$toronto" ] || status=expired # Toronto's midnight passed between the two reads
+  expect "the memo record's status on Maple's date" "$(field .status)" "$status"
+  api 200 '.items[] | "  \(.reference // "-"): \(.status) on \(.read_date) in \(.time_zone)"' listMemoRecords -p "legal_entity_id=$LE" -p status=active
+  listed=$(field '[.items[] | select(.reference == "WT-1043")] | length')
+  api 200 '"position read on \(.read_date): memo flows at RBC \([.banks[] | select(.house_bank_code == "RBC") | .days[].flows[]? | select(.source == "memo") | .amount.amount] | join(" "))"' \
+    getCashPosition -p "legal_entity_id=$LE" -p days=7
+  counted=$(field '[.banks[] | select(.house_bank_code == "RBC") | .days[].flows[]? | select(.source == "memo" and .amount.amount == "1000.00")] | length')
+  [ "$(field .read_date)" != "$toronto" ] || expect "the record listed active and counted in the position on Toronto's date" "$listed $counted" "1 1"
   passed
 }
 

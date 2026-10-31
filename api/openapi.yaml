@@ -12993,7 +12993,7 @@ paths:
       tags:
         - cash
       summary: Get a company's daily cash position
-      description: "The daily cash position of a legal entity (ADR-0051 §8, T53c), computed at the read from one database state (a repeatable-read snapshot): per house bank, in its own currency, and day from `from` (default the read date, UTC; an earlier day is 422, past days being actuals) for `days` days (1-31, default 14), the opening balance, the flows of the day by source and certainty, and the closing balance. The first day opens at the closing balance of the bank's latest statement closing before it (`opening.statement_date`; none: zero), plus the flows dated before it; it is `stale` when that statement closes before the working day before the read date (the company's calendar: weekends and its holidays) or there is none, and `gap` when a statement of the bank up to it does not open at its previous one's closing balance (ADR-0047). Flows: `in_transit`, the released payments whose line on the bank's clearing account is still open and that no statement line up to the opening statement matches (a revaluation's valuation and reset lines on the account are not payments and never count), and `payment_run`, the payments of runs `proposed` or `releasing` not posted yet, both `confirmed`, each dated its run date plus the bank's `cash.value_days` (by method), moved to the next working day; one dated before the read date is expected the working day after it and marked `late`; and `memo`, the `active` memo records on the bank not expired at the read (`GET /v1/memo-records`), at their own certainty, each occurrence of a series once, on its value date moved to the next working day, late as a payment is. `book_balance` checks the opening statement against the ledger as the reconciliation report does (`GET /v1/house-banks/{id}/reconciliation`: the main bank account's balance on the statement's date, in the bank's currency, and what the statement lines explain of the difference), with the payments in transit, posted and not yet at the bank. A bank's `cash.credit_lines` amount is shown, and added to its closing balance as `available`; no limit is enforced. `currencies` sums the banks of each currency. `converted` totals every currency in `display_currency` (default the company's currency) at the latest rate of the company's `cash.rate_type` (default `planning`; with no planning rate, `average`) valid on the read date, one rate for every day; a rate valid from more than `cash.rate_max_age_days` (default 7) before the read date is used and marked `stale`, and a currency without a rate is left out of the total and listed in `incomplete_currencies`. Bank accounts appear by house bank code and last four characters, so agents read the position as people do. A legal entity the caller cannot act in is 404."
+      description: "The daily cash position of a legal entity (ADR-0051 §8, T53c), computed at the read from one database state (a repeatable-read snapshot): per house bank, in its own currency, and day from `from` (default the read date: the company's date in its configured time zone, shown as `time_zone`, UTC when it has none; an earlier day is 422, past days being actuals) for `days` days (1-31, default 14), the opening balance, the flows of the day by source and certainty, and the closing balance. The first day opens at the closing balance of the bank's latest statement closing before it (`opening.statement_date`; none: zero), plus the flows dated before it; it is `stale` when that statement closes before the working day before the read date (the company's calendar: weekends and its holidays) or there is none, and `gap` when a statement of the bank up to it does not open at its previous one's closing balance (ADR-0047). Flows: `in_transit`, the released payments whose line on the bank's clearing account is still open and that no statement line up to the opening statement matches (a revaluation's valuation and reset lines on the account are not payments and never count), and `payment_run`, the payments of runs `proposed` or `releasing` not posted yet, both `confirmed`, each dated its run date plus the bank's `cash.value_days` (by method), moved to the next working day; one dated before the read date is expected the working day after it and marked `late`; and `memo`, the `active` memo records on the bank not expired at the read (`GET /v1/memo-records`), at their own certainty, each occurrence of a series once, on its value date moved to the next working day, late as a payment is. `book_balance` checks the opening statement against the ledger as the reconciliation report does (`GET /v1/house-banks/{id}/reconciliation`: the main bank account's balance on the statement's date, in the bank's currency, and what the statement lines explain of the difference), with the payments in transit, posted and not yet at the bank. A bank's `cash.credit_lines` amount is shown, and added to its closing balance as `available`; no limit is enforced. `currencies` sums the banks of each currency. `converted` totals every currency in `display_currency` (default the company's currency) at the latest rate of the company's `cash.rate_type` (default `planning`; with no planning rate, `average`) valid on the read date, one rate for every day; a rate valid from more than `cash.rate_max_age_days` (default 7) before the read date is used and marked `stale`, and a currency without a rate is left out of the total and listed in `incomplete_currencies`. Bank accounts appear by house bank code and last four characters, so agents read the position as people do. A legal entity the caller cannot act in is 404."
       x-permission: cash.position.read
       x-slo-class: report
       x-snapshot: true
@@ -13013,7 +13013,7 @@ paths:
         - name: from
           in: query
           required: false
-          description: "The first day, the read date (UTC) or later; default the read date."
+          description: "The first day, the read date (the company's date in its `time_zone`) or later; default the read date."
           schema:
             type: string
             format: date
@@ -13059,9 +13059,10 @@ paths:
       tags:
         - cash
       summary: List memo records
-      description: "The memo records of the legal entities the caller may act in (ADR-0051 §7, T53d): expected receipts and payments entered by people, uploaded, or proposed by an agent. `status` is the record's as of the read date: an `active` record whose last occurrence's expiry date has passed is `expired` (it no longer counts until a person moves, extends or cancels it). Sortable by: `value_date` (default), `created_at`."
+      description: "The memo records of the legal entities the caller may act in (ADR-0051 §7, T53d): expected receipts and payments entered by people, uploaded, or proposed by an agent. `status` is the record's as of the read date, each record's legal entity's date at the read in its company's configured time zone (`read_date`, `time_zone`; UTC when it has none), the date the cash position reads that company on (T72n2): an `active` record whose last occurrence's expiry date has passed is `expired` (it no longer counts until a person moves, extends or cancels it). Sortable by: `value_date` (default), `created_at`."
       x-permission: cash.memo.read
       x-problem-codes:
+        - config.not_bootstrapped
         - request.invalid_order_by
         - request.invalid_page_size
         - request.invalid_page_token
@@ -13070,7 +13071,7 @@ paths:
         - name: status
           in: query
           required: false
-          description: Only memo records in this status as of the read date.
+          description: "Only memo records in this status as of the read date, each judged on its legal entity's date in its company's time zone (`read_date`)."
           schema:
             type: string
             description: "Memo record status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -13138,6 +13139,7 @@ paths:
         - cash.occurrence_invalid
         - cash.occurrence_overridden
         - cash.unknown_currency
+        - config.not_bootstrapped
         - request.invalid_amount
         - request.validation_failed
       parameters:
@@ -13202,6 +13204,7 @@ paths:
         - cash.occurrence_overridden
         - cash.statement_line_invalid
         - cash.unknown_currency
+        - config.not_bootstrapped
         - request.invalid_amount
         - request.validation_failed
       parameters:
@@ -13311,9 +13314,10 @@ paths:
       tags:
         - cash
       summary: Get a memo record
-      description: "One memo record, with its status as of the read date. A memo record of a legal entity the caller cannot act in is not found."
+      description: "One memo record, with its status as of the read date: its legal entity's date at the read in its company's configured time zone (`read_date`, `time_zone`; UTC when it has none; T72n2). A memo record of a legal entity the caller cannot act in is not found."
       x-permission: cash.memo.read
-      x-problem-codes: []
+      x-problem-codes:
+        - config.not_bootstrapped
       parameters:
         - $ref: "#/components/parameters/Id"
       responses:
@@ -13355,6 +13359,7 @@ paths:
         - cash.occurrence_overridden
         - cash.series_has_overrides
         - cash.unknown_currency
+        - config.not_bootstrapped
         - request.invalid_amount
         - request.validation_failed
         - request.version_mismatch
@@ -13418,6 +13423,7 @@ paths:
         - cash.occurrence_invalid
         - cash.occurrence_overridden
         - cash.statement_line_invalid
+        - config.not_bootstrapped
         - request.validation_failed
         - request.version_mismatch
       parameters:
@@ -13493,6 +13499,7 @@ paths:
         - cash.occurrence_invalid
         - cash.occurrence_overridden
         - cash.statement_line_invalid
+        - config.not_bootstrapped
         - request.validation_failed
         - request.version_mismatch
       parameters:
@@ -13568,6 +13575,7 @@ paths:
         - cash.memo_upload_concurrent
         - cash.occurrence_overridden
         - cash.unknown_currency
+        - config.not_bootstrapped
         - request.invalid_amount
         - request.validation_failed
         - request.version_mismatch
@@ -13631,6 +13639,7 @@ paths:
         - cash.memo_upload_concurrent
         - cash.occurrence_overridden
         - cash.unknown_currency
+        - config.not_bootstrapped
         - request.invalid_amount
         - request.validation_failed
         - request.version_mismatch
@@ -29478,10 +29487,11 @@ components:
     CashPosition:
       type: object
       description: "A legal entity's daily cash position (ADR-0051 §8, T53c): per house bank and per currency first, then the converted total. Amounts are signed: money in the bank is positive, a payment out negative."
-      required: [legal_entity_id, read_date, from, days, banks, currencies, converted]
+      required: [legal_entity_id, read_date, time_zone, from, days, banks, currencies, converted]
       properties:
         legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
-        read_date: {type: string, format: date, description: "The day the position was read (UTC): what is late, stale and converted is judged by it.", readOnly: true}
+        read_date: {type: string, format: date, description: "The company's date when the position was read, in `time_zone`: what is late, stale and converted is judged by it, and `from` is never before it.", readOnly: true}
+        time_zone: {type: string, description: "The IANA time zone the read date is in: the company's configured `time_zone`, or `UTC` when it has none (T72n1). At 22:00 in America/Toronto the read date is still that day.", readOnly: true}
         from: {type: string, format: date, description: The first day., readOnly: true}
         days: {type: integer, format: int32, minimum: 1, maximum: 31, description: How many days., readOnly: true}
         banks:
@@ -29498,6 +29508,7 @@ components:
       examples:
         - legal_entity_id: 0192a000-0000-7000-8000-000000000201
           read_date: "2026-04-17"
+          time_zone: America/Toronto
           from: "2026-04-17"
           days: 1
           banks:
@@ -29664,7 +29675,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [legal_entity_id, amount, direction, value_date, expires_on, certainty, liquidity_item, status, origin]
+          required: [legal_entity_id, amount, direction, value_date, expires_on, certainty, liquidity_item, status, read_date, time_zone, origin]
           properties:
             legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
             house_bank_id: {type: string, format: uuid, description: "The house bank it is expected on; absent: forecast only.", readOnly: true}
@@ -29690,9 +29701,11 @@ components:
             occurrence_date: {type: string, format: date, description: "The occurrence of the series it overrides.", readOnly: true}
             status:
               type: string
-              description: "`proposed` (an agent's, counting nowhere until a person accepts it), `active`, `expired` (active, its last occurrence's expiry date past at the read), `realised`, `cancelled`, `rejected`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "`proposed` (an agent's, counting nowhere until a person accepts it), `active`, `expired` (active, its last occurrence's expiry date before `read_date`), `realised`, `cancelled`, `rejected`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum: [proposed, active, expired, realised, cancelled, rejected]
               readOnly: true
+            read_date: {type: string, format: date, description: "The legal entity's date at the read, in `time_zone`, that `status` is judged on: the cash position's `read_date` for the company at the same instant (T72n2).", readOnly: true}
+            time_zone: {type: string, description: "The IANA time zone `read_date` is in: the company's configured `time_zone`, or `UTC` when it has none. At 22:00 in America/Toronto a record whose last day is that day is still `active`.", readOnly: true}
             origin:
               type: string
               description: "How it was made. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -29728,6 +29741,8 @@ components:
           description: Northwind's October invoices
           reference: INV-2026-0912
           status: active
+          read_date: "2026-10-21"
+          time_zone: America/Toronto
           origin: manual
     MemoRecurrence:
       type: object
