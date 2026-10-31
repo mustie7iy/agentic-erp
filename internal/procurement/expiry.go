@@ -46,8 +46,10 @@ type ContractExpirer struct {
 	Log        *slog.Logger
 	Settings   Settings // the tenant's active configuration, for the notice and the companies' zones
 	// LegalEntities gives each contract's company code, whose zone dates
-	// the round.
+	// the round and which its events name the company by.
 	LegalEntities LegalEntities
+	// Partners names each contract's supplier in its events.
+	Partners SupplierNames
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
 	Begin database.BeginFunc
 	// Now is the round's instant: the audit entries' time and, in each
@@ -115,11 +117,12 @@ func (x *ContractExpirer) expire(ctx context.Context, tenant uuid.UUID, now time
 	if err != nil {
 		return Round{}, err
 	}
+	names := x.names()
 	var r Round
-	if r.Expired, err = expireDue(ctx, tx, actor, now, days); err != nil {
+	if r.Expired, err = expireDue(scoped, tx, actor, now, days, names); err != nil {
 		return Round{}, err
 	}
-	if r.Alerted, err = x.alertDue(ctx, tx, actor, now, alerting{doc: doc, configured: configured, days: days}); err != nil {
+	if r.Alerted, err = x.alertDue(scoped, tx, actor, now, alerting{doc: doc, configured: configured, days: days, names: names}); err != nil {
 		return Round{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -130,7 +133,7 @@ func (x *ContractExpirer) expire(ctx context.Context, tenant uuid.UUID, now time
 
 // expireDue expires the tenant's active contracts whose valid_to is before
 // their company's date.
-func expireDue(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now time.Time, days companyDays) (int, error) {
+func expireDue(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now time.Time, days companyDays, names *eventNames) (int, error) {
 	entities, dates := days.args()
 	rows, _ := tx.Query(ctx, `SELECT c.id FROM procurement.contract c JOIN unnest($1::uuid[], $2::date[]) AS d(legal_entity_id, today)
 			ON d.legal_entity_id = c.legal_entity_id
@@ -140,7 +143,7 @@ func expireDue(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now time.
 		return 0, fmt.Errorf("procurement: list contracts due in tenant %s: %w", actor.TenantID, err)
 	}
 	for _, id := range ids {
-		if err := expireContract(ctx, tx, actor, now, days, id); err != nil {
+		if err := expireContract(ctx, tx, actor, now, days, names, id); err != nil {
 			return 0, err
 		}
 	}
@@ -148,8 +151,9 @@ func expireDue(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now time.
 }
 
 // expireContract expires one contract, publishes ContractExpired with the
-// company's date that judged it and the zone, and audits it.
-func expireContract(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now time.Time, days companyDays, id uuid.UUID) error {
+// company's date that judged it and the zone, naming the company and the
+// supplier, and audits it.
+func expireContract(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now time.Time, days companyDays, names *eventNames, id uuid.UUID) error {
 	c, err := scanContract(tx.QueryRow(ctx, contractSelect+` WHERE c.id = $1`, id))
 	if err != nil {
 		return fmt.Errorf("procurement: expire contract %s: %w", id, err)
@@ -161,6 +165,9 @@ func expireContract(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now 
 	payload := map[string]any{"contract_id": id, "document_number": c.DocumentNumber, "legal_entity_id": c.LegalEntityID, "supplier_id": c.SupplierID,
 		"valid_to": c.ValidTo.Format(time.DateOnly), "consumed_value": money.EventAmount(c.ConsumedValue, c.Currency, c.Exponent), "previous_status": Active, "status": Expired,
 		"expired_on": day.date.Format(time.DateOnly), "time_zone": day.zone}
+	if err := names.name(ctx, c, day, payload); err != nil {
+		return err
+	}
 	if _, err := outbox.Write(ctx, tx, actor.TenantID, actor.ID, "", event("contract_expired", "contract", id, payload)); err != nil {
 		return err
 	}

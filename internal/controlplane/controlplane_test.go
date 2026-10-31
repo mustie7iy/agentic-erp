@@ -272,13 +272,13 @@ func (s *lifecycle) requestRules(t *testing.T) {
 	p.problem(413, "request.body_too_large", "ops|alice", "POST", tenants, `{"name": "`+strings.Repeat("x", 5<<20)+`"}`, "Idempotency-Key", "key-"+uuid.NewString())
 	invalid := p.problem(422, "tenancy.invalid_tenant", "ops|alice", "POST", tenants, `{"name": "Acme", "region": "eu-west", "group_currency": "EUR",
 		"administrator": {"subject": "idp|ada", "display_name": "Ada"}, "configuration": {"bogus": 1}}`, "Idempotency-Key", "key-"+uuid.NewString())
-	if errs := invalid["errors"].([]any); errs[0].(map[string]any)["field"] != "configuration" {
-		t.Fatalf("configuration error: %v", invalid)
+	if got := firstErrorField(t, invalid); got != "configuration" {
+		t.Errorf("configuration error's field: got %q, want configuration", got)
 	}
 	noDoc := p.problem(422, "tenancy.invalid_tenant", "ops|alice", "POST", tenants, `{"name": "Acme", "region": "eu-west", "group_currency": "EUR",
 		"administrator": {"subject": "idp|ada", "display_name": "Ada"}}`, "Idempotency-Key", "key-"+uuid.NewString())
-	if errs := noDoc["errors"].([]any); errs[0].(map[string]any)["field"] != "configuration" {
-		t.Fatalf("missing document: %v", noDoc)
+	if got := firstErrorField(t, noDoc); got != "configuration" {
+		t.Errorf("missing document's field: got %q, want configuration", got)
 	}
 	// A document that reads but fails validation names its errors under
 	// the request's configuration field, as the consumer sent it.
@@ -287,9 +287,23 @@ func (s *lifecycle) requestRules(t *testing.T) {
 	doc, _ := json.Marshal(zoneless)
 	refused := p.problem(422, "config.validation_failed", "ops|alice", "POST", tenants, `{"name": "Acme", "region": "eu-west", "group_currency": "EUR",
 		"administrator": {"subject": "idp|ada", "display_name": "Ada"}, "configuration": `+string(doc)+`}`, "Idempotency-Key", "key-"+uuid.NewString())
-	if errs := refused["errors"].([]any); errs[0].(map[string]any)["field"] != "configuration.companies[1000].time_zone" {
-		t.Errorf("invalid configuration's field: got %v, want configuration.companies[1000].time_zone", errs[0].(map[string]any)["field"])
+	if got := firstErrorField(t, refused); got != "configuration.companies[1000].time_zone" {
+		t.Errorf("invalid configuration's field: got %q, want configuration.companies[1000].time_zone", got)
 	}
+}
+
+// firstErrorField reads the field of a problem's first error, failing the
+// test (not panicking it) when the problem carries no errors list or an
+// empty one.
+func firstErrorField(t *testing.T, problem map[string]any) string {
+	t.Helper()
+	errs, _ := problem["errors"].([]any) // a missing or mistyped list reads as empty and fails below
+	if len(errs) == 0 {
+		t.Fatalf("problem without errors: %v", problem)
+	}
+	e, _ := errs[0].(map[string]any) // a mistyped entry reads as nil: its field is "" and the caller's check fails
+	f, _ := e["field"].(string)      // likewise
+	return f
 }
 
 // listing: filters, order and pages across the cell.
@@ -959,8 +973,8 @@ func (s *rotationScenario) provisionedKey(t *testing.T) {
 	if err := pgtest.Admin(t).QueryRow(ctx, `SELECT iban_cipher FROM payments.house_bank WHERE tenant_id = $1 LIMIT 1`, uuid.MustParse(s.id)).Scan(&s.sealed); err != nil {
 		t.Fatalf("read the sealed house bank: %v", err)
 	}
-	if s.sealed[0] != 2 {
-		t.Fatalf("house bank sealed with format %d", s.sealed[0])
+	if len(s.sealed) == 0 || s.sealed[0] != 2 {
+		t.Fatalf("house bank sealed: got %v, want format byte 2 first", s.sealed)
 	}
 }
 

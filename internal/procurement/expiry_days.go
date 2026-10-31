@@ -15,10 +15,13 @@ import (
 
 // companyDay is a legal entity's date at the round, in its company's time
 // zone, and the zone's name, which the events and audit entries give
-// beside the date so a consumer knows which day judged the contract.
+// beside the date so a consumer knows which day judged the contract; and
+// its company code, which the events name the company by (eventNames), so
+// a round reads each legal entity once (ADR-0034 as built).
 type companyDay struct {
 	date time.Time
 	zone string
+	code string
 }
 
 // companyDays are the round's dates by legal entity.
@@ -53,7 +56,8 @@ func (x *ContractExpirer) document(ctx context.Context) (doc *config.Config, ok 
 // (config.EntityDay: UTC when the company sets none, or the tenant has no
 // configuration). A stored zone the binary cannot load, or a legal entity
 // the directory does not know, fails the round rather than judging the
-// company's contracts in UTC. The read takes no lock: the statements that
+// company's contracts in UTC. Each legal entity's company code is kept for
+// its events. The read takes no lock: the statements that
 // pick contracts join these dates and lock and check each contract's
 // status themselves, so the dates only narrow what they pick, and a
 // contract activated in a further legal entity after this read is judged
@@ -70,13 +74,20 @@ func (x *ContractExpirer) companyDays(ctx context.Context, tx pgx.Tx, doc *confi
 		// does not have.
 		doc = &config.Config{}
 	}
-	days := companyDays{}
+	read, days := tenancy.CompanyCode(x.LegalEntities), companyDays{}
 	for _, id := range ids {
-		d, err := doc.EntityDay(ctx, tenancy.CompanyCode(x.LegalEntities), id, now)
+		var code string
+		keep := func(ctx context.Context, le uuid.UUID) (string, bool, error) {
+			var found bool
+			var err error
+			code, found, err = read(ctx, le)
+			return code, found, err
+		}
+		d, err := doc.EntityDay(ctx, keep, id, now)
 		if err != nil {
 			return nil, fmt.Errorf("procurement: %w", err)
 		}
-		days[id] = companyDay{date: d.Date, zone: d.Zone.String()}
+		days[id] = companyDay{date: d.Date, zone: d.Zone.String(), code: code}
 	}
 	return days, nil
 }

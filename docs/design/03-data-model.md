@@ -1287,7 +1287,9 @@ continues and that end within `purchasing.contract_expiry_notice_days`
 by `ContractExpiring` with the days left, setting `expiry_alerted_on`.
 Both judge on the contract's company's date in its time zone at the round
 (T72n6), which the events give with the zone (`expired_on`, `alerted_on`,
-`time_zone`). An
+`time_zone`). Both name the company by `legal_entity_code` and the supplier
+by `supplier_number` and `supplier_name` beside their ids (ADR-0034 as
+built, review:batch27). An
 alert is an event only: buyers renew the contract or let it expire. A
 configuration activated before the key existed reads 0: the round alerts
 nothing and logs a warning until a change request adds it. Received quantity per PO item is the sum of goods

@@ -3,6 +3,7 @@ package payments
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -214,5 +215,40 @@ func TestRefuse(t *testing.T) {
 				t.Errorf("got %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+// TestNameTooLarge: a proposal failing on one supplier's totals names the
+// supplier by number and name, with its id, as a release's refusals do;
+// the partner context failing is an error (the job is retried), a supplier
+// it does not hold still fails the run (a problem) naming it by id, and
+// any other error passes unchanged.
+func TestNameTooLarge(t *testing.T) {
+	supplier := uuid.New()
+	down, other := errors.New("partner down"), errors.New("something else")
+	named := partners{names: map[uuid.UUID]partner.Named{supplier: {Number: "BP1", Name: "Tyrell"}}}
+	for name, c := range map[string]struct {
+		partners partners
+		err      error
+		want     string
+	}{
+		"named": {named, supplierTooLarge{supplier},
+			"payments.amount_too_large (422): The open items of supplier BP1 Tyrell (" + supplier.String() + ") add up to more than an amount can hold."},
+		"wrapped": {named, fmt.Errorf("propose: %w", supplierTooLarge{supplier}),
+			"payments.amount_too_large (422): The open items of supplier BP1 Tyrell (" + supplier.String() + ") add up to more than an amount can hold."},
+		"the partner context failing": {partners{err: down}, supplierTooLarge{supplier}, "payments: name supplier " + supplier.String() + ": partner down"},
+		"a supplier unknown": {partners{names: map[uuid.UUID]partner.Named{}}, supplierTooLarge{supplier},
+			"payments.amount_too_large (422): The open items of supplier " + supplier.String() + " add up to more than an amount can hold."},
+		"another error": {partners{err: down}, other, "something else"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := &Endpoints{Payees: c.partners}
+			if got := e.nameTooLarge(context.Background(), c.err).Error(); got != c.want {
+				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+	if got, want := (supplierTooLarge{supplier}).Error(), "payments: the open items of supplier "+supplier.String()+" add up to more than an amount can hold"; got != want {
+		t.Errorf("unnamed: got %q, want %q", got, want)
 	}
 }

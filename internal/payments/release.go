@@ -20,6 +20,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/cabank"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
@@ -453,12 +454,26 @@ func (e *Endpoints) recheckDiscounts(ctx context.Context, r Run, pays []Payment,
 // identifier without the name its consumer needs): told to reject the
 // run, it need not list the payments to learn which one is refused.
 func (e *Endpoints) refuse(ctx context.Context, code string, supplier uuid.UUID, detail func(supplier string) string) error {
+	named, err := e.supplierNamed(ctx, supplier)
+	if err != nil {
+		return err
+	}
+	return problem.Conflict(code, detail(named))
+}
+
+// supplierNamed is how a problem's detail names a supplier: by number and
+// name, as its consumer knows it, with the id the run's payments give.
+func (e *Endpoints) supplierNamed(ctx context.Context, supplier uuid.UUID) (string, error) {
 	named, err := idref.Resolve(ctx, e.Payees.Names, []uuid.UUID{supplier}, supplierRef)
 	if err != nil {
-		return fmt.Errorf("payments: name supplier %s: %w", supplier, err)
+		return "", fmt.Errorf("payments: name supplier %s: %w", supplier, err)
 	}
-	n := named[supplier]
-	return problem.Conflict(code, detail(n.Number+" "+n.Name+" ("+supplier.String()+")"))
+	return supplierLabel(supplier, named[supplier]), nil
+}
+
+// supplierLabel is supplier's number and name, with its id.
+func supplierLabel(supplier uuid.UUID, n partner.Named) string {
+	return n.Number + " " + n.Name + " (" + supplier.String() + ")"
 }
 
 // companyDay is the date now of run r's company, in the time zone its

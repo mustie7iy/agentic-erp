@@ -756,3 +756,27 @@ expose its channel's connector). Decided by default, as above:
 - **Contract.** A `detail` text change only: `releasePaymentRun`'s
   description says the detail names the supplier. No new field; oasdiff
   reports no breaking change.
+
+## As built: a proposal too large names the supplier (review:batch27)
+
+- **Decision.** A proposal failing because one supplier's open items, or
+  their cash discounts or withholding, add up to more than an amount can
+  hold (422 `payments.amount_too_large`, the operation's error) names that
+  supplier as a release's refusals do: by its number and name, with its
+  id. Before, the detail gave the UUID alone (REVIEW.md, API-consumer
+  classes: an identifier without the name its consumer needs). A run
+  whose total is too large names the run, as before. Settled by the
+  release's refusals above.
+- **Where.** The proposal computes without a context, so `propose` and
+  `pay` return `supplierTooLarge` with the supplier's id, and
+  `paymentsFor` names it (`nameTooLarge`): one partner `Names` call, only
+  when the proposal fails, formatted by `supplierLabel`, which `refuse`
+  shares. The partner context failing is an error, so the proposal job is
+  retried. A supplier it does not hold (a journal line names its partner
+  without a foreign key) still fails the run with 422
+  `payments.amount_too_large`, naming the supplier by its id: an error
+  there would retry the job first in its tenant's queue forever, as
+  `build` says of a missing legal entity (review:batch28 round 1).
+- **Contract.** A `detail` text change only: `proposePaymentRun`'s
+  description names the problem and says its detail names the supplier.
+  No new field; oasdiff reports no breaking change.
