@@ -27,6 +27,23 @@ func TestCompanyTimeZone(t *testing.T) {
 			}
 		})
 	}
+	t.Run("by company code", func(t *testing.T) {
+		c := fixture(t)
+		c.Companies[0].TimeZone = "Asia/Dubai"
+		for code, want := range map[string]string{c.Companies[0].Code: "Asia/Dubai", "none": "UTC"} {
+			loc, err := c.CompanyLocation(code)
+			if err != nil {
+				t.Fatalf("company %s: got %v, want no error", code, err)
+			}
+			if got := loc.String(); got != want {
+				t.Errorf("company %s: got %s, want %s", code, got, want)
+			}
+		}
+		c.Companies[0].TimeZone = "Local"
+		if _, err := c.CompanyLocation(c.Companies[0].Code); err == nil {
+			t.Error("company in zone Local: got nil error, want the zone refused")
+		}
+	})
 	changed := fixture(t)
 	changed.Companies[0].TimeZone = "America/Toronto"
 	changes, err := Diff(fixture(t), changed)

@@ -8366,10 +8366,10 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "A payment run's release checks a cash discount's last day on the paying company's date, not UTC (payments.discount_lapsed); a money rule: waits for the product owner",
-        "r": "internal/payments release.go recheckDiscounts (UTC today) · T36d · product owner question (money rule), recommendation: the paying company's date · T72n3",
-        "src": "split:T72l",
+        "s": "D",
+        "t": "A payment run's release checks a cash discount's last day on the paying company's date, not UTC (payments.discount_lapsed), the refusal naming that date and zone; product owner 2026-10-31: the paying company's date",
+        "r": "ADR-0051 as built (T72n3) · ADR-0038 as built (T72n3) · internal/payments release.go recheckDiscounts, companyDay · config CompanyLocation · T36d · T72n3",
+        "src": "split:T72l · po:2026-10-31",
         "c": []
        },
        {

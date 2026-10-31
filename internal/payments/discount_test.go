@@ -11,7 +11,9 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -199,6 +201,76 @@ func TestDiscountRefusals(t *testing.T) {
 	if refused["code"] != "payments.discount_lapsed" {
 		t.Errorf("release after the discount's last day: got %v, want payments.discount_lapsed", refused["code"])
 	}
+	if want := "it is 2026-03-16 in UTC"; !strings.Contains(fmt.Sprint(refused["detail"]), want) {
+		t.Errorf("lapse detail of a company without a time zone: got %v, want it to say %q", refused["detail"], want)
+	}
+}
+
+// zoned sets up the payments test environment with company 2000 in the
+// time zone and the API's clock at the instant, its supplier on terms ZB01
+// with an invoice of 1 March whose 3% is earned until 15 March, and
+// returns a proposed run that takes it.
+func zoned(t *testing.T, zone string, now time.Time) (env, map[string]any) {
+	t.Helper()
+	f := fixture.NewWith(t, nil, func(c *config.Config) { c.Company("2000").TimeZone = zone }, perms...)
+	e := setupIn(t, f, func(cfg *app.Config) { cfg.Now = func() time.Time { return now } })
+	e.discountTerms(t, e.Supplier)
+	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
+	e.invoice(t, e.Supplier, "INV-1", "100.00", "2026-03-01")
+	run := e.run(t, "2026-03-10", "2026-03-20")
+	if got := e.payments(t, run)[0].(map[string]any)["discount_until"]; got != "2026-03-15" {
+		t.Fatalf("discount_until: got %v, want 2026-03-15", got)
+	}
+	return e, run
+}
+
+// TestDiscountLapseTimeZone: the release judges a discount's last day on
+// the paying company's date in its time zone, and the refusal names that
+// date and zone (product owner 2026-10-31, T72n3). At 22:00 on 15 March in
+// Toronto (EDT) it is already the 16th in UTC, yet the discount is still
+// earned; at 01:00 on the 16th in Dubai it is still the 15th in UTC, yet
+// it has lapsed. Judged in UTC, both would go the other way. 01:00 on the
+// 15th in Dubai and 22:00 on the 16th in Toronto are the same day as in
+// UTC on one side of midnight only.
+func TestDiscountLapseTimeZone(t *testing.T) {
+	for name, c := range map[string]struct {
+		zone  string
+		now   time.Time
+		today string // "" when the release goes ahead
+	}{
+		"Toronto 22:00 on the last day":  {"America/Toronto", time.Date(2026, 3, 16, 2, 0, 0, 0, time.UTC), ""},
+		"Toronto 22:00 on the day after": {"America/Toronto", time.Date(2026, 3, 17, 2, 0, 0, 0, time.UTC), "2026-03-16"},
+		"Dubai 01:00 on the last day":    {"Asia/Dubai", time.Date(2026, 3, 14, 21, 0, 0, 0, time.UTC), ""},
+		"Dubai 01:00 on the day after":   {"Asia/Dubai", time.Date(2026, 3, 15, 21, 0, 0, 0, time.UTC), "2026-03-16"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e, run := zoned(t, c.zone, c.now)
+			if c.today == "" {
+				e.release(t, run, "")
+				return
+			}
+			refused := e.decide(t, 409, run, "release", "")
+			if refused["code"] != "payments.discount_lapsed" {
+				t.Fatalf("release after the company's last day: got %v, want payments.discount_lapsed", refused["code"])
+			}
+			if want := "earned until 2026-03-15; it is " + c.today + " in " + c.zone; !strings.Contains(fmt.Sprint(refused["detail"]), want) {
+				t.Errorf("lapse detail: got %v, want it to say %q", refused["detail"], want)
+			}
+		})
+	}
+}
+
+// TestDiscountLapseDatabaseFailures: the release of a run that takes a
+// discount, its company's date read, fails cleanly at each statement.
+func TestDiscountLapseDatabaseFailures(t *testing.T) {
+	at := time.Date(2026, 3, 16, 2, 0, 0, 0, time.UTC)
+	e, run := zoned(t, "America/Toronto", at)
+	h := endpoints(nil)
+	h.Now = func() time.Time { return at }
+	apitest.EveryFailure(t, e.Tenant, e.Approver, "release with a discount", func(ctx context.Context) error {
+		_, err := h.StartRelease(ctx, uuidOf(id(run)), yes, "")
+		return err
+	})
 }
 
 // TestDebitBalanceAfterDiscount: a supplier whose items net to nothing only

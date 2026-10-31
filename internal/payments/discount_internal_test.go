@@ -9,9 +9,11 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 func day(s string) time.Time {
@@ -118,5 +120,25 @@ func TestCashDiscountAccountUnread(t *testing.T) {
 	err := e.requireCashDiscountAccount(context.Background(), Run{}, proposal{itemDiscounts: []money.Minor{0, 3}})
 	if err == nil || !strings.Contains(err.Error(), "ledger unavailable") {
 		t.Errorf("got %v, want the ledger's error", err)
+	}
+}
+
+// entities is a legal entity directory of one company code.
+type entities string
+
+func (code entities) Entity(_ context.Context, id uuid.UUID) (tenancy.Entity, bool, error) {
+	return tenancy.Entity{ID: id, Code: string(code)}, true, nil
+}
+
+// TestCompanyDayUnknownZone: a stored document whose company names a zone
+// this build cannot load (validation refuses one, so only a zone database
+// that lost it) fails the release rather than judging the discount in UTC.
+func TestCompanyDayUnknownZone(t *testing.T) {
+	e := &Endpoints{LegalEntities: entities("2000"), Now: func() time.Time { return time.Date(2026, 3, 16, 2, 0, 0, 0, time.UTC) }}
+	doc := &config.Config{Companies: []config.Company{{Code: "2000", TimeZone: "America/Nowhere"}}}
+	until := day("2026-03-15")
+	err := e.recheckDiscounts(context.Background(), Run{ID: uuid.New(), Status: Proposed}, []Payment{{}, {DiscountUntil: &until}}, doc)
+	if err == nil || !strings.Contains(err.Error(), "payments: company 2000 of run") {
+		t.Errorf("got %v, want the company's zone refused", err)
 	}
 }

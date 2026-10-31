@@ -670,6 +670,18 @@ func (c *Company) Location() (*time.Location, error) {
 	return loc, nil
 }
 
+// CompanyLocation is the time zone of the company with the code: UTC when
+// the document has no such company, as when it sets none (T72n1). Every
+// business date judged for a company (a payment run's discount lapse,
+// T72n3) is its date in this zone.
+func (c *Config) CompanyLocation(code string) (*time.Location, error) {
+	co := c.Company(code)
+	if co == nil {
+		return time.UTC, nil
+	}
+	return co.Location()
+}
+
 func (c *Company) Account(number string) *Account {
 	for i := range c.ChartOfAccounts {
 		if c.ChartOfAccounts[i].Number == number {

@@ -29289,8 +29289,9 @@ type Payment struct {
 	// The withholding tax deducted from the payment's items (T46f), their total, posted to the withholding
 	// tax codes' accounts when the payment posts; 0.00 when none.
 	WithholdingAmount OptMoney `json:"withholding_amount"`
-	// The last day the payment's cash discounts are earned (T36d): a release of the run after it is
-	// refused with 409 `payments.discount_lapsed`. Absent when the payment takes no discount.
+	// The last day the payment's cash discounts are earned (T36d): a release of the run after it, judged
+	// on the paying company's date in its time zone (T72n3), is refused with 409
+	// `payments.discount_lapsed`. Absent when the payment takes no discount.
 	DiscountUntil OptDate `json:"discount_until"`
 	// ISO 20022 end-to-end id.
 	EndToEndID string `json:"end_to_end_id"`

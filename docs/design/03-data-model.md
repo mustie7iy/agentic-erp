@@ -2064,7 +2064,8 @@ discount fails at proposal without a `cash_discount` account (422
 discounts are earned (`discount_until`, migration 000070, shown on the
 payment so the approver knows the release-by date), and the release
 of a proposed run after it is refused (409 `payments.discount_lapsed`,
-days in UTC): the run is rejected and proposed again, at the discount then
+judged on the paying company's date in its `time_zone`, T72n3, which the
+problem's detail names): the run is rejected and proposed again, at the discount then
 earned; a release being resumed is not refused, since some of its
 payments may have posted.
 

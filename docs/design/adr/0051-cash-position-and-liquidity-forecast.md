@@ -709,12 +709,43 @@ zone", split into T72n1-T72n6):
   UTC.
 - **Not yet** (tracked under the same item): memo records' own status
   in their reads, lists and uploads (T72n2); the payment release's cash
-  discount check (T72n3, a money rule, the product owner's); cost and
+  discount check (T72n3, done: see below); cost and
   profit center changes' effective day (T72n4, the product owner's
   confirmation); the day whose rate routes a requisition (T72n5, a money
   rule, the product owner's); purchasing contracts' expiry (T72n6).
   Documents are still dated by their callers; no posting date defaults to
   a today.
+
+As built (T72n3, a payment run's cash discount judged on the company's
+date; product owner 2026-10-31):
+- **The rule.** The release of a proposed run refuses a payment whose cash
+  discount's last day (`discount_until`) is before the paying company's
+  date at the release, in its `time_zone` (UTC when it sets none): 409
+  `payments.discount_lapsed`. At 22:00 on the last day in Toronto (02:00
+  UTC the next day) the discount is still earned; at 01:00 the next day in
+  Dubai (21:00 UTC on the last day) it has lapsed. ADR-0038 records it
+  with the release.
+- **Every place a lapse is judged.** Only the release reads a today for a
+  discount. The proposal judges each item's tier, and whether it would
+  lose its discount by the due-by date, on the run's `run_date`, the date
+  the payments post and are executed on, which the proposer chooses: no
+  clock and no zone are involved, so nothing there changes.
+- **The shared helper.** `config.(*Config).CompanyLocation(code)` is a
+  company's zone by its code, UTC when the document has no such company
+  or the company sets none; payments' `companyDay` takes it with
+  `clock.DayIn`. The cash position's `readDate` (T72n1) does the same
+  lookup inline; it is left as it is while T72n2 changes that package and
+  can take the helper then.
+- **What the consumer sees.** The problem's `detail` names the discount's
+  last day, the company's date that judged it and the zone (`… earned
+  until 2026-03-15; it is 2026-03-16 in Asia/Dubai, the paying company's
+  time zone …`); the problem schema has no extension members, so the date
+  and zone are in the detail, as other payments problems give their
+  facts.
+- **Determinism.** The check runs in the `:release` request
+  (`StartRelease`), before the operation is queued; the release workflow
+  and its activities do not judge the discount, so no workflow code reads
+  a clock.
 
 ### 9. Liquidity forecast
 `GET /v1/liquidity-forecast?company=…&horizon=…` (`cash.forecast.read`):

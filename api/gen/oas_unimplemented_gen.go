@@ -2971,9 +2971,11 @@ func (UnimplementedHandler) ReleaseContract(ctx context.Context, params ReleaseC
 // `ledger.no_exchange_rate` when the company has a limit and no rate converts the run's currency on
 // the run date. Sets `decided_by` and `decided_at`. Requires status `proposed`, or `releasing` after a
 // failed release operation, which resumes it. 409 `payments.discount_lapsed` when a payment takes a
-// cash discount whose last day has passed (T36d): reject the run and propose again. 409
-// `ledger.withholding_changed` when an item would withhold another amount than its payment deducted
-// (T46f); the payment is not posted.
+// cash discount whose last day has passed (T36d): reject the run and propose again. The day is judged
+// on the paying company's date in its time zone (`companies[].time_zone`, UTC when it sets none;
+// T72n3), and the problem's `detail` names that date and zone, so a Toronto company's release at 22:00
+// on the last day still earns the discount. 409 `ledger.withholding_changed` when an item would
+// withhold another amount than its payment deducted (T46f); the payment is not posted.
 //
 // POST /v1/payment-runs/{id}:release
 func (UnimplementedHandler) ReleasePaymentRun(ctx context.Context, req OptDecisionInput, params ReleasePaymentRunParams) (r ReleasePaymentRunRes, _ error) {
