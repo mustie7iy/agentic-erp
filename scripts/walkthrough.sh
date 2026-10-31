@@ -397,9 +397,20 @@ step_tenant() {
   show erp gen-mock-sap -out data/extract.json -year "$YEAR" -through 9 -seed 42
   "$ERP" gen-mock-sap -out "$WORK/data/extract.json" -year "$YEAR" -through 9 -seed 42 >/dev/null || fail "gen-mock-sap failed"
   jq -r '.T001[] | "     SAP company \(.BUKRS) \(.BUTXT), \(.WAERS), \(.LAND1)"' "$WORK/data/extract.json"
+  say "SAP's extract has no time zone for a company code, and the configuration requires one (product owner"
+  say "2026-10-31): a draft without it names the company and key to set."
   show erp config generate -source file:data/extract.json -company "$CC" -year "$YEAR" -out config.yaml
-  "$ERP" config generate -source "file:$WORK/data/extract.json" -company "$CC" -year "$YEAR" -out "$WORK/config.yaml" >"$WORK/generate.out" 2>&1 ||
-    { sed 's/^/     /' "$WORK/generate.out"; fail "config generate failed"; }
+  if "$ERP" config generate -source "file:$WORK/data/extract.json" -company "$CC" -year "$YEAR" -out "$WORK/config.yaml" >"$WORK/generate.out" 2>&1; then
+    fail "a draft without the company's time zone validated"
+  fi
+  grep -q "\[error\] companies\[$CC\]\.time_zone: time zone is required" "$WORK/generate.out" ||
+    { sed 's/^/     /' "$WORK/generate.out"; fail "the draft without a time zone was not refused on companies[$CC].time_zone"; }
+  grep "\[error\] companies\[$CC\]\.time_zone: time zone is required" "$WORK/generate.out" | sed 's/^ */     /'
+  say "The company does business in Eastern Time: its business dates (today in its cash position) are in"
+  say "America/Toronto, given as the draft is generated (T72n1)."
+  show erp config generate -source file:data/extract.json -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" -out config.yaml
+  "$ERP" config generate -source "file:$WORK/data/extract.json" -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" \
+    -out "$WORK/config.yaml" >"$WORK/generate.out" 2>&1 || { sed 's/^/     /' "$WORK/generate.out"; fail "config generate failed"; }
   grep -q 'Validation: no findings' "$WORK/generate.out" || { sed 's/^/     /' "$WORK/generate.out"; fail "the generated configuration has findings"; }
   say "  the configuration generated from SAP's customizing validates with no findings."
   say "SAP's house bank (T012K) is Canadian: no IBAN, its account by institution, transit and account number:"
@@ -408,9 +419,7 @@ step_tenant() {
   grep -A 6 '^    house_bank:$' "$WORK/config.yaml" | grep -q 'institution_number: "003"' || fail "the house bank was not generated with its institution number"
   say "A second ledger, 2L for local GAAP (ASPE), is added beside the leading IFRS ledger 0L before"
   say "provisioning: parallel ledgers are set up while the company has no postings (ADR-0045)."
-  say "The company does business in Eastern Time: its business dates (today in its cash position) are in"
-  say "time_zone America/Toronto, an IANA zone the configuration validates, not UTC (T72n1)."
-  awk '{ print } /^    fiscal_year_start_month: 1$/ { print "    ledgers: [\"0L\", \"2L\"]"; print "    time_zone: America/Toronto" }' "$WORK/config.yaml" >"$WORK/config.tmp"
+  awk '{ print } /^    fiscal_year_start_month: 1$/ { print "    ledgers: [\"0L\", \"2L\"]" }' "$WORK/config.yaml" >"$WORK/config.tmp"
   mv "$WORK/config.tmp" "$WORK/config.yaml"
   cat >>"$WORK/config.yaml" <<'YAML'
 ledgers:
@@ -418,7 +427,7 @@ ledgers:
   - {code: "2L", name: Local GAAP (ASPE), accounting_principle: ASPE}
 YAML
   grep -q 'ledgers: \["0L", "2L"\]' "$WORK/config.yaml" || fail "the company's ledgers were not added to the configuration"
-  grep -q '^    time_zone: America/Toronto$' "$WORK/config.yaml" || fail "the company's time zone was not added to the configuration"
+  grep -q '^    time_zone: America/Toronto$' "$WORK/config.yaml" || fail "the company's time zone is not in the configuration"
   show erp-server provision -name "Maple pilot" -region ca-central -currency CAD -admin-subject ada -admin-name "Ada Admin" -config config.yaml
   "$BIN/erp-server" provision -name "Maple pilot" -region ca-central -currency CAD -admin-subject ada -admin-name "Ada Admin" \
     -config "$WORK/config.yaml" >"$WORK/last.json" 2>"$WORK/stderr" || fail "provision failed: $(cat "$WORK/stderr")"

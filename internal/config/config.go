@@ -183,7 +183,9 @@ type Company struct {
 	FiscalYearStartMonth int    `yaml:"fiscal_year_start_month" json:"fiscal_year_start_month"`
 	// TimeZone is the IANA name of the zone the company's business dates
 	// are in (America/Toronto, Asia/Dubai): which day is today for it.
-	// Empty is UTC, as every date was before it was set (T72n1).
+	// Validation requires it (product owner 2026-10-31); a document
+	// activated before then may lack it and is read as UTC, as every date
+	// was before it was set (T72n1).
 	TimeZone             string               `yaml:"time_zone,omitempty" json:"time_zone,omitempty"`
 	ChartOfAccounts      []Account            `yaml:"chart_of_accounts" json:"chart_of_accounts"`
 	AccountDetermination AccountDetermination `yaml:"account_determination" json:"account_determination"`
@@ -650,8 +652,9 @@ func (c *Config) Company(code string) *Company {
 // capital (America/Toronto, Etc/GMT+5, UTC).
 var zoneName = regexp.MustCompile(`^[A-Z][A-Za-z0-9_+-]*(/[A-Z][A-Za-z0-9_+-]*)*$`)
 
-// Location is the company's time zone, UTC when none is set. Validation
-// refuses a name that does not load, and the names only some hosts accept
+// Location is the company's time zone; UTC when none is set, as in a
+// document activated before validation required one (tolerant read,
+// strict write: 06 §6.4). Validation refuses a name that does not load, and the names only some hosts accept
 // (LoadLocation tries the host's zoneinfo before the embedded copy): Local,
 // the reading host's zone, and any name not in IANA form, so localtime,
 // posixrules, the posix/ and right/ trees and a lower-case name a
@@ -671,14 +674,17 @@ func (c *Company) Location() (*time.Location, error) {
 }
 
 // CompanyLocation is the time zone of the company with the code, which its
-// business dates are in: UTC when it has none, or the document has no such
-// company, as the cash position reads it (T72n1). A requisition is dated by
-// it (T72n5).
+// business dates are in: UTC when the document has no such company, or the
+// company sets none (a document activated before the zone was required,
+// T72n7). Every business date judged for a company is its date in this zone:
+// the cash position's read date (T72n1), a payment run's discount lapse
+// (T72n3) and a requisition's date (T72n5).
 func (c *Config) CompanyLocation(code string) (*time.Location, error) {
-	if co := c.Company(code); co != nil {
-		return co.Location()
+	co := c.Company(code)
+	if co == nil {
+		return time.UTC, nil
 	}
-	return time.UTC, nil
+	return co.Location()
 }
 
 func (c *Company) Account(number string) *Account {

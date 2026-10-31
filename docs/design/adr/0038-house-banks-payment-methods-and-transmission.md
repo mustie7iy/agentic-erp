@@ -706,3 +706,30 @@ expose its channel's connector). Decided by default, as above:
 - **The walkthrough.** Step 3 lists the migration runs and expects every one
   to name the `SAP PRD` connector; step 13 reads the cash position's RBC
   bank by `house_bank_code`.
+
+## As built: a run's cash discount lapses on its company's date (T72n3, product owner 2026-10-31)
+
+- **Decision (product owner 2026-10-31).** The release's check that a
+  payment's cash discount is still earned (T36d, 409
+  `payments.discount_lapsed`) judges the last day on the paying company's
+  date in its time zone (`companies[].time_zone`, T72n1; UTC in a document activated before
+  the zone was required, 2026-10-31),
+  not on the UTC date: a Toronto treasurer releasing at 22:00 on the last
+  day keeps the discount the supplier grants until that day ends for the
+  company, and a Dubai company's release after its midnight no longer
+  takes it. The paying company is the run's legal entity's.
+- **Where.** `recheckDiscounts` in the `:release` request; the company's
+  date is read only when a payment takes a discount. A release being
+  resumed is still not refused. Details, and why the proposal (judged on
+  the run date) needs no change, are in ADR-0051's "As built (T72n3)".
+- **The problem.** Its detail names the discount's last day, the company's
+  date that judged it and the zone; the contract's descriptions of
+  `releasePaymentRun` and `discount_until` say so.
+- **Walkthrough.** Not extended: the step changes the time base of an
+  existing rule (T36d) rather than adding a capability, and what it
+  changes depends on the hour of the release, which the walkthrough
+  cannot choose, as its server runs on the host's clock. A lapse at any
+  hour would need a back-dated invoice and run competing with step 7's
+  run for the same supplier's items, for no evidence of the zone; the
+  package tests (`TestDiscountLapseTimeZone`) fix the clock at those
+  hours instead.

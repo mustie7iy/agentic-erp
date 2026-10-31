@@ -423,10 +423,13 @@ that nothing was replayed (T72l).
 A company's business dates are in its `companies[].time_zone`, an IANA
 zone name (`America/Toronto`, `Asia/Dubai`) that validation loads from the
 zone database built into the binary, host-only names (`Local`,
-`posix/…`) and offsets refused; none is
-UTC. A change is tier 3. The cash position's read date is the company's
-date in it (ADR-0051 as built, T72n1), and so is a requisition's date
-(T72n5); the other business dates still in UTC are T72n2-T72n4 and T72n6.
+`posix/…`) and offsets refused. It is required of a new or changed
+document (product owner 2026-10-31); a document activated before then
+may lack it and is read as UTC. A change is tier 3. The cash position's
+read date is the company's date in it (ADR-0051 as built, T72n1), and so
+are a memo record's status (T72n2), a payment run's discount lapse (T72n3)
+and a requisition's date (T72n5); the other business dates still in UTC
+are T72n4 and T72n6.
 
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
@@ -2073,7 +2076,8 @@ discount fails at proposal without a `cash_discount` account (422
 discounts are earned (`discount_until`, migration 000070, shown on the
 payment so the approver knows the release-by date), and the release
 of a proposed run after it is refused (409 `payments.discount_lapsed`,
-days in UTC): the run is rejected and proposed again, at the discount then
+judged on the paying company's date in its `time_zone`, T72n3, which the
+problem's detail names): the run is rejected and proposed again, at the discount then
 earned; a release being resumed is not refused, since some of its
 payments may have posted.
 

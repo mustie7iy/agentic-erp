@@ -693,7 +693,8 @@ zone", split into T72n1-T72n6):
   open; offsets such as `-05:00` do not load
   (`companies[<code>].time_zone`). Empty is UTC, as every date was before:
   documents activated earlier keep their meaning (tolerant read), and the
-  response says which zone was used. A change is tier 3
+  response says which zone was used. Since 2026-10-31 a new or changed
+  document must set it (see "the zone required" below). A change is tier 3
   (posting-relevant): it moves which day is today for the company by up
   to a day, and the later slices date checks by it.
 - **The read date.** The cash position's read date is the clock's instant
@@ -726,7 +727,7 @@ zone", split into T72n1-T72n6):
   nothing in it changes. A stored zone that does not load fails the read
   and the list, as it fails the position.
 - **Not yet** (tracked under the same item): the payment release's cash
-  discount check (T72n3, a money rule, the product owner's); cost and
+  discount check (T72n3, done: see below); cost and
   profit center changes' effective day (T72n4, the product owner's
   confirmation); purchasing contracts' expiry (T72n6).
   Documents are still dated by their callers; the one posting date that
@@ -764,6 +765,80 @@ company's time zone):
   requisition's), a contract's number, and a goods movement reversal's
   default posting date; they are tracked separately (review:batch26).
   Contracts' expiry and its notice are T72n6.
+
+As built (T72n3, a payment run's cash discount judged on the company's
+date; product owner 2026-10-31):
+- **The rule.** The release of a proposed run refuses a payment whose cash
+  discount's last day (`discount_until`) is before the paying company's
+  date at the release, in its `time_zone` (UTC when it sets none): 409
+  `payments.discount_lapsed`. At 22:00 on the last day in Toronto (02:00
+  UTC the next day) the discount is still earned; at 01:00 the next day in
+  Dubai (21:00 UTC on the last day) it has lapsed. ADR-0038 records it
+  with the release.
+- **Every place a lapse is judged.** Only the release reads a today for a
+  discount. The proposal judges each item's tier, and whether it would
+  lose its discount by the due-by date, on the run's `run_date`, the date
+  the payments post and are executed on, which the proposer chooses: no
+  clock and no zone are involved, so nothing there changes.
+- **The shared helper.** `config.(*Config).CompanyLocation(code)` is a
+  company's zone by its code, UTC when the document has no such company
+  or the company sets none; payments' `companyDay` takes it with
+  `clock.DayIn`. The cash position's `readDate` (T72n1) does the same
+  lookup inline; it is left as it is while T72n2 changes that package and
+  can take the helper then.
+- **What the consumer sees.** The problem's `detail` names the discount's
+  last day, the company's date that judged it and the zone (`… earned
+  until 2026-03-15; it is 2026-03-16 in Asia/Dubai, the time zone the
+  paying company's date is judged in …`; UTC when the company sets none);
+  the problem schema has no extension members, so the date
+  and zone are in the detail, as other payments problems give their
+  facts.
+- **Determinism.** The check runs in the `:release` request
+  (`StartRelease`), before the operation is queued; the release workflow
+  and its activities do not judge the discount, so no workflow code reads
+  a clock.
+
+As built (the zone required; product owner 2026-10-31, Pilot readiness
+"Company time zone"):
+- **Strict write, tolerant read** (06 §6.4). `config.Validate` refuses a
+  company without `time_zone` (`companies[<code>].time_zone`: "time zone
+  is required: the IANA name of the zone the company's business dates
+  are in, such as America/Toronto or Asia/Dubai, as the company states
+  it"). Validate runs on a change request's submission and a tenant's
+  bootstrap (the
+  control plane's `createTenant`, `erp-server provision`), and offline in
+  `erp config validate` and `erp config generate`; the consumer gets 422
+  `config.validation_failed` with one error per company on
+  `proposed.companies[<code>].time_zone`, the code already declared on
+  `submitChangeRequest`, so the contract gains no code. Reading the
+  active document (`config.ParseActive`) does not validate: a document
+  activated before the rule keeps its meaning, its companies' dates in
+  UTC, and the cash position and the release still name `UTC` as the
+  zone used. The first change to such a document must set every
+  company's zone, since the proposal is validated whole, and is tier 3
+  (posting-relevant) like any change to the zone, `""` to `UTC` included;
+  no data migration rewrites the stored versions, which are immutable.
+  Activation does not validate again, so a change request submitted
+  before the rule and approved after it activates without a zone, read
+  as UTC like any older document.
+- **The pilots.** Canada in the company's own zone (`America/Toronto` in
+  the walkthrough; Canada spans six zones, so none is derived from the
+  country), the UAE in `Asia/Dubai`.
+- **SAP drafts.** `erp config generate -time-zone CODE=ZONE,…`
+  (`sapconfig.Options.TimeZones`) gives each company's zone; the draft
+  notes it as given. The extract carries no time zone for a company code
+  (its T001 rows hold `BUKRS`, `BUTXT`, `WAERS`, `LAND1`), so a company
+  given none is drafted without one, with a note, and the draft does not
+  validate until a reviewer sets it. Whether the company code's address
+  in SAP carries a time zone that could be extracted reliably is not
+  settled here (no primary source checked); it is listed for an SAP
+  specialist rather than assumed.
+- **Shipped documents.** The test fixture's companies
+  (`internal/config/testdata/valid.yaml`) are in `UTC`, as their dates
+  were judged before; the evaluation configurations' German and French
+  companies are in `Europe/Berlin` and `Europe/Paris`; the walkthrough
+  generates its pilot company with `-time-zone 3000=America/Toronto` and
+  shows the draft without it refused.
 
 ### 9. Liquidity forecast
 `GET /v1/liquidity-forecast?company=…&horizon=…` (`cash.forecast.read`):

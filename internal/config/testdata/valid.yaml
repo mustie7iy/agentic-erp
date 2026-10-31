@@ -5,6 +5,9 @@ companies:
     currency: USD
     country: US
     fiscal_year_start_month: 1
+    # UTC, as every company was before the zone was required: the tests'
+    # dates are judged in it (T72n1, product owner 2026-10-31).
+    time_zone: UTC
     chart_of_accounts:
       - number: "100000"
         name: Bank - Operating
@@ -71,6 +74,7 @@ companies:
     currency: EUR
     country: DE
     fiscal_year_start_month: 1
+    time_zone: UTC
     chart_of_accounts:
       - number: "100000"
         name: Bank - Operating

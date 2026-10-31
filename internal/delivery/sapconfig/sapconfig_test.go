@@ -19,7 +19,7 @@ func notesText(ns []Note) string {
 }
 
 func TestGenerateFromMockSAP(t *testing.T) {
-	c, notes := Generate(sap.GenerateMock(42, "2026"), DefaultOptions())
+	c, notes := Generate(sap.GenerateMock(42, "2026"), zoned())
 	us := c.Company("1000")
 	if us == nil {
 		t.Fatal("company 1000: got none, want it from T001")
@@ -81,7 +81,7 @@ func TestGenerateGapsAndDefaults(t *testing.T) {
 	e.T052, e.T169G, e.T030, e.ACDOCA = nil, nil, nil, nil
 	e.SKB1 = append(e.SKB1, sap.SKB1{BUKRS: "1000", SAKNR: "ABC", TXT50: "Odd account"}, sap.SKB1{BUKRS: "1000", SAKNR: "0000000050", TXT50: "Low"})
 	e.LFB1 = append(e.LFB1, sap.LFB1{LIFNR: "0000100001", BUKRS: "1000", AKONT: "0000212000", ZTERM: "NT30"}, sap.LFB1{LIFNR: "0000100002", BUKRS: "1000", AKONT: "0000212000", ZTERM: "NT30"})
-	opts := DefaultOptions()
+	opts := zoned()
 	opts.AccountTypes = append(opts.AccountTypes, RangeRule{From: "x", To: "y", Type: config.Asset})
 	c, notes := Generate(e, opts)
 	all := notesText(notes)
@@ -114,7 +114,7 @@ func TestGenerateGapsAndDefaults(t *testing.T) {
 func TestAlphaMatchesTheMigration(t *testing.T) {
 	e := sap.GenerateMock(42, "2026")
 	e.SKB1 = append(e.SKB1, sap.SKB1{BUKRS: "1000", SAKNR: "0000000000", TXT50: "Zero"})
-	opts := DefaultOptions()
+	opts := zoned()
 	opts.AccountTypes = append(opts.AccountTypes, RangeRule{From: "0", To: "0", Type: config.Asset})
 	c, _ := Generate(e, opts)
 	if a := c.Company("1000").Account("0"); a == nil || a.Name != "Zero" {
@@ -143,7 +143,7 @@ func TestTolerancePercentageForms(t *testing.T) {
 			for i := range e.T169G {
 				e.T169G[i].PROZ = tc.proz
 			}
-			c, notes := Generate(e, DefaultOptions())
+			c, notes := Generate(e, zoned())
 			if got := c.Company("1000").InvoiceTolerance.PricePercent; got != tc.pct {
 				t.Errorf("got price percent %d, want %d", got, tc.pct)
 			}
@@ -162,7 +162,7 @@ func TestUnparseableDaysFailValidation(t *testing.T) {
 		t.Run(ztag1, func(t *testing.T) {
 			e := sap.GenerateMock(42, "2026")
 			e.T052 = append(e.T052, sap.T052{ZTERM: "NT99", ZTAG1: ztag1, TEXT1: "Odd"})
-			c, _ := Generate(e, DefaultOptions())
+			c, _ := Generate(e, zoned())
 			var found bool
 			for _, f := range config.Validate(c, currency.Seeded()) {
 				if f.Path == "payment_terms[NT99].net_days" && f.Severity == config.SevError {
@@ -198,7 +198,7 @@ func TestUnparseableNumbersAreNoted(t *testing.T) {
 				e.T169G[i].PROZ = tc.proz
 			}
 			e.T052 = []sap.T052{{ZTERM: "NT30", ZTAG1: tc.ztag1, TEXT1: "Net 30 days"}}
-			c, notes := Generate(e, DefaultOptions())
+			c, notes := Generate(e, zoned())
 			if got := c.Company("1000").InvoiceTolerance.PricePercent; got != tc.pct {
 				t.Errorf("got price percent %d, want %d", got, tc.pct)
 			}
@@ -226,7 +226,7 @@ func TestGRIRFromT030(t *testing.T) {
 	e.SKB1 = append(e.SKB1, sap.SKB1{BUKRS: "1000", SAKNR: "0000219000", TXT50: "GR/IR clearing"},
 		sap.SKB1{BUKRS: "1000", SAKNR: "0000590000", TXT50: "Price differences"})
 	e.T030 = append(e.T030, sap.T030{BUKRS: "1000", KTOSL: "WRX", KONTS: "0000219000"}, sap.T030{BUKRS: "1000", KTOSL: "PRD", KONTS: "0000590000"})
-	c, _ := Generate(e, DefaultOptions())
+	c, _ := Generate(e, zoned())
 	ad := c.Company("1000").AccountDetermination
 	if ad.GRIR != "219000" {
 		t.Errorf("gr_ir from T030 WRX: got %q, want 219000", ad.GRIR)
@@ -246,7 +246,7 @@ func TestFurtherHouseBanks(t *testing.T) {
 	e.SKB1 = append(e.SKB1, sap.SKB1{BUKRS: "1000", SAKNR: "0000101000", TXT50: "Bank clearing - DB"})
 	e.T012K = append(e.T012K, sap.T012K{BUKRS: "1000", HBKID: "DB", HKONT: "0000101000", IBAN: "DE02120300000000202051", SWIFT: "DEUTDEFFXXX"},
 		sap.T012K{BUKRS: "1000", HBKID: "DB", HKONT: "0000102000", IBAN: "DE89370400440532013000", SWIFT: "DEUTDEFFXXX"})
-	c, notes := Generate(e, DefaultOptions())
+	c, notes := Generate(e, zoned())
 	if !strings.Contains(notesText(notes), "house bank DB has several accounts") {
 		t.Errorf("a second account of DB: got notes %s, want one on it", notesText(notes))
 	}
@@ -273,7 +273,7 @@ func TestMainHouseBankOnItsOwnAccount(t *testing.T) {
 			e.T012K[i].HKONT = "0000101000"
 		}
 	}
-	c, _ := Generate(e, DefaultOptions())
+	c, _ := Generate(e, zoned())
 	co := c.Company("1000")
 	if co.HouseBank.GLAccount != "101000" {
 		t.Errorf("main house bank account: got %q, want 101000", co.HouseBank.GLAccount)
@@ -292,7 +292,7 @@ func TestGRIRRowsDisagree(t *testing.T) {
 	e := sap.GenerateMock(42, "2026")
 	e.T030 = append(e.T030, sap.T030{BUKRS: "1000", KTOSL: "WRX", KONTS: "0000219000"}, sap.T030{BUKRS: "1000", KTOSL: "WRX", KONTS: "0000219100"},
 		sap.T030{BUKRS: "1000", KTOSL: "PRD", KONTS: "0000590000"}, sap.T030{BUKRS: "1000", KTOSL: "PRD", KONTS: "0000590000"})
-	_, notes := Generate(e, DefaultOptions())
+	_, notes := Generate(e, zoned())
 	all := notesText(notes)
 	if want := "companies[1000].account_determination.gr_ir: T030 WRX names accounts 219000 and 219100; 219000 taken"; !strings.Contains(all, want) {
 		t.Errorf("got notes without %q:\n%s", want, all)
@@ -313,7 +313,7 @@ func TestDownPaymentFromT074(t *testing.T) {
 		sap.T074{BUKRS: "3000", KOART: "D", UMSKZ: "A", HKONT: "0000120000", SKONT: "0000159200"},
 		sap.T074{BUKRS: "3000", KOART: "K", UMSKZ: "I", HKONT: "0000211000", SKONT: "0000159300"},
 		sap.T074{BUKRS: "3000", KOART: "K", UMSKZ: "A", HKONT: "0000213000", SKONT: "0000159000"})
-	c, notes := Generate(e, DefaultOptions())
+	c, notes := Generate(e, zoned())
 	for code, want := range map[string]string{"1000": "", "3000": "159000"} {
 		if got := c.Company(code).AccountDetermination.DownPayment; got != want {
 			t.Errorf("company %s down payment account: got %q, want %q", code, got, want)
@@ -326,7 +326,7 @@ func TestDownPaymentFromT074(t *testing.T) {
 	if n := strings.Count(all, "T074"); n != 1 {
 		t.Errorf("T074 notes: got %d, want 1:\n%s", n, all)
 	}
-	plain, _ := Generate(sap.GenerateMock(42, "2026"), DefaultOptions())
+	plain, _ := Generate(sap.GenerateMock(42, "2026"), zoned())
 	if fs := config.Validate(plain, currency.Seeded()); config.HasErrors(fs) {
 		t.Errorf("draft with company 3000's down payment account does not validate: %v", fs)
 	}
@@ -337,7 +337,7 @@ func TestDownPaymentFromT074(t *testing.T) {
 // (T72d), and a bank key in another form is noted and left for a reviewer,
 // whom validation then stops.
 func TestCanadianHouseBank(t *testing.T) {
-	c, _ := Generate(sap.GenerateMock(42, "2026"), DefaultOptions())
+	c, _ := Generate(sap.GenerateMock(42, "2026"), zoned())
 	want := config.HouseBank{Name: "MAIN", BIC: "ROYCCAT2", InstitutionNumber: "003", TransitNumber: "00001", AccountNumber: "5012345"}
 	if got := c.Company("3000").HouseBank; got != want {
 		t.Errorf("house bank of 3000: got %+v, want %+v", got, want)
@@ -353,7 +353,7 @@ func TestCanadianHouseBank(t *testing.T) {
 					e.T012K[i].BANKL = bankKey
 				}
 			}
-			c, notes := Generate(e, DefaultOptions())
+			c, notes := Generate(e, zoned())
 			if want := "companies[3000].house_banks[MAIN]: bank key"; !strings.Contains(notesText(notes), want) {
 				t.Errorf("got notes without %q:\n%s", want, notesText(notes))
 			}

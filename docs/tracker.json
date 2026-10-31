@@ -8349,7 +8349,7 @@
      {
       "s": "P",
       "t": "Company time zone: business dates (statement staleness, value dates, 'today' in cash, close calendars) in the company's time zone, not UTC (found in T53c)",
-      "r": "found in T53c (ADR-0051 as built: the cash position's read date is the clock's date in UTC; a Canadian or UAE company's evening is the next UTC day) · T72l · split 2026-10-31 into T72n1-T72n6 (ADR-0053 slices); statement staleness and value dates are judged by the position's read date, so T72n1 covers them; no close calendar reads a today yet (period locks go by posting date, T32)",
+      "r": "found in T53c (ADR-0051 as built: the cash position's read date is the clock's date in UTC; a Canadian or UAE company's evening is the next UTC day) · T72l · split 2026-10-31 into T72n1-T72n6 (ADR-0053 slices); statement staleness and value dates are judged by the position's read date, so T72n1 covers them; no close calendar reads a today yet (period locks go by posting date, T32) · T72n7: the zone required of every new or changed configuration (product owner 2026-10-31)",
       "c": [
        {
         "s": "D",
@@ -8366,10 +8366,10 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "A payment run's release checks a cash discount's last day on the paying company's date, not UTC (payments.discount_lapsed); a money rule: waits for the product owner",
-        "r": "internal/payments release.go recheckDiscounts (UTC today) · T36d · product owner question (money rule), recommendation: the paying company's date · T72n3",
-        "src": "split:T72l",
+        "s": "D",
+        "t": "A payment run's release checks a cash discount's last day on the paying company's date, not UTC (payments.discount_lapsed), the refusal naming that date and zone; product owner 2026-10-31: the paying company's date",
+        "r": "ADR-0051 as built (T72n3) · ADR-0038 as built (T72n3) · internal/payments release.go recheckDiscounts, companyDay · config CompanyLocation · T36d · T72n3",
+        "src": "split:T72l · po:2026-10-31",
         "c": []
        },
        {
@@ -8426,6 +8426,13 @@
         "t": "The cash position's read date takes the company's zone through config.CompanyLocation, the helper T72n5 added, instead of its own copy of that lookup",
         "r": "found in T72n5 review round 1 · internal/cash position.go readDate · config.(*Config).CompanyLocation · left untouched in T72n5 while T72n2 changes internal/cash",
         "src": "review:batch26",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A company's time zone is required of a new or changed configuration (refused with config.validation_failed on companies[<code>].time_zone), while documents activated before keep reading as UTC; SAP drafts take each zone as an input (erp config generate -time-zone); the pilots: Canada in the company's zone (America/Toronto), the UAE in Asia/Dubai",
+        "r": "ADR-0051 as built (the zone required) · internal/config validate.go company · sapconfig Options.TimeZones · erp config generate -time-zone · walkthrough step 1 · T72n7",
+        "src": "po:2026-10-31",
         "c": []
        }
       ]
