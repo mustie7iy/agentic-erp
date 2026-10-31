@@ -9905,7 +9905,8 @@ type Contract struct {
 	// The contract renewing this one, unless cancelled; a renewed contract raises no expiry alert.
 	RenewedByID OptUUID `json:"renewed_by_id"`
 	// The day `ContractExpiring` was published for it, once, `purchasing.contract_expiry_notice_days`
-	// before it ends.
+	// before it ends: its company's date in the company's `time_zone` (UTC when it has none), which the
+	// event gives (T72n6).
 	ExpiryAlertedOn OptDate `json:"expiry_alerted_on"`
 	// Items.
 	Items []ContractItem `json:"items"`

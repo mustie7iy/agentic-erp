@@ -9569,6 +9569,7 @@ paths:
       x-permission: procurement.contract.manage
       x-problem-codes:
         - config.no_number_range
+        - config.not_bootstrapped
         - config.number_range_exhausted
         - ledger.no_fiscal_period
         - procurement.account_not_postable
@@ -9880,6 +9881,7 @@ paths:
       x-permission: procurement.contract.manage
       x-problem-codes:
         - config.no_number_range
+        - config.not_bootstrapped
         - config.number_range_exhausted
         - ledger.no_fiscal_period
         - procurement.account_not_postable
@@ -27180,7 +27182,7 @@ components:
             expiry_alerted_on:
               type: string
               format: date
-              description: "The day `ContractExpiring` was published for it, once, `purchasing.contract_expiry_notice_days` before it ends."
+              description: "The day `ContractExpiring` was published for it, once, `purchasing.contract_expiry_notice_days` before it ends: its company's date in the company's `time_zone` (UTC when it has none), which the event gives (T72n6)."
               readOnly: true
             items:
               type: array

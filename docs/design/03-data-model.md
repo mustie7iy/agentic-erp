@@ -427,8 +427,9 @@ zone database built into the binary, host-only names (`Local`,
 document (product owner 2026-10-31); a document activated before then
 may lack it and is read as UTC. A change is tier 3. The cash position's
 read date is the company's date in it (ADR-0051 as built, T72n1), and so
-are a memo record's status (T72n2), a payment run's discount lapse (T72n3)
-and a requisition's date (T72n5). A center change's check that a
+are a memo record's status (T72n2), a payment run's discount lapse (T72n3),
+a requisition's date (T72n5), purchasing contracts' expiry and its
+notice (T72n6) and the fiscal year a contract is numbered in. A center change's check that a
 default cost or profit center stays usable from today, the setup's check
 of the controlling rules, and a requisition's account assignments at
 submission judge on the company's date in it too, the refusal naming the
@@ -438,9 +439,11 @@ is posted (after the invoice's own) and reversed, and a goods movement
 reversal's, so the date and its period are the company's; and a tax
 setup's activation judges the rate in force, and starts a changed
 single-rate code's new rate, on the company's date, a refusal naming it
-(product owner 2026-10-31, ADR-0051 and ADR-0049 as built). Still judged
-in UTC, each tracked: purchasing contracts' expiry (T72n6), a contract's
-number and the suppliers a migration run creates (ADR-0051 as built).
+(product owner 2026-10-31, ADR-0051 and ADR-0049 as built). Purchasing
+contracts' expiry and its notice (T72n6) and a contract's number are
+judged on the company's date too. Still judged in UTC, tracked and
+waiting for the product owner: the suppliers a migration run creates
+(ADR-0051 as built).
 
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
@@ -1281,7 +1284,10 @@ tenant: it expires the active contracts past their validity
 (`ContractExpired`) and alerts the active ones that no live renewal
 continues and that end within `purchasing.contract_expiry_notice_days`
 (1 to 365, operational; 30 from the SAP generator, which has no equivalent)
-by `ContractExpiring` with the days left, setting `expiry_alerted_on`. An
+by `ContractExpiring` with the days left, setting `expiry_alerted_on`.
+Both judge on the contract's company's date in its time zone at the round
+(T72n6), which the events give with the zone (`expired_on`, `alerted_on`,
+`time_zone`). An
 alert is an event only: buyers renew the contract or let it expire. A
 configuration activated before the key existed reads 0: the round alerts
 nothing and logs a warning until a change request adds it. Received quantity per PO item is the sum of goods
