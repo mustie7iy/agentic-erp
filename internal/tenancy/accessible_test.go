@@ -70,11 +70,23 @@ func TestAccessible(t *testing.T) {
 func TestCompanyCode(t *testing.T) {
 	known := uuid.New()
 	codeOf := tenancy.CompanyCode(reader{entities: map[uuid.UUID]tenancy.Entity{known: {ID: known, Code: "DE01"}}})
-	if code, found, err := codeOf(context.Background(), known); err != nil || !found || code != "DE01" {
-		t.Errorf("known: got %q, %v, %v, want DE01, true, nil", code, found, err)
-	}
-	if code, found, err := codeOf(context.Background(), uuid.New()); err != nil || found || code != "" {
-		t.Errorf("missing: got %q, %v, %v, want \"\", false, nil", code, found, err)
+	for name, tc := range map[string]struct {
+		id    uuid.UUID
+		code  string
+		found bool
+	}{"known": {known, "DE01", true}, "missing": {uuid.New(), "", false}} {
+		t.Run(name, func(t *testing.T) {
+			code, found, err := codeOf(context.Background(), tc.id)
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+			if found != tc.found {
+				t.Errorf("found: got %v, want %v", found, tc.found)
+			}
+			if code != tc.code {
+				t.Errorf("code: got %q, want %q", code, tc.code)
+			}
+		})
 	}
 	boom := errors.New("connection lost")
 	if _, _, err := tenancy.CompanyCode(reader{err: boom})(context.Background(), known); !errors.Is(err, boom) {

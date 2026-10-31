@@ -86,8 +86,8 @@ func EntityDay(ctx context.Context, docs Documents, codeOf EntityCode, le uuid.U
 	return doc.CompanyDay(code, now)
 }
 
-// EntityDay is EntityDay with this document as the active configuration,
-// for a caller that has read it already.
+// EntityDay is config.EntityDay with c as the active configuration, for a
+// caller that has read it already.
 func (c *Config) EntityDay(ctx context.Context, codeOf EntityCode, le uuid.UUID, now time.Time) (CompanyDay, error) {
 	return EntityDay(ctx, held{c}, codeOf, le, now)
 }

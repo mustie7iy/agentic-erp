@@ -982,7 +982,8 @@ As built (one company-date helper; review:batch27, Pilot readiness
   another day. Legal entities are never deleted and every caller passes
   one that a request or a stored row names, so the refusal reports broken
   data: 422 `request.reference_not_found` naming the legal entity (a code
-  every operation declares), with no field error, and
+  in the document's common list, though not every operation lists the
+  422 status: `getMemoRecord` does not), with no field error, and
   `config.ErrNoLegalEntity` as its cause for `errors.Is`. Before, the
   release's discount check, the ledger's center checks, procurement's
   dates and payables' posting dates failed with a 500, and a memo record

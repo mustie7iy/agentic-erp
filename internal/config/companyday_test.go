@@ -65,8 +65,11 @@ func TestEntityDay(t *testing.T) {
 	t.Run("a document in hand", func(t *testing.T) {
 		doc := &Config{Companies: []Company{{Code: "2000", TimeZone: "America/Toronto"}}}
 		d, err := doc.EntityDay(context.Background(), directory(le, nil), le, at)
-		if err != nil || d.Date.Format(time.DateOnly) != "2026-04-17" {
-			t.Errorf("got %v, %v, want 2026-04-17", d.Date, err)
+		if err != nil {
+			t.Fatalf("got %v, want no error", err)
+		}
+		if got := d.Date.Format(time.DateOnly); got != "2026-04-17" {
+			t.Errorf("date: got %s, want 2026-04-17", got)
 		}
 	})
 }
