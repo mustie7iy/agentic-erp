@@ -147,6 +147,31 @@ func errTooLarge(what string) error {
 	return problem.Unprocessable("payments.amount_too_large", "The open items of "+what+" add up to more than an amount can hold.")
 }
 
+// supplierTooLarge is errTooLarge for one supplier's items, before the
+// supplier is named: the proposal computes without a context, so
+// paymentsFor names it (nameTooLarge), by number and name as the release's
+// refusals do.
+type supplierTooLarge struct{ supplier uuid.UUID }
+
+func (s supplierTooLarge) Error() string {
+	return "payments: the open items of supplier " + s.supplier.String() + " add up to more than an amount can hold"
+}
+
+// nameTooLarge turns a supplierTooLarge into errTooLarge naming the
+// supplier as its consumer knows it (REVIEW.md, an identifier without the
+// name its consumer needs); any other error passes unchanged.
+func (e *Endpoints) nameTooLarge(ctx context.Context, err error) error {
+	var tl supplierTooLarge
+	if !errors.As(err, &tl) {
+		return err
+	}
+	named, err := e.supplierNamed(ctx, tl.supplier)
+	if err != nil {
+		return err
+	}
+	return errTooLarge("supplier " + named)
+}
+
 // total is what is owed the supplier after the cash discounts its items
 // take and the withholding taxes deducted from them: positive when it is
 // to be paid.
@@ -351,7 +376,7 @@ func (e *Endpoints) paymentsFor(ctx context.Context, tx pgx.Tx, r Run, entityCod
 	}
 	pr := proposal{route: route}
 	if err := pr.propose(cands, payees, r, entityCode, holdDays); err != nil {
-		return proposal{}, err
+		return proposal{}, e.nameTooLarge(ctx, err)
 	}
 	invalid, err := e.invalidTaxCodes(ctx, r, requests)
 	if err != nil {
@@ -461,7 +486,7 @@ func dueDate(it ledger.PayableItem, payee partner.Payee) time.Time {
 // excludes it with the reason; a supplier is paid what its items owe after
 // their cash discounts, and one owed nothing after them is excluded with
 // its debit balance, one no ranked house bank can pay with NoHouseBank.
-// Totals out of range fail the proposal (errTooLarge).
+// Totals out of range fail the proposal (supplierTooLarge, errTooLarge).
 func (pr *proposal) propose(cands []candidate, payees map[uuid.UUID]partner.Payee, r Run, entityCode string, holdDays int) error {
 	for _, c := range cands {
 		if err := c.takeDiscounts(r.RunDate); err != nil {
@@ -469,7 +494,7 @@ func (pr *proposal) propose(cands []candidate, payees map[uuid.UUID]partner.Paye
 		}
 		total, err := c.total()
 		if err != nil {
-			return errTooLarge("supplier " + c.supplier.String())
+			return supplierTooLarge{c.supplier}
 		}
 		payee, found := payees[c.supplier]
 		reason := exclusion(payee, found, r.RunDate, holdDays)
@@ -496,7 +521,7 @@ func (pr *proposal) propose(cands []candidate, payees map[uuid.UUID]partner.Paye
 func (pr *proposal) pay(c candidate, bank uuid.UUID, v via, total money.Minor, r Run, entityCode string) error {
 	discount, withholding, err := c.deductions()
 	if err != nil {
-		return errTooLarge("supplier " + c.supplier.String())
+		return supplierTooLarge{c.supplier}
 	}
 	if pr.total, err = money.Sum(pr.total, total); err == nil {
 		pr.discount, err = money.Sum(pr.discount, discount)

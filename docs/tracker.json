@@ -1016,9 +1016,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "payments.amount_too_large names the supplier by its number and name, not only its UUID, as the release's refusals do since batch 27",
-      "r": "internal/payments propose.go:472, :499 errTooLarge(\"supplier \" + c.supplier.String()) · release.go refuse (partner.Named, idref.Resolve) is the pattern · REVIEW.md API-consumer class: an identifier without the name its consumer needs",
+      "r": "internal/payments propose.go:472, :499 errTooLarge(\"supplier \" + c.supplier.String()) · release.go refuse (partner.Named, idref.Resolve) is the pattern · REVIEW.md API-consumer class: an identifier without the name its consumer needs · done in apinames5: propose returns supplierTooLarge, paymentsFor names it through supplierNamed, which refuse shares · ADR-0038 as built (a proposal too large names the supplier)",
       "src": "review:batch27",
       "c": []
      }

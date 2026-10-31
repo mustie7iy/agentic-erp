@@ -2107,7 +2107,9 @@ type Invoker interface {
 	// returns an Operation. A run that takes cash discount in a legal entity without a cash discount
 	// account fails with 422 `payments.no_cash_discount_account` (T36d). A withholding tax deducted at
 	// payment that, rounded after the cash discount, would take all an item owes fails it with 422
-	// `payments.withholding_too_large` (T46f).
+	// `payments.withholding_too_large` (T46f). Open items that add up to more than an amount can hold fail
+	// it with 422 `payments.amount_too_large`, whose `detail` names the supplier by its number and name
+	// when one supplier's items do, or the run.
 	//
 	// POST /v1/payment-runs:propose
 	ProposePaymentRun(ctx context.Context, request *PaymentRunPropose, params ProposePaymentRunParams) (ProposePaymentRunRes, error)
@@ -43098,7 +43100,9 @@ func (c *Client) sendProposeMemoRecord(ctx context.Context, request *MemoRecordP
 // returns an Operation. A run that takes cash discount in a legal entity without a cash discount
 // account fails with 422 `payments.no_cash_discount_account` (T36d). A withholding tax deducted at
 // payment that, rounded after the cash discount, would take all an item owes fails it with 422
-// `payments.withholding_too_large` (T46f).
+// `payments.withholding_too_large` (T46f). Open items that add up to more than an amount can hold fail
+// it with 422 `payments.amount_too_large`, whose `detail` names the supplier by its number and name
+// when one supplier's items do, or the run.
 //
 // POST /v1/payment-runs:propose
 func (c *Client) ProposePaymentRun(ctx context.Context, request *PaymentRunPropose, params ProposePaymentRunParams) (ProposePaymentRunRes, error) {

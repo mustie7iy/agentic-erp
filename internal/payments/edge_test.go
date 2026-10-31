@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -379,13 +380,15 @@ func TestProposalTotalsOutOfRange(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		second func(t *testing.T, e env) uuid.UUID
+		of     func(e env) string // whose open items the detail names
 	}{
-		{"one supplier", func(_ *testing.T, e env) uuid.UUID { return e.Supplier }},
+		{"one supplier", func(_ *testing.T, e env) uuid.UUID { return e.Supplier },
+			func(e env) string { return "supplier BP90000001 BP90000001 (" + e.Supplier.String() + ")" }},
 		{"the run", func(t *testing.T, e env) uuid.UUID {
 			t.Helper()
 			e.bankAccount(t, e.Vendor, "DE02120300000000202051", "Vendor AG", "2026-01-01", "", "create")
 			return e.Vendor
-		}},
+		}, func(env) string { return "the run" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := setup(t)
@@ -399,8 +402,12 @@ func TestProposalTotalsOutOfRange(t *testing.T) {
 			if run["status"] != "failed" {
 				t.Fatalf("run status: got %v, want failed: total %v", run["status"], run["total_amount"])
 			}
-			if got := done["error"].(map[string]any)["code"]; got != "payments.amount_too_large" {
+			failed, _ := done["error"].(map[string]any) // a missing error reads as nil and fails both checks
+			if got := failed["code"]; got != "payments.amount_too_large" {
 				t.Errorf("operation error: got %v, want payments.amount_too_large", got)
+			}
+			if want := "The open items of " + tc.of(e) + " add up"; !strings.Contains(fmt.Sprint(failed["detail"]), want) {
+				t.Errorf("operation error's detail: got %v, want it to say %q", failed["detail"], want)
 			}
 		})
 	}
