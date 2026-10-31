@@ -436,7 +436,7 @@ func (e *Endpoints) recheckDiscounts(ctx context.Context, r Run, pays []Payment,
 	for _, pay := range pays[first:] {
 		if pay.DiscountUntil != nil && today.After(*pay.DiscountUntil) {
 			return problem.Conflict("payments.discount_lapsed", fmt.Sprintf("The payment to supplier %s takes cash discount earned until %s; it is %s in %s, "+
-				"the paying company's time zone: reject the run and propose again.", pay.SupplierID, pay.DiscountUntil.Format(time.DateOnly), today.Format(time.DateOnly), loc))
+				"the time zone the paying company's date is judged in: reject the run and propose again.", pay.SupplierID, pay.DiscountUntil.Format(time.DateOnly), today.Format(time.DateOnly), loc))
 		}
 	}
 	return nil

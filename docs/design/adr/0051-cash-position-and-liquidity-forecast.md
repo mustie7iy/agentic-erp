@@ -738,8 +738,9 @@ date; product owner 2026-10-31):
   can take the helper then.
 - **What the consumer sees.** The problem's `detail` names the discount's
   last day, the company's date that judged it and the zone (`… earned
-  until 2026-03-15; it is 2026-03-16 in Asia/Dubai, the paying company's
-  time zone …`); the problem schema has no extension members, so the date
+  until 2026-03-15; it is 2026-03-16 in Asia/Dubai, the time zone the
+  paying company's date is judged in …`; UTC when the company sets none);
+  the problem schema has no extension members, so the date
   and zone are in the detail, as other payments problems give their
   facts.
 - **Determinism.** The check runs in the `:release` request

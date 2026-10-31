@@ -229,9 +229,9 @@ func zoned(t *testing.T, zone string, now time.Time) (env, map[string]any) {
 // date and zone (product owner 2026-10-31, T72n3). At 22:00 on 15 March in
 // Toronto (EDT) it is already the 16th in UTC, yet the discount is still
 // earned; at 01:00 on the 16th in Dubai it is still the 15th in UTC, yet
-// it has lapsed. Judged in UTC, both would go the other way. 01:00 on the
-// 15th in Dubai and 22:00 on the 16th in Toronto are the same day as in
-// UTC on one side of midnight only.
+// it has lapsed. Judged in UTC, both would go the other way, and 22:00 on
+// the 16th in Toronto would be refused naming the 17th. Only "Dubai 01:00
+// on the last day" passes either way.
 func TestDiscountLapseTimeZone(t *testing.T) {
 	for name, c := range map[string]struct {
 		zone  string

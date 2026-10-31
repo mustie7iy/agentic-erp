@@ -724,9 +724,11 @@ expose its channel's connector). Decided by default, as above:
 - **The problem.** Its detail names the discount's last day, the company's
   date that judged it and the zone; the contract's descriptions of
   `releasePaymentRun` and `discount_until` say so.
-- **Walkthrough.** Not extended: the walkthrough's server runs on the
-  host's clock, so the hour that tells the company's date from UTC's
-  cannot be chosen, and a lapse needs a discount whose last day falls
-  between a past run date and the release, which step 7's same-day run
-  does not have; the package tests (`TestDiscountLapseTimeZone`) fix the
-  clock at those hours instead.
+- **Walkthrough.** Not extended: the step changes the time base of an
+  existing rule (T36d) rather than adding a capability, and what it
+  changes depends on the hour of the release, which the walkthrough
+  cannot choose, as its server runs on the host's clock. A lapse at any
+  hour would need a back-dated invoice and run competing with step 7's
+  run for the same supplier's items, for no evidence of the zone; the
+  package tests (`TestDiscountLapseTimeZone`) fix the clock at those
+  hours instead.
