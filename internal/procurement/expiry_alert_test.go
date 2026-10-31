@@ -70,8 +70,8 @@ func TestContractExpiryAlerts(t *testing.T) {
 	}
 	want(t, "alert", byID[soon["id"]], map[string]any{"days_left": float64(10), "document_number": soon["document_number"], "alerted_on": "2026-03-01",
 		"time_zone": "UTC", "legal_entity_code": "2000", "supplier_number": "BP90000001", "supplier_name": "Supplier GmbH"})
-	// The second alert of the round names its company too, from the code
-	// the round read for the first.
+	// The second alert of the round names its company too, by the code
+	// companyDays read when it dated the legal entity.
 	want(t, "second alert", byID[last["id"]], map[string]any{"legal_entity_code": "2000"})
 	want(t, "alert target", byID[soon["id"]]["target_value"].(map[string]any), map[string]any{"amount": "1000.00", "currency": "EUR"})
 	want(t, "alert on the last day", byID[last["id"]], map[string]any{"days_left": float64(30)})

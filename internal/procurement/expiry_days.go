@@ -74,15 +74,15 @@ func (x *ContractExpirer) companyDays(ctx context.Context, tx pgx.Tx, doc *confi
 		// does not have.
 		doc = &config.Config{}
 	}
-	read, days := tenancy.CompanyCode(x.LegalEntities), companyDays{}
+	// EntityDay reads the code (keep) before it can succeed, so code is
+	// each legal entity's own when its date is.
+	read, days, code := tenancy.CompanyCode(x.LegalEntities), companyDays{}, ""
+	keep := func(ctx context.Context, le uuid.UUID) (string, bool, error) {
+		c, found, err := read(ctx, le)
+		code = c
+		return c, found, err
+	}
 	for _, id := range ids {
-		var code string
-		keep := func(ctx context.Context, le uuid.UUID) (string, bool, error) {
-			var found bool
-			var err error
-			code, found, err = read(ctx, le)
-			return code, found, err
-		}
 		d, err := doc.EntityDay(ctx, keep, id, now)
 		if err != nil {
 			return nil, fmt.Errorf("procurement: %w", err)
