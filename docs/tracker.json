@@ -8415,9 +8415,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Purchasing contracts expire after their valid_to day ends in the company's time zone, not on the database's UTC current_date",
-        "r": "internal/procurement expiry.go expireDue (valid_to < current_date) · the expiry notice too, expiry_alerts.go (days left and expiry_alerted_on from current_date; found in T72n5) · T72n6",
+        "r": "internal/procurement expiry.go expireDue (valid_to < current_date) · the expiry notice too, expiry_alerts.go (days left and expiry_alerted_on from current_date; found in T72n5) · ADR-0051 as built (T72n6) · expiry_days.go companyDays · ContractExpired expired_on, ContractExpiring alerted_on, time_zone · TestContractExpiryTimeZone · no walkthrough step: the expirer is an hourly job no public call starts · T72n6",
         "src": "split:T72l",
         "c": []
        },

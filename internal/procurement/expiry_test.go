@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // TestContractExpiry: a job expires active contracts past their validity,
@@ -29,12 +30,14 @@ func TestContractExpiry(t *testing.T) {
 	current := e.contract(t, e.Vendor.String(), "")
 	e.act(t, "/v1/contracts/"+id(current), "release", "")
 	draft := e.contract(t, e.Vendor.String(), "")
-	// Validity is set by the calendar: the first two end yesterday, the draft too.
-	pgtest.Exec(t, `UPDATE procurement.contract SET valid_from = current_date - 400, valid_to = current_date - 1, version = version + 1 WHERE id IN ($1, $2)`, uuid.MustParse(id(past)), uuid.MustParse(id(draft)))
+	// Validity is set by the expirer's clock: the first two end the day
+	// before it, the draft too.
+	pgtest.Exec(t, `UPDATE procurement.contract SET valid_from = '2025-01-01', valid_to = '2026-02-28', version = version + 1 WHERE id IN ($1, $2)`,
+		uuid.MustParse(id(past)), uuid.MustParse(id(draft)))
 	logs := &pgtest.SyncBuffer{}
 	at := time.Date(2026, 3, 1, 9, 30, 0, 0, time.UTC)
 	x := &procurement.ContractExpirer{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(logs, nil)),
-		Settings: configuration.Settings{}, Now: func() time.Time { return at }}
+		Settings: configuration.Settings{}, LegalEntities: tenancy.Directory{}, Now: func() time.Time { return at }}
 	round, err := x.RunOnce(ctx)
 	if err != nil {
 		t.Fatalf("round: %v", err)
@@ -66,9 +69,7 @@ func TestContractExpiry(t *testing.T) {
 	if got := ev[0]["consumed_value"].(map[string]any)["amount"]; got != "0.00" {
 		t.Errorf("expired event consumed value: got %v, want 0.00", got)
 	}
-	if ev[0]["valid_to"] == nil {
-		t.Errorf("expired event valid to: got none, want a date")
-	}
+	want(t, "expired event", ev[0], map[string]any{"valid_to": "2026-02-28", "expired_on": "2026-03-01", "time_zone": "UTC"})
 	var actor uuid.UUID
 	var detail map[string]any
 	var occurred time.Time
@@ -117,7 +118,7 @@ func TestContractExpiry(t *testing.T) {
 	if _, err := x.RunOnce(ctx); err == nil {
 		t.Fatal("round without a database: got nil error, want an error")
 	}
-	for n := 1; n < 40; n++ {
+	for n := 1; n < 60; n++ {
 		count := 0
 		x.Begin = func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
 			tx, err := pool.Begin(ctx, s)

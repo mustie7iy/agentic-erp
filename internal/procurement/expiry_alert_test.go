@@ -17,17 +17,19 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // Expiry alerts (T47g): an active contract without a live renewal that
 // ends within purchasing.contract_expiry_notice_days (30 in the fixture's
 // configuration) is alerted once, by ContractExpiring.
 
-// ending is an active contract ending in days, by the database's day.
+// ending is an active contract ending in days after the expirer's day,
+// 1 March 2026.
 func (e env) ending(t *testing.T, days int) (map[string]any, string) {
 	t.Helper()
 	c, path := e.activeContract(t)
-	pgtest.Exec(t, `UPDATE procurement.contract SET valid_from = current_date - 100, valid_to = current_date + $2::int, version = version + 1 WHERE id = $1`,
+	pgtest.Exec(t, `UPDATE procurement.contract SET valid_from = '2025-11-21', valid_to = '2026-03-01'::date + $2::int, version = version + 1 WHERE id = $1`,
 		uuidOf(c), days)
 	return c, path
 }
@@ -35,7 +37,7 @@ func (e env) ending(t *testing.T, days int) (map[string]any, string) {
 func expirer(t *testing.T, logs *pgtest.SyncBuffer, settings procurement.Settings) *procurement.ContractExpirer {
 	t.Helper()
 	return &procurement.ContractExpirer{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(logs, nil)),
-		Settings: settings, Now: func() time.Time { return time.Date(2026, 3, 1, 9, 30, 0, 0, time.UTC) }}
+		Settings: settings, LegalEntities: tenancy.Directory{}, Now: func() time.Time { return time.Date(2026, 3, 1, 9, 30, 0, 0, time.UTC) }}
 }
 
 func TestContractExpiryAlerts(t *testing.T) {
@@ -47,7 +49,7 @@ func TestContractExpiryAlerts(t *testing.T) {
 	_, renewedPath := e.ending(t, 10)
 	e.Must(201, "POST", renewedPath+":renew", renewalOf(t, e, renewedPath), "*")
 	draft := e.contract(t, e.Supplier.String(), "")
-	pgtest.Exec(t, `UPDATE procurement.contract SET valid_to = current_date + 5, valid_from = current_date - 5, version = version + 1 WHERE id = $1`, uuidOf(draft))
+	pgtest.Exec(t, `UPDATE procurement.contract SET valid_to = '2026-03-06', valid_from = '2026-02-24', version = version + 1 WHERE id = $1`, uuidOf(draft))
 	x := expirer(t, &pgtest.SyncBuffer{}, configuration.Settings{})
 	round, err := x.Expire(ctx, e.Tenant.ID) // the tenant's round: others' contracts share the database
 	if err != nil {
@@ -64,12 +66,13 @@ func TestContractExpiryAlerts(t *testing.T) {
 	if len(alerts) != 2 || byID[soon["id"]] == nil || byID[last["id"]] == nil {
 		t.Fatalf("ContractExpiring events: got %v, want one for %v and one for %v", alerts, soon["id"], last["id"])
 	}
-	want(t, "alert", byID[soon["id"]], map[string]any{"days_left": float64(10), "document_number": soon["document_number"]})
+	want(t, "alert", byID[soon["id"]], map[string]any{"days_left": float64(10), "document_number": soon["document_number"], "alerted_on": "2026-03-01",
+		"time_zone": "UTC"})
 	want(t, "alert target", byID[soon["id"]]["target_value"].(map[string]any), map[string]any{"amount": "1000.00", "currency": "EUR"})
 	want(t, "alert on the last day", byID[last["id"]], map[string]any{"days_left": float64(30)})
 	got, _ := e.Must(200, "GET", soonPath, "", "")
-	if got["expiry_alerted_on"] == nil {
-		t.Errorf("alerted contract: got no expiry_alerted_on, want the day of the alert")
+	if got["expiry_alerted_on"] != "2026-03-01" {
+		t.Errorf("alerted contract: got expiry_alerted_on %v, want the day of the alert, 2026-03-01", got["expiry_alerted_on"])
 	}
 	for name, path := range map[string]string{"beyond the notice": laterPath, "renewed": renewedPath} {
 		if got, _ := e.Must(200, "GET", path, "", ""); got["expiry_alerted_on"] != nil {

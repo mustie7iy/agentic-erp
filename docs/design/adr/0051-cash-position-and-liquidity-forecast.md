@@ -726,8 +726,8 @@ zone", split into T72n1-T72n6):
   date (it compares values, and realised and cancelled are stored), so
   nothing in it changes. A stored zone that does not load fails the read
   and the list, as it fails the position.
-- **Not yet** (each tracked under the same item): purchasing contracts'
-  expiry (T72n6); a contract's number, drawn for UTC's date; the suppliers
+- **Not yet** (each tracked under the same item): a contract's number,
+  drawn for UTC's date; the suppliers
   a migration run creates, dated in UTC; and, waiting for the product
   owner, the tax rates in force at a tax setup's activation (a tax rule)
   and three posting dates that default to the database's `current_date`
@@ -736,8 +736,8 @@ zone", split into T72n1-T72n6):
   decide the period and the rates, a money rule; the recommendation for
   both is the company's date (review:batch26). Every other document is
   dated by its caller. The payment release's discount check (T72n3) and
-  center changes' effective day (T72n4, ADR-0050 §11) are built: see
-  below.
+  center changes' effective day (T72n4, ADR-0050 §11) and purchasing
+  contracts' expiry and its notice (T72n6) are built: see below.
 
 As built (T72n5, a requisition's date; product owner 2026-10-31: a
 requisition is routed at the rate of the day it was raised in its
@@ -770,7 +770,8 @@ company's time zone):
   separately (review:batch26). The account assignment check at a
   requisition's submission judges on the submission day, not the
   requisition's, in the company's zone since T72n4.
-  Contracts' expiry and its notice are T72n6.
+  Contracts' expiry and its notice are judged on the company's date
+  since T72n6.
 
 As built (T72n3, a payment run's cash discount judged on the company's
 date; product owner 2026-10-31):
@@ -803,6 +804,46 @@ date; product owner 2026-10-31):
   (`StartRelease`), before the operation is queued; the release workflow
   and its activities do not judge the discount, so no workflow code reads
   a clock.
+
+As built (T72n6, purchasing contracts' expiry and its notice on the
+company's date; Pilot readiness "Company time zone"):
+- **The rule.** The contract expirer judges each active contract on its
+  legal entity's company's date at the round, in the company's
+  `time_zone` (`config.CompanyLocation`, `clock.DayIn`; UTC when the
+  company sets none or the tenant has no configuration yet): a contract
+  expires once that date is after `valid_to`, and is alerted once
+  `valid_to` is within `purchasing.contract_expiry_notice_days` of it,
+  `days_left` counted from it and `expiry_alerted_on` set to it. At 22:00
+  on 17 April in Toronto (02:00 UTC on the 18th) a contract whose last
+  day is the 17th is still active; at 01:00 on 18 April in Dubai (21:00
+  UTC on the 17th) it has expired. The decision is the one the dates
+  already made (ADR-0051 as built, T72n1: business dates are the
+  company's), so no new ADR; the database's `current_date` is no longer
+  read.
+- **One round, one instant.** The round's instant comes from the
+  expirer's clock (`Now`), not the database: the dates of the legal
+  entities holding active contracts are told once per tenant round
+  (their company codes through the tenancy port, as the requisition's
+  date reads them) and joined to the statements that pick the contracts,
+  so the expiry and the alert of one round judge on the same date. The
+  cell's list of tenants, read by the worker role that can read neither
+  the zones nor the notice, is a superset: a contract ending on UTC's
+  date (no zone is more than a day ahead of UTC) or within 366 days of
+  it.
+- **What the consumer sees.** `ContractExpired` gives `expired_on`, the
+  company's date that judged the contract past `valid_to`, and
+  `time_zone`; `ContractExpiring` gives `alerted_on` (the contract's
+  `expiry_alerted_on`) and `time_zone`, the day `days_left` counts from.
+  Both are added as optional properties (a producer that always sends
+  them; `eventcompat` refuses newly required ones within a version), and
+  the audit entries record the same two. The contract's
+  `expiry_alerted_on` is described as the company's date.
+- **Failure.** A stored zone the binary cannot load, or a contract's
+  legal entity the directory does not know, fails the tenant's round, so
+  nothing is expired or alerted on a UTC date; the round is retried at
+  the next interval and the failure logged.
+- **Determinism.** The expirer is a scheduled job, not a workflow, and
+  takes its instant from an injected clock, as before.
 
 As built (the zone required; product owner 2026-10-31, Pilot readiness
 "Company time zone"):
