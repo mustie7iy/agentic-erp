@@ -6709,8 +6709,12 @@ func (s *CashFlowTotal) SetCount(val int32) {
 type CashPosition struct {
 	// The legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// The day the position was read (UTC): what is late, stale and converted is judged by it.
+	// The company's date when the position was read, in `time_zone`: what is late, stale and converted is
+	// judged by it, and `from` is never before it.
 	ReadDate time.Time `json:"read_date"`
+	// The IANA time zone the read date is in: the company's configured `time_zone`, or `UTC` when it has
+	// none (T72n1). At 22:00 in America/Toronto the read date is still that day.
+	TimeZone string `json:"time_zone"`
 	// The first day.
 	From time.Time `json:"from"`
 	// How many days.
@@ -6730,6 +6734,11 @@ func (s *CashPosition) GetLegalEntityID() uuid.UUID {
 // GetReadDate returns the value of ReadDate.
 func (s *CashPosition) GetReadDate() time.Time {
 	return s.ReadDate
+}
+
+// GetTimeZone returns the value of TimeZone.
+func (s *CashPosition) GetTimeZone() string {
+	return s.TimeZone
 }
 
 // GetFrom returns the value of From.
@@ -6765,6 +6774,11 @@ func (s *CashPosition) SetLegalEntityID(val uuid.UUID) {
 // SetReadDate sets the value of ReadDate.
 func (s *CashPosition) SetReadDate(val time.Time) {
 	s.ReadDate = val
+}
+
+// SetTimeZone sets the value of TimeZone.
+func (s *CashPosition) SetTimeZone(val string) {
+	s.TimeZone = val
 }
 
 // SetFrom sets the value of From.

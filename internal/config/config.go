@@ -12,6 +12,10 @@ import (
 	"fmt"
 	"os"
 	"time"
+	// The zone database is built in so that validation and every read
+	// resolve a company's time_zone alike on any host, whatever zoneinfo
+	// the image or the operator's machine carries (T72n1).
+	_ "time/tzdata"
 
 	"gopkg.in/yaml.v3"
 
@@ -171,11 +175,15 @@ func (n NumberRange) Key() string {
 }
 
 type Company struct {
-	Code                 string               `yaml:"code" json:"code"`
-	Name                 string               `yaml:"name" json:"name"`
-	Currency             string               `yaml:"currency" json:"currency"`
-	Country              string               `yaml:"country" json:"country"`
-	FiscalYearStartMonth int                  `yaml:"fiscal_year_start_month" json:"fiscal_year_start_month"`
+	Code                 string `yaml:"code" json:"code"`
+	Name                 string `yaml:"name" json:"name"`
+	Currency             string `yaml:"currency" json:"currency"`
+	Country              string `yaml:"country" json:"country"`
+	FiscalYearStartMonth int    `yaml:"fiscal_year_start_month" json:"fiscal_year_start_month"`
+	// TimeZone is the IANA name of the zone the company's business dates
+	// are in (America/Toronto, Asia/Dubai): which day is today for it.
+	// Empty is UTC, as every date was before it was set (T72n1).
+	TimeZone             string               `yaml:"time_zone,omitempty" json:"time_zone,omitempty"`
 	ChartOfAccounts      []Account            `yaml:"chart_of_accounts" json:"chart_of_accounts"`
 	AccountDetermination AccountDetermination `yaml:"account_determination" json:"account_determination"`
 	TaxCodes             []TaxCode            `yaml:"tax_codes" json:"tax_codes"`
@@ -635,6 +643,23 @@ func (c *Config) Company(code string) *Company {
 		}
 	}
 	return nil
+}
+
+// Location is the company's time zone, UTC when none is set. Validation
+// refuses a name that does not load, and "Local", the zone of whichever
+// host reads it.
+func (c *Company) Location() (*time.Location, error) {
+	switch c.TimeZone {
+	case "":
+		return time.UTC, nil
+	case "Local":
+		return nil, errors.New("time zone Local is the host's, not an IANA zone name")
+	}
+	loc, err := time.LoadLocation(c.TimeZone)
+	if err != nil {
+		return nil, fmt.Errorf("time zone %q is not an IANA zone name: %w", c.TimeZone, err)
+	}
+	return loc, nil
 }
 
 func (c *Company) Account(number string) *Account {

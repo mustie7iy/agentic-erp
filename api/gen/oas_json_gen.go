@@ -18445,6 +18445,10 @@ func (s *CashPosition) encodeFields(e *jx.Encoder) {
 		json.EncodeDate(e, s.ReadDate)
 	}
 	{
+		e.FieldStart("time_zone")
+		e.Str(s.TimeZone)
+	}
+	{
 		e.FieldStart("from")
 		json.EncodeDate(e, s.From)
 	}
@@ -18474,14 +18478,15 @@ func (s *CashPosition) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfCashPosition = [7]string{
+var jsonFieldsNameOfCashPosition = [8]string{
 	0: "legal_entity_id",
 	1: "read_date",
-	2: "from",
-	3: "days",
-	4: "banks",
-	5: "currencies",
-	6: "converted",
+	2: "time_zone",
+	3: "from",
+	4: "days",
+	5: "banks",
+	6: "currencies",
+	7: "converted",
 }
 
 // Decode decodes CashPosition from json.
@@ -18517,8 +18522,20 @@ func (s *CashPosition) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"read_date\"")
 			}
-		case "from":
+		case "time_zone":
 			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.TimeZone = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"time_zone\"")
+			}
+		case "from":
+			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.From = v
@@ -18530,7 +18547,7 @@ func (s *CashPosition) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"from\"")
 			}
 		case "days":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				v, err := d.Int32()
 				s.Days = int32(v)
@@ -18542,7 +18559,7 @@ func (s *CashPosition) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"days\"")
 			}
 		case "banks":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				s.Banks = make([]CashPositionBank, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -18560,7 +18577,7 @@ func (s *CashPosition) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"banks\"")
 			}
 		case "currencies":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				s.Currencies = make([]CashPositionCurrency, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -18578,7 +18595,7 @@ func (s *CashPosition) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"currencies\"")
 			}
 		case "converted":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				if err := s.Converted.Decode(d); err != nil {
 					return err
@@ -18597,7 +18614,7 @@ func (s *CashPosition) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b01111111,
+		0b11111111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

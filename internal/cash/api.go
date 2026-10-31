@@ -16,7 +16,7 @@ func (e *Endpoints) GetCashPosition(ctx context.Context, params gen.GetCashPosit
 	if err != nil {
 		return nil, err
 	}
-	out := gen.CashPosition{LegalEntityID: p.LegalEntity, ReadDate: p.ReadDate, From: p.From, Days: int32(p.Days), Banks: make([]gen.CashPositionBank, len(p.Banks)),
+	out := gen.CashPosition{LegalEntityID: p.LegalEntity, ReadDate: p.ReadDate, TimeZone: p.TimeZone, From: p.From, Days: int32(p.Days), Banks: make([]gen.CashPositionBank, len(p.Banks)),
 		Currencies: make([]gen.CashPositionCurrency, len(p.Currencies)), Converted: convertedToAPI(p.Converted)}
 	for i, b := range p.Banks {
 		out.Banks[i] = bankToAPI(b)

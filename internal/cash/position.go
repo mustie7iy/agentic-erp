@@ -166,7 +166,8 @@ type Query struct {
 // Position is a legal entity's cash position.
 type Position struct {
 	LegalEntity uuid.UUID
-	ReadDate    time.Time
+	ReadDate    time.Time // the company's date at the read, in TimeZone
+	TimeZone    string    // the IANA zone the read date is in
 	From        time.Time
 	Days        int
 	Banks       []BankPosition
@@ -254,8 +255,12 @@ func (e *Endpoints) Position(ctx context.Context, q Query) (Position, error) {
 	if err != nil {
 		return Position{}, fmt.Errorf("cash: configuration: %w", err)
 	}
-	r := reader{doc: doc, company: co.Code, settings: companyCash(doc, co.Code), read: clock.Day(clock.Now(e.Now)), sums: &sums{}}
-	p := Position{LegalEntity: q.LegalEntity, ReadDate: r.read, From: r.read, Days: cmp.Or(q.Days, DefaultDays)}
+	read, zone, err := e.readDate(doc, co.Code)
+	if err != nil {
+		return Position{}, err
+	}
+	r := reader{doc: doc, company: co.Code, settings: companyCash(doc, co.Code), read: read, sums: &sums{}}
+	p := Position{LegalEntity: q.LegalEntity, ReadDate: read, TimeZone: zone, From: read, Days: cmp.Or(q.Days, DefaultDays)}
 	if q.From != nil {
 		if p.From = clock.Day(*q.From); p.From.Before(r.read) {
 			return Position{}, problem.Unprocessable("request.validation_failed", "The position starts on the read date or later; past days are actuals.",
@@ -301,6 +306,21 @@ func (e *Endpoints) company(ctx context.Context, id uuid.UUID) (Company, error) 
 		return Company{}, problem.NotFoundOf("legal entity")
 	}
 	return co, nil
+}
+
+// readDate is the company's date at the read, in its time zone, and the
+// zone's name: UTC when the company has none, or the document has no such
+// company (ADR-0051 as built, T72n1). A Toronto treasurer's evening is
+// still that day, not the next UTC one.
+func (e *Endpoints) readDate(doc *config.Config, code string) (time.Time, string, error) {
+	loc := time.UTC
+	if co := doc.Company(code); co != nil {
+		var err error
+		if loc, err = co.Location(); err != nil {
+			return time.Time{}, "", fmt.Errorf("cash: company %s: %w", code, err)
+		}
+	}
+	return clock.DayIn(clock.Now(e.Now), loc), loc.String(), nil
 }
 
 // companyCash is the company's cash settings, the defaults when the

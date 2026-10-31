@@ -603,9 +603,9 @@ As built (T53c):
 - **Request.** `GET /v1/cash-position?legal_entity_id=…&from=…&days=…&display_currency=…`
   (`cash.position.read`, migration 000149; `x-slo-class: report`; agents
   read it as people do, banks by code and last four characters). `from`
-  defaults to the read date, the clock's date in UTC (the companies have no
-  time zone yet: business dates in the company's time zone are T72l in
-  Pilot readiness), and is never before it (422): past days are actuals,
+  defaults to the read date, the company's date in its time zone (T72n1,
+  below; the clock's date in UTC when T53c was built), and is never before
+  it (422): past days are actuals,
   whose balances come from the statements of those days (T53f), not from
   what is open now, `days` 1-31 default 14, the display currency the
   company's. A legal entity the caller cannot act in is 404 (fail closed).
@@ -672,6 +672,45 @@ As built (T53c):
   bank (T53e) join the days as a further source (memo records on a bank
   did in T53d, §7); drill-down to the payments of a day is through payments' own
   API (`GET /v1/payment-runs`).
+
+As built (T72n1, the company's time zone; Pilot readiness "Company time
+zone", split into T72n1-T72n6):
+- **Where the zone lives.** `companies[].time_zone` in the configuration
+  document, an IANA zone name (`America/Toronto`, `Asia/Dubai`), beside the
+  company's `country`, `currency` and `fiscal_year_start_month` and the
+  calendar of its working days (ADR-0048), which are configuration too: the
+  existing behaviour settles it, so no new ADR. Not the legal entity row:
+  the business-date rules (working days, value days) are read from the
+  document already, and a change to the zone is approved and versioned as
+  they are. Not derived from `country`: Canada spans six zones.
+- **Validation.** A name `time.LoadLocation` loads, from the zone database
+  built into the binary (`time/tzdata`, so validation and every replica
+  agree whatever zoneinfo the image carries); `Local`, the reading host's
+  zone, and offsets such as `-05:00` are refused
+  (`companies[<code>].time_zone`). Empty is UTC, as every date was before:
+  documents activated earlier keep their meaning (tolerant read), and the
+  response says which zone was used. A change is tier 3
+  (posting-relevant): it moves which day is today for the company by up
+  to a day, and the later slices date checks by it.
+- **The read date.** The cash position's read date is the clock's instant
+  in the company's zone, as a date (`clock.DayIn`): at 22:00 on 17 April
+  in Toronto (02:00 UTC on the 18th) and at 01:00 on 17 April in Dubai
+  (21:00 UTC on the 16th) it is the 17th. Everything judged by the read
+  date follows it: the default and earliest `from`, `stale` (the working
+  day before the read date), `late` payments and memo records, and the
+  conversion rate's validity and age. The response gives `time_zone`
+  beside `read_date` (UTC when the company has none), so a consumer knows
+  which day "today" was. A stored zone the binary cannot load (only a
+  zone database that lost it) fails the read rather than falling back to
+  UTC.
+- **Not yet** (tracked under the same item): memo records' own status
+  in their reads, lists and uploads (T72n2); the payment release's cash
+  discount check (T72n3, a money rule, the product owner's); cost and
+  profit center changes' effective day (T72n4, the product owner's
+  confirmation); the day whose rate routes a requisition (T72n5, a money
+  rule, the product owner's); purchasing contracts' expiry (T72n6).
+  Documents are still dated by their callers; no posting date defaults to
+  a today.
 
 ### 9. Liquidity forecast
 `GET /v1/liquidity-forecast?company=…&horizon=…` (`cash.forecast.read`):

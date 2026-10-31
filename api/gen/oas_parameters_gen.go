@@ -11654,7 +11654,8 @@ func decodeGetBusinessPartnerParams(args [1]string, argsEscaped bool, r *http.Re
 type GetCashPositionParams struct {
 	// Legal entity (required).
 	LegalEntityID uuid.UUID
-	// The first day, the read date (UTC) or later; default the read date.
+	// The first day, the read date (the company's date in its `time_zone`) or later; default the read
+	// date.
 	From OptDate `json:",omitempty,omitzero"`
 	// How many days, 1 to 31; default 14.
 	Days OptInt32 `json:",omitempty,omitzero"`

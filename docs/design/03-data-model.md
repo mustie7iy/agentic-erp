@@ -415,6 +415,13 @@ needs a comment acknowledging it (`approvals.Acknowledger`, 422
 `workflow.acknowledgement_required`), so the approvers decide knowing
 that nothing was replayed (T72l).
 
+A company's business dates are in its `companies[].time_zone`, an IANA
+zone name (`America/Toronto`, `Asia/Dubai`) that validation loads from the
+zone database built into the binary, `Local` and offsets refused; none is
+UTC. A change is tier 3. The cash position's read date is the company's
+date in it (ADR-0051 as built, T72n1); the other business dates still in
+UTC are T72n2-T72n6.
+
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
 in the currency of the requisition's company), the order release
@@ -442,7 +449,8 @@ another currency is converted into the company's currency with the
 ledger's posting lookup (the latest average
 rate of the pair; when only the reverse is recorded, the amount is
 divided by it exactly, never multiplied by a rounded reciprocal, F19) on the
-document's date: a requisition on the day it was raised (UTC), so a
+document's date: a requisition on the day it was raised (UTC; in the
+company's time zone is T72n5), so a
 resubmission is routed at the same rate, an invoice on its invoice date
 (a posting converts on the posting date instead). The converted amount is
 compared with the configured one exactly, as amount × rate before any

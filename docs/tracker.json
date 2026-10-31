@@ -8347,12 +8347,12 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Company time zone: business dates (statement staleness, value dates, 'today' in cash, close calendars) in the company's time zone, not UTC (found in T53c)",
       "r": "found in T53c (ADR-0051 as built: the cash position's read date is the clock's date in UTC; a Canadian or UAE company's evening is the next UTC day) · T72l · split 2026-10-31 into T72n1-T72n6 (ADR-0053 slices); statement staleness and value dates are judged by the position's read date, so T72n1 covers them; no close calendar reads a today yet (period locks go by posting date, T32)",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The company's time zone (companies[].time_zone, an IANA name, validated; none is UTC; tier 3) and the cash position read on the company's date in it: what is today, late and stale for a treasurer in Toronto or Dubai, with the zone shown (time_zone)",
         "r": "ADR-0051 as built (T72n1) · internal/config Company.TimeZone, Location · clock.DayIn · internal/cash position.go readDate · getCashPosition time_zone · walkthrough steps 1 and 13 · T72n1",
         "src": "split:T72l · adr:ADR-0051",
