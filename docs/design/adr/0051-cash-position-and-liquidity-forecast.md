@@ -710,8 +710,8 @@ zone", split into T72n1-T72n6):
 - **Not yet** (tracked under the same item): memo records' own status
   in their reads, lists and uploads (T72n2); the payment release's cash
   discount check (T72n3, done: see below); cost and
-  profit center changes' effective day (T72n4, the product owner's
-  confirmation); the day whose rate routes a requisition (T72n5, a money
+  profit center changes' effective day (T72n4, done: ADR-0050 §11 as
+  built); the day whose rate routes a requisition (T72n5, a money
   rule, the product owner's); purchasing contracts' expiry (T72n6).
   Documents are still dated by their callers; no posting date defaults to
   a today.

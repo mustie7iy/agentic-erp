@@ -420,8 +420,12 @@ zone name (`America/Toronto`, `Asia/Dubai`) that validation loads from the
 zone database built into the binary, host-only names (`Local`,
 `posix/…`) and offsets refused; none is
 UTC. A change is tier 3. The cash position's read date is the company's
-date in it (ADR-0051 as built, T72n1); the other business dates still in
-UTC are T72n2-T72n6.
+date in it (ADR-0051 as built, T72n1). A center change's check that a
+default cost or profit center stays usable from today, the setup's check
+of the controlling rules, and a requisition's account assignments at
+submission judge on the company's date in it too, the refusal naming the
+date and zone (T72n4, ADR-0050 §11 as built). The other business dates
+still in UTC are T72n2, T72n5 and T72n6.
 
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,

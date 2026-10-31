@@ -8,8 +8,10 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // TestDefaultCentersByTheClock: whether a change leaves a default center
@@ -51,7 +53,7 @@ func TestDefaultCentersByTheClock(t *testing.T) {
 		_, tag := a.in(t).Must(200, "GET", path, "", "")
 		ch, _ := a.in(t).Must(200, "POST", path+":lock", `{"valid_from": "2026-04-01", "valid_to": "2026-05-01", "lock_actual_cost": true, "reason": "r"}`, tag)
 		err := apitest.Committed(t, a.ten, a.ten.Human, func(ctx context.Context) error {
-			return ledger.CenterChanges{Now: march}.Approved(ctx, uuid.MustParse(ch["id"].(string)), uuid.MustParse(ch["workflow_request_id"].(string)))
+			return ledger.CenterChanges{LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: march}.Approved(ctx, uuid.MustParse(ch["id"].(string)), uuid.MustParse(ch["workflow_request_id"].(string)))
 		})
 		if p := problem.From(err); p.Code != "ledger.default_center_in_use" {
 			t.Errorf("approved in March: got %v, want ledger.default_center_in_use", err)

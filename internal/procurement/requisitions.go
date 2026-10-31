@@ -451,13 +451,7 @@ func (e *Endpoints) submitRequisition(ctx context.Context, id uuid.UUID, ifMatch
 	if err != nil {
 		return Requisition{}, err
 	}
-	// Submission releases a requisition for approval: its items'
-	// assignments are checked on the day it is submitted (T56e).
-	today, err := database.Today(ctx, tx)
-	if err != nil {
-		return Requisition{}, err
-	}
-	if err := e.checkAssignments(ctx, r.LegalEntityID, today, assignments(r.Items, 0)); err != nil {
+	if err := e.checkSubmitted(ctx, r); err != nil {
 		return Requisition{}, err
 	}
 	sum, err := documentTotal(r.Items)

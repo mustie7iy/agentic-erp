@@ -42305,11 +42305,13 @@ func (s *Server) handleListWebhookSubscriptionsRequest(args [0]string, argsEscap
 // unlocking are people's decisions: agents may not request them. A cost center that is a company's
 // default cost center for accounts (the configuration's `default_assignments`, ADR-0050 §4) must stay
 // valid from today with no end and unlocked for actual costs, so automatic postings can use it (409
-// `ledger.default_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
-// its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
-// decides, never its requester and never an agent; the change is applied when the request is approved.
-// One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409
-// `ledger.invalid_center_status`).
+// `ledger.default_center_in_use`). Today is the cost center's company's date in its time zone
+// (`companies[].time_zone`, UTC when it sets none; T72n4), at the request and again at the approval,
+// and the problem's `detail` names that date and zone. Opens a pending center change
+// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
+// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
+// The center must be `active` (409 `ledger.invalid_center_status`).
 //
 // POST /v1/cost-centers/{id}:lock
 func (s *Server) handleLockCostCenterRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -42922,11 +42924,13 @@ func (s *Server) handleLockPlanCategoryRequest(args [1]string, argsEscaped bool,
 // checked at the request and again at the approval (ADR-0050 §3). Locking and unlocking are people's
 // decisions: agents may not request them. A company's default profit center (the configuration's
 // `default_profit_center`, ADR-0050 §4) must stay valid from today with no end and unlocked (409
-// `ledger.default_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
-// its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
-// decides, never its requester and never an agent; the change is applied when the request is approved.
-// One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409
-// `ledger.invalid_center_status`).
+// `ledger.default_center_in_use`). Today is the date of each company it is the default of, in that
+// company's time zone (`companies[].time_zone`, UTC when it sets none; T72n4), at the request and
+// again at the approval, and the problem's `detail` names that date and zone. Opens a pending center
+// change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller
+// holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is
+// applied when the request is approved. One pending change per center (409
+// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
 //
 // POST /v1/profit-centers/{id}:lock
 func (s *Server) handleLockProfitCenterRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -48247,11 +48251,13 @@ func (s *Server) handleRecordAgentToolCallRequest(args [1]string, argsEscaped bo
 // again at the approval (ADR-0050 §3). A cost center that is a company's default cost center for
 // accounts (the configuration's `default_assignments`, ADR-0050 §4) must stay valid from today with
 // no end and unlocked for actual costs, so automatic postings can use it (409
-// `ledger.default_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
-// its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
-// decides, never its requester and never an agent; the change is applied when the request is approved.
-// One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409
-// `ledger.invalid_center_status`).
+// `ledger.default_center_in_use`). Today is the cost center's company's date in its time zone
+// (`companies[].time_zone`, UTC when it sets none; T72n4), at the request and again at the approval,
+// and the problem's `detail` names that date and zone. Opens a pending center change
+// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is applied
+// when the request is approved. One pending change per center (409 `ledger.center_change_pending`).
+// The center must be `active` (409 `ledger.invalid_center_status`).
 //
 // POST /v1/cost-centers/{id}:redate
 func (s *Server) handleRedateCostCenterRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -48469,11 +48475,13 @@ func (s *Server) handleRedateCostCenterRequest(args [1]string, argsEscaped bool,
 // `ledger.profit_center_period_in_use`), both checked at the request and again at the approval
 // (ADR-0050 §3). A company's default profit center (the configuration's `default_profit_center`,
 // ADR-0050 §4) must stay valid from today with no end and unlocked (409
-// `ledger.default_center_in_use`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
-// its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
-// decides, never its requester and never an agent; the change is applied when the request is approved.
-// One pending change per center (409 `ledger.center_change_pending`). The center must be `active` (409
-// `ledger.invalid_center_status`).
+// `ledger.default_center_in_use`). Today is the date of each company it is the default of, in that
+// company's time zone (`companies[].time_zone`, UTC when it sets none; T72n4), at the request and
+// again at the approval, and the problem's `detail` names that date and zone. Opens a pending center
+// change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller
+// holding `ledger.cost_center.approve` decides, never its requester and never an agent; the change is
+// applied when the request is approved. One pending change per center (409
+// `ledger.center_change_pending`). The center must be `active` (409 `ledger.invalid_center_status`).
 //
 // POST /v1/profit-centers/{id}:redate
 func (s *Server) handleRedateProfitCenterRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -54574,7 +54582,10 @@ func (s *Server) handleSubmitPurchaseOrderChangeRequest(args [2]string, argsEsca
 
 // handleSubmitRequisitionRequest handles submitRequisition operation.
 //
-// Submits a draft for approval and opens an approval request. Requires status `draft`.
+// Submits a draft for approval and opens an approval request. Its items' account assignments are
+// checked on the company's date in its time zone (`companies[].time_zone`, UTC when it sets none;
+// T72n4), which a refusal's `detail` names (422 `ledger.cost_center_invalid`,
+// `ledger.cost_center_required`, `ledger.profit_center_invalid`). Requires status `draft`.
 //
 // POST /v1/requisitions/{id}:submit
 func (s *Server) handleSubmitRequisitionRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

@@ -13,7 +13,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
-	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -230,9 +229,18 @@ func decided(ctx context.Context, tx pgx.Tx, id, request uuid.UUID) (CenterChang
 // complete (approvals.Handler), in the deciding transaction. The decider
 // may not see the cost center's company: the request is what authorises
 // the change, so the center is read without the company filter. Now is the
-// clock the change is applied by (Endpoints.Now); nil: the wall clock.
+// clock the change is applied by (Endpoints.Now; nil: the wall clock), on
+// the date of the center's company in the time zone Settings gives it
+// (T72n4).
 type CenterChanges struct {
-	Now func() time.Time
+	LegalEntities LegalEntities
+	Settings      Settings
+	Now           func() time.Time
+}
+
+// days tells the companies' dates by the handler's clock.
+func (h CenterChanges) days() companyDays {
+	return companyDays{now: h.Now, entities: h.LegalEntities, settings: h.Settings}
 }
 
 // Approved applies the change.
@@ -249,9 +257,9 @@ func (h CenterChanges) Approved(ctx context.Context, change, request uuid.UUID) 
 	case c.HierarchyID != nil:
 		err = applyHierarchyChange(ctx, tx, c)
 	case c.CostCenterID != nil:
-		err = applyCostCenterChange(ctx, tx, c, day(clock.Now(h.Now)))
+		err = applyCostCenterChange(ctx, tx, c, h.days())
 	default:
-		err = applyProfitCenterChange(ctx, tx, c, day(clock.Now(h.Now)))
+		err = applyProfitCenterChange(ctx, tx, c, h.days())
 	}
 	if err != nil {
 		return err

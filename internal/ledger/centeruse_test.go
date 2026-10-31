@@ -133,7 +133,7 @@ func TestCenterChangesInUseAtApproval(t *testing.T) {
 				t.Fatalf("post: %v", err)
 			}
 			err := apitest.Committed(t, a.ten, a.ten.Human, func(ctx context.Context) error {
-				return ledger.CenterChanges{}.Approved(ctx, uuid.MustParse(ch["id"].(string)), uuid.MustParse(ch["workflow_request_id"].(string)))
+				return changes().Approved(ctx, uuid.MustParse(ch["id"].(string)), uuid.MustParse(ch["workflow_request_id"].(string)))
 			})
 			if got := problem.From(err).Code; got != c.want {
 				t.Errorf("approval: got %v, want %s", err, c.want)
@@ -222,7 +222,7 @@ func TestAssignmentAndProfitCenterLockSerialize(t *testing.T) {
 		ch, _ := a.in(t).Must(200, "POST", path+":lock", fmt.Sprintf(`{"valid_from": %q, "valid_to": %q, "locked": true, "reason": "r"}`, from, to), tag)
 		pending = ch["id"]
 		return func(ctx context.Context) error {
-			return ledger.CenterChanges{}.Approved(ctx, uuid.MustParse(ch["id"].(string)), uuid.MustParse(ch["workflow_request_id"].(string)))
+			return changes().Approved(ctx, uuid.MustParse(ch["id"].(string)), uuid.MustParse(ch["workflow_request_id"].(string)))
 		}
 	}
 	post := func(day string) func(ctx context.Context) error {

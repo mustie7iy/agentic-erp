@@ -29,8 +29,8 @@ import (
 // companyControlling is a company's controlling as the ledger has it and
 // as the document asks for it, read for one check or application.
 type companyControlling struct {
-	today time.Time
-	year  int // the fiscal year today is in
+	today companyDay // the company's date in its time zone (T72n4)
+	year  int        // the fiscal year today is in
 	// costFrom and profitFrom are the fiscal years cost and profit center
 	// accounting apply from, nil while off.
 	costFrom, profitFrom *int16
@@ -50,10 +50,17 @@ type companyControlling struct {
 // application: the company's period statuses from the current year on, so
 // postings under way finish first and later ones see the switch, and the
 // centers for share, so they do not change before the transaction ends.
+// Today is the company's date at now in the time zone the document gives
+// it (T72n4), so the switches' year and the defaults' validity follow the
+// company's calendar, not UTC's.
 func readControlling(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID, co config.Company, now time.Time, lock bool,
 	out *findings) (companyControlling, error) {
-	c := companyControlling{costCenters: map[string]uuid.UUID{}, today: day(now), year: fiscalYearOf(day(now), co.FiscalYearStartMonth)}
-	err := tx.QueryRow(ctx, `SELECT (SELECT cost_center_accounting_from FROM ledger.company_controlling WHERE legal_entity_id = $1),
+	today, err := dayOfCompany(now, co)
+	if err != nil {
+		return companyControlling{}, err
+	}
+	c := companyControlling{costCenters: map[string]uuid.UUID{}, today: today, year: fiscalYearOf(today.day, co.FiscalYearStartMonth)}
+	err = tx.QueryRow(ctx, `SELECT (SELECT cost_center_accounting_from FROM ledger.company_controlling WHERE legal_entity_id = $1),
 			(SELECT profit_center_accounting_from FROM ledger.company_controlling WHERE legal_entity_id = $1)`, le).Scan(&c.costFrom, &c.profitFrom)
 	if err != nil {
 		return c, fmt.Errorf("ledger: controlling of company %s: %w", co.Code, err)
@@ -200,14 +207,18 @@ func rowLock(lock bool) string {
 // unusableDefault says why a center with the spans cannot be a default from
 // today on, "" when it can: a default must be valid from today with no end
 // and not locked on any day from today, so automatic postings never meet a
-// center they cannot use (ADR-0050 §4).
-func unusableDefault[A comparable](spans []span[A], today time.Time, locked func(A) bool) string {
-	if !within(spans, today, time.Time{}) {
-		return "is not valid from today with no end date"
+// center they cannot use (ADR-0050 §4). Today is the company's date in its
+// time zone (T72n4), which the reason names.
+func unusableDefault[A comparable](spans []span[A], today companyDay, locked func(A) bool) string {
+	if !within(spans, today.day, time.Time{}) {
+		return "is not valid from " + today.text() + " with no end date"
 	}
 	for _, s := range spans {
-		if endOf(s.To).After(today) && locked(s.Attr) {
-			return "is locked from " + dateText(later(s.From, today))
+		if endOf(s.To).After(today.day) && locked(s.Attr) {
+			if s.From.After(today.day) {
+				return "is locked from " + dateText(s.From) + ", after " + today.text()
+			}
+			return "is locked from " + today.text()
 		}
 	}
 	return ""
@@ -356,16 +367,21 @@ func applyDefaultAssignments(ctx context.Context, tx pgx.Tx, p reqctx.Principal,
 // not be a default from today on (unusableDefault): automatic postings to
 // those accounts would fail (409 ledger.default_center_in_use). The change
 // holds the cost center for update, so an activation naming it waits.
-// today is the clock's (Endpoints.Now), the one the setup reads the same
-// rule by (Setup.Now).
-func keepsDefaultCostCenter(ctx context.Context, tx pgx.Tx, id uuid.UUID, spans []span[CostCenterAttrs], today time.Time) error {
+// Today is the cost center's company's date in its time zone by the
+// clock the setup reads the same rule by (Setup.Now): a change takes
+// effect from the company's date (product owner 2026-10-31, T72n4).
+func keepsDefaultCostCenter(ctx context.Context, tx pgx.Tx, c CostCenter, spans []span[CostCenterAttrs], days companyDays) error {
 	var accounts []string
 	if err := tx.QueryRow(ctx, `SELECT coalesce(array_agg(g.number ORDER BY g.number), '{}') FROM ledger.default_assignment d
-		JOIN ledger.gl_account g ON g.tenant_id = d.tenant_id AND g.id = d.account_id WHERE d.cost_center_id = $1 AND d.is_active`, id).Scan(&accounts); err != nil {
-		return fmt.Errorf("ledger: default assignments of cost center %s: %w", id, err)
+		JOIN ledger.gl_account g ON g.tenant_id = d.tenant_id AND g.id = d.account_id WHERE d.cost_center_id = $1 AND d.is_active`, c.ID).Scan(&accounts); err != nil {
+		return fmt.Errorf("ledger: default assignments of cost center %s: %w", c.ID, err)
 	}
 	if len(accounts) == 0 {
 		return nil
+	}
+	today, err := days.of(ctx, c.LegalEntityID)
+	if err != nil {
+		return err
 	}
 	if why := unusableDefault(spans, today, func(a CostCenterAttrs) bool { return a.LockCost }); why != "" {
 		return problem.Conflict("ledger.default_center_in_use", "The cost center is the default cost center of accounts "+strings.Join(accounts, ", ")+
@@ -376,20 +392,25 @@ func keepsDefaultCostCenter(ctx context.Context, tx pgx.Tx, id uuid.UUID, spans 
 
 // keepsDefaultProfitCenter refuses a profit center's new periods when it
 // is a company's default profit center and, after the change, could not be
-// a default from today on (409 ledger.default_center_in_use).
-func keepsDefaultProfitCenter(ctx context.Context, tx pgx.Tx, id uuid.UUID, spans []span[ProfitCenterAttrs], today time.Time) error {
-	var isDefault bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.company_controlling WHERE default_profit_center_id = $1)`, id).
-		Scan(&isDefault); err != nil {
+// a default from today on (409 ledger.default_center_in_use). A profit
+// center may be the default of companies in different time zones: each
+// judges it on its own date (T72n4).
+func keepsDefaultProfitCenter(ctx context.Context, tx pgx.Tx, id uuid.UUID, spans []span[ProfitCenterAttrs], days companyDays) error {
+	rows, _ := tx.Query(ctx, `SELECT legal_entity_id FROM ledger.company_controlling WHERE default_profit_center_id = $1 ORDER BY legal_entity_id`, id)
+	companies, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
 		return fmt.Errorf("ledger: companies defaulting to profit center %s: %w", id, err)
 	}
-	if !isDefault {
-		return nil
-	}
-	if why := unusableDefault(spans, today, func(a ProfitCenterAttrs) bool { return a.Locked }); why != "" {
-		// Not how many: the companies may include ones the requester cannot access.
-		return problem.Conflict("ledger.default_center_in_use", "The profit center is a company's default profit center; after the change it "+
-			why+". Change the configuration's default_profit_center first.")
+	for _, le := range companies {
+		today, err := days.of(ctx, le)
+		if err != nil {
+			return err
+		}
+		if why := unusableDefault(spans, today, func(a ProfitCenterAttrs) bool { return a.Locked }); why != "" {
+			// Not how many: the companies may include ones the requester cannot access.
+			return problem.Conflict("ledger.default_center_in_use", "The profit center is a company's default profit center; after the change it "+
+				why+". Change the configuration's default_profit_center first.")
+		}
 	}
 	return nil
 }
