@@ -105,9 +105,10 @@ type Actors interface {
 
 // check validates a document for activation on top of base (nil for the
 // first version): the document's own rules, its number ranges and every
-// section, all findings reported together as one 422. Amounts are checked
-// with the exponents of ref.currency (ADR-0005).
-func (d Dependencies) check(ctx context.Context, tx pgx.Tx, base, proposed *config.Config) error {
+// section, all findings reported together as one 422 whose field errors
+// are under field, the request's field that carries the document. Amounts
+// are checked with the exponents of ref.currency (ADR-0005).
+func (d Dependencies) check(ctx context.Context, tx pgx.Tx, base, proposed *config.Config, field string) error {
 	exponents, err := currency.Load(ctx, tx)
 	if err != nil {
 		return fmt.Errorf("configuration: check: %w", err)
@@ -129,7 +130,7 @@ func (d Dependencies) check(ctx context.Context, tx pgx.Tx, base, proposed *conf
 		}
 		findings = append(findings, more...)
 	}
-	return failed(findings)
+	return failed(findings, field)
 }
 
 // Item is one computed difference of a change request.
@@ -365,12 +366,16 @@ func parse(doc json.RawMessage, field string) (*config.Config, error) {
 	return c, nil
 }
 
-// failed reports the findings with error severity as a 422.
-func failed(findings []config.Finding) error {
+// failed reports the findings with error severity as a 422, each field
+// error under field, the request's field that carries the document: a
+// change request's proposed, the createTenant request's configuration
+// (REVIEW.md, API-consumer classes: a field error names the request's
+// own field).
+func failed(findings []config.Finding, field string) error {
 	var fields []problem.FieldError
 	for _, f := range findings {
 		if f.Severity == config.SevError {
-			fields = append(fields, problem.FieldError{Field: "proposed." + f.Path, Code: "invalid", Message: f.Message})
+			fields = append(fields, problem.FieldError{Field: field + "." + f.Path, Code: "invalid", Message: f.Message})
 		}
 	}
 	if len(fields) == 0 {
@@ -447,7 +452,7 @@ func SubmitChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID, i
 	if err != nil {
 		return ChangeRequest{}, err
 	}
-	if err := deps.check(ctx, tx, base, proposed); err != nil {
+	if err := deps.check(ctx, tx, base, proposed, "proposed"); err != nil {
 		return ChangeRequest{}, err
 	}
 	changes, _ := config.Diff(base, proposed) // never fails
@@ -596,8 +601,9 @@ func ActivateChangeRequest(ctx context.Context, deps Dependencies, id uuid.UUID,
 // Bootstrap installs a tenant's first configuration as version 1. It runs
 // when a tenant is provisioned, inside the provisioning transaction (a unit
 // of work for the provisioning principal); the document must validate
-// without errors.
-func Bootstrap(ctx context.Context, deps Dependencies, doc json.RawMessage) (int32, error) {
+// without errors. field is the provisioning request's field that carries
+// the document, which the problem's field errors are named under.
+func Bootstrap(ctx context.Context, deps Dependencies, doc json.RawMessage, field string) (int32, error) {
 	tx, actor, err := reqctx.Request(ctx)
 	if err != nil {
 		return 0, err
@@ -609,11 +615,11 @@ func Bootstrap(ctx context.Context, deps Dependencies, doc json.RawMessage) (int
 	if exists {
 		return 0, problem.Conflict("config.already_bootstrapped", "The tenant already has a configuration; change it with a change request.")
 	}
-	c, err := parse(doc, "document")
+	c, err := parse(doc, field)
 	if err != nil {
 		return 0, err
 	}
-	if err := deps.check(ctx, tx, nil, c); err != nil {
+	if err := deps.check(ctx, tx, nil, c, field); err != nil {
 		return 0, err
 	}
 	v, err := activate(ctx, tx, deps, actor, c, nil, "bootstrap", nil)

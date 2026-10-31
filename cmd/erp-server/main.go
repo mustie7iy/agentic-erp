@@ -751,8 +751,8 @@ func (s *server) startAudit(runCtx context.Context) {
 	}
 	// Active contracts past their validity are expired in rounds, and those
 	// ending soon alerted (the contract's ContractExpired and
-	// ContractExpiring are the job's).
-	expirer := &procurement.ContractExpirer{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: expiryInterval, Log: log,
+	// ContractExpiring are the job's), each on its company's date (T72n6).
+	expirer := &procurement.ContractExpirer{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: expiryInterval, Log: log, LegalEntities: tenancy.Directory{},
 		Settings: configuration.Settings{}}
 	s.spawn("expirer", func() { expirer.Run(runCtx) })
 	// People's sessions ended or idle for a week are deleted in rounds

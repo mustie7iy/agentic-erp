@@ -26,3 +26,13 @@ legally gapless, document numbers.
 - 16-byte keys; acceptable.
 - Gapless numbering serializes postings per range; ranges are per legal
   entity and type, so contention is bounded.
+
+## As built: a missing number range names no field (review:batch26)
+
+`config.no_number_range` (422) is raised wherever a document number is
+drawn: a journal entry, a supplier invoice's posting, a payment run and
+the others. Only `createJournalEntry`'s request has a `document_type`
+field, so the problem carries no field error; its detail names the
+document type and the fiscal year and says to add the range through a
+change request (REVIEW.md, API-consumer classes: a field error names the
+request's own field).

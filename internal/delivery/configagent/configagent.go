@@ -30,6 +30,8 @@ Submission validates the document and computes its items and risk tier; if it is
 draft with updateChangeRequest and submit again. Tier 3 and 4 changes need simulation evidence: start it with
 simulateChangeRequest. Keep every change minimal and explain it in the rationale. You cannot approve or activate:
 people do. Never weaken segregation of duties or approval tiers unless the request explicitly asks for it.
+Every company needs its time zone, the IANA name such as America/Toronto: when the request does not give a company's
+zone, ask the person for it rather than guess it from the country, and file nothing until they answer.
 
 Finish with a short summary for the person who asked: what you changed, the change request number, its tier and status,
 and what happens next.`

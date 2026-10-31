@@ -315,6 +315,23 @@ tax_codes:
   posting dated today passes when submitted after it. A posting made, or a
   later day of activation, between submission and activation can still make
   the activation refuse what passed; the database stays the rule.
+- **As built (the activation day is the company's date; product owner
+  2026-10-31):** "today" at a tax setup, the day a changed or re-added
+  single-rate code's new rate starts, the day a removed code's rates end,
+  the rate in force kept open, and a new code's start when the calendar has
+  no period, is the company's date in its `companies[].time_zone` at the
+  activation (ADR-0051 as built: `clock.DayIn`, one instant per company,
+  shared with the controlling checks), no longer the database's UTC
+  `current_date`: at 22:00 on 16 April in Toronto (02:00 UTC on the 17th)
+  a change starts on the 16th, at 01:00 on 17 April in Dubai (21:00 UTC on
+  the 16th) on the 17th. The submission's prediction plans on the same
+  date and its finding names it and the zone ("it is 2026-04-16 (the
+  company's date in America/Toronto)"); the activation's 409
+  `ledger.tax_rate_in_use` adds the date it dated the change on, as the
+  rates themselves are not in a response. A stored zone the binary cannot
+  load fails the activation rather than dating the change in UTC; the
+  submission leaves the rates unchecked then, as validation reports the
+  zone (`companies[<code>].time_zone`), as it does the controlling checks.
 - **Operational constraint (accepted, coordinator 2026-10-21):** a tax code
   change is activated only after a rolling upgrade to T61a has completed on
   every instance. Until then an instance of the previous release still reads

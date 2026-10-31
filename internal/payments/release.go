@@ -24,6 +24,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/cabank"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -402,8 +403,9 @@ func (e *Endpoints) recheck(ctx context.Context, r Run, pays []Payment) error {
 			reason = "bank_account_changed"
 		}
 		if reason != "" {
-			return problem.Conflict("payments.proposal_outdated", "Supplier "+pay.SupplierID.String()+" can no longer be paid as proposed ("+reason+
-				"); reject the run and propose again.")
+			return e.refuse(ctx, "payments.proposal_outdated", pay.SupplierID, func(supplier string) string {
+				return "Supplier " + supplier + " can no longer be paid as proposed (" + reason + "); reject the run and propose again."
+			})
 		}
 	}
 	if err := e.recheckDiscounts(ctx, r, pays, doc); err != nil {
@@ -435,11 +437,27 @@ func (e *Endpoints) recheckDiscounts(ctx context.Context, r Run, pays []Payment,
 	}
 	for _, pay := range pays[first:] {
 		if pay.DiscountUntil != nil && today.After(*pay.DiscountUntil) {
-			return problem.Conflict("payments.discount_lapsed", fmt.Sprintf("The payment to supplier %s takes cash discount earned until %s; it is %s in %s, "+
-				"the time zone the paying company's date is judged in: reject the run and propose again.", pay.SupplierID, pay.DiscountUntil.Format(time.DateOnly), today.Format(time.DateOnly), loc))
+			return e.refuse(ctx, "payments.discount_lapsed", pay.SupplierID, func(supplier string) string {
+				return fmt.Sprintf("The payment to supplier %s takes cash discount earned until %s; it is %s in %s, the time zone the paying company's date "+
+					"is judged in: reject the run and propose again.", supplier, pay.DiscountUntil.Format(time.DateOnly), today.Format(time.DateOnly), loc)
+			})
 		}
 	}
 	return nil
+}
+
+// refuse is the 409 code refusing a release because of the payment to
+// supplier, the detail naming the supplier as its consumer knows it, by
+// number and name, with the id the run's payments give (REVIEW.md, an
+// identifier without the name its consumer needs): told to reject the
+// run, it need not list the payments to learn which one is refused.
+func (e *Endpoints) refuse(ctx context.Context, code string, supplier uuid.UUID, detail func(supplier string) string) error {
+	named, err := idref.Resolve(ctx, e.Payees.Names, []uuid.UUID{supplier}, supplierRef)
+	if err != nil {
+		return fmt.Errorf("payments: name supplier %s: %w", supplier, err)
+	}
+	n := named[supplier]
+	return problem.Conflict(code, detail(n.Number+" "+n.Name+" ("+supplier.String()+")"))
 }
 
 // companyDay is the date now of run r's company, in the time zone its
@@ -480,8 +498,10 @@ func (e *Endpoints) recheckItems(ctx context.Context, r Run, pays []Payment) err
 	for _, pay := range pays {
 		for _, it := range itemRefs(pay) {
 			if why, ok := unpayable[it]; ok {
-				return problem.Conflict("payments.proposal_outdated", fmt.Sprintf("An item the payment to supplier %s settles (%d/%s line %d) is %s since the proposal; reject the run and propose again.",
-					pay.SupplierID, it.FiscalYear, it.EntryID, it.LineNo, unpayableText[why]))
+				return e.refuse(ctx, "payments.proposal_outdated", pay.SupplierID, func(supplier string) string {
+					return fmt.Sprintf("An item the payment to supplier %s settles (%d/%s line %d) is %s since the proposal; reject the run and propose again.",
+						supplier, it.FiscalYear, it.EntryID, it.LineNo, unpayableText[why])
+				})
 			}
 		}
 	}

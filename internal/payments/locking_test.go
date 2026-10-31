@@ -50,7 +50,7 @@ func TestProposalAndReversalSerialize(t *testing.T) {
 		}
 	}
 	invoices := &payables.Endpoints{Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}},
-		Payments: payments.Reservations{}}
+		Payments: payments.Reservations{}, LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}}
 	reverse := func(inv map[string]any) func(ctx context.Context) error {
 		return func(ctx context.Context) error {
 			_, err := invoices.ReverseInvoice(ctx, uuidOf(id(inv)), func(int32) error { return nil }, "Wrong amount", nil)

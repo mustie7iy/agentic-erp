@@ -35,9 +35,13 @@ func (Numbers) Next(ctx context.Context, legalEntity uuid.UUID, documentType str
 	var pg *pgconn.PgError
 	switch {
 	case errors.As(err, &pg) && pg.Code == "P0002": // no_data_found
+		// No field error: the many operations that draw a number (an
+		// invoice's posting, a payment run's) have no document_type field,
+		// so the detail names the document type and fiscal year instead
+		// (REVIEW.md, API-consumer classes: a field error names the
+		// request's own field).
 		return "", problem.Unprocessable("config.no_number_range",
-			fmt.Sprintf("The configuration has no %s number range for this legal entity in fiscal year %d.", documentType, fiscalYear),
-			problem.FieldError{Field: "document_type", Code: "no_number_range", Message: "add a number range for " + documentType + " through a change request"})
+			fmt.Sprintf("The configuration has no %s number range for this legal entity in fiscal year %d; add one through a change request.", documentType, fiscalYear))
 	case errors.As(err, &pg) && pg.Code == "23514": // the function's exhausted range
 		return "", problem.Conflict("config.number_range_exhausted",
 			fmt.Sprintf("The %s number range of fiscal year %d is exhausted; raise its last number through a change request.", documentType, fiscalYear))

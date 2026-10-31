@@ -34,6 +34,11 @@ import (
 // every permission, so that the tenant can be set up through the API.
 const AdministratorRole = "tenant_admin"
 
+// DocumentField is the request field that carries the first configuration,
+// createTenant's configuration: its field errors, the document missing or
+// failing validation, are named under it (REVIEW.md, API-consumer classes).
+const DocumentField = "configuration"
+
 // Administrator is the tenant's first person.
 type Administrator struct {
 	Subject     string // subject at the identity provider
@@ -188,7 +193,7 @@ func (r Request) check() error {
 	case strings.TrimSpace(r.Administrator.DisplayName) == "":
 		return invalid("administrator.display_name", "required")
 	case r.Document == nil:
-		return invalid("document", "the first configuration is required")
+		return invalid(DocumentField, "the first configuration is required")
 	}
 	return nil
 }
@@ -253,7 +258,7 @@ func (p *Provisioner) populate(ctx context.Context, tx pgx.Tx, issuer string, re
 		return err
 	}
 	doc, _ := json.Marshal(req.Document) // Config holds only JSON-safe types
-	version, err := configuration.Bootstrap(ctx, p.Configuration, doc)
+	version, err := configuration.Bootstrap(ctx, p.Configuration, doc, DocumentField)
 	if err != nil {
 		return err
 	}

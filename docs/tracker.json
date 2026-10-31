@@ -46,6 +46,13 @@
         "r": "internal/money",
         "src": "baseline",
         "c": []
+       },
+       {
+        "s": "T",
+        "t": "Postings other contexts make through the ledger's posting port (a supplier invoice's posting and reversal, a goods receipt's posting and reversal, a bank statement line's posting, a down payment clearing), a journal entry's reversal and a parked entry's posting name their field errors by the request's own fields, not createJournalEntry's (legal_entity_id, currency, lines[i].account_id, lines[i].cost_center_id and the like), which those requests lack (an API-consumer class, REVIEW.md)",
+        "r": "found in apinames4's sweep of the class (review:batch26 bootstrap leaf) · internal/ledger journal.go prepare (:948), postReversal (:1190), checkedAccounts (:663-736), :972, :1070-1096, manual.go postableEntity (:196) and :35, targets.go, assignment.go · reached through ledger ports.go Post/Reverse, bankposting.go PostBank, dpclearing.go ClearDownPayments · approveApprovalRequest documents the parked entry's fields",
+        "src": "review:batch26",
+        "c": []
        }
       ]
      },
@@ -1002,10 +1009,17 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "payments.discount_lapsed names the supplier by its code and name, not only its UUID, so the consumer told to reject the run knows which payment lost its discount (an API-consumer class, REVIEW.md)",
-      "r": "found in batch 26's lane reviews · internal/payments release.go checkDiscounts (problem.Conflict payments.discount_lapsed, :438, pay.SupplierID) · ADR-0038",
+      "r": "found in batch 26's lane reviews · internal/payments release.go checkDiscounts (problem.Conflict payments.discount_lapsed, :438, pay.SupplierID) · ADR-0038 · done in apinames4: release.go refuse names the supplier by number and name (partner Names), in payments.discount_lapsed and both payments.proposal_outdated refusals · ADR-0038 as built (a release's refusals name the supplier)",
       "src": "review:batch26",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "payments.amount_too_large names the supplier by its number and name, not only its UUID, as the release's refusals do since batch 27",
+      "r": "internal/payments propose.go:472, :499 errTooLarge(\"supplier \" + c.supplier.String()) · release.go refuse (partner.Named, idref.Resolve) is the pattern · REVIEW.md API-consumer class: an identifier without the name its consumer needs",
+      "src": "review:batch27",
       "c": []
      }
     ]
@@ -2467,6 +2481,13 @@
       "r": "internal/procurement · purchase-orders/{id}:close",
       "src": "baseline",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "A purchase order's update, its changes' create, update and submit, and a requisition's and order's bodiless submit and release name their field errors by the request's fields: legal_entity_id (procurement common.go legalEntity on the stored order), items and items[i].<field> (order_change_apply.go invalidChange, assignment.go, ledger itemassign.go asItems) are fields those requests do not have (an API-consumer class, REVIEW.md)",
+      "r": "found in apinames4's sweep of the class (review:batch26 bootstrap leaf) · internal/procurement common.go :173, :178 from purchase_orders.go updateOrder (:478) and order_changes.go proposal (:280) · order_change_apply.go :34, :62 · assignment.go :36, :88 · purchase_orders.go :606 · ledger itemassign.go :78",
+      "src": "review:batch26",
+      "c": []
      }
     ]
    },
@@ -2513,6 +2534,13 @@
         "t": "Contracts ending soon without a renewal are alerted once",
         "r": "procurement.ContractExpirer · expiry_alerted_on · T47g2",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "ContractExpiredV1 and ContractExpiringV1 name the supplier by its number and name and the company by its code, not only supplier_id and legal_entity_id, so a consumer alerting a buyer need not look them up",
+        "r": "api/asyncapi.yaml ContractExpiredV1, ContractExpiringV1 (supplier_id, legal_entity_id only) · internal/procurement expiry.go, expiry_alerts.go (the events' payloads) · REVIEW.md API-consumer class: an identifier without the name its consumer needs · T72n6",
+        "src": "review:batch27",
         "c": []
        }
       ]
@@ -5528,6 +5556,13 @@
         "r": "T73m",
         "src": "baseline",
         "c": []
+       },
+       {
+        "s": "T",
+        "t": "The web workspace pre-fills dates from the server's UTC clock, not the company's date in its time zone: a manual entry's document and posting dates, a payment run's run_date and due_by, and the open-item report's key date (at 22:00 in Toronto the form offers tomorrow's date)",
+        "r": "internal/web journal_entries.go:308 today (s.now() in UTC) · entry_form.go:225-226 newEntry docDate/postingDate · payments.go:61 run_date/due_by · report_items.go:142 KeyDate · ADR-0051 as built (the company's date, T72n1-T72n7) · UI later (product owner 2026-10-28, headless first)",
+        "src": "review:batch27",
+        "c": []
        }
       ]
      }
@@ -7481,9 +7516,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A tenant's bootstrap names its field errors by the request's field (document. for bootstrap, configuration. for createTenant), not proposed., which only a change request's submission has (an API-consumer class, REVIEW.md)",
-      "r": "found in batch 26's lane reviews · internal/configuration configuration.go failed (Field: \"proposed.\" + f.Path) · bootstrap and the control plane's createTenant",
+      "r": "found in batch 26's lane reviews · internal/configuration configuration.go failed (Field: \"proposed.\" + f.Path) · bootstrap and the control plane's createTenant · done in apinames4: Bootstrap takes the request's field (provisioning.DocumentField, createTenant's configuration; bootstrap is reached only through provisioning, which has no document field), the missing document named configuration too; config.no_number_range carries no document_type field error, which the operations drawing a number lack; api/control.yaml's 422 says so",
       "src": "review:batch26",
       "c": []
      }
@@ -7698,10 +7733,17 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The configuration agent's prompt says a company's time zone, now required (T72n7), is asked of the person when the request does not give it, never guessed from the country",
-      "r": "found in T72n7's review (nit 3) · internal/delivery/configagent configagent.go system · ADR-0051 as built (the zone required)",
+      "r": "found in T72n7's review (nit 3) · internal/delivery/configagent configagent.go system · ADR-0051 as built (the zone required) · done in apinames4: the prompt says so, configagent's test reads it, the configuration suite's replays still reach level 2; a live run of evals/configuration is the operator's",
       "src": "review:batch26",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "The configuration agent's instruction to ask for a company's missing time zone is evaluated live (make eval AGENT=configuration, ADR-0039), with an eval case for a request that gives no zone; waits for the live-evaluation key (pre-pilot)",
+      "r": "internal/delivery/configagent configagent.go (the time-zone instruction, batch 27 apinames4) · evals/configuration/suite.yaml (no case without a zone yet; ADR-0039) · no live run yet: the evaluation key is a pre-pilot item",
+      "src": "review:batch27",
       "c": []
      }
     ]
@@ -8156,6 +8198,13 @@
       "r": "workflows.MigrateRun · integration.Endpoints.Execute · migration 000031",
       "src": "baseline",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "A migration run's start and reconciliation, which take no body, name a company no longer active without the field scope.legal_entity_ids[i], which only createMigrationRun's request has (an API-consumer class, REVIEW.md)",
+      "r": "found in apinames4's sweep of the class (review:batch26 bootstrap leaf) · internal/integration runs.go entities (:153-158) from prepare (:224), runStep/Execute · startMigrationRun, reconcileMigrationRun (integration.legal_entity_not_active)",
+      "src": "review:batch26",
+      "c": []
      }
     ]
    },
@@ -8415,9 +8464,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Purchasing contracts expire after their valid_to day ends in the company's time zone, not on the database's UTC current_date",
-        "r": "internal/procurement expiry.go expireDue (valid_to < current_date) · the expiry notice too, expiry_alerts.go (days left and expiry_alerted_on from current_date; found in T72n5) · T72n6",
+        "r": "internal/procurement expiry.go expireDue (valid_to < current_date) · the expiry notice too, expiry_alerts.go (days left and expiry_alerted_on from current_date; found in T72n5) · ADR-0051 as built (T72n6) · expiry_days.go companyDays · ContractExpired expired_on, ContractExpiring alerted_on, time_zone · TestContractExpiryTimeZone · no walkthrough step: the expirer is an hourly job no public call starts · T72n6",
         "src": "split:T72l",
         "c": []
        },
@@ -8429,17 +8478,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A purchasing contract's number is drawn for the company's date at creation, not the database's UTC current_date (a Toronto contract created on a 31 December evening takes the next year's range)",
-        "r": "found in T72n5 · internal/procurement contracts.go createContract (database.Today) · the requisition's number follows its date since T72n5",
+        "r": "found in T72n5 · internal/procurement contracts.go createContract (database.Today) · the requisition's number follows its date since T72n5 · done after T72n6: contracts.go draftContract (procurement today; renewals too) · ADR-0051 as built (T72n6) · TestContractNumberTimeZone · no walkthrough step: the walkthrough runs on the wall clock, which cannot be set to a year's last evening",
         "src": "review:batch26",
         "c": []
        },
        {
-        "s": "T",
-        "t": "A posting date the caller leaves out is the company's date in its time zone, not the database's UTC current_date: a supplier invoice posted or reversed without one, a goods movement reversal without one. The date decides the period and the rates, so this waits for the product owner (money rule); recommended (batch 26): the company's date in its zone, as T72n1-T72n5 judge their dates",
-        "r": "found in T72n5 and T72n4 · internal/payables post.go invoicePostingDate (:402) and the reversal's default (:553), internal/procurement receipts.go reverseReceipt (:397), each database.Today · ADR-0050 §11 as built (left as they are) · ADR-0051 as built (T72n1, T72n5)",
-        "src": "review:batch26",
+        "s": "D",
+        "t": "A posting date the caller leaves out is the company's date in its time zone, not the database's UTC current_date: a supplier invoice posted or reversed without one, a goods movement reversal without one, so the date and its period are the company's; product owner 2026-10-31: the company's date",
+        "r": "found in T72n5 and T72n4 · product owner 2026-10-31 (as recommended) · ADR-0051 as built (posting dates the caller leaves out) · internal/payables companyday.go companyDay, post.go invoicePostingDate and ReverseInvoice, Endpoints.Now · internal/procurement common.go todayOf, receipts.go reversalDate · the posted invoice's and the reversal movement's posting_date, the invoice reversal's entry · TestPostingDateTimeZone · TestReversalDateTimeZone · walkthrough step 6 (the credit memo posted without a date)",
+        "src": "review:batch26 · po:2026-10-31",
         "c": []
        },
        {
@@ -8465,16 +8514,23 @@
        },
        {
         "s": "T",
-        "t": "A migration run dates the suppliers it creates on the company's date in its time zone, not the database's UTC current_date",
-        "r": "found in batch 26's lane reviews · internal/integration runs.go loadRun (database.Today, :472) passed to load.go newSupplier (:180) · ADR-0051 as built (T72n1)",
+        "t": "A migration run dates the suppliers it creates on the company's date in its time zone, not the database's UTC current_date. The date is the migrated payments bank account's valid_from, which decides from which day payments go to it, and partner judges bank accounts on its own UTC day; a partner spans companies in several zones, so this waits for the product owner (payment routing and the backdating control); recommended: one partner-wide rule for bank account days, decided with partner",
+        "r": "found in batch 26's lane reviews · internal/integration runs.go loadRun (database.Today, :472) passed to load.go newSupplier (:180), banks.go supplierBank (ValidFrom) · checked in batch 27 (tzcontract): partner changes.go CreatePartner sealBanks refuses a valid_from before database.Today (partner.backdated_bank_account), so a Toronto load at 22:00 dated on the company's date would be refused; ports.go PaymentAccounts (the reconciliation's account valid today) and payees.go (b.valid_from <= the run date) read it; dated in Dubai's zone at 01:00 the reconciliation would miss the account until UTC's day catches up · ADR-0051 as built (T72n1)",
         "src": "review:batch26",
         "c": []
        },
        {
+        "s": "D",
+        "t": "The tax rate in force at a tax setup's activation, and the day a changed single-rate code's rate starts, are judged on the company's date in its time zone, not the database's UTC current_date, the submission's finding and the activation's refusal naming that date and zone; product owner 2026-10-31: the company's date",
+        "r": "found in batch 26's lane reviews · product owner 2026-10-31 (as recommended) · ADR-0049 as built (the activation day is the company's date) · ADR-0051 as built · internal/ledger taxsetup.go taxCodes, loadTaxRates, checkTaxRatesUnposted, namedDay · setup.go checkDay, applyCompany (one company date shared with readControlling) · TestTaxRateChangeOnTheCompanysDate · TestTaxRateChangeUnknownZone · no walkthrough step: the walkthrough's tax change is activated with the real clock and its rates are in no response",
+        "src": "review:batch26 · po:2026-10-31",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "The tax rate in force at a tax setup's activation is judged on the company's date in its time zone, not the database's UTC current_date. A tax rule, so it waits for the product owner; recommended (batch 26): the company's date",
-        "r": "found in batch 26's lane reviews · internal/ledger taxsetup.go loadTaxRates (SELECT current_date, :242) · ADR-0051 as built (T72n1)",
-        "src": "review:batch26",
+        "t": "The company's date is read by one shared helper with one rule for a legal entity that is not found (refuse), not six lookups that differ on one (cash reads UTC's date, the others refuse, ledger and payments each in their own way)",
+        "r": "procurement common.go todayOf (refuses) · ledger companyday.go companyDays.of (refuses) · payments release.go companyDay via entityOf · cash readday.go readDaysOf (a missing legal entity reads UTC's date) · payables companyday.go companyDay (refuses) · procurement expiry_days.go companyDays (refuses; added in batch 27, T72n6) · each port reads the legal entity differently (Entity, Company, ByCode), so one helper needs a shared port: not done in batch 27's integration · ADR-0051 as built",
+        "src": "review:batch27",
         "c": []
        }
       ]
@@ -8895,6 +8951,13 @@
       "t": "The deploy checks run when the files they read change, not only their scripts and deploy/: temporal-checks.sh's lint rules (.golangci.yml), the module nats-checks.sh builds its nats-server from (go.mod, go.sum), and the ko and signing configurations test-mirror-images.sh reads through provenance.sh and sign-images.sh (.ko.yaml, release/signing-config.json); a change to any of them alone skipped those checks locally and on main (finding of the batch 21 review); scripts/ci-tools.sh stays out, as its golangci-lint pin is held equal to deploy.yml's by ci-local-tools.sh",
       "r": "scripts/ci-changes.sh deploy class · .github/workflows/deploy.yml on.push.paths · scripts/test-ci-changes.sh · 06 §6.5",
       "src": "review:batch21",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "internal/controlplane's bootstrap tests check the errors list's length before reading errs[0], so a response without errors fails the assertion instead of panicking the test",
+      "r": "internal/controlplane controlplane_test.go:275, :280 (errs[0] without a length check) and :290 (the time-zone assertion added in batch 27 copies it) · CLAUDE.md tests: one clear assertion message per check",
+      "src": "review:batch27",
       "c": []
      }
     ]

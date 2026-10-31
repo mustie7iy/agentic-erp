@@ -9905,7 +9905,8 @@ type Contract struct {
 	// The contract renewing this one, unless cancelled; a renewed contract raises no expiry alert.
 	RenewedByID OptUUID `json:"renewed_by_id"`
 	// The day `ContractExpiring` was published for it, once, `purchasing.contract_expiry_notice_days`
-	// before it ends.
+	// before it ends: its company's date in the company's `time_zone` (UTC when it has none), which the
+	// event gives (T72n6).
 	ExpiryAlertedOn OptDate `json:"expiry_alerted_on"`
 	// Items.
 	Items []ContractItem `json:"items"`
@@ -16851,7 +16852,10 @@ func (*GoodsReceiptPage) listGoodsReceiptsRes() {}
 // Options for reversing a goods receipt.
 // Ref: #/components/schemas/GoodsReceiptReverse
 type GoodsReceiptReverse struct {
-	// Posting date of the reversal; defaults to today.
+	// Posting date of the reversal; defaults to today, the company's date in its time zone
+	// (`companies[].time_zone`; UTC in a document activated before 2026-10-31 that sets none), so at 22:00
+	// on 31 March in Toronto it is the 31st, in March's period, though UTC is on 1 April. The reversal
+	// returned gives the date used (`posting_date`).
 	PostingDate OptDate `json:"posting_date"`
 }
 
@@ -40627,7 +40631,10 @@ func (*SupplierInvoicePage) listSupplierInvoicesRes() {}
 // Options for posting.
 // Ref: #/components/schemas/SupplierInvoicePost
 type SupplierInvoicePost struct {
-	// Posting date; defaults to the invoice's posting date, else today. Must fall in an open period.
+	// Posting date; defaults to the invoice's posting date, else today, the company's date in its time
+	// zone (`companies[].time_zone`; UTC in a document activated before 2026-10-31 that sets none), so at
+	// 22:00 on 31 March in Toronto it is the 31st, in March's period, though UTC is on 1 April. Must fall
+	// in an open period. The invoice returned gives the date used (`posting_date`).
 	PostingDate OptDate `json:"posting_date"`
 }
 
@@ -40646,7 +40653,11 @@ func (s *SupplierInvoicePost) SetPostingDate(val OptDate) {
 type SupplierInvoiceReverse struct {
 	// Why the posting is reversed.
 	Reason string `json:"reason"`
-	// Posting date of the reversal; defaults to today. Must fall in an open period.
+	// Posting date of the reversal; defaults to today, the company's date in its time zone
+	// (`companies[].time_zone`; UTC in a document activated before 2026-10-31 that sets none), so at 22:00
+	// on 31 March in Toronto it is the 31st, in March's period, though UTC is on 1 April. Must fall in an
+	// open period. The reversal entry (`reversal_entry_id`, `GET /v1/journal-entries/{id}`) gives the date
+	// used.
 	PostingDate OptDate `json:"posting_date"`
 }
 

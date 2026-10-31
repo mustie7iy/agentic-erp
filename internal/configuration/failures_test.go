@@ -111,7 +111,7 @@ func TestDatabaseFailures(t *testing.T) {
 
 	bare := setup(t, true)
 	bootstrap := func(ctx context.Context) error {
-		_, err := configuration.Bootstrap(ctx, deps(), json.RawMessage(jsonOf(t, document(t))))
+		_, err := configuration.Bootstrap(ctx, deps(), json.RawMessage(jsonOf(t, document(t))), "configuration")
 		return err
 	}
 	if err := bootstrap(context.Background()); err == nil {

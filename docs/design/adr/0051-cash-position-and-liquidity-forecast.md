@@ -726,18 +726,17 @@ zone", split into T72n1-T72n6):
   date (it compares values, and realised and cancelled are stored), so
   nothing in it changes. A stored zone that does not load fails the read
   and the list, as it fails the position.
-- **Not yet** (each tracked under the same item): purchasing contracts'
-  expiry (T72n6); a contract's number, drawn for UTC's date; the suppliers
-  a migration run creates, dated in UTC; and, waiting for the product
-  owner, the tax rates in force at a tax setup's activation (a tax rule)
-  and three posting dates that default to the database's `current_date`
-  (UTC) when the caller leaves them out: a supplier invoice's when it is
-  posted and when it is reversed, and a goods movement reversal's. Those
-  decide the period and the rates, a money rule; the recommendation for
-  both is the company's date (review:batch26). Every other document is
-  dated by its caller. The payment release's discount check (T72n3) and
-  center changes' effective day (T72n4, ADR-0050 §11) are built: see
-  below.
+- **Not yet** (tracked under the same item), waiting for the
+  product owner: the suppliers a migration run creates, dated in UTC
+  (the date is their payments bank account's `valid_from`, which
+  partner refuses before its own UTC day and payments read to choose the
+  account a payment goes to; a partner spans companies in several zones,
+  so it needs one partner-wide rule, not the run's alone). Every other
+  document is dated by its caller, or by the company's date where the
+  caller leaves the date out (the posting dates and the tax activation
+  day, below). The payment release's discount check (T72n3), center
+  changes' effective day (T72n4, ADR-0050 §11) and purchasing contracts'
+  expiry and its notice (T72n6) are built: see below.
 
 As built (T72n5, a requisition's date; product owner 2026-10-31: a
 requisition is routed at the rate of the day it was raised in its
@@ -764,13 +763,15 @@ company's time zone):
   or `updated_at`; the previous release's inserts in a mixed cell take the
   column's default, its own UTC rule; the not-null rule is validated in
   000171.
-- **Not this rule.** Procurement's other dates read the database's
-  `current_date` (UTC) for different decisions: a contract's number and a
-  goods movement reversal's default posting date; they are tracked
-  separately (review:batch26). The account assignment check at a
+- **Not this rule.** Procurement's other dates are different decisions,
+  each read on the company's date by its own step: a goods movement
+  reversal's default posting date since 2026-10-31 (below), and a
+  contract's number since T72n6's step (see below). The account
+  assignment check at a
   requisition's submission judges on the submission day, not the
   requisition's, in the company's zone since T72n4.
-  Contracts' expiry and its notice are T72n6.
+  Contracts' expiry and its notice are judged on the company's date
+  since T72n6.
 
 As built (T72n3, a payment run's cash discount judged on the company's
 date; product owner 2026-10-31):
@@ -804,6 +805,57 @@ date; product owner 2026-10-31):
   and its activities do not judge the discount, so no workflow code reads
   a clock.
 
+As built (T72n6, purchasing contracts' expiry and its notice on the
+company's date; Pilot readiness "Company time zone"):
+- **The rule.** The contract expirer judges each active contract on its
+  legal entity's company's date at the round, in the company's
+  `time_zone` (`config.CompanyLocation`, `clock.DayIn`; UTC when the
+  company sets none or the tenant has no configuration yet): a contract
+  expires once that date is after `valid_to`, and is alerted once
+  `valid_to` is within `purchasing.contract_expiry_notice_days` of it,
+  `days_left` counted from it and `expiry_alerted_on` set to it. At 22:00
+  on 17 April in Toronto (02:00 UTC on the 18th) a contract whose last
+  day is the 17th is still active; at 01:00 on 18 April in Dubai (21:00
+  UTC on the 17th) it has expired. The decision is the one the dates
+  already made (ADR-0051 as built, T72n1: business dates are the
+  company's), so no new ADR; the database's `current_date` is no longer
+  read.
+- **One round, one instant.** The round's instant comes from the
+  expirer's clock (`Now`), not the database: the dates of the legal
+  entities holding active contracts are told once per tenant round
+  (their company codes through the tenancy port, as the requisition's
+  date reads them) and joined to the statements that pick the contracts,
+  so the expiry and the alert of one round judge on the same date. The
+  cell's list of tenants, read by the worker role that can read neither
+  the zones nor the notice, is a superset: a contract ending on UTC's
+  date (no zone is more than a day ahead of UTC) or within 366 days of
+  it.
+- **What the consumer sees.** `ContractExpired` gives `expired_on`, the
+  company's date that judged the contract past `valid_to`, and
+  `time_zone`; `ContractExpiring` gives `alerted_on` (the contract's
+  `expiry_alerted_on`) and `time_zone`, the day `days_left` counts from.
+  Both are added as optional properties (a producer that always sends
+  them; `eventcompat` refuses newly required ones within a version), and
+  the audit entries record the same two. The contract's
+  `expiry_alerted_on` is described as the company's date.
+- **Failure.** A stored zone the binary cannot load, or a contract's
+  legal entity the directory does not know, fails the tenant's round, so
+  nothing is expired or alerted on a UTC date; the round is retried at
+  the next interval and the failure logged. The other tenants' rounds go
+  on: the cell's round collects each tenant's failure and returns them
+  all (`errors.Join`), as the audit anchorer and the key rotator do, so
+  one tenant's zone cannot stop expiry for the rest.
+- **Determinism.** The expirer is a scheduled job, not a workflow, and
+  takes its instant from an injected clock, as before.
+- **A contract's number** (review:batch26) is drawn from the range of
+  the fiscal year the company's date is in at its creation, procurement's
+  `today` as for a requisition (T72n5), and so is a renewal's (the same
+  draft path): a Toronto contract created at 22:00 on 31 December takes
+  that year's range, not the next. The contract stores no document date
+  (its validity is the caller's), so the number is what the consumer
+  sees of it; nothing in the contract changes. A zone that does not load
+  fails the creation, as it fails the requisition's.
+
 As built (the zone required; product owner 2026-10-31, Pilot readiness
 "Company time zone"):
 - **Strict write, tolerant read** (06 §6.4). `config.Validate` refuses a
@@ -815,7 +867,10 @@ As built (the zone required; product owner 2026-10-31, Pilot readiness
   control plane's `createTenant`, `erp-server provision`), and offline in
   `erp config validate` and `erp config generate`; the consumer gets 422
   `config.validation_failed` with one error per company on
-  `proposed.companies[<code>].time_zone`, the code already declared on
+  `proposed.companies[<code>].time_zone` (on a bootstrap,
+  `configuration.companies[<code>].time_zone`: each field error is under
+  the request's own field that carries the document, createTenant's
+  `configuration`; review:batch26), the code already declared on
   `submitChangeRequest`, so the contract gains no code. Reading the
   active document (`config.ParseActive`) does not validate: a document
   activated before the rule keeps its meaning, its companies' dates in
@@ -827,6 +882,15 @@ As built (the zone required; product owner 2026-10-31, Pilot readiness
   Activation does not validate again, so a change request submitted
   before the rule and approved after it activates without a zone, read
   as UTC like any older document.
+- **The configuration agent** (review:batch26). Its prompt says every
+  company needs its zone and that a zone the request does not give is
+  asked of the person, never guessed from the country, nothing filed
+  until they answer. Evidence: `configagent`'s test reads the
+  instruction in the prompt the model is sent, and the configuration
+  suite's replays still reach level 2 (`TestEvalSuites`); replays script
+  the model's calls, so the agent's behaviour on a request without a zone
+  is shown only by a live run of `evals/configuration` (ADR-0039), left
+  to the operator.
 - **The pilots.** Canada in the company's own zone (`America/Toronto` in
   the walkthrough; Canada spans six zones, so none is derived from the
   country), the UAE in `Asia/Dubai`.
@@ -845,6 +909,52 @@ As built (the zone required; product owner 2026-10-31, Pilot readiness
   companies are in `Europe/Berlin` and `Europe/Paris`; the walkthrough
   generates its pilot company with `-time-zone 3000=America/Toronto` and
   shows the draft without it refused.
+
+As built (posting dates the caller leaves out, and the tax activation
+day, on the company's date; product owner 2026-10-31, "yes, as
+recommended"):
+- **The rule.** A posting date the caller leaves out is the company's
+  date at the request in its `time_zone` (UTC in a document activated
+  before 2026-10-31 that sets none), no longer the database's UTC
+  `current_date`: a supplier invoice's at `:post` (after the date the
+  request gives, then the invoice's own), its reversal's at `:reverse`,
+  and a goods movement reversal's (`reverseGoodsReceipt`, posting and
+  document date alike). At 22:00 on 31 March in Toronto (02:00 UTC on 1
+  April) each is the 31st and posts in March's period; at 01:00 on 1
+  April in Dubai (21:00 UTC on 31 March) the 1st, in April's. The date
+  decides the period and the rate a foreign-currency amount posts at (the
+  tax rates follow the tax date, the invoice date unless set), so it is
+  the posting day the people posting see. The tax setup's activation day follows the same rule (ADR-0049 as
+  built, the activation day is the company's date).
+- **Every place in the API.** A sweep of the API's posting paths for a
+  date defaulting to a UTC today (`database.Today`, `current_date`, `clock.Day`) found only
+  these three and the tax activation day; a journal entry's reversal
+  defaults to the original entry's date, a statement line's posting to
+  its booking date, and every other posting (manual and parked entries,
+  receipts, payment runs, GR/IR clearings) takes the caller's date, which
+  the contract requires. A
+  migration run's suppliers are dated in UTC still, waiting for the
+  product owner; a contract's number is on the company's date (T72n6's
+  section above); master-data validity defaults (role and
+  company access grants, partner changes, `valid_from` today) are not
+  posting dates and are not this rule. The web workspace's forms still
+  pre-fill their dates (a manual entry's, a payment run's, a report's key
+  date) from the server's clock, UTC, not the company's date: found in
+  batch 27's review, not this step.
+- **The helpers.** Payables' `companyDay` (the invoice's legal entity,
+  `config.CompanyLocation`, `clock.DayIn` on `Endpoints.Now`, the API's
+  clock) and procurement's `todayOf` (the legal entity's code, then
+  `today`, T72n5), which the requisition's submission check (T72n4) now
+  shares.
+- **What the consumer sees.** The invoice returned by `:post` and the
+  goods movement reversal returned carry the `posting_date` used; an
+  invoice's reversal names its entry (`reversal_entry_id`), whose
+  `posting_date` and period are the reversal's, and its
+  `SupplierInvoiceReversed` event carries `reversal_posting_date`. The
+  contract's descriptions say which day "today" is.
+- **Failure.** A stored zone the binary cannot load fails the post or
+  the reversal rather than dating it in UTC. No workflow posts these
+  documents without a date, so no workflow code reads a clock.
 
 ### 9. Liquidity forecast
 `GET /v1/liquidity-forecast?company=…&horizon=…` (`cash.forecast.read`):

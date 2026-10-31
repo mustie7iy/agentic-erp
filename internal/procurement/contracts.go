@@ -11,7 +11,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
-	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -190,7 +189,10 @@ func (e *Endpoints) draftContract(ctx context.Context, in NewContract, renewalOf
 	if err != nil {
 		return Contract{}, err
 	}
-	day, err := database.Today(ctx, tx)
+	// The number is drawn for the company's date in its zone, as a
+	// requisition's is (T72n5): a Toronto contract created on a 31
+	// December evening is numbered in that year, not UTC's next.
+	day, _, err := e.today(ctx, le.Code)
 	if err != nil {
 		return Contract{}, err
 	}

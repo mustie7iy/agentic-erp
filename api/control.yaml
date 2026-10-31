@@ -2021,7 +2021,7 @@ components:
             instance: /control/v1/tenants
             trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
     Unprocessable:
-      description: "The request is well-formed but invalid: a tenant field (`tenancy.invalid_tenant`, with `errors`), an invalid configuration document, or an `Idempotency-Key` reused for a different request (`request.idempotency_key_reused`)."
+      description: "The request is well-formed but invalid: a tenant field (`tenancy.invalid_tenant`, with `errors`; a missing first configuration names `configuration`), an invalid configuration document (`config.validation_failed`, each field error under the request's `configuration`, e.g. `configuration.companies[1000].time_zone`), or an `Idempotency-Key` reused for a different request (`request.idempotency_key_reused`)."
       content:
         application/problem+json:
           schema:
