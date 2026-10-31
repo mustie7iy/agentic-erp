@@ -6,16 +6,19 @@
 #     validated, and each module's `terraform test` run against a mock AWS
 #     provider (no account is touched);
 #   - tflint on every module and root;
-#   - the encryption-at-rest policy (deploy/policy) unit-tested with
-#     `conftest verify`, then applied to every root and module, which must
-#     pass, and to the fixtures under deploy/policy/testdata, which must be refused
-#     on each of their resources (encryption at rest, VPC endpoints);
+#   - the encryption-at-rest policy (deploy/policy) held to `conftest fmt`
+#     (scripts/lib/rego-fmt.sh), unit-tested with `conftest verify`, then
+#     applied to every root and module, which must pass, and to the
+#     fixtures under deploy/policy/testdata, which must be refused on each
+#     of their resources (encryption at rest, VPC endpoints);
 #   - actionlint on .github/workflows: the workflows' syntax, expressions,
 #     job graph and action inputs. Without shellcheck and pyflakes, whose
 #     versions the runner image picks, so the gate does not move under us.
 # TERRAFORM, TFLINT, CONFTEST and ACTIONLINT name the binaries.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=lib/rego-fmt.sh
+. scripts/lib/rego-fmt.sh
 TERRAFORM="${TERRAFORM:-terraform}"
 TFLINT="${TFLINT:-tflint}"
 CONFTEST="${CONFTEST:-conftest}"
@@ -54,6 +57,9 @@ for dir in deploy/terraform/modules/* deploy/terraform/envs/*; do
   $TFLINT --chdir="$dir" --config="$PWD/deploy/terraform/.tflint.hcl" --minimum-failure-severity=notice --no-color
   rm -rf "$dir/.terraform"
 done
+
+echo "== policy format"
+CONFTEST="$CONFTEST" check_rego_fmt deploy/policy
 
 echo "== policy unit tests"
 $CONFTEST verify --policy deploy/policy --no-color

@@ -13,11 +13,14 @@ container := {
 deployment(spec, c) := {
 	"kind": "Deployment",
 	"metadata": {"name": "erp-server"},
-	"spec": {"replicas": 2, "selector": {"matchLabels": {"app": "erp-server"}}, "template": {"spec": object.union({
-		"automountServiceAccountToken": false,
-		"securityContext": {"runAsNonRoot": true, "seccompProfile": {"type": "RuntimeDefault"}},
-		"containers": [c],
-	}, spec)}},
+	"spec": {"replicas": 2, "selector": {"matchLabels": {"app": "erp-server"}}, "template": {"spec": object.union(
+		{
+			"automountServiceAccountToken": false,
+			"securityContext": {"runAsNonRoot": true, "seccompProfile": {"type": "RuntimeDefault"}},
+			"containers": [c],
+		},
+		spec,
+	)}},
 }
 
 pdb := {"kind": "PodDisruptionBudget", "metadata": {"name": "erp-server"}, "spec": {"selector": {"matchLabels": {"app": "erp-server"}}}}
@@ -92,11 +95,14 @@ dns := {
 
 writer := {"to": [{"ipBlock": {"cidr": "10.16.0.0/16"}}], "ports": [{"protocol": "TCP", "port": 5432}]}
 
-hook_policy(patch) := object.union({
-	"kind": "NetworkPolicy",
-	"metadata": {"name": "erp-migrate", "annotations": hook("-10")},
-	"spec": {"podSelector": {"matchLabels": {"app": "erp-migrate"}}, "policyTypes": ["Ingress", "Egress"], "egress": [dns, writer]},
-}, patch)
+hook_policy(patch) := object.union(
+	{
+		"kind": "NetworkPolicy",
+		"metadata": {"name": "erp-migrate", "annotations": hook("-10")},
+		"spec": {"podSelector": {"matchLabels": {"app": "erp-migrate"}}, "policyTypes": ["Ingress", "Egress"], "egress": [dns, writer]},
+	},
+	patch,
+)
 
 first_install(np) := release([deployment({}, container), pdb, deny_all, hook_job, np])
 

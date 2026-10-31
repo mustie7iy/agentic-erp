@@ -20,11 +20,12 @@
 #     validated against the pinned add-ons' own CRDs, and must refuse to
 #     render without each value they require; erp-cell's workloads must
 #     pass deploy/helm/policy (non-root, read-only, digests, budgets,
-#     default deny); the workflow engine's configuration it renders must be
-#     one erp-temporal accepts (check-config, built from temporal/); its
-#     SLO rules pass promtool's checks and unit tests (rules/); its
-#     dashboards (dashboards/) render as the ConfigMaps Grafana's sidecar
-#     loads;
+#     default deny), whose Rego is held to `conftest fmt`
+#     (scripts/lib/rego-fmt.sh); the workflow engine's configuration it
+#     renders must be one erp-temporal accepts (check-config, built from
+#     temporal/); its SLO rules pass promtool's checks and unit tests
+#     (rules/); its dashboards (dashboards/) render as the ConfigMaps
+#     Grafana's sidecar loads;
 #   - deploy/helm/erp-global likewise, its router reading the PROXY header
 #     from, and taking public connections from, the load balancer's
 #     subnets alone, ready only once the load balancer finds it healthy;
@@ -50,6 +51,8 @@
 # PROMTOOL name the binaries; admission-checks.sh takes its own.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=lib/rego-fmt.sh
+. scripts/lib/rego-fmt.sh
 HELM="${HELM:-helm}"
 KUBECONFORM="${KUBECONFORM:-kubeconform}"
 CONFTEST="${CONFTEST:-conftest}"
@@ -363,6 +366,7 @@ values="$chart/tests/values.yaml"
 "$HELM" lint --strict "$chart" -f "$values"
 "$HELM" template erp-cell "$chart" --namespace erp -f "$values" >"$work/erp-cell.yaml"
 validate "$work/erp-cell.yaml"
+CONFTEST="$CONFTEST" check_rego_fmt deploy/helm/policy
 "$CONFTEST" verify --policy deploy/helm/policy --namespace workloads --no-color
 "$CONFTEST" test --combine --policy deploy/helm/policy --namespace workloads --no-color "$work/erp-cell.yaml"
 # PgBouncer's own quoting (a doubled quote; a backslash is taken as it
