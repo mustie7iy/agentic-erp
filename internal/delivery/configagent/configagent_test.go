@@ -47,6 +47,11 @@ func TestHandle(t *testing.T) {
 	if !strings.Contains(model.Requests[0], "Draft generated from the client's SAP customizing") {
 		t.Fatal("draft not given to the model")
 	}
+	// A company's zone is required (T72n7) and a country can span several,
+	// so the agent asks for it rather than guess it.
+	if want := "ask the person for it rather than guess it from the country"; !strings.Contains(model.Requests[0], want) {
+		t.Errorf("system prompt: got none saying %q", want)
+	}
 	cr, _ := f.Must(200, "GET", "/v1/change-requests/"+res.ChangeRequests[0], "", "")
 	if cr["status"] != "draft" {
 		t.Errorf("change request status: got %v, want draft", cr["status"])

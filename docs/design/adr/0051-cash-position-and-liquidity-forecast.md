@@ -830,6 +830,15 @@ As built (the zone required; product owner 2026-10-31, Pilot readiness
   Activation does not validate again, so a change request submitted
   before the rule and approved after it activates without a zone, read
   as UTC like any older document.
+- **The configuration agent** (review:batch26). Its prompt says every
+  company needs its zone and that a zone the request does not give is
+  asked of the person, never guessed from the country, nothing filed
+  until they answer. Evidence: `configagent`'s test reads the
+  instruction in the prompt the model is sent, and the configuration
+  suite's replays still reach level 2 (`TestEvalSuites`); replays script
+  the model's calls, so the agent's behaviour on a request without a zone
+  is shown only by a live run of `evals/configuration` (ADR-0039), left
+  to the operator.
 - **The pilots.** Canada in the company's own zone (`America/Toronto` in
   the walkthrough; Canada spans six zones, so none is derived from the
   country), the UAE in `Asia/Dubai`.

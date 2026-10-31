@@ -7712,9 +7712,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The configuration agent's prompt says a company's time zone, now required (T72n7), is asked of the person when the request does not give it, never guessed from the country",
-      "r": "found in T72n7's review (nit 3) · internal/delivery/configagent configagent.go system · ADR-0051 as built (the zone required)",
+      "r": "found in T72n7's review (nit 3) · internal/delivery/configagent configagent.go system · ADR-0051 as built (the zone required) · done in apinames4: the prompt says so, configagent's test reads it, the configuration suite's replays still reach level 2; a live run of evals/configuration is the operator's",
       "src": "review:batch26",
       "c": []
      }
