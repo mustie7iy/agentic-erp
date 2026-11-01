@@ -211,13 +211,21 @@ func TestCanadaPack2026_4(t *testing.T) {
 			prev = p // All is in country and version order: the last one before 2026.4
 		}
 	}
+	if ca == nil || prev == nil {
+		t.Fatalf("Get(CA, 2026.4) and the version before it: got %v and %v, want both", ca, prev)
+	}
+	// Everything tax.yaml holds but the codes is the previous version's
+	// (2026.3's tax settings, once integration builds 2026.4 on it).
+	prevTax, caTax := prev.Tax, ca.Tax
+	prevTax.TaxCodes, caTax.TaxCodes = nil, nil
 	for name, same := range map[string]bool{
-		"accounts":  reflect.DeepEqual(prev.Accounts, ca.Accounts),
-		"calendar":  reflect.DeepEqual(prev.Calendar, ca.Calendar),
-		"numbering": reflect.DeepEqual(prev.Numbering, ca.Numbering),
-		"payments":  reflect.DeepEqual(prev.Payments, ca.Payments),
-		"cash":      reflect.DeepEqual(prev.Cash, ca.Cash),
-		"sources":   reflect.DeepEqual(prev.Manifest.Sources, ca.Manifest.Sources),
+		"tax.yaml besides the codes": reflect.DeepEqual(prevTax, caTax),
+		"accounts":                   reflect.DeepEqual(prev.Accounts, ca.Accounts),
+		"calendar":                   reflect.DeepEqual(prev.Calendar, ca.Calendar),
+		"numbering":                  reflect.DeepEqual(prev.Numbering, ca.Numbering),
+		"payments":                   reflect.DeepEqual(prev.Payments, ca.Payments),
+		"cash":                       reflect.DeepEqual(prev.Cash, ca.Cash),
+		"sources":                    reflect.DeepEqual(prev.Manifest.Sources, ca.Manifest.Sources),
 	} {
 		if !same {
 			t.Errorf("%s: got other than %s's, want them unchanged", name, prev.Manifest.Version)
