@@ -198,7 +198,8 @@ func TestCanadaPackTaxCodes(t *testing.T) {
 // Canada 2026.4 is the version before it, 2026.3, plus the tax codes: the
 // cash.yaml liquidity items stay (a version without them would drop them
 // from tenants that adopted 2026.2), so do 2026.3's tax settings, the
-// sources are the previous version's, and it is not signed off.
+// manifest (sources, name, valid_from) is the previous version's, and it
+// is not signed off.
 func TestCanadaPack2026_4(t *testing.T) {
 	lib, err := LoadAll(packs.FS)
 	if err != nil {
@@ -218,6 +219,10 @@ func TestCanadaPack2026_4(t *testing.T) {
 	// 2026.3's tax settings.
 	prevTax, caTax := prev.Tax, ca.Tax
 	prevTax.TaxCodes, caTax.TaxCodes = nil, nil
+	// The manifest is the previous one's but for its version and sign-off.
+	prevManifest, caManifest := prev.Manifest, ca.Manifest
+	prevManifest.Version, caManifest.Version = "", ""
+	prevManifest.SignOff, caManifest.SignOff = nil, nil
 	for name, same := range map[string]bool{
 		"tax.yaml besides the codes": reflect.DeepEqual(prevTax, caTax),
 		"accounts":                   reflect.DeepEqual(prev.Accounts, ca.Accounts),
@@ -225,7 +230,8 @@ func TestCanadaPack2026_4(t *testing.T) {
 		"numbering":                  reflect.DeepEqual(prev.Numbering, ca.Numbering),
 		"payments":                   reflect.DeepEqual(prev.Payments, ca.Payments),
 		"cash":                       reflect.DeepEqual(prev.Cash, ca.Cash),
-		"sources":                    reflect.DeepEqual(prev.Manifest.Sources, ca.Manifest.Sources),
+		"returns":                    reflect.DeepEqual(prev.Returns, ca.Returns),
+		"pack.yaml besides version":  reflect.DeepEqual(prevManifest, caManifest),
 	} {
 		if !same {
 			t.Errorf("%s: got other than %s's, want them unchanged", name, prev.Manifest.Version)

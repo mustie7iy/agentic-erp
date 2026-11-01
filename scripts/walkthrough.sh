@@ -1381,7 +1381,7 @@ step_tax() {
   # The tax specialist's signed-off version (T62h) will be a later one.
   say "Canada pack 2026.4 brought the purchase codes for GST/HST, QST and PST (T62g), each with all its dated rates,"
   say "backed by the pack's sources; the tax specialist has not signed them off yet. Step 2 applied them with $CA_PACK,"
-  say "the latest released pack with the illustrative return. Nova Scotia's HST:"
+  say "the walkthrough's copy of the latest released pack with the illustrative return. Nova Scotia's HST:"
   api 200 '.items[0].document.companies[] | select(.code == "'"$CC"'") | .tax_codes[] | select(.code == "HNS") |
     "tax code \(.code) \(.description): \([.components[] | .key as $k | .account as $a | .rates[] | "\($k) \(.rate_percent)% from \(.valid_from)\(if .valid_to then " to \(.valid_to)" else "" end) to \($a)"] | join("; "))"' \
     listConfigVersions -p is_active=true

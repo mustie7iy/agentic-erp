@@ -606,9 +606,10 @@ commit-time check, like the balance trigger).
   `item_description_missing`, the tier's threshold as money, whether it is
   inclusive, the source, the pending flag, `unassessed` and a message). Credit memos and
   subsequent credits take tax back and are not checked; an invoice posted
-  before has none. Canada 2026.3 (and 2026.4, which keeps its settings) states SOR/91-45 s. 3 (b) and (c) as two
-  tiers (from CAD 100 the supplier's registration number; from CAD 500 also
-  a description of each supply); the recipient's name and the terms, also
+  before has none. Canada 2026.3 (and 2026.4, which keeps its settings)
+  states SOR/91-45 s. 3 (b) and (c) as two tiers (from CAD 100 the
+  supplier's registration number; from CAD 500 also a description of each
+  supply); the recipient's name and the terms, also
   required from $500, are on the document only and not checked. The UAE
   pack (T62f) is to state the threshold as `above: "10000"`, requiring
   `supplier_tax_id`, `pending_sign_off: true` (Executive Regulation Art. 59
