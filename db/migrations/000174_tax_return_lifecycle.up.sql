@@ -11,6 +11,7 @@
 -- kind amendment for the same period, which claims the items dated in the
 -- period that arrived after it. registration_id is this schema's; the
 -- items are the ledger's, by key, with no foreign key across the schema.
+-- Migration 000175 builds the index of a return's items concurrently.
 -- Expand only: new tables, a trigger the previous version never fires
 -- (it never sets reported_in), and a ledger check made to allow a release,
 -- which the previous version never asks for.
@@ -210,8 +211,8 @@ BEGIN
   RETURN NULL;
 END $$;
 ALTER FUNCTION tax.check_item_reported() OWNER TO erp_owner;
--- What a withdrawal releases and the check above reads: a return's items.
-CREATE INDEX tax_item_reported_in ON ledger.tax_item (tenant_id, reported_in) WHERE reported_in IS NOT NULL;
+-- The index of a return's items it reads and a withdrawal releases is
+-- built concurrently by 000175 (06 §6.4: ledger.tax_item is large).
 CREATE CONSTRAINT TRIGGER tax_item_reported AFTER UPDATE OF reported_in ON ledger.tax_item DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION tax.check_item_reported();
 

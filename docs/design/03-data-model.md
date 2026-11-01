@@ -2679,4 +2679,4 @@ or rejected, never moved to another (`tax_item_fixed`), and held at commit to
 a standing return whose snapshot claims the item, of a company its
 registration covers, dated by its period's end, or released by one ended
 (`tax_item_reported`, a deferred trigger of the tax filing context, served
-by `ledger.tax_item_reported_in`).
+by `ledger.tax_item_reported_in`, built concurrently by migration 000175).

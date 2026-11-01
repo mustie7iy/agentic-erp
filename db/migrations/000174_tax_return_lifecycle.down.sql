@@ -4,7 +4,6 @@ DELETE FROM identity.role_permission WHERE permission_code IN ('tax.return.prepa
 DELETE FROM ref.permission WHERE code IN ('tax.return.prepare', 'tax.return.approve', 'tax.return.file');
 DROP TRIGGER tax_item_reported ON ledger.tax_item;
 DROP FUNCTION tax.check_item_reported();
-DROP INDEX ledger.tax_item_reported_in;
 CREATE OR REPLACE FUNCTION ledger.check_tax_item_fixed() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN

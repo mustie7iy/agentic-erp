@@ -14731,12 +14731,13 @@ func (s *Server) handleExcludeBankStatementLineRequest(args [2]string, argsEscap
 // authority's confirmation number and the date it gives (ADR-0049 P3: the ERP files nothing itself).
 // The snapshot is final from then on. Recording it filed locks the fiscal periods of the leading
 // ledger of the registration's companies that overlap its tax period, those not yet locked, as
-// `lockFiscalPeriod` does (events `PeriodLocked`): an item dated in the period that arrives later is
-// posted in an open period and reported in the next return or an amendment. A period reopened since
-// the return was prepared is refused (409 `tax.fiscal_period_open`). `filed_on` lies after the
-// period's end and not after the registrant's date today in its time zone (422
-// `tax.invalid_filed_on`); a confirmation number of only spaces is 422 `tax.confirmation_required`.
-// Requires status `approved` (409 `tax.invalid_return_status`). Event `TaxReturnFiled`. Human-only.
+// `lockFiscalPeriod` does (events `PeriodLocked`; `TaxReturnFiled`'s `locked_periods` names them, and
+// `listFiscalPeriods` shows them `locked`): an item dated in the period that arrives later is posted
+// in an open period and reported in the next return or an amendment. A period reopened since the
+// return was prepared is refused (409 `tax.fiscal_period_open`). `filed_on` lies after the period's
+// end and not after the registrant's date today in its time zone (422 `tax.invalid_filed_on`); a
+// confirmation number of only spaces is 422 `tax.confirmation_required`. Requires status `approved`
+// (409 `tax.invalid_return_status`). Event `TaxReturnFiled`. Human-only.
 //
 // POST /v1/tax-returns/{id}:file
 func (s *Server) handleFileTaxReturnRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

@@ -960,8 +960,10 @@ companies (all in the tenant, under RLS). A registration change is financial
   - **Approval** through the approvals context: object type
     `tax_return`, approval permission `tax.return.approve` (agents hold
     none), one approval by the fixed role `tax_manager`
-    (`config.TaxReturnRole`, provisioned in every tenant with the
-    configuration's roles); a configured role ("or as configured") is
+    (`config.TaxReturnRole`, provisioned with the configuration's roles
+    in every tenant provisioned from now on; a tenant provisioned before
+    is refused 422 `workflow.unknown_role` until an administrator creates
+    the role, `createRole`, none being a pilot yet); a configured role ("or as configured") is
     not built, as no setting asks for one. The requester is the preparer
     and may not decide (`workflow.own_request`); the database holds the
     approver to another person than the creator (`tax_return_four_eyes`).
@@ -1002,7 +1004,11 @@ companies (all in the tenant, under RLS). A registration change is financial
     reported is in its return's snapshot, of a company its registration
     covers, dated by its period's end, the return standing, and that an
     item released was the return's of one withdrawn or rejected. An
-    index serves both (`tax_item_reported_in`).
+    index, built concurrently in its own migration (000175), serves both
+    (`tax_item_reported_in`). The trigger runs once per item claimed or
+    released, at commit: fine at pilot volumes; a statement-level check
+    over a transition table is the change if returns of 10^5 items or
+    more make preparing slow.
   - **Reads.** `GET /v1/tax-returns/{id}` (the approval request's object)
     and `GET /v1/tax-registrations/{id}/returns` (paged by period start,
     filtered by period and status), `tax.return.read`, a return of a

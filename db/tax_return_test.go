@@ -44,10 +44,23 @@ func newTaxReturnScene(t *testing.T) taxReturnScene {
 // amending amends when not nil, and claims the entry's item for it when
 // claim is set.
 func (s taxReturnScene) insertReturn(tx pgx.Tx, ret uuid.UUID, kind string, amends *uuid.UUID, claim bool) error {
+	return s.insertReturnOf(tx, returnRow{id: ret, registration: s.registration, start: "2026-01-01", end: "2026-03-31", kind: kind, amends: amends}, claim)
+}
+
+// returnRow is a prepared return of a registration's period.
+type returnRow struct {
+	id, registration uuid.UUID
+	start, end, kind string
+	amends           *uuid.UUID
+}
+
+// insertReturnOf is insertReturn of any registration and period.
+func (s taxReturnScene) insertReturnOf(tx pgx.Tx, r returnRow, claim bool) error {
+	ret := r.id
 	if err := exec(tx, `INSERT INTO tax.tax_return (tenant_id, id, registration_id, period_start, period_end, kind, amends_id, return_type, return_name,
 			pack_country, pack_version, currency, item_count, items_hash, prior_item_count, prior_tax, above_threshold, approval_request_id, created_by, updated_by)
-		VALUES ($1, $2, $3, '2026-01-01', '2026-03-31', $4, $5, 'GST34', 'GST/HST', 'CA', '2026.3', 'USD', 1, repeat('b', 64), 0, 0, false,
-			gen_random_uuid(), $6, $6)`, s.tenant, ret, s.registration, kind, amends, s.actor); err != nil {
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'GST34', 'GST/HST', 'CA', '2026.3', 'USD', 1, repeat('b', 64), 0, 0, false,
+			gen_random_uuid(), $8, $8)`, s.tenant, ret, r.registration, r.start, r.end, r.kind, r.amends, s.actor); err != nil {
 		return err
 	}
 	if err := exec(tx, `INSERT INTO tax.tax_return_box (tenant_id, tax_return_id, box_no, code, label, kind, amount, prior_period_amount, corrected_amount,
@@ -57,11 +70,16 @@ func (s taxReturnScene) insertReturn(tx pgx.Tx, ret uuid.UUID, kind string, amen
 	if !claim {
 		return nil
 	}
-	if err := exec(tx, `INSERT INTO tax.tax_return_item (tenant_id, tax_return_id, fiscal_year, journal_entry_id, item_no)
-		SELECT tenant_id, $2, fiscal_year, journal_entry_id, item_no FROM ledger.tax_item WHERE journal_entry_id = $1`, s.entry, ret); err != nil {
+	if err := s.snapshotItem(tx, ret); err != nil {
 		return err
 	}
 	return exec(tx, `UPDATE ledger.tax_item SET reported_in = $2 WHERE journal_entry_id = $1`, s.entry, ret)
+}
+
+// snapshotItem adds the scene's item to the return's snapshot.
+func (s taxReturnScene) snapshotItem(tx pgx.Tx, ret uuid.UUID) error {
+	return exec(tx, `INSERT INTO tax.tax_return_item (tenant_id, tax_return_id, fiscal_year, journal_entry_id, item_no)
+		SELECT tenant_id, $2, fiscal_year, journal_entry_id, item_no FROM ledger.tax_item WHERE journal_entry_id = $1`, s.entry, ret)
 }
 
 // move updates the return.
@@ -91,6 +109,7 @@ func TestTaxReturnRules(t *testing.T) {
 		{"rejected while prepared", []string{"status = 'rejected', " + endIt}, ""},
 		{"approved by its preparer", []string{`status = 'approved', approved_by = created_by, approved_at = now()`}, "tax_return_four_eyes"},
 		{"approved by nobody", []string{`status = 'approved'`}, "tax_return_approved"},
+		{"approved without its time", []string{`status = 'approved', approved_by = gen_random_uuid()`}, "tax_return_approved"},
 		{"filed unapproved", []string{fileIt}, "tax_return_transition"},
 		{"filed without its confirmation", []string{approve, `status = 'filed', filed_on = '2026-04-15', filed_by = gen_random_uuid(), filed_at = now()`},
 			"tax_return_filed"},
@@ -143,8 +162,18 @@ func TestTaxReturnsOfAPeriod(t *testing.T) {
 	failsOn(t, asApp(t, s.tenant, func(tx pgx.Tx) error { return s.insertReturn(tx, second, "original", nil, false) }), "tax_return_in_progress")
 	failsOn(t, asApp(t, s.tenant, func(tx pgx.Tx) error { return s.insertReturn(tx, second, "amendment", &first, false) }), "tax_return_amends_filed")
 	failsOn(t, asApp(t, s.tenant, func(tx pgx.Tx) error { return s.insertReturn(tx, second, "amendment", nil, false) }), "tax_return_amends")
+	failsOn(t, asApp(t, s.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `INSERT INTO tax.tax_return_box (tenant_id, tax_return_id, box_no, code, label, kind, amount, prior_period_amount, corrected_amount,
+			item_count) VALUES ($1, $2, 2, 'in', 'Again', 'selection', 0, 0, 0, 0)`, s.tenant, first)
+	}), "tax_return_box_code_once")
 	mustApp(t, s.tenant, move(first, approve))
 	mustApp(t, s.tenant, move(first, fileIt))
+	t.Run("an amendment of another period's filed return", func(t *testing.T) {
+		failsOn(t, asApp(t, s.tenant, func(tx pgx.Tx) error {
+			return s.insertReturnOf(tx, returnRow{id: id(), registration: s.registration, start: "2026-04-01", end: "2026-06-30", kind: "amendment",
+				amends: &first}, false)
+		}), "tax_return_amends_filed")
+	})
 	failsOn(t, asApp(t, s.tenant, func(tx pgx.Tx) error { return s.insertReturn(tx, second, "original", nil, false) }), "tax_return_one_original")
 	mustApp(t, s.tenant, func(tx pgx.Tx) error { return s.insertReturn(tx, second, "amendment", &first, false) })
 
@@ -156,6 +185,11 @@ func TestTaxReturnsOfAPeriod(t *testing.T) {
 			}
 		}
 		failsOn(t, asApp(t, s.tenant, box(first)), "tax_return_snapshot")
+		failsOn(t, asApp(t, s.tenant, func(tx pgx.Tx) error { return s.snapshotItem(tx, first) }), "tax_return_snapshot")
+		mustApp(t, s.tenant, func(tx pgx.Tx) error { return s.snapshotItem(tx, second) })
+		failsWith(t, asApp(t, s.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `DELETE FROM tax.tax_return_item WHERE tax_return_id = $1`, second)
+		}), "permission denied")
 		mustApp(t, s.tenant, box(second))
 		failsWith(t, asApp(t, s.tenant, func(tx pgx.Tx) error {
 			return exec(tx, `UPDATE tax.tax_return_box SET amount = 1 WHERE tax_return_id = $1`, second)
@@ -190,7 +224,47 @@ func TestTaxItemReported(t *testing.T) {
 		s := newTaxReturnScene(t)
 		ret := id()
 		mustApp(t, s.tenant, func(tx pgx.Tx) error { return s.insertReturn(tx, ret, "original", nil, false) })
-		for name, to := range map[string]string{"no return": "gen_random_uuid()", "a return without it": "'" + ret.String() + "'"} {
+		withdrawn, early, elsewhere := id(), id(), id()
+		other, otherReg := id(), id()
+		mustApp(t, s.tenant, func(tx pgx.Tx) error {
+			// A return withdrawn, one of a period ending before the item's
+			// tax date, one of a registration of another company: each
+			// with the item in its snapshot.
+			if err := s.insertReturnOf(tx, returnRow{id: withdrawn, registration: s.registration, start: "2025-12-01", end: "2026-03-31", kind: "original"}, false); err != nil {
+				return err
+			}
+			if err := s.snapshotItem(tx, withdrawn); err != nil {
+				return err
+			}
+			if err := exec(tx, `UPDATE tax.tax_return SET status = 'withdrawn', `+endIt+`, version = version + 1 WHERE id = $1`, withdrawn); err != nil {
+				return err
+			}
+			if err := s.insertReturnOf(tx, returnRow{id: early, registration: s.registration, start: "2026-02-01", end: "2026-02-28", kind: "original"}, false); err != nil {
+				return err
+			}
+			if err := s.snapshotItem(tx, early); err != nil {
+				return err
+			}
+			for _, st := range []stmt{
+				step(`INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
+					VALUES ($1, $2, '2000', 'Other', 'CA', 'CAD', $3, 'active', $4, $4)`, s.tenant, other, s.calendar, s.actor),
+				step(`INSERT INTO tax.registration (tenant_id, id, code, legal_entity_id, authority, number_cipher, number_fingerprint, number_last4,
+						return_type, frequency, first_period_start, created_by, updated_by)
+					VALUES ($1, $2, 'OTHER', $3, 'CRA', '\x01', repeat('c', 64), '0002', 'GST34', 'quarterly', '2026-01-01', $4, $4)`,
+					s.tenant, otherReg, other, s.actor),
+			} {
+				if err := exec(tx, st.sql, st.args...); err != nil {
+					return err
+				}
+			}
+			if err := s.insertReturnOf(tx, returnRow{id: elsewhere, registration: otherReg, start: "2026-01-01", end: "2026-03-31", kind: "original"}, false); err != nil {
+				return err
+			}
+			return s.snapshotItem(tx, elsewhere)
+		})
+		for name, to := range map[string]string{"no return": "gen_random_uuid()", "a return without it": "'" + ret.String() + "'",
+			"a withdrawn return": "'" + withdrawn.String() + "'", "a period ending before its tax date": "'" + early.String() + "'",
+			"another company's registration": "'" + elsewhere.String() + "'"} {
 			t.Run(name, func(t *testing.T) {
 				failsOn(t, asApp(t, s.tenant, func(tx pgx.Tx) error {
 					return exec(tx, `UPDATE ledger.tax_item SET reported_in = `+to+` WHERE journal_entry_id = $1`, s.entry)
