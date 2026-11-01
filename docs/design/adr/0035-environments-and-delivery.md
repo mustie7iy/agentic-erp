@@ -901,8 +901,8 @@ database's ACL with the server's, dbid 0).
   `postgres` and `template1`, which initdb makes (§22.2, §22.3); one not
   there is passed over. RDS's own `rdsadmin` is left out (coordinator,
   2026-10-31: the decision named only the two, and if the `rdsadmin` role
-  owns it the master user's `REVOKE` would only warn and Setup would stop
-  every release). `template0` is left out: it takes no connections
+  owns it and `PUBLIC` holds a right there, the master user's `REVOKE`
+  would only warn and Setup would stop every release). `template0` is left out: it takes no connections
   (`datallowconn` false, §22.3), whatever its ACL. The directory's own
   database keeps `PUBLIC`'s `CONNECT`, as `Grants` leaves it.
 - *Decided by default — read, not connected:* the rights are read through
