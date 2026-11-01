@@ -287,6 +287,7 @@ channels:
       BankStatementImported: {$ref: '#/components/messages/BankStatementImported'}
       BankStatementGapClosed: {$ref: '#/components/messages/BankStatementGapClosed'}
       BankStatementGapFound: {$ref: '#/components/messages/BankStatementGapFound'}
+      BankStatementGapAccepted: {$ref: '#/components/messages/BankStatementGapAccepted'}
       BankStatementFileRefused: {$ref: '#/components/messages/BankStatementFileRefused'}
       BankStatementFileChanged: {$ref: '#/components/messages/BankStatementFileChanged'}
       BankStatementLineMatched: {$ref: '#/components/messages/BankStatementLineMatched'}
@@ -493,6 +494,7 @@ operations:
       - $ref: '#/channels/payments/messages/BankStatementImported'
       - $ref: '#/channels/payments/messages/BankStatementGapClosed'
       - $ref: '#/channels/payments/messages/BankStatementGapFound'
+      - $ref: '#/channels/payments/messages/BankStatementGapAccepted'
       - $ref: '#/channels/payments/messages/BankStatementFileRefused'
       - $ref: '#/channels/payments/messages/BankStatementFileChanged'
       - $ref: '#/channels/payments/messages/BankStatementLineMatched'
@@ -1505,6 +1507,22 @@ components:
         - name: found
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f4, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_gap_found.v1, subject: 0192a000-0000-7000-8000-000000000b21, time: '2026-10-20T08:06:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
           payload: {bank_statement_id: 0192a000-0000-7000-8000-000000000b21, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, previous_statement_id: 0192a000-0000-7000-8000-000000000b20, status: gap}
+    BankStatementGapAccepted:
+      name: BankStatementGapAccepted
+      title: Bank statement gap accepted
+      summary: A person accepted a statement's gap without the missing statement.
+      description: "Emitted when a person accepts the gap of a statement in `gap` (`POST /v1/bank-statements/{id}:acceptGap`, ADR-0047): the statement moves to `imported` without the missing statement, and the house bank's lines post again once it has no other statement in `gap`. `opening_balance` and `previous_closing_balance` show the gap; `reason` is the person's. Subject is the bank statement."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.payments.bank_statement_gap_accepted.v1}
+      payload: {$ref: '#/components/schemas/BankStatementGapAcceptedV1'}
+      examples:
+        - name: accepted
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000f5, source: /erp/eu-1/payments, type: com.example.erp.payments.bank_statement_gap_accepted.v1, subject: 0192a000-0000-7000-8000-000000000b21, time: '2026-10-20T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
+          payload: {bank_statement_id: 0192a000-0000-7000-8000-000000000b21, house_bank_id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, previous_statement_id: 0192a000-0000-7000-8000-000000000b20, opening_balance: {amount: '95000.00', currency: AED}, previous_closing_balance: {amount: '93196.75', currency: AED}, reason: The bank no longer holds the statement of 21 October; its bookings are posted by hand., status: imported}
     BankStatementFileRefused:
       name: BankStatementFileRefused
       title: Bank statement file refused
@@ -4349,6 +4367,18 @@ components:
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
         previous_statement_id: {"$ref": "#/components/schemas/Uuid"}
         status: {"type": "string", "description": "Open enum: imported (BankStatementGapClosed), gap (BankStatementGapFound)."}
+    BankStatementGapAcceptedV1:
+      type: object
+      required: ["bank_statement_id", "house_bank_id", "legal_entity_id", "previous_statement_id", "opening_balance", "previous_closing_balance", "reason", "status"]
+      properties:
+        bank_statement_id: {"$ref": "#/components/schemas/Uuid"}
+        house_bank_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        previous_statement_id: {"$ref": "#/components/schemas/Uuid"}
+        opening_balance: {"$ref": "#/components/schemas/Money"}
+        previous_closing_balance: {"$ref": "#/components/schemas/Money"}
+        reason: {"type": "string", "description": "Why the person accepted the gap."}
+        status: {"type": "string", "description": "Open enum: imported."}
     BankStatementFileRefusedV1:
       type: object
       required: ["statement_fetch_id", "house_bank_id", "legal_entity_id", "file_name", "file_sha256", "code", "reason"]

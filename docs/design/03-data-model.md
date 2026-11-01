@@ -1920,7 +1920,8 @@ erDiagram
     bigint closing_balance
     uuid previous_statement_id "the bank's statement before; null for its first"
     text status "imported | gap | reconciled"
-    timestamptz reconciled_at "with reconciled_by, exactly when reconciled" }
+    timestamptz reconciled_at "with reconciled_by, exactly when reconciled"
+    timestamptz gap_accepted_at "with gap_accepted_by and gap_reason, a person's acceptance of its gap" }
   bank_statement_line { uuid statement_id PK
     int line_no PK
     bigint amount "signed: credit positive"
@@ -2029,7 +2030,12 @@ a batch booking carries. A
 statement whose opening balance is not the closing balance of the bank's
 statement before it (`previous_statement_id`) is in `gap`; a statement
 imported between two others becomes the next one's previous statement,
-which is compared again (its gap closes, or one opens). The file itself is
+which is compared again (its gap closes, or one opens). A person may
+accept a gap without the missing statement (000174, its check validated in
+000175): the statement becomes `imported` and records when, by whom and
+why (`bank_statement_gap_accepted`: all three or none, never on a
+statement in `gap`, only on one with a previous statement); a gap found
+again when its previous statement changes drops them. The file itself is
 accounting evidence: it is kept in the object store under the tenant and
 its hash (`file_ref`, `tenants/<id>/bank-statements/<sha256>`), written
 once, encrypted by the store and locked for the retention of financial

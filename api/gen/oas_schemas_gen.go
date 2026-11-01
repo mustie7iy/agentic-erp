@@ -10,6 +10,70 @@ import (
 	"github.com/google/uuid"
 )
 
+type AcceptBankStatementGapBadRequest Problem
+
+func (*AcceptBankStatementGapBadRequest) acceptBankStatementGapRes() {}
+
+type AcceptBankStatementGapForbidden Problem
+
+func (*AcceptBankStatementGapForbidden) acceptBankStatementGapRes() {}
+
+type AcceptBankStatementGapNotFound Problem
+
+func (*AcceptBankStatementGapNotFound) acceptBankStatementGapRes() {}
+
+// AcceptBankStatementGapOKHeaders wraps BankStatement with response headers.
+type AcceptBankStatementGapOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           BankStatement
+}
+
+// GetETag returns the value of ETag.
+func (s *AcceptBankStatementGapOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AcceptBankStatementGapOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *AcceptBankStatementGapOKHeaders) GetResponse() BankStatement {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *AcceptBankStatementGapOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AcceptBankStatementGapOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AcceptBankStatementGapOKHeaders) SetResponse(val BankStatement) {
+	s.Response = val
+}
+
+func (*AcceptBankStatementGapOKHeaders) acceptBankStatementGapRes() {}
+func (*AcceptBankStatementGapOKHeaders) matchBankStatementRes()     {}
+
+type AcceptBankStatementGapPreconditionFailed Problem
+
+func (*AcceptBankStatementGapPreconditionFailed) acceptBankStatementGapRes() {}
+
+type AcceptBankStatementGapPreconditionRequired Problem
+
+func (*AcceptBankStatementGapPreconditionRequired) acceptBankStatementGapRes() {}
+
+type AcceptBankStatementGapUnprocessableEntity Problem
+
+func (*AcceptBankStatementGapUnprocessableEntity) acceptBankStatementGapRes() {}
+
 type AcceptBankStatementLineProposalBadRequest Problem
 
 func (*AcceptBankStatementLineProposalBadRequest) acceptBankStatementLineProposalRes() {}
@@ -4643,13 +4707,14 @@ type BankStatement struct {
 	// The house bank's statement before it, whose closing balance its opening balance was compared with;
 	// absent for the bank's first.
 	PreviousStatementID OptUUID `json:"previous_statement_id"`
-	// `imported`; `gap` when its opening balance is not the previous statement's closing balance
-	// (automatic posting stops for the bank); `reconciled` once every line of it and of the bank's
-	// statements before it is posted or excluded and its closing balance, less the lines excluded and
-	// those posted after its closing date, is the ledger's balance of the main bank account on that date
-	// (T49h): set once, never undone by the server, and its lines are then decided for good. Open
-	// enumeration: clients must accept and preserve values not listed here; values may be added within
-	// /v1.
+	// `imported`; `gap` when its opening balance is not the previous statement's closing balance: the
+	// bank's lines are not posted, automatically or by hand (409 `payments.statement_gap`), until the
+	// missing statement arrives or a person accepts the gap (`:acceptGap`, which makes it `imported`);
+	// `reconciled` once every line of it and of the bank's statements before it is posted or excluded and
+	// its closing balance, less the lines excluded and those posted after its closing date, is the
+	// ledger's balance of the main bank account on that date (T49h): set once, never undone by the server,
+	// and its lines are then decided for good. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
 	Status string `json:"status"`
 	// The booked entries, in the bank's order; absent in lists.
 	Lines []BankStatementLine `json:"lines"`
@@ -4658,6 +4723,14 @@ type BankStatement struct {
 	// Whose action reconciled it: the person, integration or agent whose posting, exclusion or run of the
 	// rules left nothing unexplained.
 	ReconciledBy OptUUID `json:"reconciled_by"`
+	// When a person accepted the statement's gap without the missing statement
+	// (`POST /v1/bank-statements/{id}:acceptGap`); absent when none did, or once the missing statement
+	// arrived and a new gap stands.
+	GapAcceptedAt OptDateTime `json:"gap_accepted_at"`
+	// The person who accepted the gap; absent with `gap_accepted_at`.
+	GapAcceptedBy OptUUID `json:"gap_accepted_by"`
+	// Why the person accepted the gap; absent with `gap_accepted_at`.
+	GapReason OptString `json:"gap_reason"`
 }
 
 // GetID returns the value of ID.
@@ -4790,6 +4863,21 @@ func (s *BankStatement) GetReconciledBy() OptUUID {
 	return s.ReconciledBy
 }
 
+// GetGapAcceptedAt returns the value of GapAcceptedAt.
+func (s *BankStatement) GetGapAcceptedAt() OptDateTime {
+	return s.GapAcceptedAt
+}
+
+// GetGapAcceptedBy returns the value of GapAcceptedBy.
+func (s *BankStatement) GetGapAcceptedBy() OptUUID {
+	return s.GapAcceptedBy
+}
+
+// GetGapReason returns the value of GapReason.
+func (s *BankStatement) GetGapReason() OptString {
+	return s.GapReason
+}
+
 // SetID sets the value of ID.
 func (s *BankStatement) SetID(val uuid.UUID) {
 	s.ID = val
@@ -4918,6 +5006,21 @@ func (s *BankStatement) SetReconciledAt(val OptDateTime) {
 // SetReconciledBy sets the value of ReconciledBy.
 func (s *BankStatement) SetReconciledBy(val OptUUID) {
 	s.ReconciledBy = val
+}
+
+// SetGapAcceptedAt sets the value of GapAcceptedAt.
+func (s *BankStatement) SetGapAcceptedAt(val OptDateTime) {
+	s.GapAcceptedAt = val
+}
+
+// SetGapAcceptedBy sets the value of GapAcceptedBy.
+func (s *BankStatement) SetGapAcceptedBy(val OptUUID) {
+	s.GapAcceptedBy = val
+}
+
+// SetGapReason sets the value of GapReason.
+func (s *BankStatement) SetGapReason(val OptString) {
+	s.GapReason = val
 }
 
 // BankStatementHeaders wraps BankStatement with response headers.
@@ -9291,6 +9394,7 @@ func (s *ConflictHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*ConflictHeaders) acceptBankStatementGapRes()           {}
 func (*ConflictHeaders) acceptBankStatementLineProposalRes()  {}
 func (*ConflictHeaders) acceptMemoRecordProposalRes()         {}
 func (*ConflictHeaders) activateChangeRequestRes()            {}
@@ -21607,45 +21711,6 @@ func (*MatchBankStatementLineUnprocessableEntity) matchBankStatementLineRes() {}
 type MatchBankStatementNotFound Problem
 
 func (*MatchBankStatementNotFound) matchBankStatementRes() {}
-
-// MatchBankStatementOKHeaders wraps BankStatement with response headers.
-type MatchBankStatementOKHeaders struct {
-	ETag               OptString
-	IdempotentReplayed OptBool
-	Response           BankStatement
-}
-
-// GetETag returns the value of ETag.
-func (s *MatchBankStatementOKHeaders) GetETag() OptString {
-	return s.ETag
-}
-
-// GetIdempotentReplayed returns the value of IdempotentReplayed.
-func (s *MatchBankStatementOKHeaders) GetIdempotentReplayed() OptBool {
-	return s.IdempotentReplayed
-}
-
-// GetResponse returns the value of Response.
-func (s *MatchBankStatementOKHeaders) GetResponse() BankStatement {
-	return s.Response
-}
-
-// SetETag sets the value of ETag.
-func (s *MatchBankStatementOKHeaders) SetETag(val OptString) {
-	s.ETag = val
-}
-
-// SetIdempotentReplayed sets the value of IdempotentReplayed.
-func (s *MatchBankStatementOKHeaders) SetIdempotentReplayed(val OptBool) {
-	s.IdempotentReplayed = val
-}
-
-// SetResponse sets the value of Response.
-func (s *MatchBankStatementOKHeaders) SetResponse(val BankStatement) {
-	s.Response = val
-}
-
-func (*MatchBankStatementOKHeaders) matchBankStatementRes() {}
 
 type MatchBankStatementPreconditionFailed Problem
 
@@ -38394,6 +38459,7 @@ func (s *ServiceUnavailableHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*ServiceUnavailableHeaders) acceptBankStatementGapRes()           {}
 func (*ServiceUnavailableHeaders) acceptBankStatementLineProposalRes()  {}
 func (*ServiceUnavailableHeaders) acceptMemoRecordProposalRes()         {}
 func (*ServiceUnavailableHeaders) activateChangeRequestRes()            {}
@@ -41265,6 +41331,7 @@ func (s *TooManyRequestsHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*TooManyRequestsHeaders) acceptBankStatementGapRes()           {}
 func (*TooManyRequestsHeaders) acceptBankStatementLineProposalRes()  {}
 func (*TooManyRequestsHeaders) acceptMemoRecordProposalRes()         {}
 func (*TooManyRequestsHeaders) activateChangeRequestRes()            {}
@@ -41613,6 +41680,7 @@ func (s *UnauthorizedHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*UnauthorizedHeaders) acceptBankStatementGapRes()           {}
 func (*UnauthorizedHeaders) acceptBankStatementLineProposalRes()  {}
 func (*UnauthorizedHeaders) acceptMemoRecordProposalRes()         {}
 func (*UnauthorizedHeaders) activateChangeRequestRes()            {}

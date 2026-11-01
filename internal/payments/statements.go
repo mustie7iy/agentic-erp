@@ -71,6 +71,9 @@ type Statement struct {
 	CreatedBy, UpdatedBy           uuid.UUID
 	ReconciledAt                   *time.Time // when it became reconciled (T49h)
 	ReconciledBy                   *uuid.UUID
+	GapAcceptedAt                  *time.Time // when a person accepted its gap (gap.go)
+	GapAcceptedBy                  *uuid.UUID
+	GapReason                      *string
 	Lines                          []StatementLine // read with the statement, not in lists
 }
 
@@ -379,7 +382,8 @@ func lineDetails(ds []bankstatement.Detail) []LineDetail {
 // the new one closes and ends after it, and is never the new one's own
 // previous statement, so statements of one day never point at each other.
 // It is in gap exactly when its opening balance is not the new closing
-// balance; a reconciled one stays reconciled.
+// balance, a new gap a person's acceptance of the old one does not cover
+// (gap.go); a reconciled one stays reconciled.
 func relinkNext(ctx context.Context, tx pgx.Tx, p reqctx.Principal, bank statementBank, id uuid.UUID, prev *uuid.UUID, s bankstatement.Statement) error {
 	var next uuid.UUID
 	var was, now string
@@ -390,7 +394,10 @@ func relinkNext(ctx context.Context, tx pgx.Tx, p reqctx.Principal, bank stateme
 				AND (n.opening_date > $7 OR n.closing_date > $3) AND (pr.id IS NULL OR pr.closing_date <= $7)
 			ORDER BY n.opening_date, n.id LIMIT 1)
 		UPDATE payments.bank_statement b SET previous_statement_id = $2, version = b.version + 1, updated_by = $5,
-			status = CASE WHEN b.status = 'reconciled' THEN b.status WHEN b.opening_balance = $4 THEN 'imported' ELSE 'gap' END
+			status = CASE WHEN b.status = 'reconciled' THEN b.status WHEN b.opening_balance = $4 THEN 'imported' ELSE 'gap' END,
+			gap_accepted_at = CASE WHEN b.status = 'reconciled' OR b.opening_balance = $4 THEN b.gap_accepted_at END,
+			gap_accepted_by = CASE WHEN b.status = 'reconciled' OR b.opening_balance = $4 THEN b.gap_accepted_by END,
+			gap_reason = CASE WHEN b.status = 'reconciled' OR b.opening_balance = $4 THEN b.gap_reason END
 		FROM next WHERE b.id = next.id
 		RETURNING b.id, next.status, b.status`, bank.ID, id, s.Closing.Date, s.Closing.Amount, p.ID, prev, s.Opening.Date).Scan(&next, &was, &now)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -420,14 +427,16 @@ func recordStatement(ctx context.Context, id uuid.UUID, bank statementBank, sum 
 
 const statementSelect = `SELECT s.id, s.house_bank_id, s.legal_entity_id, s.format, s.file_sha256, s.file_position, s.file_ref, s.message_id, s.statement_ref,
 	s.sequence, s.account, s.currency, c.exponent, s.opening_balance, s.closing_balance, s.opening_date, s.closing_date, s.line_count,
-	s.previous_statement_id, s.status, s.version, s.created_at, s.updated_at, s.created_by, s.updated_by, s.reconciled_at, s.reconciled_by
+	s.previous_statement_id, s.status, s.version, s.created_at, s.updated_at, s.created_by, s.updated_by, s.reconciled_at, s.reconciled_by,
+	s.gap_accepted_at, s.gap_accepted_by, s.gap_reason
 	FROM payments.bank_statement s JOIN ref.currency c ON c.code = s.currency`
 
 func scanStatement(row pgx.Row) (Statement, error) {
 	var s Statement
 	err := row.Scan(&s.ID, &s.HouseBankID, &s.LegalEntityID, &s.Format, &s.FileSHA256, &s.FilePosition, &s.FileRef, &s.MessageID, &s.Ref, &s.Sequence, &s.Account,
 		&s.Currency, &s.Exponent, &s.Opening, &s.Closing, &s.OpeningDate, &s.ClosingDate, &s.LineCount, &s.PreviousID, &s.Status, &s.Version,
-		&s.CreatedAt, &s.UpdatedAt, &s.CreatedBy, &s.UpdatedBy, &s.ReconciledAt, &s.ReconciledBy)
+		&s.CreatedAt, &s.UpdatedAt, &s.CreatedBy, &s.UpdatedBy, &s.ReconciledAt, &s.ReconciledBy,
+		&s.GapAcceptedAt, &s.GapAcceptedBy, &s.GapReason)
 	return s, errs.Wrapf(err, "scan bank statement")
 }
 

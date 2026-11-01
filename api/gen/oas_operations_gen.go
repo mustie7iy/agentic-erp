@@ -6,6 +6,7 @@ package gen
 type OperationName = string
 
 const (
+	AcceptBankStatementGapOperation           OperationName = "AcceptBankStatementGap"
 	AcceptBankStatementLineProposalOperation  OperationName = "AcceptBankStatementLineProposal"
 	AcceptMemoRecordProposalOperation         OperationName = "AcceptMemoRecordProposal"
 	ActivateChangeRequestOperation            OperationName = "ActivateChangeRequest"

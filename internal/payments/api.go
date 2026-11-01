@@ -520,6 +520,10 @@ func statementToAPI(s Statement, masked bool, codes map[uuid.UUID]string) gen.Ba
 	if s.ReconciledAt != nil {
 		out.ReconciledAt.SetTo(*s.ReconciledAt)
 	}
+	if s.GapAcceptedAt != nil {
+		out.GapAcceptedAt.SetTo(*s.GapAcceptedAt)
+	}
+	out.GapAcceptedBy, out.GapReason = apitypes.OptUUID(s.GapAcceptedBy), apitypes.OptString(s.GapReason)
 	if masked {
 		out.Account = "****" + fieldcrypt.Last4(s.Account)
 	}
@@ -662,7 +666,20 @@ func (e *Endpoints) MatchBankStatement(ctx context.Context, params gen.MatchBank
 	if err != nil {
 		return nil, err
 	}
-	return &gen.MatchBankStatementOKHeaders{ETag: gen.NewOptString(etag.Format(s.Version)), Response: out}, nil
+	return &gen.AcceptBankStatementGapOKHeaders{ETag: gen.NewOptString(etag.Format(s.Version)), Response: out}, nil
+}
+
+// AcceptBankStatementGap implements POST /v1/bank-statements/{id}:acceptGap.
+func (e *Endpoints) AcceptBankStatementGap(ctx context.Context, req *gen.ReasonInput, params gen.AcceptBankStatementGapParams) (gen.AcceptBankStatementGapRes, error) {
+	s, err := AcceptGap(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
+	if err != nil {
+		return nil, err
+	}
+	out, err := e.statementOut(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.AcceptBankStatementGapOKHeaders{ETag: gen.NewOptString(etag.Format(s.Version)), Response: out}, nil
 }
 
 func matchToAPI(m Match) gen.StatementMatch {

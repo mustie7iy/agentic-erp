@@ -65,12 +65,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# date_add DATE DAYS is the date DAYS days after DATE, with GNU or BSD date.
+# date_add DATE DAYS is the date DAYS days after DATE (before it when
+# DAYS is negative), with GNU or BSD date.
 date_add() {
+  local n=$2
+  case "$n" in -*) ;; *) n="+$n" ;; esac
   if date -u -d "$1" +%F >/dev/null 2>&1; then
-    date -u -d "$1 +$2 days" +%F
+    date -u -d "$1 $n days" +%F
   else
-    date -u -j -v"+$2"d -f %F "$1" +%F
+    date -u -j -v"${n}d" -f %F "$1" +%F
   fi
 }
 
@@ -1148,8 +1151,22 @@ statement() {
   CLOSING=$closing
 }
 
+# empty_statement DATE BALANCE writes RBC's camt.053 statement of the
+# day with no entries, opening and closing at the balance.
+empty_statement() {
+  {
+    printf '<?xml version="1.0" encoding="UTF-8"?>\n'
+    printf '<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02"><BkToCstmrStmt>\n'
+    printf '<GrpHdr><MsgId>RBC-%s</MsgId><CreDtTm>%sT23:00:00</CreDtTm></GrpHdr>\n' "$1" "$1"
+    printf '<Stmt><Id>RBC-1000001-%s</Id><ElctrncSeqNb>0</ElctrncSeqNb><Acct><Id><Othr><Id>1000001</Id></Othr></Id><Ccy>CAD</Ccy></Acct>\n' "$1"
+    printf '<Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="CAD">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>%s</Dt></Dt></Bal>\n' "$2" "$1"
+    printf '<Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp><Amt Ccy="CAD">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>%s</Dt></Dt></Bal>\n' "$2" "$1"
+    printf '</Stmt></BkToCstmrStmt></Document>\n'
+  } >"$WORK/camt053-empty.xml"
+}
+
 step_statement() {
-  heading "Step 8 — The bank statement: imported, matched by rules, posted with approval, reconciled"
+  heading "Step 8 — The bank statement: imported, a gap accepted, matched by rules, posted with approval, reconciled"
   as tom
   local bank sap_bank
   bank=$(account 1000)
@@ -1166,17 +1183,36 @@ step_statement() {
   as tom
   api 200 '"parked entry: \(.status), journal entry \(.journal_entry_id)"' getParkedJournalEntry -p "id=$parked"
   expect "parked entry status" "$(field .status)" posted
+  local yesterday
+  yesterday=$(date_add "$TODAY" -1)
+  say "RBC's statement of $yesterday, before the funding, closes the empty account at 0.00. Tom imports it:"
+  empty_statement "$yesterday" 0.00
+  api 201 '.statements[] | "statement \(.statement_ref): \(.status), closing \(.closing_balance.amount) \(.closing_balance.currency)"' \
+    importBankStatements -body "{\"house_bank_id\": \"$RBC\", \"format\": \"camt.053\"}" -file file=@camt053-empty.xml
   say "RBC's end-of-day statement (camt.053) shows the run's payments leaving the account."
   statement 500000.00
   say "  $(grep -c '<Ntry>' "$WORK/camt053.xml") entries, opening 500000.00, closing $CLOSING CAD"
-  say "Tom imports it, the file as a part of the upload's form:"
+  say "Tom imports it, the file as a part of the upload's form. It opens at 500,000.00, not at yesterday's 0.00:"
+  say "the bank's statement that carried the funding never arrived, so it is in gap (ADR-0047 Continuity)."
   api 201 '' importBankStatements -body "{\"house_bank_id\": \"$RBC\", \"format\": \"camt.053\"}" -file file=@camt053.xml
   local st
   st=$(field '.statements[0].id')
   if [ -z "$st" ] || [ "$st" = null ]; then fail "the statement was not imported"; fi
-  excerpt '.statements[] | "statement \(.statement_ref): \(.status), \(.line_count) lines"'
-  say "The matching rules found each payment by its end-to-end id. Lines up to CAD 10,000.00 post at once;"
-  say "the others wait for the controller:"
+  excerpt '.statements[] | "statement \(.statement_ref): \(.status), opening \(.opening_balance.amount), \(.line_count) lines"'
+  expect "statement status" "$(field '.statements[0].status')" gap
+  say "The rules matched each payment by its end-to-end id, but nothing posts for RBC while the gap stands:"
+  api 200 '"statement \(.statement_ref): \(.status); lines \([.lines[]?.status] | group_by(.) | map("\(.[0]) \(length)") | join(", "))"' getBankStatement -p "id=$st"
+  expect "lines matched, none posted" "$(field '[.lines[] | select(.status != "matched")] | length')" 0
+  refused 409 payments.statement_gap postBankStatementLine -p "id=$st" -p line_no=1 -if-match "$ETAG"
+  say "The bank cannot send the missing statement again; the funding is in the ledger already. Tom accepts the gap"
+  say "with the reason, audited and published (BankStatementGapAccepted), and agents could not have done it:"
+  QUIET=1 api 200 '' getBankStatement -p "id=$st"
+  api 200 '"statement \(.statement_ref): \(.status), gap accepted by \(.gap_accepted_by[0:8])…: \(.gap_reason)"' acceptBankStatementGap -p "id=$st" -if-match "$ETAG" \
+    -body '{"reason": "RBC cannot redeliver the statement that carried the funding; the transfer is in the ledger (parked entry, approved by Carla)."}'
+  expect "statement status after the acceptance" "$(field .status)" imported
+  say "Tom runs the rules again: lines up to CAD 10,000.00 post at once; the others wait for the controller:"
+  api 200 '"statement \(.statement_ref): lines \([.lines[]?.status] | group_by(.) | map("\(.[0]) \(length)") | join(", "))"' matchBankStatement -p "id=$st" -if-match "$ETAG"
+  expect "lines still matched after the run" "$(field '[.lines[] | select(.status == "matched")] | length')" 0
   api 200 '.items[] | "line \(.line_no): \(.status) by rule \(.rule)\(if .approval_request_id then ", approval request \(.approval_request_id[0:8])…" else "" end)"' listBankStatementMatches -p "id=$st"
   local r
   for r in $(field '.items[] | select(.approval_request_id != null and .status == "matched") | .approval_request_id'); do
