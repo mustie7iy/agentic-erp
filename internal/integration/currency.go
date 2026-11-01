@@ -427,19 +427,16 @@ func (q *qualityCheck) leftOutLines() {
 		switch {
 		case l.WSL == "", q.foreign[key] != "", q.conflicts[key] != "", earlier, q.t.balances && !own:
 		case !q.t.zero(l.HSL, q.currency[l.RBUKRS]), !q.hasDocumentAmount(l), q.openItem(l):
-		case own:
-			q.add(SevError, "ACDOCA", key+"/"+l.DOCLN, "%s; have SAP's line corrected", leftOut(l, q.currency[l.RBUKRS]))
 		default:
-			q.add(SevError, "ACDOCA", key+"/"+l.DOCLN, "%s; have SAP's line corrected, or load the year in balances mode, whose opening "+
-				"entry carries company code balances alone", leftOut(l, q.currency[l.RBUKRS]))
+			// Balances mode is not offered as a way out: a document can post
+			// there on its own too (a down payment's, or one whose open item
+			// is in a foreign currency), where the line is refused again
+			// (review round 2).
+			q.add(SevError, "ACDOCA", key+"/"+l.DOCLN, "line of SAP document %s has a document amount (WSL %q, RWCUR %q) and no amount "+
+				"in company currency %s (HSL): its document posts in company currency from HSL, so the load would leave the line out; "+
+				"have SAP's line corrected", l.BELNR, l.WSL, l.RWCUR, q.currency[l.RBUKRS])
 		}
 	}
-}
-
-// leftOut says why leftOutLines refuses a line, in company currency cur.
-func leftOut(l sap.ACDOCA, cur string) string {
-	return fmt.Sprintf("line of SAP document %s has a document amount (WSL %q, RWCUR %q) and no amount in company currency %s (HSL): "+
-		"its document posts in company currency from HSL, so the load would leave the line out", l.BELNR, l.WSL, l.RWCUR, cur)
 }
 
 // foreignItem refuses an open item not in its company's currency that
