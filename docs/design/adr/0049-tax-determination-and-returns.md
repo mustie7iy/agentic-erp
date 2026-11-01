@@ -730,7 +730,7 @@ the UAE's Box 6 for registrants who account for import VAT in the return
   document of its own (GTS, phase 4).
 
 ### 10. Tax registrations and periods
-A company has **tax registrations** in the configuration (T61h): authority
+A company has **tax registrations** in the configuration (T61g): authority
 (CRA, Revenu Québec, a province, FTA), number (BN with program account RT0001,
 QST number, TRN, a UAE tax group's TRN), the return it files (from the pack),
 the frequency (monthly, quarterly, annual) and the first period's start. Tax
@@ -739,6 +739,52 @@ period may start in any month the FTA assigned). A UAE **tax group** is one
 registration across several legal entities, so a return may read several
 companies (all in the tenant, under RLS). A registration change is financial
 (tier 3).
+- **As built (T61g, migration 000172):** the tax filing context is
+  `internal/taxfiling` (schema `tax`): the package name `tax` is the shared
+  kernel's pure calculator, and a context under `internal/tax/` would be
+  part of the shared kernel, which may import no context. A company's
+  `companies[].tax_registrations[]` has a `code` (unique in the tenant,
+  `^[A-Z0-9_]{1,20}$`), `authority` (a code such as `CRA`, `RQ`, `FTA`;
+  no list of authorities is held), `number`, `return_type` (the pack's code
+  of the return; T61h checks it against the pack's `returns.yaml`, which
+  does not exist yet), `frequency` (`monthly`, `quarterly`, `annual`),
+  `first_period_start` (day 1-28 of a month, so every period starts on the
+  same day; a start on the 29th-31st is refused for want of a rule for the
+  shorter months) and optional `last_period_end` (the last day of one of
+  its periods) and `group_members` (a UAE tax group: the other companies'
+  codes, the registration listed under the representative member).
+  Validation refuses a code twice in the tenant, a company covered by two
+  registrations of one authority whose periods overlap, and one number
+  (as fieldcrypt normalizes it) on two registrations of one authority
+  whose periods overlap, so a return reports an item once (§11). The
+  number's format is not checked: no pack or primary source defines the
+  BN/RT or TRN format here (a tracker item for the tax specialist). The
+  registration is kept by `taxfiling.Setup` in `tax.registration`, the
+  number sealed with the tenant's key, fingerprinted and shown by its last
+  four characters (fieldcrypt, as tax identifiers and house bank accounts
+  are, and re-sealed on key rotation). What a registration's periods and
+  returns follow from (company, group, authority, number, return type,
+  frequency, first period) never changes under its code: the setup's
+  check names each changed field on submission, activation refuses it
+  (409 `tax.registration_fixed`, read FOR UPDATE), and a trigger
+  (`registration_fixed`) backs it up for every field but the number, which
+  only the application can open. A changed frequency or group is a new
+  code starting the day after the old one's `last_period_end`. A
+  registration the document no longer lists becomes inactive, never
+  deleted. Because the periods follow from fixed settings, they are
+  computed on read (`config.TaxPeriods`), not stored: `GET
+  /v1/tax-registrations` (`tax.registration.read`; a caller sees the
+  registrations covering a company they may act in, by registrant or
+  member; companies named by code) and `GET
+  /v1/tax-registrations/{id}/periods` (paged by start date, up to
+  `start_date_to` or the period under way on the registrant's date in its
+  `time_zone`, which the answer names). T61i stores a return per
+  registration and period start. Audit and events are the configuration
+  activation's (`config.version.activate`, `configuration_activated`);
+  the context has no outbox until returns move (T61i). Not built: due
+  dates (the authorities' deadlines are facts for the specialist), period
+  status (T61i), and the pilot's actual registrations and frequencies,
+  which the pilot supplies.
 
 ### 11. Returns: computed from the ledger, boxes per country
 - A **return definition** per country and return type is part of the country

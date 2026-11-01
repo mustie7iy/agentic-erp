@@ -51,6 +51,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
+	"github.com/mustie7iy/agentic-erp/internal/taxfiling"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 	"github.com/mustie7iy/agentic-erp/packs"
 )
@@ -78,6 +79,7 @@ type (
 	analyticsAPI   = endpoint.Endpoints
 	cashAPI        = cash.Endpoints
 	controllingAPI = controlling.Endpoints
+	taxfilingAPI   = taxfiling.Endpoints
 )
 
 // handler is the generated Handler: one embedded endpoint set per context.
@@ -99,6 +101,7 @@ type handler struct {
 	*analyticsAPI
 	*cashAPI
 	*controllingAPI
+	*taxfilingAPI
 }
 
 // Config is what the API needs.
@@ -198,6 +201,7 @@ func New(cfg Config) (http.Handler, error) {
 		analyticsAPI:   analyticsEndpoints(cfg, loopback).Init(),
 		cashAPI:        Cash(cfg),
 		controllingAPI: &controlling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{}},
+		taxfilingAPI:   &taxfiling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now},
 	}
 	return httpapi.New(h, httpapi.Pipeline{
 		Pool: cfg.Pool, AppRole: cfg.AppRole, Verifier: cfg.Verifier, Limits: cfg.Limits, RequestTimeout: cfg.RequestTimeout,
@@ -265,7 +269,8 @@ func Configuration(cfg Config) configuration.Dependencies {
 			payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, endpoint.Section{},
 			// After the other sections that lock supplier codes: a partner
 			// change takes the planning group lock last too.
-			cash.Setup{}, partner.PlanningGroupCodes{LegalEntities: tenancy.Directory{}}},
+			cash.Setup{}, partner.PlanningGroupCodes{LegalEntities: tenancy.Directory{}},
+			taxfiling.Setup{LegalEntities: tenancy.Directory{}, Keys: cfg.FieldKeys}},
 		Approvals: opener(),
 		Simulator: configuration.Simulators{payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates()},
 			endpoint.Simulation{Endpoints: analyticsEndpoints(cfg, nil), Now: cfg.Now},

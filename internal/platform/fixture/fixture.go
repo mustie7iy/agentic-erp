@@ -37,6 +37,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
+	"github.com/mustie7iy/agentic-erp/internal/taxfiling"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -117,7 +118,8 @@ func Deps() configuration.Dependencies {
 		Sections: []configuration.Section{ledger.Setup{LegalEntities: tenancy.Directory{}}, partner.PaymentTerms{},
 			partner.PaymentMethodCodes{LegalEntities: tenancy.Directory{}},
 			payments.HouseBanks{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Channels: integration.BankChannels{}, Keys: apitest.FieldKeys()},
-			payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, cash.Setup{}, partner.PlanningGroupCodes{LegalEntities: tenancy.Directory{}}},
+			payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, cash.Setup{}, partner.PlanningGroupCodes{LegalEntities: tenancy.Directory{}},
+			taxfiling.Setup{LegalEntities: tenancy.Directory{}, Keys: apitest.FieldKeys()}},
 		Simulator: configuration.Simulators{payables.Simulation{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates},
 			ledger.AssignmentSimulation{LegalEntities: tenancy.Directory{}}},
 		Regressor: payables.Regression{LegalEntities: tenancy.Directory{}, Orders: procurement.Orders{}, Rates: rates}, Actors: identity.Actors{},

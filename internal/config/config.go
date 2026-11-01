@@ -190,6 +190,10 @@ type Company struct {
 	ChartOfAccounts      []Account            `yaml:"chart_of_accounts" json:"chart_of_accounts"`
 	AccountDetermination AccountDetermination `yaml:"account_determination" json:"account_determination"`
 	TaxCodes             []TaxCode            `yaml:"tax_codes" json:"tax_codes"`
+	// TaxRegistrations are the company's registrations with tax
+	// authorities, from which its tax filing periods follow (ADR-0049 §10,
+	// T61g).
+	TaxRegistrations []TaxRegistration `yaml:"tax_registrations,omitempty" json:"tax_registrations,omitempty"`
 	// WithholdingTaxCodes are the withholding taxes deducted from suppliers
 	// (SAP extended withholding tax, T059P/T059Z; T46e).
 	WithholdingTaxCodes []WithholdingTaxCode `yaml:"withholding_tax_codes,omitempty" json:"withholding_tax_codes,omitempty"`

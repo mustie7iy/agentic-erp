@@ -287,7 +287,8 @@ start() {
   say ""
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
-  say "  - tax returns (T61g-T61l), and the Canada pack's tax codes (T62g, Canada pack 2026.3): step 2 configures one code, step 11 uses it"
+  say "  - tax returns (T61h-T61l), and the Canada pack's tax codes (T62g, Canada pack 2026.3): step 2 configures one code and the"
+  say "    GST/HST registration, step 11 uses the code and lists the registration's filing periods"
   say "  - the liquidity forecast (T53e-T53k): step 13 shows the daily cash position with a memo record"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - accounts receivable, fixed assets (T57), period-end close (T64), consolidation (T68)"
@@ -744,6 +745,8 @@ PILOT_SETTINGS='
        "gl_account": "1010", "main_gl_account": "1000", "incoming_gl_account": "1015"},
       {"name": "RBCUS", "bic": "ROYCCAT2", "institution_number": "003", "transit_number": "00002", "account_number": "4000001",
        "gl_account": "1020", "main_gl_account": "1030", "incoming_gl_account": "1040", "currency": "USD"}])
+    | .tax_registrations = [{"code": "GSTHST", "authority": "CRA", "number": "123456789 RT 0001", "return_type": "GST34",
+        "frequency": "quarterly", "first_period_start": "@YEAR@-01-01"}]
     | .release_dual_limit = "4000.00"
     | .fx_valuation = {"accounts": ["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"})}
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
@@ -768,7 +771,7 @@ step_pack() {
   say "Ada adds the pilot's own settings to the proposal: RBC house banks in CAD and USD, USD accounts revalued"
   say "at month end, bank statement rules (match by end-to-end id, approval above CAD 10,000), payment runs"
   say "above CAD 4,000 released only after a second person approves, a 2/10 net 30 cash discount term,"
-  say "cost center categories, liquidity items and an output tax code for GST (step 11). The company keeps SAP's"
+  say "cost center categories, liquidity items, an output tax code for GST and the GST/HST registration (step 11). The company keeps SAP's"
   say "down payment account (T074), so the pack's own, 1400, is left out: a company has one (ADR-0037)."
   local settings=${PILOT_SETTINGS//@YEAR@/$YEAR}
   settings=${settings//@CC@/$CC}
@@ -1180,7 +1183,7 @@ step_ledgers() {
 }
 
 step_tax() {
-  heading "Step 11 — Tax: the tax on a sales entry, calculated and checked by the ledger"
+  heading "Step 11 — Tax: the tax on a sales entry, calculated and checked by the ledger, and the registration it is filed under"
   as carla
   api 200 '.items[] | select(.country == "CA") | "pack CA \(.version): \(.contents.tax_codes) tax codes"' listCountryPacks
   say "The released Canada packs carry no tax codes yet: GST/HST, QST and PST come with Canada pack 2026.3 (T62g)."
@@ -1211,6 +1214,22 @@ step_tax() {
   api 201 "$entry" postJournalEntry -body "$(sale "Billing: summary of invoices 1044-1047" "$(line "$cash" 420.44), $(line "$sales" -100.10 GO5), $(line "$sales" -100.10 GO5), $(line "$sales" -100.10 GO5), $(line "$sales" -100.10 GO5), $(line "$gst" -20.04 GO5)")"
   refused 422 ledger.output_tax_mismatch postJournalEntry \
     -body "$(sale "Billing: one base line" "$(line "$cash" 420.44), $(line "$sales" -400.40 GO5), $(line "$gst" -20.04 GO5)")"
+  say "The tax this posts is filed under the company's GST/HST registration with the CRA, configured in step 2"
+  say "(T61g): the number is sealed and shown by its last four characters. The number and the quarterly"
+  say "frequency here are illustrative; the pilot's own registration and filing frequency come from the pilot."
+  api 200 '.items[] | "registration \(.code): \(.authority), number ending \(.number_last4), return \(.return_type), \(.frequency) from \(.first_period_start), company \(.company_code), \(.status)"' \
+    listTaxRegistrations -p "legal_entity_id=$LE"
+  expect "the registration" "$(field '.items[0] | "\(.code) \(.company_code) \(.number_last4) \(.frequency)"')" "GSTHST $CC 0001 quarterly"
+  local registration
+  registration=$(field '.items[0].id')
+  say "Its filing periods follow from the frequency and the first period, apart from fiscal periods, up to the"
+  say "one under way on the company's date in its time zone; the returns (T61h-T61i) are prepared for them."
+  api 200 '"periods starting by \(.start_date_to) (the company'"'"'s date in \(.time_zone)):", (.items[] | "  \(.start_date) to \(.end_date)")' \
+    listTaxPeriods -p "id=$registration"
+  expect "the first period" "$(field '.items[0] | "\(.start_date) \(.end_date)"')" "$YEAR-01-01 $YEAR-03-31"
+  expect "the time zone" "$(field .time_zone)" America/Toronto
+  say "A registration nobody may see, or none, is not found:"
+  refused 404 request.not_found listTaxPeriods -p "id=00000000-0000-7000-8000-000000000000"
   passed
 }
 

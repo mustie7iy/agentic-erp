@@ -825,6 +825,14 @@ type ListSupplierInvoicesRes interface {
 	listSupplierInvoicesRes()
 }
 
+type ListTaxPeriodsRes interface {
+	listTaxPeriodsRes()
+}
+
+type ListTaxRegistrationsRes interface {
+	listTaxRegistrationsRes()
+}
+
 type ListWebhookDeliveriesRes interface {
 	listWebhookDeliveriesRes()
 }

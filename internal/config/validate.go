@@ -67,18 +67,23 @@ func Validate(c *Config, exponents currency.Exponents) []Finding {
 		v.err("companies", "at least one company is required")
 	}
 	seen := map[string]bool{}
+	for _, co := range c.Companies {
+		seen[co.Code] = co.Code != ""
+	}
+	registrations := map[string]map[string]taxRegistrationDates{}
 	for i, co := range c.Companies {
 		p := fmt.Sprintf("companies[%s]", co.Code)
 		if co.Code == "" {
 			p = fmt.Sprintf("companies[%d]", i)
 			v.err(p+".code", "company code is required")
 		}
-		if seen[co.Code] {
+		if slices.IndexFunc(c.Companies, func(o Company) bool { return o.Code == co.Code }) < i {
 			v.err(p, "duplicate company code")
 		}
-		seen[co.Code] = true
 		v.company(p, &co)
+		registrations[co.Code] = v.taxRegistrations(p, &co, seen)
 	}
+	v.taxRegistrationsAcross(c, registrations)
 	v.paymentTerms(c)
 	v.purchasing(c)
 	v.payments(c)
