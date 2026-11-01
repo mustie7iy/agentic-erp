@@ -1841,7 +1841,9 @@ and where it departs from the step as first written:
   supplier by id: the API gives no supplier's name on them and
   `listBusinessPartners` filters by no id, so naming them is a contract
   change (tracker item T73f2). Within the six calls, a run's page names
-  neither its company nor its house bank (its list card does).
+  neither its company nor its house bank (its list card does). Both
+  were built in T73f2 (below), the bank files then moving into a
+  section of their own.
 - **Refusals.** `i18n.PaymentProblems` explains the codes of a
   proposal, a release and its approval, a rejection, a cancellation and
   a transmission, and the general ones in a run's words; the contract
@@ -2312,6 +2314,88 @@ and posted in the next day's period, or the next year's.
   the clock's; against the real API, an entry of the Toronto and of the
   Dubai company dated that company's day. The walkthrough reads Maple's
   date and zone (step 13).
+
+## Built in T73f2: payment runs named, sessions ended under htmx, a quiet poll (2026-11-01)
+What T73f left (tracker T73f2, split from T73f); decided by default, each
+listed in the batch digest for the product owner to overrule.
+- **Suppliers by name, no contract change.** When T73f was built the API
+  named no supplier on a payment or an exclusion; batch 27/28 gave both
+  `supplier_name` (and an exclusion its `down_payment_request_number`),
+  so the run's page uses them and asks the API for nothing new: a
+  payment and an exclusion show their supplier by name (as data,
+  `translate="no"`), an excluded down payment request by its number (by
+  id when the API gives none), and each payment its house bank by the
+  `house_bank_code` the API gives. The tracker item from batch 22/23's
+  review on the same views is closed with it.
+- **The run's company and house bank within the six calls.** The run
+  gives its house bank's code (`house_bank_code`), not its company's
+  name, and a run's page already read six (§10). The company is named
+  as every other page names it, from `listLegalEntities` (§10's
+  "companies"), and the bank files, read only once a run is released or
+  being released, moved into a section of their own that htmx loads into
+  the page (`GET /payments/{id}/files`, `hx-trigger="load"`, a page of
+  its own with a link without htmx), as the progress and the invoice's
+  order are. A run's page reads `getCurrentPrincipal`, `getPaymentRun`,
+  `listPayments`, `listPaymentExclusions`, `listLegalEntities` and
+  `listPrincipalNames`: six; the files' section two
+  (`getCurrentPrincipal`, for the transmission's permission and the
+  page's navigation, and `listBankFiles`). A run proposed without a
+  house bank says that the suppliers' payment methods choose it per
+  payment, as its list card does; a company that could not be named is
+  left out of the summary, as on the invoice's page. Not chosen: a
+  `legal_entity_name` on the run, which no other representation carries
+  (the API names companies by id everywhere), for a page that can read
+  it within its budget.
+- **A session that ended, under htmx.** A request htmx sends for a part
+  of a page (the progress' poll, a lazy section, an entry form's lines)
+  whose session ended was answered with a 303 to sign in, which the
+  request itself followed: the sign-in page was put in the section's
+  place, and the poll asked for it every two seconds. Now every redirect
+  to sign in (`signedIn`'s, the API's 401 that ends the session, and its
+  RFC 9470 step-up challenge) answers an htmx request (`HX-Request:
+  true`) with 204 and `HX-Redirect`, which htmx follows by loading the
+  sign-in as the page, and comes back to the page the request is part
+  of (htmx's `HX-Current-URL`, through `safeReturn`, so only a path of
+  the workspace's own, never a sign-in step) rather than to the
+  section's own address. A request without htmx keeps its 303. The one
+  helper (`redirect`) serves every route, so no lazy section is left
+  out; `Vary: HX-Request` on both answers.
+- **A quiet poll.** The status region (`role="status"`) is read out
+  whenever its content changes, and htmx replaced it every two seconds
+  with the same status, so a screen reader could read the same status
+  again and again. The poller inside the region now sends the digest of
+  the status it shows (`shown`: a SHA-256 of the status as rendered in
+  the person's language, so a change of wording counts and a change no
+  one can see, such as the operation's version alone, does not); the
+  workspace answers 204 while the status is still that one, which htmx
+  leaves in place, and otherwise the new status with its own digest
+  (`hx-swap="outerHTML"` on the poller, so the region itself stays and
+  is read out as it changes). Once the operation stops, the answer is
+  still `HX-Redirect` to the run's page. The workspace keeps no state
+  for it.
+- **Tests.** Handlers against the real API: the built run's company,
+  house bank and suppliers by name with each payment's bank; the
+  status polled unchanged answered 204 with nothing in it, one polled
+  with another digest answered with the status and the same poll; the
+  files' section and page, a transmission sent from the section, the
+  outsider's files refused in their place. From the stub: a company the
+  API does not name, a run without a house bank, a payment's and an
+  exclusion's supplier and request number, the files refused in place
+  and an API that cannot answer them. Sign-in: a progress' poll, an
+  order's section, a run's files and an entry form's lines after the
+  session ended, without a session, and after the API's 401 and its
+  step-up challenge, each 204 with `HX-Redirect` back to the page htmx
+  names, "/" when it names none of the workspace's or no address at
+  all. The browser: axe on the files' page in English, French and both
+  pseudo-locales at 1280 and 390 px and on a released run's page once
+  its files' section loaded; on a run being proposed, two polls answered
+  204 and no change to the status region's content (a
+  `MutationObserver` on it); then the session's cookie deleted, the next
+  poll takes the browser to sign in and back to the run's page, never the
+  sign-in in the status' place.
+- **Departs from the tracker row.** Its walk-through by a pilot
+  treasurer and AP lead is human acceptance, split into a leaf of its
+  own that keeps the pilot tag (T73f3).
 
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August

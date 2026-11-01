@@ -85,7 +85,7 @@ func TestRunsStubbed(t *testing.T) {
 		},
 		"GET /v1/payment-runs/" + releasing.String() + "/payments":   answer(200, stubPaymentsJSON(releasing)),
 		"GET /v1/payment-runs/" + releasing.String() + "/exclusions": answer(200, stubExclusionsJSON(request)),
-		"GET /v1/payment-runs/" + proposed.String():                  answer(200, runJSON(proposed, "proposed", withdrawn)),
+		"GET /v1/payment-runs/" + proposed.String():                  answer(200, runJSON(proposed, "proposed", withdrawn+`,"house_bank_code":"CITI"`)),
 		"GET /v1/payment-runs/" + proposed.String() + "/":            answer(200, `{"items":[]}`),
 		"GET /v1/bank-files":            answer(200, stubFilesJSON(releasing)),
 		"GET /v1/operations/":           answer(200, operationJSON(op, "payments.release", "failed", `"/v1/payment-runs/`+releasing.String()+`"`, nothing)),
@@ -102,8 +102,13 @@ func TestRunsStubbed(t *testing.T) {
 		t.Errorf("next page: got %q", more)
 	}
 	p := b.get(runPath(releasing)).page(t)
-	holds(t, "the run being released", p.mainText(), "Status Being released", "AED 1,250.00 AED 25.00 AED 12.50 T 0 E2E-1 Yes", "Down payment",
-		"sanctions_hit", "Status Not sent", "Format pain.001.001.09", "Payment method T", "Status on_hold", "More payments", "More left out")
+	holds(t, "the run being released", p.mainText(), "Status Being released", "House bank Chosen per payment by the suppliers' payment methods",
+		"Tyrell Down payment None AED 1,250.00 AED 25.00 AED 12.50 T 0 E2E-1 Yes", "Tyrell sanctions_hit AED 5.00 DP100000", "More payments", "More left out")
+	if strings.Contains(p.mainText(), "Company") {
+		t.Error("the run of a company the API did not name: names one")
+	}
+	files := b.get(filesPath(releasing), "HX-Request", "true").page(t)
+	holds(t, "the run's files", text(files.doc), "Status Not sent", "Format pain.001.001.09", "Payment method T", "Status on_hold")
 	links := map[string]bool{}
 	for _, a := range p.all("a", "button") {
 		links[attrOf(a, "href")] = true
@@ -121,7 +126,7 @@ func TestRunsStubbed(t *testing.T) {
 	if !asked["p2"] || !asked["e2"] {
 		t.Errorf("the next pages asked: got %v, want p2 and e2", asked)
 	}
-	if f := runForm(p, releasing, "transmit"); f == nil || field(f, "if_match") != `"4"` {
+	if f := runForm(files, releasing, "transmit"); f == nil || field(f, "if_match") != `"4"` {
 		t.Error("the file that failed to go: not offered again at its version")
 	}
 	pr := b.get(progressPath(releasing), "HX-Request", "true")
@@ -131,7 +136,7 @@ func TestRunsStubbed(t *testing.T) {
 		t.Errorf("the resumption: If-Match %q, want the run's", field(f, "if_match"))
 	}
 	w := b.get(runPath(proposed)).page(t)
-	holds(t, "the request withdrawn", w.mainText(), "State of the request Withdrawn", "Ask for the second approval", "Release the run")
+	holds(t, "the request withdrawn", w.mainText(), "House bank CITI", "State of the request Withdrawn", "Ask for the second approval", "Release the run")
 	r := b.do(http.MethodPost, "/payments/propose", url.Values{"csrf_token": {token}, "idempotency_key": {uuid.NewString()},
 		"legal_entity_id": {uuid.NewString()}, "run_date": {"2026-10-23"}, "due_by": {"2026-10-31"}, "currency": {"AED"}})
 	if r.status != http.StatusSeeOther || r.location() != "/payments" {
@@ -159,11 +164,14 @@ func TestRunsRefusedInPlace(t *testing.T) {
 	r := b.get(runPath(run))
 	status(t, "the run", r, http.StatusOK)
 	p := r.page(t)
-	for _, id := range []string{"payments-refusal-title", "exclusions-refusal-title", "files-refusal-title"} {
-		found := false
-		walk(p.doc, func(n *html.Node) { found = found || attrOf(n, "id") == id })
-		if !found {
-			t.Errorf("no refusal %s on the page", id)
+	files := b.get(filesPath(run)).page(t)
+	for doc, ids := range map[*html.Node][]string{p.doc: {"payments-refusal-title", "exclusions-refusal-title"}, files.doc: {"files-refusal-title"}} {
+		for _, id := range ids {
+			found := false
+			walk(doc, func(n *html.Node) { found = found || attrOf(n, "id") == id })
+			if !found {
+				t.Errorf("no refusal %s in its place", id)
+			}
 		}
 	}
 	holds(t, "the run", p.mainText(), "Status Released", "You do not have the permission this needs.")
@@ -204,7 +212,8 @@ func TestRunsUnavailable(t *testing.T) {
 		"run: refused":            {map[string]http.HandlerFunc{"GET /v1/me": me, "GET /v1/payment-runs/": answer(403, problemJSON(403, "identity.permission_missing"))}, http.MethodGet, path, http.StatusForbidden, ""},
 		"run: payments 503":       {map[string]http.HandlerFunc{"GET /v1/me": me, "GET /v1/payment-runs/" + id.String() + "/payments": unavailable, "GET /v1/payment-runs/": run}, http.MethodGet, path, http.StatusServiceUnavailable, ""},
 		"run: exclusions 503":     {map[string]http.HandlerFunc{"GET /v1/me": me, "GET /v1/payment-runs/" + id.String() + "/payments": answer(200, `{"items":[]}`), "GET /v1/payment-runs/" + id.String() + "/exclusions": unavailable, "GET /v1/payment-runs/": run}, http.MethodGet, path, http.StatusServiceUnavailable, ""},
-		"run: files 503":          {map[string]http.HandlerFunc{"GET /v1/me": me, "GET /v1/payment-runs/" + id.String() + "/": answer(200, `{"items":[]}`), "GET /v1/payment-runs/": run, "GET /v1/bank-files": unavailable}, http.MethodGet, path, http.StatusServiceUnavailable, ""},
+		"files: 503":              {map[string]http.HandlerFunc{"GET /v1/me": me, "GET /v1/bank-files": unavailable}, http.MethodGet, path + "/files", http.StatusServiceUnavailable, ""},
+		"files: who am I, 503":    {map[string]http.HandlerFunc{"GET /v1/me": unavailable}, http.MethodGet, path + "/files", http.StatusServiceUnavailable, ""},
 		"run: no id":              {map[string]http.HandlerFunc{}, http.MethodGet, "/payments/x", http.StatusNotFound, ""},
 		"progress: who am I, 401": {map[string]http.HandlerFunc{"GET /v1/me": challenge}, http.MethodGet, path + "/progress", http.StatusSeeOther, "return=%2Fpayments%2F" + id.String() + "%2Fprogress"},
 		"progress: unavailable":   {map[string]http.HandlerFunc{"GET /v1/me": me, "GET /v1/payment-runs/": run, "GET /v1/operations/": unavailable}, http.MethodGet, path + "/progress", http.StatusServiceUnavailable, ""},

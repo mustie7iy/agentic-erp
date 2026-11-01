@@ -1,6 +1,9 @@
 package web
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -67,20 +70,48 @@ func (s *Server) showProgress(w http.ResponseWriter, r *http.Request, p *person,
 	if refused != nil {
 		v.Refusal = refused
 	}
+	if v.Running {
+		v.Shown = shown(r.Context(), v)
+	}
 	switch {
 	case r.Header.Get("HX-Request") != "true":
 		s.render(w, r, status, ui.ProgressPage(s.page(i18n.ProgressPageTitle, ui.PaymentsPath, p, m), v))
 	case r.URL.Query().Get("part") == "status":
-		if op == nil || !v.Running {
-			// The section asked while the operation ran: it has stopped,
-			// so the run's page is read again to show what it left, without
-			// the notice of what was asked for then.
-			w.Header().Set("HX-Redirect", runPath(id))
-		}
-		s.render(w, r, status, ui.ProgressStatus(v))
+		s.pollAnswer(w, r, id, op, v)
 	default:
 		s.render(w, r, status, ui.ProgressSection(v))
 	}
+}
+
+// pollAnswer answers the status' poll. Once the operation has stopped,
+// the run's page is read again to show what it left (HX-Redirect),
+// without the notice of what was asked for then. While it runs, a status
+// as the poll last showed it is answered 204, which htmx leaves in place,
+// so a screen reader does not read the region's same status out again
+// every two seconds (T73f2); a status that moved is put in its place.
+func (s *Server) pollAnswer(w http.ResponseWriter, r *http.Request, id uuid.UUID, op *gen.Operation, v ui.ProgressView) {
+	switch {
+	case op == nil || !v.Running:
+		w.Header().Set("HX-Redirect", runPath(id))
+		s.render(w, r, http.StatusOK, ui.ProgressStatus(v))
+	case r.URL.Query().Get(ui.ShownParam) == v.Shown:
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		s.render(w, r, http.StatusOK, ui.ProgressPoll(v))
+	}
+}
+
+// shown is a digest of the status as the person reads it, which the poll
+// sends back: equal, nothing they would hear has changed. It is of the
+// status rendered in their language, so a change of wording counts and a
+// change they cannot see (the operation's version alone) does not.
+func shown(ctx context.Context, v ui.ProgressView) string {
+	h := sha256.New()
+	// A status that does not render answers the page's own render with a
+	// 500; its digest then matches no poll's, so the status is sent again.
+	_ = ui.ProgressStatus(v).Render(ctx, h)
+	return hex.EncodeToString(h.Sum(nil)[:12])
 }
 
 // progressView reads the run's latest operation (its release's, else its

@@ -482,20 +482,55 @@ func (s *Server) end(ctx context.Context, id string) error {
 // toSignIn sends a request without a session to sign in, and back. A page
 // reached from another site comes without the SameSite=Strict cookie, so
 // it first gets the continue page, whose own navigation carries it
-// (ADR-0052 §5); a write goes to sign in without coming back to it.
+// (ADR-0052 §5); a write goes to sign in without coming back to it. An
+// htmx request comes back to the page it is part of.
 func (s *Server) toSignIn(w http.ResponseWriter, r *http.Request, stale string) {
 	if stale != "" {
 		http.SetCookie(w, cookie(sessionCookie, "", -1, http.SameSiteStrictMode))
 	}
 	ret := "/"
-	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+	switch {
+	case fromHTMX(r):
+		ret = pageOf(r)
+	case r.Method == http.MethodGet || r.Method == http.MethodHead:
 		ret = r.URL.RequestURI()
 		if stale == "" && r.Header.Get("Sec-Fetch-Site") == "cross-site" {
 			s.continueTo(w, r, ret)
 			return
 		}
 	}
-	http.Redirect(w, r, "/login?"+url.Values{"return": {ret}}.Encode(), http.StatusSeeOther)
+	redirect(w, r, "/login?"+url.Values{"return": {ret}}.Encode())
+}
+
+// fromHTMX reports a request htmx sent for a part of a page: a lazy
+// section, a progress' poll, a form's lines.
+func fromHTMX(r *http.Request) bool { return r.Header.Get("HX-Request") == "true" }
+
+// pageOf is the page an htmx request is part of (htmx's HX-Current-URL),
+// as a path to come back to after sign-in: the section's own address
+// would come back to the section alone, without its page.
+func pageOf(r *http.Request) string {
+	u, err := url.Parse(r.Header.Get("HX-Current-URL"))
+	if err != nil {
+		return "/"
+	}
+	return safeReturn(u.RequestURI())
+}
+
+// redirect sends the browser on to target, a path of the workspace's
+// own. An htmx request is answered with HX-Redirect, which htmx follows by
+// loading target as the page (T73f2): a 303 would be followed by the
+// request itself, and the page it leads to (the sign-in) put in the
+// section's place, or polled every two seconds.
+func redirect(w http.ResponseWriter, r *http.Request, target string) {
+	w.Header().Add("Vary", "HX-Request")
+	if fromHTMX(r) {
+		w.Header().Set("HX-Redirect", target)
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 // csrf refuses a state-changing request whose synchronizer token is not

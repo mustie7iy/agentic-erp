@@ -624,6 +624,7 @@ const (
 	ExclusionNoHouseBank       Key = "exclusion.no_house_bank"
 	RunFilesTitle              Key = "run.files.title"
 	RunFilesNone               Key = "run.files.none"
+	RunFilesShow               Key = "run.files.show"
 	FileFormat                 Key = "file.format"
 	FileMethod                 Key = "file.method"
 	FileStatus                 Key = "file.status"

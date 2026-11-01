@@ -607,6 +607,7 @@
   "exclusion.no_house_bank": "No house bank pays the supplier's payment methods in the run's currency",
   "run.files.title": "Bank files",
   "run.files.none": "The run has no bank file yet: its release writes them.",
+  "run.files.show": "Show the bank files",
   "file.format": "Format",
   "file.method": "Payment method",
   "file.status": "Status",
