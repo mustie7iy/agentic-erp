@@ -123,8 +123,19 @@ not know. So:
   control with the key. `companies[].release_dual_limit` (ADR-0038, T72m)
   is one: an older replica's `:release` has no approval check, so a change
   setting or lowering it is activated only after every replica runs the
-  version that knows it. Refusing such activations automatically is
-  tracked.
+  version that knows it. The cell refuses such activations itself: every
+  replica records its version and the keys its binary knows
+  (`config.replica`, every 30 seconds; a replica that crashed stops
+  counting 5 minutes after its last record), and an activation, or a
+  tenant's first configuration, whose document sets a key some running
+  replica lacks is refused with 409 `config.replica_lacks_key`, naming the
+  key and the versions, until that replica is upgraded or gone. A key at
+  its zero value is not set, since a binary without it reads the document
+  the same. The guard holds from the release that brings it: the upgrade
+  to that release, whose older replicas record nothing, still activates
+  such changes only after it completes; and an older replica started after
+  the activation (a rollback, or the old ReplicaSet replacing a pod
+  mid-rollout) reads the document tolerantly, as before.
 
 Migrations run as an administrative login that bypasses row-level security
 (the superuser in development). `erp_owner` owns the objects but is subject

@@ -56,6 +56,7 @@ var objectApprovers = map[string]string{
 	"purchase_order": "procurement.order.approve", "order_change": "procurement.order.approve",
 	"bank_clearing": "payments.statement.clearing.approve", "center_change": "ledger.cost_center.approve",
 	"payment_run_release": "payments.run.release", "gr_ir_clearing": "procurement.gr_ir.clear.approve",
+	"tax_return": "tax.return.approve",
 }
 
 // Operation is one API operation a route calls: its operationId, the
@@ -77,6 +78,9 @@ var (
 	opNames     = Operation{ID: "listPrincipalNames"}
 	opGet       = Operation{ID: "getApprovalRequest", HiddenBy: permReadApprovals}
 	opCompanies = Operation{ID: "listLegalEntities", HiddenBy: permReadCompanies}
+	// opToday is a company's date today, the default of a form's dates and
+	// a report's year or key date (today.go).
+	opToday = Operation{ID: "getLegalEntityToday", HiddenBy: permReadCompanies}
 	// opInvoice are the reads of an invoice's page (invoice.go).
 	opInvoice = []Operation{opMe, {ID: "getSupplierInvoice", HiddenBy: permReadInvoices}, {ID: "listMatchResults", HiddenBy: permReadInvoices},
 		{ID: "listRecommendations", HiddenBy: permReadRecommendations}, opNames, opCompanies}
@@ -89,7 +93,7 @@ var (
 	// opRuns are the reads of the payment runs' list (payments.go), opRun
 	// those of a run's page (payment_run.go) and opProgress those of its
 	// operation's progress (payment_progress.go).
-	opRuns   = []Operation{opMe, opCompanies, opHouseBanks, {ID: "listPaymentRuns", HiddenBy: permReadRuns}, opNames}
+	opRuns   = []Operation{opMe, opCompanies, opToday, opHouseBanks, {ID: "listPaymentRuns", HiddenBy: permReadRuns}, opNames}
 	opGetRun = Operation{ID: "getPaymentRun", HiddenBy: permReadRuns}
 	opRun    = []Operation{opMe, opGetRun, {ID: "listPayments", HiddenBy: permReadRuns}, {ID: "listPaymentExclusions", HiddenBy: permReadRuns},
 		{ID: "listBankFiles", HiddenBy: permReadRuns}, opNames}
@@ -99,7 +103,7 @@ var (
 	// pre-close checks (close_checks.go), where the statements not
 	// reconciled are read once per status.
 	opLedgers    = Operation{ID: "listLedgers", HiddenBy: permReadAccounts}
-	opPeriods    = []Operation{opMe, opCompanies, opLedgers, {ID: "listFiscalPeriods", HiddenBy: permReadPeriods}, opNames}
+	opPeriods    = []Operation{opMe, opCompanies, opToday, opLedgers, {ID: "listFiscalPeriods", HiddenBy: permReadPeriods}, opNames}
 	opPeriod     = []Operation{opMe, {ID: "getFiscalPeriod", HiddenBy: permReadPeriods}, opCompanies, opLedgers, opNames}
 	opStatements = Operation{ID: "listBankStatements", HiddenBy: permReadStatements}
 	opChecks     = []Operation{opMe, opLedgers, {ID: "listGrIrBalances", HiddenBy: permReadEntries},
@@ -120,7 +124,7 @@ var (
 	opJournal     = []Operation{opMe, opCompanies, opLedgers, {ID: "listCostCenters", HiddenBy: permReadCenters}, {ID: "listProfitCenters", HiddenBy: permReadCenters}, {ID: "listJournalEntries", HiddenBy: permReadEntries}}
 	opEntry       = []Operation{opMe, {ID: "getJournalEntry", HiddenBy: permReadEntries}, opCompanies, opLedgers, opAccounts, opNames}
 	opGetParked   = Operation{ID: "getParkedJournalEntry", HiddenBy: permReadEntries}
-	opEntryForm   = []Operation{opMe, opCompanies, opAccounts}
+	opEntryForm   = []Operation{opMe, opCompanies, opToday, opAccounts}
 	opChangeForm  = []Operation{opMe, opGetParked, opCompanies, opAccounts}
 	opParkedEntry = []Operation{opMe, opGetParked, opCompanies, opAccounts, opNames, opGet}
 	opLookups     = []Operation{{ID: "listAccounts", Lookup: true}, {ID: "listCostCenters", Lookup: true}, {ID: "listProfitCenters", Lookup: true},
@@ -135,12 +139,12 @@ var (
 	opListBalances = Operation{ID: "listBalances", HiddenBy: permReadEntries}
 	opListItems    = Operation{ID: "listOpenItems", HiddenBy: permReadEntries}
 	opListGRIR     = Operation{ID: "listGrIrBalances", HiddenBy: permReadEntries}
-	opBalances     = []Operation{opMe, opCompanies, opLedgers, opAccounts, opListBalances}
+	opBalances     = []Operation{opMe, opCompanies, opToday, opLedgers, opAccounts, opListBalances}
 	opSupplier     = Operation{ID: "listBusinessPartners", HiddenBy: permReadSuppliers}
-	opOpenItems    = []Operation{opMe, opCompanies, opAccounts, opSupplier, opListItems}
+	opOpenItems    = []Operation{opMe, opCompanies, opToday, opAccounts, opSupplier, opListItems}
 	opGRIR         = []Operation{opMe, opCompanies, opListGRIR}
-	opReconcile    = []Operation{opMe, opCompanies, opLedgers, opAccounts, {ID: "listLedgerReconciliation", HiddenBy: permReadEntries}}
-	opReconEntries = []Operation{opMe, opLedgers, opAccounts, {ID: "listLedgerReconciliationEntries", HiddenBy: permReadEntries}}
+	opReconcile    = []Operation{opMe, opCompanies, opToday, opLedgers, opAccounts, {ID: "listLedgerReconciliation", HiddenBy: permReadEntries}}
+	opReconEntries = []Operation{opMe, opToday, opLedgers, opAccounts, {ID: "listLedgerReconciliationEntries", HiddenBy: permReadEntries}}
 )
 
 // paged is the operation a download reads page by page.
@@ -245,9 +249,9 @@ var Screens = func() map[string][]Operation {
 		"POST /journal/entries/{id}/reverse":         append([]Operation{{ID: "reverseJournalEntry", HiddenBy: permPostEntries, HumanOnly: true}}, opEntry...),
 		"GET /reports":                               {opMe, opHouseBanks, opCompanies},
 		"GET /reports/trial-balance":                 opBalances,
-		"GET /reports/trial-balance.csv":             {opMe, opAccounts, paged(opListBalances)},
+		"GET /reports/trial-balance.csv":             {opMe, opToday, opAccounts, paged(opListBalances)},
 		"GET /reports/open-items":                    opOpenItems,
-		"GET /reports/open-items.csv":                {opMe, opCompanies, opAccounts, opSupplier, paged(opListItems)},
+		"GET /reports/open-items.csv":                {opMe, opCompanies, opToday, opAccounts, opSupplier, paged(opListItems)},
 		"GET /reports/gr-ir":                         opGRIR,
 		"GET /reports/gr-ir.csv":                     {opMe, paged(opListGRIR)},
 		"GET /reports/ledger-reconciliation":         opReconcile,

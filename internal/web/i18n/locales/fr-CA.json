@@ -83,6 +83,7 @@
   "object.bank_clearing": "Lettrage de relevé bancaire",
   "object.center_change": "Modification de centre de coûts ou de profit",
   "object.gr_ir_clearing": "Apurement GR/IR d'une commande close",
+  "object.tax_return": "Déclaration de taxes",
   "object.payment_run_release": "Libération de cycle de paiement",
   "approval.status.pending": "En attente",
   "approval.status.approved": "Approuvée",

@@ -15,6 +15,10 @@
 // that a verdict covers the whole change; each reader of the evidence and
 // of the suites is shown the companies they may access alone (Disclosure,
 // regressionShown, suiteShown; ADR-0010).
+//
+// Each replica records the configuration keys its version knows (Replica),
+// and an activation setting a key a running replica lacks waits for its
+// upgrade (ADR-0038 rollout, 06 §6.4).
 package configuration
 
 import (
@@ -628,9 +632,13 @@ func Bootstrap(ctx context.Context, deps Dependencies, doc json.RawMessage, fiel
 
 // activate inserts the next version, makes it active, applies its number
 // ranges and sections and publishes ConfigurationActivated. previous is nil
-// for the bootstrap version.
+// for the bootstrap version. A document setting a key some running replica
+// does not know is refused first (replicasKnow).
 func activate(ctx context.Context, tx pgx.Tx, deps Dependencies, actor reqctx.Principal, doc *config.Config, previous *int32,
 	source string, changeRequest *uuid.UUID) (version, error) {
+	if err := replicasKnow(ctx, tx, doc); err != nil {
+		return version{}, err
+	}
 	canonical, _ := json.Marshal(doc) // Config holds only JSON-safe types
 	sum := sha256.Sum256(canonical)
 	number := int32(1)

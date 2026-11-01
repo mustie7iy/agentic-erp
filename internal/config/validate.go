@@ -267,6 +267,7 @@ func (v *validator) company(p string, co *Company) {
 	// currency's finding already blocks activation.
 	if known {
 		v.amount(p+".invoice_tolerance.price_absolute", co.InvoiceTolerance.PriceAbsolute, exp)
+		v.taxSettings(p+".tax_settings", co.TaxSettings, exp)
 		v.amount(p+".auto_post_limit", co.AutoPostLimit, exp)
 		v.amount(p+".manual_entry_approval_limit", co.ManualEntryApprovalLimit, exp)
 		if co.ReleaseDualLimit != "" { // optional: no run then needs a second person

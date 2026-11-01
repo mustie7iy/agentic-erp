@@ -146,6 +146,10 @@ type Calendar interface {
 // currency of the configured tolerances and limits (ledger context, F12).
 type Rates interface {
 	Conversion(ctx context.Context, from, to string, date time.Time) (ledger.Conversion, error)
+	// OfType is the conversion at the latest rate of the type on the date;
+	// found false when there is none (the tax authority's rate type,
+	// ADR-0049 §8).
+	OfType(ctx context.Context, rateType, from, to string, date time.Time) (ledger.Conversion, bool, error)
 }
 
 // Settings reads the active configuration: tolerances and limits, and the
@@ -243,19 +247,22 @@ type Invoice struct {
 	Kind               string     // KindInvoice, KindCreditMemo, KindSubsequentDebit or KindSubsequentCredit (T34)
 	ReferenceInvoiceID *uuid.UUID // the posted invoice a correction names
 	// Terms are the payment terms the invoice posted with (T36b), or nil.
-	Terms     *ledger.ItemTerms
-	Items     []Item
-	Version   int32
-	CreatedAt time.Time
-	CreatedBy uuid.UUID
-	UpdatedAt time.Time
-	UpdatedBy uuid.UUID
+	Terms *ledger.ItemTerms
+	// DocumentaryWarnings are what its document may lack for its input
+	// tax to be recovered, recorded when it posted (ADR-0049 §6).
+	DocumentaryWarnings []DocumentaryWarning
+	Items               []Item
+	Version             int32
+	CreatedAt           time.Time
+	CreatedBy           uuid.UUID
+	UpdatedAt           time.Time
+	UpdatedBy           uuid.UUID
 }
 
 const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.supplier_id, i.supplier_reference, i.invoice_date, i.posting_date,
 		i.currency, c.exponent, i.gross_amount, i.tax_amount, i.purchase_order_id, i.status, i.hold_reason, i.source, i.capture_sha256, i.capture_object_ref,
 		i.journal_entry_year, i.journal_entry_id, i.reversal_entry_year, i.reversal_entry_id, i.workflow_request_id, i.extensions, i.extensions_schema, i.kind, i.reference_invoice_id,
-		i.tax_date,
+		i.tax_date, i.documentary_warnings,
 		coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'purchase_order_id', t.purchase_order_id, 'po_item_no', t.po_item_no,
 			'description', t.description, 'quantity', trim_scale(t.quantity)::text, 'unit', t.uom_code, 'amount', t.amount, 'tax_code', t.tax_code,
 			'account_id', t.account_id, 'cost_center_id', t.cost_center_id, 'profit_center_id', t.profit_center_id) ORDER BY t.item_no)
@@ -270,7 +277,7 @@ func scanInvoice(row pgx.Row) (Invoice, error) {
 	err := row.Scan(append(append([]any{&v.ID, &v.DocumentNumber, &v.LegalEntityID, &v.SupplierID, &v.SupplierReference, &v.InvoiceDate,
 		&v.PostingDate, &v.Currency, &v.Exponent, &v.Gross, &v.Tax, &v.PurchaseOrderID, &v.Status, &v.HoldReason, &v.Source, &v.CaptureSHA256,
 		&v.CaptureObjectRef, &v.JournalEntryYear, &v.JournalEntryID, &v.ReversalEntryYear, &v.ReversalEntryID, &v.WorkflowRequestID, &v.Extensions,
-		&v.ExtensionsSchema, &v.Kind, &v.ReferenceInvoiceID, &v.TaxDate, &v.Items}, terms.fields()...), &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)...)
+		&v.ExtensionsSchema, &v.Kind, &v.ReferenceInvoiceID, &v.TaxDate, &v.DocumentaryWarnings, &v.Items}, terms.fields()...), &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)...)
 	v.Terms = terms.terms()
 	return v, errs.Wrapf(err, "scan invoice")
 }

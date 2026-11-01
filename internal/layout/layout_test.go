@@ -110,8 +110,9 @@ var allowed = map[string][]string{
 	"router":                  {"directory"},
 	// Registrations from the configuration, companies from the directory
 	// (ADR-0049 §10); returns from the ledger's tax items through
-	// ledger.TaxItems and the country packs' returns.yaml (§11, T61h).
-	"taxfiling": {"config", "countrypack", "ledger", "tenancy"},
+	// ledger.TaxItems and the country packs' returns.yaml (§11, T61h);
+	// their approval by another person through approvals (T61i).
+	"taxfiling": {"approvals", "config", "countrypack", "ledger", "tenancy"},
 	"workflows": {"approvals", "configuration", "integration", "operations", "payments"},
 }
 

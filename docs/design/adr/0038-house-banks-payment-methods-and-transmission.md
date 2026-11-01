@@ -349,7 +349,8 @@ suffices, as before. `:reject` needs the release role too (T72l).
   `config.unknown_keys`, but the first activation is the new replica's).
   06 §6.4 lists the rule; the cell has no switch that refuses
   activation while replicas of two versions run, which would be a
-  platform item of its own.
+  platform item of its own (built since: "As built: activation refused
+  while a replica lacks a key" below).
 - **The amount measured.** The run's total, in its currency, converted
   exactly (unrounded, F13) into the company's currency at the average rate
   valid on the **run date** (`ledger.Rates.ExactToCompany`, as manual
@@ -912,3 +913,58 @@ counterpart for is noted):
   `listConfigVersions` (T: MAIN for CAD, MUSD for USD); step 3 shows the
   migrated supplier Laurentian Paper's methods through `getBusinessPartner`.
 
+
+## As built: activation refused while a replica lacks a key (T72m rollout, pilot)
+
+The rollout bullet of the T72m amendment left the mixed cell to the
+release runbook. The cell now refuses such an activation itself.
+
+- **How a replica knows the others.** Every `erp-server` replica records
+  itself in `config.replica` (000181): an id of its own, its version and
+  revision (`buildinfo`), and the keys its binary knows. It does so before
+  it serves (a replica that cannot record itself does not start), then
+  every 30 seconds (`configuration.Replica`, as `erp_worker`), and deletes
+  its row when it has stopped: after the API drained its requests and the
+  workers returned, never when the shutdown begins, so a replica is
+  counted for as long as it reads the configuration (review:T72m round
+  1). No registry existed; a table read in the
+  activation's own transaction is the smallest mechanism that needs no new
+  infrastructure, and the database is the one place every replica reaches.
+- **A dead replica stops counting.** A row counts while its last record is
+  under 5 minutes old (`ReplicaExpiry`), measured on the database's clock
+  alone (`seen_at = now()` on record, compared with `now()` on
+  activation), so no replica's clock can make a live replica look dead or
+  keep a dead one counted. A crashed pod blocks an activation it lacks a
+  key for at most 5 minutes; the next record removes its row. A replica
+  whose records fail for 2.5 minutes stops (a critical worker), so a
+  replica never serves uncounted.
+- **The keys come from the code.** `config.Keys()` walks the `Config` type
+  (the YAML name of each field, `[]` for a list's items, `{}` for a map's
+  values: `companies[].release_dual_limit`); no list is kept by hand.
+  `Config.Used()` walks a document the same way and names the keys it sets
+  to a value other than their zero value: a key at its zero value means
+  what its absence means, so a binary without it reads the document the
+  same, and only a set key can be lost. Free-form data (a rule case's
+  `row`) holds no keys.
+- **The refusal.** Every activation (`:activate`, and a tenant's first
+  configuration at provisioning) compares the document's keys with those
+  of every replica that counts, before anything is written: a key some
+  replica lacks refuses it with 409 `config.replica_lacks_key`, whose
+  detail names the keys and whose `errors` name each key (`field`) with
+  the versions lacking it (`message`, e.g. `v1.4.0 (0123abcd)`). Once every
+  such replica is upgraded or gone the same request activates. An
+  activation that sets no such key, ordinary ones in a cell of one version
+  included, is unaffected. Not retryable by itself: the caller waits for
+  the upgrade, so no `Retry-After`.
+- **What it does not cover** (decided by default, 06 §6.4): the upgrade
+  that brings this release, whose older replicas record nothing, so the
+  runbook rule (activate after the upgrade completes) holds for that one
+  upgrade; and an older replica started after the activation committed (a
+  rollback, or the old ReplicaSet replacing a pod mid-rollout), which
+  reads the document tolerantly and logs the ignored key, as before.
+  Refusing to start such a replica would block a rollback; that is a
+  question of security posture for the product owner, not built here.
+- **Walkthrough.** None: the walkthrough runs one server, so no replica
+  lacks a key and no step can show the refusal through the public API;
+  `configuration`'s tests show it through `:activate` with a recorded
+  older replica, and the contract names the code.

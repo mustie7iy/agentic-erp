@@ -68,7 +68,7 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Invoice{}, err
 	}
-	in, terms, err := e.posting(ctx, tx, v, sup, *date, order)
+	in, err := e.posting(ctx, tx, v, sup, *date, order)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -76,7 +76,7 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Invoice{}, err
 	}
-	if err := markPosted(ctx, tx, p, v, entry, *date, terms); err != nil {
+	if err := e.markPosted(ctx, tx, p, v, sup, entry, *date, in); err != nil {
 		return Invoice{}, err
 	}
 	posted, err := load(ctx, tx, id, false)
@@ -101,31 +101,30 @@ func (e *Endpoints) postable(ctx context.Context, v Invoice, date *time.Time) er
 }
 
 // posting is the entry an invoice on order (nil without one) posts, with
-// the payment terms it posts with (invoiceTerms) and its supplier's
+// the payment terms it posts with (invoiceTerms, in Terms) and its supplier's
 // withholding taxes (withholding), which the ledger keeps with its open
 // item; what is withheld at invoice is credited to the codes' accounts
 // instead of the supplier.
-func (e *Endpoints) posting(ctx context.Context, tx pgx.Tx, v Invoice, sup partner.Supplier, date time.Time, order *procurement.Order) (ledger.Posting,
-	*ledger.ItemTerms, error) {
+func (e *Endpoints) posting(ctx context.Context, tx pgx.Tx, v Invoice, sup partner.Supplier, date time.Time, order *procurement.Order) (ledger.Posting, error) {
 	taxDate, err := taxDateOf(ctx, tx, v.TaxDate, v.InvoiceDate, v.ReferenceInvoiceID)
 	if err != nil {
-		return ledger.Posting{}, nil, err
+		return ledger.Posting{}, err
 	}
 	t, err := e.calculateTax(ctx, v, taxDate)
 	if err != nil {
-		return ledger.Posting{}, nil, err
+		return ledger.Posting{}, err
 	}
 	lines, grir, err := e.invoiceLines(ctx, v, sup, grirOnly(order), t)
 	if err != nil {
-		return ledger.Posting{}, nil, err
+		return ledger.Posting{}, err
 	}
 	terms, err := e.invoiceTerms(ctx, tx, v, sup, order)
 	if err != nil {
-		return ledger.Posting{}, nil, err
+		return ledger.Posting{}, err
 	}
 	ws, wl, withheld, err := e.withholding(ctx, v, sup)
 	if err != nil {
-		return ledger.Posting{}, nil, err
+		return ledger.Posting{}, err
 	}
 	// The supplier line is the last (invoiceLines): it is owed what the
 	// invoice does not withhold.
@@ -134,17 +133,23 @@ func (e *Endpoints) posting(ctx context.Context, tx pgx.Tx, v Invoice, sup partn
 	posting := invoicePosting(v, v.ID, date)
 	posting.Lines, posting.GRIR, posting.Terms, posting.Withholding = lines, grir, terms, ws
 	posting.TaxDate, posting.TaxItems = &taxDate, t.items
-	return posting, terms, nil
+	return posting, nil
 }
 
-// markPosted records an invoice as posted with its entry and the terms it
-// posted with.
-func markPosted(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, entry ledger.Entry, date time.Time, terms *ledger.ItemTerms) error {
-	if err := keepTerms(ctx, tx, p, v, terms); err != nil {
+// markPosted records an invoice as posted with its entry, the terms it
+// posted with and its documentary-requirement warnings at its tax date
+// (documentaryWarnings).
+func (e *Endpoints) markPosted(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, sup partner.Supplier, entry ledger.Entry, date time.Time,
+	in ledger.Posting) error {
+	if err := keepTerms(ctx, tx, p, v, in.Terms); err != nil {
+		return err
+	}
+	warnings, err := e.documentaryWarnings(ctx, tx, v, sup, *in.TaxDate)
+	if err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET status = 'posted', posting_date = $2, journal_entry_year = $3, journal_entry_id = $4,
-		version = version + 1, updated_by = $5 WHERE id = $1`, v.ID, date, entry.FiscalYear, entry.ID, p.ID); err != nil {
+		version = version + 1, updated_by = $5, documentary_warnings = $6 WHERE id = $1`, v.ID, date, entry.FiscalYear, entry.ID, p.ID, warnings); err != nil {
 		return fmt.Errorf("payables: mark invoice %s posted: %w", v.ID, err)
 	}
 	return nil

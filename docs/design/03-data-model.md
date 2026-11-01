@@ -503,6 +503,20 @@ captured invoice that has since lost its purchase order (a parked invoice
 edited onto accounts) is replayed as `not_evaluable` with the issue
 `no_purchase_order` (F17).
 
+`config.replica` (000181, ADR-0038 rollout) is the cell's running
+replicas, not a tenant's: per replica its id, its version and revision
+(`buildinfo`), the configuration keys its binary knows (`config_keys`,
+`config.Keys()`: every key path of the document type, such as
+`companies[].release_dual_limit`) and when it was last sighted
+(`seen_at`, the database's clock). Each replica records itself at start
+and every 30 seconds as `erp_worker` (`configuration.Replica`) and deletes
+its row when it stops; a row older than 5 minutes no longer counts and is
+removed by the next record. Row-level security is on with a policy that
+lets `erp_app` read every row and write none, so that each tenant's
+activation can compare the keys its document sets (`Config.Used`) with
+every running replica's (409 `config.replica_lacks_key`); its primary key
+is not led by `tenant_id`, as it has none.
+
 ## 3.6 Business partners (`partner`)
 
 ```mermaid
@@ -1554,6 +1568,17 @@ migration runs ahead of the code; invoices are not posted during the
 rollout, as the previous release posts them with the first item's code at
 the invoice date.
 
+A posted invoice's `documentary_warnings` (migration 000182, ADR-0049 §6,
+a JSON array, empty by default and before posting) are what its document
+may lack for its input tax to be recovered, recorded when it posts from
+the company's `tax_settings.documentary_requirements` (from the country
+pack): each requirement (`supplier_tax_id`, the supplier's partner holding
+a tax identifier of the company's country; `item_descriptions`) of a tier its gross amount, in the
+company's currency at the tax date's rate of `tax_settings.rate_type`,
+reaches (all tiers, marked unassessed, when no rate converts it).
+Warnings, never refusals. The column has a default and the
+previous release names its columns, so the migration runs ahead.
+
 A supplier invoice is of a `kind` (migration 000059, T34a), as SAP's MIRO
 transactions are: `invoice`, `credit_memo`, `subsequent_debit` or
 `subsequent_credit`, fixed once entered (trigger
@@ -2177,7 +2202,14 @@ version from before T46c must not release a run a newer one proposed with
 request payments, which it would settle as items payments without items. A
 proposed run whose
 request's tax code ended since is refused at release (409
-`payments.proposal_outdated`). The release posts a
+`payments.proposal_outdated`). Since the T61d follow-up (ADR-0049 §4) a
+request whose stated tax differs from the tax its amount includes at the
+run date's rate is left out with `tax_code_invalid` too, and refused at
+release when the rate changed after the proposal; the exclusion names the
+code and both rates (`request_exclusion.tax_code`, `request_tax_rate`, the
+code's rate on the request's due date, and `run_tax_rate`, absent when the
+code is not valid on the run date; migration 000182, a check that only
+that reason names a code, rates only with a code, each 0 to below 100). The release posts a
 request's payment through `ledger.Postings.PayDownPayment`: Dr the down
 payment account as the supplier's special G/L item A, net of tax; Dr input
 tax on the request's tax code; Cr bank, with the payment as its source
@@ -2712,4 +2744,23 @@ of the registration's companies dated on or before the period's end, by
 the boxes of the country pack's `returns.yaml`. Migration 000174 adds the
 partial index `ledger.tax_item_unreported` (`tenant_id`, `legal_entity_id`,
 `tax_date` where `reported_in` is null) the selection reads, and the
-permission `tax.return.read`. T61i stores the prepared return.
+permission `tax.return.read`.
+
+A prepared return is stored (ADR-0049 §11 As built, T61i; migration
+000179, which also creates the context's outbox, `tax.outbox`, and the
+permissions `tax.return.prepare`, `tax.return.approve` and
+`tax.return.file`):
+
+| Table | Purpose |
+|---|---|
+| `tax.tax_return` | A return of a registration's period: `original`, or `amendment` of the period's filed return (`amends_id`, `tax_return_amends`, `tax_return_amends_filed`); its status `prepared` -> `approved` -> `filed`, or `withdrawn` or `rejected` before filing (`tax_return_transition`, each move setting its own fields alone, `tax_return_fixed`); the definition and pack version its boxes follow, its currency, item count and `items_hash` (SHA-256 of its items' keys and local amounts), the prior-period figures; its `tax_return` approval request (workflow context), the approver, never its creator (`tax_return_four_eyes`), the filing's confirmation number and date, after the period's end (`tax_return_filed`), and who withdrew or rejected it and why (`tax_return_ended`). One return of a period in progress (`tax_return_in_progress`) and one original that stands (`tax_return_one_original`) |
+| `tax.tax_return_box` | The snapshot's boxes in the definition's order: amount, prior-period part, the period's corrected amount and a selection box's item count (`tax_return_box_items`); written while the return is prepared (`tax_return_snapshot`), insert-only |
+| `tax.tax_return_item` | The keys of the ledger's tax items the return claimed (no foreign key across the schema); written while it is prepared, insert-only |
+
+The items' `ledger.tax_item.reported_in` names the return while it stands:
+set from null when it is prepared and released to null when it is withdrawn
+or rejected, never moved to another (`tax_item_fixed`), and held at commit to
+a standing return whose snapshot claims the item, of a company its
+registration covers, dated by its period's end, or released by one ended
+(`tax_item_reported`, a deferred trigger of the tax filing context, served
+by `ledger.tax_item_reported_in`, built concurrently by migration 000180).

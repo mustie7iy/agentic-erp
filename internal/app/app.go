@@ -188,7 +188,7 @@ func New(cfg Config) (http.Handler, error) {
 	sessions := &identity.Sessions{Pool: cfg.Pool, AppRole: cfg.AppRole, Now: cfg.Now}
 	h := handler{
 		operationsAPI: &operations.Endpoints{Pages: cfg.Pages, Workflows: cfg.Workflows, Log: cfg.Log},
-		tenancyAPI:    &tenancy.Endpoints{Pages: cfg.Pages},
+		tenancyAPI:    &tenancy.Endpoints{Pages: cfg.Pages, Days: configuration.Settings{}, Now: cfg.Now},
 		identityAPI:   &identity.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Certifications: certifications(cfg), Sessions: sessions},
 		configAPI: &configuration.Endpoints{Pages: cfg.Pages, Packs: library, RefuseUnsignedPacks: cfg.RefuseUnsignedPacks,
 			Dependencies: Configuration(cfg)},
@@ -207,7 +207,7 @@ func New(cfg Config) (http.Handler, error) {
 		cashAPI:        Cash(cfg),
 		controllingAPI: &controlling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{}},
 		taxfilingAPI: &taxfiling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now,
-			Items: ledger.TaxItems{}, Packs: library},
+			Items: ledger.TaxItems{}, Packs: library, Approvals: opener(), Periods: ledger.ReturnPeriods{}},
 	}
 	return httpapi.New(h, httpapi.Pipeline{
 		Pool: cfg.Pool, AppRole: cfg.AppRole, Verifier: cfg.Verifier, Limits: cfg.Limits, RequestTimeout: cfg.RequestTimeout,
@@ -321,6 +321,7 @@ func approvalHandlers(cfg Config) map[string]approvals.Handler {
 		approvals.CenterChange:      ledger.CenterChanges{LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now},
 		approvals.PaymentRunRelease: payments.ReleaseApprovals{Endpoints: Payments(cfg)},
 		approvals.GRIRClearing:      procurement.GRIRClearings{Endpoints: procurementEndpoints(cfg)},
+		approvals.TaxReturn:         taxfiling.TaxReturns{Endpoints: &taxfiling.Endpoints{Items: ledger.TaxItems{}}},
 	}
 }
 

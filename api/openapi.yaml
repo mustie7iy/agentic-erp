@@ -448,6 +448,37 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/legal-entities/{id}/today:
+    get:
+      operationId: getLegalEntityToday
+      tags:
+        - tenancy
+      summary: A legal entity's date today
+      description: "The legal entity's date now in its company's time zone (`companies[].time_zone` of the active configuration; UTC when that configuration has no company of the legal entity's code, or one activated before the zone was required (2026-10-31) that sets none, as every date the API judges for the company then is; ADR-0051 as built, T72n1), and that zone: the day the API takes as the company's today, where a posting date left out defaults to it, so a client pre-fills a form's dates (a posting date, a payment run's run date, a report's key date) with the company's day rather than UTC's. At 22:00 on 17 April in America/Toronto (02:00 UTC on the 18th) it is the 17th; at 01:00 on 17 April in Asia/Dubai (21:00 UTC on the 16th) it is the 17th. A legal entity the caller cannot act in is not found; without an active configuration to read the time zone from, 409 `config.not_bootstrapped`. Changes nothing."
+      x-permission: tenancy.org.read
+      x-problem-codes:
+        - config.not_bootstrapped
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The legal entity's date and the time zone it is in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LegalEntityToday"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/org-units:
     get:
       operationId: listOrgUnits
@@ -2422,7 +2453,7 @@ paths:
       tags:
         - configuration
       summary: Activate a change request
-      description: "Creates and activates a new configuration version from an approved change request; each context applies its part. Human-only. Requires status `approved`; a change of validation rules also needs a passed simulation of this exact proposal (409 `config.rules_not_simulated`). The ledger checks the controlling rules again against its data, which may have changed since submission (a default cost or profit center no longer usable, postings in the year a center accounting switch turns on, a removed cost center category in use): 409 `ledger.controlling_invalid`, naming each finding (ADR-0050 §4). A tax registration whose company, group, authority, number, return type, frequency or first period changed under its code since submission is refused: 409 `tax.registration_fixed` (ADR-0049 §10)."
+      description: "Creates and activates a new configuration version from an approved change request; each context applies its part. Human-only. Requires status `approved`; a change of validation rules also needs a passed simulation of this exact proposal (409 `config.rules_not_simulated`). The ledger checks the controlling rules again against its data, which may have changed since submission (a default cost or profit center no longer usable, postings in the year a center accounting switch turns on, a removed cost center category in use): 409 `ledger.controlling_invalid`, naming each finding (ADR-0050 §4). A tax registration whose company, group, authority, number, return type, frequency or first period changed under its code since submission is refused: 409 `tax.registration_fixed` (ADR-0049 §10). While replicas of several versions run (a rolling upgrade), a proposal setting a key that a running replica's version does not know, which it would ignore (a company's `release_dual_limit`), is refused: 409 `config.replica_lacks_key`, each such key in `errors` (`field` the key's path, e.g. `companies[].release_dual_limit`, and the versions lacking it in `message`); activate it once every replica runs a version that knows the key (ADR-0038)."
       x-permission: config.change.activate
       x-agent: false
       x-problem-codes:
@@ -2430,6 +2461,7 @@ paths:
         - config.base_version_stale
         - config.invalid_status
         - config.not_bootstrapped
+        - config.replica_lacks_key
         - config.rules_not_simulated
         - config.unknown_base_version
         - config.unknown_keys
@@ -14060,6 +14092,273 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/tax-registrations/{id}/returns":
+    get:
+      operationId: listTaxReturns
+      tags:
+        - tax
+      summary: List a tax registration's returns
+      description: "The returns prepared for a registration (ADR-0049 §11, T61i), in every status, by period start, filtered by period and status: an original per period and the amendments that correct a filed one. A registration the caller does not see (`listTaxRegistrations`) is not found. Sortable by: `period_start`."
+      x-permission: tax.return.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: period_start
+          in: query
+          required: false
+          description: "Only the returns of the period starting on this day."
+          schema:
+            type: string
+            format: date
+        - name: status
+          in: query
+          required: false
+          description: "Only the returns in this status (`prepared`, `approved`, `filed`, `withdrawn`, `rejected`)."
+          schema:
+            type: string
+            maxLength: 20
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: "One page of the registration's returns."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaxReturnPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: prepareTaxReturn
+      tags:
+        - tax
+      summary: Prepare a tax return
+      description: "Prepares the registration's return for one of its ended periods (ADR-0049 §11, T61i): a snapshot of the draft (`getTaxReturnDraft`) as it stands, its boxes, the keys of the tax items it claims and their hash, and the country pack version that defines it. The items' `reported_in` is set in the same transaction under a lock on the registration, so an item is reported in one return and two prepares of one period cannot both succeed; the draft of the period and later drafts no longer read them. Every fiscal period of the leading ledger of the registration's companies overlapping the tax period must be closed or locked, so no posting is under way (409 `tax.fiscal_period_open`, naming the period); items posted later in an open period with an earlier tax date are claimed as the draft reads them. It opens a `tax_return` approval request (`approval_request_id`), which a holder of the role `tax_manager` with `tax.return.approve` decides, never the preparer and never an agent; approved, the return is recorded as filed (`fileTaxReturn`). Event `TaxReturnPrepared`. `kind` `amendment` corrects the period's filed return (P7: when a correction must not wait for the next return): it claims the unreported items dated within the period, which arrived after the filing, and gives each box its correction (`amount`) and the period's corrected figure (`corrected_amount`), by the amended return's pack version; without a filed return of the period, or with nothing to correct, 409 `tax.nothing_to_amend`. One original stands per period (409 `tax.return_exists`) and one return of a period is in progress at a time (409 `tax.return_in_progress`). Refused as `getTaxReturnDraft` is otherwise. Human-only."
+      x-permission: tax.return.prepare
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - ledger.no_exchange_rate
+        - tax.fiscal_period_open
+        - tax.invalid_kind
+        - tax.not_a_period
+        - tax.nothing_to_amend
+        - tax.period_not_ended
+        - tax.registration_companies
+        - tax.return_currency_mixed
+        - tax.return_exists
+        - tax.return_in_progress
+        - tax.return_undefined
+        - workflow.no_policy
+        - workflow.request_pending
+        - workflow.unknown_role
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The period and kind of the return prepared.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaxReturnPrepare"
+      responses:
+        "201":
+          description: "Created; the prepared return, pending its approval request."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaxReturn"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/tax-returns/{id}":
+    get:
+      operationId: getTaxReturn
+      tags:
+        - tax
+      summary: Get a tax return
+      description: "Returns one tax return (ADR-0049 §11, T61i), the object of a `tax_return` approval request (its `object_id`): its snapshot, status and who moved it. A return of a registration the caller does not see is not found."
+      x-permission: tax.return.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The tax return.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaxReturn"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/tax-returns/{id}:file":
+    post:
+      operationId: fileTaxReturn
+      tags:
+        - tax
+      summary: Record a tax return as filed
+      description: "Records that a person filed the approved return with the authority on its portal, with the authority's confirmation number and the date it gives (ADR-0049 P3: the ERP files nothing itself). The snapshot is final from then on. Recording it filed locks the fiscal periods of the leading ledger of the registration's companies that overlap its tax period, those not yet locked, as `lockFiscalPeriod` does (events `PeriodLocked`; `TaxReturnFiled`'s `locked_periods` names them, and `listFiscalPeriods` shows them `locked`): an item dated in the period that arrives later is posted in an open period and reported in the next return or an amendment. A period reopened since the return was prepared is refused (409 `tax.fiscal_period_open`). `filed_on` lies after the period's end and not after the registrant's date today in its time zone (422 `tax.invalid_filed_on`); a confirmation number of only spaces is 422 `tax.confirmation_required`. Requires status `approved` (409 `tax.invalid_return_status`). Event `TaxReturnFiled`. Human-only."
+      x-permission: tax.return.file
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - ledger.invalid_period_status
+        - request.version_mismatch
+        - tax.confirmation_required
+        - tax.fiscal_period_open
+        - tax.invalid_filed_on
+        - tax.invalid_return_status
+        - tax.registration_companies
+        - tax.return_exists
+        - tax.return_in_progress
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: "The authority's confirmation of the filing."
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaxReturnFile"
+      responses:
+        "200":
+          description: The tax return, filed.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaxReturn"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/tax-returns/{id}:withdraw":
+    post:
+      operationId: withdrawTaxReturn
+      tags:
+        - tax
+      summary: Withdraw a tax return before it is filed
+      description: "Withdraws a prepared or approved return that is not filed (ADR-0049 §11): its pending approval request is cancelled and its tax items are released, so the period's draft reads them again and a return of the period can be prepared anew. The snapshot is kept, with who withdrew it and why. A filed return is not withdrawn but amended (`prepareTaxReturn` with `kind` `amendment`). Requires status `prepared` or `approved` (409 `tax.invalid_return_status`). Event `TaxReturnWithdrawn`. Human-only."
+      x-permission: tax.return.prepare
+      x-agent: false
+      x-problem-codes:
+        - request.version_mismatch
+        - tax.invalid_return_status
+        - tax.registration_companies
+        - tax.return_exists
+        - tax.return_in_progress
+        - workflow.request_pending
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Why the return is withdrawn.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonInput"
+      responses:
+        "200":
+          description: The tax return, withdrawn.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaxReturn"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/approval-requests:
     get:
       operationId: listApprovalRequests
@@ -14105,6 +14404,7 @@ paths:
               - center_change
               - gr_ir_clearing
               - payment_run_release
+              - tax_return
         - name: object_id
           in: query
           required: false
@@ -14235,7 +14535,7 @@ paths:
       tags:
         - workflow
       summary: Approve an approval request
-      description: "Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`); the requester cannot approve; a person approves a request at most once. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The request is `approved` when the last step is complete, and the object moves on (a requisition becomes `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry is posted, a bank statement line is posted). A manual entry is checked again as it is posted: when that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the parked entry's), the approval is refused and the request stays pending; so is a bank statement line's posting (`bank_clearing`) and a GR/IR clearing's (`gr_ir_clearing`, 409 `ledger.gr_ir_clearing_outdated` when a position moved since it was proposed), and whoever matched the line by hand cannot approve its posting (403 `workflow.segregation_of_duties`). A payment run's release (`payment_run_release`) is approved by a holder of the release role who did not propose the run (403 `workflow.segregation_of_duties`); the approval does not release it. A change request whose latest regression evidence replayed no case (a suite captured with `allow_empty`) is approved only with a comment acknowledging that (422 `workflow.acknowledgement_required`)."
+      description: "Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`); the requester cannot approve; a person approves a request at most once. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The request is `approved` when the last step is complete, and the object moves on (a requisition becomes `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry is posted, a bank statement line is posted, a tax return becomes `approved` by a holder of `tax_manager` who did not prepare it). A manual entry is checked again as it is posted: when that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the parked entry's), the approval is refused and the request stays pending; so is a bank statement line's posting (`bank_clearing`) and a GR/IR clearing's (`gr_ir_clearing`, 409 `ledger.gr_ir_clearing_outdated` when a position moved since it was proposed), and whoever matched the line by hand cannot approve its posting (403 `workflow.segregation_of_duties`). A payment run's release (`payment_run_release`) is approved by a holder of the release role who did not propose the run (403 `workflow.segregation_of_duties`); the approval does not release it. A change request whose latest regression evidence replayed no case (a suite captured with `allow_empty`) is approved only with a comment acknowledging that (422 `workflow.acknowledgement_required`)."
       x-permission: workflow.request.decide
       x-agent: false
       x-problem-codes:
@@ -14336,6 +14636,8 @@ paths:
         - request.invalid_amount
         - request.validation_failed
         - request.version_mismatch
+        - tax.return_exists
+        - tax.return_in_progress
         - workflow.acknowledgement_required
         - workflow.already_approved
         - workflow.not_pending
@@ -14436,6 +14738,7 @@ paths:
         center_change: ledger.cost_center.approve
         payment_run_release: payments.run.release
         gr_ir_clearing: procurement.gr_ir.clear.approve
+        tax_return: tax.return.approve
   "/v1/approval-requests/{id}:reject":
     post:
       operationId: rejectApprovalRequest
@@ -14443,7 +14746,7 @@ paths:
       tags:
         - workflow
       summary: Reject an approval request
-      description: "Rejects the request with a mandatory comment. Human-only; the requester cannot reject. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions`. The object is rejected with it (for example a supplier invoice exception leaves the invoice `rejected`); a payment run whose release is rejected (`payment_run_release`) is rejected too, its items freed (product owner 2026-10-25)."
+      description: "Rejects the request with a mandatory comment. Human-only; the requester cannot reject. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions`. The object is rejected with it (for example a supplier invoice exception leaves the invoice `rejected`); a payment run whose release is rejected (`payment_run_release`) is rejected too, its items freed (product owner 2026-10-25); a rejected tax return (`tax_return`) releases its tax items."
       x-permission: workflow.request.decide
       x-agent: false
       x-problem-codes:
@@ -14463,6 +14766,8 @@ paths:
         - procurement.invalid_status
         - procurement.requisition_ordered
         - request.version_mismatch
+        - tax.return_exists
+        - tax.return_in_progress
         - workflow.already_approved
         - workflow.not_pending
         - workflow.own_request
@@ -14524,6 +14829,7 @@ paths:
         center_change: ledger.cost_center.approve
         payment_run_release: payments.run.release
         gr_ir_clearing: procurement.gr_ir.clear.approve
+        tax_return: tax.return.approve
   "/v1/approval-requests/{id}:cancel":
     post:
       operationId: cancelApprovalRequest
@@ -14548,6 +14854,8 @@ paths:
         - procurement.invalid_status
         - procurement.requisition_ordered
         - request.version_mismatch
+        - tax.return_exists
+        - tax.return_in_progress
         - workflow.already_approved
         - workflow.not_pending
         - workflow.not_requester
@@ -18347,6 +18655,16 @@ components:
               status: active
               extensions:
                 cost_object_hint: MKT-2026
+    LegalEntityToday:
+      type: object
+      description: "A legal entity's date today (getLegalEntityToday): its company's date in its time zone."
+      required: [legal_entity_id, date, time_zone]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The legal entity.", readOnly: true}
+        date: {type: string, format: date, description: "The company's date at the read, in `time_zone`: at 22:00 in America/Toronto it is still that day.", readOnly: true}
+        time_zone: {type: string, description: "The IANA time zone `date` is in: the company's configured `time_zone`, or `UTC` when the active configuration has no company of the legal entity's code, or one activated before the zone was required (2026-10-31) that sets none.", readOnly: true}
+      examples:
+        - {legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41", date: "2026-04-17", time_zone: America/Toronto}
     OrgUnit:
       description: An organizational unit of a legal entity (purchasing organization, plant, storage location, sales organization).
       allOf:
@@ -27953,6 +28271,69 @@ components:
           amount:
             amount: "1080.00"
             currency: EUR
+    DocumentaryWarning:
+      type: object
+      description: "A documentary requirement of input tax recovery the invoice may not meet (ADR-0049 §6), from one tier of the company's documentary requirements."
+      required:
+        - code
+        - requirement
+        - threshold
+        - threshold_inclusive
+        - source
+        - pending_sign_off
+        - unassessed
+        - message
+      properties:
+        code:
+          type: string
+          description: "What is missing. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. `supplier_tax_id_missing`: the supplier's business partner holds no tax identifier of the company's country (a scheme named after it, such as `CA_GST`), the registration number the document must show; `item_description_missing`: an item without an order has no description."
+          x-extensible-enum:
+            - supplier_tax_id_missing
+            - item_description_missing
+          readOnly: true
+        requirement:
+          type: string
+          description: "The tier's requirement: `supplier_tax_id` or `item_descriptions`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - supplier_tax_id
+            - item_descriptions
+          readOnly: true
+        threshold:
+          $ref: "#/components/schemas/Money"
+          description: "The tier's threshold in the company's currency, which the invoice's gross amount, converted at the tax date's rate of the company's tax rate type, reaches."
+          readOnly: true
+        threshold_inclusive:
+          type: boolean
+          description: "Whether a total equal to the threshold is in the tier (Canada: $100 or more) or only one above it (the UAE: above AED 10,000)."
+          readOnly: true
+        source:
+          type: string
+          description: The law or regulation the tier rests on.
+          readOnly: true
+        pending_sign_off:
+          type: boolean
+          description: "Whether the tier still awaits the tax specialist's confirmation."
+          readOnly: true
+        unassessed:
+          type: boolean
+          description: "Whether the invoice's total could not be converted into the company's currency on its tax date (no rate of the company's tax rate type): every tier is then reported, for a person to check whether it applies, rather than the posting refused."
+          readOnly: true
+        message:
+          type: string
+          description: The warning for people.
+          readOnly: true
+      additionalProperties: false
+      examples:
+        - code: supplier_tax_id_missing
+          requirement: supplier_tax_id
+          threshold:
+            amount: "100.00"
+            currency: CAD
+          threshold_inclusive: true
+          source: "SOR/91-45 s. 3(b): $100 or more and less than $500, the supplier's registration number"
+          pending_sign_off: false
+          unassessed: false
+          message: "The supplier has no tax identifier of the company's country; its registration number must be on the document for the input tax of a document of 100.00 CAD or more to be recovered (SOR/91-45 s. 3(b): $100 or more and less than $500, the supplier's registration number)."
     SupplierInvoice:
       description: A supplier invoice (accounts payable).
       allOf:
@@ -27970,6 +28351,7 @@ components:
             - source
             - items
             - extensions
+            - documentary_warnings
           properties:
             document_number:
               type: string
@@ -28077,6 +28459,12 @@ components:
             extensions:
               $ref: "#/components/schemas/Extensions"
               description: Custom fields.
+            documentary_warnings:
+              type: array
+              items:
+                $ref: "#/components/schemas/DocumentaryWarning"
+              description: "What the invoice's document may lack for its input tax to be recovered, by the company's documentary requirements (its `tax_settings`, from the country pack: Canada's $100 and $500 tiers, the UAE's threshold), recorded when the invoice posts (ADR-0049 §6). Warnings, never refusals: the business may post and decide not to claim. Empty before posting, for an invoice or subsequent debit claiming no tax, for a credit memo or subsequent credit, and for invoices posted before the check existed."
+              readOnly: true
             expanded:
               $ref: "#/components/schemas/Expanded"
               description: Expanded references.
@@ -28109,6 +28497,7 @@ components:
                 currency: EUR
           extensions:
             cost_object_hint: MKT-2026
+          documentary_warnings: []
     SupplierInvoiceCreate:
       type: object
       description: "Enter a supplier invoice. It is created `parked`."
@@ -29328,7 +29717,7 @@ components:
           readOnly: true
         reason_code:
           type: string
-          description: "Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. A release also excludes, with `item_reversed` or `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid. `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run date (T46c); a request's exclusion names it (`down_payment_request_id`, `down_payment_request_number`), and the supplier's items may still be paid. `no_house_bank` leaves out a supplier, or a request, of a run proposed without a house bank when none of the supplier's payment methods has a house bank ranked for the run currency (T45c)."
+          description: "Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. A release also excludes, with `item_reversed` or `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid. `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run date (T46c), or whose stated tax no longer matches the tax at the run date's rate (ADR-0049 §4), naming the code and both rates (`tax_code`, `request_tax_rate_percent`, `run_date_tax_rate_percent`); a request's exclusion names it (`down_payment_request_id`, `down_payment_request_number`), and the supplier's items may still be paid. `no_house_bank` leaves out a supplier, or a request, of a run proposed without a house bank when none of the supplier's payment methods has a house bank ranked for the run currency (T45c)."
           x-extensible-enum:
             - supplier_blocked
             - payment_blocked
@@ -29354,6 +29743,18 @@ components:
           $ref: "#/components/schemas/Money"
           description: Amount that would otherwise have been paid.
           readOnly: true
+        tax_code:
+          type: string
+          description: "The request's input tax code, when the request was left out with `tax_code_invalid` (absent on exclusions recorded before it was named)."
+          readOnly: true
+        request_tax_rate_percent:
+          $ref: "#/components/schemas/Decimal"
+          description: "The code's rate in percent on the request's due date, at which the request's tax was calculated; absent without `tax_code`, or when the code has no single rate on that date."
+          readOnly: true
+        run_date_tax_rate_percent:
+          $ref: "#/components/schemas/Decimal"
+          description: "The code's rate in percent on the run date, at which the request would be paid; absent without `tax_code`, or when the code is not valid on the run date as an input code of one component."
+          readOnly: true
       examples:
         - supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
           supplier_name: Tyrell Office Products
@@ -29369,6 +29770,9 @@ components:
           amount:
             amount: "1190.00"
             currency: EUR
+          tax_code: V19
+          request_tax_rate_percent: "19"
+          run_date_tax_rate_percent: "16"
     PaymentExclusionPage:
       type: object
       description: One page of payment exclusions.
@@ -29949,6 +30353,135 @@ components:
           maxLength: 2048
       examples:
         - {box: output_tax, currency: CAD, items: [{fiscal_year: 2026, journal_entry_id: 0192a000-0000-7000-8000-000000000e21, document_number: "100028", posting_date: "2026-11-01", header_text: "Billing: invoice 1039", item_no: 1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: "3000", tax_date: "2026-09-30", tax_code: GO5, component: gst, jurisdiction: CA, direction: output, kind: standard, account_key: output, base: {amount: "-1000.00", currency: CAD}, tax: {amount: "-50.00", currency: CAD}, recoverable: {amount: "0.00", currency: CAD}, box_amount: {amount: "50.00", currency: CAD}, prior_period: false}]}
+    TaxReturnPrepare:
+      type: object
+      description: "The return to prepare: the period's, as an original or as an amendment of its filed return."
+      required: [period_start]
+      additionalProperties: false
+      properties:
+        period_start: {type: string, format: date, description: "The first day of one of the registration's ended periods (`listTaxPeriods`)."}
+        kind:
+          type: string
+          description: "`original` (the default): the period's return; `amendment`: a correction of its filed return; another value is 422 `tax.invalid_kind`. Open enumeration: values may be added within /v1."
+          x-extensible-enum: [original, amendment]
+          maxLength: 20
+      examples:
+        - {period_start: "2026-07-01"}
+    TaxReturnFile:
+      type: object
+      description: "The authority's confirmation of a return a person filed on its portal (ADR-0049 P3)."
+      required: [confirmation_number, filed_on]
+      additionalProperties: false
+      properties:
+        confirmation_number: {type: string, minLength: 1, maxLength: 100, description: "The confirmation number the authority gave the filing."}
+        filed_on: {type: string, format: date, description: "The date the authority confirmed the filing on."}
+      examples:
+        - {confirmation_number: "CRA-2026-1015-00042", filed_on: "2026-10-15"}
+    TaxReturn:
+      description: "A tax return of a registration's period (ADR-0049 §11, T61i): the snapshot of its draft when it was prepared, which never changes, and its status. It moves `prepared` -> `approved` (by a person other than the preparer, through its approval request) -> `filed` (a person records the authority's confirmation), or to `withdrawn` or `rejected` before filing, which releases its items to the next return. Amounts are in its `currency`."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [registration_id, registration_code, kind, period_start, period_end, status, return_type, return_name, pack, currency, item_count, items_hash, prior_period, boxes, approval_request_id]
+          properties:
+            registration_id: {type: string, format: uuid, description: "The registration it is filed under.", readOnly: true}
+            registration_code: {type: string, description: "The registration's code.", readOnly: true}
+            kind:
+              type: string
+              description: "`original`, or `amendment` of the period's filed return (`amends_id`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [original, amendment]
+              readOnly: true
+            amends_id: {type: string, format: uuid, description: "The filed return of the period an amendment corrects (`getTaxReturn`); absent for an original.", readOnly: true}
+            period_start: {type: string, format: date, description: "The period's first day.", readOnly: true}
+            period_end: {type: string, format: date, description: "The period's last day.", readOnly: true}
+            status:
+              type: string
+              description: "Tax return status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [prepared, approved, filed, withdrawn, rejected]
+              readOnly: true
+            return_type: {type: string, description: "The return type, as the registration and the country pack name it.", readOnly: true}
+            return_name: {type: string, description: "The return's name in the country pack.", readOnly: true}
+            pack:
+              type: object
+              description: "The country pack whose definition the boxes follow."
+              readOnly: true
+              required: [country, version]
+              properties:
+                country: {type: string, description: "The pack's country (ISO 3166-1 alpha-2)."}
+                version: {type: string, description: "The pack's version (YYYY.N)."}
+            currency: {type: string, description: "The registrant's local currency, which every amount is in (ISO 4217).", readOnly: true}
+            item_count: {type: integer, format: int64, description: "The tax items the return claimed: their `reported_in` names it while it stands.", readOnly: true}
+            items_hash: {type: string, description: "SHA-256 (hex) of the claimed items' keys and local amounts, one line `fiscal_year|journal_entry_id|item_no|base|tax|recoverable` each in key order, amounts in minor units: the snapshot's evidence.", readOnly: true}
+            prior_period:
+              type: object
+              description: "The claimed items dated before the period's start (P7), as the draft showed them."
+              readOnly: true
+              required: [item_count, tax, above_threshold]
+              properties:
+                item_count: {type: integer, format: int64, description: "The prior-period items claimed."}
+                tax: {$ref: "#/components/schemas/Money", description: "Their tax, signed like the journal (debit positive)."}
+                threshold: {$ref: "#/components/schemas/Money", description: "The country pack's threshold; absent when the pack sets none."}
+                above_threshold: {type: boolean, description: "Whether, of any one earlier period, the input or the output tax of its items exceeds the threshold in magnitude (provisional, ADR-0049 §11)."}
+            boxes:
+              type: array
+              description: "The return's boxes in the definition's order."
+              readOnly: true
+              items: {$ref: "#/components/schemas/TaxReturnSnapshotBox"}
+            approval_request_id: {type: string, format: uuid, description: "The `tax_return` approval request (workflow context) it waits for or was decided on (`getApprovalRequest`).", readOnly: true}
+            approved_by: {type: string, format: uuid, description: "The person who approved it, never its preparer (`created_by`); absent until approved.", readOnly: true}
+            approved_at: {type: string, format: date-time, description: "When it was approved (UTC).", readOnly: true}
+            filing:
+              type: object
+              description: "The filing a person recorded; absent until filed."
+              readOnly: true
+              required: [confirmation_number, filed_on, recorded_by, recorded_at]
+              properties:
+                confirmation_number: {type: string, description: "The authority's confirmation number."}
+                filed_on: {type: string, format: date, description: "The date the authority confirmed the filing on."}
+                recorded_by: {type: string, format: uuid, description: "The person who recorded it."}
+                recorded_at: {type: string, format: date-time, description: "When it was recorded (UTC)."}
+            decision:
+              type: object
+              description: "Who withdrew or rejected it and why; absent while it stands."
+              readOnly: true
+              required: [decided_by, decided_at]
+              properties:
+                decided_by: {type: string, format: uuid, description: "The person who withdrew it, or who rejected its approval request."}
+                decided_at: {type: string, format: date-time, description: "When (UTC)."}
+                comment: {type: string, description: "The reason or the decision's comment; absent when none was given."}
+      examples:
+        - {id: 0192a000-0000-7000-8000-000000000e31, version: 3, created_at: "2026-10-05T14:00:00Z", created_by: 0192a000-0000-7000-8000-000000000101, updated_at: "2026-10-15T09:30:00Z", updated_by: 0192a000-0000-7000-8000-000000000101, registration_id: 0192a000-0000-7000-8000-000000000e01, registration_code: GSTHST, kind: original, period_start: "2026-07-01", period_end: "2026-09-30", status: filed, return_type: GST34, return_name: "Illustrative return", pack: {country: CA, version: "2026.3"}, currency: CAD, item_count: 2, items_hash: "9f2c1e0b5a7d3c4e8f6a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a6", prior_period: {item_count: 1, tax: {amount: "-10.00", currency: CAD}, above_threshold: false}, boxes: [{code: output_tax, label: "Output tax", kind: selection, amount: {amount: "60.00", currency: CAD}, prior_period_amount: {amount: "10.00", currency: CAD}, corrected_amount: {amount: "60.00", currency: CAD}, item_count: 2}], approval_request_id: 0192a000-0000-7000-8000-000000000e32, approved_by: 0192a000-0000-7000-8000-000000000105, approved_at: "2026-10-06T10:00:00Z", filing: {confirmation_number: "CRA-2026-1015-00042", filed_on: "2026-10-15", recorded_by: 0192a000-0000-7000-8000-000000000101, recorded_at: "2026-10-15T09:30:00Z"}}
+    TaxReturnSnapshotBox:
+      type: object
+      description: "A box of a prepared tax return, as its items summed when it was prepared."
+      required: [code, label, kind, amount, prior_period_amount, corrected_amount]
+      properties:
+        code: {type: string, description: "The box's code in the return's definition.", readOnly: true}
+        label: {type: string, description: "The box's label in the return's definition.", readOnly: true}
+        kind:
+          type: string
+          description: "`selection`: a sum of one measure of the tax items the box selects; `expression`: computed from earlier boxes. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [selection, expression]
+          readOnly: true
+        amount: {$ref: "#/components/schemas/Money", description: "The box's value from this return's items, prior-period items included: an amendment's correction."}
+        prior_period_amount: {$ref: "#/components/schemas/Money", description: "The part of `amount` from prior-period items."}
+        corrected_amount: {$ref: "#/components/schemas/Money", description: "The period's figure after this return: an original's `amount`; an amendment's, the amended return's plus its own (of an expression box, its expression over the corrected boxes)."}
+        item_count: {type: integer, format: int64, description: "The items a selection box sums; absent for an expression box.", readOnly: true}
+    TaxReturnPage:
+      type: object
+      description: "One page of a registration's tax returns."
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/TaxReturn"}
+          description: The returns on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - {items: []}
     BankReconciliation:
       type: object
       description: "One page of a house bank's reconciliation report (ADR-0047, T49h): the period's figures, and its statements on this page with their figures and lines. Amounts are signed: a credit to the account is positive, as on the statements; a ledger balance is debit positive, so the two agree when equal."
@@ -30969,6 +31502,7 @@ components:
                 - center_change
                 - gr_ir_clearing
                 - payment_run_release
+                - tax_return
               readOnly: true
             object_id:
               type: string

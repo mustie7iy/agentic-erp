@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -303,6 +302,3 @@ func (s *Server) reverseEntry(w http.ResponseWriter, r *http.Request, p *person)
 		s.showEntry(w, r, p, m, id, int(prob.Status), t, explainIn(i18n.EntryProblems, i18n.ReverseRefusedTitle, prob, m))
 	}
 }
-
-// today is the clock's date, the entry form's default dates.
-func (s *Server) today() string { return s.now().Format(time.DateOnly) }

@@ -39,7 +39,9 @@ func renderGroups(gs []ledger.TaxItemGroup) string {
 // grouped, those before its start apart as prior-period items; the items
 // of an entry migrated from SAP left out (ADR-0037, T72c); a reported item
 // left out; a box's items paged in tax date and entry order, chosen as
-// the groups are; only of legal entities the caller may act in.
+// the groups are; only of legal entities the caller may act in, as a
+// return's claim and its fiscal periods are (taxfiling's tests prepare
+// returns).
 func TestUnreportedTaxItems(t *testing.T) {
 	e := setup(t)
 	outputCodes(t, e)
@@ -49,7 +51,10 @@ func TestUnreportedTaxItems(t *testing.T) {
 	e.Must(201, "POST", "/v1/journal-entries", saleEntry(t, e, saleLine{"100000", "105.00", "", ""}, saleLine{"400000", "-100.00", "S5", "AE-DU"},
 		saleLine{"240000", "-5.00", "S5", "AE-DU"}), "")
 	reported, _ := e.Must(201, "POST", "/v1/journal-entries", taxedEntry(t, e, "2026-03-11", ""), "")
-	pgtest.Exec(t, `UPDATE ledger.tax_item SET reported_in = gen_random_uuid() WHERE journal_entry_id = $1`, apitest.String(t, reported, "id"))
+	// Reported in a return: the tax filing context's check that the return
+	// stands and claims it is off (taxfiling's tests prepare them).
+	pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica;
+		UPDATE ledger.tax_item SET reported_in = gen_random_uuid() WHERE journal_entry_id = '%s'; END $$`, apitest.String(t, reported, "id")))
 	code := "V1"
 	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {
 		_, err := postings().Post(ctx, ledger.Posting{LegalEntityID: e.de, DocumentType: "SA", DocumentDate: date("2026-02-01"),
@@ -133,6 +138,11 @@ func TestUnreportedTaxItems(t *testing.T) {
 			})
 		}
 	})
+	t.Run("released in a request", func(t *testing.T) {
+		if _, err := (ledger.TaxItems{}).Release(context.Background(), uuid.New()); err == nil {
+			t.Error("outside a unit of work: got no error, want one")
+		}
+	})
 	t.Run("output tax is not recovered", func(t *testing.T) {
 		g := ledger.TaxItemGroup{AccountKey: "output", TaxLC: -500}
 		if got := g.NonRecoverableLC(); got != money.Minor(0) {
@@ -148,6 +158,15 @@ func TestUnreportedTaxItems(t *testing.T) {
 			},
 			"items": func(ctx context.Context) error {
 				_, err := ledger.TaxItems{}.UnreportedItems(ctx, []uuid.UUID{e.us}, date("2026-03-31"), ledger.TaxItemSelection{Direction: "input"}, nil, 1)
+				return err
+			},
+			"a return's claim": func(ctx context.Context) error {
+				_, _, err := ledger.TaxItems{}.Claim(ctx, []uuid.UUID{e.de}, nil, date("2026-03-01"), date("2026-03-31"),
+					[]ledger.TaxItemSelection{{Direction: "input"}}, uuid.New())
+				return err
+			},
+			"a return's fiscal periods": func(ctx context.Context) error {
+				_, err := ledger.ReturnPeriods{}.Overlapping(ctx, []uuid.UUID{e.de}, date("2026-03-01"), date("2026-03-31"))
 				return err
 			},
 		} {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/big"
 	"strings"
 	"time"
 
@@ -19,6 +18,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
+	"github.com/mustie7iy/agentic-erp/internal/tax"
 )
 
 // Down payment request statuses.
@@ -186,9 +186,7 @@ func (e *Endpoints) requestTax(ctx context.Context, in DownPaymentInput, amount 
 	if !ok {
 		return 0, componentsUnsupported("tax_code", *in.TaxCode)
 	}
-	rate := money.ParseRat(single.RatePct)
-	share := new(big.Rat).Quo(rate, new(big.Rat).Add(rate, big.NewRat(100, 1)))
-	return money.Round(new(big.Rat).Mul(money.Rat(amount, exp), share), exp)
+	return tax.Included(amount, exp, single.RatePct) // a configured rate: below 100%
 }
 
 // requestNumber draws a request's document number from the legal entity's

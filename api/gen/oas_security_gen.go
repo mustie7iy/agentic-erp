@@ -124,6 +124,7 @@ var operationRolesOidc = map[string][]string{
 	EndRolePermissionOperation:                []string{},
 	EndSodRuleOperation:                       []string{},
 	ExcludeBankStatementLineOperation:         []string{},
+	FileTaxReturnOperation:                    []string{},
 	GetAccountOperation:                       []string{},
 	GetAgentSessionOperation:                  []string{},
 	GetAiPolicyOperation:                      []string{},
@@ -157,6 +158,7 @@ var operationRolesOidc = map[string][]string{
 	GetHierarchyNodeOperation:                 []string{},
 	GetJournalEntryOperation:                  []string{},
 	GetLegalEntityOperation:                   []string{},
+	GetLegalEntityTodayOperation:              []string{},
 	GetMatchResultOperation:                   []string{},
 	GetMemoRecordOperation:                    []string{},
 	GetMigrationRunOperation:                  []string{},
@@ -184,6 +186,7 @@ var operationRolesOidc = map[string][]string{
 	GetSodRuleOperation:                       []string{},
 	GetSupplierInvoiceOperation:               []string{},
 	GetSupplierInvoiceDocumentOperation:       []string{},
+	GetTaxReturnOperation:                     []string{},
 	GetTaxReturnDraftOperation:                []string{},
 	GetUploadOperation:                        []string{},
 	GetWebhookDeliveryOperation:               []string{},
@@ -263,6 +266,7 @@ var operationRolesOidc = map[string][]string{
 	ListTaxPeriodsOperation:                   []string{},
 	ListTaxRegistrationsOperation:             []string{},
 	ListTaxReturnDraftItemsOperation:          []string{},
+	ListTaxReturnsOperation:                   []string{},
 	ListWebhookDeliveriesOperation:            []string{},
 	ListWebhookSubscriptionsOperation:         []string{},
 	LockCostCenterOperation:                   []string{},
@@ -286,6 +290,7 @@ var operationRolesOidc = map[string][]string{
 	PostParkedJournalEntryOperation:           []string{},
 	PostRevaluationRunOperation:               []string{},
 	PostSupplierInvoiceOperation:              []string{},
+	PrepareTaxReturnOperation:                 []string{},
 	PreviewRevaluationOperation:               []string{},
 	ProposeBankStatementLineOperation:         []string{},
 	ProposeMemoRecordOperation:                []string{},
@@ -352,6 +357,7 @@ var operationRolesOidc = map[string][]string{
 	UploadMemoRecordsOperation:                []string{},
 	VerifyAuditChainOperation:                 []string{},
 	WithdrawChangeRequestOperation:            []string{},
+	WithdrawTaxReturnOperation:                []string{},
 }
 
 // GetRolesForOidc returns the required roles for the given operation.

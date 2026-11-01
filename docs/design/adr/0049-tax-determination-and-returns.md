@@ -381,6 +381,25 @@ fiscal period.
   as part of the proposal (today it checks only validity), and a request whose
   tax no longer matches is left out with `tax_code_invalid` (its existing
   reason). Reversals negate the original's tax items exactly.
+- **As built (T61d follow-up, migration 000182):** the proposal checks a
+  down payment request's tax with `payments.checkTax`: a request with a code
+  whose code is valid on the run date as an input code of one component is
+  paid only if its stated tax is the tax its amount includes at the run
+  date's rate (`tax.Included`, amount × rate / (100 + rate) rounded once,
+  the calculation the request itself uses, moved there from payables);
+  otherwise, and when the code is no longer valid and the request states
+  tax, it is left out with `tax_code_invalid`, its exclusion naming the code,
+  the code's rate on the request's due date (the rate its tax was
+  calculated at; not stored on the request, so read again, which a rate
+  edited before any posting used it would change) and the run date's rate
+  (`request_exclusion.tax_code`, `request_tax_rate`, `run_tax_rate`, absent
+  when not valid; `GET /v1/payment-runs/{id}/exclusions` returns them as
+  `tax_code`, `request_tax_rate_percent`, `run_date_tax_rate_percent`). A
+  request with a code that is not valid and states no tax posts none and is
+  paid, as before. A proposed run whose request's rate changed after the
+  proposal is refused at release with 409 `payments.proposal_outdated`
+  naming both rates. Exact equality is the test: no tolerance applies to
+  a request, which states the tax the ERP calculated.
 
 ### 5. The tax item: one per entry, code and component
 The ledger writes a `ledger.tax_item` with every entry that carries a tax code
@@ -551,7 +570,42 @@ commit-time check, like the balance trigger).
   (a step for the release notes). **Not yet:** down payment requests' tax checked at the run
   date's rate, the documentary-requirement warnings for Canada and the UAE
   (tracker, T61d follow-up), and the tax date held to the open return
-  periods (P6; with the return periods, T61g/T61i).
+  periods (P6; with the return periods, T61g/T61i). The first two were
+  built in the T61d follow-up (below and §4).
+- **As built (T61d follow-up, migration 000182):** the documentary
+  requirements are the company's `tax_settings.documentary_requirements`
+  (config.TaxSettings), which the country pack's `tax.yaml` brings under
+  `tax_settings` (§8): tiers, each with a threshold in the company's
+  currency, `at_least` (a total equal to it is in the tier: Canada's "$100
+  or more") or `above` (the UAE's "above AED 10,000"), what it `requires`,
+  its `source` and `pending_sign_off` for a tier the tax specialist has not
+  confirmed (a pack signed off holds none). The ERP checks what it holds:
+  `supplier_tax_id`, met when the supplier's business partner holds a tax
+  identifier of the company's country (a scheme named after it, `CA_...`,
+  `AE_...`, as the SAP load names them `<LAND1>_TAX`; a US vendor's EIN is
+  no GST/HST number; which schemes count is listed for the tax specialist),
+  and `item_descriptions`, met when every item
+  without an order has a description (an order item is described). When an
+  invoice or subsequent debit claiming tax posts, its gross amount,
+  converted into the company's currency at the tax date's rate of the tax
+  rate type, is held to each tier (when no rate of the type converts it,
+  the check never refuses the posting: every tier is taken as reached and
+  its warnings are marked `unassessed`); each unmet requirement of a tier it
+  reaches is a warning, once (the first tier naming it), stored on the
+  invoice (`supplier_invoice.documentary_warnings`) and returned as the
+  invoice's `documentary_warnings` (code `supplier_tax_id_missing` or
+  `item_description_missing`, the tier's threshold as money, whether it is
+  inclusive, the source, the pending flag, `unassessed` and a message). Credit memos and
+  subsequent credits take tax back and are not checked; an invoice posted
+  before has none. Canada 2026.3 states SOR/91-45 s. 3 (b) and (c) as two
+  tiers (from CAD 100 the supplier's registration number; from CAD 500 also
+  a description of each supply); the recipient's name and the terms, also
+  required from $500, are on the document only and not checked. The UAE
+  pack (T62f) is to state the threshold as `above: "10000"`, requiring
+  `supplier_tax_id`, `pending_sign_off: true` (Executive Regulation Art. 59
+  is read only through secondary summaries). The working papers' filter on
+  these warnings comes with the returns (§11).
+
 
 ### 7. Output tax and the pilot's sales
 The ERP issues no sales invoices until phase 3, so the pilot's output tax
@@ -700,6 +754,22 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   Determination (which code a line has) stays the caller's. The country
   pack's `rounding` setting is not yet in the pack schema: T61c/T61d add it
   with the first caller.
+- **As built (T61d follow-up):** a pack's `tax.yaml` carries
+  `tax_settings` (`rate_type`, `rounding`, `documentary_requirements`),
+  validated as the document's are (thresholds in whole units there) and
+  merged on application as one item, three-way like the pack's lists: the
+  pack's taken where the company kept the adopted pack's, the company's own
+  kept with a conflict note. They become `companies[].tax_settings`
+  (tier 3). Payables calculates an invoice's tax with the settings'
+  `rounding` (`document` by default, or `line`) and converts it into local
+  currency at the tax date's rate of `rate_type` (`average` by default,
+  `Rates.Conversion` as before; another of the ledger's rate types its
+  latest rate on the tax date, 422 `ledger.no_exchange_rate` without one).
+  No new rate type was added: the authority's rates (the Bank of Canada's,
+  the UAE Central Bank's) are recorded under one of the ledger's types,
+  which the pack names. Canada 2026.3 names `average` and `document`, both
+  pending the specialist (the conversion and rounding rules are cited from
+  memory above).
 
 ### 9. Reverse charge and self-assessment
 A `reverse_charge` or `import` code has a `self_output` and a `self_input`
@@ -948,7 +1018,117 @@ companies (all in the tenant, under RLS). A registration change is financial
     illustrative return (`scripts/walkthrough/returns.yaml`, boxes that
     are not the GST34's lines) as an unreleased pack (`ERP_PACKS_DIR`,
     refused in production; ADR-0048), and step 11 computes the draft of
-    the latest ended period with a late sale and an earlier period's.
+    the latest ended period with a late sale and an earlier period's;
+    T61i extends it to prepare, approve (Fiona, the tax manager, not
+    Carla who prepared it) and file that return, and to show the
+    period's draft empty after.
+- **As built (T61i, migrations 000179-000180):** decided by default from this
+  section, §12-§13, P3, P7, the period lock (T32) and the
+  approvals context, each listed for the product owner to overrule.
+  - **The stored return.** `tax.tax_return` per registration and period
+    start: kind (`original`, or `amendment` naming the filed return it
+    corrects, `amends_id`), status, the definition's return type and
+    name and the pack version it followed, the currency, the item count,
+    the prior-period figures the draft showed (items, tax, the pack's
+    threshold, the provisional flag), and its boxes
+    (`tax.tax_return_box`: amount, prior-period part, corrected amount,
+    item count) and the keys of the items it claimed
+    (`tax.tax_return_item`), with `items_hash`, the SHA-256 of a line
+    `fiscal_year|journal_entry_id|item_no|base|tax|recoverable` per item
+    in key order, local amounts in minor units. Boxes and items are
+    written while the return is prepared and never change (insert-only,
+    `tax_return_snapshot`); a trigger lets each move set its own fields
+    alone (`tax_return_transition`, `tax_return_fixed`), so a filed,
+    withdrawn or rejected return is final.
+  - **Prepare** (`POST /v1/tax-registrations/{id}/returns`,
+    `tax.return.prepare`) is refused as the draft is (§11 As built,
+    T61h), then locks the registration FOR UPDATE, so two prepares of it
+    run one after the other: the second finds the first's return (409
+    `tax.return_in_progress`; one return of a period in progress and one
+    original that stands, `tax.return_exists`, both backed by unique
+    indexes). It claims the items first, an update of the unreported
+    items that some selection box chooses (`ledger.TaxItems.Claim`),
+    which waits for and then skips an item another return claimed, and
+    computes the snapshot from what it claimed, so the boxes are exactly
+    its items'. Items no box selects are not claimed: a company with two
+    registrations of different authorities (CRA and Revenu Québec)
+    reports each component in its own return.
+  - **Fiscal periods.** The fiscal periods to be closed, and locked on
+    filing, are the leading ledger's regular periods of the
+    registration's companies that overlap the **tax period**, not those
+    of the items' posting dates as above: an item of the period posted
+    late lies in the current open month, which preparing would otherwise
+    have to close. An item posted then is claimed as the draft reads it
+    (a posting commits whole, so none is half under way). Special
+    periods are left out: they are the year-end close's, and a quarter's
+    filing would stop it. An open one refuses preparing and filing (409
+    `tax.fiscal_period_open`, naming it); filing locks the closed ones
+    through `ledger.ReturnPeriods.Lock` (`lockFiscalPeriod`'s change,
+    audited, `PeriodLocked`), the filer's `tax.return.file` sufficing,
+    as the lock is filing's consequence here; those already locked are
+    left.
+  - **Approval** through the approvals context: object type
+    `tax_return`, approval permission `tax.return.approve` (agents hold
+    none), one approval by the fixed role `tax_manager`
+    (`config.TaxReturnRole`, provisioned with the configuration's roles
+    in every tenant provisioned from now on; a tenant provisioned before
+    is refused 422 `workflow.unknown_role` until an administrator creates
+    the role, `createRole`, none being a pilot yet); a configured role ("or as configured") is
+    not built, as no setting asks for one. The requester is the preparer
+    and may not decide (`workflow.own_request`); the database holds the
+    approver to another person than the creator (`tax_return_four_eyes`).
+    A rejected request rejects the return; the preparer's cancelled
+    request withdraws it; both release its items.
+  - **File** (`POST /v1/tax-returns/{id}:file`, `tax.return.file`,
+    If-Match) records an approved return's confirmation number (trimmed,
+    up to 100 characters) and the date the authority gives, after the
+    period's end and not after the registrant's date today in its time
+    zone (422 `tax.invalid_filed_on`). **Withdraw** (`:withdraw`,
+    `tax.return.prepare`, a reason) ends a prepared or approved return,
+    cancelling its pending request, and releases its items
+    (`ledger.TaxItems.Release`); a filed one is amended instead. Each
+    move reads the return FOR UPDATE and is guarded by its status, so a
+    retry after a lost answer is refused (409
+    `tax.invalid_return_status`) and publishes nothing twice; a retry
+    with the same Idempotency-Key is replayed by the API.
+  - **Amendment (P7).** `kind: amendment` of a period whose return is
+    filed corrects its latest filed return: it claims the unreported
+    items dated within the period, which arrived after the filing (not
+    those of earlier periods, which their own period's amendment or the
+    next return takes), by the amended return's pack version; each box
+    gives the correction (`amount`) and the period's figure after it
+    (`corrected_amount`: the amended return's plus the correction, an
+    expression box computed from those). With nothing filed, or nothing
+    arrived, 409 `tax.nothing_to_amend`. It is approved and filed as an
+    original is. Whether an authority takes the corrected figures, the
+    differences or both is the tax specialist's to confirm (CRA's
+    amended return, the FTA's voluntary disclosure), so the return
+    carries both.
+  - **People only (§13).** Preparing (an original or an amendment),
+    filing and withdrawing are `x-agent: false`, as approving is: the
+    stored prepare claims items, a transition; agents compute drafts.
+  - **Ledger.** `reported_in` may now be released (`tax_item_fixed`
+    allows null to a return and a return to null, never one return to
+    another), and a deferred constraint trigger of this context on
+    `ledger.tax_item` (`tax_item_reported`) holds at commit that an item
+    reported is in its return's snapshot, of a company its registration
+    covers, dated by its period's end, the return standing, and that an
+    item released was the return's of one withdrawn or rejected. An
+    index, built concurrently in its own migration (000180), serves both
+    (`tax_item_reported_in`). The trigger runs once per item claimed or
+    released, at commit: fine at pilot volumes; a statement-level check
+    over a transition table is the change if returns of 10^5 items or
+    more make preparing slow.
+  - **Reads.** `GET /v1/tax-returns/{id}` (the approval request's object)
+    and `GET /v1/tax-registrations/{id}/returns` (paged by period start,
+    filtered by period and status), `tax.return.read`, a return of a
+    registration the caller sees; moving one needs every company it
+    covers (403 `tax.registration_companies`).
+  - **Not built:** the drill-down of a stored return's boxes to their
+    items (the working papers, T59/T63; `tax.tax_return_item` holds
+    them), the hold of a manual entry's tax date to open returns (P6,
+    §5 As built), T64's checklist task, due dates, and a configured
+    approver role.
 
 ### 12. Audit
 Every change of a registration, code or rate is a configuration change request
@@ -956,7 +1136,9 @@ Every change of a registration, code or rate is a configuration change request
 journal's audit); every return transition writes an audit record
 (`tax.return.prepare|approve|file|withdraw`, ADR-0011) and an outbox event
 (`TaxReturnPrepared`, `TaxReturnFiled`), and the filed snapshot is immutable
-(a trigger, as released packs are immutable by hash). Retention follows the
+(a trigger, as released packs are immutable by hash). As built (T61i): also
+`tax.return.reject` and the events `TaxReturnApproved`, `TaxReturnWithdrawn`
+and `TaxReturnRejected`, through the context's own outbox (`tax`). Retention follows the
 longer of the countries' periods (Canada six years from the end of the year;
 UAE five years, longer for real estate), set by T66.
 
@@ -1018,7 +1200,7 @@ coverage 100%, reviewer) like every step.
 | T61f | **Output tax from the pilot's sales** | Output codes accepted on manual and integration journal entries; the ledger calculates and checks the tax lines within tolerance; jurisdiction required where a component needs it; zero-rated and exempt bases recorded as items; idempotent by the integration's reference; the shape decided in P2 |
 | T61g | **Registrations and tax periods** | `companies[].tax_registrations` (authority, number encrypted as tax ids are, return type, frequency, first period; UAE tax group across companies); tier 3; tax periods generated; API to list registrations and periods |
 | T61h (done) | **The return engine** | `returns.yaml` in the pack schema (boxes as item selections or CEL expressions over boxes), validated and hashed with the pack; a draft return for a registration and period computed from unreported items, with prior-period items shown apart; every box drills to items; `GET /v1/tax-returns:compute` (contract first, `tax.return.read`; built as `GET /v1/tax-registrations/{id}/draft-return`, §11 As built) |
-| T61i | **Return lifecycle** | `tax.tax_return` with snapshot (box values, item ids, hash, pack version); prepare (needs closed periods; sets `reported_in` under a registration lock, once), approve (another person, approvals context), file (a person records the confirmation; locks the periods via T32), withdraw, amendment; human-only transitions; audit and outbox events; run-twice tests for any worker; immutability trigger on filed snapshots |
+| T61i (done) | **Return lifecycle** | `tax.tax_return` with snapshot (box values, item ids, hash, pack version); prepare (needs closed periods; sets `reported_in` under a registration lock, once), approve (another person, approvals context), file (a person records the confirmation; locks the periods via T32), withdraw, amendment; human-only transitions; audit and outbox events; run-twice tests for any worker; immutability trigger on filed snapshots |
 | T61j | **GST/HST return for Canada** | The GST34 lines in the Canada pack's `returns.yaml` (101-115 incl. 205 and 405), golden tests from a worked set of invoices, entries and adjustments, signed off by the tax specialist; the FPZ-500 (GST/HST + QST) if P4 includes it |
 | T61k | **VAT 201 for the UAE** | Boxes 1a-14 in the UAE pack (with T62f), emirate by the registration's fixed establishment, Box 6/7 from import entries, golden tests, specialist sign-off; checked against the EmaraTax form labels |
 | T61l | **Tax agent** | Prepares draft returns, explains variances against the last period and the tax accounts, proposes adjustment entries (parked) and code corrections; evaluation suite (ADR-0039); never transitions a return |

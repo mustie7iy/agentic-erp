@@ -74,6 +74,11 @@ func (UnimplementedHandler) AcceptMemoRecordProposal(ctx context.Context, req Op
 // cost center category in use): 409 `ledger.controlling_invalid`, naming each finding (ADR-0050 §4).
 // A tax registration whose company, group, authority, number, return type, frequency or first period
 // changed under its code since submission is refused: 409 `tax.registration_fixed` (ADR-0049 §10).
+// While replicas of several versions run (a rolling upgrade), a proposal setting a key that a running
+// replica's version does not know, which it would ignore (a company's `release_dual_limit`), is
+// refused: 409 `config.replica_lacks_key`, each such key in `errors` (`field` the key's path, e.g.
+// `companies[].release_dual_limit`, and the versions lacking it in `message`); activate it once every
+// replica runs a version that knows the key (ADR-0038).
 //
 // POST /v1/change-requests/{id}:activate
 func (UnimplementedHandler) ActivateChangeRequest(ctx context.Context, params ActivateChangeRequestParams) (r ActivateChangeRequestRes, _ error) {
@@ -166,8 +171,9 @@ func (UnimplementedHandler) ApplyPlanBatch(ctx context.Context, req *PlanBatchCr
 // object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The
 // request is `approved` when the last step is complete, and the object moves on (a requisition becomes
 // `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry
-// is posted, a bank statement line is posted). A manual entry is checked again as it is posted: when
-// that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
+// is posted, a bank statement line is posted, a tax return becomes `approved` by a holder of
+// `tax_manager` who did not prepare it). A manual entry is checked again as it is posted: when that
+// refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
 // fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
 // statement line's posting (`bank_clearing`) and a GR/IR clearing's (`gr_ir_clearing`, 409
 // `ledger.gr_ir_clearing_outdated` when a position moved since it was proposed), and whoever matched
@@ -902,6 +908,25 @@ func (UnimplementedHandler) ExcludeBankStatementLine(ctx context.Context, req *R
 	return r, ht.ErrNotImplemented
 }
 
+// FileTaxReturn implements fileTaxReturn operation.
+//
+// Records that a person filed the approved return with the authority on its portal, with the
+// authority's confirmation number and the date it gives (ADR-0049 P3: the ERP files nothing itself).
+// The snapshot is final from then on. Recording it filed locks the fiscal periods of the leading
+// ledger of the registration's companies that overlap its tax period, those not yet locked, as
+// `lockFiscalPeriod` does (events `PeriodLocked`; `TaxReturnFiled`'s `locked_periods` names them, and
+// `listFiscalPeriods` shows them `locked`): an item dated in the period that arrives later is posted
+// in an open period and reported in the next return or an amendment. A period reopened since the
+// return was prepared is refused (409 `tax.fiscal_period_open`). `filed_on` lies after the period's
+// end and not after the registrant's date today in its time zone (422 `tax.invalid_filed_on`); a
+// confirmation number of only spaces is 422 `tax.confirmation_required`. Requires status `approved`
+// (409 `tax.invalid_return_status`). Event `TaxReturnFiled`. Human-only.
+//
+// POST /v1/tax-returns/{id}:file
+func (UnimplementedHandler) FileTaxReturn(ctx context.Context, req *TaxReturnFile, params FileTaxReturnParams) (r FileTaxReturnRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetAccount implements getAccount operation.
 //
 // Returns one general ledger account.
@@ -1276,6 +1301,24 @@ func (UnimplementedHandler) GetLegalEntity(ctx context.Context, params GetLegalE
 	return r, ht.ErrNotImplemented
 }
 
+// GetLegalEntityToday implements getLegalEntityToday operation.
+//
+// The legal entity's date now in its company's time zone (`companies[].time_zone` of the active
+// configuration; UTC when that configuration has no company of the legal entity's code, or one
+// activated before the zone was required (2026-10-31) that sets none, as every date the API judges for
+// the company then is; ADR-0051 as built, T72n1), and that zone: the day the API takes as the
+// company's today, where a posting date left out defaults to it, so a client pre-fills a form's dates
+// (a posting date, a payment run's run date, a report's key date) with the company's day rather than
+// UTC's. At 22:00 on 17 April in America/Toronto (02:00 UTC on the 18th) it is the 17th; at 01:00 on
+// 17 April in Asia/Dubai (21:00 UTC on the 16th) it is the 17th. A legal entity the caller cannot act
+// in is not found; without an active configuration to read the time zone from, 409
+// `config.not_bootstrapped`. Changes nothing.
+//
+// GET /v1/legal-entities/{id}/today
+func (UnimplementedHandler) GetLegalEntityToday(ctx context.Context, params GetLegalEntityTodayParams) (r GetLegalEntityTodayRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetMatchResult implements getMatchResult operation.
 //
 // Returns one three-way match evaluation.
@@ -1535,6 +1578,17 @@ func (UnimplementedHandler) GetSupplierInvoice(ctx context.Context, params GetSu
 //
 // GET /v1/supplier-invoices/{id}/document
 func (UnimplementedHandler) GetSupplierInvoiceDocument(ctx context.Context, params GetSupplierInvoiceDocumentParams) (r GetSupplierInvoiceDocumentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetTaxReturn implements getTaxReturn operation.
+//
+// Returns one tax return (ADR-0049 §11, T61i), the object of a `tax_return` approval request (its
+// `object_id`): its snapshot, status and who moved it. A return of a registration the caller does not
+// see is not found.
+//
+// GET /v1/tax-returns/{id}
+func (UnimplementedHandler) GetTaxReturn(ctx context.Context, params GetTaxReturnParams) (r GetTaxReturnRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -2400,6 +2454,18 @@ func (UnimplementedHandler) ListTaxReturnDraftItems(ctx context.Context, params 
 	return r, ht.ErrNotImplemented
 }
 
+// ListTaxReturns implements listTaxReturns operation.
+//
+// The returns prepared for a registration (ADR-0049 §11, T61i), in every status, by period start,
+// filtered by period and status: an original per period and the amendments that correct a filed one. A
+// registration the caller does not see (`listTaxRegistrations`) is not found. Sortable by:
+// `period_start`.
+//
+// GET /v1/tax-registrations/{id}/returns
+func (UnimplementedHandler) ListTaxReturns(ctx context.Context, params ListTaxReturnsParams) (r ListTaxReturnsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListWebhookDeliveries implements listWebhookDeliveries operation.
 //
 // The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:
@@ -2812,6 +2878,32 @@ func (UnimplementedHandler) PostSupplierInvoice(ctx context.Context, req OptSupp
 	return r, ht.ErrNotImplemented
 }
 
+// PrepareTaxReturn implements prepareTaxReturn operation.
+//
+// Prepares the registration's return for one of its ended periods (ADR-0049 §11, T61i): a snapshot of
+// the draft (`getTaxReturnDraft`) as it stands, its boxes, the keys of the tax items it claims and
+// their hash, and the country pack version that defines it. The items' `reported_in` is set in the
+// same transaction under a lock on the registration, so an item is reported in one return and two
+// prepares of one period cannot both succeed; the draft of the period and later drafts no longer read
+// them. Every fiscal period of the leading ledger of the registration's companies overlapping the tax
+// period must be closed or locked, so no posting is under way (409 `tax.fiscal_period_open`, naming
+// the period); items posted later in an open period with an earlier tax date are claimed as the draft
+// reads them. It opens a `tax_return` approval request (`approval_request_id`), which a holder of the
+// role `tax_manager` with `tax.return.approve` decides, never the preparer and never an agent;
+// approved, the return is recorded as filed (`fileTaxReturn`). Event `TaxReturnPrepared`. `kind`
+// `amendment` corrects the period's filed return (P7: when a correction must not wait for the next
+// return): it claims the unreported items dated within the period, which arrived after the filing, and
+// gives each box its correction (`amount`) and the period's corrected figure (`corrected_amount`), by
+// the amended return's pack version; without a filed return of the period, or with nothing to correct,
+// 409 `tax.nothing_to_amend`. One original stands per period (409 `tax.return_exists`) and one return
+// of a period is in progress at a time (409 `tax.return_in_progress`). Refused as `getTaxReturnDraft`
+// is otherwise. Human-only.
+//
+// POST /v1/tax-registrations/{id}/returns
+func (UnimplementedHandler) PrepareTaxReturn(ctx context.Context, req *TaxReturnPrepare, params PrepareTaxReturnParams) (r PrepareTaxReturnRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // PreviewRevaluation implements previewRevaluation operation.
 //
 // Values, without posting, what a revaluation run of a legal entity and ledger at a key date would
@@ -2996,7 +3088,8 @@ func (UnimplementedHandler) RedeliverWebhookDelivery(ctx context.Context, params
 // `workflow.request.decide` the caller must hold the step's role and the approval permission of the
 // object type, listed in `x-object-permissions`. The object is rejected with it (for example a
 // supplier invoice exception leaves the invoice `rejected`); a payment run whose release is rejected
-// (`payment_run_release`) is rejected too, its items freed (product owner 2026-10-25).
+// (`payment_run_release`) is rejected too, its items freed (product owner 2026-10-25); a rejected tax
+// return (`tax_return`) releases its tax items.
 //
 // POST /v1/approval-requests/{id}:reject
 func (UnimplementedHandler) RejectApprovalRequest(ctx context.Context, req *CommentRequiredInput, params RejectApprovalRequestParams) (r RejectApprovalRequestRes, _ error) {
@@ -3734,5 +3827,19 @@ func (UnimplementedHandler) VerifyAuditChain(ctx context.Context, req *AuditVeri
 //
 // POST /v1/change-requests/{id}:withdraw
 func (UnimplementedHandler) WithdrawChangeRequest(ctx context.Context, req *ReasonInput, params WithdrawChangeRequestParams) (r WithdrawChangeRequestRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// WithdrawTaxReturn implements withdrawTaxReturn operation.
+//
+// Withdraws a prepared or approved return that is not filed (ADR-0049 §11): its pending approval
+// request is cancelled and its tax items are released, so the period's draft reads them again and a
+// return of the period can be prepared anew. The snapshot is kept, with who withdrew it and why. A
+// filed return is not withdrawn but amended (`prepareTaxReturn` with `kind` `amendment`). Requires
+// status `prepared` or `approved` (409 `tax.invalid_return_status`). Event `TaxReturnWithdrawn`.
+// Human-only.
+//
+// POST /v1/tax-returns/{id}:withdraw
+func (UnimplementedHandler) WithdrawTaxReturn(ctx context.Context, req *ReasonInput, params WithdrawTaxReturnParams) (r WithdrawTaxReturnRes, _ error) {
 	return r, ht.ErrNotImplemented
 }

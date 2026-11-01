@@ -267,3 +267,25 @@ func TestRefusals(t *testing.T) {
 		})
 	}
 }
+
+// TestIncluded: the tax an amount includes at one rate, rounded once half
+// away from zero (a down payment's, ADR-0049 §4, §8); a rate outside 0 to
+// below 100 is an error.
+func TestIncluded(t *testing.T) {
+	for _, tc := range []struct {
+		amount money.Minor
+		rate   string
+		want   money.Minor
+	}{{11900, "19", 1900}, {11900, "16", 1641}, {1, "19", 0}, {10000, "0", 0}, {-11900, "19", -1900}} {
+		t.Run(tc.rate+" of "+tc.amount.Plain(2), func(t *testing.T) {
+			if got, err := tax.Included(tc.amount, 2, tc.rate); err != nil || got != tc.want {
+				t.Errorf("Included(%d, %s): got %d, %v, want %d", tc.amount, tc.rate, got, err, tc.want)
+			}
+		})
+	}
+	for _, rate := range []string{"x", "-1", "100"} {
+		if _, err := tax.Included(100, 2, rate); err == nil {
+			t.Errorf("Included at %q: got nil error, want one", rate)
+		}
+	}
+}

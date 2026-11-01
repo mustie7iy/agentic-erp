@@ -63,6 +63,7 @@ func Apply(cur *config.Config, next *Pack, lib *Library, o Options) (*config.Con
 	// A pack's codes carry all their dated rates (T61a), so they are merged
 	// as they are, whatever the date of application.
 	co.TaxCodes = merge3(m, p+".tax_codes", base.Tax.TaxCodes, co.TaxCodes, next.Tax.TaxCodes, func(t config.TaxCode) string { return t.Code })
+	mergeTaxSettings(m, p+".tax_settings", base.Tax.Settings, &co.TaxSettings, next.Tax.Settings)
 	draft.NumberRanges = merge3(m, "number_ranges", adoptedRanges(base, cur, o), cur.NumberRanges, numberRanges(next, o),
 		func(n config.NumberRange) string { return n.Key() })
 	draft.NumberRanges = issuedStay(m, cur.NumberRanges, draft.NumberRanges)
@@ -199,6 +200,23 @@ func mergeDetermination(m *merger, p string, base, tenant, next *config.AccountD
 	fs := determination(tenant)
 	for _, f := range merged {
 		*fs[f.Name] = f.Value
+	}
+}
+
+// mergeTaxSettings merges the tax settings as one item: the pack's are
+// taken where the document still has the adopted pack's, the document's
+// kept where it changed them (merge3).
+func mergeTaxSettings(m *merger, p string, base config.TaxSettings, tenant *config.TaxSettings, next config.TaxSettings) {
+	list := func(s config.TaxSettings) []config.TaxSettings {
+		if s.IsZero() {
+			return nil
+		}
+		return []config.TaxSettings{s}
+	}
+	merged := merge3(m, p, list(base), list(*tenant), list(next), func(config.TaxSettings) string { return "settings" })
+	*tenant = config.TaxSettings{}
+	if len(merged) == 1 {
+		*tenant = merged[0]
 	}
 }
 

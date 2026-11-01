@@ -291,8 +291,8 @@ start() {
   say ""
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
-  say "  - the return lifecycle and the GST34's lines (T61i-T61l), and the Canada pack's tax codes (T62g): step 2 configures one code"
-  say "    and the GST/HST registration; step 11 computes a draft return whose boxes are illustrative, not the GST34's"
+  say "  - the GST34's lines (T61j-T61l), and the Canada pack's tax codes (T62g, Canada pack 2026.4): step 2 configures one code"
+  say "    and the GST/HST registration; step 11 prepares, approves and files a return whose boxes are illustrative, not the GST34's"
   say "  - the liquidity forecast (T53e-T53k): step 13 shows the daily cash position with a memo record"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - accounts receivable, fixed assets (T57), period-end close (T64), consolidation (T68)"
@@ -377,12 +377,13 @@ people() {
     n=$((n + 1))
   done <"$WORK/permissions"
   show erp call grantRolePermission -p "id=$staff" -body '{"permission_code": "..."}' "# $n permissions"
-  for code in Z_PURCH_MGR process_owner controller solution_architect Z_TREASURY_MGR vendor_master_approver; do
+  for code in Z_PURCH_MGR process_owner controller solution_architect Z_TREASURY_MGR vendor_master_approver tax_manager; do
     # shellcheck disable=SC2046 # permission codes are single words
     grant "$(role "$code")" workflow.request.decide $(grep '\.approve$' "$WORK/permissions")
   done
   grant "$(role Z_TREASURY_MGR)" payments.run.release payments.file.transmit
-  say "  the approver roles Z_PURCH_MGR, process_owner, controller, solution_architect and vendor_master_approver"
+  say "  the approver roles Z_PURCH_MGR, process_owner, controller, solution_architect, vendor_master_approver and"
+  say "  tax_manager (who approves tax returns, ADR-0049 §11)"
   say "  decide approval requests; Z_TREASURY_MGR also releases payment runs and transmits bank files."
   QUIET=1 api 200 '' listRoles -p page_size=100
   cp "$WORK/last.json" "$WORK/roles.json"
@@ -393,7 +394,7 @@ people() {
   person sam "Sam Solution Architect" finance_staff solution_architect
   person tom "Tom Treasurer" finance_staff Z_TREASURY_MGR
   person tara "Tara Treasury Manager" finance_staff Z_TREASURY_MGR
-  person fiona "Fiona Finance Director" finance_staff Z_TREASURY_MGR
+  person fiona "Fiona Finance Director" finance_staff Z_TREASURY_MGR tax_manager
 }
 
 # person SUBJECT NAME ROLE... creates a person who may act in every
@@ -840,7 +841,7 @@ PILOT_SETTINGS='
       {"number": "1020", "name": "Bank clearing - RBC USD", "type": "asset", "open_items": true, "revalue_foreign_currency": true},
       {"number": "1030", "name": "Bank - RBC USD", "type": "asset", "revalue_foreign_currency": true},
       {"number": "1040", "name": "Bank incoming - RBC USD", "type": "asset", "open_items": true, "revalue_foreign_currency": true}]
-    | .tax_codes = ((.tax_codes // []) + [{"code": "GO5", "description": "GST 5% on sales (walkthrough, until Canada pack 2026.3)",
+    | .tax_codes = ((.tax_codes // []) + [{"code": "GO5", "description": "GST 5% on sales (walkthrough, until Canada pack 2026.4)",
         "direction": "output", "kind": "standard", "category": "S", "components": [{"key": "gst", "jurisdiction": "CA",
         "account_key": "output", "account": "2300", "rates": [{"rate_percent": "5", "valid_from": "@PREV@-01-01"}]}]}])
     | .house_banks = ((.house_banks // []) + [
@@ -1372,10 +1373,10 @@ billing() {
 }
 
 step_tax() {
-  heading "Step 11 — Tax: the billing system's sales entries, their tax checked by the ledger, large ones parked for a person, and the draft return"
+  heading "Step 11 — Tax: the billing system's sales entries, their tax checked by the ledger, large ones parked for a person, and the return that files them"
   as carla
   api 200 '.items[] | select(.country == "CA") | "pack CA \(.version): \(.contents.tax_codes) tax codes"' listCountryPacks
-  say "The released Canada packs carry no tax codes yet: GST/HST, QST and PST come with Canada pack 2026.3 (T62g)."
+  say "The released Canada packs carry no tax codes yet: GST/HST, QST and PST come with Canada pack 2026.4 (T62g)."
   say "Step 2 configured one output code for the pilot instead: GO5, GST at 5% from 1 January, to the pack's 2300 GST/HST payable."
   say "The ERP issues no sales invoices before phase 3, so the pilot's billing system posts its sales as journal"
   say "entries (T61f), as a service principal of its own that holds only ledger.entry.post:"
@@ -1484,6 +1485,59 @@ tax_return() {
   say "the draft leaves the items of migrated entries out (ADR-0037); its clearing's reversal, posted here, is reported."
   say "The period under way has not ended, so its return cannot be drafted yet:"
   refused 409 tax.period_not_ended getTaxReturnDraft -p "id=$registration" -p "period_start=$running"
+  file_return "$registration" "$start" "$end"
+}
+
+# file_return REGISTRATION START END is step 11's return of START to END
+# (T61i): prepared once its fiscal periods are closed, claiming the
+# draft's items; approved by Fiona, the tax manager, not Carla who
+# prepared it; recorded as filed, which locks the periods; the period's
+# draft then empty.
+file_return() {
+  local registration=$1 start=$2 end=$3 leading ret request p
+  local body="{\"period_start\": \"$start\"}"
+  say "Carla prepares the return of $start to $end (T61i): a snapshot of the draft that claims its items, so no later"
+  say "draft or return reports them again. The leading ledger's fiscal periods of the tax period must be closed first,"
+  say "so no posting is under way in it:"
+  QUIET=1 api 200 '' listLedgers
+  leading=$(field '.items[] | select(.is_leading) | .id')
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=${start%%-*}" -p "ledger_id=$leading" -p page_size=100
+  cp "$WORK/last.json" "$WORK/tax-periods.json"
+  local open
+  open=$(jq -r --arg s "$start" --arg e "$end" '[.items[] | select((.is_special | not) and .status == "open" and .start_date <= $e and .end_date >= $s)
+    | "\(.id)/\(.version)"] | join(" ")' "$WORK/tax-periods.json")
+  if [ -n "$open" ]; then
+    refused 409 tax.fiscal_period_open prepareTaxReturn -p "id=$registration" -body "$body"
+    for p in $open; do
+      QUIET=1 api 200 '' closeFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+    done
+    show erp call closeFiscalPeriod -p "id=..." -if-match '"2"' "# $(wc -w <<<"$open" | tr -d ' ') periods of the leading ledger"
+  fi
+  api 201 '"return \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end): \(.status), \(.item_count) items, hash \(.items_hash[0:12])...", (.boxes[] | "  \(.code) \(.amount.amount)")' \
+    prepareTaxReturn -p "id=$registration" -body "$body"
+  expect "the return's output tax" "$(field '.boxes[] | select(.code == "output_tax") | .amount.amount')" "60.00"
+  ret=$(field .id)
+  request=$(field .approval_request_id)
+  say "A second return of the period cannot be prepared while this one stands:"
+  refused 409 tax.return_in_progress prepareTaxReturn -p "id=$registration" -body "$body"
+  say "It waits for a tax manager's approval. Carla prepared it, so she cannot approve it (four eyes):"
+  QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
+  refused 403 workflow.own_request approveApprovalRequest -p "id=$request" -if-match "$ETAG" -body '{"comment": "Mine"}'
+  approve fiona "$request" "Boxes agree with the tax accounts"
+  as carla
+  say "Carla files it on the CRA's portal herself (P3: the ERP files nothing) and records the confirmation the portal"
+  say "gives; the number here is illustrative. Recording it filed locks the fiscal periods of the tax period (T32)."
+  QUIET=1 api 200 '' getTaxReturn -p "id=$ret"
+  expect "approved, by another person" "$(field '"\(.status) \(.approved_by != .created_by)"')" "approved true"
+  api 200 '"return \(.status): confirmation \(.filing.confirmation_number) of \(.filing.filed_on)"' fileTaxReturn -p "id=$ret" -if-match "$ETAG" \
+    -body "{\"confirmation_number\": \"WALKTHROUGH-0001\", \"filed_on\": \"$TODAY\"}"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=${start%%-*}" -p "ledger_id=$leading" -p page_size=100
+  expect "the tax period's fiscal periods" "$(jq -r --arg s "$start" --arg e "$end" '[.items[] | select((.is_special | not) and .start_date <= $e
+    and .end_date >= $s) | .status] | unique | join(" ")' "$WORK/last.json")" locked
+  say "The items it reported are in no later draft: the period's draft is empty now, and the next return starts afresh."
+  api 200 '"draft of \(.period_start) to \(.period_end): \(.item_count) items, output tax \((.boxes[] | select(.code == "output_tax")).amount.amount)"' \
+    getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
+  expect "the period's draft after filing" "$(field .item_count)" 0
 }
 
 # center_approved REQUESTER has the controller approve the center change
@@ -1568,6 +1622,13 @@ step_cash() {
   expect "the zone the position is read in" "$(field .time_zone)" America/Toronto
   [ "$(field .read_date)" = "$before" ] || expect "the read date, Toronto's" "$(field .read_date)" "$after"
   expect "the first day, the read date" "$(field .from)" "$(field .read_date)"
+  say "A client dates its forms on the same day: Maple's date today, in its zone (getLegalEntityToday), which the web"
+  say "workspace pre-fills a manual entry's dates, a payment run's and the open items' key date with, not UTC's day:"
+  before=$(TZ=America/Toronto date +%F)
+  api 200 '"today is \(.date) in \(.time_zone)"' getLegalEntityToday -p "id=$LE"
+  after=$(TZ=America/Toronto date +%F)
+  expect "the zone Maple's today is in" "$(field .time_zone)" America/Toronto
+  [ "$(field .date)" = "$before" ] || expect "Maple's today, Toronto's" "$(field .date)" "$after"
   local toronto judged status listed counted
   toronto=$(TZ=America/Toronto date +%F)
   say "A receipt promised for today ($toronto in Toronto), its last day today, is active until Toronto's day ends:"
@@ -1690,14 +1751,21 @@ step_grir() {
 step_downpayment() {
   heading "Step 16 — SAP's open down payment is cleared against the supplier's final invoice (SAP F-54)"
   as alex
-  say "$DP_NAME's final invoice arrives: CAD 5,000.00 plus 250.00 GST on V1. Alex enters and posts it."
+  say "$DP_NAME's final invoice arrives: CAD 5,000.00 plus 250.00 GST on V1. Alex enters it in a hurry, without"
+  say "the item's description, and posts it."
   local item invoice fy line
-  item="{\"account_id\": \"$(account 6000)\", \"description\": \"Machine, final invoice\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"5000.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}"
+  item="{\"account_id\": \"$(account 6000)\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"5000.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}"
   api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
     -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$DP_SUPPLIER\", \"supplier_reference\": \"FINAL-DP\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"5250.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"250.00\", \"currency\": \"CAD\"}, \"items\": [$item]}"
   invoice=$(field .id)
   api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
   expect "the final invoice's status" "$(field .status)" posted
+  say "The posting checks the CRA's documentary requirements for the input tax credit, which the Canada pack"
+  say "brings (SOR/91-45 s. 3, ADR-0049 §6): from CAD 100 the supplier's GST/HST number, on file from SAP; from"
+  say "CAD 500 a description of each supply, which this item lacks. A warning on the invoice, not a refusal:"
+  excerpt '.documentary_warnings[] | "warning \(.code): from \(.threshold.amount) \(.threshold.currency), \(.source)"'
+  expect "the final invoice's documentary warnings" "$(field '[.documentary_warnings[] | "\(.code) \(.threshold.amount)"] | join(", ")')" \
+    "item_description_missing 500.00"
   say "She clears the migrated down payment against it, as she would one the platform paid: the transfer credits"
   say "the down payment account, reverses the 100.00 input tax SAP claimed on it (the invoice claims the whole tax)"
   say "and debits the supplier's payables with the down payment, netted against the invoice in the next run."

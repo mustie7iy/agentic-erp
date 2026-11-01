@@ -1722,9 +1722,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Input tax follow-up: down payment requests' tax checked at the run date's rate (left out with tax_code_invalid when it no longer matches); documentary-requirement warnings for CA ($100/$500 tiers) and the UAE (TRN above AED 10,000); the authority's rate type and rounding from the country pack",
-        "r": "ADR-0049 §4, §6, §8 · after T61d",
+        "s": "D",
+        "t": "Input tax follow-up: down payment requests' tax checked at the run date's rate (left out with tax_code_invalid naming the code, the request's and the run date's rates; a proposed run refused at release when the rate changed since); documentary-requirement warnings on posted supplier invoices (documentary_warnings) from the company's tax_settings, which the country pack brings (Canada 2026.3: SOR/91-45 s. 3's $100/$500 tiers; the UAE's TRN above AED 10,000 for the UAE pack, pending sign-off); the authority's rate type and rounding from the country pack (companies[].tax_settings)",
+        "r": "ADR-0049 §4, §6, §8 · after T61d · db/migrations/000182 · config.TaxSettings · countrypack Tax.Settings · packs/ca/2026.3 · payables.documentaryWarnings · payments.checkTax · tax.Included",
         "src": "baseline",
         "pilot": "po:2026-10-31 · adr:ADR-0049",
         "c": []
@@ -1775,11 +1775,19 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Return lifecycle: prepared snapshot, approved by another person, recorded as filed by a person with the authority's confirmation (P3), withdrawn, amended; human-only transitions, audit and outbox events, periods locked on filing",
-        "r": "T61i",
+        "r": "db/migrations/000179-000180 · tax.tax_return, tax_return_box, tax_return_item · ledger.TaxItems.Claim, Release · ledger.ReturnPeriods · approvals.TaxReturn (tax_manager) · POST /v1/tax-registrations/{id}/returns · GET /v1/tax-returns/{id} · :file · :withdraw · ADR-0049 §11 As built · walkthrough step 11 · T61i",
         "src": "baseline",
         "pilot": "po:2026-10-31 · adr:ADR-0049",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Preparing a tax return does not enforce period order: preparing a later period first claims an earlier unfiled period's unreported items as prior-period items",
+        "r": "internal/taxfiling prepare.go claim (ledger.TaxItems.Claim takes every unreported item dated by the period's end, with no check that earlier periods are filed) · ADR-0049 §11 As built (T61i) · walkthrough step 11 relies on it (its draft expects \"60.00 10.00\" and its original claims invoice 1031 of an earlier unfiled period): enforcing the order means filing the earlier periods there first, or a cutover · data and tax correctness of the return",
+        "src": "review:batch32",
+        "pilot": "po:2026-10-31 · review:batch32",
         "c": []
        },
        {
@@ -5195,7 +5203,7 @@
        },
        {
         "s": "T",
-        "t": "UAE pack",
+        "t": "UAE pack (its tax_settings with the documentary tier above AED 10,000 requiring the supplier's TRN, pending sign-off, ADR-0049 §6 As built)",
         "r": "T62f",
         "src": "baseline",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0048",
@@ -5203,7 +5211,7 @@
        },
        {
         "s": "T",
-        "t": "Canada pack 2026.3: the tax codes (GST/HST/QST/PST) in the component schema of T61a, from packs/ca/TAX-PENDING-T61a.md, with all their dated rates; 2026.2 plus the tax codes, keeping its cash.yaml (a version without it would drop the suggested liquidity items from tenants that adopted 2026.2), released beside 2026.1 and 2026.2 (both stay as released); signed off by the tax specialist before the pilot",
+        "t": "Canada pack 2026.4: the tax codes (GST/HST/QST/PST) in the component schema of T61a, from packs/ca/TAX-PENDING-T61a.md, with all their dated rates; 2026.3 plus the tax codes, keeping its cash.yaml (a version without it would drop the suggested liquidity items from tenants that adopted 2026.2) and its tax settings (2026.3, the T61d follow-up), released beside 2026.1-2026.3 (all stay as released); signed off by the tax specialist before the pilot",
         "r": "packs/ca/2026.3 · packs/released.sha256 · ADR-0048 · ADR-0049 · T62g",
         "src": "baseline",
         "pilot": "po:2026-10-31 · adr:ADR-0048 · adr:ADR-0049",
@@ -5574,6 +5582,13 @@
         "c": []
        },
        {
+        "s": "T",
+        "t": "The workspace's new manual entry form keeps the first company's currency after the company select is switched",
+        "r": "internal/web entry_form.go showNewEntry (the company's local currency set only when the form is fresh) · T73h · money risk: an entry offered in another company's currency",
+        "src": "review:batch32",
+        "c": []
+       },
+       {
         "s": "D",
         "t": "Period close screens: periods per company and ledger by fiscal year, close, open and lock with ETags and idempotency keys, the unlock request with its reason and its approval decided by the controller in the approvals inbox (T73d; the requester refused as approver by workflow.own_request, shown by the code), revaluation preview (key date from the period's end) and post with the run's page and the company's runs, pre-close checks loaded into the period's page (GR/IR positions still open, the period's ledger reconciled with another the company keeps, statements imported and after a gap): the statements link to their pages, their bank's reconciliation report and the lists by status (T73g); GR/IR and ledger reconciliation show their results in place without a link, their reports being T73j's; scenarios as accountant and as controller; EN and FR; axe at zero at 1280 and 390 px",
         "r": "internal/web close.go · period.go · close_checks.go · revaluation.go · ui/close.templ · i18n PeriodProblems · RevaluationProblems · fixture close.go · TestPeriodList · TestCloseLockAndUnlock · TestPeriodRefusals · TestPreCloseChecks · TestRevaluation · TestCloseAsOthers · TestCloseStubbed · TestChecksStubbed · TestCloseUnavailable · TestPostRefusedBeforeTheAPI · TestCloseInTheBrowser · TestCloseJobsInTheBrowser · ADR-0052 Built in T73i · T73i",
@@ -5634,9 +5649,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The web workspace pre-fills dates from the server's UTC clock, not the company's date in its time zone: a manual entry's document and posting dates, a payment run's run_date and due_by, and the open-item report's key date (at 22:00 in Toronto the form offers tomorrow's date)",
-        "r": "internal/web journal_entries.go:308 today (s.now() in UTC) · entry_form.go:225-226 newEntry docDate/postingDate · payments.go:61 run_date/due_by · report_items.go:142 KeyDate · ADR-0051 as built (the company's date, T72n1-T72n7) · UI later (product owner 2026-10-28, headless first)",
+        "r": "internal/web journal_entries.go:308 today (s.now() in UTC) · entry_form.go:225-226 newEntry docDate/postingDate · payments.go:61 run_date/due_by · report_items.go:142 KeyDate · ADR-0051 as built (the company's date, T72n1-T72n7) · UI later (product owner 2026-10-28, headless first) · done in webdates: getLegalEntityToday (the company's date and zone, contract first) and every date or year the workspace defaults asks it (entry form, payment run proposal, open items' key date, periods' and ledger reports' year), left empty for the person to type when the API cannot tell it · ADR-0051 and ADR-0052 as built",
         "src": "review:batch27",
         "pilot": "po:2026-10-31 · review:batch27",
         "c": []
@@ -8707,11 +8722,18 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Configuration activation refused while replicas of two versions run, so a key an older replica would ignore (companies[].release_dual_limit: the old :release has no approval check) cannot take effect on part of the cell; until then the release runbook activates such changes only after the upgrade completes",
-      "r": "ADR-0038 amendment (rollout) · 06 §6.4 config.ParseActive · T72m",
+      "r": "ADR-0038 amendment (rollout) · 06 §6.4 config.ParseActive · T72m · built: config.replica (000181) records each replica's version and config.Keys() every 30 s, a crashed one stops counting after 5 minutes on the database's clock; activate refuses a document whose Config.Used() keys a running replica lacks, 409 config.replica_lacks_key naming key and versions (:activate and provisioning); the upgrade bringing it keeps the runbook rule · ADR-0038 As built",
       "src": "baseline",
       "pilot": "po:2026-10-31 · adr:ADR-0038",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "The workflow worker stops without waiting for in-flight activities (worker.Options{} leaves WorkerStopTimeout 0): a stopping replica's release activity that read the configuration may still commit after the replica's record is deleted, so an activation it lacks a key for can pass in that window; set WorkerStopTimeout within the termination grace so activities finish before the record goes",
+      "r": "internal/platform/workflow workflow.go Worker · cmd/erp-server launch stopRecord · ADR-0038 As built (activation refused while a replica lacks a key) · T72m",
+      "src": "review:T72m",
       "c": []
      },
      {

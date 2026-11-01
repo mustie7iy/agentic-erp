@@ -20,12 +20,15 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-// TaxItems reads the tax items a return reports (the ledger's port,
-// ledger.TaxItems; ADR-0049 Alternatives).
+// TaxItems reads the tax items a return reports, and claims and releases
+// them (the ledger's port, ledger.TaxItems; ADR-0049 Alternatives).
 type TaxItems interface {
 	Unreported(ctx context.Context, legalEntities []uuid.UUID, start, end time.Time) ([]ledger.TaxItemGroup, error)
 	UnreportedItems(ctx context.Context, legalEntities []uuid.UUID, end time.Time, sel ledger.TaxItemSelection, after *ledger.TaxItemKey,
 		limit int) ([]ledger.ReturnItem, error)
+	Claim(ctx context.Context, legalEntities []uuid.UUID, from *time.Time, start, end time.Time, sels []ledger.TaxItemSelection,
+		ret uuid.UUID) ([]ledger.TaxItemGroup, []ledger.ClaimedItem, error)
+	Release(ctx context.Context, ret uuid.UUID) (int64, error)
 }
 
 // returnScope is what a draft return of a registration's period is
