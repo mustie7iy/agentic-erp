@@ -68,8 +68,10 @@ func TestAcceptStatementGap(t *testing.T) {
 			t.Errorf("accepted statement's %s: got %v, want %v", name, s[name], want)
 		}
 	}
-	if s["gap_accepted_at"] == nil || s["lines"] == nil {
-		t.Errorf("accepted statement: got %v, want when it was accepted, and its lines", s)
+	for _, name := range []string{"gap_accepted_at", "lines"} {
+		if s[name] == nil {
+			t.Errorf("accepted statement's %s: got none, want it", name)
+		}
 	}
 	if code, again, replayed := accept(); code != 200 || replayed != "true" || again["version"] != s["version"] {
 		t.Errorf("the same request again: got %d %v replayed %q, want the first answer replayed", code, again, replayed)
@@ -136,8 +138,13 @@ func TestGapClosedAfterAcceptance(t *testing.T) {
 	if s["status"] != "imported" || s["previous_statement_id"] != missing["id"] {
 		t.Errorf("accepted statement after the missing one: got %v after %v, want imported after %v", s["status"], s["previous_statement_id"], missing["id"])
 	}
-	if s["gap_reason"] != "Missing for now." || s["gap_accepted_at"] == nil || s["gap_accepted_by"] == nil {
-		t.Errorf("the acceptance after the gap closed: got %v, %v, %v, want it kept", s["gap_accepted_at"], s["gap_accepted_by"], s["gap_reason"])
+	if s["gap_reason"] != "Missing for now." {
+		t.Errorf("gap_reason after the gap closed: got %v, want it kept", s["gap_reason"])
+	}
+	for _, name := range []string{"gap_accepted_at", "gap_accepted_by"} {
+		if s[name] == nil {
+			t.Errorf("%s after the gap closed: got none, want it kept", name)
+		}
 	}
 	if n := len(events(t, e.Tenant, "bank_statement_gap_closed")) + len(events(t, e.Tenant, "bank_statement_gap_found")); n != 0 {
 		t.Errorf("gap events: got %d, want none: the statement was imported already", n)
