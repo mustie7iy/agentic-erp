@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"net/url"
 	"time"
 
 	"github.com/a-h/templ"
@@ -69,16 +70,98 @@ type Refusal struct {
 	Barred   []string
 }
 
-// InboxPage is the person's approvals inbox: the requests they may decide
-// now, the next page's path ("" on the last), a decision just recorded
-// (Done), the permissions a segregation-of-duties rule bars, and the API's
-// refusal to list them.
+// The approvals' lists (T73d2), by the view query parameter: the requests
+// the person may decide now (the inbox, decidable_by=me), those they asked
+// for (requested_by=me) and all they may see.
+const (
+	ViewDecide = ""
+	ViewMine   = "mine"
+	ViewAll    = "all"
+	FieldView  = "view"
+	// FieldStatus and FieldObjectKind are the lists' filters, the API's own
+	// (listApprovalRequests' status and object_type).
+	FieldStatus     = "status"
+	FieldObjectKind = "object_type"
+)
+
+// LabelOption is one choice of a select whose text is the catalog's, or
+// the value as it is for one the catalog does not name.
+type LabelOption struct {
+	Value    string
+	Label    Label
+	Selected bool
+}
+
+// ApprovalFilters are a list's filters as the person chose them: the
+// status, offered on every list but the inbox (which holds pending
+// requests alone), and the kind of object; Clear is the list without them.
+type ApprovalFilters struct {
+	View     string
+	Statuses []LabelOption // nil on the inbox
+	Kinds    []LabelOption
+	Clear    string
+}
+
+// InboxPage is one of the person's lists of approval requests (View): the
+// lists as tabs, the filters, the requests, the next page's path ("" on
+// the last), a decision just recorded (Done), the permissions a
+// segregation-of-duties rule bars, and the API's refusal to list them.
 type InboxPage struct {
+	View      string
+	Tabs      []StatusTab
+	Filters   ApprovalFilters
 	Approvals []Approval
 	More      string
 	Done      i18n.Key
 	Barred    []string
 	Refusal   *Refusal
+}
+
+// ViewTitle is the list's title.
+func ViewTitle(view string) i18n.Key {
+	switch view {
+	case ViewMine:
+		return i18n.MineTitle
+	case ViewAll:
+		return i18n.AllTitle
+	}
+	return i18n.InboxTitle
+}
+
+// viewTexts are the list's lead, the text of an empty list and the list's
+// name.
+func viewTexts(view string) (lead, empty, list i18n.Key) {
+	switch view {
+	case ViewMine:
+		return i18n.MineLead, i18n.MineEmpty, i18n.MineListLabel
+	case ViewAll:
+		return i18n.AllLead, i18n.AllEmpty, i18n.AllListLabel
+	}
+	return i18n.InboxLead, i18n.InboxEmpty, i18n.InboxListLabel
+}
+
+func leadText(view string) i18n.Key {
+	lead, _, _ := viewTexts(view)
+	return lead
+}
+
+func emptyText(view string) i18n.Key {
+	_, empty, _ := viewTexts(view)
+	return empty
+}
+
+func listText(view string) i18n.Key {
+	_, _, list := viewTexts(view)
+	return list
+}
+
+// ObjectSummary is what the request's object says of itself, read from
+// its own operation (getRequisition, getSupplierInvoice, …): its rows,
+// and its own page in the workspace, where there is one.
+type ObjectSummary struct {
+	Rows     []Row
+	Link     string
+	LinkText i18n.Key
 }
 
 // Step is one step of a request.
@@ -95,32 +178,41 @@ type Decision struct {
 	Comment string // data, perhaps an agent's text
 }
 
-// DecideForms are a request's approve and reject forms (ADR-0052 §7): the
-// request's ETag, sent as If-Match, and a fresh idempotency key each, so
-// a second click or a resubmit replays the first answer; what the person
-// typed, kept when the API refuses; and the fields' errors.
+// DecideForms are a request's approve and reject forms, and the
+// requester's withdrawal (ADR-0052 §7): the request's ETag, sent as
+// If-Match, and a fresh idempotency key each, so a second click or a
+// resubmit replays the first answer; what the person typed, kept when the
+// API refuses or a step-up sign-in came between; and the fields' errors.
 type DecideForms struct {
-	Action       string // the request's page; the forms post to its approve and reject
-	CSRF         string // the session's CSRF token
-	ETag         string
-	ApproveKey   string
-	RejectKey    string
-	Comment      string
-	Reason       string
-	CommentError i18n.Key
-	ReasonError  i18n.Key
+	Action        string // the request's page; the forms post to its approve, reject and cancel
+	CSRF          string // the session's CSRF token
+	ETag          string
+	ApproveKey    string
+	RejectKey     string
+	WithdrawKey   string
+	Comment       string
+	Reason        string
+	Withdrawal    string // why the requester withdraws it
+	CommentError  i18n.Key
+	ReasonError   i18n.Key
+	WithdrawError i18n.Key
 }
 
-// RequestPage is one request: its summary, steps and decisions, the
-// person's decision forms or why there are none, and the API's refusal of
-// a decision.
+// RequestPage is one request: its summary, its object's own summary, its
+// steps and decisions, the person's decision forms or why there are none,
+// the requester's withdrawal, and the API's refusal of a decision.
 type RequestPage struct {
 	Approval
-	Steps     []Step
-	Decisions []Decision
-	Decide    *DecideForms
-	Why       i18n.Key // why Decide is nil: DecideOwn, DecideNotYours or DecideClosed
-	Refusal   *Refusal
+	Object        *ObjectSummary
+	ObjectNote    i18n.Key // why Object is nil when ObjectRefusal is too
+	ObjectRefusal *Refusal
+	Steps         []Step
+	Decisions     []Decision
+	Decide        *DecideForms
+	Why           i18n.Key     // why Decide is nil: DecideOwn, DecideNotYours or DecideClosed
+	Withdraw      *DecideForms // the requester's own pending request; nil otherwise
+	Kept          bool         // what the person typed came back after a step-up sign-in, not sent yet
+	Refusal       *Refusal
 }
 
 // The fields of the decision forms.
@@ -129,6 +221,25 @@ const (
 	FieldIdempotency = "idempotency_key"
 	FieldComment     = "comment"
 )
+
+// The decisions on a request, the last segment of their forms' paths.
+const (
+	VerbApprove  = "approve"
+	VerbReject   = "reject"
+	VerbWithdraw = "cancel"
+)
+
+// labelOption is a select's option whose text is the catalog's.
+func labelOption(o LabelOption) templ.Attributes {
+	a := templ.Attributes{"value": o.Value}
+	if o.Selected {
+		a["selected"] = true
+	}
+	return a
+}
+
+// selectAttrs are a select's id and name.
+func selectAttrs(id, name string) templ.Attributes { return templ.Attributes{"id": id, "name": name} }
 
 // labelText is a Label's text.
 func labelText(l Label) templ.Component {
@@ -194,3 +305,6 @@ func forAttr(id string) templ.Attributes { return templ.Attributes{"for": id} }
 func action(base, verb string) templ.Attributes {
 	return templ.Attributes{"method": "post", "action": string(templ.URL(base + "/" + verb))}
 }
+
+// ListPath is a list's path with the query, "" values left out.
+func ListPath(base string, q url.Values) string { return listPath(base, q) }

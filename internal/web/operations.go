@@ -70,6 +70,10 @@ type Operation struct {
 	HumanOnly bool
 	Lookup    bool
 	Export    bool // read page by page for a download, up to maxExportPages times (T73j)
+	// PerObject marks the read of one type of a request's object (T73d2): a
+	// request's page calls the one of its object's type, one read
+	// whichever it is.
+	PerObject bool
 }
 
 var (
@@ -149,6 +153,20 @@ func paged(op Operation) Operation {
 	return op
 }
 
+// opRequest are the reads of a request's page (approvals.go): the request,
+// its people's names and its object, read by its type's operation
+// (approval_object.go).
+var opRequest = append([]Operation{opMe, opGet, opNames}, objectOps()...)
+
+// decideOps are the operations of the decisions on an approval request, by
+// verb, each hidden by its x-permission: its approval and rejection, which
+// only people make, and the requester's withdrawal.
+var decideOps = map[string]Operation{
+	ui.VerbApprove:  {ID: "approveApprovalRequest", HiddenBy: permDecide, HumanOnly: true},
+	ui.VerbReject:   {ID: "rejectApprovalRequest", HiddenBy: permDecide, HumanOnly: true},
+	ui.VerbWithdraw: {ID: "cancelApprovalRequest", HiddenBy: permCancelRequests},
+}
+
 // parkedOps are the operations of the decisions on a parked entry, by
 // verb, each hidden by its x-permission: its post, which only people make
 // (T35), its cancellation, and the withdrawal of its approval request.
@@ -203,14 +221,12 @@ var actionOps = map[string]Operation{
 // Screens are the operations each route calls, by its pattern.
 var Screens = func() map[string][]Operation {
 	screens := map[string][]Operation{
-		"GET /{$}":                     {opMe, {ID: "listLegalEntities"}},
-		"POST /logout":                 {{ID: "endCurrentSession", HumanOnly: true}},
-		"GET /approvals":               {opMe, {ID: "listApprovalRequests", HiddenBy: permReadApprovals}, opNames},
-		"GET /approvals/{id}":          {opMe, opGet, opNames},
-		"POST /approvals/{id}/approve": {opMe, {ID: "approveApprovalRequest", HiddenBy: permDecide, HumanOnly: true}, opGet, opNames},
-		"POST /approvals/{id}/reject":  {opMe, {ID: "rejectApprovalRequest", HiddenBy: permDecide, HumanOnly: true}, opGet, opNames},
-		"GET /invoices":                {opMe, opCompanies, {ID: "listSupplierInvoices", HiddenBy: permReadInvoices}, opNames},
-		"GET /invoices/{id}":           opInvoice,
+		"GET /{$}":            {opMe, {ID: "listLegalEntities"}},
+		"POST /logout":        {{ID: "endCurrentSession", HumanOnly: true}},
+		"GET /approvals":      {opMe, {ID: "listApprovalRequests", HiddenBy: permReadApprovals}, opNames},
+		"GET /approvals/{id}": opRequest,
+		"GET /invoices":       {opMe, opCompanies, {ID: "listSupplierInvoices", HiddenBy: permReadInvoices}, opNames},
+		"GET /invoices/{id}":  opInvoice,
 		"GET /invoices/{id}/order": {opMe, {ID: "getSupplierInvoice", HiddenBy: permReadInvoices}, {ID: "getPurchaseOrder", HiddenBy: permReadOrders},
 			{ID: "listGoodsReceipts", HiddenBy: permReadReceipts}},
 		"GET /invoices/{id}/document": {{ID: "getSupplierInvoiceDocument", HiddenBy: permReadInvoices}},
@@ -253,6 +269,9 @@ var Screens = func() map[string][]Operation {
 		"GET /reports/ledger-reconciliation":         opReconcile,
 		"GET /reports/ledger-reconciliation/entries": opReconEntries,
 		"GET /reports/audit":                         {opMe, {ID: "listAuditEvents", HiddenBy: permReadAudit}, opNames},
+	}
+	for verb, op := range decideOps {
+		screens["POST /approvals/{id}/"+verb] = append([]Operation{op}, opRequest...)
 	}
 	for verb, op := range actionOps {
 		screens["POST /invoices/{id}/"+verb] = append([]Operation{op}, opInvoice...)

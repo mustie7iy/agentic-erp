@@ -144,7 +144,7 @@ func (s *Server) cancelRunOperation(w http.ResponseWriter, r *http.Request, p *p
 	key, opID := r.PostForm.Get(ui.FieldIdempotency), r.PostForm.Get(ui.FieldOperation)
 	operation, err := uuid.Parse(opID)
 	if _, kerr := uuid.Parse(key); kerr != nil || err != nil {
-		s.render(w, r, http.StatusBadRequest, ui.Problem(s.shell(i18n.RefusedTitle, ""), i18n.RefusedTitle, i18n.ProblemInvoiceBody, runPath(id), i18n.ProgressBack))
+		s.render(w, r, http.StatusBadRequest, ui.Problem(s.chrome(r, i18n.RefusedTitle), i18n.RefusedTitle, i18n.ProblemInvoiceBody, runPath(id), i18n.ProgressBack))
 		return
 	}
 	m, ok := s.whoami(w, r, p)

@@ -5499,11 +5499,19 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Approvals beyond the inbox: my requests and all I can see (listApprovalRequests by status and object type), the object's own summary per type (getRequisition, getPartnerChange, getSupplierInvoice, …) on the request's page, cancel own with a comment; a signed-in person's 404 and refused-form pages with their navigation; a decision's text kept across a step-up sign-in; walked through by a pilot approver",
-        "r": "T73d2 (split from T73d, 2026-10-22)",
+        "s": "D",
+        "t": "Approvals beyond the inbox: my requests (listApprovalRequests requested_by=me, a contract change with its index) and all I can see, by status and object type; the object's own summary per type on the request's page (getRequisition, getPartnerChange, getChangeRequest, getSupplierInvoice, getFiscalPeriod, getParkedJournalEntry, getPurchaseOrder, getCenterChange, getGrIrClearing, getPaymentRun; refused in place, hidden without the read permission); the requester's withdrawal with a reason (cancelApprovalRequest; anyone else refused by workflow.not_requester); a signed-in person's 404 and refused-form pages with their navigation; a decision's text kept across a step-up sign-in (sealed in the person's browser, never the web store)",
+        "r": "internal/approvals api.go requestedBy · migration 000179 approval_request_by_requester · internal/web approvals.go · approval_object.go · approval_draft.go · me.go chrome · signin.go anyone · operations.go PerObject, decideOps · ui/approvals.templ · i18n en, fr-CA · TestRequestedBy · TestApprovalLists · TestObjectSummaries · TestEveryObjectRead · TestSummaries · TestWithdraw · TestPagesKeepNavigation · TestDraftAcrossStepUp · TestObjectHiddenOrUnknown · TestWithdrawInTheBrowser · TestApprovalsInTheBrowser · walkthrough step_procure · ADR-0052 Built in T73d2 · T73d2",
         "src": "split:T73d",
         "pilot": "po:2026-10-31 · split:T73d · adr:ADR-0052",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Approvals beyond T73d2: the object's summary of an order change (getPurchaseOrderChange needs the order's id, which the request does not carry: a contract change, the order on the request or a read of the change by its own id) and of a bank clearing (its object is a statement line's match, which no operation reads by id: a contract change); walked through by a pilot approver",
+        "r": "T73d3 (split from T73d2, 2026-11-01)",
+        "src": "split:T73d2 · adr:ADR-0052",
+        "pilot": "po:2026-10-31 · split:T73d2 · adr:ADR-0052",
         "c": []
        },
        {

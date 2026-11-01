@@ -1,6 +1,7 @@
 package web
 
 import (
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -15,12 +16,15 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/web/ui"
 )
 
-// The approvals inbox (ADR-0052 §2, T73d): the requests the person may
-// decide now (listApprovalRequests decidable_by=me, ADR-0052 G1), each
-// request's page with its steps and decisions, and the decision itself,
-// one request and one click at a time (§7).
+// The approvals (ADR-0052 §2, T73d, T73d2): the person's lists of
+// requests, those they may decide now (listApprovalRequests
+// decidable_by=me, ADR-0052 G1), those they asked for (requested_by=me)
+// and all they may see, filtered by status and kind of object; each
+// request's page with its object's own summary, its steps and decisions;
+// the decision itself, one request and one click at a time (§7); and the
+// requester's withdrawal of their own.
 
-// An inbox page shows inboxPageSize requests, reading at most inboxReads
+// A list's page shows inboxPageSize requests, reading at most inboxReads
 // pages of the API to fill it: a page of decidable_by=me may hold fewer
 // requests than asked, even none, while it has a next page (T73c). With
 // getCurrentPrincipal and listPrincipalNames a page makes at most five
@@ -46,50 +50,107 @@ var (
 		"cancelled": i18n.StatusCancelled}
 	decisionKinds = map[string]i18n.Key{"approve": i18n.StatusApproved, "reject": i18n.StatusRejected, "cancel": i18n.StatusCancelled}
 	// done are the notices of a decision just made (?done=…).
-	done = map[string]i18n.Key{"approved": i18n.InboxDoneApproved, "rejected": i18n.InboxDoneRejected}
+	done = map[string]i18n.Key{"approved": i18n.InboxDoneApproved, "rejected": i18n.InboxDoneRejected, "cancelled": i18n.InboxDoneCancelled}
+	// views are the lists' tabs, in their order.
+	views = []struct {
+		view  string
+		label i18n.Key
+	}{{ui.ViewDecide, i18n.TabDecide}, {ui.ViewMine, i18n.TabMine}, {ui.ViewAll, i18n.TabAll}}
 )
 
 func labelOf(known map[string]i18n.Key, v string) ui.Label { return ui.Label{Key: known[v], Raw: v} }
 
-// inbox is the person's inbox: as many requests as fill a page, the
-// requesters by name, and the next page's link, whose token is the API's.
+// listQuery is a list's view and filters, from the page's query: an
+// unknown view is the inbox, which takes no status (it holds pending
+// requests alone).
+type listQuery struct{ view, status, kind string }
+
+func listQueryOf(q url.Values) listQuery {
+	l := listQuery{view: q.Get(ui.FieldView), status: q.Get(ui.FieldStatus), kind: q.Get(ui.FieldObjectKind)}
+	if l.view != ui.ViewMine && l.view != ui.ViewAll {
+		l.view, l.status = ui.ViewDecide, ""
+	}
+	return l
+}
+
+// values are the list's query, with the page token when there is one.
+func (l listQuery) values(token string) url.Values {
+	return url.Values{ui.FieldView: {l.view}, ui.FieldStatus: {l.status}, ui.FieldObjectKind: {l.kind}, "page": {token}}
+}
+
+// params are the list's listApprovalRequests parameters, but its page.
+func (l listQuery) params() gen.ListApprovalRequestsParams {
+	var params gen.ListApprovalRequestsParams
+	switch l.view {
+	case ui.ViewDecide:
+		params.DecidableBy = gen.NewOptString("me")
+	case ui.ViewMine:
+		params.RequestedBy = gen.NewOptString("me")
+	}
+	if l.status != "" {
+		params.Status = gen.NewOptString(l.status)
+	}
+	if l.kind != "" {
+		params.ObjectType = gen.NewOptString(l.kind)
+	}
+	return params
+}
+
+// tabs are the lists, the current one marked; each keeps the kind of
+// object chosen.
+func (l listQuery) tabs() []ui.StatusTab {
+	out := make([]ui.StatusTab, 0, len(views))
+	for _, v := range views {
+		out = append(out, ui.StatusTab{Label: v.label, Path: ui.ListPath(ui.ApprovalsPath, url.Values{ui.FieldView: {v.view}, ui.FieldObjectKind: {l.kind}}),
+			Current: v.view == l.view})
+	}
+	return out
+}
+
+// filters are the list's filters as chosen: the statuses on every list
+// but the inbox, and the kinds of objects the catalog names, a kind it
+// does not name kept as it is.
+func (l listQuery) filters() ui.ApprovalFilters {
+	f := ui.ApprovalFilters{View: l.view, Kinds: choices(objectKinds, l.kind), Clear: ui.ListPath(ui.ApprovalsPath, url.Values{ui.FieldView: {l.view}})}
+	if l.view != ui.ViewDecide {
+		f.Statuses = choices(statuses, l.status)
+	}
+	return f
+}
+
+// choices are a select's options, the catalog's values in order and the
+// chosen one, also when the catalog does not name it.
+func choices(known map[string]i18n.Key, chosen string) []ui.LabelOption {
+	values := slices.Sorted(maps.Keys(known))
+	if chosen != "" && !slices.Contains(values, chosen) {
+		values = append(values, chosen)
+	}
+	out := make([]ui.LabelOption, 0, len(values))
+	for _, v := range values {
+		out = append(out, ui.LabelOption{Value: v, Label: labelOf(known, v), Selected: v == chosen})
+	}
+	return out
+}
+
+// inbox is one of the person's lists: as many requests as fill a page,
+// the requesters by name, and the next page's link, whose token is the
+// API's.
 func (s *Server) inbox(w http.ResponseWriter, r *http.Request, p *person) {
 	m, ok := s.whoami(w, r, p)
 	if !ok {
 		return
 	}
-	in := ui.InboxPage{Done: done[r.URL.Query().Get("done")]}
-	if slices.Contains(m.Barred, permDecide) {
+	l := listQueryOf(r.URL.Query())
+	in := ui.InboxPage{View: l.view, Tabs: l.tabs(), Filters: l.filters(), Done: done[r.URL.Query().Get("done")]}
+	if l.view == ui.ViewDecide && slices.Contains(m.Barred, permDecide) {
 		in.Barred = m.Barred
 	}
-	status := http.StatusOK
-	token := r.URL.Query().Get("page")
-	var reqs []gen.ApprovalRequest
-	for range inboxReads {
-		params := gen.ListApprovalRequestsParams{DecidableBy: gen.NewOptString("me"), PageSize: gen.NewOptInt32(int32(inboxPageSize - len(reqs)))}
-		if token != "" {
-			params.PageToken = gen.NewOptString(token)
-		}
-		res, err := s.API.ListApprovalRequests(r.Context(), params)
-		page, ok := res.(*gen.ApprovalRequestPage)
-		if !ok {
-			prob, show := s.refusal(w, r, p, "listApprovalRequests", res, err)
-			if !show {
-				return
-			}
-			in.Refusal, status, token = explain(i18n.InboxRefusedTitle, prob, m), int(prob.Status), ""
-			break
-		}
-		reqs = append(reqs, page.Items...)
-		if token = page.NextPageToken.Or(""); token == "" || len(reqs) >= inboxPageSize {
-			break
-		}
+	reqs, token, status, ok := s.readList(w, r, p, m, l, &in)
+	if !ok {
+		return
 	}
 	if token != "" {
-		in.More = ui.ApprovalsPath + "?page=" + url.QueryEscape(token)
-	}
-	if in.Refusal != nil {
-		reqs = nil // a refused read shows the refusal alone
+		in.More = ui.ListPath(ui.ApprovalsPath, l.values(token))
 	}
 	ids := make([]uuid.UUID, 0, len(reqs))
 	for _, a := range reqs {
@@ -99,7 +160,37 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request, p *person) {
 	for _, a := range reqs {
 		in.Approvals = append(in.Approvals, approvalOf(a, names))
 	}
-	s.render(w, r, status, ui.Inbox(s.page(i18n.InboxTitle, ui.ApprovalsPath, p, m), in))
+	s.render(w, r, status, ui.Inbox(s.page(ui.ViewTitle(l.view), ui.ApprovalsPath, p, m), in))
+}
+
+// readList reads the list's requests, page after page of the API's until
+// they fill a page, and the next page's token ("" on the last). A refused
+// read is the page's refusal alone (in.Refusal, with its status); ok is
+// false when the answer was written instead (apiFailed).
+func (s *Server) readList(w http.ResponseWriter, r *http.Request, p *person, m me, l listQuery, in *ui.InboxPage) ([]gen.ApprovalRequest, string, int, bool) {
+	token := r.URL.Query().Get("page")
+	var reqs []gen.ApprovalRequest
+	for range inboxReads {
+		params := l.params()
+		params.PageSize = gen.NewOptInt32(int32(inboxPageSize - len(reqs)))
+		if token != "" {
+			params.PageToken = gen.NewOptString(token)
+		}
+		res, err := s.API.ListApprovalRequests(r.Context(), params)
+		page, ok := res.(*gen.ApprovalRequestPage)
+		if !ok {
+			prob, show := s.refusal(w, r, p, "listApprovalRequests", res, err)
+			if show {
+				in.Refusal = explain(i18n.InboxRefusedTitle, prob, m)
+			}
+			return nil, "", int(prob.Status), show
+		}
+		reqs = append(reqs, page.Items...)
+		if token = page.NextPageToken.Or(""); token == "" || len(reqs) >= inboxPageSize {
+			break
+		}
+	}
+	return reqs, token, http.StatusOK, true
 }
 
 // approvalOf is a request as the pages show it.
@@ -113,7 +204,8 @@ func approvalOf(a gen.ApprovalRequest, names map[uuid.UUID]ui.Name) ui.Approval 
 	return out
 }
 
-// request is one request's page.
+// request is one request's page, with what the person typed before a
+// step-up sign-in came between, if anything (keptDraft).
 func (s *Server) request(w http.ResponseWriter, r *http.Request, p *person) {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
@@ -124,20 +216,24 @@ func (s *Server) request(w http.ResponseWriter, r *http.Request, p *person) {
 	if !ok {
 		return
 	}
-	s.showRequest(w, r, p, m, id, http.StatusOK, ui.DecideForms{}, nil)
+	typed, kept := s.keptDraft(w, r, p, id)
+	s.showRequest(w, r, p, m, id, http.StatusOK, typed, nil, kept)
 }
 
 // notFound is the page of an address that is no page, or not the
-// person's: the API's 404 means both (04 §4.9).
+// person's: the API's 404 means both (04 §4.9). A signed-in person keeps
+// their navigation (T73d2).
 func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {
-	s.render(w, r, http.StatusNotFound, ui.NotFound(s.shell(i18n.NotFoundTitle, "")))
+	s.render(w, r, http.StatusNotFound, ui.NotFound(s.chrome(r, i18n.NotFoundTitle)))
 }
 
-// showRequest reads the request and renders its page with status: the
-// decision forms fresh (the request's current ETag, new idempotency keys)
-// holding what the person typed (typed), and the API's refusal of their
+// showRequest reads the request and renders its page with status: its
+// object's summary, the decision forms fresh (the request's current ETag,
+// new idempotency keys) holding what the person typed (typed, kept when
+// it came back after a step-up sign-in), and the API's refusal of their
 // decision, if any.
-func (s *Server) showRequest(w http.ResponseWriter, r *http.Request, p *person, m me, id uuid.UUID, status int, typed ui.DecideForms, refused *ui.Refusal) {
+func (s *Server) showRequest(w http.ResponseWriter, r *http.Request, p *person, m me, id uuid.UUID, status int, typed ui.DecideForms, refused *ui.Refusal,
+	kept bool) {
 	res, err := s.API.GetApprovalRequest(r.Context(), gen.GetApprovalRequestParams{ID: id})
 	got, ok := res.(*gen.ApprovalRequestHeaders)
 	if !ok {
@@ -148,7 +244,7 @@ func (s *Server) showRequest(w http.ResponseWriter, r *http.Request, p *person, 
 			s.notFound(w, r)
 		default:
 			s.render(w, r, int(prob.Status), ui.Inbox(s.page(i18n.InboxTitle, ui.ApprovalsPath, p, m),
-				ui.InboxPage{Refusal: explain(i18n.InboxRefusedTitle, prob, m)}))
+				ui.InboxPage{Tabs: listQuery{}.tabs(), Filters: listQuery{}.filters(), Refusal: explain(i18n.InboxRefusedTitle, prob, m)}))
 		}
 		return
 	}
@@ -158,17 +254,23 @@ func (s *Server) showRequest(w http.ResponseWriter, r *http.Request, p *person, 
 		ids = append(ids, d.ActorID)
 	}
 	names := s.names(r.Context(), p, ids)
-	rp := ui.RequestPage{Approval: approvalOf(a, names), Refusal: refused}
+	rp := ui.RequestPage{Approval: approvalOf(a, names), Refusal: refused, Kept: kept}
+	if !s.object(w, r, p, m, a, &rp) {
+		return
+	}
 	for _, st := range a.Steps {
 		rp.Steps = append(rp.Steps, ui.Step{No: st.StepNo, Required: st.Required, Approvals: st.Approvals, Current: a.Status == "pending" && st.StepNo == a.CurrentStep})
 	}
 	for _, d := range a.Decisions {
 		rp.Decisions = append(rp.Decisions, ui.Decision{Label: labelOf(decisionKinds, d.Decision), By: names[d.ActorID], At: d.DecidedAt, Comment: d.Comment.Or("")})
 	}
+	typed.Action, typed.CSRF, typed.ETag = rp.Path, p.CSRF, got.ETag.Or(etag.Format(a.Version))
+	typed.ApproveKey, typed.RejectKey, typed.WithdrawKey = uuid.NewString(), uuid.NewString(), uuid.NewString()
 	if rp.Why = why(a, m); rp.Why == "" {
-		typed.Action, typed.CSRF, typed.ETag = rp.Path, p.CSRF, got.ETag.Or(etag.Format(a.Version))
-		typed.ApproveKey, typed.RejectKey = uuid.NewString(), uuid.NewString()
 		rp.Decide = &typed
+	}
+	if a.Status == "pending" && a.RequesterID == m.ID && m.may(permCancelRequests) {
+		rp.Withdraw = &typed
 	}
 	s.render(w, r, status, ui.Request(s.page(i18n.RequestTitle, ui.ApprovalsPath, p, m), rp))
 }
@@ -193,13 +295,15 @@ func why(a gen.ApprovalRequest, m me) i18n.Key {
 	return ""
 }
 
-// decide records the person's decision on the request (approve true:
-// approveApprovalRequest, else rejectApprovalRequest), with the ETag the
-// form carried as If-Match and the form's idempotency key, so a double
-// click or a resubmit replays the first answer (ADR-0052 §7). Done, it
-// goes back to the inbox; refused, the request's page says why, with what
-// the person typed kept.
-func (s *Server) decide(approve bool) func(http.ResponseWriter, *http.Request, *person) {
+// decide records the person's decision on the request, by verb:
+// approveApprovalRequest, rejectApprovalRequest, or the requester's
+// cancelApprovalRequest, with the ETag the form carried as If-Match and
+// the form's idempotency key, so a double click or a resubmit replays the
+// first answer (ADR-0052 §7). Done, it goes back to the list (the
+// requester's own, after a withdrawal); refused, the request's page says
+// why, with what the person typed kept; a step-up sign-in asked keeps it
+// across the sign-in (keepDraft).
+func (s *Server) decide(verb string) func(http.ResponseWriter, *http.Request, *person) {
 	return func(w http.ResponseWriter, r *http.Request, p *person) {
 		id, err := uuid.Parse(r.PathValue("id"))
 		if err != nil {
@@ -213,40 +317,71 @@ func (s *Server) decide(approve bool) func(http.ResponseWriter, *http.Request, *
 		ifMatch, key, text := r.PostForm.Get(ui.FieldIfMatch), r.PostForm.Get(ui.FieldIdempotency), r.PostForm.Get(ui.FieldComment)
 		if _, err := uuid.Parse(key); err != nil || ifMatch == "" {
 			// Not the page's form: nothing to keep or explain.
-			s.render(w, r, http.StatusBadRequest, ui.Problem(s.shell(i18n.RefusedTitle, ""), i18n.RefusedTitle, i18n.ProblemInvalidBody, back, i18n.RequestBack))
+			s.render(w, r, http.StatusBadRequest, ui.Problem(s.chrome(r, i18n.RefusedTitle), i18n.RefusedTitle, i18n.ProblemInvalidBody, back, i18n.RequestBack))
 			return
 		}
 		m, ok := s.whoami(w, r, p)
 		if !ok {
 			return
 		}
-		bad := commentError(text, !approve)
-		typed, op, verb := ui.DecideForms{Comment: text, CommentError: bad}, "approveApprovalRequest", "approved"
-		if !approve {
-			typed, op, verb = ui.DecideForms{Reason: text, ReasonError: bad}, "rejectApprovalRequest", "rejected"
-		}
+		typed, bad := typedOf(verb, text)
 		if bad != "" {
-			s.showRequest(w, r, p, m, id, http.StatusUnprocessableEntity, typed, nil)
+			s.showRequest(w, r, p, m, id, http.StatusUnprocessableEntity, typed, nil, false)
 			return
 		}
-		res, err := s.send(r, approve, id, ifMatch, key, text)
+		res, err := s.send(r, verb, id, ifMatch, key, text)
 		if _, ok := res.(*gen.ApproveApprovalRequestOKHeaders); ok {
-			http.Redirect(w, r, ui.ApprovalsPath+"?done="+verb, http.StatusSeeOther)
+			http.Redirect(w, r, decidedPath(verb), http.StatusSeeOther)
 			return
 		}
-		prob, show := s.refusal(w, r, p, op, res, err)
+		if u, ok := res.(*gen.UnauthorizedHeaders); ok && s.stepsUp(p, u) {
+			s.keepDraft(w, r, p, draft{Request: id, Verb: verb, Text: text})
+		}
+		prob, show := s.refusal(w, r, p, decideOps[verb].ID, res, err)
 		if show {
-			s.showRequest(w, r, p, m, id, int(prob.Status), typed, explain(i18n.RefusalTitle, prob, m))
+			s.showRequest(w, r, p, m, id, int(prob.Status), typed, explain(i18n.RefusalTitle, prob, m), false)
 		}
 	}
 }
 
+// typedOf is what the person typed for the decision verb, in its form's
+// field, with what is wrong with it: checked before the API is called so
+// the text stays on the page.
+func typedOf(verb, text string) (ui.DecideForms, i18n.Key) {
+	switch verb {
+	case ui.VerbReject:
+		bad := commentError(text, true, i18n.DecideReasonNeeded)
+		return ui.DecideForms{Reason: text, ReasonError: bad}, bad
+	case ui.VerbWithdraw:
+		bad := commentError(text, true, i18n.WithdrawReasonNeeded)
+		return ui.DecideForms{Withdrawal: text, WithdrawError: bad}, bad
+	}
+	bad := commentError(text, false, "")
+	return ui.DecideForms{Comment: text, CommentError: bad}, bad
+}
+
+// decidedPath is where a decision done goes: the inbox, or the requester's own
+// list after a withdrawal, with its notice.
+func decidedPath(verb string) string {
+	switch verb {
+	case ui.VerbReject:
+		return ui.ApprovalsPath + "?done=rejected"
+	case ui.VerbWithdraw:
+		return ui.ListPath(ui.ApprovalsPath, url.Values{ui.FieldView: {ui.ViewMine}, "done": {"cancelled"}})
+	}
+	return ui.ApprovalsPath + "?done=approved"
+}
+
 // send calls approveApprovalRequest (with the comment, when one was
-// written) or rejectApprovalRequest.
-func (s *Server) send(r *http.Request, approve bool, id uuid.UUID, ifMatch, key, text string) (any, error) {
-	if !approve {
+// written), rejectApprovalRequest or cancelApprovalRequest.
+func (s *Server) send(r *http.Request, verb string, id uuid.UUID, ifMatch, key, text string) (any, error) {
+	switch verb {
+	case ui.VerbReject:
 		return s.API.RejectApprovalRequest(r.Context(), &gen.CommentRequiredInput{Comment: text},
 			gen.RejectApprovalRequestParams{ID: id, IfMatch: ifMatch, IdempotencyKey: key})
+	case ui.VerbWithdraw:
+		return s.API.CancelApprovalRequest(r.Context(), &gen.CommentRequiredInput{Comment: text},
+			gen.CancelApprovalRequestParams{ID: id, IfMatch: ifMatch, IdempotencyKey: key})
 	}
 	var body gen.OptDecisionInput
 	if text != "" {
@@ -257,12 +392,12 @@ func (s *Server) send(r *http.Request, approve bool, id uuid.UUID, ifMatch, key,
 
 // commentError is what is wrong with a comment, checked before the API
 // is called so the person's text stays on the page: a reason is required
-// to reject (CommentRequiredInput), and either has at most 2,000
-// characters.
-func commentError(text string, required bool) i18n.Key {
+// to reject and to withdraw (CommentRequiredInput; missing, it is said by
+// needed), and any has at most 2,000 characters.
+func commentError(text string, required bool, needed i18n.Key) i18n.Key {
 	switch {
 	case required && strings.TrimSpace(text) == "":
-		return i18n.DecideReasonNeeded
+		return needed
 	case utf8.RuneCountInString(text) > maxComment:
 		return i18n.DecideTooLong
 	}

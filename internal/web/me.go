@@ -35,11 +35,7 @@ func (s *Server) whoami(w http.ResponseWriter, r *http.Request, p *person) (me, 
 	res, err := s.API.GetCurrentPrincipal(r.Context())
 	switch res := res.(type) {
 	case *gen.CurrentPrincipal:
-		m := me{ID: res.ID, permissions: map[string]bool{}, Barred: res.BarredPermissions}
-		for _, perm := range res.Permissions {
-			m.permissions[perm] = true
-		}
-		return m, true
+		return meOf(res), true
 	case *gen.GetCurrentPrincipalForbidden:
 		// The contract lets every principal read itself; a refusal leaves
 		// nothing to offer, and each screen shows the API's own answer.
@@ -47,6 +43,15 @@ func (s *Server) whoami(w http.ResponseWriter, r *http.Request, p *person) (me, 
 	}
 	s.apiFailed(w, r, p, "getCurrentPrincipal", res, err)
 	return me{}, false
+}
+
+// meOf is the person getCurrentPrincipal names.
+func meOf(cp *gen.CurrentPrincipal) me {
+	m := me{ID: cp.ID, permissions: map[string]bool{}, Barred: cp.BarredPermissions}
+	for _, perm := range cp.Permissions {
+		m.permissions[perm] = true
+	}
+	return m
 }
 
 // apiFailed answers an API call that did not succeed and that the page does
@@ -74,6 +79,27 @@ func (s *Server) page(title i18n.Key, current string, p *person, m me) ui.Shell 
 	sh.Nav = ui.SignedInNav(ui.NavJobs{Approvals: m.may(permReadApprovals), Invoices: m.may(permReadInvoices), Bank: m.may(permReadStatements),
 		Payments: m.may(permReadRuns), Journal: m.may(permReadEntries), Close: m.may(permReadPeriods), Reports: m.mayReport()})
 	return sh
+}
+
+// chrome is the shell of a page anyone may get (an address that is no
+// page, a request refused as a possible forgery or as not the page's
+// form): a signed-in person's, whom signedIn or anyone put on the request,
+// with their navigation (T73d2); anyone else's, or when the API does not
+// say who the person is, without it.
+func (s *Server) chrome(r *http.Request, title i18n.Key) ui.Shell {
+	p, ok := r.Context().Value(personKey{}).(*person)
+	if !ok {
+		return s.shell(title, "")
+	}
+	res, err := s.API.GetCurrentPrincipal(r.Context())
+	cp, ok := res.(*gen.CurrentPrincipal)
+	if !ok {
+		s.Log.WarnContext(r.Context(), "web: a page is shown without the person's navigation", "answer", res, "error", err)
+		sh := s.shell(title, "")
+		sh.Person = &ui.Person{CSRF: p.CSRF}
+		return sh
+	}
+	return s.page(title, "", p, meOf(cp))
 }
 
 // Names are cached per session for five minutes (ADR-0052 G3), for at most

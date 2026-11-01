@@ -40,7 +40,7 @@ func (s *Server) decideRun(verb string) func(http.ResponseWriter, *http.Request,
 		}
 		file, err := uuid.Parse(r.PostForm.Get(ui.FieldBankFile))
 		if verb == ui.RunTransmit && err != nil {
-			s.render(w, r, http.StatusBadRequest, ui.Problem(s.shell(i18n.RefusedTitle, ""), i18n.RefusedTitle, i18n.ProblemInvoiceBody, runPath(id), i18n.RunBack))
+			s.render(w, r, http.StatusBadRequest, ui.Problem(s.chrome(r, i18n.RefusedTitle), i18n.RefusedTitle, i18n.ProblemInvoiceBody, runPath(id), i18n.RunBack))
 			return
 		}
 		m, ok := s.whoami(w, r, p)

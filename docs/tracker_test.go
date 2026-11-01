@@ -32,8 +32,10 @@ const baselineItems = 951
 // batch 31: a leaf split from a pilot leaf inherits its tag, so the tax
 // registration number formats split from T61g joined (74), and the
 // foreign-currency open item that HSL 0 drops from the pilot migration
-// (review:batch31) joined as a data-correctness gap in its path (75).
-const pilotItems = 75
+// (review:batch31) joined as a data-correctness gap in its path (75). 76
+// since T73d2: its pilot approver's walk-through and the two object
+// summaries no operation reads split from it (T73d3, 2026-11-01).
+const pilotItems = 76
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

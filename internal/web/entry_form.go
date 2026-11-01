@@ -283,7 +283,7 @@ func (s *Server) formKey(w http.ResponseWriter, r *http.Request, back string, ba
 	_ = r.ParseForm()
 	key := r.PostForm.Get(ui.FieldIdempotency)
 	if _, err := uuid.Parse(key); err != nil {
-		s.render(w, r, http.StatusBadRequest, ui.Problem(s.shell(i18n.RefusedTitle, ""), i18n.RefusedTitle, i18n.ProblemInvoiceBody, back, backText))
+		s.render(w, r, http.StatusBadRequest, ui.Problem(s.chrome(r, i18n.RefusedTitle), i18n.RefusedTitle, i18n.ProblemInvoiceBody, back, backText))
 		return "", false
 	}
 	return key, true
