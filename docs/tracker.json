@@ -8377,6 +8377,13 @@
       "src": "review:batch31",
       "pilot": "po:2026-10-31 · review:batch31",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "A line that is not an open item, with HSL 0 and WSL ≠ 0, in a document that posts in company currency (a G/L line of a document whose lines mix currencies, a cleared vendor line) is left out of the journal posting without a word, losing its document amount; and a cleared vendor line the posting leaves out is named as line 0 in the clearing the load takes over, which the ledger refuses, failing the whole run",
+      "r": "found in hsl0's review (batch 31 finding class, review:batch31) · internal/integration/load.go journalPosting, clearingItems",
+      "src": "review:batch31",
+      "c": []
      }
     ]
    },
