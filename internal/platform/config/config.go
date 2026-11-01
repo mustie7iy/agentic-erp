@@ -624,7 +624,7 @@ func (l *loader) directoryAuth(c *Config) {
 	switch ref := l.raw("ERP_DIRECTORY_PASSWORD"); {
 	case c.DirectoryURL != "" && l.getenv("ERP_ENV") == Production:
 		c.DirectoryPassword, err = rdsiam.Load(l.raw, rdsiam.Settings{URLName: "ERP_DIRECTORY_URL", URL: c.DirectoryURL,
-			RegionName: "ERP_DIRECTORY_REGION", PasswordName: "ERP_DIRECTORY_PASSWORD"})
+			RegionName: "ERP_DIRECTORY_REGION", Refused: "ERP_DIRECTORY_PASSWORD"})
 	case ref != "":
 		if c.DirectoryPassword, err = secrets.Rotating(context.Background(), l.resolver, ref); err != nil {
 			err = fmt.Errorf("ERP_DIRECTORY_PASSWORD: %w", err)

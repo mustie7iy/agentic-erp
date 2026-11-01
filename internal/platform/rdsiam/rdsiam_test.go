@@ -146,7 +146,7 @@ func TestLoad(t *testing.T) {
 			`<Expiration>2099-01-01T00:00:00Z</Expiration></Credentials></AssumeRoleWithWebIdentityResult></AssumeRoleWithWebIdentityResponse>`))
 	}))
 	defer sts.Close()
-	settings := rdsiam.Settings{URLName: "ERP_DIRECTORY_URL", URL: "postgres://erp_router_login@db.example:5432/directory", RegionName: "ERP_DIRECTORY_REGION", PasswordName: "ERP_DIRECTORY_PASSWORD", STSClient: sts.Client()}
+	settings := rdsiam.Settings{URLName: "ERP_DIRECTORY_URL", URL: "postgres://erp_router_login@db.example:5432/directory", RegionName: "ERP_DIRECTORY_REGION", Refused: "ERP_DIRECTORY_PASSWORD", STSClient: sts.Client()}
 	good := map[string]string{"ERP_DIRECTORY_REGION": "eu-central-1", "AWS_ROLE_ARN": "arn:aws:iam::222222222222:role/erp-dev1-router",
 		"AWS_WEB_IDENTITY_TOKEN_FILE": file, "ERP_AWS_STS_ENDPOINT": sts.URL}
 	mint, err := rdsiam.Load(env(good), settings)

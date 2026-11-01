@@ -110,7 +110,7 @@ func (c *Config) loadDirectoryPassword(getenv func(string) string) []error {
 	switch {
 	case c.Environment == config.Production:
 		c.DirectoryPassword, err = rdsiam.Load(getenv, rdsiam.Settings{URLName: "ERP_DIRECTORY_URL", URL: c.DirectoryURL,
-			RegionName: "ERP_DIRECTORY_REGION", PasswordName: "ERP_DIRECTORY_PASSWORD"})
+			RegionName: "ERP_DIRECTORY_REGION", Refused: "ERP_DIRECTORY_PASSWORD"})
 	case ref != "":
 		if c.DirectoryPassword, err = secrets.Rotating(context.Background(), secrets.Local{Getenv: getenv}, ref); err != nil {
 			err = fmt.Errorf("ERP_DIRECTORY_PASSWORD (env: or file:): %w", err)

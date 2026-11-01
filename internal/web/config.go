@@ -208,7 +208,7 @@ func (c *Config) loadSignIn(getenv func(string) string, production bool) []error
 	switch ref := getenv("ERP_WEB_DIRECTORY_PASSWORD"); {
 	case production:
 		c.DirectoryPassword, err = rdsiam.Load(getenv, rdsiam.Settings{URLName: "ERP_WEB_DIRECTORY_URL", URL: c.DirectoryURL,
-			RegionName: "ERP_WEB_DIRECTORY_REGION", PasswordName: "ERP_WEB_DIRECTORY_PASSWORD"})
+			RegionName: "ERP_WEB_DIRECTORY_REGION", Refused: "ERP_WEB_DIRECTORY_PASSWORD"})
 	case ref != "":
 		if c.DirectoryPassword, err = secrets.Rotating(ctx, local, ref); err != nil {
 			err = fmt.Errorf("ERP_WEB_DIRECTORY_PASSWORD: %w", err)

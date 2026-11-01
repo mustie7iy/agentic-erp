@@ -96,10 +96,10 @@ func ForURL(dbURL, region string, creds awscreds.Provider) (Token, error) {
 
 // Settings name, for one client, the settings Load reads.
 type Settings struct {
-	URLName      string // the database URL's setting, for messages
-	URL          string // its value
-	RegionName   string // the setting naming the database's AWS region
-	PasswordName string // the password setting production refuses
+	URLName    string // the database URL's setting, for messages
+	URL        string // its value
+	RegionName string // the setting naming the database's AWS region
+	Refused    string // the password setting production refuses
 	// STSClient reaches STS; nil: a client with a 10 s timeout and the
 	// system's roots.
 	STSClient *http.Client
@@ -118,8 +118,8 @@ var regionPattern = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-[0-9]+$`)
 // password setting is refused, so a password is never used in its place.
 func Load(getenv func(string) string, s Settings) (func(context.Context) (string, error), error) {
 	var errs []error
-	if getenv(s.PasswordName) != "" {
-		errs = append(errs, fmt.Errorf("%w: %s must not be set with ERP_ENV=production: the login authenticates with RDS IAM tokens", ErrSettings, s.PasswordName))
+	if getenv(s.Refused) != "" {
+		errs = append(errs, fmt.Errorf("%w: %s must not be set with ERP_ENV=production: the login authenticates with RDS IAM tokens", ErrSettings, s.Refused))
 	}
 	region := getenv(s.RegionName)
 	if !regionPattern.MatchString(region) {
