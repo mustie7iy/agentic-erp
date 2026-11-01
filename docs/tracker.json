@@ -8513,10 +8513,10 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "A migration run dates the suppliers it creates on the company's date in its time zone, not the database's UTC current_date. The date is the migrated payments bank account's valid_from, which decides from which day payments go to it, and partner judges bank accounts on its own UTC day; a partner spans companies in several zones, so this waits for the product owner (payment routing and the backdating control); recommended: one partner-wide rule for bank account days, decided with partner",
-        "r": "found in batch 26's lane reviews · internal/integration runs.go loadRun (database.Today, :472) passed to load.go newSupplier (:180), banks.go supplierBank (ValidFrom) · checked in batch 27 (tzcontract): partner changes.go CreatePartner sealBanks refuses a valid_from before database.Today (partner.backdated_bank_account), so a Toronto load at 22:00 dated on the company's date would be refused; ports.go PaymentAccounts (the reconciliation's account valid today) and payees.go (b.valid_from <= the run date) read it; dated in Dubai's zone at 01:00 the reconciliation would miss the account until UTC's day catches up · ADR-0051 as built (T72n1)",
-        "src": "review:batch26",
+        "s": "D",
+        "t": "A migration run's suppliers stay dated by UTC's day, not the company's date in its time zone (product owner 2026-10-31, as recommended): the date is the migrated payments bank account's valid_from, which decides from which day payments go to it and which partner's backdating control judges on its own UTC day; a supplier serves companies in several zones, so a bank account's day is one UTC rule for the whole supplier. No code change",
+        "r": "found in batch 26's lane reviews · internal/integration runs.go loadRun (database.Today, :472) passed to load.go newSupplier (:180), banks.go supplierBank (ValidFrom) · checked in batch 27 (tzcontract): partner changes.go CreatePartner sealBanks refuses a valid_from before database.Today (partner.backdated_bank_account), so a Toronto load at 22:00 dated on the company's date would be refused; ports.go PaymentAccounts (the reconciliation's account valid today) and payees.go (b.valid_from <= the run date) read it; dated in Dubai's zone at 01:00 the reconciliation would miss the account until UTC's day catches up · ADR-0051 as built (T72n1) · decided: ADR-0051 as built (Kept in UTC) · 03-data-model (bank accounts)",
+        "src": "review:batch26 · po:2026-10-31",
         "c": []
        },
        {

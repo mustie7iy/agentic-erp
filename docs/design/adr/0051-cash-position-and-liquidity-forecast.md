@@ -726,12 +726,15 @@ zone", split into T72n1-T72n6):
   date (it compares values, and realised and cancelled are stored), so
   nothing in it changes. A stored zone that does not load fails the read
   and the list, as it fails the position.
-- **Not yet** (tracked under the same item), waiting for the
-  product owner: the suppliers a migration run creates, dated in UTC
-  (the date is their payments bank account's `valid_from`, which
-  partner refuses before its own UTC day and payments read to choose the
-  account a payment goes to; a partner spans companies in several zones,
-  so it needs one partner-wide rule, not the run's alone). Every other
+- **Kept in UTC** (product owner 2026-10-31, as recommended): the
+  suppliers a migration run creates are dated by UTC's day. The date is
+  their payments bank account's `valid_from`, which partner refuses
+  before its own UTC day (the backdating control,
+  `partner.backdated_bank_account`) and payments read to choose the
+  account a payment goes to; a supplier serves companies in several
+  zones, so a bank account's days are judged by one rule for the whole
+  supplier, UTC's, not by any one company's zone. No code changes: the
+  run passes `database.Today` as before. Every other
   document is dated by its caller, or by the company's date where the
   caller leaves the date out (the posting dates and the tax activation
   day, below). The payment release's discount check (T72n3), center
@@ -933,8 +936,9 @@ recommended"):
   its booking date, and every other posting (manual and parked entries,
   receipts, payment runs, GR/IR clearings) takes the caller's date, which
   the contract requires. A
-  migration run's suppliers are dated in UTC still, waiting for the
-  product owner; a contract's number is on the company's date (T72n6's
+  migration run's suppliers are dated in UTC, a supplier's bank account
+  days being one UTC rule for the whole supplier (product owner
+  2026-10-31, above); a contract's number is on the company's date (T72n6's
   section above); master-data validity defaults (role and
   company access grants, partner changes, `valid_from` today) are not
   posting dates and are not this rule. The web workspace's forms still

@@ -441,9 +441,10 @@ setup's activation judges the rate in force, and starts a changed
 single-rate code's new rate, on the company's date, a refusal naming it
 (product owner 2026-10-31, ADR-0051 and ADR-0049 as built). Purchasing
 contracts' expiry and its notice (T72n6) and a contract's number are
-judged on the company's date too. Still judged in UTC, tracked and
-waiting for the product owner: the suppliers a migration run creates
-(ADR-0051 as built).
+judged on the company's date too. Judged in UTC by decision: the
+suppliers a migration run creates, whose date is their bank account's
+`valid_from`, one UTC rule for the whole supplier (product owner
+2026-10-31, ADR-0051 as built).
 
 The document's money amounts are in the company's currency: the
 requisition approval thresholds (`purchasing.requisition_approval[].up_to`,
@@ -557,7 +558,11 @@ erDiagram
 One business partner can be both supplier and customer (SAP business partner
 model). Company-specific supplier data lives in `supplier_company`. Bank
 accounts are effective-dated; a change creates a new row with `valid_from`,
-which drives the payment hold after bank changes. Fingerprints detect
+which drives the payment hold after bank changes. "Today" for a bank
+account is UTC's day, one rule for the whole partner, which serves
+companies in several time zones, not any one company's: partner refuses a
+`valid_from` before it as backdated, and a migration run dates the
+accounts it loads by it (product owner 2026-10-31, ADR-0051 as built). Fingerprints detect
 duplicate tax numbers and bank accounts across partners without decrypting.
 
 A payment term grants up to two cash discount tiers before its net days,
