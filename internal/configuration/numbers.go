@@ -75,7 +75,7 @@ func (Settings) Document(ctx context.Context) (*config.Config, int32, error) {
 func (s Settings) CompanyDay(ctx context.Context, code string, now time.Time) (time.Time, *time.Location, error) {
 	d, err := config.DocumentDay(ctx, s, code, now)
 	if err != nil {
-		return time.Time{}, nil, fmt.Errorf("configuration: date of company %s: %w", code, err)
+		return time.Time{}, nil, fmt.Errorf("configuration: company's date: %w", err)
 	}
 	return d.Date, d.Zone, nil
 }

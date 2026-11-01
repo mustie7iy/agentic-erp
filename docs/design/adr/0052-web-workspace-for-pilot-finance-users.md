@@ -2275,7 +2275,11 @@ and posted in the next day's period, or the next year's.
   a new manual entry's document and posting dates, a payment run
   proposal's run date and due date, the supplier open items' key date,
   and the fiscal year of the periods' list, the trial balance (and its
-  download), the ledger reconciliation and its entries.
+  download), the ledger reconciliation and its entries. The workspace
+  computes no date itself (§4: no business logic), so form and API
+  agree. A sweep of `internal/web` for its clock found no other business
+  date: the rest (sessions, sign-in, the step-up grace, the names'
+  cache) are instants, not a company's day.
 - **Which company a form is dated for** (review round 1 of webdates).
   A form's company can be changed in the browser without asking the
   workspace again, and two companies' days differ (Toronto's evening is
@@ -2285,11 +2289,7 @@ and posted in the next day's period, or the next year's.
   company is offered. Among several, the dates are left for the person
   to type, never one company's day sent for another
   (`datedCompany`). A person who opens a form for one company and
-  switches it has chosen the other company beside dates they can see. The workspace computes no date
-  itself (§4: no business logic), so form and API agree. A sweep of
-  `internal/web` for its clock found no other business date: the rest
-  (sessions, sign-in, the step-up grace, the names' cache) are
-  instants, not a company's day.
+  switches it has chosen the other company beside dates they can see.
 - **When the API cannot tell it** (no company, a person who may not read
   companies, a refusal or failure, logged): a form's dates are left
   empty for the person to type, never UTC's day, since a wrong date

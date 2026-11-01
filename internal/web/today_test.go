@@ -98,6 +98,26 @@ func TestFormsDatedOnTheCompanysDay(t *testing.T) {
 	}
 }
 
+// TestFormDatedForTheOnlyCompany: with one company offered, a new entry
+// and a run proposal that name none are dated its day, as the form can
+// hold no other company.
+func TestFormDatedForTheOnlyCompany(t *testing.T) {
+	toronto, dubai := uuid.New(), uuid.New()
+	st := todayStub(toronto, dubai, nil)
+	st.routes["GET /v1/legal-entities"] = answer(200, `{"items":[`+companyJSON(toronto, "3000", "Maple Ltd", "CA", "CAD")+`]}`)
+	_, b, _ := stubStack(t, st)
+	for path, fields := range map[string][]string{ui.NewEntryPath: {ui.FieldDocDate, ui.FieldPostingDate}, ui.PaymentsPath: {ui.FieldRunDate, ui.FieldDueBy}} {
+		t.Run(path, func(t *testing.T) {
+			p := b.get(path).page(t)
+			for _, f := range fields {
+				if got := field(p.doc, f); got != "2025-12-31" {
+					t.Errorf("%s: got %q, want 2025-12-31, Toronto's day", f, got)
+				}
+			}
+		})
+	}
+}
+
 // TestFormsUndatedWithoutTheCompanysDay: when the API cannot tell the
 // company's date, a form's dates are left for the person to type, never
 // the workspace's UTC day; a report's year, a filter, is the clock's.
