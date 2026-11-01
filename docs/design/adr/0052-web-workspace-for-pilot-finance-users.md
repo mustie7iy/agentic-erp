@@ -2714,11 +2714,14 @@ this ADR, the contract or T73j's behaviour settled it:
   earlier period's entries along the year's page index (0.3 s median for
   June), so `journal_entry_page_period` (company, period, posting date,
   id; migration 000186, built per partition) starts at the period.
-  `TestJournalEntriesByAccountBudget` holds a first page of 100 at p95
-  under 50 ms on a laptop for an account on every entry and one on 50,
+  `TestJournalEntriesByAccountBudget` holds a first page of 100 to 01's
+  list budget (p95 150 ms) for an account on every entry and one on 50,
   in a period and in the whole year, among 200,000 entries of a company's
-  year. The cost and profit center filters keep the optional form: their
-  plans are not measured here (backlog).
+  year; measured on a laptop at p95 under 50 ms. The cost and profit
+  center filters keep the optional form; whether their plans read a
+  year's entries for a center on few is not measured here (listed for the
+  coordinator's backlog, not a tracker item: no security, money or data
+  defect).
 - **The aging's buckets chosen on the page.** The open items' filters
   take the buckets as days past the due date, ascending, separated by
   commas (`aging_days`), empty for the API's 30, 60 and 90. Up to six
