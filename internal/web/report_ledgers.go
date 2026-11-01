@@ -16,7 +16,10 @@ import (
 
 // The ledger's reports (ADR-0052 §2): a company's trial balance in a
 // ledger and fiscal year (listBalances), which with getCurrentPrincipal,
-// listLegalEntities, listLedgers and listAccounts makes five calls; the
+// listLegalEntities, the company's day, listLedgers and listAccounts
+// makes six calls, and an account's entries in a period
+// (listJournalEntries by account, T73j2), five with the same reads but
+// the companies (report_entries.go); the
 // reconciliation of two ledgers it keeps (listLedgerReconciliation,
 // ADR-0045), its accounts named by the API (T73i2), five with the
 // company's day; and the entries behind one account's difference
@@ -117,7 +120,7 @@ func (s *Server) trialBalance(w http.ResponseWriter, r *http.Request, p *person)
 			tp.Refusal, status = explain(i18n.ReportRefusedTitle, prob, m), int(prob.Status)
 			break
 		}
-		tp.Rows = balanceRows(page.Items, s.accounts(ctx, m, lq.company))
+		tp.Rows = balanceRows(page.Items, s.accounts(ctx, m, lq.company), lq)
 		if next := page.NextPageToken.Or(""); next != "" {
 			tp.More = ui.ReportFor(ui.TrialBalancePath, with(q, "page", next))
 		}
@@ -136,12 +139,16 @@ func balanceParams(lq ledgerQuery, size int32, token string) gen.ListBalancesPar
 	return params
 }
 
-// balanceRows are a page of a trial balance, its accounts named.
-func balanceRows(items []gen.Balance, accounts map[uuid.UUID]string) []ui.BalanceRow {
+// balanceRows are a page of a trial balance, its accounts named, each
+// linked to the account's entries of the row's period.
+func balanceRows(items []gen.Balance, accounts map[uuid.UUID]string, lq ledgerQuery) []ui.BalanceRow {
 	out := make([]ui.BalanceRow, 0, len(items))
 	for _, b := range items {
-		out = append(out, ui.BalanceRow{Account: accountText(accounts, b.AccountID), Period: b.FiscalPeriod, Currency: b.Currency, Debit: moneyOf(b.Debit),
-			Credit: moneyOf(b.Credit), DebitLC: moneyOf(b.DebitLc), CreditLC: moneyOf(b.CreditLc)})
+		q := lq.values()
+		q.Set(ui.FieldAccount, b.AccountID.String())
+		q.Set(ui.FieldPeriod, strconv.Itoa(int(b.FiscalPeriod)))
+		out = append(out, ui.BalanceRow{Account: accountText(accounts, b.AccountID), Entries: ui.ReportFor(ui.AccountEntriesPath, q), Period: b.FiscalPeriod,
+			Currency: b.Currency, Debit: moneyOf(b.Debit), Credit: moneyOf(b.Credit), DebitLC: moneyOf(b.DebitLc), CreditLC: moneyOf(b.CreditLc)})
 	}
 	return out
 }
@@ -178,6 +185,11 @@ func (s *Server) ledgerRecon(w http.ResponseWriter, r *http.Request, p *person) 
 	case lp.Unknown:
 	case !found:
 		lp.Single = true
+	case lq.ledger == lq.compare:
+		// A ledger compared with itself (the form's two selects alike, or an
+		// address naming one ledger twice) is said on its field rather than
+		// sent: the API would answer that it does not differ (T73j review).
+		lp.Filters.CompareError, status = i18n.LedgerReconSameLedger, http.StatusUnprocessableEntity
 	case lp.Filters.YearError != "" || lp.Filters.PeriodError != "":
 		status = http.StatusUnprocessableEntity
 	default:
@@ -290,7 +302,8 @@ func (s *Server) reconEntries(w http.ResponseWriter, r *http.Request, p *person)
 	lq, valid := parseLedgerQuery(q, &f, s.yearOfCompany(ctx, m))
 	account, err := uuid.Parse(q.Get(ui.FieldAccount))
 	ep := ui.ReconEntriesPage{Currency: q.Get(ui.FieldCurrency), Back: ui.ReportFor(ui.LedgerReconPath, without(without(q, ui.FieldAccount), ui.FieldCurrency))}
-	if !valid || err != nil || lq.compare == uuid.Nil || f.YearError != "" || f.PeriodError != "" || !currencyCode.MatchString(ep.Currency) {
+	if !valid || err != nil || lq.compare == uuid.Nil || lq.compare == lq.ledger || f.YearError != "" || f.PeriodError != "" ||
+		!currencyCode.MatchString(ep.Currency) {
 		ep.Invalid = true
 		s.render(w, r, http.StatusBadRequest, ui.ReconEntries(s.page(i18n.ReconEntriesTitle, ui.ReportsPath, p, m), ep))
 		return

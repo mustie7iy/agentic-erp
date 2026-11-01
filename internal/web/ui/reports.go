@@ -11,7 +11,7 @@ import (
 )
 
 // ReportsPath is the reports' path (T73j): their index, the trial
-// balance, the supplier open items with their aging, the GR/IR positions,
+// balance with an account's entries (T73j2), the supplier open items with their aging, the GR/IR positions,
 // the ledger reconciliation with the entries behind a difference, and a
 // document's audit history; a house bank's reconciliation report is the
 // bank statements' (T73g).
@@ -20,13 +20,14 @@ const ReportsPath = "/reports"
 // The reports' own paths; a report's CSV download is its path with
 // CSVSuffix.
 const (
-	TrialBalancePath = ReportsPath + "/trial-balance"
-	OpenItemsPath    = ReportsPath + "/open-items"
-	GRIRPath         = ReportsPath + "/gr-ir"
-	LedgerReconPath  = ReportsPath + "/ledger-reconciliation"
-	ReconEntriesPath = LedgerReconPath + "/entries"
-	AuditPath        = ReportsPath + "/audit"
-	CSVSuffix        = ".csv"
+	TrialBalancePath   = ReportsPath + "/trial-balance"
+	AccountEntriesPath = TrialBalancePath + "/entries"
+	OpenItemsPath      = ReportsPath + "/open-items"
+	GRIRPath           = ReportsPath + "/gr-ir"
+	LedgerReconPath    = ReportsPath + "/ledger-reconciliation"
+	ReconEntriesPath   = LedgerReconPath + "/entries"
+	AuditPath          = ReportsPath + "/audit"
+	CSVSuffix          = ".csv"
 )
 
 // ReportFor is a report's path with the query, "" values left out.
@@ -42,6 +43,7 @@ const (
 	FieldDueDateTo = "due_date_to"
 	FieldAllGRIR   = "all"
 	FieldObject    = "object_id"
+	FieldAgingDays = "aging_days"
 )
 
 // ReportLinks are the reports the person may read, "" for one they may
@@ -60,20 +62,22 @@ type ReportLinks struct {
 // ledger and the one it is compared with (the ledger reconciliation's),
 // the fiscal year and the period, which "" leaves out.
 type LedgerFilters struct {
-	Action      string
-	Companies   []Option // nil: the companies could not be listed
-	Ledgers     []Option // nil: the ledgers could not be listed
-	Compare     []Option // nil: not a reconciliation, or the ledgers could not be listed
-	Year        string
-	YearError   i18n.Key
-	Period      string
-	PeriodError i18n.Key
+	Action       string
+	Companies    []Option // nil: the companies could not be listed
+	Ledgers      []Option // nil: the ledgers could not be listed
+	Compare      []Option // nil: not a reconciliation, or the ledgers could not be listed
+	CompareError i18n.Key // the reconciliation's ledger compared with itself
+	Year         string
+	YearError    i18n.Key
+	Period       string
+	PeriodError  i18n.Key
 }
 
 // BalanceRow is one account's totals of a period in a transaction
-// currency.
+// currency, linked to the account's entries of the period.
 type BalanceRow struct {
 	Account  string // the account's number and name, its id when it could not be named
+	Entries  string
 	Period   int32
 	Currency string
 	Debit    Money
@@ -110,6 +114,8 @@ type ItemFilters struct {
 	DueError      i18n.Key
 	KeyDate       string
 	KeyDateError  i18n.Key
+	AgingDays     string // the buckets' last days past the due date, as typed; "" for the API's
+	AgingError    i18n.Key
 }
 
 // AgingRow is one aging bucket of one currency: not due, overdue From to
@@ -122,9 +128,9 @@ type AgingRow struct {
 	Amount   Money
 }
 
-// OpenItemRow is one open item: its entry (linked), its partner by id
-// (the API names none on an item) or the supplier the filter named, its
-// dates and its amounts.
+// OpenItemRow is one open item: its entry (linked), its partner by
+// number and name (by id when it could not be named), its dates and its
+// amounts.
 type OpenItemRow struct {
 	Entry     string
 	Number    string
@@ -209,6 +215,35 @@ type ReconEntriesPage struct {
 	More     string
 	Refusal  *Refusal
 	Invalid  bool
+}
+
+// AccountEntryRow is one line of a journal entry on the account, its
+// entry linked; its text (the line's, else the entry's) is data.
+type AccountEntryRow struct {
+	Entry    string
+	Number   string
+	Line     int32
+	Posting  time.Time
+	Period   int32
+	Text     string
+	Amount   Money
+	AmountLC Money
+}
+
+// AccountEntriesPage is a trial balance account's entries in a ledger,
+// year and period (listJournalEntries by account_id): the lines on the
+// account of a page of entries, the next page's path, the way back and
+// the API's refusal.
+type AccountEntriesPage struct {
+	Back    string
+	Account string
+	Ledger  string // "": the leading ledger, not named
+	Year    string
+	Period  string // "": the whole year
+	Rows    []AccountEntryRow
+	More    string
+	Refusal *Refusal
+	Invalid bool
 }
 
 // AuditDetail is one of an audit event's details: its name and its value

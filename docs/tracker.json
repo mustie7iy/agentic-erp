@@ -5659,9 +5659,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Reports beyond T73j: a trial balance account's entries (listJournalEntries filters by no account: a contract change, an account_id filter, which also serves the cost and profit center balance reports' drill-down by account, PO 2026-10-25, ADR-0050 As built in T56f); the aging's buckets chosen on the page (the API takes aging_days, the page asks 30, 60, 90); downloads of the ledger reconciliation and the audit history; an address naming one ledger as both ledger_id and compare_ledger_id refused on the page rather than sent to the API (T73j review); suppliers named on open items (by id now; listBusinessPartners takes ids since T73h2); the page budgets measured at the pilot's volumes once the pilot gives them (neither the tracker nor ADR-0052 names them); OWASP's CSV injection guidance and the byte order mark's need verified from primary sources (ADR-0052, from memory); walked through by a pilot GL accountant, AP clerk and controller",
-        "r": "T73j2 (split from T73j, 2026-10-25)",
+        "s": "D",
+        "t": "Reports beyond T73j: a trial balance account's entries (contract first: listJournalEntries account_id, which also serves the cost and profit center balance reports' drill-down by account, PO 2026-10-25, ADR-0050 As built in T56f, and fiscal_period, a trial balance row's period; each row's account linked to its entries of the period, the lines on the account each linked to its entry; a period's page index, migration 000186, and the account's condition added only when named, p95 under 50 ms for a first page among 200,000 entries); the aging's buckets chosen on the page (aging_days, the API's rules said on the field before the call); an address naming one ledger as both ledger_id and compare_ledger_id refused on the page rather than sent to the API (T73j review); suppliers named on open items by number and name (listBusinessPartners ids since T73h2, one read a page, none when the filter names the supplier); EN and FR; axe at zero at 1280 and 390 px",
+        "r": "api/openapi.yaml listJournalEntries (account_id, fiscal_period) · internal/ledger api.go entryFilter · db/migrations 000186 journal_entry_page_period · TestJournalEntriesByAccount · TestJournalEntriesByAccountBudget · internal/web report_entries.go · report_ledgers.go · report_items.go agingDaysParam, itemSuppliers · entry_send.go partnersByID · ui/reports.templ AccountEntries · TestAccountEntries · TestOpenItemsReport · TestLedgerReconReport · TestOpenItemsChosen · TestLedgerComparedWithItself · TestReportsStubbed · TestReportBudgets · TestReportsInTheBrowser · TestReportsJobsInTheBrowser · walkthrough step 14 (a trial balance row drilled down) · 03-data-model · 04-api-design · ADR-0050 · ADR-0052 Built in T73j2 · T73j2",
         "src": "split:T73j · review:T73j · po:2026-10-25",
         "pilot": "po:2026-10-31 · split:T73j · adr:ADR-0052 · po:2026-10-25",
         "c": []
@@ -5671,6 +5671,14 @@
         "t": "Supplier open items at volume (found in T73j): listOpenItems' first page took 0.83 s, and 1.3 s with its aging, at the 100,000 open items 01-requirements names for a payment proposal, against 01's list budget of p95 150 ms (TestOpenItemsAgingBudget, laptop); the plan joins every item of the account before its sort. Needs an index or read model of open items (ledger lane, a migration; the functional due-date index ADR-0051 T53e may add serves due_date_to and the aging), then the budget asserted at that volume",
         "r": "T73j3 (found in T73j, 2026-10-25) · ledger lane",
         "src": "ci:T73j",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Reports beyond T73j2: downloads of the ledger reconciliation and the audit history (CSV as T73j's, up to 10,000 rows); the page budgets measured at the pilot's volumes once the pilot gives them (neither the tracker nor ADR-0052 names them); OWASP's CSV injection guidance and the byte order mark's need verified from primary sources (ADR-0052, from memory); walked through by a pilot GL accountant, AP clerk and controller",
+        "r": "T73j4 (split from T73j2, 2026-11-01)",
+        "src": "split:T73j2",
+        "pilot": "po:2026-10-31 · split:T73j2 · adr:ADR-0052",
         "c": []
        },
        {

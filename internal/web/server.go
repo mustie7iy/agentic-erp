@@ -255,6 +255,7 @@ func (s *Server) reportRoutes(route func(string, http.HandlerFunc)) {
 	route("GET "+ui.ReportsPath, s.signedIn(s.reports))
 	route("GET "+ui.TrialBalancePath, s.signedIn(s.trialBalance))
 	route("GET "+ui.TrialBalancePath+ui.CSVSuffix, s.signedIn(s.trialBalanceCSV))
+	route("GET "+ui.AccountEntriesPath, s.signedIn(s.accountEntries))
 	route("GET "+ui.OpenItemsPath, s.signedIn(s.openItems))
 	route("GET "+ui.OpenItemsPath+ui.CSVSuffix, s.signedIn(s.openItemsCSV))
 	route("GET "+ui.GRIRPath, s.signedIn(s.grirReport))
