@@ -4655,9 +4655,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Remove the .grype.yaml exception for libssl3 3.0.20 in distroless/cc-debian12 (seven CVEs; erp-analytics links no libssl) by its expiry on 2026-11-20: move to the fixed base digest when distroless publishes it, or to cc-debian13 by an ADR-0044 amendment",
-        "r": ".grype.yaml · ADR-0044 · T55h follow-up",
+        "s": "D",
+        "t": "Remove the .grype.yaml exception for libssl3 3.0.20 in distroless/cc-debian12 (seven CVEs; erp-analytics links no libssl) by its expiry on 2026-11-20: no fixed Debian 12 digest was published, so erp-analytics's runtime base moved to distroless cc-debian13:nonroot by digest (ADR-0044 amendment of 2026-11-01; grype finds nothing fixable on it), the builder staying Debian 12 (the binary needs GLIBC_2.34 and GLIBCXX_3.4.30 at most, which Debian 13 provides); .grype.yaml accepts nothing; base-image-current and test-images follow the new pin",
+        "r": ".grype.yaml · deploy/images/erp-analytics.Dockerfile · scripts/test-images.sh · ADR-0044 · ADR-0032 · T55h follow-up",
         "src": "baseline",
         "pilot": "po:2026-10-31",
         "c": []

@@ -151,8 +151,9 @@ gate, the scan), T39b (signing, attestations, `verify-image.sh`) and T39c
 ## Amendment (2026-10-19, T55, ADR-0044)
 
 One scoped cgo exception: `erp-analytics` embeds DuckDB (C++) and is built
-with `CGO_ENABLED=1` on `gcr.io/distroless/cc-debian12:nonroot` pinned by
-digest. It keeps everything else this ADR requires: `-trimpath`, an empty
+with `CGO_ENABLED=1` on distroless `cc` pinned by digest
+(`gcr.io/distroless/cc-debian13:nonroot` since ADR-0044's amendment of
+2026-11-01). It keeps everything else this ADR requires: `-trimpath`, an empty
 build id, the double build with matching digests, an SBOM (which then lists
 the DuckDB library and the base image's glibc), the grype scan, the
 signature and `verify-image.sh`. The exception covers that binary only:
