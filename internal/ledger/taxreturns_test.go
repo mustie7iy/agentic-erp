@@ -82,7 +82,7 @@ func TestUnreportedTaxItems(t *testing.T) {
 
 	t.Run("a box's items, paged", func(t *testing.T) {
 		sel := ledger.TaxItemSelection{Direction: "input", Kinds: []string{"standard"}, AccountKeys: []string{"input"}, Components: []string{"tax"}}
-		var first, next []ledger.TaxItem
+		var first, next []ledger.ReturnItem
 		read(t, func(ctx context.Context) (err error) {
 			first, err = ledger.TaxItems{}.UnreportedItems(ctx, []uuid.UUID{e.de}, date("2026-03-31"), sel, nil, 1)
 			if err != nil {
@@ -93,7 +93,14 @@ func TestUnreportedTaxItems(t *testing.T) {
 				&ledger.TaxItemKey{TaxDate: last.TaxDate, FiscalYear: last.FiscalYear, EntryID: last.EntryID, ItemNo: last.ItemNo}, 10)
 			return err
 		})
-		if got, want := renderTaxItems(append(first, next...)), "V0/tax 2026-02-27 5000 0 0 (5000 0 0) at 0; V1/tax 2026-02-27 10000 1900 1900 (10000 1900 1900) at 19; "+
+		var items []ledger.TaxItem
+		for _, it := range append(first, next...) {
+			if it.DocumentNumber == "" || it.PostingDate.IsZero() {
+				t.Errorf("item %d of %s: got no document number or posting date", it.ItemNo, it.EntryID)
+			}
+			items = append(items, it.TaxItem)
+		}
+		if got, want := renderTaxItems(items), "V0/tax 2026-02-27 5000 0 0 (5000 0 0) at 0; V1/tax 2026-02-27 10000 1900 1900 (10000 1900 1900) at 19; "+
 			"V0/tax 2026-03-10 5000 0 0 (5000 0 0) at 0; V1/tax 2026-03-10 10000 1900 1900 (10000 1900 1900) at 19"; got != want {
 			t.Errorf("items:\ngot  %s\nwant %s", got, want)
 		}
@@ -109,7 +116,7 @@ func TestUnreportedTaxItems(t *testing.T) {
 			"self-assessed":     {Direction: "input", AccountKeys: []string{"self_input"}},
 		} {
 			t.Run(name, func(t *testing.T) {
-				var items []ledger.TaxItem
+				var items []ledger.ReturnItem
 				read(t, func(ctx context.Context) (err error) {
 					items, err = ledger.TaxItems{}.UnreportedItems(ctx, []uuid.UUID{e.de}, date("2026-03-31"), sel, nil, 100)
 					return err

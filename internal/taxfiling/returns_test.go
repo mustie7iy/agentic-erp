@@ -111,7 +111,7 @@ func compute(id, start string) string {
 	return "/v1/tax-registrations/" + id + "/draft-return?period_start=" + start
 }
 
-// TestComputeTaxReturn: a draft return sums the unreported tax items of
+// TestGetTaxReturnDraft: a draft return sums the unreported tax items of
 // the registration's companies into the pack's boxes (ADR-0049 §11, T61h):
 // selection boxes by measure, negated where credits show positive, the
 // expression box from them; a later period's draft carries the earlier
@@ -195,6 +195,9 @@ func TestTaxReturnItems(t *testing.T) {
 	for _, page := range []map[string]any{first, next} {
 		for _, it := range page["items"].([]any) {
 			i := it.(map[string]any)
+			if i["document_number"] == "" || i["posting_date"] == nil {
+				t.Errorf("item %v: got no document number or posting date", i)
+			}
 			got = append(got, fmt.Sprintf("%s %s %s/%s %s %s->%s prior:%v", i["tax_date"], i["company_code"], i["tax_code"], i["component"], i["direction"],
 				i["tax"].(map[string]any)["amount"], i["box_amount"].(map[string]any)["amount"], i["prior_period"]))
 		}
@@ -245,14 +248,14 @@ func TestComputeRefusals(t *testing.T) {
 // overflowing is a ledger port whose items' sums overflow an amount.
 type overflowing struct {
 	groups []ledger.TaxItemGroup
-	items  []ledger.TaxItem
+	items  []ledger.ReturnItem
 }
 
 func (o overflowing) Unreported(context.Context, []uuid.UUID, time.Time, time.Time) ([]ledger.TaxItemGroup, error) {
 	return o.groups, nil
 }
 
-func (o overflowing) UnreportedItems(context.Context, []uuid.UUID, time.Time, ledger.TaxItemSelection, *ledger.TaxItemKey, int) ([]ledger.TaxItem, error) {
+func (o overflowing) UnreportedItems(context.Context, []uuid.UUID, time.Time, ledger.TaxItemSelection, *ledger.TaxItemKey, int) ([]ledger.ReturnItem, error) {
 	return o.items, nil
 }
 
@@ -273,13 +276,15 @@ func TestReturnOverflow(t *testing.T) {
 	in := ledger.TaxItemGroup{Direction: "input", AccountKey: "input", Items: 1, TaxLC: -big, RecoverableLC: -big}
 	// Recovered in full, though non-deductible: no box's sum overflows,
 	// the prior-period tax does.
-	nonDeductible := ledger.TaxItemGroup{Direction: "input", AccountKey: "non_deductible", PriorPeriod: true, TaxLC: big, RecoverableLC: big}
+	nonDeductible := ledger.TaxItemGroup{Direction: "input", AccountKey: "non_deductible", PriorPeriod: true, PriorTaxDate: day("2025-12-31"), TaxLC: big, RecoverableLC: big}
 	for name, c := range map[string]overflowing{
 		"a box":            {groups: []ledger.TaxItemGroup{out, out}},
 		"prior-period tax": {groups: []ledger.TaxItemGroup{nonDeductible, nonDeductible}},
-		"a box's prior":    {groups: []ledger.TaxItemGroup{{Direction: "input", AccountKey: "input", PriorPeriod: true, RecoverableLC: big}, {Direction: "input", AccountKey: "input", PriorPeriod: true, RecoverableLC: 1}}},
-		"the expression":   {groups: []ledger.TaxItemGroup{out, in}},
-		"a negation":       {groups: []ledger.TaxItemGroup{{Direction: "output", AccountKey: "output", TaxLC: math.MinInt64}}},
+		"one period's tax": {groups: []ledger.TaxItemGroup{nonDeductible,
+			{Direction: "output", AccountKey: "output", PriorPeriod: true, PriorTaxDate: day("2025-12-31"), TaxLC: -big}, nonDeductible}},
+		"a box's prior":  {groups: []ledger.TaxItemGroup{{Direction: "input", AccountKey: "input", PriorPeriod: true, PriorTaxDate: day("2025-12-31"), RecoverableLC: big}, {Direction: "input", AccountKey: "input", PriorPeriod: true, PriorTaxDate: day("2025-12-31"), RecoverableLC: 1}}},
+		"the expression": {groups: []ledger.TaxItemGroup{out, in}},
+		"a negation":     {groups: []ledger.TaxItemGroup{{Direction: "output", AccountKey: "output", TaxLC: math.MinInt64}}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h.Items = c
@@ -292,11 +297,36 @@ func TestReturnOverflow(t *testing.T) {
 			}
 		})
 	}
+	// The threshold is 10.00; P7's measure is open, so the flag is raised
+	// when either direction's tax of any one earlier period exceeds it.
+	for name, c := range map[string]struct {
+		groups []ledger.TaxItemGroup
+		want   bool
+	}{
+		"directions do not cancel": {[]ledger.TaxItemGroup{prior("output", "2026-01-10", -1200), prior("input", "2026-01-10", 1200)}, true},
+		"periods do not cancel":    {[]ledger.TaxItemGroup{prior("input", "2025-08-10", 1200), prior("input", "2026-02-10", -1200)}, true},
+		"periods do not add up":    {[]ledger.TaxItemGroup{prior("input", "2025-08-10", 600), prior("input", "2026-02-10", 600)}, false},
+		"within one period":        {[]ledger.TaxItemGroup{prior("input", "2026-02-10", 600), prior("input", "2026-03-10", 600)}, true},
+		"before the first period":  {[]ledger.TaxItemGroup{prior("input", "2025-11-10", 600), prior("input", "2025-12-10", 600)}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h.Items = overflowing{groups: c.groups}
+			var draft *gen.TaxReturnDraft
+			if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+				res, err := h.GetTaxReturnDraft(ctx, gen.GetTaxReturnDraftParams{ID: testID, PeriodStart: date("2026-04-01")})
+				draft, _ = res.(*gen.TaxReturnDraft)
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			want(t, "above the threshold", draft.PriorPeriod.AboveThreshold, c.want)
+		})
+	}
 	t.Run("an item no box selects", func(t *testing.T) {
 		// The test pack's input boxes take the input and non-deductible
 		// account keys alone.
 		h.Items = overflowing{groups: []ledger.TaxItemGroup{{Direction: "input", AccountKey: "self_input", Kind: "reverse_charge", Items: 1, TaxLC: 5,
-			RecoverableLC: 5}, {Direction: "input", AccountKey: "input", PriorPeriod: true, Items: 1, TaxLC: 3, RecoverableLC: 3}}}
+			RecoverableLC: 5}, {Direction: "input", AccountKey: "input", PriorPeriod: true, PriorTaxDate: day("2025-12-31"), Items: 1, TaxLC: 3, RecoverableLC: 3}}}
 		var draft *gen.TaxReturnDraft
 		if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 			res, err := h.GetTaxReturnDraft(ctx, gen.GetTaxReturnDraftParams{ID: testID, PeriodStart: date("2026-01-01")})
@@ -308,7 +338,7 @@ func TestReturnOverflow(t *testing.T) {
 		want(t, "items", fmt.Sprintf("%d %d %s", draft.ItemCount, draft.PriorPeriod.ItemCount, draft.PriorPeriod.Tax.Amount), "1 1 0.03")
 	})
 	t.Run("an item's negation", func(t *testing.T) {
-		h.Items = overflowing{items: []ledger.TaxItem{{AccountKey: "output", TaxLC: math.MinInt64}}}
+		h.Items = overflowing{items: []ledger.ReturnItem{{TaxItem: ledger.TaxItem{AccountKey: "output", TaxLC: math.MinInt64}}}}
 		err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 			_, err := h.ListTaxReturnDraftItems(ctx, gen.ListTaxReturnDraftItemsParams{ID: testID, PeriodStart: date("2026-01-01"), Box: "out"})
 			return err
@@ -325,6 +355,22 @@ func TestReturnOverflow(t *testing.T) {
 		})
 		want(t, "code", problem.From(err).Code, "request.invalid_page_size")
 	})
+}
+
+// day is a pointer to the date.
+func day(s string) *time.Time {
+	d := date(s)
+	return &d
+}
+
+// prior is a prior-period group of the direction's tax items of the day,
+// their tax all recovered.
+func prior(direction, on string, tax money.Minor) ledger.TaxItemGroup {
+	key := direction
+	if direction == "output" {
+		return ledger.TaxItemGroup{Direction: direction, AccountKey: key, PriorPeriod: true, PriorTaxDate: day(on), Items: 1, TaxLC: tax}
+	}
+	return ledger.TaxItemGroup{Direction: direction, AccountKey: key, PriorPeriod: true, PriorTaxDate: day(on), Items: 1, TaxLC: tax, RecoverableLC: tax}
 }
 
 func date(s string) time.Time {

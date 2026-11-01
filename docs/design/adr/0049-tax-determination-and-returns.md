@@ -869,11 +869,15 @@ companies (all in the tenant, under RLS). A registration change is financial
   - **Prior-period items** (dated before the period's start, unreported)
     are part of each box and shown apart (`prior_period_amount`; an
     expression box's is its expression over the earlier boxes' parts);
-    their signed tax is summed, and `above_threshold` is set when its
-    magnitude exceeds the pack's threshold; no threshold means always the
-    next return (P7, Canada's case). Which measure the threshold applies to
-    (the net tax of the late items, as built, or each error's) is for the
-    tax specialist.
+    their signed tax is summed for information. **The threshold's measure
+    is open** (product owner and tax specialist: net or gross, per earlier
+    period or pooled, per error); until it is settled `above_threshold` is
+    raised, conservatively, when the input or the output tax of the items
+    of any one earlier period (by the registration's periods; one bucket
+    before its first) exceeds the pack's threshold in magnitude, so
+    directions and periods never cancel and the flag errs towards a
+    person's review. No threshold means always the next return (P7,
+    Canada's case). No released pack sets one yet (T61k's UAE pack will).
   - **Refusals** (problem values): a `period_start` that starts none of
     the registration's periods (422 `tax.not_a_period`); a period not yet
     ended on the registrant's date in its time zone (409
@@ -894,7 +898,8 @@ companies (all in the tenant, under RLS). A registration change is financial
     cash position is. `GET /v1/tax-registrations/{id}/draft-return?period_start=`
     (`getTaxReturnDraft`) and its drill-down `GET
     /v1/tax-registrations/{id}/draft-return/items?period_start=&box=`
-    (`listTaxReturnDraftItems`: each item's entry, code, component, amounts
+    (`listTaxReturnDraftItems`: each item's entry with its document number,
+    posting date, reference and header text, its code, component, amounts
     and what it adds to the box; the amounts add up to the box's), both
     `tax.return.read` (migration 000173). Drill-down stops at the entry
     (`getJournalEntry`); the documents are T59's, the export T63's.

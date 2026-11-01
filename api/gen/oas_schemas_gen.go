@@ -41510,10 +41510,11 @@ type TaxReturnDraftPriorPeriod struct {
 	ItemCount int64 `json:"item_count"`
 	// Their tax, signed like the journal (debit positive: input tax positive, output tax negative).
 	Tax Money `json:"tax"`
-	// The country pack's threshold on the magnitude of `tax`; absent when the pack sets none (always the
-	// next return).
+	// The country pack's threshold; absent when the pack sets none (always the next return).
 	Threshold OptMoney `json:"threshold"`
-	// Whether the magnitude of `tax` exceeds the threshold.
+	// Whether, of any one earlier period, the input or the output tax of its items exceeds the threshold
+	// in magnitude: provisional and conservative, so that a person reviews; which measure the threshold
+	// applies to (net or gross, per period or pooled, per error) is open (ADR-0049 §11).
 	AboveThreshold bool `json:"above_threshold"`
 }
 
@@ -41563,8 +41564,16 @@ func (s *TaxReturnDraftPriorPeriod) SetAboveThreshold(val bool) {
 type TaxReturnItem struct {
 	// The entry's fiscal year.
 	FiscalYear int32 `json:"fiscal_year"`
-	// The journal entry that wrote the item.
+	// The journal entry that wrote the item (`getJournalEntry`).
 	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's document number.
+	DocumentNumber string `json:"document_number"`
+	// The entry's posting date.
+	PostingDate time.Time `json:"posting_date"`
+	// The entry's reference (a supplier's invoice number, say); absent when it has none.
+	Reference OptString `json:"reference"`
+	// The entry's header text (the billing system's invoice, say); absent when it has none.
+	HeaderText OptString `json:"header_text"`
 	// The item's number in its entry.
 	ItemNo int32 `json:"item_no"`
 	// The entry's legal entity.
@@ -41609,6 +41618,26 @@ func (s *TaxReturnItem) GetFiscalYear() int32 {
 // GetJournalEntryID returns the value of JournalEntryID.
 func (s *TaxReturnItem) GetJournalEntryID() uuid.UUID {
 	return s.JournalEntryID
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *TaxReturnItem) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *TaxReturnItem) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetReference returns the value of Reference.
+func (s *TaxReturnItem) GetReference() OptString {
+	return s.Reference
+}
+
+// GetHeaderText returns the value of HeaderText.
+func (s *TaxReturnItem) GetHeaderText() OptString {
+	return s.HeaderText
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -41694,6 +41723,26 @@ func (s *TaxReturnItem) SetFiscalYear(val int32) {
 // SetJournalEntryID sets the value of JournalEntryID.
 func (s *TaxReturnItem) SetJournalEntryID(val uuid.UUID) {
 	s.JournalEntryID = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *TaxReturnItem) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *TaxReturnItem) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetReference sets the value of Reference.
+func (s *TaxReturnItem) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetHeaderText sets the value of HeaderText.
+func (s *TaxReturnItem) SetHeaderText(val OptString) {
+	s.HeaderText = val
 }
 
 // SetItemNo sets the value of ItemNo.

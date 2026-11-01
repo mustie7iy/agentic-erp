@@ -1289,9 +1289,10 @@ tax_return() {
   QUIET=1 api 200 '' getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
   expect "the draft computed again" "$(jq -cS . "$WORK/last.json")" "$draft"
   say "The output tax box drills down to the items it sums and the entries that wrote them:"
-  api 200 '.items[] | "  \(.tax_date) \(.tax_code)/\(.component): tax \(.tax.amount), adds \(.box_amount.amount)\(if .prior_period then " (an earlier period'"'"'s)" else "" end), entry \(.journal_entry_id)"' \
+  api 200 '.items[] | "  \(.tax_date) \(.tax_code)/\(.component): tax \(.tax.amount), adds \(.box_amount.amount)\(if .prior_period then " (an earlier period'"'"'s)" else "" end), entry \(.document_number) of \(.posting_date): \(.header_text // "")"' \
     listTaxReturnDraftItems -p "id=$registration" -p "period_start=$start" -p box=output_tax
   expect "the output tax box's items" "$(field '[.items[].box_amount.amount] | join(" ")')" "10.00 50.00"
+  expect "the items' invoices" "$(field '[.items[].header_text] | join(" / ")')" "Billing: invoice 1031, sent late / Billing: invoice 1039, sent late"
   QUIET=1 api 200 '' listTaxReturnDraftItems -p "id=$registration" -p "period_start=$start" -p box=input_tax -p page_size=500
   expect "the input tax of SAP's down payment (step 3) in the draft" "$(jq -r --arg e "$DP_ENTRY" '[.items[] | select(.journal_entry_id == $e)] | length' "$WORK/last.json")" 0
   say "SAP's open down payment of step 3 carries input tax dated SAP's posting date, which SAP's own return reported:"

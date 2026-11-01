@@ -109636,6 +109636,26 @@ func (s *TaxReturnItem) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.JournalEntryID)
 	}
 	{
+		e.FieldStart("document_number")
+		e.Str(s.DocumentNumber)
+	}
+	{
+		e.FieldStart("posting_date")
+		json.EncodeDate(e, s.PostingDate)
+	}
+	{
+		if s.Reference.Set {
+			e.FieldStart("reference")
+			s.Reference.Encode(e)
+		}
+	}
+	{
+		if s.HeaderText.Set {
+			e.FieldStart("header_text")
+			s.HeaderText.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("item_no")
 		e.Int32(s.ItemNo)
 	}
@@ -109699,24 +109719,28 @@ func (s *TaxReturnItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfTaxReturnItem = [17]string{
+var jsonFieldsNameOfTaxReturnItem = [21]string{
 	0:  "fiscal_year",
 	1:  "journal_entry_id",
-	2:  "item_no",
-	3:  "legal_entity_id",
-	4:  "company_code",
-	5:  "tax_date",
-	6:  "tax_code",
-	7:  "component",
-	8:  "jurisdiction",
-	9:  "direction",
-	10: "kind",
-	11: "account_key",
-	12: "base",
-	13: "tax",
-	14: "recoverable",
-	15: "box_amount",
-	16: "prior_period",
+	2:  "document_number",
+	3:  "posting_date",
+	4:  "reference",
+	5:  "header_text",
+	6:  "item_no",
+	7:  "legal_entity_id",
+	8:  "company_code",
+	9:  "tax_date",
+	10: "tax_code",
+	11: "component",
+	12: "jurisdiction",
+	13: "direction",
+	14: "kind",
+	15: "account_key",
+	16: "base",
+	17: "tax",
+	18: "recoverable",
+	19: "box_amount",
+	20: "prior_period",
 }
 
 // Decode decodes TaxReturnItem from json.
@@ -109752,8 +109776,52 @@ func (s *TaxReturnItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"journal_entry_id\"")
 			}
-		case "item_no":
+		case "document_number":
 			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.DocumentNumber = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"document_number\"")
+			}
+		case "posting_date":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.PostingDate = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"posting_date\"")
+			}
+		case "reference":
+			if err := func() error {
+				s.Reference.Reset()
+				if err := s.Reference.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reference\"")
+			}
+		case "header_text":
+			if err := func() error {
+				s.HeaderText.Reset()
+				if err := s.HeaderText.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"header_text\"")
+			}
+		case "item_no":
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Int32()
 				s.ItemNo = int32(v)
@@ -109765,7 +109833,7 @@ func (s *TaxReturnItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"item_no\"")
 			}
 		case "legal_entity_id":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.LegalEntityID = v
@@ -109777,7 +109845,7 @@ func (s *TaxReturnItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"legal_entity_id\"")
 			}
 		case "company_code":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := d.Str()
 				s.CompanyCode = string(v)
@@ -109789,7 +109857,7 @@ func (s *TaxReturnItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"company_code\"")
 			}
 		case "tax_date":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.TaxDate = v
@@ -109801,7 +109869,7 @@ func (s *TaxReturnItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tax_date\"")
 			}
 		case "tax_code":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				v, err := d.Str()
 				s.TaxCode = string(v)
@@ -109813,7 +109881,7 @@ func (s *TaxReturnItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tax_code\"")
 			}
 		case "component":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.Component = string(v)
@@ -109835,7 +109903,7 @@ func (s *TaxReturnItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"jurisdiction\"")
 			}
 		case "direction":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := d.Str()
 				s.Direction = string(v)
@@ -109847,7 +109915,7 @@ func (s *TaxReturnItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"direction\"")
 			}
 		case "kind":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.Kind = string(v)
@@ -109859,7 +109927,7 @@ func (s *TaxReturnItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"kind\"")
 			}
 		case "account_key":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.AccountKey = string(v)
@@ -109871,7 +109939,7 @@ func (s *TaxReturnItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"account_key\"")
 			}
 		case "base":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				if err := s.Base.Decode(d); err != nil {
 					return err
@@ -109881,7 +109949,7 @@ func (s *TaxReturnItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"base\"")
 			}
 		case "tax":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				if err := s.Tax.Decode(d); err != nil {
 					return err
@@ -109891,7 +109959,7 @@ func (s *TaxReturnItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tax\"")
 			}
 		case "recoverable":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				if err := s.Recoverable.Decode(d); err != nil {
 					return err
@@ -109901,7 +109969,7 @@ func (s *TaxReturnItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"recoverable\"")
 			}
 		case "box_amount":
-			requiredBitSet[1] |= 1 << 7
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				if err := s.BoxAmount.Decode(d); err != nil {
 					return err
@@ -109911,7 +109979,7 @@ func (s *TaxReturnItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"box_amount\"")
 			}
 		case "prior_period":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 4
 			if err := func() error {
 				v, err := d.Bool()
 				s.PriorPeriod = bool(v)
@@ -109932,9 +110000,9 @@ func (s *TaxReturnItem) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [3]uint8{
-		0b11111111,
-		0b11111110,
-		0b00000001,
+		0b11001111,
+		0b11101111,
+		0b00011111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

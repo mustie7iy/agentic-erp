@@ -25,7 +25,7 @@ import (
 type TaxItems interface {
 	Unreported(ctx context.Context, legalEntities []uuid.UUID, start, end time.Time) ([]ledger.TaxItemGroup, error)
 	UnreportedItems(ctx context.Context, legalEntities []uuid.UUID, end time.Time, sel ledger.TaxItemSelection, after *ledger.TaxItemKey,
-		limit int) ([]ledger.TaxItem, error)
+		limit int) ([]ledger.ReturnItem, error)
 }
 
 // returnScope is what a draft return of a registration's period is

@@ -29756,8 +29756,8 @@ components:
           properties:
             item_count: {type: integer, format: int64, description: "The prior-period items some selection box selects."}
             tax: {$ref: "#/components/schemas/Money", description: "Their tax, signed like the journal (debit positive: input tax positive, output tax negative)."}
-            threshold: {$ref: "#/components/schemas/Money", description: "The country pack's threshold on the magnitude of `tax`; absent when the pack sets none (always the next return)."}
-            above_threshold: {type: boolean, description: "Whether the magnitude of `tax` exceeds the threshold."}
+            threshold: {$ref: "#/components/schemas/Money", description: "The country pack's threshold; absent when the pack sets none (always the next return)."}
+            above_threshold: {type: boolean, description: "Whether, of any one earlier period, the input or the output tax of its items exceeds the threshold in magnitude: provisional and conservative, so that a person reviews; which measure the threshold applies to (net or gross, per period or pooled, per error) is open (ADR-0049 §11)."}
         boxes:
           type: array
           description: "The return's boxes in the definition's order."
@@ -29783,10 +29783,14 @@ components:
     TaxReturnItem:
       type: object
       description: "A tax item a draft return's box sums (ADR-0049 §5): the entry and item it is, what it taxed, and what it adds to the box. Amounts are in local currency, signed like the journal (debit positive)."
-      required: [fiscal_year, journal_entry_id, item_no, legal_entity_id, company_code, tax_date, tax_code, component, direction, kind, account_key, base, tax, recoverable, box_amount, prior_period]
+      required: [fiscal_year, journal_entry_id, document_number, posting_date, item_no, legal_entity_id, company_code, tax_date, tax_code, component, direction, kind, account_key, base, tax, recoverable, box_amount, prior_period]
       properties:
         fiscal_year: {type: integer, format: int32, description: "The entry's fiscal year.", readOnly: true}
-        journal_entry_id: {type: string, format: uuid, description: "The journal entry that wrote the item.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry that wrote the item (`getJournalEntry`).", readOnly: true}
+        document_number: {type: string, description: "The entry's document number.", readOnly: true}
+        posting_date: {type: string, format: date, description: "The entry's posting date.", readOnly: true}
+        reference: {type: string, description: "The entry's reference (a supplier's invoice number, say); absent when it has none.", readOnly: true}
+        header_text: {type: string, description: "The entry's header text (the billing system's invoice, say); absent when it has none.", readOnly: true}
         item_no: {type: integer, format: int32, description: "The item's number in its entry.", readOnly: true}
         legal_entity_id: {type: string, format: uuid, description: "The entry's legal entity.", readOnly: true}
         company_code: {type: string, description: "Its company code.", readOnly: true}
@@ -29815,7 +29819,7 @@ components:
         box_amount: {$ref: "#/components/schemas/Money", description: "What the item adds to the box: the box's measure of it, negated where the box shows credits positive."}
         prior_period: {type: boolean, description: "Whether the item is dated before the period's start.", readOnly: true}
       examples:
-        - {fiscal_year: 2026, journal_entry_id: 0192a000-0000-7000-8000-000000000e21, item_no: 1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: "3000", tax_date: "2026-09-30", tax_code: GO5, component: gst, jurisdiction: CA, direction: output, kind: standard, account_key: output, base: {amount: "-1000.00", currency: CAD}, tax: {amount: "-50.00", currency: CAD}, recoverable: {amount: "0.00", currency: CAD}, box_amount: {amount: "50.00", currency: CAD}, prior_period: false}
+        - {fiscal_year: 2026, journal_entry_id: 0192a000-0000-7000-8000-000000000e21, document_number: "100028", posting_date: "2026-11-01", header_text: "Billing: invoice 1039", item_no: 1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: "3000", tax_date: "2026-09-30", tax_code: GO5, component: gst, jurisdiction: CA, direction: output, kind: standard, account_key: output, base: {amount: "-1000.00", currency: CAD}, tax: {amount: "-50.00", currency: CAD}, recoverable: {amount: "0.00", currency: CAD}, box_amount: {amount: "50.00", currency: CAD}, prior_period: false}
     TaxReturnItemPage:
       type: object
       description: "One page of the tax items a draft return's box sums."
@@ -29832,7 +29836,7 @@ components:
           description: "Opaque cursor for the next page; absent on the last page."
           maxLength: 2048
       examples:
-        - {box: output_tax, currency: CAD, items: [{fiscal_year: 2026, journal_entry_id: 0192a000-0000-7000-8000-000000000e21, item_no: 1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: "3000", tax_date: "2026-09-30", tax_code: GO5, component: gst, jurisdiction: CA, direction: output, kind: standard, account_key: output, base: {amount: "-1000.00", currency: CAD}, tax: {amount: "-50.00", currency: CAD}, recoverable: {amount: "0.00", currency: CAD}, box_amount: {amount: "50.00", currency: CAD}, prior_period: false}]}
+        - {box: output_tax, currency: CAD, items: [{fiscal_year: 2026, journal_entry_id: 0192a000-0000-7000-8000-000000000e21, document_number: "100028", posting_date: "2026-11-01", header_text: "Billing: invoice 1039", item_no: 1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: "3000", tax_date: "2026-09-30", tax_code: GO5, component: gst, jurisdiction: CA, direction: output, kind: standard, account_key: output, base: {amount: "-1000.00", currency: CAD}, tax: {amount: "-50.00", currency: CAD}, recoverable: {amount: "0.00", currency: CAD}, box_amount: {amount: "50.00", currency: CAD}, prior_period: false}]}
     BankReconciliation:
       type: object
       description: "One page of a house bank's reconciliation report (ADR-0047, T49h): the period's figures, and its statements on this page with their figures and lines. Amounts are signed: a credit to the account is positive, as on the statements; a ledger balance is debit positive, so the two agree when equal."

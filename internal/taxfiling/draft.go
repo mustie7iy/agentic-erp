@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/countrypack"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
@@ -46,17 +47,26 @@ type boxSum struct {
 }
 
 // returnSums are the selection boxes' sums by code, and the items some box
-// selects: their count, and the prior-period ones' count and tax.
+// selects: their count, and the prior-period ones' count and tax, in all
+// and by the earlier period and direction they belong to.
 type returnSums struct {
 	boxes             map[string]boxSum
 	items, priorItems int64
 	priorTax          money.Minor
+	priorBy           map[priorKey]money.Minor
+}
+
+// priorKey is an earlier period of the registration (its start; zero
+// before its first) and a direction.
+type priorKey struct {
+	period    time.Time
+	direction string
 }
 
 // sum sums each selection box's measure over the groups it selects, and
 // counts the items some box selects, once.
 func (s *returnScope) sum(groups []ledger.TaxItemGroup) (returnSums, error) {
-	out := returnSums{boxes: map[string]boxSum{}}
+	out := returnSums{boxes: map[string]boxSum{}, priorBy: map[priorKey]money.Minor{}}
 	selected := make([]bool, len(groups))
 	for _, b := range s.def.Boxes {
 		if b.Select == nil {
@@ -74,14 +84,44 @@ func (s *returnScope) sum(groups []ledger.TaxItemGroup) (returnSums, error) {
 		}
 		out.items += g.Items
 		if g.PriorPeriod {
-			var err error
-			if out.priorTax, err = money.Sum(out.priorTax, g.TaxLC); err != nil {
+			if err := s.addPrior(&out, g); err != nil {
 				return returnSums{}, fmt.Errorf("taxfiling: return of %s prior-period tax: %w", s.reg.Code, err)
 			}
-			out.priorItems += g.Items
 		}
 	}
 	return out, nil
+}
+
+// addPrior adds a prior-period group's tax in all and to its earlier
+// period and direction.
+func (s *returnScope) addPrior(out *returnSums, g ledger.TaxItemGroup) error {
+	var err error
+	if out.priorTax, err = money.Sum(out.priorTax, g.TaxLC); err != nil {
+		return err
+	}
+	k := priorKey{direction: g.Direction}
+	if ps := config.TaxPeriods(s.reg.FirstPeriodStart, s.reg.Frequency, nil, *g.PriorTaxDate); len(ps) > 0 {
+		k.period = ps[len(ps)-1].Start
+	}
+	if out.priorBy[k], err = money.Sum(out.priorBy[k], g.TaxLC); err != nil {
+		return err
+	}
+	out.priorItems += g.Items
+	return nil
+}
+
+// aboveThreshold reports whether the input or the output tax of the items
+// of any one earlier period exceeds the threshold in magnitude: the
+// conservative reading of P7 until the tax specialist settles the measure
+// (net or gross, per period or pooled, per error), so that the flag errs
+// towards a person's review (ADR-0049 §11 As built).
+func (r returnSums) aboveThreshold(threshold money.Minor) bool {
+	for _, v := range r.priorBy {
+		if v.Abs() > threshold {
+			return true
+		}
+	}
+	return false
 }
 
 // boxSumOf sums a selection's measure over the groups it selects and
@@ -129,7 +169,7 @@ func (s *returnScope) draft(ctx context.Context, sums returnSums) (*gen.TaxRetur
 	out := &gen.TaxReturnDraft{RegistrationID: s.reg.ID, RegistrationCode: s.reg.Code, ReturnType: s.def.Type, ReturnName: s.def.Name,
 		PeriodStart: s.period.Start, PeriodEnd: s.period.End, Currency: s.currency, ItemCount: sums.items,
 		Pack:        gen.TaxReturnDraftPack{Country: s.pack.Manifest.Country, Version: s.pack.Manifest.Version},
-		PriorPeriod: gen.TaxReturnDraftPriorPeriod{ItemCount: sums.priorItems, Tax: m(sums.priorTax), AboveThreshold: set && sums.priorTax.Abs() > threshold},
+		PriorPeriod: gen.TaxReturnDraftPriorPeriod{ItemCount: sums.priorItems, Tax: m(sums.priorTax), AboveThreshold: set && sums.aboveThreshold(threshold)},
 		Boxes:       make([]gen.TaxReturnBox, len(s.def.Boxes))}
 	if set {
 		out.PriorPeriod.Threshold = gen.NewOptMoney(m(threshold))
@@ -213,7 +253,10 @@ func (s *returnScope) selectionBox(code string) *countrypack.Box {
 	return nil
 }
 
-func (s *returnScope) itemToAPI(it ledger.TaxItem, sel *countrypack.Selection) (gen.TaxReturnItem, error) {
+// itemToAPI is a box's item as the drill-down shows it: prior-period when
+// dated before the period's start, as Unreported's groups tell it in SQL
+// (tax_date < the start).
+func (s *returnScope) itemToAPI(it ledger.ReturnItem, sel *countrypack.Selection) (gen.TaxReturnItem, error) {
 	v, err := measure(ledger.TaxItemGroup{AccountKey: it.AccountKey, BaseLC: it.BaseLC, TaxLC: it.TaxLC, RecoverableLC: it.RecoverableLC}, sel)
 	if err != nil {
 		return gen.TaxReturnItem{}, fmt.Errorf("taxfiling: item %d of entry %s: %w", it.ItemNo, it.EntryID, err)
@@ -222,5 +265,6 @@ func (s *returnScope) itemToAPI(it ledger.TaxItem, sel *countrypack.Selection) (
 	return gen.TaxReturnItem{FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID, ItemNo: it.ItemNo, LegalEntityID: it.LegalEntityID,
 		CompanyCode: s.codes[it.LegalEntityID], TaxDate: it.TaxDate, TaxCode: it.Code, Component: it.Component, Jurisdiction: apitypes.OptString(it.Jurisdiction),
 		Direction: it.Direction, Kind: it.Kind, AccountKey: it.AccountKey, Base: m(it.BaseLC), Tax: m(it.TaxLC), Recoverable: m(it.RecoverableLC),
-		BoxAmount: m(v), PriorPeriod: it.TaxDate.Before(s.period.Start)}, nil
+		BoxAmount: m(v), PriorPeriod: it.TaxDate.Before(s.period.Start), DocumentNumber: it.DocumentNumber, PostingDate: it.PostingDate,
+		Reference: apitypes.OptString(it.Reference), HeaderText: apitypes.OptString(it.Header)}, nil
 }
