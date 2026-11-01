@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -14,35 +15,41 @@ import (
 )
 
 // The pre-close checks of a period (ADR-0052 §2): before a period is
-// closed, the GR/IR positions still open, the ledger's reconciliation
-// with another ledger the company keeps (ADR-0045) and the company's bank
+// closed, the GR/IR positions open at its end (T73i2: listGrIrBalances on
+// the period's end as key date, each order by its number), the ledger's
+// reconciliation with another ledger the company keeps in the period
+// (ADR-0045, each account by number and name) and the company's bank
 // statements not reconciled (ADR-0047), each with its result; a statement
-// links to its page and its bank's reconciliation report, the GR/IR
-// positions to their report and the reconciliation to its report, each
-// difference to the entries behind it (T73j). It is a section htmx loads
-// into the period's page (HX-Request), or a page of its own for a browser
-// without htmx; with getCurrentPrincipal and listLedgers it makes six
-// calls, the statements read once per status not reconciled.
+// links to its page and its bank's reconciliation report, the lists by
+// status to the company's statements, the GR/IR positions to their report
+// and the reconciliation to its report, each difference to the entries
+// behind it (T73j). It is a section htmx loads into the period's page
+// (HX-Request), or a page of its own for a browser without htmx; with
+// getCurrentPrincipal and listLedgers it makes six calls, the statements
+// read once per status not reconciled.
 
 // checkSize is how many positions, differences and statements a check
 // shows; more are said to be there.
 const checkSize = 10
 
-// checkQuery is the company, ledger, year and period a check is of.
+// checkQuery is the company, ledger, year and period a check is of, and
+// the period's end, the key date its GR/IR positions are read at.
 type checkQuery struct {
 	company, ledger uuid.UUID
 	year, period    int32
+	end             time.Time
 }
 
-// parseChecks is the query's company, ledger, year and period, and
-// whether it names them.
+// parseChecks is the query's company, ledger, year, period and the
+// period's end, and whether it names them.
 func parseChecks(q url.Values) (checkQuery, bool) {
 	company, err1 := uuid.Parse(q.Get(ui.FieldCompany))
 	ledger, err2 := uuid.Parse(q.Get(ui.FieldLedger))
 	year, err3 := strconv.ParseInt(q.Get(ui.FieldYear), 10, 32)
 	period, err4 := strconv.ParseInt(q.Get(ui.FieldPeriod), 10, 32)
-	return checkQuery{company: company, ledger: ledger, year: int32(year), period: int32(period)},
-		err1 == nil && err2 == nil && err3 == nil && err4 == nil
+	end, err5 := time.Parse(time.DateOnly, q.Get(ui.FieldKeyDate))
+	return checkQuery{company: company, ledger: ledger, year: int32(year), period: int32(period), end: end},
+		err1 == nil && err2 == nil && err3 == nil && err4 == nil && err5 == nil
 }
 
 // checks is the pre-close checks the query names.
@@ -77,8 +84,8 @@ func (s *Server) runChecks(w http.ResponseWriter, r *http.Request, p *person, m 
 		return s.inPlace(w, r, p, m, i18n.PeriodProblems, operation, res, err, i18n.ChecksRefusedTitle, id)
 	}
 	ctx := r.Context()
-	res, err := s.API.ListGrIrBalances(ctx, gen.ListGrIrBalancesParams{LegalEntityID: cq.company, OpenOnly: gen.NewOptBool(true),
-		PageSize: gen.NewOptInt32(checkSize), OrderBy: gen.NewOptString("last_posting_date")})
+	res, err := s.API.ListGrIrBalances(ctx, gen.ListGrIrBalancesParams{LegalEntityID: cq.company, PostingDateTo: gen.NewOptDate(cq.end),
+		OpenOnly: gen.NewOptBool(true), PageSize: gen.NewOptInt32(checkSize), OrderBy: gen.NewOptString("last_posting_date")})
 	var ok bool
 	if page, isPage := res.(*gen.GrIrBalancePage); isPage {
 		v.GRIR = grirCheck(*page)
@@ -100,16 +107,17 @@ func (s *Server) runChecks(w http.ResponseWriter, r *http.Request, p *person, m 
 		v.Statements.Rows = append(v.Statements.Rows, statementRows(*page, nil, nil)...)
 		v.Statements.More = v.Statements.More || page.NextPageToken.Set
 	}
-	v.Statements.Imported = ui.StatementsPath(url.Values{"status": {"imported"}})
-	v.Statements.Gap = ui.StatementsPath(url.Values{"status": {"gap"}})
+	v.Statements.Imported = ui.StatementsPath(url.Values{"status": {"imported"}, ui.FieldCompany: {cq.company.String()}})
+	v.Statements.Gap = ui.StatementsPath(url.Values{"status": {"gap"}, ui.FieldCompany: {cq.company.String()}})
 	return true
 }
 
-// grirCheck is a page of the open GR/IR positions.
+// grirCheck is a page of the open GR/IR positions, each order by its
+// number, by id when the API names none.
 func grirCheck(page gen.GrIrBalancePage) ui.GRIRCheck {
 	c := ui.GRIRCheck{More: page.NextPageToken.Set}
 	for _, b := range page.Items {
-		c.Positions = append(c.Positions, ui.GRIRPosition{Order: b.PurchaseOrderID.String(), Item: b.PoItemNo, Received: b.ReceivedQuantity.Value,
+		c.Positions = append(c.Positions, ui.GRIRPosition{Order: b.PurchaseOrderNumber.Or(b.PurchaseOrderID.String()), Item: b.PoItemNo, Received: b.ReceivedQuantity.Value,
 			Invoiced: b.InvoicedQuantity.Value, Unit: b.ReceivedQuantity.Unit, Balance: moneyOf(b.Balance), Last: b.LastPostingDate})
 	}
 	return c
@@ -145,7 +153,7 @@ func (s *Server) ledgerCheck(r *http.Request, cq checkQuery, ledgers []gen.Ledge
 			Balanced: tb.Balanced})
 	}
 	lq := ledgerQuery{company: cq.company, ledger: ledger.ID, compare: compare.ID, year: cq.year, period: gen.NewOptInt32(cq.period)}
-	v.Ledgers.Differences = differenceViews(page.Items, nil, lq)
+	v.Ledgers.Differences = differenceViews(page.Items, lq)
 	v.Ledgers.More = page.NextPageToken.Set
 	v.Ledgers.Report = ui.ReportFor(ui.LedgerReconPath, lq.values())
 	return true

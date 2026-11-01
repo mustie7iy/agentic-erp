@@ -21,7 +21,10 @@ import (
 // makes, with getCurrentPrincipal, listLegalEntities, listLedgers,
 // listRevaluationRuns and listPrincipalNames, five calls; a preview names
 // its accounts besides (listAccounts), and a run's page reads the run and
-// its accounts.
+// its accounts. The API names each open item's partner and entry (T73i2).
+// A posted run is cancelled from its page (cancelRevaluationRun,
+// people's alone, T73i2), with a reason, the run's ETag and the form's
+// idempotency key: its entries are reversed and its key date freed.
 
 // revaluationPageSize is how many of the company's runs the page lists.
 const revaluationPageSize = 25
@@ -224,18 +227,24 @@ func (s *Server) revaluationRun(w http.ResponseWriter, r *http.Request, p *perso
 	if !ok {
 		return
 	}
+	s.showRevaluationRun(w, r, p, m, id, http.StatusOK, cancelTyped{}, nil)
+}
+
+// cancelTyped is the reason the person typed for a cancel that was
+// refused or not valid, and its error.
+type cancelTyped struct {
+	text    string
+	textErr i18n.Key
+}
+
+// showRevaluationRun reads the run and renders its page with status: the
+// cancel's form fresh (the run's current ETag, a new idempotency key)
+// holding what was typed, and the API's refusal of the cancel.
+func (s *Server) showRevaluationRun(w http.ResponseWriter, r *http.Request, p *person, m me, id uuid.UUID, status int, t cancelTyped, refused *ui.Refusal) {
 	res, err := s.API.GetRevaluationRun(r.Context(), gen.GetRevaluationRunParams{ID: id})
 	got, ok := res.(*gen.GetRevaluationRunOKHeaders)
 	if !ok {
-		prob, show := s.refusal(w, r, p, "getRevaluationRun", res, err)
-		switch {
-		case !show:
-		case prob.Status == http.StatusNotFound:
-			s.notFound(w, r)
-		default:
-			s.render(w, r, int(prob.Status), ui.RefusalPage(s.page(i18n.RevaluationRunTitle, ui.ClosePath, p, m), i18n.RevaluationRunsRefusedTitle,
-				ui.RevaluationPath, i18n.RevaluationRunBack, *explainIn(i18n.RevaluationProblems, i18n.RevaluationRunsRefusedTitle, prob, m)))
-		}
+		s.revaluationRunRefused(w, r, p, m, res, err)
 		return
 	}
 	run := got.Response
@@ -243,16 +252,78 @@ func (s *Server) revaluationRun(w http.ResponseWriter, r *http.Request, p *perso
 	companies, ledgers, accounts := s.companies(ctx, m), s.ledgers(ctx, m), s.accounts(ctx, m, run.LegalEntityID)
 	names := s.names(ctx, p, []uuid.UUID{run.CreatedBy})
 	rp := ui.RevaluationRunPage{Done: revaluationDone[r.URL.Query().Get("done")], Totals: totalViews(run.Totals, accounts), Items: itemViews(run.Items, accounts),
-		Back: ui.RevaluationFor(url.Values{ui.FieldCompany: {run.LegalEntityID.String()}, ui.FieldLedger: {run.LedgerID.String()}}),
+		Back: ui.RevaluationFor(url.Values{ui.FieldCompany: {run.LegalEntityID.String()}, ui.FieldLedger: {run.LedgerID.String()}}), Refusal: refused,
 		Header: ui.RunSummary{Company: companies[run.LegalEntityID], Ledger: ledgerName(ledgers, run.LedgerID), KeyDate: run.KeyDate,
 			RateType: labelOf(rateTypes, run.RateType), Status: labelOf(revaluations, run.Status), Items: run.ItemCount, CreatedBy: names[run.CreatedBy],
 			CreatedAt: run.CreatedAt}}
-	rp.Valuation, rp.Reset = idText(run.ValuationEntryID), idText(run.ReversalEntryID)
-	s.render(w, r, http.StatusOK, ui.RevaluationRun(s.page(i18n.RevaluationRunTitle, ui.ClosePath, p, m), rp))
+	rp.Valuation, rp.Reset = entryLink(run.ValuationEntryID), entryLink(run.ReversalEntryID)
+	// Offered for a posted run alone (advisory, ADR-0052 §7: the API
+	// decides), with the ETag the read gave.
+	if tag, ok := got.ETag.Get(); ok && run.Status == "posted" && m.may(permPostEntries) {
+		rp.Cancel = &ui.CancelRunForm{Action: revaluationRunPath(id) + "/cancel", CSRF: p.CSRF, ETag: tag, Key: uuid.NewString(), Text: t.text,
+			TextError: t.textErr}
+	}
+	s.render(w, r, status, ui.RevaluationRun(s.page(i18n.RevaluationRunTitle, ui.ClosePath, p, m), rp))
+}
+
+// revaluationRunRefused answers a run the API did not give: not found, or
+// the refusal on a page of its own.
+func (s *Server) revaluationRunRefused(w http.ResponseWriter, r *http.Request, p *person, m me, res any, err error) {
+	prob, show := s.refusal(w, r, p, "getRevaluationRun", res, err)
+	switch {
+	case !show:
+	case prob.Status == http.StatusNotFound:
+		s.notFound(w, r)
+	default:
+		s.render(w, r, int(prob.Status), ui.RefusalPage(s.page(i18n.RevaluationRunTitle, ui.ClosePath, p, m), i18n.RevaluationRunsRefusedTitle,
+			ui.RevaluationPath, i18n.RevaluationRunBack, *explainIn(i18n.RevaluationProblems, i18n.RevaluationRunsRefusedTitle, prob, m)))
+	}
+}
+
+// cancelRevaluation cancels the run (cancelRevaluationRun, human-only)
+// with the reason typed: done, its page says so; refused (cancelled
+// already, an entry's period no longer open, a stale form), its page is
+// rendered again with the refusal and the reason.
+func (s *Server) cancelRevaluation(w http.ResponseWriter, r *http.Request, p *person) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		s.notFound(w, r)
+		return
+	}
+	ifMatch, key, ok := s.formFields(w, r, revaluationRunPath(id), i18n.RevaluationRunBack)
+	if !ok {
+		return
+	}
+	m, ok := s.whoami(w, r, p)
+	if !ok {
+		return
+	}
+	t := cancelTyped{text: r.PostForm.Get(ui.FieldComment)}
+	if t.textErr = reasonError(t.text, true); t.textErr != "" {
+		s.showRevaluationRun(w, r, p, m, id, http.StatusUnprocessableEntity, t, nil)
+		return
+	}
+	res, err := s.API.CancelRevaluationRun(r.Context(), &gen.ReasonInput{Reason: t.text},
+		gen.CancelRevaluationRunParams{ID: id, IfMatch: ifMatch, IdempotencyKey: key})
+	if _, ok := res.(*gen.CancelRevaluationRunOKHeaders); ok {
+		http.Redirect(w, r, revaluationRunPath(id)+"?done=cancelled", http.StatusSeeOther)
+		return
+	}
+	if prob, show := s.refusal(w, r, p, "cancelRevaluationRun", res, err); show {
+		s.showRevaluationRun(w, r, p, m, id, int(prob.Status), t, explainIn(i18n.RevaluationProblems, i18n.RevaluationCancelRefusedTitle, prob, m))
+	}
+}
+
+// entryLink is an entry's page, "" for none.
+func entryLink(id gen.OptUUID) string {
+	if v, ok := id.Get(); ok {
+		return entryPath(v)
+	}
+	return ""
 }
 
 // revaluationDone is the notice of a run just posted.
-var revaluationDone = map[string]i18n.Key{"posted": i18n.RevaluationDonePosted}
+var revaluationDone = map[string]i18n.Key{"posted": i18n.RevaluationDonePosted, "cancelled": i18n.RevaluationDoneCancelled}
 
 // maxAccounts is the most accounts a page names, the API's largest page.
 const maxAccounts = 500
@@ -285,11 +356,18 @@ func totalViews(totals []gen.RevaluationTotal, accounts map[uuid.UUID]string) []
 	return out
 }
 
-// itemViews are a revaluation's valued items.
+// itemViews are a revaluation's valued items, an open item's partner by
+// number and name and its entry by document number, linked to its page;
+// by id when the API names none.
 func itemViews(items []gen.RevaluationItem, accounts map[uuid.UUID]string) []ui.ItemView {
 	out := make([]ui.ItemView, 0, len(items))
 	for _, it := range items {
-		out = append(out, ui.ItemView{Account: accountText(accounts, it.AccountID), Partner: idText(it.PartnerID), Entry: idText(it.JournalEntryID),
+		partner := idText(it.PartnerID)
+		if n, ok := it.PartnerNumber.Get(); ok {
+			partner = n + " " + it.PartnerName.Or("")
+		}
+		out = append(out, ui.ItemView{Account: accountText(accounts, it.AccountID), Partner: partner,
+			Entry: it.DocumentNumber.Or(idText(it.JournalEntryID)), EntryPath: entryLink(it.JournalEntryID),
 			Line: it.LineNo.Or(0), Amount: moneyOf(it.Amount), Booked: moneyOf(it.AmountLc), Rate: string(it.Rate.Or("")), Valued: moneyOf(it.ValuedLc),
 			Difference: moneyOf(it.DifferenceLc), DifferenceGC: moneyOf(it.DifferenceGc), Direction: labelOf(directions, it.Direction)})
 	}

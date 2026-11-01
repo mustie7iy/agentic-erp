@@ -75,7 +75,7 @@ func checkClosePages(t *testing.T, s closing, langs []lang) {
 	signIn(t, browserCtx, s.stack)
 	march := s.period(t, 3)
 	checks := "/close/checks?" + url.Values{"legal_entity_id": {s.f.DE.String()}, "ledger_id": {s.leading.String()}, "fiscal_year": {"2026"},
-		"period": {"3"}, "period_id": {march.String()}}.Encode()
+		"period": {"3"}, "key_date": {"2026-03-31"}, "period_id": {march.String()}}.Encode()
 	paths := []string{"/close?legal_entity_id=" + s.f.DE.String(), periodPage(march), periodPage(s.period(t, 1)), checks,
 		"/close/revaluation?legal_entity_id=" + s.f.DE.String(), "/close/revaluation/" + s.run.String()}
 	for _, l := range langs {
@@ -102,7 +102,8 @@ func TestCloseInPseudoLocalesInTheBrowser(t *testing.T) {
 
 // TestCloseJobsInTheBrowser: the accountant's and the controller's jobs
 // as they do them, each state checked by axe. At a desktop's width the
-// accountant previews March's revaluation from its page and posts it. At
+// accountant previews March's revaluation from its page, posts it and
+// cancels it with a reason (T73i2). At
 // a phone's, they look at March's pre-close checks, which htmx loads into
 // its page, close it, lock it and ask for its unlock, which waits for
 // the controller. The controller approves it in the approvals inbox,
@@ -129,6 +130,14 @@ func TestCloseJobsInTheBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForText(t, desk, "?done=posted", "The revaluation is posted.")
+	audit(t, desk, src, "en", "ltr", 1280)
+	if err := chromedp.Do(desk,
+		chromedp.SendKeys(chromedp.CSS("#revaluation-cancel-text"), "Rates corrected by the bank"),
+		chromedp.Click(chromedp.CSS("#revaluation-cancel-button")),
+	); err != nil {
+		t.Fatal(err)
+	}
+	waitForText(t, desk, "?done=cancelled", "The revaluation is cancelled: its entries are reversed.")
 	audit(t, desk, src, "en", "ltr", 1280)
 	phone, pc := tab(t, browserCtx, "", 390)
 	if err := chromedp.Do(phone, chromedp.Navigate(s.url+march)); err != nil {

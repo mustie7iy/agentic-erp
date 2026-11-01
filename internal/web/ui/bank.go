@@ -130,8 +130,9 @@ type StatementList struct {
 // BankFilter is the list's house bank filter: a plain GET form keeping
 // the status.
 type BankFilter struct {
-	Status string
-	Banks  []Option // nil: the house banks could not be listed
+	Status    string
+	Banks     []Option // nil: the house banks could not be listed
+	Companies []Option // nil: the companies could not be listed (T73i2)
 }
 
 // StatementHeader is a statement's summary.

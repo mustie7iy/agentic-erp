@@ -227,6 +227,7 @@ func (s *Server) closeRoutes(route func(string, http.HandlerFunc)) {
 	route("POST "+ui.PreviewPath, s.signedIn(s.csrf(s.previewRevaluation)))
 	route("POST "+ui.RevaluePostPath, s.signedIn(s.csrf(s.postRevaluation)))
 	route("GET "+ui.RevaluationPath+"/{id}", s.signedIn(s.revaluationRun))
+	route("POST "+ui.RevaluationPath+"/{id}/cancel", s.signedIn(s.csrf(s.cancelRevaluation)))
 }
 
 // journalRoutes routes the manual journal entries' pages (T73h).

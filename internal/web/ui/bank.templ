@@ -88,13 +88,31 @@ templ HouseBankItem(b HouseBank) {
 	</li>
 }
 
-// BankFilterForm is the list's house bank filter, a plain GET form that
-// keeps the status.
+// BankFilterForm is the list's company (T73i2) and house bank filter, a
+// plain GET form that keeps the status.
 templ BankFilterForm(f BankFilter) {
-	if f.Banks != nil {
+	if f.Banks != nil || f.Companies != nil {
 		<form class="filters" { get(BankPath)... }>
 			<input { hidden("status", f.Status)... }/>
 			<div class="filters__fields">
+				if f.Companies != nil {
+					<div class="field">
+						<label class="field__label" for="filter-company">
+							@T(i18n.FilterCompany)
+						</label>
+						<select class="select" id="filter-company" name="legal_entity_id">
+							<option value="">
+								@T(i18n.FilterCompanyAll)
+							</option>
+							for _, o := range f.Companies {
+								<option translate="no" { option(o)... }>
+									@Value(o.Text)
+								</option>
+							}
+						</select>
+					</div>
+				}
+				if f.Banks != nil {
 				<div class="field">
 					<label class="field__label" for="filter-bank">
 						@T(i18n.BankFilterBank)
@@ -110,6 +128,7 @@ templ BankFilterForm(f BankFilter) {
 						}
 					</select>
 				</div>
+				}
 			</div>
 			<div class="filters__buttons">
 				<button class="button" type="submit">
