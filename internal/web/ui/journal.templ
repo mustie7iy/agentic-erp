@@ -816,13 +816,24 @@ templ EntryLinesSwap(f EntryForm) {
 	<div hx-swap-oob="innerHTML:#entry-totals">
 		@EntryTotalsBody(f.Totals)
 	</div>
+	<div hx-swap-oob="innerHTML:#entry-buttons">
+		@entryButtonsBody(f)
+	</div>
 }
 
 // entryButtons are the form's buttons, after its lines and totals and
 // outside the section htmx swaps. The send comes first, so it is the
 // button Enter presses in a field (HTML's implicit submission).
 templ entryButtons(f EntryForm) {
-	<div class="filters__buttons">
+	<div class="filters__buttons" id="entry-buttons">
+		@entryButtonsBody(f)
+	</div>
+}
+
+// entryButtonsBody are the buttons inside their section: the line's add
+// offered while the form takes another, so htmx sends them again with
+// the lines (EntryLinesSwap).
+templ entryButtonsBody(f EntryForm) {
 			<button class="button" type="submit" name="op" value="send" id="entry-send-button">
 				if f.Edit {
 					@T(i18n.EntrySaveButton)
@@ -840,7 +851,6 @@ templ entryButtons(f EntryForm) {
 					@T(i18n.EntryAddLine)
 				</button>
 			}
-	</div>
 }
 
 // EntryLineView is one line of the form: its fields, each with its error,

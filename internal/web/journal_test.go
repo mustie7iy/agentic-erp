@@ -14,6 +14,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/web/ui"
 )
 
 // journalData is what journalStack's tenant holds.
@@ -277,8 +278,19 @@ func TestEntryForm(t *testing.T) {
 	frag := b.do(http.MethodPost, "/journal/new", v, "HX-Request", "true", "X-CSRF-Token", token)
 	status(t, "a line left out with htmx", frag, http.StatusOK)
 	if strings.Contains(frag.body, "<html") || !strings.Contains(frag.body, `id="entry-lines"`) || strings.Contains(frag.body, `id="entry-totals"`) ||
-		!strings.Contains(frag.body, `hx-swap-oob="innerHTML:#entry-totals"`) {
-		t.Errorf("a line left out with htmx: got %q, want the lines' section and the totals' contents out of band, their live region kept", frag.body)
+		!strings.Contains(frag.body, `hx-swap-oob="innerHTML:#entry-totals"`) || !strings.Contains(frag.body, `hx-swap-oob="innerHTML:#entry-buttons"`) ||
+		!strings.Contains(frag.body, `id="entry-add-button"`) {
+		t.Errorf("a line left out with htmx: got %q, want the lines' section, and the totals' and buttons' contents out of band", frag.body)
+	}
+	full := url.Values{}
+	for k, vs := range v {
+		full[k] = vs
+	}
+	full = withLines(full, make([]typedLine, ui.MaxFormLines-1)...)
+	full.Set("op", "add")
+	if r := b.do(http.MethodPost, "/journal/new", full, "HX-Request", "true", "X-CSRF-Token", token); strings.Contains(r.body, `id="entry-add-button"`) ||
+		!strings.Contains(r.body, `id="line-100-line_account"`) {
+		t.Errorf("the hundredth line added with htmx: got %d lines' worth, want 100 and no button to add another", strings.Count(r.body, "line_account\""))
 	}
 	if v := frag.header.Values("Vary"); !strings.Contains(strings.Join(v, " "), "HX-Request") {
 		t.Errorf("the section's Vary: got %v, want HX-Request in it", v)

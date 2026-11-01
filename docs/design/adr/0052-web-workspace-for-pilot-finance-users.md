@@ -2399,7 +2399,8 @@ company's currency after its company was changed). What it settled:
   does; review round 1), and when a line is added or left out they come
   with the lines as an out-of-band swap of the region's contents (review
   round 2); the form's buttons follow the totals, outside the lines'
-  section; without it they are those of the form's
+  section, and come with the lines out of band too, so the line's add
+  is offered while the form takes another (review round 3); without it they are those of the form's
   last rendering. The API checks the balance.
 - **Calls.** The new entry's form reads six (`getCurrentPrincipal`, the
   companies, the company's day, its accounts, its ledgers and the ledger

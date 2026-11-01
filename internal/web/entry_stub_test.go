@@ -45,9 +45,14 @@ func TestCurrencyFollowsTheCompany(t *testing.T) {
 			}
 		}
 	}
+	v.Set(ui.FieldPostTo, ui.PostToLedger+uuid.NewString())
 	hx, headers := asHTMX(v, ui.OpCompany)
 	r := b.do(http.MethodPost, ui.NewEntryPath, hx, headers...)
 	status(t, "Dubai chosen with htmx", r, http.StatusOK)
+	if got := chosen(r.page(t).doc, ui.FieldPostTo); got != "" {
+		t.Errorf("Dubai chosen with htmx: Toronto's ledger %q still chosen, want none (every ledger)", got)
+	}
+	v.Del(ui.FieldPostTo)
 	filled("Dubai chosen with htmx", r, map[string]string{"currency": "AED", "posting_date": "2026-01-01", "document_date": "2026-01-01",
 		"filled_for": dubai.String()})
 	r = b.do(http.MethodPost, ui.NewEntryPath, v)
