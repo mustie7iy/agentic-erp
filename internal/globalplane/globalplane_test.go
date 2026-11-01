@@ -53,7 +53,7 @@ func newPlane(t *testing.T) *plane {
 	}
 	t.Cleanup(dir.Close)
 	login := pgtest.NewLogin(t)
-	if err := directory.Setup(ctx, u, directory.Login{Name: login.Name, Password: login.Password, Role: directory.RouterRole}); err != nil {
+	if err := directory.Setup(ctx, u, nil, directory.Login{Name: login.Name, Password: login.Password, Role: directory.RouterRole}); err != nil {
 		t.Fatal(err)
 	}
 	asRouter, err := directory.OpenWith(ctx, login.As(u), nil)

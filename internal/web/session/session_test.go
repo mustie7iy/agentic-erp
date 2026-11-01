@@ -104,7 +104,7 @@ func newStore(t *testing.T) (*session.Store, *clock, *directory.Postgres) {
 	// The store runs as erp-web's own login (T72h); the directory's
 	// owner sets up and seeds what the tests read.
 	login := pgtest.NewLogin(t)
-	if err := directory.Setup(ctx, dirURL, directory.Login{Name: login.Name, Password: login.Password, Role: directory.WebRole}); err != nil {
+	if err := directory.Setup(ctx, dirURL, nil, directory.Login{Name: login.Name, Password: login.Password, Role: directory.WebRole}); err != nil {
 		t.Fatal(err)
 	}
 	dir, err := directory.OpenWith(ctx, dirURL, nil)

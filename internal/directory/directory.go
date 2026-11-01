@@ -207,11 +207,11 @@ func (p *Postgres) inTx(ctx context.Context, scope database.Scope, fn func(conte
 	return p.Pool.InTx(ctx, scope, fn)
 }
 
-// Open makes the directory's schema as its owner (Setup, with no logins)
-// and connects: development's and tests' way, whose URL is the owner's.
+// Open makes the directory's schema as its owner (Setup, with no logins
+// and none of the server's other databases) and connects: development's and tests' way, whose URL is the owner's.
 // The platform's services connect with OpenWith, as logins of their own.
 func Open(ctx context.Context, url string) (*Postgres, error) {
-	if err := Setup(ctx, url); err != nil {
+	if err := Setup(ctx, url, nil); err != nil {
 		return nil, err
 	}
 	return OpenWith(ctx, url, nil)

@@ -96,28 +96,50 @@ type Login struct {
 // privilege role gives it.
 var ErrLogin = errors.New("directory: login")
 
+// ErrServer means another database of the directory's server still lets
+// PUBLIC, and so every login, connect or make temporary objects after
+// Setup took the rights back: its owner, or a role holding the right with
+// the grant option, must revoke it.
+var ErrServer = errors.New("directory: server")
+
+// ServerDatabases are the databases beside the directory's own that the
+// directory's server holds and no chart or module of the platform names
+// (the global module makes the directory's alone, db_name "directory"):
+// postgres and template1, which every PostgreSQL cluster has from initdb
+// (PostgreSQL 17 manual, §22.2 and §22.3), and rdsadmin, RDS's own, absent
+// elsewhere. erp-router setup-directory gives Setup these.
+func ServerDatabases() []string { return []string{"postgres", "template1", "rdsadmin"} }
+
 // Setup makes the directory's schema and its privilege roles' grants, and
 // each login, as the database's owner (url names the RDS master user):
 // what the erp-global chart's hook Job runs before each release (erp-router
 // setup-directory), and development and tests before their first opener.
+// It takes PUBLIC's CONNECT and TEMPORARY on each of others, the server's
+// other databases (ServerDatabases; one not there is passed over, the
+// directory's own keeps PUBLIC's CONNECT, Grants), so a login reaches the
+// directory's database alone, and refuses (ErrServer) while PUBLIC still
+// holds either. Development and tests give none: their server is shared.
 // Every step leaves what is already there as it is, so a second run
 // changes nothing but the logins' passwords.
-func Setup(ctx context.Context, url string, logins ...Login) error {
+func Setup(ctx context.Context, url string, others []string, logins ...Login) error {
 	pool, err := database.Open(ctx, url, database.Settings{MaxConns: 1})
 	if err != nil {
 		return fmt.Errorf("directory: setup: %w", err)
 	}
 	defer pool.Close()
-	return setupIn(ctx, pool.InTx, logins)
+	return setupIn(ctx, pool.InTx, others, logins)
 }
 
-func setupIn(ctx context.Context, inTx func(context.Context, database.Scope, func(context.Context, pgx.Tx) error) error, logins []Login) error {
+func setupIn(ctx context.Context, inTx func(context.Context, database.Scope, func(context.Context, pgx.Tx) error) error, others []string, logins []Login) error {
 	err := inTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
 		// Openers starting together (tests, a restore beside the live one)
 		// serialize on an advisory lock: two concurrent CREATE SCHEMA IF NOT
 		// EXISTS otherwise race into a unique violation on pg_namespace.
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('directory.schema'));`+Schema+Grants); err != nil {
 			return fmt.Errorf("schema: %w", err)
+		}
+		if err := takePublicDatabases(ctx, tx, others); err != nil {
+			return err
 		}
 		for _, l := range logins {
 			if err := ensureLogin(ctx, tx, l); err != nil {
@@ -285,4 +307,57 @@ func checkLogin(ctx context.Context, tx pgx.Tx, l Login) error {
 			ErrLogin, l.Name, l.Role, attributes, admin, others, deps, schemas, public)
 	}
 	return nil
+}
+
+// takePublicDatabases revokes PUBLIC's CONNECT and TEMPORARY on each of
+// others PUBLIC holds either on, then refuses any PUBLIC still holds: a
+// REVOKE by a role that neither owns the database nor holds the right
+// with the grant option only warns and leaves it (PostgreSQL 17 manual,
+// REVOKE, Notes), as RDS's master user, no superuser (RDS user guide,
+// "Understanding the rds_superuser role"), would on a database another
+// role owns. A database PUBLIC holds nothing on gets no REVOKE, so a
+// second run writes nothing to pg_database. The rights are read from the
+// connection Setup has: pg_database is one catalog for the whole server
+// (the manual's pg_database page), and has_database_privilege reads its
+// ACL, the default (acldefault) when it is null, for the pseudo-role
+// public (§9.27), without connecting to the database, which template1 or
+// rdsadmin need not allow.
+func takePublicDatabases(ctx context.Context, tx pgx.Tx, others []string) error {
+	held, err := publicOn(ctx, tx, others)
+	if err != nil {
+		return err
+	}
+	var revoked []string
+	for _, h := range held {
+		if slices.Contains(revoked, h.Database) {
+			continue
+		}
+		revoked = append(revoked, h.Database)
+		if _, err := tx.Exec(ctx, "REVOKE CONNECT, TEMPORARY ON DATABASE "+pgx.Identifier{h.Database}.Sanitize()+" FROM PUBLIC"); err != nil {
+			return fmt.Errorf("revoke PUBLIC's CONNECT and TEMPORARY on database %s: %w", h.Database, err)
+		}
+	}
+	if held, err = publicOn(ctx, tx, others); err != nil || len(held) == 0 {
+		return err
+	}
+	names := make([]string, len(held))
+	for i, h := range held {
+		names[i] = h.Privilege + " on database " + h.Database
+	}
+	return fmt.Errorf("%w: PUBLIC still holds %s after Setup revoked it; the database's owner must revoke it", ErrServer, strings.Join(names, ", "))
+}
+
+// publicRight is a right PUBLIC holds on a database.
+type publicRight struct{ Database, Privilege string }
+
+// publicOn is PUBLIC's CONNECT and TEMPORARY on others but the database
+// Setup is connected to.
+func publicOn(ctx context.Context, tx pgx.Tx, others []string) ([]publicRight, error) {
+	rows, _ := tx.Query(ctx, `SELECT datname::text, p FROM pg_database, unnest(ARRAY['CONNECT', 'TEMPORARY']) p
+		WHERE datname = ANY($1) AND datname <> current_database() AND has_database_privilege('public', oid, p) ORDER BY 1, 2`, others)
+	held, err := pgx.CollectRows(rows, pgx.RowToStructByPos[publicRight])
+	if err != nil {
+		return nil, fmt.Errorf("PUBLIC's rights on the server's databases: %w", err)
+	}
+	return held, nil
 }
