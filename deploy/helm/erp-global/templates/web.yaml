@@ -40,6 +40,10 @@ metadata:
   name: erp-web
   labels:
     {{- include "erp-global.labels" (dict "root" . "component" "erp-web") | nindent 4 }}
+  # Its IRSA role, whose token EKS projects: it may connect to the
+  # directory as erp-web's login alone (ADR-0035 As built 2026-11-01).
+  annotations:
+    eks.amazonaws.com/role-arn: {{ required "web.roleArn is required: cell.workload_role_arns.web" .Values.web.roleArn | quote }}
 automountServiceAccountToken: false
 ---
 # erp-web's identity towards the router: a client certificate only (no
@@ -137,12 +141,14 @@ spec:
             - {name: ERP_TLS_CERT, value: file:/etc/erp/tls/tls.crt}
             - {name: ERP_TLS_KEY, value: file:/etc/erp/tls/tls.key}
             # Sessions: the directory over verified TLS as erp-web's
-            # login, its password read again for each new connection; the
-            # sealing key; and where the web clients' credentials are
+            # login, with an RDS IAM token its IRSA role signs for each new
+            # connection (STS through the VPC endpoint); the sealing key;
+            # and where the web clients' credentials are
             # (credential_ref file:/etc/erp/web-clients/<name>, nothing
             # outside it).
             - {name: ERP_WEB_DIRECTORY_URL, value: {{ printf "postgres://%s@%s/%s?sslmode=verify-full&sslrootcert=/etc/erp/trust/rds-ca.pem" ((required "directory.logins.web is required: erp-web's login" .Values.directory.logins.web) | urlquery) $directory .Values.directory.name | quote }}}
-            - {name: ERP_WEB_DIRECTORY_PASSWORD, value: file:/etc/erp/secrets/directory-password}
+            - {name: ERP_WEB_DIRECTORY_REGION, value: {{ required "directory.region is required: global.directory_region" .Values.directory.region | quote }}}
+            - {name: ERP_AWS_STS_ENDPOINT, value: {{ required "awsEndpoints.sts is required: cell.aws_endpoints.sts" .Values.awsEndpoints.sts | quote }}}
             - {name: ERP_WEB_SESSION_KEY, value: file:/etc/erp/secrets/session-key}
             {{- if .Values.web.sessionKeyPrevious }}
             # A rotation runs: sessions sealed under the previous key
@@ -273,9 +279,7 @@ spec:
 ---
 # erp-web's sessions' secrets, from AWS Secrets Manager (ADR-0017): the
 # sealing key (<prefix>/web-session-key), during a rotation the previous
-# one (<prefix>/web-session-key-previous, web.sessionKeyPrevious), and its
-# directory login's password (<prefix>/directory-web-password, T72h),
-# refreshed every five minutes as the router's is; and
+# one (<prefix>/web-session-key-previous, web.sessionKeyPrevious); and
 # the web clients' credentials (<prefix>/web-clients, a JSON object of
 # file name to PEM key or client secret, one file each), which operators
 # load when they register a tenant's web client (ADR-0052 G8).
@@ -302,9 +306,6 @@ spec:
       remoteRef:
         key: {{ printf "%s/web-session-key-previous" .Values.secrets.prefix }}
     {{- end }}
-    - secretKey: directory-password
-      remoteRef:
-        key: {{ printf "%s/directory-web-password" .Values.secrets.prefix }}
 ---
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
@@ -361,6 +362,14 @@ spec:
         - ipBlock: {cidr: {{ $vpc | quote }}}
       ports:
         - {protocol: TCP, port: 5432}
+    # STS, whose regional name the VPC's interface endpoint answers with
+    # addresses in the VPC: erp-web exchanges its service account's token
+    # there for its IRSA role, which signs its directory login's tokens
+    # (ADR-0035 As built 2026-11-01).
+    - to:
+        - ipBlock: {cidr: {{ $vpc | quote }}}
+      ports:
+        - {protocol: TCP, port: 443}
     # The providers are on the internet (in production erp-web refuses
     # other addresses anyway, authn.Providers): nothing in the VPC or any
     # private, shared or link-local range on 443.

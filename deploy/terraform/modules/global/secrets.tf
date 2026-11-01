@@ -1,10 +1,6 @@
 # The global tier's secrets (the erp-global chart), under erp/global/, read
 # through the External Secrets Operator of the home cell's cluster as
-# mounted files (ADR-0017): the passwords of the directory's logins, the
-# router's, the cells' and erp-web's (directory-router-password,
-# directory-cell-password, directory-web-password, T72h: operators set
-# them, the erp-global chart's setup hook gives them to the logins), the
-# global plane's page-token key, the
+# mounted files (ADR-0017): the global plane's page-token key, the
 # router's and the web workspace's public certificate chains and keys
 # (ADR-0052), which operators load from a public CA (ADR-0035: no ACME),
 # the web workspace's session sealing key (web-session-key, at least 32
@@ -14,12 +10,14 @@
 # secret, which web_client credential_ref names as
 # file:/etc/erp/web-clients/<name>, T73b). Created empty, encrypted with
 # the global tier's key, which also encrypts the directory and its
-# RDS-managed master credentials; no value is in Terraform's state.
+# RDS-managed master credentials; no value is in Terraform's state. The
+# directory's logins have no passwords: they authenticate with IAM tokens
+# (directory.tf, ADR-0035 As built 2026-11-01).
 
 variable "secrets" {
   description = "Names of the global tier's secrets, under erp/global/ (values are set outside Terraform)."
   type        = list(string)
-  default     = ["directory-router-password", "directory-cell-password", "directory-web-password", "page-token-key", "router-public-certificate", "router-public-key", "web-public-certificate", "web-public-key", "web-session-key", "web-session-key-previous", "web-clients"]
+  default     = ["page-token-key", "router-public-certificate", "router-public-key", "web-public-certificate", "web-public-key", "web-session-key", "web-session-key-previous", "web-clients"]
 }
 
 resource "aws_secretsmanager_secret" "global" {

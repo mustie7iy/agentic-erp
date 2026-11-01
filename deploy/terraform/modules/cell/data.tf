@@ -9,6 +9,16 @@ variable "secrets" {
   default     = ["page-token-key", "database-client-password", "temporal-codec-key", "temporal-database-password", "argocd-repository", "alertmanager-receivers", "grafana-oidc"]
 }
 
+variable "directory_users" {
+  description = "On the environment's home cell, the rds-db:connect resource of each directory login (modules/global directory_users: router, cell, web), which the router's, the server's and erp-web's roles may connect as; none elsewhere."
+  type        = map(string)
+  default     = {}
+  validation {
+    condition     = length(var.directory_users) == 0 || (toset(keys(var.directory_users)) == toset(["router", "cell", "web"]) && alltrue([for arn in values(var.directory_users) : can(regex("^arn:aws[a-z-]*:rds-db:[a-z0-9-]+:[0-9]{12}:dbuser:[A-Za-z0-9-]+/[a-z_][a-z0-9_]*$", arn))]))
+    error_message = "none, or the router's, the cell's and erp-web's rds-db dbuser ARNs, one login each"
+  }
+}
+
 variable "global_secrets" {
   description = "On the environment's home cell, the global tier's secrets its External Secrets Operator also reads for the erp-global chart, and their key (modules/global external_secrets); none elsewhere."
   type = object({

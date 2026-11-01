@@ -33,6 +33,11 @@ import (
 
 var exit = os.Exit
 
+// loadConfig reads the router's configuration: a variable for the tests
+// alone, whose PostgreSQL takes a password where RDS would take the IAM
+// tokens production's configuration mints.
+var loadConfig = router.LoadConfig
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	code := command(ctx, os.Args[1:], os.Getenv, os.Stderr, nil)
@@ -43,7 +48,7 @@ func main() {
 // cli runs the router and returns the process exit code: 2 for bad
 // configuration, 1 for a failure while running, 0 after a clean shutdown.
 func cli(ctx context.Context, getenv func(string) string, stderr io.Writer, started func(api, admin net.Listener)) int {
-	cfg, err := router.LoadConfig(getenv)
+	cfg, err := loadConfig(getenv)
 	if err != nil {
 		fmt.Fprintln(stderr, "erp-router: configuration:", err)
 		return 2

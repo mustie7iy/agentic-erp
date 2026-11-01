@@ -114,8 +114,12 @@ run "the_small_shape_plans_and_wires_its_parts" {
     error_message = "dev has no pilot light"
   }
   assert {
-    condition     = toset(keys(output.cell.workload_role_arns)) == toset(["server", "external_secrets", "cert_manager", "ebs_csi", "load_balancer", "kyverno", "monitoring", "logging", "tracing", "analytics"])
-    error_message = "every workload role the charts need is an output"
+    condition     = toset(keys(output.cell.workload_role_arns)) == toset(["server", "external_secrets", "cert_manager", "ebs_csi", "load_balancer", "kyverno", "monitoring", "logging", "tracing", "analytics", "router", "web"])
+    error_message = "every workload role the charts need is an output, the home cell's router's and erp-web's among them"
+  }
+  assert {
+    condition     = module.cell.workload_role_arns["router"] != null && strcontains(jsonencode(module.global.directory_users), "erp_router_login") && output.global.directory_region == "eu-central-1"
+    error_message = "the home cell's router role connects as the directory's router login, signing for the directory's region (ADR-0035 As built 2026-11-01)"
   }
   assert {
     condition     = output.cell.aws_endpoints.sts == "https://sts.eu-central-1.amazonaws.com"
@@ -182,8 +186,8 @@ run "the_production_pilot_light_is_an_output" {
     error_message = "the pilot light's region and the size its nodes are scaled to on a failover are outputs"
   }
   assert {
-    condition     = toset(keys(output.cell.pilot_light.workload_role_arns)) == toset(keys(output.cell.workload_role_arns))
-    error_message = "every workload role the charts need has its DR counterpart among the outputs"
+    condition     = toset(keys(output.cell.pilot_light.workload_role_arns)) == setsubtract(toset(keys(output.cell.workload_role_arns)), ["router", "web"])
+    error_message = "every workload role the erp-cell and add-on charts need has its DR counterpart among the outputs; the router's and erp-web's, the global tier's, stay in the home region with the directory"
   }
   assert {
     condition     = output.cell.pilot_light.aws_endpoints.sts == "https://sts.eu-west-1.amazonaws.com"

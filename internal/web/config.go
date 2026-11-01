@@ -14,6 +14,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/proxyproto"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rdsiam"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 )
@@ -47,9 +48,11 @@ type SignIn struct {
 	// DirectoryURL is ERP_WEB_DIRECTORY_URL: the global directory's
 	// database, where sessions are kept (sslmode=verify-full in production).
 	DirectoryURL string
-	// DirectoryPassword is ERP_WEB_DIRECTORY_PASSWORD, a reference
-	// (env:, file:, vault:): the login's password, read again for each new
-	// connection, as it rotates; nil: the URL's.
+	// DirectoryPassword is what the login presents for each new
+	// connection in place of the URL's password: in production an RDS IAM
+	// token (ERP_WEB_DIRECTORY_REGION, ERP_AWS_STS_ENDPOINT and erp-web's
+	// IRSA role, rdsiam); in development ERP_WEB_DIRECTORY_PASSWORD, a
+	// reference (env:, file:), read again each time; nil: the URL's.
 	DirectoryPassword func(context.Context) (string, error)
 	// SessionSecrets are ERP_WEB_SESSION_KEY, then
 	// ERP_WEB_SESSION_KEY_PREVIOUS while a rotation runs (ADR-0028),
@@ -198,11 +201,21 @@ func (c *Config) loadSignIn(getenv func(string) string, production bool) []error
 		errs = append(errs, errors.New("ERP_WEB_PUBLIC_URL is required to sign in: the redirect URI is its /callback"))
 	}
 	ctx, local := context.Background(), secrets.Local{Getenv: getenv}
-	if ref := getenv("ERP_WEB_DIRECTORY_PASSWORD"); ref != "" {
-		var err error
+	// In production erp-web's login presents RDS IAM tokens alone, its
+	// IRSA role's (ADR-0035 As built 2026-11-01); in development a
+	// password reference, read again for each new connection, or the URL's.
+	var err error
+	switch ref := getenv("ERP_WEB_DIRECTORY_PASSWORD"); {
+	case production:
+		c.DirectoryPassword, err = rdsiam.Load(getenv, rdsiam.Settings{URLName: "ERP_WEB_DIRECTORY_URL", URL: c.DirectoryURL,
+			RegionName: "ERP_WEB_DIRECTORY_REGION", PasswordName: "ERP_WEB_DIRECTORY_PASSWORD"})
+	case ref != "":
 		if c.DirectoryPassword, err = secrets.Rotating(ctx, local, ref); err != nil {
-			errs = append(errs, fmt.Errorf("ERP_WEB_DIRECTORY_PASSWORD: %w", err))
+			err = fmt.Errorf("ERP_WEB_DIRECTORY_PASSWORD: %w", err)
 		}
+	}
+	if err != nil {
+		errs = append(errs, err)
 	}
 	for _, name := range []string{"ERP_WEB_SESSION_KEY", "ERP_WEB_SESSION_KEY_PREVIOUS"} {
 		ref := getenv(name)

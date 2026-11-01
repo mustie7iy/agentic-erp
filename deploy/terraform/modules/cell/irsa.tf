@@ -5,9 +5,23 @@
 locals {
   oidc_host = replace(aws_iam_openid_connect_provider.cluster.url, "https://", "")
 
+  # The home cell runs the erp-global chart too: its router and erp-web
+  # each connect to the directory as their own login (ADR-0035 As built
+  # 2026-11-01), so they get roles there alone.
+  home = length(var.directory_users) > 0
+  global_accounts = local.home ? {
+    router = { namespace = "erp-global", name = "erp-router" }
+    web    = { namespace = "erp-global", name = "erp-web" }
+  } : {}
+  # rds-db:connect on one login of the directory: a role may authenticate
+  # as that login and no other (RDS user guide, "Creating and using an IAM
+  # policy for IAM database access").
+  connect = { for client, arn in var.directory_users : client => { Sid = "DirectoryLogin", Effect = "Allow", Action = "rds-db:connect", Resource = arn } }
+
   # Who each role trusts, apart from what it may do: the field key's policy
   # names the server's role, and the server's permissions name the key.
-  service_accounts = {
+  service_accounts = merge(local.global_accounts, local.cell_accounts)
+  cell_accounts = {
     server           = { namespace = "erp", name = "erp-server" }
     analytics        = { namespace = "erp", name = "erp-analytics" }
     external_secrets = { namespace = "external-secrets", name = "external-secrets" }
@@ -26,14 +40,22 @@ locals {
   monitoring_secrets = ["alertmanager-receivers", "grafana-oidc"]
   secrets_key_via    = { StringEquals = { "kms:ViaService" = "secretsmanager.${data.aws_region.current.region}.amazonaws.com" } }
 
-  workloads = {
-    # The API server and its workers: objects, field-key wrapping.
+  # The router and erp-web (the erp-global chart, home cell alone): their
+  # directory logins, nothing else.
+  global_workloads = local.home ? {
+    router = { statements = [local.connect["router"]] }
+    web    = { statements = [local.connect["web"]] }
+  } : {}
+
+  workloads = merge(local.global_workloads, {
+    # The API server and its workers: objects, field-key wrapping, and on
+    # the home cell the cells' directory login.
     server = {
-      statements = [
+      statements = concat([
         { Sid = "Objects", Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload", "s3:PutObjectRetention", "s3:GetObjectRetention"], Resource = "${aws_s3_bucket.objects.arn}/*" },
         { Sid = "ListObjects", Effect = "Allow", Action = "s3:ListBucket", Resource = aws_s3_bucket.objects.arn },
         { Sid = "ObjectKey", Effect = "Allow", Action = ["kms:Decrypt", "kms:GenerateDataKey"], Resource = aws_kms_key.data.arn },
-      ]
+      ], local.home ? [local.connect["cell"]] : [])
     }
     # erp-analytics (ADR-0044): reads the tenants' snapshots under
     # analytics/ and nothing else; writes nothing. The objects are under
@@ -119,7 +141,7 @@ locals {
         { Sid = "Traces", Effect = "Allow", Action = ["xray:PutTraceSegments", "xray:PutTelemetryRecords"], Resource = "*" },
       ]
     }
-  }
+  })
 }
 
 resource "aws_iam_role" "workload" {

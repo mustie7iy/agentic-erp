@@ -33,7 +33,7 @@ const baselineItems = 951
 // registration number formats split from T61g joined (74), and the
 // foreign-currency open item that HSL 0 drops from the pilot migration
 // (review:batch31) joined as a data-correctness gap in its path (75).
-const pilotItems = 75
+const pilotItems = 76
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

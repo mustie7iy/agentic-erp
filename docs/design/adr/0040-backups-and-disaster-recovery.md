@@ -237,9 +237,9 @@ before the rehearsal (T41g). Until the global tier and the subordinate
 CA are recovered from a home-region failure (see "Not covered" below),
 steps 5, 7 and 8 cannot complete for the environment's home cell, the
 production pilot cell among them: its `cell.json` names the directory,
-whose password secret (`erp/global/directory-cell-password`) has no
-replica in `<dr>` and which the DR roles may not read, so erp-server does
-not start there, and step 8 needs the directory itself. No interim
+whose cells' login authenticates with IAM tokens only the home cell's
+server role may sign (`rds-db:connect`, ADR-0035 As built 2026-11-01),
+which no DR role holds, so erp-server does not start there, and step 8 needs the directory itself. No interim
 procedure is decided; T41g waits on that recovery.
 1. Declare the incident; freeze promotions to the cell.
 2. Read the replica's lag (`ReplicaLag`); note it as the data lost.

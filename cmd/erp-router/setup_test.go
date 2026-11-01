@@ -138,6 +138,28 @@ func TestSetupDefaults(t *testing.T) {
 	}
 }
 
+// TestSetupProduction: in production the logins authenticate with RDS IAM
+// tokens: no password is read, and a password setting is refused.
+func TestSetupProduction(t *testing.T) {
+	ca := tlstest.WriteFile(t, t.TempDir(), "rds-ca.pem", tlstest.NewCA(t).PEM)
+	env := map[string]string{"ERP_ENV": "production", "ERP_DIRECTORY_ADMIN_URL": "postgres://owner@db/directory?sslmode=verify-full&sslrootcert=" + ca}
+	s, err := loadSetup(func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []directory.Login{{Name: "erp_router_login", Role: directory.RouterRole, IAM: true},
+		{Name: "erp_cell_login", Role: directory.CellRole, IAM: true}, {Name: "erp_web_login", Role: directory.WebRole, IAM: true}}
+	for i, l := range s.logins {
+		if l != want[i] {
+			t.Errorf("login %d: got %+v, want %+v", i, l, want[i])
+		}
+	}
+	env["ERP_DIRECTORY_CELL_PASSWORD"] = "file:/etc/erp/setup/cell-password"
+	if _, err := loadSetup(func(k string) string { return env[k] }); err == nil || !strings.Contains(err.Error(), "ERP_DIRECTORY_CELL_PASSWORD must not be set with ERP_ENV=production") {
+		t.Errorf("a password in production: got %v, want it refused", err)
+	}
+}
+
 // TestNoCommandRuns: without arguments the router itself runs, here
 // refusing a configuration without its directory.
 func TestNoCommandRuns(t *testing.T) {

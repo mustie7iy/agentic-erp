@@ -156,7 +156,7 @@ run "the_routers_secrets_are_empty_entries_under_the_global_key" {
   command = apply
 
   assert {
-    condition     = length(aws_secretsmanager_secret.global) == 11 && alltrue([for s in aws_secretsmanager_secret.global : s.kms_key_id == aws_kms_key.directory.arn && startswith(s.name, "erp/global/")])
+    condition     = length(aws_secretsmanager_secret.global) == 8 && alltrue([for s in aws_secretsmanager_secret.global : s.kms_key_id == aws_kms_key.directory.arn && startswith(s.name, "erp/global/")])
     error_message = "the router's secrets are under erp/global/ and encrypted with the global tier's key"
   }
   assert {
@@ -182,10 +182,34 @@ run "the_web_workspaces_secrets_are_global" {
   }
 }
 
-run "the_directory_logins_passwords_are_global_secrets" {
+run "the_directory_logins_authenticate_with_iam" {
   command = apply
   assert {
-    condition     = alltrue([for name in ["directory-router-password", "directory-cell-password", "directory-web-password"] : aws_secretsmanager_secret.global[name].name == "erp/global/${name}" && contains(output.external_secrets.arns, aws_secretsmanager_secret.global[name].arn)])
-    error_message = "the router's, the cells' and erp-web's directory logins have passwords of their own under erp/global/, which the home cell's External Secrets Operator reads (T72h)"
+    condition     = aws_db_instance.directory.iam_database_authentication_enabled
+    error_message = "the directory takes IAM database authentication, for its clients' logins (ADR-0035 As built 2026-11-01)"
   }
+  assert {
+    condition = output.directory_users == {
+      router = "arn:aws:rds-db:eu-central-1:222222222222:dbuser:${aws_db_instance.directory.resource_id}/erp_router_login"
+      cell   = "arn:aws:rds-db:eu-central-1:222222222222:dbuser:${aws_db_instance.directory.resource_id}/erp_cell_login"
+      web    = "arn:aws:rds-db:eu-central-1:222222222222:dbuser:${aws_db_instance.directory.resource_id}/erp_web_login"
+    }
+    error_message = "each client may connect as its own login on this directory alone"
+  }
+  assert {
+    condition     = output.directory_region == "eu-central-1"
+    error_message = "the tokens are signed for the directory's region"
+  }
+  assert {
+    condition     = length([for name in keys(aws_secretsmanager_secret.global) : name if strcontains(name, "password")]) == 0
+    error_message = "the directory's logins have no passwords to keep: no password secret is made"
+  }
+}
+
+run "a_login_name_iam_cannot_match_is_refused" {
+  command = plan
+  variables {
+    directory_logins = { router = "Erp_Router", cell = "erp_cell_login", web = "erp_web_login" }
+  }
+  expect_failures = [var.directory_logins]
 }

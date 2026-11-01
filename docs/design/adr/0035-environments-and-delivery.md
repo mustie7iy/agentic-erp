@@ -945,3 +945,122 @@ database's ACL with the server's, dbid 0).
   of the directory's database who is no superuser and owns not the other)
   and `TestSetupDatabaseFailures`. Development and the other packages'
   tests give Setup no other database: their server is shared.
+
+**As built (2026-11-01, product owner 2026-10-28): the directory's logins
+authenticate with RDS IAM database authentication.** In production
+(`ERP_ENV=production`) the router's, the cells' and erp-web's logins have no
+password: each presents, for each new connection, an RDS IAM token its
+workload's IRSA role signs. Development keeps the password logins above,
+unchanged.
+
+- *The token* (`internal/platform/rdsiam`): a Signature Version 4
+  presigned `GET` of the endpoint the connection names (`host:port`) with
+  `Action=connect` and `DBUser=<login>`, for the service `rds-db` in the
+  directory's region, `X-Amz-Expires=900`, the empty payload's SHA-256
+  signed, with the scheme cut off, as the AWS SDK for Go v2 builds it
+  (`feature/rds/auth`, `BuildAuthToken`,
+  https://github.com/aws/aws-sdk-go-v2/blob/main/feature/rds/auth/connect.go;
+  its test expects `host:port?Action=connect…DBUser=…`). The RDS user guide
+  ("IAM database authentication",
+  https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.html):
+  tokens are generated with Signature Version 4, each lives 15 minutes, and
+  "the token is only used for authentication and doesn't affect the
+  session after it is established"; temporary credentials signing a token
+  must still be valid when it is used. The signer is `sigv4` (checked
+  against AWS's test vectors), given the payload hash
+  (`PresignPayload`); `TestMint` recomputes the signature from the
+  Signature Version 4 steps written out by hand, apart from the signer.
+- *Per new connection*: the token is `database.Settings.Password`, which
+  pgx's `BeforeConnect` asks for each new connection, so a pool mints one
+  for each connection it opens and none for those it holds.
+- *Credentials*: the workload's IRSA role alone (`AWS_ROLE_ARN`,
+  `AWS_WEB_IDENTITY_TOKEN_FILE`, exchanged at STS by
+  `awscreds.WebIdentity`, cached until five minutes before they end): no
+  static keys, environment keys or instance metadata, so a pod without its
+  role fails rather than signs as its node. STS is `ERP_AWS_STS_ENDPOINT`,
+  https, by default the region's (`https://sts.<region>.amazonaws.com`);
+  the charts give the VPC endpoint's regional name (`cell.aws_endpoints.sts`).
+- *Settings, failing startup in production when missing or wrong*:
+  `ERP_DIRECTORY_REGION` (router, cell; erp-web's
+  `ERP_WEB_DIRECTORY_REGION`), the IRSA variables, a URL naming one host
+  and its login and no password; `ERP_DIRECTORY_PASSWORD`
+  (`ERP_WEB_DIRECTORY_PASSWORD`) set in production is refused, never used
+  in the token's place. TLS is as before: production's URLs are
+  `sslmode=verify-full` with the RDS bundle as `sslrootcert`
+  (`config.CheckDatabaseTLS`, erp-web's own check), and the directory's
+  parameter group sets `rds.force_ssl=1` and TLS 1.3.
+- *Setup*: `directory.Login.IAM` (production's `erp-router
+  setup-directory`, which refuses `ERP_DIRECTORY_*_PASSWORD` there) gives
+  the login `PASSWORD NULL`, taking away one it had, and grants it
+  `rds_iam` beside its privilege role, as the guide's PostgreSQL example
+  does as the master user ("Creating a database account using IAM
+  authentication",
+  https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.DBAccounts.html:
+  `CREATE USER db_userx; GRANT rds_iam TO db_userx;`). `checkLogin` lets an
+  IAM login be a member of `rds_iam` and refuses any dependency of
+  `rds_iam`'s in the database or the server, since its rights would be
+  every IAM login's; a password login made a member of `rds_iam` is
+  refused, since "if the IAM role (`rds_iam`) is added to a user …, IAM
+  authentication takes precedence over password authentication" (the
+  guide's Limitations). Without `rds_iam` (a plain PostgreSQL server) the
+  `GRANT` fails and the release stops.
+- *Terraform*: the directory has `iam_database_authentication_enabled`;
+  `modules/global` names the logins (`directory_logins`, lower-case: the
+  user name must match the database's case for case, the guide's note) and
+  outputs each one's `rds-db:connect` resource,
+  `arn:aws:rds-db:<region>:<account>:dbuser:<DbiResourceId>/<login>`
+  ("Creating and using an IAM policy for IAM database access",
+  https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.IAMPolicy.html),
+  and `directory_region`. The home cell (`modules/cell`
+  `directory_users`) gives the router and erp-web roles of their own,
+  trusting `erp-global`'s `erp-router` and `erp-web` service accounts
+  alone, each allowed `rds-db:connect` on its own login and nothing else,
+  and the server's role the cells' login. The three password secrets are
+  gone from the global tier's list.
+- *Helm*: `erp-global` annotates the router's and erp-web's service
+  accounts with their roles (`router.roleArn`, `web.roleArn`), gives them
+  `ERP_DIRECTORY_REGION` / `ERP_WEB_DIRECTORY_REGION` (`directory.region`)
+  and `ERP_AWS_STS_ENDPOINT` (`awsEndpoints.sts`), and no password; the
+  setup hook reads the master credentials alone. `erp-cell` drops
+  `directory.passwordSecret` and its ExternalSecret and gives the server
+  `ERP_DIRECTORY_REGION` (`directory.region`). `helm-checks.sh` holds each
+  client to its login over verified TLS, its region, its role and no
+  password setting or secret anywhere.
+- *Decided by default*: production refuses a password setting rather than
+  preferring IAM over it (no silent fallback, CLAUDE.md); the IRSA role is
+  the only credential source for the tokens; erp-web's network policy
+  admits the VPC on 443, for STS's interface endpoint, whose regional name
+  resolves to addresses in the VPC (it admitted nothing in the VPC on 443
+  before); the router's and erp-web's roles are made on the home cell
+  alone and have no counterparts in the pilot light, since the router, erp-web
+  and the directory stay in the home region (ADR-0040); `rds_iam` is
+  granted as the guide shows, with PostgreSQL 17's default options
+  (`INHERIT` and `SET` true); the password secrets are removed from
+  Terraform (their `recovery_window_in_days`, 30). The refusal, the IRSA
+  role as the only source, erp-web's wider egress and `rds_iam`'s options
+  bear on security posture and are listed for the product owner.
+- *Not confirmed on an RDS instance (for the specialist; the tracker's
+  staging leaf)*: that RDS accepts the SDK v2 form of the token (no `/`
+  before `?`, the empty payload's hash) as built; whether `rds_iam` holds
+  any right or dependency on RDS, which would stop every release here;
+  whether `GRANT rds_iam … WITH INHERIT FALSE, SET FALSE` would keep IAM
+  authentication working (the guide says nested and indirect grants work,
+  nothing on the options); that the master user may `ALTER ROLE … PASSWORD
+  NULL` on a login it made; and the guide's 300–1000 MiB of extra memory
+  IAM authentication needs on the instance, against the directory's
+  `db.t4g.medium`.
+- *Tests*: `rdsiam` (`TestMint` against the hand-written signature,
+  `TestForURL`, `TestLoad` through a TLS STS double, each refusal);
+  `TestSetupIAMLogins` (a password login turned IAM, a second run, the
+  refusals) and `TestSetupDatabaseFailures` with an IAM login: the test
+  server, plain PostgreSQL, has no `rds_iam`, so the tests make it as RDS
+  has it (`NOLOGIN`, holding nothing); the router's, the cell's and
+  erp-web's configuration tests; `TestSetupProduction`;
+  `TestProductionOperatorWithoutRoles` runs the router on production's
+  configuration, whose token source it replaces by the test login's
+  password (the test server takes no token); Terraform's module tests;
+  `helm-checks.sh`.
+- *No walkthrough step*: this is infrastructure authentication with no API
+  of its own, and the walkthrough runs in development on plain PostgreSQL,
+  which has no IAM; the evidence is the tests above and, on AWS, the
+  staging leaf.

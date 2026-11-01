@@ -8,6 +8,16 @@ output "directory_master_secret_arn" {
   value       = one(aws_db_instance.directory.master_user_secret[*].secret_arn)
 }
 
+output "directory_users" {
+  description = "The rds-db:connect resource of each client's directory login (router, cell, web): the cell module's directory_users, for its IRSA roles."
+  value       = local.directory_users
+}
+
+output "directory_region" {
+  description = "The directory's region, which its IAM tokens are signed for (ERP_DIRECTORY_REGION: the erp-global chart's directory.region, erp-cell's directory.region)."
+  value       = data.aws_region.current.region
+}
+
 output "router_dns_name" {
   description = "The load balancer's DNS name, the target of the API's public record."
   value       = aws_lb.router.dns_name

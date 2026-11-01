@@ -176,6 +176,9 @@ module "cell" {
   replica_lag_alarm_actions = var.replica_lag_alarm_actions
   # The home cell: the router runs on its cluster (the erp-global chart).
   global_secrets = module.global.external_secrets
+  # Its router, erp-web and server connect to the directory as their own
+  # logins with IAM tokens (ADR-0035 As built 2026-11-01).
+  directory_users = module.global.directory_users
 }
 
 module "global" {
@@ -217,6 +220,7 @@ output "global" {
   value = {
     directory_endpoint          = module.global.directory_endpoint
     directory_master_secret_arn = module.global.directory_master_secret_arn
+    directory_region            = module.global.directory_region
     router_dns_name             = module.global.router_dns_name
     router_target_group_arn     = module.global.router_target_group_arn
     router_proxy_sources        = module.global.router_proxy_sources

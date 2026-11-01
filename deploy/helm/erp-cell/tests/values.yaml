@@ -46,5 +46,6 @@ database:
     -----END CERTIFICATE-----
 directory:
   endpoint: erp-dev-directory.abc.eu-central-1.rds.amazonaws.com:5432
+  region: eu-central-1
 secrets:
   prefix: erp/dev1

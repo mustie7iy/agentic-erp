@@ -24,6 +24,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rdsiam"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 )
@@ -92,10 +93,11 @@ type Config struct {
 	// Secrets resolves references (env:, file:, vault:) for the settings that
 	// carry secrets and for connectors' secret_ref.
 	Secrets secrets.Resolver
-	// DirectoryPassword is ERP_DIRECTORY_PASSWORD (a reference): the
-	// directory login's password, resolved again for each new connection
-	// in place of the URL's, so RDS's rotated master credentials need no
-	// restart; nil: the URL's.
+	// DirectoryPassword is what the directory login presents for each new
+	// connection in place of the URL's password: in production an RDS IAM
+	// token (ERP_DIRECTORY_REGION and the workload's IRSA role, rdsiam),
+	// in development ERP_DIRECTORY_PASSWORD (a reference, resolved again
+	// each time); nil: the URL's.
 	DirectoryPassword func(context.Context) (string, error)
 }
 
@@ -592,12 +594,7 @@ func (l *loader) directory(c *Config) {
 	c.AWS = AWS{Getenv: l.raw, STSEndpoint: get("ERP_AWS_STS_ENDPOINT", "https://sts.amazonaws.com"), IMDSEndpoint: get("ERP_AWS_IMDS_ENDPOINT", "http://169.254.169.254")}
 	c.DirectoryURL, c.CellAPIURL, c.CellRegion, c.CellControlURL = getenv("ERP_DIRECTORY_URL"), getenv("ERP_CELL_API_URL"), getenv("ERP_CELL_REGION"), getenv("ERP_CELL_CONTROL_URL")
 	c.CellAccepting = get("ERP_CELL_ACCEPTING", "true") != "false"
-	if ref := l.raw("ERP_DIRECTORY_PASSWORD"); ref != "" {
-		var err error
-		if c.DirectoryPassword, err = secrets.Rotating(context.Background(), l.resolver, ref); err != nil {
-			l.errs = append(l.errs, fmt.Errorf("ERP_DIRECTORY_PASSWORD: %w", err))
-		}
-	}
+	l.directoryAuth(c)
 	if c.DirectoryURL != "" {
 		// Slices, not maps, so the errors come out in the same order every run.
 		for _, s := range []setting{{"ERP_CELL_API_URL", c.CellAPIURL}, {"ERP_CELL_CONTROL_URL", c.CellControlURL}} {
@@ -614,6 +611,27 @@ func (l *loader) directory(c *Config) {
 		if fi, err := os.Stat(s.value); s.value != "" && (err != nil || !fi.IsDir()) {
 			l.errs = append(l.errs, fmt.Errorf("%s %q must be an existing directory", s.name, s.value))
 		}
+	}
+}
+
+// directoryAuth reads how the cells' login authenticates to the
+// directory: in production with RDS IAM tokens alone (rdsiam.Load,
+// ADR-0035 As built 2026-11-01), a password refused; in development with
+// ERP_DIRECTORY_PASSWORD, a reference read again for each new connection,
+// or the URL's own.
+func (l *loader) directoryAuth(c *Config) {
+	var err error
+	switch ref := l.raw("ERP_DIRECTORY_PASSWORD"); {
+	case c.DirectoryURL != "" && l.getenv("ERP_ENV") == Production:
+		c.DirectoryPassword, err = rdsiam.Load(l.raw, rdsiam.Settings{URLName: "ERP_DIRECTORY_URL", URL: c.DirectoryURL,
+			RegionName: "ERP_DIRECTORY_REGION", PasswordName: "ERP_DIRECTORY_PASSWORD"})
+	case ref != "":
+		if c.DirectoryPassword, err = secrets.Rotating(context.Background(), l.resolver, ref); err != nil {
+			err = fmt.Errorf("ERP_DIRECTORY_PASSWORD: %w", err)
+		}
+	}
+	if err != nil {
+		l.errs = append(l.errs, err)
 	}
 }
 

@@ -2,16 +2,14 @@
 # it: a pre-install and pre-upgrade hook Job running `erp-router
 # setup-directory` with the RDS-managed master credentials, which only
 # this hook holds. It makes the directory's schema, its privilege roles'
-# grants and the router's, the cells' and erp-web's logins, and sets each
-# login's password again from what operators set in Secrets Manager, so a
-# changed one takes effect with the release (as erp-cell's
-# erp-temporal-schema does for the engine's login). The master URL's
+# grants and the router's, the cells' and erp-web's logins, with no
+# password and granted rds_iam: they authenticate with RDS IAM tokens
+# (ADR-0035 As built 2026-11-01). The master URL's
 # ExternalSecret, the RDS bundle and the Job's network policy are hooks of
 # lower weight, there before it. The secret holding the master URL is
 # deleted once the hooks succeed; after a failed setup it stays (refreshed
 # hourly) until the next release replaces it, as erp-cell's migrations'
 # does, for a look at the failed Job.
-{{- $prefix := required "secrets.prefix is required: erp/global" .Values.secrets.prefix }}
 {{- $master := required "directory.masterSecretArn is required: global.directory_master_secret_arn" .Values.directory.masterSecretArn }}
 {{- $directory := required "directory.endpoint is required: global.directory_endpoint" .Values.directory.endpoint }}
 {{- $vpc := required "vpcCidr is required: cell.cidr" .Values.vpcCidr }}
@@ -38,9 +36,6 @@ spec:
       engineVersion: v2
       data:
         admin-url: "postgres://{{ "{{" }} .username | urlquery {{ "}}" }}:{{ "{{" }} .password | urlquery {{ "}}" }}@{{ $directory }}/{{ .Values.directory.name }}?sslmode=verify-full&sslrootcert=/etc/erp/rds/rds-ca.pem"
-        router-password: "{{ "{{" }} .routerPassword {{ "}}" }}"
-        cell-password: "{{ "{{" }} .cellPassword {{ "}}" }}"
-        web-password: "{{ "{{" }} .webPassword {{ "}}" }}"
   data:
     - secretKey: username
       remoteRef:
@@ -50,15 +45,6 @@ spec:
       remoteRef:
         key: {{ $master }}
         property: password
-    - secretKey: routerPassword
-      remoteRef:
-        key: {{ printf "%s/directory-router-password" $prefix }}
-    - secretKey: cellPassword
-      remoteRef:
-        key: {{ printf "%s/directory-cell-password" $prefix }}
-    - secretKey: webPassword
-      remoteRef:
-        key: {{ printf "%s/directory-web-password" $prefix }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -147,11 +133,8 @@ spec:
             - {name: ERP_ENV, value: production}
             - {name: ERP_DIRECTORY_ADMIN_URL, value: file:/etc/erp/setup/admin-url}
             - {name: ERP_DIRECTORY_ROUTER_USER, value: {{ required "directory.logins.router is required: the router's login" $logins.router | quote }}}
-            - {name: ERP_DIRECTORY_ROUTER_PASSWORD, value: file:/etc/erp/setup/router-password}
             - {name: ERP_DIRECTORY_CELL_USER, value: {{ required "directory.logins.cell is required: the cells' login" $logins.cell | quote }}}
-            - {name: ERP_DIRECTORY_CELL_PASSWORD, value: file:/etc/erp/setup/cell-password}
             - {name: ERP_DIRECTORY_WEB_USER, value: {{ required "directory.logins.web is required: erp-web's login" $logins.web | quote }}}
-            - {name: ERP_DIRECTORY_WEB_PASSWORD, value: file:/etc/erp/setup/web-password}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

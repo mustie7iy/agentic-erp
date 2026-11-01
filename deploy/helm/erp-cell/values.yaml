@@ -121,11 +121,12 @@ directory:
   # The cells' login (T72h), which may record the cell, its tenants and
   # their identity providers' claims and nothing else, made by the
   # erp-global chart's setup hook (directory.logins.cell there).
+  # It has no password: the server's IRSA role (server.roleArn) signs an
+  # RDS IAM token for each new connection (ADR-0035 As built 2026-11-01).
   user: erp_cell_login
-  # Its password in Secrets Manager, which operators set (e.g. `openssl
-  # rand -hex 32`) and the server reads again for each new connection
-  # (ERP_DIRECTORY_PASSWORD).
-  passwordSecret: erp/global/directory-cell-password
+  # The directory's region (global.directory_region), which the tokens are
+  # signed for (ERP_DIRECTORY_REGION).
+  region: ""
 
 pgbouncer:
   replicas: 2

@@ -27,6 +27,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/proxyproto"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rdsiam"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 )
@@ -50,9 +51,11 @@ type Config struct {
 	TrustDomain     string            // ERP_TRUST_DOMAIN: the cells the router reaches are spiffe://<domain>/<cell>/erp-server (ADR-0033)
 	ProxyFrom       []netip.Prefix    // ERP_ROUTER_PROXY_FROM, CIDRs: the load balancer's subnets, whose connections begin with a PROXY v2 header naming the client (ADR-0035); empty: none
 
-	// ERP_DIRECTORY_PASSWORD (env: or file:): the directory login's
-	// password, read again for each new connection in place of the URL's,
-	// so RDS's rotated master credentials need no restart; nil: the URL's.
+	// What the directory login presents for each new connection in place
+	// of the URL's password: in production an RDS IAM token
+	// (ERP_DIRECTORY_REGION, ERP_AWS_STS_ENDPOINT and the router's IRSA
+	// role, rdsiam); in development ERP_DIRECTORY_PASSWORD (env: or file:),
+	// read again each time; nil: the URL's.
 	DirectoryPassword func(context.Context) (string, error)
 }
 
@@ -95,17 +98,26 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	return c, errors.Join(errs...)
 }
 
-// loadDirectoryPassword reads ERP_DIRECTORY_PASSWORD, a reference to the
-// replica's environment or a mounted file: resolved now, so a missing one
-// fails startup, and again for every new connection.
+// loadDirectoryPassword reads how the router's login authenticates to the
+// directory: in production with RDS IAM tokens alone (rdsiam.Load,
+// ADR-0035 As built 2026-11-01), ERP_DIRECTORY_PASSWORD refused; in
+// development with ERP_DIRECTORY_PASSWORD, a reference to the replica's
+// environment or a mounted file, resolved now, so a missing one fails
+// startup, and again for every new connection; or the URL's own.
 func (c *Config) loadDirectoryPassword(getenv func(string) string) []error {
-	ref := getenv("ERP_DIRECTORY_PASSWORD")
-	if ref == "" {
-		return nil
-	}
 	var err error
-	if c.DirectoryPassword, err = secrets.Rotating(context.Background(), secrets.Local{Getenv: getenv}, ref); err != nil {
-		return []error{fmt.Errorf("ERP_DIRECTORY_PASSWORD (env: or file:): %w", err)}
+	ref := getenv("ERP_DIRECTORY_PASSWORD")
+	switch {
+	case c.Environment == config.Production:
+		c.DirectoryPassword, err = rdsiam.Load(getenv, rdsiam.Settings{URLName: "ERP_DIRECTORY_URL", URL: c.DirectoryURL,
+			RegionName: "ERP_DIRECTORY_REGION", PasswordName: "ERP_DIRECTORY_PASSWORD"})
+	case ref != "":
+		if c.DirectoryPassword, err = secrets.Rotating(context.Background(), secrets.Local{Getenv: getenv}, ref); err != nil {
+			err = fmt.Errorf("ERP_DIRECTORY_PASSWORD (env: or file:): %w", err)
+		}
+	}
+	if err != nil {
+		return []error{err}
 	}
 	return nil
 }

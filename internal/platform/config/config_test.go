@@ -604,7 +604,12 @@ func TestProductionFailsClosed(t *testing.T) {
 	// link-local (ADR-0033).
 	const engineIdentity = "ERP_TEMPORAL_ADDRESS needs ERP_TLS_CERT and ERP_TLS_KEY"
 	const imdsOnly = "ERP_AWS_IMDS_ENDPOINT must be http://169.254.169.254 or http://[fd00:ec2::254]"
-	directory := map[string]string{"ERP_DIRECTORY_URL": verified, "ERP_CELL_API_URL": "https://eu1.example.com", "ERP_CELL_REGION": "eu-west", "ERP_CELL_CONTROL_URL": "https://eu1-admin.example.com"}
+	// The cells' login authenticates with RDS IAM tokens as the server's
+	// IRSA role, never a password (ADR-0035 As built 2026-11-01).
+	directory := map[string]string{"ERP_DIRECTORY_URL": "postgres://erp_cell_login@dir.example.com/directory?sslmode=verify-full", "ERP_CELL_API_URL": "https://eu1.example.com",
+		"ERP_CELL_REGION": "eu-west", "ERP_CELL_CONTROL_URL": "https://eu1-admin.example.com", "ERP_DIRECTORY_REGION": "eu-central-1",
+		"AWS_ROLE_ARN": "arn:aws:iam::222222222222:role/erp-dev1-server", "AWS_WEB_IDENTITY_TOKEN_FILE": "/var/run/secrets/eks.amazonaws.com/serviceaccount/token"}
+	const iamRegion = "ERP_DIRECTORY_REGION is required with ERP_ENV=production"
 	with := func(base map[string]string, set map[string]string) map[string]string {
 		m := maps.Clone(base)
 		maps.Copy(m, set)
@@ -669,6 +674,10 @@ func TestProductionFailsClosed(t *testing.T) {
 		{"production database without verified TLS", prod(map[string]string{"DATABASE_URL": "postgres://u:p@db.example.com/erp?sslmode=require"}), []string{dbRefused}},
 		{"production database by default", prod(map[string]string{"DATABASE_URL": "postgres://u:p@db.example.com/erp"}), []string{dbRefused}},
 		{"production directory", prod(directory), nil},
+		{"production directory with a password", prod(with(directory, map[string]string{"ERP_DIRECTORY_PASSWORD": "file:/etc/erp/directory/password"})),
+			[]string{"ERP_DIRECTORY_PASSWORD must not be set with ERP_ENV=production"}},
+		{"production directory without its region", prod(with(directory, map[string]string{"ERP_DIRECTORY_REGION": ""})), []string{iamRegion}},
+		{"production directory without the IRSA role", prod(with(directory, map[string]string{"AWS_ROLE_ARN": ""})), []string{"AWS_ROLE_ARN and AWS_WEB_IDENTITY_TOKEN_FILE are required"}},
 		{"production replica", prod(map[string]string{"DATABASE_REPLICA_URL": verified}), nil},
 		{"production replica without verified TLS", prod(map[string]string{"DATABASE_REPLICA_URL": "postgres://u:p@replica.example.com/erp?sslmode=require"}),
 			[]string{"DATABASE_REPLICA_URL: sslmode must be verify-full"}},
