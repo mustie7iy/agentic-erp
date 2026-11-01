@@ -10,10 +10,11 @@ own cluster alone, with no accounts, Dex or ingress of its own: operators
 work through the cell's Kubernetes API with their own access. Each cell's
 bootstrap (ADR-0035, runbook step 6) loads the read-only deploy key from
 `erp/<cell>/argocd-repository`, installs Argo CD once from its pinned chart
-archive (version and SHA-256 in `deploy/helm/erp-delivery/addons.txt`, checked by
-`helm-checks.sh`) and applies the project and root Application; from then
-on Argo CD installs and upgrades the add-ons, itself included, and the
-platform at the cell's `release.json`. Its settings
+archive (version and SHA-256 in `deploy/helm/erp-delivery/addons.txt`,
+checked by `helm-checks.sh`) and applies the project and root
+Application; from then on Argo CD installs and upgrades the add-ons,
+itself included, and the platform at the cell's `release.json`. Its
+settings
 (`deploy/helm/addons/values/argo-cd.yaml`) set a 90-minute sync limit
 (`controller.sync.timeout.seconds: "5400"`) that bounds erp-cell's
 migrations Jobs, a custom health check for Applications that orders the
@@ -95,7 +96,8 @@ it gets no access to a cluster's API and its state holds no secret value,
 and Argo CD's version stays one pin in `addons.txt`, reviewed and
 checksummed like every add-on, with one owner after the bootstrap (Argo CD
 itself). A cannot avoid a runbook step on failover and owns the release
-twice. B would change the security posture (sign-in accounts on Argo CD through Identity Center), cannot keep
+twice. B would change the security posture (sign-in accounts on Argo CD
+through Identity Center), cannot keep
 the migrations' 90-minute sync limit as built, and takes version control
 away from review. "Argo CD in Terraform" in the triage's description of
 T72j is met as T72j built it: Terraform defines what Argo CD needs, and
