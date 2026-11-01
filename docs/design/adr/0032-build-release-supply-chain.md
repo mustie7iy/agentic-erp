@@ -247,7 +247,8 @@ no new mechanism:
 The upstream images are not scanned by grype in the release: their pins are
 reviewed as code changes (ADR-0035), and whether a release should also fail
 on a fixable vulnerability in them is left to the product owner (T72i's
-report).
+report). The product owner decided it should (2026-10-31): see the
+amendment of that date.
 
 ## Amendment (2026-10-29, batch 21 review): the release's own images in tooling's ECR, and erp-temporal
 
@@ -304,3 +305,55 @@ Three findings of T72i's review (tracker, `review:batch21`), as built:
   copy's digest is checked after), `signing-roundtrip.sh`'s `git status`
   (a failure takes the stricter commit check) and the `rev-parse -q
   --verify` tag tests of `changelog.sh` and the release workflow.
+
+## Amendment (2026-10-31, PO, T72i review): the release scans the upstream images it copies
+
+The product owner decided (2026-10-31) that a release fails on a fixable
+high or critical vulnerability in an upstream image it copies, as it does
+for the platform's own. No new mechanism: the same scan, threshold and
+exceptions.
+
+### As built
+
+- **Where.** `scripts/image-scan.sh` scans each pin of
+  `deploy/images/upstream.txt` after the platform's SBOMs and bases:
+  `grype registry:<source>:<tag>@<digest> --platform linux/arm64` with the
+  same `--fail-on high --only-fixed --config .grype.yaml` and the grype
+  `scripts/ci-tools.sh` pins. The release runs `make image-scan` in its
+  first image step, "built and scanned before anything is pushed", so a
+  vulnerable pin fails the release before any image is pushed and before
+  its copy is made, signed, attested or listed in `images.txt`: earlier
+  than "before it is signed", which the decision asked for. Scanning in
+  `mirror-images.sh`, just before each copy, was the alternative; it was
+  not taken because the platform's images would already be pushed under
+  the release's version, which the next attempt from the fixing commit
+  usually computes again (`next-version.sh` counts from the last git tag,
+  which a release writes last), and `modules/ecr`'s immutable tags would
+  then refuse that push.
+- **One reading of the list.** `scripts/lib/upstream.sh`
+  (`upstream_images`, `upstream_platform`) reads the list, refusing a name
+  that is not a repository name, a digest that is not sha256 and a list
+  with no image, for both `image-scan.sh` and `mirror-images.sh`, so the
+  scan covers exactly the pins and the platform the release copies. The
+  release gives neither another list.
+- **Everywhere `make image-scan` runs.** The scan is one script, so CI's
+  image job, `weekly.yml` and `make ci-local` scan the pins too: a pin
+  change (`deploy/images/`, an images path of `scripts/ci-changes.sh`, as
+  is `scripts/lib/upstream.sh` now) is scanned on its own pull request,
+  and a vulnerability published later in a pinned image shows in the
+  weekly run before the next release meets it.
+- **Exceptions** go in `.grype.yaml` as today, each with the
+  vulnerability, the package, a reason and an expiry; an upstream finding
+  is fixed first by moving the pin to a fixed upstream release (a reviewed
+  change to `upstream.txt`), and only accepted when nothing in the cell's
+  use of the image reaches it.
+- **Checked by** `scripts/test-images.sh` with a fake grype: every pin,
+  PgBouncer's and NATS's, scanned once by digest on `linux/arm64` with the
+  threshold and `.grype.yaml`; a fixable high in a pin fails the scan; a
+  finding `.grype.yaml` lists passes; and `release.yml` runs `make
+  image-scan`, without `continue-on-error`, in a step before every step
+  that pushes, copies or signs, giving the mirror no other list.
+  `scripts/test-mirror-images.sh` checks the shared reader's refusals
+  through `mirror-images.sh`. Not checked by the tests: real grype against
+  the real pins, which pulls them; `make image-scan` in `make ci-local` and
+  CI's image job do that.

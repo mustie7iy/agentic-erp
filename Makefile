@@ -19,8 +19,9 @@ build:
 # Docker VM's memory (KO_PLATFORMS=linux/arm64 builds one platform of
 # every image). images-reproducible builds twice with private caches and
 # builders and fails unless the digests match (CI's gate); image-scan runs
-# grype on the SBOMs and the bases; test-image-scripts checks the scripts
-# with fake tools.
+# grype on the SBOMs, the bases and the upstream images the release copies
+# (deploy/images/upstream.txt); test-image-scripts checks the scripts with
+# fake tools.
 images:
 	./scripts/images.sh dist/images
 

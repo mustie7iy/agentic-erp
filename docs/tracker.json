@@ -8397,6 +8397,13 @@
      },
      {
       "s": "D",
+      "t": "grype scans the upstream images the release copies (deploy/images/upstream.txt) before anything is pushed, failing on a fixable high or critical vulnerability as for the platform's images, with .grype.yaml's exceptions: image-scan.sh scans each pin by digest on linux/arm64, the list read once for scan and copy",
+      "r": "scripts/image-scan.sh · scripts/lib/upstream.sh · scripts/mirror-images.sh · scripts/test-images.sh · scripts/ci-changes.sh · .github/workflows/release.yml (make image-scan before every push) · ADR-0032 amendment 2026-10-31",
+      "src": "review:T72i · po:2026-10-31",
+      "c": []
+     },
+     {
+      "s": "D",
       "t": "The release builds erp-temporal (Temporal's server with the platform's authorization, the temporal/ module) with the platform's images, and tooling's ECR has its erp-temporal repository: release.json and erp-cell require images.temporal, which no release built and no repository held",
       "r": "scripts/images.sh · modules/ecr · scripts/ci-changes.sh · scripts/test-images.sh · ADR-0035 (Temporal, T40c4) · ADR-0032 amendment 2026-10-29",
       "src": "review:batch21",

@@ -13,9 +13,12 @@
 #                   build provenance, completed with the release's commit
 #                   and run, so verify-image.sh holds a copy to the commit
 #                   that pinned it (ADR-0032 amendment of 2026-10-28, T72i).
-# The copy keeps the digest: the source must serve exactly the pinned
-# manifest, and a tag already in the registry must name it, since release
-# repositories' tags are immutable. REGISTRY is the release registry's host
+# The list is read as image-scan.sh reads it (scripts/lib/upstream.sh),
+# and the release scans these pins with grype before it pushes anything,
+# so a copy is never of an image the scan refused (ADR-0032 amendment of
+# 2026-10-31). The copy keeps the digest: the source must serve exactly
+# the pinned manifest, and a tag already in the registry must name it,
+# since release repositories' tags are immutable. REGISTRY is the release registry's host
 # (tooling's ECR, the release workflow's ERP_RELEASE_REGISTRY). CRANE and
 # SYFT name the binaries; INSECURE=true allows a plain-HTTP registry (the
 # tests' only). DRY_RUN=true checks LIST and prints each copy it would
@@ -33,22 +36,14 @@ if [ "${INSECURE:-false}" = true ]; then
 fi
 export SYFT_CHECK_FOR_APP_UPDATE=false
 dry="${DRY_RUN:-false}"
+# shellcheck source=scripts/lib/upstream.sh
+. "$(dirname "$0")/lib/upstream.sh"
+list="$(upstream_images "$LIST")"
 [ "$dry" = true ] || mkdir -p "$OUT/sbom"
-copied=0
 while read -r -u 3 name source tag digest; do
-  case "$name" in '' | '#'*) continue ;; esac
-  if ! [[ "$name" =~ ^[a-z][a-z0-9-]{0,40}$ ]]; then
-    echo "mirror-images: $name is not a repository name (lower-case letters, digits, hyphens)" >&2
-    exit 1
-  fi
-  if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-    echo "mirror-images: $name: $digest is not a sha256 digest" >&2
-    exit 1
-  fi
   target="$registry/erp-$name"
   if [ "$dry" = true ]; then
     echo "mirror-images: would copy $source:$tag@$digest to $target:$tag"
-    copied=$((copied + 1))
     continue
   fi
   # The source must still serve the pinned manifest: crane copies what it
@@ -58,16 +53,16 @@ while read -r -u 3 name source tag digest; do
     echo "mirror-images: $source served $served for $digest" >&2
     exit 1
   fi
-  # One linux/arm64 image, not an index: the cells' platform, signed as
-  # one image.
+  # One image of upstream_platform, not an index: the cells' platform,
+  # signed as one image, and the one image-scan.sh scanned.
   kind="$("$CRANE" manifest ${insecure[@]+"${insecure[@]}"} "$source@$digest" | python3 -c 'import json, sys; m = json.load(sys.stdin); print("index" if "manifests" in m else "image")')"
   if [ "$kind" != image ]; then
-    echo "mirror-images: $source@$digest is an index, want one linux/arm64 image" >&2
+    echo "mirror-images: $source@$digest is an index, want one $upstream_platform image" >&2
     exit 1
   fi
   platform="$("$CRANE" config ${insecure[@]+"${insecure[@]}"} "$source@$digest" | python3 -c 'import json, sys; c = json.load(sys.stdin); print("%s/%s" % (c.get("os"), c.get("architecture")))')"
-  if [ "$platform" != linux/arm64 ]; then
-    echo "mirror-images: $source@$digest is $platform, want one linux/arm64 image" >&2
+  if [ "$platform" != "$upstream_platform" ]; then
+    echo "mirror-images: $source@$digest is $platform, want one $upstream_platform image" >&2
     exit 1
   fi
   if existing="$("$CRANE" digest ${insecure[@]+"${insecure[@]}"} "$target:$tag" 2>/dev/null)"; then
@@ -108,9 +103,4 @@ json.dump({
 PY
   echo "$ref" >>"$OUT/images.txt"
   echo "mirror-images: $ref"
-  copied=$((copied + 1))
-done 3<"$LIST"
-if [ "$copied" -eq 0 ]; then
-  echo "mirror-images: $LIST lists no image" >&2
-  exit 1
-fi
+done 3<<<"$list"
