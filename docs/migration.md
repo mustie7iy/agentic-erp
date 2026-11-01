@@ -111,8 +111,12 @@ being cleared twice. A clearing whose counter-item is
 another fiscal year's (a prior-year invoice paid this year) is not in the
 extract, which holds the scope's fiscal year only and not SAP's clearing
 date (AUGDT): its clearing does not net to zero and fails the run, as the
-cleared items of such a year do in `balances` mode. How such items migrate
-waits for a decision (tracker).
+cleared items of such a year do in `balances` mode. Decided (product owner,
+2026-10-31) and not built yet: such an item is loaded open at its fiscal
+year's end, as SAP's key-date reading by the clearing date does, and the
+later year's run clears it; this needs SAP's clearing date and the clearing
+document's fiscal year (AUGDT, AUGGJ, for an SAP specialist to confirm) in
+the extract (ADR-0034 As built, tracker).
 
 In either mode every migrated line posts in company code currency (ACDOCA HSL),
 so the quality gate refuses an open item whose document currency (ACDOCA RWCUR,
@@ -120,7 +124,8 @@ SAP's transaction currency; its amount, WSL, is carried and not yet read) is
 not the company's: an open vendor item, an open down payment or a line of an
 open GR/IR position, named by its document and line. Loaded in local currency
 only, it could not be cleared in its own currency (`ledger.mixed_items`).
-Foreign-currency open items are not migrated yet. An open item without a
+Foreign-currency open items are not migrated yet; loading them in their
+document currency is decided (product owner, 2026-10-31) and tracked. An open item without a
 document currency is refused too, rather than assumed to be in the company's
 (an OData extract does not carry RWCUR yet). Lines SAP reports as cleared
 (AUGBL), lines of no amount and lines on other accounts are not checked
