@@ -45912,18 +45912,28 @@ func (s *Server) handlePostGoodsReceiptRequest(args [0]string, argsEscaped bool,
 // entity's currency at the average rate of its posting date, exceed the company's
 // `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a
 // closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks
-// someone else's approval (T35). A line on the legal entity's GR/IR account (account determination
-// `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. It posts to
-// every ledger its company keeps as linked entries of one posting group sharing the document number
-// (`posting_group_id`), each period checked open in its ledger, and returns the leading ledger's;
-// `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to those ledgers
-// only (ADR-0045). Output tax (ADR-0049 §7, T61f): a billing system posts its sales here, one entry
-// per sales invoice or a summary per code and jurisdiction, idempotent by its `Idempotency-Key`; each
-// output code's tax lines (in a jurisdiction, where the code levies its lines' subdivision) are the
-// tax its base lines give at the rates of the tax date, within one minor unit per component, or 422
-// `ledger.output_tax_mismatch`; a code with tax lines and no base line is an adjustment of tax alone.
-// Zero-rated and exempt bases carry their codes without tax lines and are recorded as tax items at
-// rate 0. Human-only: agents propose entries by parking them.
+// someone else's approval (T35). A service principal (an integration such as the pilot's billing
+// system) is held to its company's `service_posting_limit` instead, measured the same way (the
+// `manual_entry_approval_limit` for a company without one; 0 when it has neither), and an entry of its
+// above that limit is not refused but parked for a person (ADR-0049 §7, product owner 2026-10-22,
+// T61n): the answer is 200 with the parked entry (`status` `parked`, `created_by_kind` `service`,
+// `limit_exceeded` naming the limit and the debits, each with its currency), its `Location` the parked
+// entry, and nothing is posted and no number drawn; a person posts it with `postParkedJournalEntry`,
+// taking it on, and that is measured against the `manual_entry_approval_limit` as any manual entry is.
+// At or below the limit the entry posts (201) as a person's does. A closed period refuses a service's
+// entry before it is measured, as a person's. A line on the legal entity's GR/IR account (account
+// determination `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it.
+// It posts to every ledger its company keeps as linked entries of one posting group sharing the
+// document number (`posting_group_id`), each period checked open in its ledger, and returns the
+// leading ledger's; `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to
+// those ledgers only (ADR-0045). Output tax (ADR-0049 §7, T61f): a billing system posts its sales
+// here, one entry per sales invoice or a summary per code and jurisdiction, idempotent by its
+// `Idempotency-Key`; each output code's tax lines (in a jurisdiction, where the code levies its lines'
+// subdivision) are the tax its base lines give at the rates of the tax date, within one minor unit per
+// component, or 422 `ledger.output_tax_mismatch`; a code with tax lines and no base line is an
+// adjustment of tax alone. Zero-rated and exempt bases carry their codes without tax lines and are
+// recorded as tax items at rate 0. People and service principals post here; an agent is refused with
+// 403 `identity.agent_not_allowed` and proposes entries by parking them.
 //
 // POST /v1/journal-entries
 func (s *Server) handlePostJournalEntryRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

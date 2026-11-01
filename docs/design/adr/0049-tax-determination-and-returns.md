@@ -612,6 +612,46 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   T61n:** service principals get a posting limit of their own per
   company, and an entry above it is parked for a person's approval
   rather than refused.
+- **As built (T61n, migrations 000174-000175):** `companies[].service_posting_limit`,
+  an amount in the company's currency validated with its digits,
+  optional and posting-related (tier 3) like `manual_entry_approval_limit`
+  and `release_dual_limit`. `POST /v1/journal-entries` is open to service
+  principals: `x-agent: false` came off it, since it refuses every kind
+  but people, and the handler refuses agents with 403
+  `identity.agent_not_allowed`, as `importBankStatements` does
+  (ADR-0047); the statement above that integrations were held to the
+  manual limit "today" was not so, they were refused outright, and P2 (a)
+  needs them to post. A service principal's entry is measured as a
+  person's is against the manual limit (T35f): its debits, converted
+  exactly into its company's currency at the average rate of its posting
+  date (the rate it posts at), unrounded, so an entry in USD of a CAD
+  company is compared in CAD and 1000.004 does not pass 1000.00 (F13); a
+  closed period refuses it first (409 `ledger.period_not_open`), as
+  nothing a person could not post is parked. At or below the limit it
+  posts (201) as before. Above it nothing is posted and no number drawn:
+  the entry is parked (200 with the parked entry, `Location` naming it),
+  `created_by_kind` `service`, no owner, and `limit_exceeded` (`kind`
+  `service_posting_limit`, `debits` and `limit` each with its currency,
+  and `detail` in words, naming the conversion for a foreign-currency
+  entry); the figures are stored as measured
+  (`parked_entry.limit_*`, never rewritten, trigger
+  `parked_entry_keep_limit`) and are in the park's audit record; the park
+  publishes `ParkedJournalEntryChanged` as any park does. A person finds
+  them with `GET /v1/parked-journal-entries?created_by_kind=service&status=parked`
+  and posts one with `:post`, taking it on as an agent's proposal
+  (T35d), which measures it against the manual entry approval limit and
+  asks the controller's approval above it; `:post` stays people's, so
+  the service cannot post what it parked. **Decided by default:** a
+  company without a `service_posting_limit` holds its services to its
+  `manual_entry_approval_limit`, as integrations would have been held
+  before, parking above it instead of refusing; a company the
+  configuration lacks has a limit of 0 (every entry parked), as a
+  missing manual limit does. People are unaffected. A retry with the same
+  `Idempotency-Key` answers the parked entry again. **Rolling upgrade
+  (06 §6.4):** 000174 adds nullable columns and NOT VALID checks, 000175
+  validates them; an instance of the previous release refuses a service
+  principal's entry outright (403, `x-agent: false`) and never writes the
+  columns, so the key fails closed in a mixed cell and needs no ordering.
 
 ### 8. Calculation and rounding
 - Base × rate is exact (`big.Rat`, as `money.Convert`), rounded **once per

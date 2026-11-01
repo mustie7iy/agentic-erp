@@ -1777,9 +1777,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Service principals' posting limit: a per-company limit for entries a service principal (an integration such as the pilot's billing system) posts, separate from the manual entry approval limit for people; an entry above it is parked for a person's approval instead of refused with 409 ledger.approval_required (product owner 2026-10-22; finance lane)",
-        "r": "T61n · ADR-0049 §7 · after T61f",
+        "r": "companies[].service_posting_limit · ledger.overServiceLimit · parked_entry.limit_* · db/migrations/000174-000175 · POST /v1/journal-entries 200 parked · ADR-0049 §7 · T61n",
         "src": "baseline",
         "c": []
        }

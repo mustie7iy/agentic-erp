@@ -28,6 +28,10 @@ func parkedToAPI(pe ParkedEntry) gen.ParkedJournalEntry {
 	if pe.JournalFiscalYear != nil {
 		out.JournalFiscalYear.SetTo(int32(*pe.JournalFiscalYear))
 	}
+	if l := pe.Limit; l != nil {
+		out.LimitExceeded.SetTo(gen.ParkedEntryLimit{Kind: l.Kind, Debits: apitypes.Money(l.Debits, l.DebitsCurrency, l.DebitsExp),
+			Limit: apitypes.Money(l.Limit, l.LimitCurrency, l.LimitExp), Detail: l.Detail()})
+	}
 	for i, l := range pe.Lines {
 		line := gen.ParkedJournalLine{LineNo: l.LineNo, AccountID: l.AccountID, Amount: apitypes.Money(l.TC, pe.Currency, pe.Exp),
 			PartnerID: apitypes.OptUUID(l.PartnerID), TaxCode: apitypes.OptString(l.TaxCode), LineText: apitypes.OptString(l.Text),
@@ -51,8 +55,14 @@ func (e *Endpoints) ParkJournalEntry(ctx context.Context, req *gen.JournalEntryC
 	if err != nil {
 		return nil, err
 	}
+	return parkedHeaders(pe), nil
+}
+
+// parkedHeaders is the answer that parked an entry: the entry, its ETag
+// and where to read it.
+func parkedHeaders(pe ParkedEntry) *gen.ParkedJournalEntryHeaders {
 	return &gen.ParkedJournalEntryHeaders{ETag: gen.NewOptString(etag.Format(pe.Version)),
-		Location: gen.NewOptString("/v1/parked-journal-entries/" + pe.ID.String()), Response: parkedToAPI(pe)}, nil
+		Location: gen.NewOptString("/v1/parked-journal-entries/" + pe.ID.String()), Response: parkedToAPI(pe)}
 }
 
 // GetParkedJournalEntry implements GET /v1/parked-journal-entries/{id}.

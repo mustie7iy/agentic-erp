@@ -1003,12 +1003,6 @@ func (e *Endpoints) postJournalEntry(ctx context.Context, in NewEntry) (Entry, e
 	return e.postEntry(ctx, in, nil)
 }
 
-// postDirect validates and posts a manual entry a person posts at once
-// through the API, within its company's approval limit (T35f).
-func (e *Endpoints) postDirect(ctx context.Context, in NewEntry) (Entry, error) {
-	return e.postEntry(ctx, in, e.withinLimit)
-}
-
 // postEntry validates and posts an entry; check, when set, may refuse it
 // once it is converted, before anything is written.
 func (e *Endpoints) postEntry(ctx context.Context, in NewEntry, check func(context.Context, pgx.Tx, prepared, NewEntry) error) (Entry, error) {

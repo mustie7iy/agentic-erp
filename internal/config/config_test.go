@@ -144,6 +144,9 @@ func TestValidationRules(t *testing.T) {
 		{"release dual limit", func(c *Config) { c.Companies[0].ReleaseDualLimit = "lots" }, "companies[1000].release_dual_limit"},
 		{"release dual limit negative", func(c *Config) { c.Companies[0].ReleaseDualLimit = "-1.00" }, "companies[1000].release_dual_limit"},
 		{"release dual limit digits", func(c *Config) { c.Companies[0].ReleaseDualLimit = "1000.001" }, "companies[1000].release_dual_limit"},
+		{"service posting limit", func(c *Config) { c.Companies[0].ServicePostingLimit = "lots" }, "companies[1000].service_posting_limit"},
+		{"service posting limit negative", func(c *Config) { c.Companies[0].ServicePostingLimit = "-1.00" }, "companies[1000].service_posting_limit"},
+		{"service posting limit digits", func(c *Config) { c.Companies[0].ServicePostingLimit = "1000.001" }, "companies[1000].service_posting_limit"},
 		{"over delivery", func(c *Config) { c.Companies[0].OverDeliveryPercent = 101 }, "companies[1000].gr_over_delivery_percent"},
 		{"iban", func(c *Config) { c.Companies[0].HouseBank.IBAN = "GB33BUKB20201555555556" }, "companies[1000].house_bank.iban"},
 		{"bic", func(c *Config) { c.Companies[0].HouseBank.BIC = "BUK" }, "companies[1000].house_bank.bic"},
@@ -287,6 +290,35 @@ func TestReleaseDualLimit(t *testing.T) {
 			c.Companies[0].ReleaseDualLimit = limit
 			if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
 				t.Errorf("Validate: got %v, want no errors", fs)
+			}
+		})
+	}
+}
+
+// TestServicePostingLimit: a company's service_posting_limit is optional
+// and, when given, an amount in the company's currency; without it service
+// principals are held to the manual entry approval limit, as before T61n,
+// and with neither to 0 (ADR-0049 §7).
+func TestServicePostingLimit(t *testing.T) {
+	for name, limit := range map[string]string{"none": "", "an amount": "50000.00", "zero": "0.00"} {
+		t.Run(name, func(t *testing.T) {
+			c := fixture(t)
+			c.Companies[0].ServicePostingLimit = limit
+			if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
+				t.Errorf("Validate: got %v, want no errors", fs)
+			}
+		})
+	}
+	for name, c := range map[string]struct{ service, manual, want string }{
+		"its own":        {"500.00", "10000.00", "500.00"},
+		"its own zero":   {"0.00", "10000.00", "0.00"},
+		"the manual one": {"", " 10000.00 ", "10000.00"},
+		"neither":        {"", "", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			co := Company{ServicePostingLimit: c.service, ManualEntryApprovalLimit: c.manual}
+			if got := co.ServiceLimit(); got != c.want {
+				t.Errorf("ServiceLimit: got %q, want %q", got, c.want)
 			}
 		})
 	}
@@ -528,6 +560,7 @@ func TestDiffTiers(t *testing.T) {
 		{"auto limit", func(c *Config) { c.Companies[0].AutoPostLimit = "75000.00" }, "companies[1000].auto_post_limit", TierPostingRelated},
 		{"manual entry limit", func(c *Config) { c.Companies[0].ManualEntryApprovalLimit = "25000.00" }, "companies[1000].manual_entry_approval_limit", TierPostingRelated},
 		{"release dual limit", func(c *Config) { c.Companies[0].ReleaseDualLimit = "50000.00" }, "companies[1000].release_dual_limit", TierPostingRelated},
+		{"service posting limit", func(c *Config) { c.Companies[0].ServicePostingLimit = "5000.00" }, "companies[1000].service_posting_limit", TierPostingRelated},
 		{"release role", func(c *Config) { c.Payments.ReleaseRole = "controller" }, "payments.release_role", TierPostingRelated},
 		{"currency", func(c *Config) { c.Companies[0].Currency = "CAD" }, "companies[1000].currency", TierStructural},
 		{"new account", func(c *Config) {
