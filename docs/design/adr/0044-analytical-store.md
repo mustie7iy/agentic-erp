@@ -658,7 +658,8 @@ runtime base, until 2026-11-20, on the grounds that nothing in the image
 loads it. Distroless had not published a Debian 12 digest carrying the
 fix: on 2026-11-01 the coordinator found that `cc-debian12:nonroot` still
 resolved to `sha256:9dac0a79…`, the digest pinned. An exception that
-lapses fails the release's scan, and nothing ships.
+lapses must be removed, and without it the release's scan fails and
+nothing ships.
 
 **Decision.** The runtime base is `gcr.io/distroless/cc-debian13:nonroot`,
 pinned by its index digest `sha256:08476c244888bfb425bae1ae4dd7c17f093e972aab8426883d97f3c6f280f7c1`
@@ -692,4 +693,3 @@ any other. The real build (both platforms, the double build) and the
 real scan of the image and its base on both platforms are `make
 ci-local`'s images and image-scan gates; this step ran the script tests
 with fake tools.
-
