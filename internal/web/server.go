@@ -179,6 +179,8 @@ func (s *Server) mux() *http.ServeMux {
 	route("GET "+ui.InvoicesPath+"/{id}", s.signedIn(s.invoice))
 	route("GET "+ui.InvoicesPath+"/{id}/order", s.signedIn(s.order))
 	route("GET "+ui.InvoicesPath+"/{id}/document", s.signedIn(s.document))
+	route("GET "+ui.InvoicesPath+"/{id}/edit", s.signedIn(s.editInvoice))
+	route("POST "+ui.InvoicesPath+"/{id}/edit", s.signedIn(s.csrf(s.saveInvoice)))
 	for verb := range actionOps {
 		route("POST "+ui.InvoicesPath+"/{id}/"+verb, s.signedIn(s.csrf(s.act(verb))))
 	}

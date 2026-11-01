@@ -889,6 +889,12 @@ func RefusalNotice(r Refusal) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
+		if r.Tax != nil {
+			templ_7745c5c3_Err = TaxFiguresView(refusalID(r), *r.Tax).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, "<dl class=\"facts\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err

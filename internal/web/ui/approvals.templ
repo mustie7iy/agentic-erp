@@ -222,6 +222,9 @@ templ RefusalNotice(r Refusal) {
 		if len(r.Barred) > 0 {
 			@Barred(i18n.RefusalBarred, r.Barred)
 		}
+		if r.Tax != nil {
+			@TaxFiguresView(refusalID(r), *r.Tax)
+		}
 		<dl class="facts">
 			@Fact(i18n.RefusalCode, Code(r.Code))
 			if r.Trace != "" {

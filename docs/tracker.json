@@ -5546,11 +5546,19 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Invoices beyond the queue: capture by upload through the API's signed path (createUpload, the bytes relayed by erp-web, captureSupplierInvoice's 202 polled to the new invoice), editing a parked invoice (updateSupplierInvoice), clearing down payments; tax per code on the invoice's page once the API gives it (the representation has none: only a refused post's detail names each code's tax); a refusal's figures as structured fields of the problem (coordinator D3, contract change: payables.tax_mismatch's tax per code, payables.match_outdated's changes); walked through by a pilot AP clerk",
-        "r": "T73e2 (split from T73e, 2026-10-22)",
+        "s": "D",
+        "t": "Invoices beyond the queue, first slice: editing a parked invoice (updateSupplierInvoice as a merge patch of what changed, the lines sent whole with their order items, units and accounts kept, amounts and quantities read in the person's locale, If-Match and a fresh idempotency key, a stale form refused with what was typed kept, a line's refused field on its line); a refused tax's figures as fields of the problem (coordinator D3, contract change: Problem.calculated_tax on payables.tax_mismatch, the tax stated, calculated and per code) shown in every refusal's notice in the person's words; EN and FR; axe at zero at 1280 and 390 px",
+        "r": "api/openapi.yaml Problem.calculated_tax · CalculatedTax · CodeTax · internal/platform/problem CalculatedTax · internal/payables tax.go mismatch · internal/web invoice_edit.go · invoice.go readInvoice · refusal.go taxFigures · ui/invoices.templ InvoiceEdit · TaxFiguresView · i18n Locale.Quantity · en, fr-CA · TestTaxCodeChangedBeforePosting · TestChangeInvoice · TestChangeInvoiceInFrench · TestChangeInvoiceRefusals · TestTaxCorrected · TestChangeInvoiceUnavailable · TestQuantity · TestInvoiceChangeInTheBrowser · walkthrough step_downpayment · 04 §4.6 · ADR-0052 Built in T73e2 · T73e2",
         "src": "split:T73e",
         "pilot": "po:2026-10-31 · split:T73e · adr:ADR-0052",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Invoices beyond T73e2: capture by upload (createUpload, the bytes relayed by erp-web, captureSupplierInvoice's 202 polled to the new invoice), waiting for the product owner on how erp-web reaches the store when the API answers a presigned S3 URL rather than its own signed path (ADR-0052 §7) and how large an upload erp-web accepts and holds; clearing down payments (clearSupplierInvoiceDownPayments); a line added or left out in a parked invoice's change, and its account, centers and order item changed; tax per code on the invoice's page outside a refusal (the representation has none: a contract change); payables.match_outdated's changes as fields of the problem (coordinator D3's other half); walked through by a pilot AP clerk",
+        "r": "T73e3 (split from T73e2, 2026-11-01)",
+        "src": "split:T73e2",
+        "pilot": "po:2026-10-31 · split:T73e2 · adr:ADR-0052",
         "c": []
        },
        {

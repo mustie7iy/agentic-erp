@@ -662,6 +662,11 @@ templ ActionsSection(ip InvoicePage) {
 	if ip.Pending {
 		@Paragraph(i18n.ActionsPending)
 	}
+	if ip.Edit != "" {
+		<p>
+			@ButtonLink(ip.Edit, i18n.InvoiceEdit)
+		</p>
+	}
 	if len(ip.Actions) == 0 {
 		@Paragraph(ip.Why)
 	} else {
@@ -709,4 +714,163 @@ templ refusalPageContent(heading i18n.Key, back string, backText i18n.Key, r Ref
 		@T(heading)
 	</h1>
 	@RefusalNotice(r)
+}
+
+// TaxFiguresView are a refused tax's figures (payables.tax_mismatch,
+// ADR-0052 decision D3): the tax the invoice states, the tax its codes'
+// rates give, and each code's, in a region that scrolls sideways on its
+// own on a phone.
+templ TaxFiguresView(id string, f TaxFigures) {
+	<dl class="facts">
+		@Fact(i18n.RefusalTaxStated, Amount(f.Stated))
+		@Fact(i18n.RefusalTaxCalculated, Amount(f.Calculated))
+	</dl>
+	<div class="table-wrap" role="region" tabindex="0" { labelledBy(id + "-tax-caption")... }>
+		<table class="table">
+			<caption { idAttr(id + "-tax-caption")... }>
+				@T(i18n.RefusalTaxCodes)
+			</caption>
+			<thead>
+				<tr>
+					@HeaderCell(i18n.LineTaxCode)
+					@HeaderCell(i18n.RefusalTaxCodeTax)
+				</tr>
+			</thead>
+			<tbody>
+				for _, c := range f.Codes {
+					<tr>
+						<td>
+							@Code(c.Code)
+						</td>
+						<td>
+							@Amount(c.Tax)
+						</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+// InvoiceEdit is a parked invoice's change (T73e2): its header and lines
+// as the document should read, sent as a merge patch of what changed.
+templ InvoiceEdit(s Shell, f InvoiceForm) {
+	@Layout(s, invoiceEditContent(f))
+}
+
+templ invoiceEditContent(f InvoiceForm) {
+	<p>
+		<a { link(f.Back, "")... }>
+			@T(i18n.OrderBack)
+		</a>
+	</p>
+	<p class="caption" translate="no">
+		@Value(f.Number)
+	</p>
+	<h1>
+		@T(i18n.InvoiceEditTitle)
+	</h1>
+	@Paragraph(i18n.InvoiceEditLead)
+	if f.Refusal != nil {
+		@RefusalNotice(*f.Refusal)
+	}
+	<form class="entry" { post(f.Action)... }>
+		@decideHidden(f.CSRF, f.ETag, f.Key)
+		// Not the entry form's grey header: an error's red on its grey is
+		// below WCAG's contrast (4.3:1).
+		<fieldset class="fieldset">
+			<legend class="field__label">
+				@T(i18n.InvoiceEditHeader)
+			</legend>
+			<div class="filters__fields">
+				@InputField("invoice-reference", FieldSupplierReference, "text", i18n.InvoiceReference, i18n.InvoiceEditReferenceHint, f.Reference,
+					f.Errors[FieldSupplierReference])
+				@InputField("invoice-date", FieldInvoiceDate, "date", i18n.InvoiceDate, i18n.FilterDateHint, f.InvoiceDate, f.Errors[FieldInvoiceDate])
+				@InputField("invoice-posting", FieldPostingDate, "date", i18n.InvoicePosting, i18n.InvoiceEditPostingHint, f.PostingDate,
+					f.Errors[FieldPostingDate])
+				@InputField("invoice-taxdate", FieldTaxDate, "date", i18n.InvoiceTaxDate, i18n.InvoiceEditTaxDateHint, f.TaxDate, f.Errors[FieldTaxDate])
+				@AmountField("invoice-gross", FieldGross, i18n.InvoiceGross, f.Currency, f.Gross, f.Errors[FieldGross])
+				@AmountField("invoice-tax", FieldTax, i18n.InvoiceTax, f.Currency, f.Tax, f.Errors[FieldTax])
+			</div>
+		</fieldset>
+		<h2>
+			@T(i18n.InvoiceEditItems)
+		</h2>
+		<p class="hint">
+			@T(i18n.InvoiceEditItemsHint)
+		</p>
+		if f.LinesError != "" {
+			<p class="field__error">
+				@T(f.LinesError)
+			</p>
+		}
+		for _, it := range f.Items {
+			@ItemInputView(it)
+		}
+		<div class="filters__buttons">
+			<button class="button" type="submit">
+				@T(i18n.InvoiceEditSave)
+			</button>
+		</div>
+	</form>
+}
+
+// AmountField is an amount's input in the invoice's currency.
+templ AmountField(id, name string, labelKey i18n.Key, currency, value string, err i18n.Key) {
+	<div { fieldClass(err)... }>
+		<label class="field__label" { forAttr(id)... }>
+			@T(labelKey)
+		</label>
+		<p class="field__hint" { idAttr(id + "-hint")... }>
+			@T(i18n.InvoiceEditAmountHint, currency)
+		</p>
+		if err != "" {
+			<p class="field__error" { idAttr(id + "-error")... }>
+				@T(err)
+			</p>
+		}
+		<input { amountAttrs(id, name, value, err)... }/>
+	</div>
+}
+
+// ItemInputView is one line of an invoice's change: its order item and
+// unit, its fields, each with its hint and error, and what the API
+// refused of it.
+templ ItemInputView(it ItemInput) {
+	<fieldset class="entry-line">
+		<legend class="entry-line__legend">
+			@T(i18n.InvoiceEditItem, it.No)
+		</legend>
+		<dl class="facts">
+			if it.OrderItem != 0 {
+				@Fact(i18n.LineOrderItem, Number(it.OrderItem))
+			}
+			@Fact(i18n.InvoiceEditUnit, Code(it.Unit))
+		</dl>
+		<div class="entry-line__fields">
+			for _, fd := range itemFields {
+				<div { fieldClass(it.Errors[fd.Name])... }>
+					<label class="field__label" { forAttr(itemID(it.No, fd.Name))... }>
+						@T(fd.Label)
+					</label>
+					<p class="field__hint" { idAttr(itemID(it.No, fd.Name) + "-hint")... }>
+						@T(fd.Hint)
+					</p>
+					if it.Errors[fd.Name] != "" {
+						<p class="field__error" { idAttr(itemID(it.No, fd.Name) + "-error")... }>
+							@T(it.Errors[fd.Name])
+						</p>
+					}
+					<input { itemInput(it, fd.Name)... }/>
+				</div>
+			}
+		</div>
+		if len(it.Refused) > 0 {
+			<ul class="list field__error">
+				for _, rf := range it.Refused {
+					@RefusedItem(rf)
+				}
+			</ul>
+		}
+	</fieldset>
 }
