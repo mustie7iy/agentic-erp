@@ -83,14 +83,15 @@ func TestChangeInvoice(t *testing.T) {
 	holds(t, "unchanged", b.get(same.location()).page(t).mainText(), "Nothing was changed")
 
 	changed := b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"supplier_reference": {" W-1A "},
-		"posting_date": {"2026-03-15"}, "tax_date": {"2026-03-09"}, "item_description": {"Fees, March"}, "item_tax_code": {"v1"}}))
+		"invoice_date": {"2026-03-11"}, "posting_date": {"2026-03-15"}, "tax_date": {"2026-03-09"}, "item_description": {"Fees, March"},
+		"item_tax_code": {"v1"}}))
 	if changed.status != http.StatusSeeOther || changed.location() != invoicePath(d.account)+"?done=changed" {
 		t.Fatalf("changed: got %d to %q %s", changed.status, changed.location(), changed.body)
 	}
 	if got, want := invoiceRow(t, d.account), "W-1A 2 2026-03-15 2026-03-09 Fees, March V1"; got != want {
 		t.Errorf("changed: got %q, want %q", got, want)
 	}
-	holds(t, "changed", b.get(changed.location()).page(t).mainText(), "The invoice is changed.", "Supplier's reference W-1A")
+	holds(t, "changed", b.get(changed.location()).page(t).mainText(), "The invoice is changed.", "Supplier's reference W-1A", "Invoice date 2026-03-11")
 
 	cleared := b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"posting_date": {""}, "tax_date": {""},
 		"item_description": {""}, "item_tax_code": {""}}))
@@ -191,6 +192,20 @@ func TestChangeInvoiceRefusals(t *testing.T) {
 	if got, want := invoiceRow(t, d.account), "W-1-OLD 3 - - Fees B V1"; got != want {
 		t.Errorf("sent again: got %q, want %q", got, want)
 	}
+
+	// A form opened before another change and refused by the checks keeps
+	// its version: sent again corrected, the API says the invoice changed.
+	stale2 := editForm(t, b, d.account, url.Values{"tax_amount": {"18.00"}, "gross_amount": {"118.00"}, "posting_date": {"x"}})
+	status(t, "another change", b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"item_description": {"Fees C"}})),
+		http.StatusSeeOther)
+	checked := b.do(http.MethodPost, editPath(d.account), stale2)
+	status(t, "stale and wrong", checked, http.StatusUnprocessableEntity)
+	fixed := formValues(checked.page(t).form(editPath(d.account)))
+	if got := fixed.Get("if_match") + " " + fixed.Get("item_description") + " " + fixed.Get("tax_amount"); got != `"3" Fees B 18.00` {
+		t.Errorf("stale and wrong: got %q, want the form as sent, at its version", got)
+	}
+	fixed.Set("posting_date", "")
+	status(t, "stale and corrected", b.do(http.MethodPost, editPath(d.account), fixed), http.StatusPreconditionFailed)
 
 	unknown := b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"item_tax_code": {"ZZ"}}))
 	status(t, "an unknown code", unknown, http.StatusUnprocessableEntity)

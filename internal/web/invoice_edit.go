@@ -138,6 +138,19 @@ func rebase(typed, opened, now invoiceTyped) (invoiceTyped, bool) {
 	return out, true
 }
 
+// asTyped is a form refused before any call as the person sent it: what
+// they typed, with the checks' errors, at the version and with the values
+// it was opened with. It does not take the invoice's version now, which
+// would skip the 412 that tells the person of a change by someone else
+// meanwhile.
+func asTyped(typed, opened invoiceTyped, ifMatch string, checked invoiceTyped) invoiceTyped {
+	typed.ifMatch, typed.opened, typed.errs = ifMatch, &opened, checked.errs
+	for i := range typed.items {
+		typed.items[i].errs = checked.items[i].errs // rebase: as many lines
+	}
+	return typed
+}
+
 // invoiceChange checks the form in the person's locale, before the API is
 // called so what was typed stays on the page, against the invoice as it
 // is now, and makes the merge patch of what changed: nil when nothing
@@ -355,7 +368,8 @@ func (s *Server) saveInvoice(w http.ResponseWriter, r *http.Request, p *person) 
 	}
 	loc, _ := i18n.From(r.Context()) // every request has its locale (localized)
 	now := invoiceTypedOf(inv, tag, loc)
-	t, same := rebase(readInvoiceForm(r.PostForm, ""), readInvoiceForm(r.PostForm, ui.FieldWas), now)
+	typed, opened := readInvoiceForm(r.PostForm, ""), readInvoiceForm(r.PostForm, ui.FieldWas)
+	t, same := rebase(typed, opened, now)
 	if !same {
 		now.linesErr = i18n.InvoiceEditLinesChanged
 		s.showInvoiceForm(w, r, p, m, inv, http.StatusConflict, now)
@@ -364,7 +378,7 @@ func (s *Server) saveInvoice(w http.ResponseWriter, r *http.Request, p *person) 
 	body, valid := invoiceChange(loc, &t, inv)
 	switch {
 	case !valid:
-		s.showInvoiceForm(w, r, p, m, inv, http.StatusUnprocessableEntity, t)
+		s.showInvoiceForm(w, r, p, m, inv, http.StatusUnprocessableEntity, asTyped(typed, opened, ifMatch, t))
 		return
 	case body == nil:
 		http.Redirect(w, r, invoicePath(id)+"?done=unchanged", http.StatusSeeOther)

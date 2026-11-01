@@ -2448,7 +2448,9 @@ where it departs from the step as first written:
   invoice at its version now with the person's own changes on it, so
   sending it again sends those alone (go-reviewer, round 1: keeping every
   typed field at the new ETag would have sent the other person's change
-  back), a line's field the API refuses
+  back); a form the checks refuse before any call keeps the version and
+  values it was opened with, so its next send meets the 412 rather than
+  take the version now unseen (round 2), a line's field the API refuses
   (`items[i].field`) is said on its line, and a form whose lines are no
   longer the invoice's (409, no call) is shown again as the invoice is.
   Lines are changed, not added or left out (T73e3).
