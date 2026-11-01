@@ -312,9 +312,9 @@ decided (ADR-0051, P2) that a house bank may hold another currency.
   the USD account) is not in the bank's USD balance, so the
   reconciliation report does not show it as unexplained; refusing such
   postings would be a database rule of its own, not built. The SAP load
-  (T012K) carries no currency, so an SAP foreign-currency house bank is
-  loaded in its company's currency until the extract maps it (tracked);
-  since a currency never changes under a code, check it before go-live.
+  (T012K) carried no currency, so an SAP foreign-currency house bank was
+  loaded in its company's currency; it now takes the account's currency
+  (As built: SAP house banks in their account's currency, below).
 - Tested end to end on a CAD company with a USD bank: configuration, a
   USD run, its file, the USD statement imported, matched, posted with the
   realised loss, reconciled, and the bank account revalued at the month's
@@ -780,3 +780,135 @@ expose its channel's connector). Decided by default, as above:
 - **Contract.** A `detail` text change only: `proposePaymentRun`'s
   description names the problem and says its detail names the supplier.
   No new field; oasdiff reports no breaking change.
+
+## As built: SAP house banks in their account's currency (T53a review)
+
+The SAP load of house banks gave every bank its company's currency, so an
+SAP foreign-currency account would have been created in the wrong one, for
+good: a currency never changes under a bank's code (amendment T53a). Decided
+by default, from the T53a amendment and the configuration draft's pattern
+(`sapconfig`: a value SAP does not give is noted and, where a guess could be
+wrong, left in a form validation refuses):
+
+- **The currency.** The extract's T012K carries the account's currency key,
+  WAERS (check table TCURC; the field as the ABAP dictionary's published
+  mirror shows it, https://leanx.eu/en/sap/table/t012k.html, to be confirmed
+  by an SAP specialist). House banks enter the platform through the
+  configuration generated from SAP (`erp config generate`, then provisioning
+  or a change request), not the `erp migrate` run, so the draft is where
+  the currency is taken: an account in the company's currency leaves the
+  bank's `currency` empty (the company's, as before); another is taken as
+  it is, with a note for the reviewers.
+- **Refused, not guessed.** An account without a currency is drafted with
+  `currency: UNKNOWN` and a note, which validation refuses ("not in the
+  currency reference data") until a reviewer sets it, as `net_days: -1`
+  marks a payment term SAP's days cannot give; a currency the reference data
+  does not know is refused the same way. What an empty WAERS means in SAP is
+  for the specialist; the company's currency would be a guess that could
+  never be corrected.
+- **Revaluation.** A foreign-currency bank's ledger accounts must be
+  flagged `revalue_foreign_currency` with their unrealised gain and loss in
+  `fx_valuation.accounts` (T53a, ADR-0042). SAP's valuation accounts are not
+  in the extract, so the draft does not flag them: its note says so, and the
+  draft validates once a reviewer has.
+- **No reconciliation control.** The configuration is checked by
+  validation and approved through its change request; the migration run's
+  controls cover the data it loads (vendor bank accounts among them, T72d),
+  not configuration, so no control was added. The run's report still counts
+  the extract's T012K rows.
+- **Mock and walkthrough.** The mock's company 3000 has a second house bank
+  account, MUSD, in USD on its own ledger account 102000, beside exchange
+  gain and loss accounts 480000 and 680000. Walkthrough step 1 shows the
+  draft refused until the reviewer revalues 102000, then lists the
+  provisioned house banks through `listHouseBanks`: MAIN in CAD, MUSD in USD.
+- **Still open** (tracked, if the product owner asks): entries in another
+  currency posted by hand on a foreign-currency bank's accounts.
+
+## As built: SAP payment methods, bank ranking and suppliers' methods (T45b follow-up, pilot)
+
+The configuration draft generated from SAP (`erp config generate`,
+`delivery/sapconfig`) had no payment methods, and the partner migration
+loaded suppliers without theirs, so a migrated company could only pay
+through a run proposed for one house bank. Decided by default, from the
+decision above and the draft's pattern (a value SAP does not give is noted
+and left in a form validation refuses; what the configuration has no
+counterpart for is noted):
+
+- **Which tables.** The leaf named the ranking "T042E/T042I". The ABAP
+  dictionary's published mirror shows the ranking elsewhere: T042E is the
+  company code's specifications per payment method ("Company Code-Specific
+  Specifications for Payment Methods": ZBUKR, ZLSCH, the minimum and
+  maximum amount VONBT/BISBT, …), T042A the bank selection ("Bank selection
+  for payment program": ZBUKR, ZLSCH, WAERS, the ranking order RANGF, HBKID)
+  and T042I the account determination ("Account determination for payment
+  program": ZBUKR, HBKID, ZLSCH, WAERS, the account HKTID and the bank
+  subaccount UKONT); T042Z holds the methods per country (LAND1, ZLSCH,
+  TEXT1) (https://leanx.eu/en/sap/table/t042e.html, …/t042a.html,
+  …/t042i.html, …/t042z.html). SAP Help ("Selecting the House Bank",
+  https://help.sap.com/saphelp_globext607_10/helpdata/en/01/a9bf27455711d182b40000e829fbfe/content.htm)
+  says the payment program finds the house bank by method and currency,
+  falls back to the entry without a currency, finds the account by bank,
+  method and currency, and pays from the bank of highest priority in the
+  ranking. So the extract carries T042Z, T042E, T042A and T042I, and the
+  ranking is T042A's. All four, and that a lower RANGF ranks first, are on
+  the specialist list.
+- **The draft.** A company's methods are its T042E rows, each named by the
+  T042Z row of the company's country (T001 LAND1) and ranking, per currency,
+  the banks T042A ranks for it, in RANGF order (an order that is not a
+  number ranks last, noted). A T042A row without a currency, which SAP uses
+  for any currency the method has no row for, ranks its bank for its
+  account's currency, the only one a house bank pays in (ADR-0051 §3),
+  unless the method ranks that currency with rows of its own, which SAP
+  would take instead; both noted.
+- **Refused, not guessed.** A method T042Z does not name is drafted without
+  a description, a method T042A ranks no bank for without a ranking, a
+  ranked bank the company does not have (no T012K account) or ranked for
+  another currency than its account's is kept: each noted, and validation
+  refuses the draft until a reviewer corrects it. T042A rows of a method
+  T042E does not set up are left out, and a company without T042E rows has
+  no methods, each noted.
+- **No counterpart, noted.** T042E's minimum and maximum amount per method
+  (per-bank and per-method amount limits stay out of scope, above), and a
+  T042I bank subaccount (UKONT) that is not the house bank's ledger
+  account: SAP posts a payment by the method to the subaccount, the
+  platform credits the bank's one clearing account for every method.
+  T042I's account ID (HKTID) is not used: the extract takes one account per
+  house bank (T012K).
+- **Suppliers' methods.** LFB1-ZWELS ("List of the Payment Methods to be
+  Considered", DZWELS, CHAR 10; https://leanx.eu/en/sap/table/lfb1.html),
+  one character per method, blanks skipped, loads in its order as the
+  supplier's `payment_methods` in the company, on creation and when an
+  earlier run's supplier is set up in a further company. The quality gate
+  refuses a run whose vendor lists a method the company's active
+  configuration does not have, or one twice, before anything loads, as it
+  refuses unknown payment terms; the partner context checks the same again
+  (`PaymentMethods` port). That ZWELS's order is SAP's order of preference
+  is on the specialist list. The OData source maps it to
+  `A_SupplierCompany`'s `PaymentMethodsList` (SAP Cloud SDK,
+  https://help.sap.com/doc/505cd8d2cbd340a38eeae8b63b5df753/1.0/en-US/interfaces/_sap_cloud_sdk_vdm_business_partner_service.suppliercompanytype.html);
+  the T042 tables, like T012K, come from file extracts.
+- **Lock order (review rounds 1-2).** A supplier given methods takes the
+  partner context's method lock, and the load then draws numbers from
+  configuration ranges; an activation locks the ranges first and the method
+  lock after (ADR-0008). So a run holds the active configuration
+  (`configuration.Settings.Hold`) before it reads the configuration: the
+  tenant's activation lock, an advisory lock it takes shared and every
+  activation takes exclusively before it locks any range or applies any
+  section. An activation under way is waited for; an activation while a
+  run extracts and loads waits for the run's transaction up to the
+  requests' lock timeout and is then refused with the retryable 409
+  `request.in_progress`, instead of one of the two being aborted as a
+  deadlock. Only activation is held back: drafting a change request,
+  applying a country pack or building a regression suite takes no part
+  of the lock. A run also loads under the configuration it checked.
+- **No contract change.** The run's report counts the tables a run reads;
+  the T042 tables are read only by the draft, so its extract counts are
+  unchanged, and the API already returns a supplier's methods
+  (`supplier_companies[].payment_methods`) and the configuration's.
+- **Mock and walkthrough.** Every mock company pays by bank transfer T
+  through each house bank in its account's currency; company 3000's vendors
+  list T in ZWELS. Walkthrough step 1 shows the T042 rows and the drafted
+  method, then the method's ranking in the active configuration through
+  `listConfigVersions` (T: MAIN for CAD, MUSD for USD); step 3 shows the
+  migrated supplier Laurentian Paper's methods through `getBusinessPartner`.
+

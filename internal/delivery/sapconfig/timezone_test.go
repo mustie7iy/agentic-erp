@@ -40,7 +40,7 @@ func TestTimeZoneIsAnInput(t *testing.T) {
 		t.Errorf("got notes without the missing zone of 3000, want one:\n%s", all)
 	}
 	var paths []string
-	for _, f := range config.Validate(c, currency.Seeded()) {
+	for _, f := range config.Validate(reviewed(c), currency.Seeded()) {
 		if f.Severity == config.SevError {
 			paths = append(paths, f.Path)
 		}

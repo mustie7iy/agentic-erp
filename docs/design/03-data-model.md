@@ -9,7 +9,8 @@ types. Both are reviewed together.
 ### Schemas and ownership
 - One PostgreSQL schema per bounded context (`tenancy`, `identity`, `config`,
   `partner`, `ledger`, `procurement`, `payables`, `payments`, `workflow`,
-  `audit`, `integration`, `agents`, `analytics`, `cash`), plus:
+  `audit`, `integration`, `agents`, `analytics`, `cash`, `controlling`,
+  `tax`), plus:
   - `ref`: global reference data (currencies, countries, units, permissions),
     identical in every cell, read-only to the application;
   - `platform`: per-cell infrastructure (idempotency keys, operations).
@@ -1698,15 +1699,45 @@ verdict is advice the posting checks again under the lock, so reading the
 received quantities `FOR SHARE` there would only make receipts wait for
 matches.
 
-Reversals are not checked against quantities and take no item lock on the
-invoice side: a goods receipt's reversal (or a return) after an invoice
-posted, or a credit memo's reversal, can leave an order item invoiced past
-what was received; an invoice's reversal can leave a credit memo or
-subsequent debit that names no invoice crediting or revaluing what is no
-longer invoiced (one naming it is refused, `payables.invoice_has_corrections`).
-On an order valued through GR/IR the position then shows the difference
-(open in `/v1/gr-ir-balances`); on a directly valued one nothing shows it.
-The tracker holds checking quantities on reversal.
+Reversals are held to the same quantities, under the same item locks
+(apqty): a reversal is refused when the documents left standing would not
+pass the match's quantity checks, and its refusal names the document, the
+order item and the quantities. It is held to the plain quantities: there is
+no exception to approve for a reversal, so on an item invoiced past what was
+received on an approved exception, a receipt's or credit memo's reversal is
+refused until the documents agree again.
+
+- A goods receipt's reversal (102) may not leave an order item received
+  less than the documents posted on it invoice, net of credit memos and
+  with what SAP invoiced before migration (409
+  `procurement.reversal_below_invoiced`). Procurement reads the invoiced
+  quantities through its `Invoices` port (`Invoiced`, payables'
+  `invoicedQuantities`) after locking the order items, as every goods
+  movement does. A return (122) is not held to them: goods sent back after
+  their invoice are what the supplier's credit memo credits (ADR-0034), and
+  until it posts the position shows the difference.
+- A credit memo's reversal may not invoice an order item past what was
+  received (409 `payables.reversal_exceeds_received`), as a receipt's
+  reversal since the memo may have left it.
+- An invoice's reversal may not leave credit memos crediting more than
+  remains invoiced (409 `payables.reversal_exceeds_invoiced`), nor a
+  subsequent debit or credit revaluing an item nothing remains invoiced of
+  (409 `payables.reversal_leaves_revaluation`), whichever other invoice it
+  names, as the match holds it (`nothing_invoiced`); one naming the
+  invoice is refused before (`payables.invoice_has_corrections`).
+- A subsequent debit's or credit's reversal moves no quantity and is not
+  checked.
+
+A document's reversal locks the order items it names
+(`procurement.Orders.LockItems`) after its own row and before the ledger's
+GR/IR lock, as its posting does, so a reversal, a posting and a goods
+movement on one item wait for each other and the second reads what the
+first committed (`TestConcurrentReversalsSerialize`). An order change
+writes the items it changes, so a posting waits for it too and is matched
+against the order as changed. The quantities are read through
+`supplier_invoice_item_by_order` (migration 000173, on `(tenant_id,
+purchase_order_id, po_item_no)` for items on an order, built
+concurrently), as they are at `:match` and under the locks at `:post`.
 
 The invoice likewise records the version the approval of its exception left
 it at (`exception_version`, migration 000041, F16), and the linked approved
@@ -2015,7 +2046,7 @@ twice and a refused or changed file is reported once.
 A company's payment methods (`payments.payment_method`, SAP T042Z) rank,
 per currency, the house banks that pay with them, first preferred
 (`payments.bank_ranking.house_banks`, codes of the company's house banks;
-SAP T042E/T042I). A supplier's company data lists the methods it may be
+SAP T042A, generated with the methods of T042E/T042Z: ADR-0038 As built). A supplier's company data lists the methods it may be
 paid by, in order (`partner.supplier_company.payment_methods`, SAP
 LFB1-ZWELS): active methods of its company, which the configuration cannot
 take away while a supplier, or a pending partner change, has them (T45b).
@@ -2477,7 +2508,9 @@ line or reservation. An agent's budget is identity's
 | Outline agreement validity end and follow-on contract (EKKO-KDATE, reference agreement) | `contract.valid_to`, `contract.renewal_of_id`, `expiry_alerted_on` and `ContractExpiring` (T47g) |
 | RBKP/RSEG | `payables.supplier_invoice` + items; parked documents (RBSTAT A) by kind (T72b): RBKP-XRECH "X" an invoice, blank a credit memo; all items RSEG-TBTKZ "X" a subsequent debit (XRECH "X") or credit (blank), their items of quantity 0. An absent or unknown indicator stops the load; a document mixing subsequent and ordinary items is not migrated (warning). Posted documents (RBSTAT 5): the quantities of their ordinary items, by XRECH, as `payables.migrated_invoice_item` for matching (T72b2); one whose XRECH, an item's TBTKZ or an ordinary item's quantity cannot be read stops the load |
 | REGUH/REGUP (F110) | `payments.payment_run`, `payment`, `payment_item` |
-| T012K | `payments.house_bank`; a Canadian one, without an IBAN, by `institution_number`, `transit_number` (from the bank key, as for LFBK) and `account_number` (BANKN) (T72d) |
+| T012K | `payments.house_bank`; a Canadian one, without an IBAN, by `institution_number`, `transit_number` (from the bank key, as for LFBK) and `account_number` (BANKN) (T72d); `currency` from WAERS, empty for the company's, refused when missing (ADR-0038 As built, T53a review) |
+| T042Z/T042E (payment methods per country and company code), T042A (bank selection) | configuration `companies[].payment_methods` and their `ranking`, `payments.payment_method`, `bank_ranking`; T042E amount limits and T042I bank subaccounts noted for the reviewers (ADR-0038 As built) |
+| LFB1-ZWELS | `supplier_company.payment_methods`, in order; a method the company does not have stops the load (ADR-0038 As built) |
 | T052 | `partner.payment_term` |
 | T007A, KONP/A003 (tax rates per condition), T030K (account keys MWS, VST, NVV, ESA/ESE) | `ledger.tax_code_definition`, `tax_component`, `tax_rate` (T61a) |
 | T030 | `ledger.account_determination` (VST, BNK, WRX, PRD, SKE) |
@@ -2616,3 +2649,38 @@ over the periods asked for and merged with the leading ledger's actuals,
 which the ledger reads as its cost center (or profit center) report does
 (§3.7, exact at the read; by profit center on profit and loss accounts
 only, the segments summed).
+
+## 3.20 Tax filing (`tax`)
+
+The companies' registrations with tax authorities and their filing periods
+(ADR-0049 §10, T61g), owned by the tax filing context
+(`internal/taxfiling`); the returns of T61h-T61i join them. Migration
+000172 creates the schema and the permission `tax.registration.read`. The
+registrant and a tax group's members are the tenancy context's legal
+entities, by id, with no foreign key across the schema.
+
+```mermaid
+erDiagram
+  registration { uuid id PK
+    text code "unique in the tenant"
+    uuid legal_entity_id "tenancy context: the registrant"
+    uuid_array group_member_ids "tenancy context: a tax group's other members"
+    text authority "CRA, RQ, FTA"
+    bytea number_cipher "sealed with the tenant's key"
+    text number_fingerprint
+    text number_last4
+    text return_type
+    text frequency "monthly | quarterly | annual"
+    date first_period_start "day 1-28"
+    date last_period_end "null while it runs"
+    bool is_active }
+```
+
+| Table | Purpose |
+|---|---|
+| `tax.registration` | A registration from the configuration's `companies[].tax_registrations`, kept by `taxfiling.Setup`: its code once in the tenant (`registration_code_once`), the authority, return type and frequency of their forms, a first period starting on day 1-28 of a month and an end after it, the registrant not among the group's members (`registration_members`). The number is sealed (fieldcrypt, re-sealed on key rotation), fingerprinted and shown by its last four characters. Company, members, authority, return type, frequency and first period never change under the code (`registration_fixed`, a trigger; the number is compared by the application, which opens it); the end and the active flag change by versions; one the configuration no longer lists becomes inactive, never deleted |
+
+A registration's periods are not stored: they follow from its fixed
+settings (`config.TaxPeriods`: the first starts on `first_period_start`,
+each lasts one, three or twelve months, none after `last_period_end`) and
+are computed on read by `GET /v1/tax-registrations/{id}/periods`.

@@ -203,6 +203,13 @@ func magnitude(m Minor) uint64 {
 	return uint64(m)
 }
 
+// PlainQuantity renders an exact quantity of up to six decimals, the
+// scale of every quantity column, as the database's trim_scale and SAP's
+// extract write one: "12.5", "-3", "0".
+func PlainQuantity(r *big.Rat) string {
+	return strings.TrimSuffix(strings.TrimRight(r.FloatString(6), "0"), ".")
+}
+
 // ParseRat reads a decimal a numeric column rendered as text ("12.500"),
 // exactly. A decimal always parses; anything else is nil, so it is for
 // database values and input already checked as a decimal.

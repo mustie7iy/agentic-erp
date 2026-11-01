@@ -281,7 +281,8 @@ func (g *gen) company(t sap.T001) config.Company {
 		}
 	}
 	co.InvoiceTolerance = g.invoiceTolerance(p, t.BUKRS)
-	co.HouseBank, co.HouseBanks = g.houseBanks(p, t.BUKRS, &co.AccountDetermination)
+	co.HouseBank, co.HouseBanks = g.houseBanks(p, &co)
+	co.PaymentMethods = g.paymentMethods(p, t.LAND1, &co)
 	return co
 }
 
@@ -303,17 +304,22 @@ func (g *gen) timeZone(p string, co *config.Company) {
 // gives the account determination its bank account where T030 has none,
 // and keeps its own G/L account where T030 names another. SAP keeps
 // several accounts under one house bank (HKTID, not in the extract); only
-// the first is taken, with a note.
-func (g *gen) houseBanks(p, company string, ad *config.AccountDetermination) (config.HouseBank, []config.HouseBank) {
+// the first is taken, with a note. Each bank is in its account's currency
+// (houseBankCurrency).
+func (g *gen) houseBanks(p string, co *config.Company) (config.HouseBank, []config.HouseBank) {
 	var main config.HouseBank
 	var further []config.HouseBank
+	ad := &co.AccountDetermination
 	seen := map[string]bool{}
 	for _, b := range g.e.T012K {
-		if b.BUKRS != company {
+		if b.BUKRS != co.Code {
 			continue
 		}
 		hb := config.HouseBank{Name: b.HBKID, IBAN: b.IBAN, BIC: b.SWIFT, GLAccount: sap.Alpha(b.HKONT)}
 		g.canadianAccount(p+".house_banks["+b.HBKID+"]", b, &hb)
+		if !seen[b.HBKID] { // a dropped account's currency is not the bank's
+			g.houseBankCurrency(p+".house_banks["+b.HBKID+"]", b, co.Currency, &hb)
+		}
 		switch {
 		case seen[b.HBKID]:
 			g.note(p+".house_banks["+b.HBKID+"]", "house bank "+b.HBKID+" has several accounts in T012K; only the first is taken")
@@ -332,6 +338,37 @@ func (g *gen) houseBanks(p, company string, ad *config.AccountDetermination) (co
 		seen[b.HBKID] = true
 	}
 	return main, further
+}
+
+// unknownCurrency marks a house bank whose T012K row has no currency
+// (WAERS). The company's currency would be a guess that, for a
+// foreign-currency account, could never be corrected: a currency never
+// changes under a bank's code (ADR-0038, T53a). So the draft carries a
+// value config.Validate refuses ("not in the currency reference data" on
+// the bank's currency) until a reviewer sets the account's currency.
+const unknownCurrency = "UNKNOWN"
+
+// houseBankCurrency gives the house bank its account's currency, T012K
+// WAERS (ADR-0038, T53a): none for the company's own, which a bank without
+// one keeps; another as it is, which validation refuses unless the
+// reference data knows it and the bank's ledger accounts are revalued at
+// period end (ADR-0042), which the extract cannot tell, so it is noted for
+// the reviewers; and unknownCurrency, noted, when WAERS is empty, even
+// for a company without a currency of its own, which must not make an
+// account without one look like the company's.
+func (g *gen) houseBankCurrency(path string, b sap.T012K, companyCurrency string, hb *config.HouseBank) {
+	switch waers := strings.TrimSpace(b.WAERS); waers {
+	case "":
+		hb.Currency = unknownCurrency
+		g.note(path+".currency", "T012K gives the account no currency (WAERS); set it (left at "+unknownCurrency+
+			", which fails validation): a bank's currency never changes once it is created")
+	case strings.TrimSpace(companyCurrency):
+	default:
+		hb.Currency = waers
+		g.note(path+".currency", fmt.Sprintf("the account is in %s (T012K WAERS), not the company's %s: flag the bank's ledger accounts "+
+			"revalue_foreign_currency and give each its unrealised gain and loss accounts in fx_valuation.accounts (SAP's valuation "+
+			"accounts are not in the extract); the draft does not validate until then", waers, companyCurrency))
+	}
 }
 
 // canadianAccount gives a Canadian house bank, which has no IBAN, its

@@ -61,6 +61,8 @@ tags:
     description: "Cash management (ADR-0051): the daily cash position, computed from statements, payments, runs and memo records, and the memo records of expected receipts and payments."
   - name: controlling
     description: "Controlling (ADR-0050): plan categories, plan lines by batch and plan against actual by cost center."
+  - name: tax
+    description: "Tax filing (ADR-0049): the companies' registrations with tax authorities and their filing periods."
   - name: workflow
     description: Approval requests and decisions. Decisions are human-only.
   - name: audit
@@ -2420,7 +2422,7 @@ paths:
       tags:
         - configuration
       summary: Activate a change request
-      description: "Creates and activates a new configuration version from an approved change request; each context applies its part. Human-only. Requires status `approved`; a change of validation rules also needs a passed simulation of this exact proposal (409 `config.rules_not_simulated`). The ledger checks the controlling rules again against its data, which may have changed since submission (a default cost or profit center no longer usable, postings in the year a center accounting switch turns on, a removed cost center category in use): 409 `ledger.controlling_invalid`, naming each finding (ADR-0050 §4)."
+      description: "Creates and activates a new configuration version from an approved change request; each context applies its part. Human-only. Requires status `approved`; a change of validation rules also needs a passed simulation of this exact proposal (409 `config.rules_not_simulated`). The ledger checks the controlling rules again against its data, which may have changed since submission (a default cost or profit center no longer usable, postings in the year a center accounting switch turns on, a removed cost center category in use): 409 `ledger.controlling_invalid`, naming each finding (ADR-0050 §4). A tax registration whose company, group, authority, number, return type, frequency or first period changed under its code since submission is refused: 409 `tax.registration_fixed` (ADR-0049 §10)."
       x-permission: config.change.activate
       x-agent: false
       x-problem-codes:
@@ -2440,6 +2442,7 @@ paths:
         - partner.payment_method_in_use
         - partner.withholding_tax_code_in_use
         - request.version_mismatch
+        - tax.registration_fixed
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -10127,7 +10130,7 @@ paths:
       tags:
         - procurement
       summary: Reverse a goods receipt
-      description: "Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance. A movement on a closed order is reversed too, as a mistaken receipt or return is undone whenever it is found. Returns the reversal."
+      description: "Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance; a 102 is refused (409 `procurement.reversal_below_invoiced`, naming the receipt, the order item and both quantities) if it would leave an order item received less than posted supplier documents invoiced of it, net of credit memos: the supplier's credit memo is posted first, or the goods returned (122). A movement on a closed order is reversed too, as a mistaken receipt or return is undone whenever it is found. Returns the reversal."
       x-permission: procurement.receipt.post
       x-problem-codes:
         - config.no_number_range
@@ -10179,6 +10182,7 @@ paths:
         - procurement.mixed_currencies
         - procurement.over_delivery
         - procurement.return_exceeds_receipts
+        - procurement.reversal_below_invoiced
         - procurement.reversal_exceeds_receipts
         - procurement.unknown_order_item
         - request.invalid_amount
@@ -11265,7 +11269,7 @@ paths:
       tags:
         - payables
       summary: Reverse a posted supplier invoice
-      description: "Posts a reversal of the invoice's journal entry; the status becomes `reversed` and `reversal_entry_id` is set. Refused (409) if the invoice is in a live payment run or cleared. Requires status `posted`."
+      description: "Posts a reversal of the invoice's journal entry; the status becomes `reversed` and `reversal_entry_id` is set. Refused (409) if the invoice is in a live payment run or cleared. Requires status `posted`. On a purchase order, refused (409, naming the document, the order item and the quantities) if the documents posted on the order would no longer pass the three-way match without it: a credit memo's reversal invoicing an order item past what was received (`payables.reversal_exceeds_received`), an invoice's reversal leaving credit memos crediting more than remains invoiced (`payables.reversal_exceeds_invoiced`) or a posted subsequent debit or credit on an item nothing remains invoiced of (`payables.reversal_leaves_revaluation`)."
       x-permission: payables.invoice.post
       x-problem-codes:
         - config.no_number_range
@@ -11305,6 +11309,10 @@ paths:
         - payables.invoice_has_corrections
         - payables.invoice_in_payment_run
         - payables.negative_amount
+        - payables.order_not_found
+        - payables.reversal_exceeds_invoiced
+        - payables.reversal_exceeds_received
+        - payables.reversal_leaves_revaluation
         - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -13806,6 +13814,95 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/tax-registrations:
+    get:
+      operationId: listTaxRegistrations
+      tags:
+        - tax
+      summary: List tax registrations
+      description: "The companies' registrations with tax authorities (ADR-0049 §10, T61g), as the configuration names them (`companies[].tax_registrations`), active and inactive: a registration covers its company and, for a tax group, the group's other members. A caller sees the registrations covering a company they may act in. The registration number is shown by its last four characters only. Sortable by: `code`."
+      x-permission: tax.registration.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: false
+          description: Only the registrations covering this legal entity, as registrant or as a tax group's member.
+          schema:
+            type: string
+            format: uuid
+        - name: authority
+          in: query
+          required: false
+          description: Only the registrations with this authority (its code, such as `CRA` or `FTA`).
+          schema:
+            type: string
+            maxLength: 20
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: "One page of tax registrations."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaxRegistrationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/tax-registrations/{id}/periods":
+    get:
+      operationId: listTaxPeriods
+      tags:
+        - tax
+      summary: List a tax registration's filing periods
+      description: "The registration's filing periods (ADR-0049 §10, T61g), by start date: the first starts on its `first_period_start`, each lasts a month, a quarter or a year by its `frequency`, independent of fiscal periods, and none follows its `last_period_end`. Without `start_date_to`, up to the period under way on its company's date in its time zone (`companies[].time_zone`), which the answer names. A registration the caller does not see (`listTaxRegistrations`) is not found; without an active configuration to read the time zone from, 409 `config.not_bootstrapped`. Sortable by: `start_date`."
+      x-permission: tax.registration.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: start_date_to
+          in: query
+          required: false
+          description: "Only periods starting on or before this date, later ones included: the registration's future periods. Default: its company's date today."
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: "One page of the registration's filing periods."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaxPeriodPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/approval-requests:
     get:
       operationId: listApprovalRequests
@@ -29458,6 +29555,85 @@ components:
           maxLength: 2048
       examples:
         - {items: [{id: 0192a000-0000-7000-8000-000000000b01, legal_entity_id: 0192a000-0000-7000-8000-000000000201, code: MAIN, currency: EUR, account_last4: "3000", bic: COBADEFFXXX, status: active}]}
+    TaxRegistration:
+      type: object
+      description: "A company's registration with a tax authority (ADR-0049 §10, T61g), from the configuration (`companies[].tax_registrations`). Its periods follow from `frequency` and `first_period_start`, which never change under its code (`listTaxPeriods`)."
+      required: [id, code, legal_entity_id, company_code, group_members, authority, number_last4, return_type, frequency, first_period_start, status]
+      properties:
+        id: {type: string, format: uuid, description: "Identifier.", readOnly: true}
+        code: {type: string, description: "The registration's code in the configuration, unique in the tenant.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The registrant: the company the configuration lists the registration under (a tax group's representative member).", readOnly: true}
+        company_code: {type: string, description: "The registrant's company code.", readOnly: true}
+        group_members:
+          type: array
+          description: "A tax group's other members, by legal entity and company code; empty for a registration of one company."
+          readOnly: true
+          items:
+            type: object
+            required: [legal_entity_id, company_code]
+            properties:
+              legal_entity_id: {type: string, format: uuid, description: "The member's legal entity."}
+              company_code: {type: string, description: "The member's company code."}
+        authority: {type: string, description: "The tax authority's code, as the configuration names it (`CRA`, `RQ`, `FTA`).", readOnly: true}
+        number_last4: {type: string, description: "The last up to four characters of the registration number, without spaces; the number is kept sealed.", readOnly: true}
+        return_type: {type: string, description: "The return the registration files, as the country pack names it.", readOnly: true}
+        frequency:
+          type: string
+          description: "How often the registration files: a period lasts a month, a quarter or a year. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [monthly, quarterly, annual]
+          readOnly: true
+        first_period_start: {type: string, format: date, description: "The first day of the first period; each later period starts on the same day of a month.", readOnly: true}
+        last_period_end: {type: string, format: date, description: "The last day of the last period, once the registration has ended (or its frequency changed, a registration of a new code continuing); absent while it runs.", readOnly: true}
+        status:
+          type: string
+          description: "`inactive` once the configuration no longer lists it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [active, inactive]
+          readOnly: true
+      examples:
+        - {id: 0192a000-0000-7000-8000-000000000e01, code: GSTHST, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: "3000", group_members: [], authority: CRA, number_last4: "0001", return_type: GST34, frequency: quarterly, first_period_start: "2026-01-01", status: active}
+    TaxRegistrationPage:
+      type: object
+      description: One page of tax registrations.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/TaxRegistration"}
+          description: The tax registrations on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - {items: [{id: 0192a000-0000-7000-8000-000000000e01, code: GSTHST, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: "3000", group_members: [], authority: CRA, number_last4: "0001", return_type: GST34, frequency: quarterly, first_period_start: "2026-01-01", status: active}]}
+    TaxPeriod:
+      type: object
+      description: "A filing period of a tax registration: its first and last day."
+      required: [start_date, end_date]
+      properties:
+        start_date: {type: string, format: date, description: "The period's first day.", readOnly: true}
+        end_date: {type: string, format: date, description: "The period's last day.", readOnly: true}
+      examples:
+        - {start_date: "2026-01-01", end_date: "2026-03-31"}
+    TaxPeriodPage:
+      type: object
+      description: "One page of a tax registration's filing periods."
+      required: [registration_id, registration_code, start_date_to, items]
+      properties:
+        registration_id: {type: string, format: uuid, description: "The registration.", readOnly: true}
+        registration_code: {type: string, description: "The registration's code.", readOnly: true}
+        start_date_to: {type: string, format: date, description: "The periods listed start on or before this date: the one asked for, or the registrant company's date today.", readOnly: true}
+        time_zone: {type: string, description: "The time zone `start_date_to` is the company's date in, when it was not asked for (IANA name).", readOnly: true}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/TaxPeriod"}
+          description: The periods on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - {registration_id: 0192a000-0000-7000-8000-000000000e01, registration_code: GSTHST, start_date_to: "2026-10-31", time_zone: America/Toronto, items: [{start_date: "2026-01-01", end_date: "2026-03-31"}, {start_date: "2026-04-01", end_date: "2026-06-30"}]}
     BankReconciliation:
       type: object
       description: "One page of a house bank's reconciliation report (ADR-0047, T49h): the period's figures, and its statements on this page with their figures and lines. Amounts are signed: a credit to the account is positive, as on the statements; a ledger balance is debit positive, so the two agree when equal."

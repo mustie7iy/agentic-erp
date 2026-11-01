@@ -40,6 +40,15 @@ type LFB1 struct {
 	BUKRS string `json:"BUKRS"`
 	AKONT string `json:"AKONT"` // reconciliation account
 	ZTERM string `json:"ZTERM"` // payment terms key
+	// ZWELS is the list of the payment methods to be considered (data
+	// element DZWELS, CHAR 10): one character per method (ZLSCH). The
+	// partner migration loads it, in its order, as the supplier's methods
+	// in the company (ADR-0038). The field and its data element are the
+	// ABAP dictionary's as a published mirror shows them
+	// (https://leanx.eu/en/sap/table/lfb1.html); that the order of its
+	// characters is SAP's order of preference is to be confirmed by an SAP
+	// specialist.
+	ZWELS string `json:"ZWELS,omitempty"`
 }
 
 // LFBK - vendor bank details: the bank country, the bank key ("this may
@@ -273,6 +282,79 @@ type T012K struct {
 	BANKS string `json:"BANKS,omitempty"`
 	BANKL string `json:"BANKL,omitempty"`
 	BANKN string `json:"BANKN,omitempty"`
+	// WAERS is the account's currency key (check table TCURC), which the
+	// house bank is generated in: a foreign-currency account in its own
+	// currency, not the company's (ADR-0038, T53a). The field, its data
+	// element and check table are the ABAP dictionary's as a published
+	// mirror shows them (https://leanx.eu/en/sap/table/t012k.html), still to
+	// be confirmed by an SAP specialist, as is what an empty WAERS means
+	// there; the configuration draft refuses an account without one rather
+	// than guess the company's currency.
+	WAERS string `json:"WAERS,omitempty"`
+}
+
+// T042Z - payment methods for automatic payment, per country: the
+// country key LAND1, the payment method ZLSCH (data element DZLSCH, CHAR 1)
+// and its name TEXT1. The methods are set up per country (SAP Help, "Set
+// Up Payment Methods per Country for Payment Transactions",
+// https://help.sap.com/saphelp_46c/helpdata/en/51/ca2d28e4ded31184080004aca6e0d1/content.htm);
+// the configuration draft names a company's method by the T042Z row of the
+// company's country (T001 LAND1), which an SAP specialist is to confirm is
+// the paying company code's. Fields as the ABAP dictionary's published
+// mirror shows them (https://leanx.eu/en/sap/table/t042z.html).
+type T042Z struct {
+	LAND1 string `json:"LAND1"`
+	ZLSCH string `json:"ZLSCH"`
+	TEXT1 string `json:"TEXT1"`
+}
+
+// T042E - company code-specific specifications for payment methods: the
+// methods the paying company code ZBUKR pays by, with the minimum and
+// maximum amount of a payment by the method (VONBT, BISBT; CURR), which
+// the configuration has no counterpart for. Fields as the ABAP
+// dictionary's published mirror shows them
+// (https://leanx.eu/en/sap/table/t042e.html).
+type T042E struct {
+	ZBUKR string `json:"ZBUKR"`
+	ZLSCH string `json:"ZLSCH"`
+	VONBT string `json:"VONBT,omitempty"`
+	BISBT string `json:"BISBT,omitempty"`
+}
+
+// T042A - bank selection for the payment program: for paying company code
+// ZBUKR, payment method ZLSCH and currency WAERS, the house bank HBKID at
+// ranking order RANGF (NUMC 5, "number that sets the ranking order of the
+// entries"). The payment program takes the bank by method and currency,
+// and an entry without a currency when there is none for the currency; it
+// pays from the house bank of the highest priority in the ranking (SAP
+// Help, "Selecting the House Bank",
+// https://help.sap.com/saphelp_globext607_10/helpdata/en/01/a9bf27455711d182b40000e829fbfe/content.htm).
+// Fields as the ABAP dictionary's published mirror shows them
+// (https://leanx.eu/en/sap/table/t042a.html), to be confirmed by an SAP
+// specialist, as is that a lower RANGF ranks first.
+type T042A struct {
+	ZBUKR string `json:"ZBUKR"`
+	ZLSCH string `json:"ZLSCH"`
+	WAERS string `json:"WAERS,omitempty"`
+	RANGF string `json:"RANGF"`
+	HBKID string `json:"HBKID"`
+}
+
+// T042I - account determination for the payment program: for company code
+// ZBUKR, house bank HBKID, payment method ZLSCH and currency WAERS, the
+// house bank's account (HKTID) and the G/L account posted to, the bank
+// subaccount UKONT. The platform credits a house bank's one clearing
+// account for every method, so the draft notes a subaccount that differs.
+// Fields as the ABAP dictionary's published mirror shows them
+// (https://leanx.eu/en/sap/table/t042i.html), to be confirmed by an SAP
+// specialist.
+type T042I struct {
+	ZBUKR string `json:"ZBUKR"`
+	HBKID string `json:"HBKID"`
+	ZLSCH string `json:"ZLSCH"`
+	WAERS string `json:"WAERS,omitempty"`
+	HKTID string `json:"HKTID,omitempty"`
+	UKONT string `json:"UKONT"`
 }
 
 // T074 - alternative reconciliation accounts of special G/L transactions:
@@ -333,12 +415,20 @@ type Extract struct {
 	T169G      []T169G     `json:"T169G,omitempty"`
 	T012K      []T012K     `json:"T012K,omitempty"`
 	T074       []T074      `json:"T074,omitempty"`
+	T042Z      []T042Z     `json:"T042Z,omitempty"`
+	T042E      []T042E     `json:"T042E,omitempty"`
+	T042A      []T042A     `json:"T042A,omitempty"`
+	T042I      []T042I     `json:"T042I,omitempty"`
 	AGR_DEFINE []AGRDefine `json:"AGR_DEFINE,omitempty"`
 	AGR_TCODES []AGRTcode  `json:"AGR_TCODES,omitempty"`
 	AGR_USERS  []AGRUser   `json:"AGR_USERS,omitempty"`
 }
 
-// Counts returns row counts per table, for logs and reconciliation.
+// Counts returns row counts per table, for logs and reconciliation: the
+// tables a migration run reads and the customizing its report has always
+// counted. The payment method tables (T042*) are read only by the
+// configuration draft (delivery/sapconfig), so a run's report does not
+// count them.
 func (e *Extract) Counts() map[string]int {
 	return map[string]int{
 		"T001": len(e.T001), "SKB1": len(e.SKB1), "LFA1": len(e.LFA1), "LFB1": len(e.LFB1),

@@ -324,9 +324,10 @@ func receivedWithin(oi orderItem, poItem int32, received *big.Rat, mt string) er
 }
 
 // reversedItems are a movement's items negated, checked to leave each
-// order item's received quantity within its bounds. Order status is not
-// checked: a mistaken receipt or return is undone on a closed order too.
-func reversedItems(orig []ReceiptItem, reversal string, current []orderItem) ([]ReceiptItem, error) {
+// order item's received quantity within its bounds, and that quantity
+// per order item. Order status is not checked: a mistaken receipt or
+// return is undone on a closed order too.
+func reversedItems(orig []ReceiptItem, reversal string, current []orderItem) ([]ReceiptItem, map[[2]any]*big.Rat, error) {
 	left := map[[2]any]*big.Rat{}
 	items := make([]ReceiptItem, len(orig))
 	for i, it := range orig {
@@ -336,12 +337,41 @@ func reversedItems(orig []ReceiptItem, reversal string, current []orderItem) ([]
 		}
 		left[key].Sub(left[key], money.ParseRat(it.Quantity))
 		if err := receivedWithin(current[i], it.POItemNo, left[key], reversal); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		it.Quantity = new(big.Rat).Neg(money.ParseRat(it.Quantity)).FloatString(6)
 		items[i] = it
 	}
-	return items, nil
+	return items, left, nil
+}
+
+// keepsInvoiced refuses a receipt's reversal (102) that would leave an
+// order item received less than posted documents invoiced of it (left is
+// what each keeps received, reversedItems): the match holds an invoice to
+// what was received, so the reversal is held to what was invoiced (03
+// §3.9). The order items are locked (lockItems), and a document's posting
+// and reversal lock them too, so what Invoices reads holds until this
+// commits. A return (122) is not held to it: goods sent back after their
+// invoice are what the supplier's credit memo credits (ADR-0034).
+func (e *Endpoints) keepsInvoiced(ctx context.Context, orig GoodsReceipt, current []orderItem, left map[[2]any]*big.Rat) error {
+	invoiced := map[uuid.UUID]map[int32]string{}
+	for i, it := range orig.Items {
+		quantities, read := invoiced[it.PurchaseOrderID]
+		if !read {
+			var err error
+			if quantities, err = e.Invoices.Invoiced(ctx, it.PurchaseOrderID); err != nil {
+				return err
+			}
+			invoiced[it.PurchaseOrderID] = quantities
+		}
+		received, billed := left[[2]any{it.PurchaseOrderID, it.POItemNo}], cmp.Or(quantities[it.POItemNo], "0")
+		if money.ParseRat(billed).Cmp(received) > 0 {
+			return problem.Conflict("procurement.reversal_below_invoiced", fmt.Sprintf(
+				"Reversing goods receipt %s would leave item %d of order %s with %s received of %s invoiced; post the supplier's credit memo first, or return the goods (122).",
+				orig.DocumentNumber, it.POItemNo, current[i].documentNumber, money.PlainQuantity(received), billed))
+		}
+	}
+	return nil
 }
 
 // recordMovement audits a receipt or return and publishes GoodsReceived or
@@ -372,7 +402,8 @@ func (e *Endpoints) reversalDate(ctx context.Context, orig GoodsReceipt, posting
 
 // reverseReceipt posts the movement that reverses a receipt (102) or a
 // return (123), on the given date or its company's date (reversalDate). A movement is reversed once,
-// and never so that the received quantity leaves its bounds.
+// and never so that the received quantity leaves its bounds, nor, for a
+// receipt, falls below what was invoiced (keepsInvoiced).
 func (e *Endpoints) reverseReceipt(ctx context.Context, id uuid.UUID, ifMatch func(GoodsReceipt) error, postingDate *time.Time) (GoodsReceipt, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -401,9 +432,14 @@ func (e *Endpoints) reverseReceipt(ctx context.Context, id uuid.UUID, ifMatch fu
 	if err != nil {
 		return GoodsReceipt{}, err
 	}
-	items, err := reversedItems(orig.Items, reversal, current)
+	items, left, err := reversedItems(orig.Items, reversal, current)
 	if err != nil {
 		return GoodsReceipt{}, err
+	}
+	if reversal == Reversal {
+		if err := e.keepsInvoiced(ctx, orig, current, left); err != nil {
+			return GoodsReceipt{}, err
+		}
 	}
 	date, err := e.reversalDate(ctx, orig, postingDate)
 	if err != nil {

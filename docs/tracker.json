@@ -194,6 +194,7 @@
       "t": "Recurring and template entries",
       "r": "",
       "src": "baseline",
+      "pilot": "po:2026-10-31",
       "c": []
      },
      {
@@ -227,6 +228,7 @@
         "t": "Point-in-time recovery",
         "r": "ADR-0040 · T41b (35 days in production) · T41d (restore verified)",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0040",
         "c": []
        }
       ]
@@ -409,6 +411,7 @@
         "t": "Evaluation against the live Claude API",
         "r": "T43 (waits on: the user: a live Claude API key and spend)",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0039",
         "c": []
        }
       ]
@@ -589,24 +592,27 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Quantities checked on reversal: goods receipt and credit memo reversals past the invoiced quantity, invoice reversals under credit memos or subsequent debits naming none",
-      "r": "follow-up of the overpayment fix · 03 §3.9",
+      "r": "follow-up of the overpayment fix · 03 §3.9 · ADR-0034 as built (apqty) · procurement receipts.go keepsInvoiced, Invoices.Invoiced · payables reversequantity.go reversible · 409 procurement.reversal_below_invoiced, payables.reversal_exceeds_received, payables.reversal_exceeds_invoiced, payables.reversal_leaves_revaluation · returns (122) not held to it · a subsequent debit or credit naming another invoice is held too (review round 1) · TestReversalsKeepQuantities · walkthrough step 6 · apqty",
       "src": "baseline",
+      "pilot": "po:2026-10-31 · design:03 §3.9",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Index payables.supplier_invoice_item (tenant_id, purchase_order_id, po_item_no) for the invoiced quantities read at :match and under the item locks at :post",
-      "r": "follow-up of the overpayment fix · invoicedQuantities",
+      "r": "follow-up of the overpayment fix · invoicedQuantities · db/migrations/000173 supplier_invoice_item_by_order (concurrently, items on an order) · apqty",
       "src": "baseline",
+      "pilot": "po:2026-10-31 · design:03 §3.9",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Tests: an invoice's posting against a goods receipt reversal (apitest.Serialized) and against an order change applied through procurement",
-      "r": "follow-up of the overpayment fix · 03 §3.9",
+      "r": "follow-up of the overpayment fix · 03 §3.9 · TestConcurrentReversalsSerialize (posting and receipt reversal both ways, credit memo reversal and receipt reversal both ways, posting after an order change submitted through procurement) · apqty",
       "src": "baseline",
+      "pilot": "po:2026-10-31 · design:03 §3.9",
       "c": []
      },
      {
@@ -864,6 +870,7 @@
         "t": "CPA-005 (the Canadian Payments Association's 1464-byte AFT file) for Canadian banks that do not take pain.001",
         "r": "after T45d · ADR-0038 amendment (waits on: the pilot bank: whether it takes pain.001, with its check of the Canadian member id)",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0038",
         "c": []
        },
        {
@@ -878,6 +885,7 @@
         "t": "SAP bank accounts attach to the right vendor (pre-existing finding on T72d): the OData mapping takes LFBK's vendor from A_BusinessPartnerBank.BusinessPartner, assuming business partner and vendor numbers are equal; where the ranges differ, accounts attach to no vendor or the wrong one; checked against the pilot's set-up",
         "r": "internal/sap/odata.go",
         "src": "review:T72d",
+        "pilot": "po:2026-10-31 · review:T72d",
         "c": []
        },
        {
@@ -1193,6 +1201,7 @@
         "t": "ISO-8859-1 statement files, only if a pilot bank cannot send UTF-8 (coordinator 2026-10-20)",
         "r": "T49",
         "src": "po:2026-10-25",
+        "pilot": "po:2026-10-31",
         "c": []
        },
        {
@@ -1200,6 +1209,7 @@
         "t": "Live certification run of the reconciliation agent with a case that proposes a payment run's payments (needs a cell running the proposal and release workers and a second approver; the replay cell does not)",
         "r": "evals/reconciliation · ADR-0039 · T49",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0039",
         "c": []
        },
        {
@@ -1207,6 +1217,7 @@
         "t": "A person accepts a gap without the missing statement (reason, audited), so the bank's lines post again",
         "r": "ADR-0047 Continuity · T49",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0047 · adr:ADR-0052",
         "c": []
        },
        {
@@ -1326,13 +1337,22 @@
         "t": "SAP migration (if the pilot uses SAP Cash Management): liquidity items, planning groups, supplier planning groups, open memo records extracted and loaded through the services; quality-gate issues for items with no mapping",
         "r": "T53k",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0051",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "SAP load of house banks (T012K) with their account currency (WAERS), so an SAP foreign-currency house bank is not loaded in its company's currency (a currency never changes under a code): a foreign-currency account is generated in its currency, noted, and validates once its ledger account is revalued; an account without a currency, or in one the reference data does not know, is refused by validation (T53a review)",
+        "r": "sap.T012K.WAERS · sapconfig houseBankCurrency (unknownCurrency) · mock company 3000 MUSD · walkthrough step 1 · ADR-0038 As built (T012K currency) · T53",
+        "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0038",
         "c": []
        },
        {
         "s": "T",
-        "t": "SAP load of house banks (T012K) with their account currency, so an SAP foreign-currency house bank is not loaded in its company's currency (a currency never changes under a code); and, if the product owner asks, refuse or report entries in another currency on a foreign-currency bank's accounts (T53a review)",
-        "r": "internal/sap · internal/delivery/sapconfig · ADR-0038 (T53a amendment) · T53",
-        "src": "baseline",
+        "t": "If the product owner asks: refuse or report entries in another currency posted by hand on a foreign-currency house bank's accounts (a CAD fee on the USD account is not in the bank's USD balance, so the reconciliation does not show it)",
+        "r": "ADR-0038 (T53a amendment, known limits) · T53",
+        "src": "adr:ADR-0038",
         "c": []
        },
        {
@@ -1629,6 +1649,7 @@
       "t": "Tax returns: GST/HST (plus QST FPZ-500 if registered in Quebec, P4) and the UAE VAT 201, prepared and approved in the ERP and filed by a person (P3)",
       "r": "ADR-0049 · T61g-T61k",
       "src": "baseline",
+      "pilot": "po:2026-10-31 · adr:ADR-0049",
       "c": []
      },
      {
@@ -1636,6 +1657,7 @@
       "t": "Tax returns leave out the tax items of entries migrated from SAP (an open down payment's input tax, dated SAP's posting date), which SAP's returns reported; the clearing's reversal, dated on the platform, is reported",
       "r": "ADR-0037 As built (T72c) · ledger.tax_item · journal_entry.source_context integration",
       "src": "adr:ADR-0037",
+      "pilot": "po:2026-10-31 · adr:ADR-0037",
       "c": []
      },
      {
@@ -1704,6 +1726,7 @@
         "t": "Input tax follow-up: down payment requests' tax checked at the run date's rate (left out with tax_code_invalid when it no longer matches); documentary-requirement warnings for CA ($100/$500 tiers) and the UAE (TRN above AED 10,000); the authority's rate type and rounding from the country pack",
         "r": "ADR-0049 §4, §6, §8 · after T61d",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0049",
         "c": []
        },
        {
@@ -1728,10 +1751,18 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Tax registrations and periods: companies[].tax_registrations (authority, number encrypted, return type, frequency, first period, UAE tax group), tier 3, tax periods generated, API",
-        "r": "T61g",
+        "r": "db/migrations/000172 · internal/taxfiling · tax.registration · taxfiling.Setup · config.TaxPeriods · GET /v1/tax-registrations · GET /v1/tax-registrations/{id}/periods · ADR-0049 §10 · T61g",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0049",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Tax registration number formats: the check digits and form of a Canadian BN with its GST/HST program account (RT) and QST number, and of a UAE TRN, from the authorities' primary sources, stated by the tax specialist; T61g checks only that a number is given",
+        "r": "config.TaxRegistration · ADR-0049 §10 · after T61g",
+        "src": "split:T61g",
         "c": []
        },
        {
@@ -1739,6 +1770,7 @@
         "t": "The return engine: returns.yaml in the pack schema (boxes as item selections or CEL expressions), a draft return from unreported items with prior-period items apart up to the pack's threshold (P7), drill-down to items, GET /v1/tax-returns:compute",
         "r": "T61h",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0049",
         "c": []
        },
        {
@@ -1746,6 +1778,7 @@
         "t": "Return lifecycle: prepared snapshot, approved by another person, recorded as filed by a person with the authority's confirmation (P3), withdrawn, amended; human-only transitions, audit and outbox events, periods locked on filing",
         "r": "T61i",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0049",
         "c": []
        },
        {
@@ -1753,6 +1786,7 @@
         "t": "GST/HST return for Canada: the GST34 lines in the Canada pack, plus the FPZ-500 (GST/HST and QST) for a Quebec registrant (P4); golden tests, tax specialist sign-off",
         "r": "T61j",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0049",
         "c": []
        },
        {
@@ -1760,6 +1794,7 @@
         "t": "VAT 201 for the UAE: boxes 1a-14 in the UAE pack, emirate by fixed establishment, import boxes from customs entries; golden tests, specialist sign-off",
         "r": "T61k",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0049",
         "c": []
        },
        {
@@ -1781,6 +1816,7 @@
         "t": "Service principals' posting limit: a per-company limit for entries a service principal (an integration such as the pilot's billing system) posts, separate from the manual entry approval limit for people; an entry above it is parked for a person's approval instead of refused with 409 ledger.approval_required (product owner 2026-10-22; finance lane)",
         "r": "T61n · ADR-0049 §7 · after T61f",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · po:2026-10-22 · adr:ADR-0049",
         "c": []
        }
       ]
@@ -1797,6 +1833,7 @@
       "t": "Peppol network connector",
       "r": "T65",
       "src": "baseline",
+      "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0049",
       "c": []
      },
      {
@@ -1811,6 +1848,7 @@
       "t": "SAF-T and statutory reports",
       "r": "T65",
       "src": "baseline",
+      "pilot": "po:2026-10-31 · design:07 §7.6",
       "c": []
      }
     ]
@@ -2094,6 +2132,7 @@
         "t": "SAP migration: CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), CSKB categories, OKB9 defaults, sets 0101/0106 with ranges expanded; ACDOCA RCNTR/PRCTR/SEGMENT; quality-gate issues; mock generator extended; reconciliation of migrated center totals",
         "r": "T56h",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
        {
@@ -2886,6 +2925,7 @@
       "t": "Evaluation against the live Claude API",
       "r": "T43 (waits on: the user: a live Claude API key and spend)",
       "src": "baseline",
+      "pilot": "po:2026-10-31 · adr:ADR-0039",
       "c": []
      },
      {
@@ -4619,6 +4659,7 @@
         "t": "Remove the .grype.yaml exception for libssl3 3.0.20 in distroless/cc-debian12 (seven CVEs; erp-analytics links no libssl) by its expiry on 2026-11-20: move to the fixed base digest when distroless publishes it, or to cc-debian13 by an ADR-0044 amendment",
         "r": ".grype.yaml · ADR-0044 · T55h follow-up",
         "src": "baseline",
+        "pilot": "po:2026-10-31",
         "c": []
        },
        {
@@ -5156,6 +5197,7 @@
         "t": "UAE pack",
         "r": "T62f",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0048",
         "c": []
        },
        {
@@ -5163,6 +5205,7 @@
         "t": "Canada pack 2026.3: the tax codes (GST/HST/QST/PST) in the component schema of T61a, from packs/ca/TAX-PENDING-T61a.md, with all their dated rates; 2026.2 plus the tax codes, keeping its cash.yaml (a version without it would drop the suggested liquidity items from tenants that adopted 2026.2), released beside 2026.1 and 2026.2 (both stay as released); signed off by the tax specialist before the pilot",
         "r": "packs/ca/2026.3 · packs/released.sha256 · ADR-0048 · ADR-0049 · T62g",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0048 · adr:ADR-0049",
         "c": []
        }
       ]
@@ -5296,6 +5339,7 @@
         "t": "Tax-identifier formats per country reviewed by a tax specialist before the pilot",
         "r": "platform/redact taxIDs · T42e (waits on: a tax specialist's sign-off)",
         "src": "baseline",
+        "pilot": "po:2026-10-31",
         "c": []
        },
        {
@@ -5368,6 +5412,7 @@
       "t": "Server-rendered web workspaces (templ + HTMX)",
       "r": "ADR-0052 · T73 · T72k",
       "src": "baseline",
+      "pilot": "po:2026-10-31 · po:2026-10-21 · adr:ADR-0052",
       "c": []
      },
      {
@@ -5457,6 +5502,7 @@
         "t": "Approvals beyond the inbox: my requests and all I can see (listApprovalRequests by status and object type), the object's own summary per type (getRequisition, getPartnerChange, getSupplierInvoice, …) on the request's page, cancel own with a comment; a signed-in person's 404 and refused-form pages with their navigation; a decision's text kept across a step-up sign-in; walked through by a pilot approver",
         "r": "T73d2 (split from T73d, 2026-10-22)",
         "src": "split:T73d",
+        "pilot": "po:2026-10-31 · split:T73d · adr:ADR-0052",
         "c": []
        },
        {
@@ -5471,6 +5517,7 @@
         "t": "Invoices beyond the queue: capture by upload through the API's signed path (createUpload, the bytes relayed by erp-web, captureSupplierInvoice's 202 polled to the new invoice), editing a parked invoice (updateSupplierInvoice), clearing down payments; tax per code on the invoice's page once the API gives it (the representation has none: only a refused post's detail names each code's tax); a refusal's figures as structured fields of the problem (coordinator D3, contract change: payables.tax_mismatch's tax per code, payables.match_outdated's changes); walked through by a pilot AP clerk",
         "r": "T73e2 (split from T73e, 2026-10-22)",
         "src": "split:T73e",
+        "pilot": "po:2026-10-31 · split:T73e · adr:ADR-0052",
         "c": []
        },
        {
@@ -5485,6 +5532,7 @@
         "t": "Payment runs beyond T73f: suppliers named on a run's payments and exclusions (the API names none on them and listBusinessPartners filters by no id: contract change, an ids filter or expand=supplier), the run's company and house bank on its page within the six calls; an htmx request whose session ended answered with HX-Redirect to sign in (today a 303 the fragment follows: the progress' poll and every lazy section alike, found in T73f's review); the progress' poll answering 204 when nothing changed, so a screen reader is not read the same status again; walked through by a pilot treasurer and AP lead",
         "r": "T73f2 (split from T73f, 2026-10-25)",
         "src": "split:T73f",
+        "pilot": "po:2026-10-31 · split:T73f · adr:ADR-0052",
         "c": []
        },
        {
@@ -5506,6 +5554,7 @@
         "t": "Bank statements beyond T73g: matching a line by hand to a payment or open item the rules did not find (needs an API search of a house bank's payments and open items: listPayments is per run), running the matching rules again from the statement's page (matchBankStatement), downloading a statement's file (getBankStatementFile); walked through by a pilot treasury user",
         "r": "T73g2 (split from T73g, 2026-10-22)",
         "src": "split:T73g",
+        "pilot": "po:2026-10-31 · split:T73g · adr:ADR-0052",
         "c": []
        },
        {
@@ -5520,6 +5569,7 @@
         "t": "Manual journal entries beyond T73h: posting an entry at once from the form (postJournalEntry within the limit, ledger.approval_required turned into a park), not in T73h's criteria; parking a new entry straight from a CSV file (today parked with two lines, then its lines replaced by the file's); ledger-specific entries and ledger groups (ledger_id, ledger_group); tax jurisdictions, declared tax bases and quantities on a line; partners named on lines and in the form (by id now: the contract change of T73f2, an ids filter or an expansion); the form's running debits, credits and difference; amounts typed in Arabic-Indic digits (T73l reads digits per locale); walked through by a pilot GL accountant and controller",
         "r": "T73h2 (split from T73h, 2026-10-25)",
         "src": "split:T73h",
+        "pilot": "po:2026-10-31 · split:T73h · adr:ADR-0052",
         "c": []
        },
        {
@@ -5534,6 +5584,7 @@
         "t": "Period close beyond T73i: cancelling a revaluation run (cancelRevaluationRun, in ADR-0052 §2's list but not T73i's criteria); purchase orders, partners, journal entries and the ledger reconciliation's accounts named on the checks and the revaluation's items (shown by id: a contract change, or more calls than a page's six); the checks as at the period's end rather than now (listGrIrBalances takes a key date for one order only); the workspace's statements list (/bank) filtered by company, so the check's links by status are not tenant-wide (listBankStatements takes legal_entity_id; the screen offers no such filter); walked through by a pilot GL accountant and controller (the entries behind a ledger difference and the checks' links to T73j's GR/IR and ledger reconciliation reports were built in T73j)",
         "r": "T73i2 (split from T73i, 2026-10-25)",
         "src": "split:T73i",
+        "pilot": "po:2026-10-31 · split:T73i · adr:ADR-0052",
         "c": []
        },
        {
@@ -5548,6 +5599,7 @@
         "t": "Reports beyond T73j: a trial balance account's entries (listJournalEntries filters by no account: a contract change, an account_id filter, which also serves the cost and profit center balance reports' drill-down by account, PO 2026-10-25, ADR-0050 As built in T56f); the aging's buckets chosen on the page (the API takes aging_days, the page asks 30, 60, 90); downloads of the ledger reconciliation and the audit history; an address naming one ledger as both ledger_id and compare_ledger_id refused on the page rather than sent to the API (T73j review); suppliers named on open items (by id now: T73f2's contract change); the page budgets measured at the pilot's volumes once the pilot gives them (neither the tracker nor ADR-0052 names them); OWASP's CSV injection guidance and the byte order mark's need verified from primary sources (ADR-0052, from memory); walked through by a pilot GL accountant, AP clerk and controller",
         "r": "T73j2 (split from T73j, 2026-10-25)",
         "src": "split:T73j · review:T73j · po:2026-10-25",
+        "pilot": "po:2026-10-31 · split:T73j · adr:ADR-0052 · po:2026-10-25",
         "c": []
        },
        {
@@ -5569,6 +5621,7 @@
         "t": "Languages (P5): French (Canada) complete and reviewed by a native finance user if the Canadian company has Québec staff; Arabic with RTL when the UAE pilot asks; locale preference (a principal setting, added to GET /v1/me, which has none yet: T73c); every problem code translated (x-problem-codes lists them, per operation and the pipeline's for all); RTL and long-text scenarios green",
         "r": "T73l",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0052",
         "c": []
        },
        {
@@ -5576,6 +5629,7 @@
         "t": "Pilot readiness of the workspace: every pilot scenario green on the staging cell with the pilot's identity provider; external WCAG 2.2 AA audit with no open AA finding; penetration test with no open high finding; weekly ZAP clean; runbook (sign-in failures, session store, rotating sealing and client keys); pilot users trained",
         "r": "T73m",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0052",
         "c": []
        },
        {
@@ -5583,6 +5637,7 @@
         "t": "The web workspace pre-fills dates from the server's UTC clock, not the company's date in its time zone: a manual entry's document and posting dates, a payment run's run_date and due_by, and the open-item report's key date (at 22:00 in Toronto the form offers tomorrow's date)",
         "r": "internal/web journal_entries.go:308 today (s.now() in UTC) · entry_form.go:225-226 newEntry docDate/postingDate · payments.go:61 run_date/due_by · report_items.go:142 KeyDate · ADR-0051 as built (the company's date, T72n1-T72n7) · UI later (product owner 2026-10-28, headless first)",
         "src": "review:batch27",
+        "pilot": "po:2026-10-31 · review:batch27",
         "c": []
        }
       ]
@@ -5623,6 +5678,7 @@
         "t": "Six modelling assumptions confirmed by the product owner",
         "r": "T0 (product owner review)",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · design:07 §7.6",
         "c": []
        }
       ]
@@ -5658,6 +5714,7 @@
         "t": "Each ADR accepted, amended or rejected in review",
         "r": "T0 (product owner review)",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · design:07 §7.6",
         "c": []
        }
       ]
@@ -5693,6 +5750,7 @@
         "t": "Review by a finance/SAP functional expert",
         "r": "T0 (product owner review)",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · design:07 §7.6",
         "c": []
        }
       ]
@@ -5730,6 +5788,7 @@
       "t": "Design review sign-off (gate before implementation)",
       "r": "docs/design/README.md · T0 (product owner review)",
       "src": "baseline",
+      "pilot": "po:2026-10-31 · design:07 §7.6",
       "c": []
      },
      {
@@ -6155,6 +6214,7 @@
         "t": "Before rollout: production agents need a provider registered with certificate_bound_tokens",
         "r": "T38d (waits on: an operator registering the pilot's identity provider at rollout)",
         "src": "baseline",
+        "pilot": "po:2026-10-31",
         "c": []
        },
        {
@@ -6360,6 +6420,7 @@
       "t": "External penetration test",
       "r": "(waits on: an outside penetration testing firm)",
       "src": "baseline",
+      "pilot": "po:2026-10-31 · design:01 §1.3 · adr:ADR-0052",
       "c": []
      }
     ]
@@ -6400,6 +6461,7 @@
         "t": "Contract reviewed by a consumer",
         "r": "T50h · waits for the product owner to name the pilot partner",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · design:07 §7.6",
         "c": []
        }
       ]
@@ -6519,6 +6581,7 @@
         "t": "Accepted breaking changes only for x-stability-level: beta operations once the pilot partner consumes /v1",
         "r": "ADR-0041 · enforced when the partner is named",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0041",
         "c": []
        }
       ]
@@ -6659,6 +6722,7 @@
         "t": "Validation against a live system's $metadata",
         "r": "(waits on: access to the pilot's SAP system) · ACDOCA RWCUR/WSL not mapped yet, so an OData extract's open items are refused (review:batch20)",
         "src": "baseline",
+        "pilot": "po:2026-10-31",
         "c": []
        }
       ]
@@ -6806,6 +6870,7 @@
         "t": "At first apply: check that the VPC CNI policy agent lets probes through, fill the page-token-key and database-client-password secrets, and load the router's public certificate, key and page-token key into erp/global/",
         "r": "(waits on: an operator, at the first AWS apply)",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0035",
         "c": []
        },
        {
@@ -6911,6 +6976,7 @@
         "t": "List a second production approver in .github/approvers: until then no production promotion can merge",
         "r": ".github/approvers · ADR-0035 (waits on: a second production approver (a person))",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0035",
         "c": []
        },
        {
@@ -6925,6 +6991,7 @@
         "t": "Pre-pilot: the first rollback drill on AWS staging (stg1), with a smoke suite through the router; confirm on the first promotion pull request that the promotion jobs are reported on its head",
         "r": "scripts/rollback-drill.sh · ADR-0035 (waits on: the AWS staging account)",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0035",
         "c": []
        }
       ]
@@ -7058,6 +7125,7 @@
         "t": "Decide Alertmanager's receivers (PO): set erp/<cell>/alertmanager-receivers' erp-alerts and erp-heartbeat (the dead man's switch's outside service) to the chosen integrations, and whether severity=page and ticket go to different ones",
         "r": "ADR-0043 · T54d",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0043",
         "c": []
        }
       ]
@@ -7296,6 +7364,7 @@
         "t": "Confirmed on AWS staging before the failover rehearsal: replicate_source_db takes the cluster's ARN (the API's SourceDBClusterIdentifier); the cluster's engine version pinned so the replica is upgraded first; the master credentials after promotion (RDS-managed in the home region; the runbook has RDS manage one in the DR region under the DR key, tagged aws:rds:primaryDBInstanceArn); a replica secret's ARN is its primary's with the region changed; a node group created at zero and the VPC CNI add-on active without nodes; the EBS CSI add-on added after the scale-up; Argo CD bootstrapped on the DR cluster",
         "r": "ADR-0040 runbook (steps marked staging) and as built 2026-10-29 · deploy/terraform/modules/cell pilot_light.tf, pilot_light_workloads.tf · T41b3 · T72j (waits on: the AWS staging account)",
         "src": "split:T72j",
+        "pilot": "po:2026-10-31 · adr:ADR-0040",
         "c": []
        },
        {
@@ -7303,6 +7372,7 @@
         "t": "A home-region failure of the environment's home cell recovered beyond the cell: the global tier (the router's and the web workspace's load balancers, the directory and its secrets) and the subordinate CA, which stay in the home region and VPC with no DR counterpart (the DR VPC is not peered), so the failover runbook's steps 5, 7 and 8 can complete for the production pilot cell; needs a decision first, which the product owner deferred on 2026-10-31 to the pre-production checkpoint, with the DR subordinate CA's cost (about USD 400 a month, ADR-0035 Consequences)",
         "r": "ADR-0040 as built 2026-10-29 (Not covered) and runbook · modules/global · modules/subordinate-ca · deploy/helm/erp-cell secrets.yaml (directory password) · T72j · T41g waits on it",
         "src": "review:T72j · po:2026-10-31",
+        "pilot": "po:2026-10-31 · review:T72j · adr:ADR-0040",
         "c": []
        },
        {
@@ -7317,6 +7387,7 @@
         "t": "The region failover rehearsed on the production pilot cell before it takes live traffic (a pre-pilot gate), then yearly in a maintenance window (PO, 2026-10-19)",
         "r": "ADR-0040 · T41g (waits on: the production AWS pilot cell, after T72j, and the global tier and subordinate CA recovered from a home-region failure, deferred by the product owner on 2026-10-31 to the pre-production checkpoint)",
         "src": "po:2026-10-19 · po:2026-10-31",
+        "pilot": "po:2026-10-31 · po:2026-10-19",
         "c": []
        },
        {
@@ -7324,6 +7395,7 @@
         "t": "Before T41b is applied to a cell holding objects: a one-off S3 Batch Replication job for the existing objects; the plan checked to create the field key as a multi-Region key from the start",
         "r": "ADR-0040 · T41h (pre-apply) (waits on: an operator on AWS, before T41b is applied to a cell holding objects)",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0040",
         "c": []
        },
        {
@@ -7338,6 +7410,7 @@
         "t": "Pre-pilot: the first restore drills on AWS staging (stg1), point in time and from the copies, recorded in restore.json; until one has passed every production promotion is refused (scripts/promotion-checks.sh). Confirm there: the restore metadata's DBSubnetGroupName and VpcSecurityGroupIds, the managed secret's aws:rds:primaryDBClusterArn tag the task's role is scoped by and its KMS key (the execution role decrypts none), and the DR region in the registry's replication regions",
         "r": "ADR-0040 · T41e2 (waits on: the AWS staging account)",
         "src": "baseline",
+        "pilot": "po:2026-10-31 · adr:ADR-0040",
         "c": []
        }
       ]
@@ -7751,6 +7824,7 @@
       "t": "Evaluation against the live Claude API",
       "r": "T43 (waits on: the user: a live Claude API key and spend)",
       "src": "baseline",
+      "pilot": "po:2026-10-31 · adr:ADR-0039",
       "c": []
      },
      {
@@ -7772,6 +7846,7 @@
       "t": "The configuration agent's instruction to ask for a company's missing time zone is evaluated live (make eval AGENT=configuration, ADR-0039), with an eval case for a request that gives no zone; waits for the live-evaluation key (pre-pilot)",
       "r": "internal/delivery/configagent configagent.go (the time-zone instruction, batch 27 apinames4) · evals/configuration/suite.yaml (no case without a zone yet; ADR-0039) · no live run yet: the evaluation key is a pre-pilot item",
       "src": "review:batch27",
+      "pilot": "po:2026-10-31 · review:batch27",
       "c": []
      }
     ]
@@ -7807,6 +7882,7 @@
       "t": "Evaluation against the live Claude API",
       "r": "T43 (waits on: the user: a live Claude API key and spend)",
       "src": "baseline",
+      "pilot": "po:2026-10-31 · adr:ADR-0039",
       "c": []
      },
      {
@@ -7842,6 +7918,7 @@
       "t": "Evaluation against the live Claude API",
       "r": "T43 (waits on: the user: a live Claude API key and spend)",
       "src": "baseline",
+      "pilot": "po:2026-10-31 · adr:ADR-0039",
       "c": []
      },
      {
@@ -8113,6 +8190,7 @@
       "t": "OData V2 extraction",
       "r": "sap.ODataSource",
       "src": "baseline",
+      "pilot": "po:2026-10-31 · design:07 §7.6",
       "c": []
      },
      {
@@ -8172,10 +8250,11 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "SAP payment methods and bank ranking (T042Z, T042E/T042I) mapped to companies[].payment_methods in sapconfig, and suppliers' methods (LFB1-ZWELS) to their company data in the partner migration",
-      "r": "follow-up of the SAP load · delivery/sapconfig · ADR-0038 · after T45c",
+      "r": "follow-up of the SAP load · delivery/sapconfig paymethods.go (ranking from T042A, as the dictionary has it) · integration quality gate and load · ADR-0038 As built · walkthrough steps 1 and 3",
       "src": "baseline",
+      "pilot": "po:2026-10-31 · adr:ADR-0038",
       "c": []
      },
      {
@@ -8204,6 +8283,7 @@
       "t": "A vendor item SAP cleared against an item of another fiscal year fails the migration run (split from the item before): the extract holds the scope's fiscal year only and AUGBL without SAP's clearing date and year, so a prior-year invoice paid this year fails documents mode (ledger.clearing_not_balanced) in either year's run and balances mode (cleared vendor items do not net to zero). Decided (product owner 2026-10-31, as recommended in batch 25, sapclear case 2): a fiscal year's migration holds open at the year's end every vendor item SAP cleared in a later fiscal year (SAP's key-date reading by the clearing date), and the later year's run clears it with the payment it loads; the extract carries SAP's clearing date and the clearing document's fiscal year (AUGDT, AUGGJ, stated from memory). Waits only on an SAP specialist confirming the extract's field names",
       "r": "internal/sap FilterScope, ACDOCA · internal/integration/load.go clearings, openingLines · reconcile.go journal · ADR-0034 As built (decided 2026-10-31) · docs/migration.md (waits on: an SAP specialist confirming AUGDT and AUGGJ in the extract)",
       "src": "review:batch22 · review:batch25 · po:2026-10-31",
+      "pilot": "po:2026-10-31",
       "c": []
      },
      {
@@ -8239,6 +8319,7 @@
       "t": "Load SAP open items in a foreign document currency in that currency (product owner 2026-10-31, as recommended): an open vendor item, open down payment or open GR/IR position line whose document currency (ACDOCA RWCUR, amount WSL) is not the company's is loaded as a document-currency item beside its company code amount (HSL), so a payment or final invoice in its own currency can clear it, instead of the quality gate refusing it; an OData extract's open items, refused today because its mapping does not carry RWCUR and WSL, load once those properties are mapped",
       "r": "internal/integration/load.go journalPosting · quality.go documentCurrencies · sap.ACDOCA RWCUR/WSL · ADR-0005 As built (review:batch20) · docs/migration.md · the OData mapping waits on the pilot system's $metadata (SAP S/4HANA OData V2 read connector)",
       "src": "review:batch20 · po:2026-10-31",
+      "pilot": "po:2026-10-31",
       "c": []
      }
     ]
@@ -8302,6 +8383,7 @@
       "t": "Pilot company code cut over (needs a client)",
       "r": "(waits on: a client)",
       "src": "baseline",
+      "pilot": "po:2026-10-31",
       "c": []
      },
      {
@@ -8400,6 +8482,7 @@
       "t": "The router's, the cells' and erp-web's directory logins authenticate with RDS IAM database authentication in place of their operator-set passwords, before production",
       "r": "T72h · ADR-0035 amendment 2026-10-28 · internal/directory setup.go · deploy/helm/erp-global · deploy/helm/erp-cell · modules/global",
       "src": "po:2026-10-28",
+      "pilot": "po:2026-10-31 · po:2026-10-28 · adr:ADR-0035",
       "c": []
      },
      {
@@ -8463,6 +8546,7 @@
       "t": "Web UI for pilot finance users (PO 2026-10-21: needed for the pilot): the web workspace of ADR-0052",
       "r": "Phase 1 triage (PO 2026-10-21) · \"Server-rendered web workspaces (templ + HTMX)\" (Platform / User interface) · built by T73a–T73m, ADR-0052 · T72k",
       "src": "baseline",
+      "pilot": "po:2026-10-31 · po:2026-10-21 · adr:ADR-0052",
       "c": []
      },
      {
@@ -8610,6 +8694,7 @@
       "t": "Configuration activation refused while replicas of two versions run, so a key an older replica would ignore (companies[].release_dual_limit: the old :release has no approval check) cannot take effect on part of the cell; until then the release runbook activates such changes only after the upgrade completes",
       "r": "ADR-0038 amendment (rollout) · 06 §6.4 config.ParseActive · T72m",
       "src": "baseline",
+      "pilot": "po:2026-10-31 · adr:ADR-0038",
       "c": []
      },
      {
@@ -8624,6 +8709,14 @@
       "t": "Simulation evidence replays the invoices of a fixed 90-day window whatever window the regression suite was captured with: take the window from the base version's latest suite (or the change request) so both kinds of evidence cover the same invoices",
       "r": "walkthrough 2026-10-22 · internal/payables simulate.go Simulation.Window · configuration regression suites window_days · built: configuration.Simulator takes the window of the base version's latest suite (simulateOver), the evidence names it (detail.window_suite), 90 days without a suite; the same length ending when the simulation runs, not the suite's dates, since the simulation shows the change on recent invoices (both cover the same invoices when simulated on the capture day); change requests carry no window; the ledger's assignment replay keeps ADR-0050's 90 days · 03 §3.5 · 07 T72l decisions · walkthrough step 2",
       "src": "baseline",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Pre-pilot whole-codebase review scores 9.5 on every dimension (07 §7.7 step 9)",
+      "r": "07 §7.7 step 9: before a pilot, a fresh whole-codebase review scores the eight dimensions, and a dimension below 9.5 is brought back first · REVIEW.md · docs/refactoring-progress.md (the 9.5 bar)",
+      "src": "design:07 §7.7",
+      "pilot": "po:2026-10-31 · design:07 §7.7",
       "c": []
      }
     ]

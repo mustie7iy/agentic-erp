@@ -649,6 +649,11 @@ func activate(ctx context.Context, tx pgx.Tx, deps Dependencies, actor reqctx.Pr
 		ON CONFLICT (tenant_id) DO UPDATE SET number = EXCLUDED.number, version = a.version + 1`, actor.TenantID, number); err != nil {
 		return version{}, fmt.Errorf("configuration: activate version %d: %w", number, err)
 	}
+	// Before any range or section lock: a transaction holding the
+	// configuration (Settings.Hold) may hold those in another order.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1 || platform.require_tenant()::text, 0))`, activationLock); err != nil {
+		return version{}, fmt.Errorf("configuration: take the activation lock for version %d: %w", number, err)
+	}
 	if err := applyRanges(ctx, tx, deps.LegalEntities, actor, doc); err != nil {
 		return version{}, err
 	}

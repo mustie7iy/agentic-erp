@@ -71,7 +71,7 @@ func TestGenerateFromMockSAP(t *testing.T) {
 			t.Errorf("got notes without %s, want a note about it:\n%s", want, all)
 		}
 	}
-	if fs := config.Validate(c, currency.Seeded()); config.HasErrors(fs) {
+	if fs := config.Validate(reviewed(c), currency.Seeded()); config.HasErrors(fs) {
 		t.Fatalf("draft does not validate: %v", fs)
 	}
 }
@@ -164,13 +164,13 @@ func TestUnparseableDaysFailValidation(t *testing.T) {
 			e.T052 = append(e.T052, sap.T052{ZTERM: "NT99", ZTAG1: ztag1, TEXT1: "Odd"})
 			c, _ := Generate(e, zoned())
 			var found bool
-			for _, f := range config.Validate(c, currency.Seeded()) {
+			for _, f := range config.Validate(reviewed(c), currency.Seeded()) {
 				if f.Path == "payment_terms[NT99].net_days" && f.Severity == config.SevError {
 					found = true
 				}
 			}
 			if !found {
-				t.Errorf("got no error on payment_terms[NT99].net_days, want one: %v", config.Validate(c, currency.Seeded()))
+				t.Errorf("got no error on payment_terms[NT99].net_days, want one: %v", config.Validate(reviewed(c), currency.Seeded()))
 			}
 		})
 	}
@@ -234,7 +234,7 @@ func TestGRIRFromT030(t *testing.T) {
 	if ad.PriceDifference != "590000" {
 		t.Errorf("price_difference from T030 PRD: got %q, want 590000", ad.PriceDifference)
 	}
-	if fs := config.Validate(c, currency.Seeded()); config.HasErrors(fs) {
+	if fs := config.Validate(reviewed(c), currency.Seeded()); config.HasErrors(fs) {
 		t.Fatalf("draft with GR/IR does not validate: %v", fs)
 	}
 }
@@ -244,8 +244,8 @@ func TestGRIRFromT030(t *testing.T) {
 func TestFurtherHouseBanks(t *testing.T) {
 	e := sap.GenerateMock(42, "2026")
 	e.SKB1 = append(e.SKB1, sap.SKB1{BUKRS: "1000", SAKNR: "0000101000", TXT50: "Bank clearing - DB"})
-	e.T012K = append(e.T012K, sap.T012K{BUKRS: "1000", HBKID: "DB", HKONT: "0000101000", IBAN: "DE02120300000000202051", SWIFT: "DEUTDEFFXXX"},
-		sap.T012K{BUKRS: "1000", HBKID: "DB", HKONT: "0000102000", IBAN: "DE89370400440532013000", SWIFT: "DEUTDEFFXXX"})
+	e.T012K = append(e.T012K, sap.T012K{BUKRS: "1000", HBKID: "DB", HKONT: "0000101000", IBAN: "DE02120300000000202051", SWIFT: "DEUTDEFFXXX", WAERS: "USD"},
+		sap.T012K{BUKRS: "1000", HBKID: "DB", HKONT: "0000102000", IBAN: "DE89370400440532013000", SWIFT: "DEUTDEFFXXX", WAERS: "USD"})
 	c, notes := Generate(e, zoned())
 	if !strings.Contains(notesText(notes), "house bank DB has several accounts") {
 		t.Errorf("a second account of DB: got notes %s, want one on it", notesText(notes))
@@ -258,7 +258,7 @@ func TestFurtherHouseBanks(t *testing.T) {
 	if !slices.Equal(co.HouseBanks, want) {
 		t.Errorf("further house banks: got %+v, want %+v", co.HouseBanks, want)
 	}
-	if fs := config.Validate(c, currency.Seeded()); config.HasErrors(fs) {
+	if fs := config.Validate(reviewed(c), currency.Seeded()); config.HasErrors(fs) {
 		t.Fatalf("draft with a further house bank does not validate: %v", fs)
 	}
 }
@@ -281,7 +281,7 @@ func TestMainHouseBankOnItsOwnAccount(t *testing.T) {
 	if co.AccountDetermination.Bank != "100000" {
 		t.Errorf("bank account from T030: got %q, want 100000", co.AccountDetermination.Bank)
 	}
-	if fs := config.Validate(c, currency.Seeded()); config.HasErrors(fs) {
+	if fs := config.Validate(reviewed(c), currency.Seeded()); config.HasErrors(fs) {
 		t.Fatalf("draft does not validate: %v", fs)
 	}
 }
@@ -327,7 +327,7 @@ func TestDownPaymentFromT074(t *testing.T) {
 		t.Errorf("T074 notes: got %d, want 1:\n%s", n, all)
 	}
 	plain, _ := Generate(sap.GenerateMock(42, "2026"), zoned())
-	if fs := config.Validate(plain, currency.Seeded()); config.HasErrors(fs) {
+	if fs := config.Validate(reviewed(plain), currency.Seeded()); config.HasErrors(fs) {
 		t.Errorf("draft with company 3000's down payment account does not validate: %v", fs)
 	}
 }
@@ -342,7 +342,7 @@ func TestCanadianHouseBank(t *testing.T) {
 	if got := c.Company("3000").HouseBank; got != want {
 		t.Errorf("house bank of 3000: got %+v, want %+v", got, want)
 	}
-	if fs := config.Validate(c, currency.Seeded()); config.HasErrors(fs) {
+	if fs := config.Validate(reviewed(c), currency.Seeded()); config.HasErrors(fs) {
 		t.Fatalf("draft with a Canadian house bank does not validate: %v", fs)
 	}
 	for name, bankKey := range map[string]string{"transit first": "00001-003", "without its zero": "00300001", "empty": ""} {
@@ -360,7 +360,7 @@ func TestCanadianHouseBank(t *testing.T) {
 			if hb := c.Company("3000").HouseBank; hb.InstitutionNumber != "" || hb.TransitNumber != "" {
 				t.Errorf("routing of a bank key %q: got %s/%s, want none", bankKey, hb.InstitutionNumber, hb.TransitNumber)
 			}
-			if fs := config.Validate(c, currency.Seeded()); !config.HasErrors(fs) {
+			if fs := config.Validate(reviewed(c), currency.Seeded()); !config.HasErrors(fs) {
 				t.Errorf("draft without the routing: got no errors, want validation to refuse it")
 			}
 		})

@@ -287,7 +287,8 @@ start() {
   say ""
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
-  say "  - tax returns (T61g-T61l), and the Canada pack's tax codes (T62g, Canada pack 2026.3): step 2 configures one code, step 11 uses it"
+  say "  - tax returns (T61h-T61l), and the Canada pack's tax codes (T62g, Canada pack 2026.3): step 2 configures one code and the"
+  say "    GST/HST registration, step 11 uses the code and lists the registration's filing periods"
   say "  - the liquidity forecast (T53e-T53k): step 13 shows the daily cash position with a memo record"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - accounts receivable, fixed assets (T57), period-end close (T64), consolidation (T68)"
@@ -391,7 +392,7 @@ person() {
 step_tenant() {
   heading "Step 1 — A tenant for the Canadian pilot company, configured from its SAP system"
   say "The mock SAP extract has a US company 1000, a German 2000 and the pilot, Maple Industries Canada,"
-  say "company $CC in CAD, with Canadian suppliers and a Canadian house bank (T72d)."
+  say "company $CC in CAD, with Canadian suppliers and Canadian house bank accounts in CAD and USD (T72d)."
   # A fixed seed and month: the mock's documents are then the same every
   # run, whatever today is (its random draws depend on -through below 6).
   show erp gen-mock-sap -out data/extract.json -year "$YEAR" -through 9 -seed 42
@@ -409,14 +410,39 @@ step_tenant() {
   say "The company does business in Eastern Time: its business dates (today in its cash position) are in"
   say "America/Toronto, given as the draft is generated (T72n1)."
   show erp config generate -source file:data/extract.json -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" -out config.yaml
-  "$ERP" config generate -source "file:$WORK/data/extract.json" -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" \
-    -out "$WORK/config.yaml" >"$WORK/generate.out" 2>&1 || { sed 's/^/     /' "$WORK/generate.out"; fail "config generate failed"; }
-  grep -q 'Validation: no findings' "$WORK/generate.out" || { sed 's/^/     /' "$WORK/generate.out"; fail "the generated configuration has findings"; }
-  say "  the configuration generated from SAP's customizing validates with no findings."
-  say "SAP's house bank (T012K) is Canadian: no IBAN, its account by institution, transit and account number:"
-  jq -r --arg cc "$CC" '.T012K[] | select(.BUKRS == $cc) | "     T012K \(.HBKID): bank \(.BANKS) \(.BANKL), account \(.BANKN), IBAN \(if .IBAN == "" then "none" else .IBAN end)"' "$WORK/data/extract.json"
+  if "$ERP" config generate -source "file:$WORK/data/extract.json" -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" \
+    -out "$WORK/config.yaml" >"$WORK/generate.out" 2>&1; then
+    fail "a draft with a USD house bank whose account is not revalued validated"
+  fi
+  say "SAP's house banks (T012K) are Canadian: no IBAN, each account by institution, transit and account number,"
+  say "in its own currency (WAERS): MAIN in CAD and MUSD in USD."
+  jq -r --arg cc "$CC" '.T012K[] | select(.BUKRS == $cc) | "     T012K \(.HBKID): bank \(.BANKS) \(.BANKL), account \(.BANKN) in \(.WAERS), IBAN \(if .IBAN == "" then "none" else .IBAN end)"' "$WORK/data/extract.json"
   grep -A 6 '^    house_bank:$' "$WORK/config.yaml" | sed 's/^/     /'
   grep -A 6 '^    house_bank:$' "$WORK/config.yaml" | grep -q 'institution_number: "003"' || fail "the house bank was not generated with its institution number"
+  grep -A 9 '^    house_banks:$' "$WORK/config.yaml" | sed 's/^/     /'
+  grep -A 9 '^    house_banks:$' "$WORK/config.yaml" | grep -q '^        currency: USD$' || fail "the USD house bank was not generated in USD"
+  say "SAP's payment methods are set up per country (T042Z) and company code (T042E), and its bank selection (T042A)"
+  say "ranks, per method and currency, the house banks that pay: the draft gives the company bank transfer, through"
+  say "MAIN in CAD and MUSD in USD (ADR-0038)."
+  jq -r '.T042Z[] | select(.LAND1 == "CA") | "     T042Z country \(.LAND1), method \(.ZLSCH): \(.TEXT1)"' "$WORK/data/extract.json"
+  jq -r --arg cc "$CC" '.T042E[] | select(.ZBUKR == $cc) | "     T042E company \(.ZBUKR), method \(.ZLSCH)"' "$WORK/data/extract.json"
+  jq -r --arg cc "$CC" '.T042A[] | select(.ZBUKR == $cc) | "     T042A method \(.ZLSCH), \(.WAERS), rank \(.RANGF): house bank \(.HBKID)"' "$WORK/data/extract.json"
+  grep -A 9 '^    payment_methods:$' "$WORK/config.yaml" | sed 's/^/     /'
+  expect "the generated method's ranking" "$(grep -A 9 '^    payment_methods:$' "$WORK/config.yaml" | grep -cE '^ +- (MAIN|MUSD)$')" 2
+  say "The USD account's ledger account must be revalued at month end (ADR-0042), which SAP's extract cannot"
+  say "tell, so the draft names it and does not validate until a reviewer flags it with its gain and loss accounts:"
+  grep "\[error\]" "$WORK/generate.out" | sed 's/^ */     /'
+  grep -q "\[error\] companies\[$CC\]\.house_banks\[MUSD\]\.gl_account: house bank MUSD is in USD: account 102000 must be revalue_foreign_currency" "$WORK/generate.out" ||
+    { sed 's/^/     /' "$WORK/generate.out"; fail "the draft did not ask for the USD bank's account to be revalued"; }
+  expect "the draft's validation errors" "$(grep -c '\[error\]' "$WORK/generate.out")" 1
+  awk '{ print } /^      - number: "102000"$/ { usd = 1 } usd && /^        type: asset$/ { print "        revalue_foreign_currency: true"; usd = 0 }
+    /^    fiscal_year_start_month: 1$/ { print "    fx_valuation:\n      accounts:\n        - {account: \"102000\", unrealised_gain: \"480000\", unrealised_loss: \"680000\"}" }' \
+    "$WORK/config.yaml" >"$WORK/config.tmp"
+  mv "$WORK/config.tmp" "$WORK/config.yaml"
+  show erp config validate -file config.yaml
+  "$ERP" config validate -file "$WORK/config.yaml" >"$WORK/validate.out" 2>&1 || { sed 's/^/     /' "$WORK/validate.out"; fail "the reviewed configuration does not validate"; }
+  grep -q 'Validation: no findings' "$WORK/validate.out" || { sed 's/^/     /' "$WORK/validate.out"; fail "the reviewed configuration has findings"; }
+  say "  with account 102000 revalued into 480000 and 680000, the configuration validates with no findings."
   say "A second ledger, 2L for local GAAP (ASPE), is added beside the leading IFRS ledger 0L before"
   say "provisioning: parallel ledgers are set up while the company has no postings (ADR-0045)."
   awk '{ print } /^    fiscal_year_start_month: 1$/ { print "    ledgers: [\"0L\", \"2L\"]" }' "$WORK/config.yaml" >"$WORK/config.tmp"
@@ -441,6 +467,17 @@ YAML
   expect "company $CC's currency" "$(field '.items[0].local_currency')" CAD
   api 200 '.items[] | "ledger \(.code) \(.name)\(if .is_leading then ", leading" else "" end)"' listLedgers
   expect "ledgers" "$(field '[.items[].code] | sort | join(" ")')" "0L 2L"
+  say "The house banks loaded from SAP, each in its account's currency:"
+  api 200 '.items[] | "house bank \(.code): \(.currency), account ending \(.account_last4)"' listHouseBanks -p "legal_entity_id=$LE"
+  expect "the house banks' currencies" "$(field '[.items[] | "\(.code) \(.currency)"] | sort | join(", ")')" "MAIN CAD, MUSD USD"
+  expect "the USD account's last four digits" "$(field '.items[] | select(.code == "MUSD") | .account_last4')" 2346
+  say "And its payment methods from SAP, in the active configuration:"
+  api 200 '.items[0].document.companies[] | select(.code == "'"$CC"'") | .payment_methods[] |
+    "payment method \(.code) \(.description): \([.ranking[] | "\(.currency) through \(.house_banks | join(", "))"] | join("; "))"' \
+    listConfigVersions -p is_active=true
+  expect "the company's payment method rankings" \
+    "$(field '[.items[0].document.companies[] | select(.code == "'"$CC"'") | .payment_methods[] | .code as $m | .ranking[] | "\($m) \(.currency) \(.house_banks | join(" "))"] | join(", ")')" \
+    "T CAD MAIN, T USD MUSD"
   people
   passed
 }
@@ -491,6 +528,10 @@ step_migrate() {
   api 200 '.items[] | "bank account \(.purpose): \(.account_scheme), bank \(.bank_country_code) \(.institution_number)-\(.transit_number), account ending \(.account_last4), valid from \(.valid_from)"' \
     listBankAccounts -p "id=$laurentian"
   expect "the Canadian account's scheme and bank" "$(field '.items[0] | "\(.account_scheme) \(.institution_number) \(.transit_number)"')" "ca 001 00010"
+  say "Its payment methods came over from its company data (LFB1-ZWELS), each a method of the company's (step 1):"
+  api 200 '.supplier_companies[] | "company data: payment terms \(.payment_term_code), payment methods \(.payment_methods // [] | join(", "))"' \
+    getBusinessPartner -p "id=$laurentian"
+  expect "the migrated supplier's payment methods" "$(field '[.supplier_companies[].payment_methods // [] | .[]] | join(" ")')" T
   say "SAP's parked corrections load as their kind (RBKP-XRECH, RSEG-TBTKZ; T72b), never as invoices to pay:"
   say "amounts stay positive and the kind gives the direction; parked, they hold no open item until posted."
   local kind
@@ -744,8 +785,10 @@ PILOT_SETTINGS='
        "gl_account": "1010", "main_gl_account": "1000", "incoming_gl_account": "1015"},
       {"name": "RBCUS", "bic": "ROYCCAT2", "institution_number": "003", "transit_number": "00002", "account_number": "4000001",
        "gl_account": "1020", "main_gl_account": "1030", "incoming_gl_account": "1040", "currency": "USD"}])
+    | .tax_registrations = [{"code": "GSTHST", "authority": "CRA", "number": "123456789 RT 0001", "return_type": "GST34",
+        "frequency": "quarterly", "first_period_start": "@YEAR@-01-01"}]
     | .release_dual_limit = "4000.00"
-    | .fx_valuation = {"accounts": ["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"})}
+    | .fx_valuation.accounts += (["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"}))
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
         "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})'
 
@@ -768,7 +811,7 @@ step_pack() {
   say "Ada adds the pilot's own settings to the proposal: RBC house banks in CAD and USD, USD accounts revalued"
   say "at month end, bank statement rules (match by end-to-end id, approval above CAD 10,000), payment runs"
   say "above CAD 4,000 released only after a second person approves, a 2/10 net 30 cash discount term,"
-  say "cost center categories, liquidity items and an output tax code for GST (step 11). The company keeps SAP's"
+  say "cost center categories, liquidity items, an output tax code for GST and the GST/HST registration (step 11). The company keeps SAP's"
   say "down payment account (T074), so the pack's own, 1400, is left out: a company has one (ADR-0037)."
   local settings=${PILOT_SETTINGS//@YEAR@/$YEAR}
   settings=${settings//@CC@/$CC}
@@ -857,6 +900,7 @@ step_procure() {
   say "The chairs arrive; Ben posts the goods receipt (debit expense, credit GR/IR)."
   api 201 '"goods receipt \(.id), journal entry \(.journal_entry_id)"' postGoodsReceipt \
     -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$PO\", \"po_item_no\": 1, \"quantity\": {\"value\": \"10\", \"unit\": \"EA\"}}]}"
+  RECEIPT=$(field .id)
   api 200 '.items[] | "item \(.item_no): ordered \(.quantity.value), received \(.received_quantity.value)"' getPurchaseOrder -p "id=$PO"
   passed
 }
@@ -946,7 +990,7 @@ migrated_grir_invoice() {
 }
 
 step_credit() {
-  heading "Step 6 — A credit memo"
+  heading "Step 6 — A credit memo; the receipt it leaves invoiced cannot be reversed"
   as alex
   say "One chair arrived damaged; Tyrell credits it. A credit memo debits the supplier when posted."
   invoice TY-CM-77 1 470.00 credit_memo
@@ -961,7 +1005,32 @@ step_credit() {
   [ "$(field .posting_date)" = "$before" ] || expect "the credit memo's posting date, Toronto's" "$(field .posting_date)" "$(TZ=America/Toronto date +%F)"
   CREDIT_ENTRY=$(field .journal_entry_id)
   api 200 '.items[] | "open item \(.amount.amount) \(.amount.currency)"' listOpenItems -p "partner_id=$SUPPLIER"
+  receipt_held
   passed
+}
+
+# receipt_held has Ben try to reverse the chairs' receipt of step 4 once
+# nine of them are invoiced net of the credit memo: a receipt's reversal
+# may not leave less received than invoiced (03 §3.9), or the order would
+# be paid for goods it no longer shows received.
+receipt_held() {
+  say "Ben thinks the chairs' receipt was posted by mistake and tries to reverse it. Nine of the ten are"
+  say "invoiced, net of the credit memo: the reversal would leave none received of nine paid for, so it is"
+  say "refused, naming the receipt, the order item and both quantities. Tyrell's credit memo, or a return"
+  say "of the goods (122), comes first."
+  as ben
+  QUIET=1 api 200 '' getGoodsReceipt -p "id=$RECEIPT"
+  local number
+  number=$(field .document_number)
+  refused 409 procurement.reversal_below_invoiced reverseGoodsReceipt -p "id=$RECEIPT" -if-match "$ETAG" -body '{}'
+  local detail
+  detail=$(field .detail)
+  case "$detail" in
+    *"goods receipt $number "*"with 0 received of 9 invoiced"*) ;;
+    *) fail "the refusal does not name the receipt $number and its quantities: $detail" ;;
+  esac
+  api 200 '.items[] | "item \(.item_no): ordered \(.quantity.value), received \(.received_quantity.value)"' getPurchaseOrder -p "id=$PO"
+  expect "the chairs received after the refusal" "$(field '.items[0].received_quantity.value')" 10
 }
 
 step_payment() {
@@ -1180,7 +1249,7 @@ step_ledgers() {
 }
 
 step_tax() {
-  heading "Step 11 — Tax: the tax on a sales entry, calculated and checked by the ledger"
+  heading "Step 11 — Tax: the tax on a sales entry, calculated and checked by the ledger, and the registration it is filed under"
   as carla
   api 200 '.items[] | select(.country == "CA") | "pack CA \(.version): \(.contents.tax_codes) tax codes"' listCountryPacks
   say "The released Canada packs carry no tax codes yet: GST/HST, QST and PST come with Canada pack 2026.3 (T62g)."
@@ -1211,6 +1280,22 @@ step_tax() {
   api 201 "$entry" postJournalEntry -body "$(sale "Billing: summary of invoices 1044-1047" "$(line "$cash" 420.44), $(line "$sales" -100.10 GO5), $(line "$sales" -100.10 GO5), $(line "$sales" -100.10 GO5), $(line "$sales" -100.10 GO5), $(line "$gst" -20.04 GO5)")"
   refused 422 ledger.output_tax_mismatch postJournalEntry \
     -body "$(sale "Billing: one base line" "$(line "$cash" 420.44), $(line "$sales" -400.40 GO5), $(line "$gst" -20.04 GO5)")"
+  say "The tax this posts is filed under the company's GST/HST registration with the CRA, configured in step 2"
+  say "(T61g): the number is sealed and shown by its last four characters. The number and the quarterly"
+  say "frequency here are illustrative; the pilot's own registration and filing frequency come from the pilot."
+  api 200 '.items[] | "registration \(.code): \(.authority), number ending \(.number_last4), return \(.return_type), \(.frequency) from \(.first_period_start), company \(.company_code), \(.status)"' \
+    listTaxRegistrations -p "legal_entity_id=$LE"
+  expect "the registration" "$(field '.items[0] | "\(.code) \(.company_code) \(.number_last4) \(.frequency)"')" "GSTHST $CC 0001 quarterly"
+  local registration
+  registration=$(field '.items[0].id')
+  say "Its filing periods follow from the frequency and the first period, apart from fiscal periods, up to the"
+  say "one under way on the company's date in its time zone; the returns (T61h-T61i) are prepared for them."
+  api 200 '"periods starting by \(.start_date_to) (the company'"'"'s date in \(.time_zone)):", (.items[] | "  \(.start_date) to \(.end_date)")' \
+    listTaxPeriods -p "id=$registration"
+  expect "the first period" "$(field '.items[0] | "\(.start_date) \(.end_date)"')" "$YEAR-01-01 $YEAR-03-31"
+  expect "the time zone" "$(field .time_zone)" America/Toronto
+  say "A registration nobody may see, or none, is not found:"
+  refused 404 request.not_found listTaxPeriods -p "id=00000000-0000-7000-8000-000000000000"
   passed
 }
 

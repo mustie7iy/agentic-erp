@@ -39,6 +39,8 @@ type Handler interface {
 	// controlling rules again against its data, which may have changed since submission (a default cost or
 	// profit center no longer usable, postings in the year a center accounting switch turns on, a removed
 	// cost center category in use): 409 `ledger.controlling_invalid`, naming each finding (ADR-0050 §4).
+	// A tax registration whose company, group, authority, number, return type, frequency or first period
+	// changed under its code since submission is refused: 409 `tax.registration_fixed` (ADR-0049 §10).
 	//
 	// POST /v1/change-requests/{id}:activate
 	ActivateChangeRequest(ctx context.Context, params ActivateChangeRequestParams) (ActivateChangeRequestRes, error)
@@ -1691,6 +1693,26 @@ type Handler interface {
 	//
 	// GET /v1/supplier-invoices
 	ListSupplierInvoices(ctx context.Context, params ListSupplierInvoicesParams) (ListSupplierInvoicesRes, error)
+	// ListTaxPeriods implements listTaxPeriods operation.
+	//
+	// The registration's filing periods (ADR-0049 §10, T61g), by start date: the first starts on its
+	// `first_period_start`, each lasts a month, a quarter or a year by its `frequency`, independent of
+	// fiscal periods, and none follows its `last_period_end`. Without `start_date_to`, up to the period
+	// under way on its company's date in its time zone (`companies[].time_zone`), which the answer names.
+	// A registration the caller does not see (`listTaxRegistrations`) is not found; without an active
+	// configuration to read the time zone from, 409 `config.not_bootstrapped`. Sortable by: `start_date`.
+	//
+	// GET /v1/tax-registrations/{id}/periods
+	ListTaxPeriods(ctx context.Context, params ListTaxPeriodsParams) (ListTaxPeriodsRes, error)
+	// ListTaxRegistrations implements listTaxRegistrations operation.
+	//
+	// The companies' registrations with tax authorities (ADR-0049 §10, T61g), as the configuration names
+	// them (`companies[].tax_registrations`), active and inactive: a registration covers its company and,
+	// for a tax group, the group's other members. A caller sees the registrations covering a company they
+	// may act in. The registration number is shown by its last four characters only. Sortable by: `code`.
+	//
+	// GET /v1/tax-registrations
+	ListTaxRegistrations(ctx context.Context, params ListTaxRegistrationsParams) (ListTaxRegistrationsRes, error)
 	// ListWebhookDeliveries implements listWebhookDeliveries operation.
 	//
 	// The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:
@@ -2363,7 +2385,10 @@ type Handler interface {
 	// ReverseGoodsReceipt implements reverseGoodsReceipt operation.
 	//
 	// Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
-	// the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance. A
+	// the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance; a 102 is
+	// refused (409 `procurement.reversal_below_invoiced`, naming the receipt, the order item and both
+	// quantities) if it would leave an order item received less than posted supplier documents invoiced of
+	// it, net of credit memos: the supplier's credit memo is posted first, or the goods returned (122). A
 	// movement on a closed order is reversed too, as a mistaken receipt or return is undone whenever it is
 	// found. Returns the reversal.
 	//
@@ -2391,7 +2416,12 @@ type Handler interface {
 	//
 	// Posts a reversal of the invoice's journal entry; the status becomes `reversed` and
 	// `reversal_entry_id` is set. Refused (409) if the invoice is in a live payment run or cleared.
-	// Requires status `posted`.
+	// Requires status `posted`. On a purchase order, refused (409, naming the document, the order item and
+	// the quantities) if the documents posted on the order would no longer pass the three-way match
+	// without it: a credit memo's reversal invoicing an order item past what was received
+	// (`payables.reversal_exceeds_received`), an invoice's reversal leaving credit memos crediting more
+	// than remains invoiced (`payables.reversal_exceeds_invoiced`) or a posted subsequent debit or credit
+	// on an item nothing remains invoiced of (`payables.reversal_leaves_revaluation`).
 	//
 	// POST /v1/supplier-invoices/{id}:reverse
 	ReverseSupplierInvoice(ctx context.Context, req *SupplierInvoiceReverse, params ReverseSupplierInvoiceParams) (ReverseSupplierInvoiceRes, error)

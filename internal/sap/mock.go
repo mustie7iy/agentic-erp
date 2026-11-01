@@ -3,6 +3,7 @@ package sap
 import (
 	"fmt"
 	"math/rand/v2"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -27,7 +28,12 @@ import (
 // Company 3000 is generated as 1000 is, after the others, so their data is
 // the same with or without it: its vendors are Canadian ones, with their
 // bank accounts by institution, transit and account number, and two of
-// 1000's, and its house bank is Canadian, without an IBAN (T72d). Being
+// 1000's, and its house bank is Canadian, without an IBAN (T72d), with a
+// second account in USD, on its own ledger account 0000102000, beside
+// exchange gain and loss accounts its revaluation can name (T012K WAERS,
+// ADR-0038 T53a). Every company pays by bank transfer through its house
+// banks (T042Z, T042E, T042A, T042I), and 3000's vendors list it as their
+// payment method (LFB1-ZWELS). Being
 // generated as 1000 is, it has the same scenarios and corrections, the
 // corrections numbered on after 1000's. It also has an open down payment
 // to the supplier of its second order, whose invoice SAP posted and did not
@@ -128,6 +134,10 @@ const (
 	priceDifferenceAccount = "0000591000"
 )
 
+// usdBankAccount is the ledger account of company 3000's USD house bank
+// account, MUSD.
+const usdBankAccount = "0000102000"
+
 func vendorID(i int) string { return fmt.Sprintf("%010d", 100001+i) }
 
 func (g *mockGen) masterData() {
@@ -139,7 +149,9 @@ func (g *mockGen) masterData() {
 		}
 	}
 	g.e.SKB1 = append(g.e.SKB1, SKB1{BUKRS: "3000", SAKNR: downPaymentAccount, TXT50: "Down payments made", XBILK: "X", MITKZ: "K"},
-		SKB1{BUKRS: "3000", SAKNR: grirAccount, TXT50: "GR/IR clearing", XBILK: "X"}, SKB1{BUKRS: "3000", SAKNR: priceDifferenceAccount, TXT50: "Price differences"})
+		SKB1{BUKRS: "3000", SAKNR: grirAccount, TXT50: "GR/IR clearing", XBILK: "X"}, SKB1{BUKRS: "3000", SAKNR: priceDifferenceAccount, TXT50: "Price differences"},
+		SKB1{BUKRS: "3000", SAKNR: usdBankAccount, TXT50: "Bank - Operating USD", XBILK: "X"},
+		SKB1{BUKRS: "3000", SAKNR: "0000480000", TXT50: "Exchange rate gains"}, SKB1{BUKRS: "3000", SAKNR: "0000680000", TXT50: "Exchange rate losses"})
 	terms := []string{"NT30", "NT45", "NT14", "NT60"}
 	for i, name := range vendorNames {
 		id := vendorID(i)
@@ -177,20 +189,25 @@ var canadianVendorNames = []string{
 // 3000's blocked-vendor scenario.
 var canadianShared = []string{"0000100011", blockedVendor}
 
+// transfer is the mock's one payment method, a bank transfer (T042Z,
+// mockPaymentMethods), which company 3000's vendors are paid by
+// (LFB1-ZWELS); the other companies' vendors list none, as SAP allows.
+const transfer = "T"
+
 // canadianVendors adds company 3000's vendors: Canadian ones with a
 // Canadian bank account (BANKS CA; BANKL the routing as 0 + institution +
-// transit, cabank.MemberID; BANKN the account number), and canadianShared.
-// It draws nothing from the generator.
+// transit, cabank.MemberID; BANKN the account number), and canadianShared,
+// each paid by bank transfer (ZWELS). It draws nothing from the generator.
 func (g *mockGen) canadianVendors(terms []string) {
 	for i, name := range canadianVendorNames {
 		id := fmt.Sprintf("%010d", 300001+i)
 		g.e.LFA1 = append(g.e.LFA1, LFA1{LIFNR: id, NAME1: name, LAND1: "CA", STCD1: fmt.Sprintf("%09d", 800000000+i*7919)})
 		institution, transit := []string{"001", "002", "003", "004", "006", "010"}[i], fmt.Sprintf("%05d", 10+i*111)
 		g.e.LFBK = append(g.e.LFBK, LFBK{LIFNR: id, BANKS: "CA", BANKL: "0" + institution + transit, BANKN: fmt.Sprintf("%07d", 5000000+(i+1)*7777)})
-		g.e.LFB1 = append(g.e.LFB1, LFB1{LIFNR: id, BUKRS: "3000", AKONT: "0000211000", ZTERM: terms[i%len(terms)]})
+		g.e.LFB1 = append(g.e.LFB1, LFB1{LIFNR: id, BUKRS: "3000", AKONT: "0000211000", ZTERM: terms[i%len(terms)], ZWELS: transfer})
 	}
 	for _, id := range canadianShared {
-		g.e.LFB1 = append(g.e.LFB1, LFB1{LIFNR: id, BUKRS: "3000", AKONT: "0000211000", ZTERM: "NT30"})
+		g.e.LFB1 = append(g.e.LFB1, LFB1{LIFNR: id, BUKRS: "3000", AKONT: "0000211000", ZTERM: "NT30", ZWELS: transfer})
 	}
 }
 
@@ -553,14 +570,36 @@ func (g *mockGen) receivedNotInvoiced(cc string) {
 	g.e.T030 = append(g.e.T030, T030{BUKRS: cc, KTOSL: "WRX", KONTS: grirAccount}, T030{BUKRS: cc, KTOSL: "PRD", KONTS: priceDifferenceAccount})
 }
 
-// mockHouseBank is a company's house bank MAIN: by IBAN, or for company
-// 3000 a Canadian account, which has none, by its bank key (the routing
-// as 0 + institution + transit) and account number.
-func mockHouseBank(cc string, banks map[string][2]string) T012K {
+// mockHouseBanks are a company's house bank MAIN in its currency: by
+// IBAN, or for company 3000 a Canadian account, which has none, by its bank
+// key (the routing as 0 + institution + transit) and account number; and
+// company 3000's second house bank, MUSD, an account in USD at the same
+// bank.
+func mockHouseBanks(cc string, banks map[string][2]string) []T012K {
 	if cc == "3000" {
-		return T012K{BUKRS: cc, HBKID: "MAIN", HKONT: "0000100000", SWIFT: "ROYCCAT2", BANKS: "CA", BANKL: "000300001", BANKN: "5012345"}
+		return []T012K{
+			{BUKRS: cc, HBKID: "MAIN", HKONT: "0000100000", SWIFT: "ROYCCAT2", BANKS: "CA", BANKL: "000300001", BANKN: "5012345", WAERS: mockCurrency(cc)},
+			{BUKRS: cc, HBKID: "MUSD", HKONT: usdBankAccount, SWIFT: "ROYCCAT2", BANKS: "CA", BANKL: "000300001", BANKN: "5012346", WAERS: "USD"},
+		}
 	}
-	return T012K{BUKRS: cc, HBKID: "MAIN", HKONT: "0000100000", IBAN: banks[cc][0], SWIFT: banks[cc][1]}
+	return []T012K{{BUKRS: cc, HBKID: "MAIN", HKONT: "0000100000", IBAN: banks[cc][0], SWIFT: banks[cc][1], WAERS: mockCurrency(cc)}}
+}
+
+// mockPaymentMethods sets the company up to pay by bank transfer: the
+// method in its country (T042Z), in the company code (T042E), and each of
+// its house banks ranked first for the method in its account's currency
+// (T042A), posting to the bank's own G/L account (T042I).
+func (g *mockGen) mockPaymentMethods(c T001) {
+	if !slices.ContainsFunc(g.e.T042Z, func(z T042Z) bool { return z.LAND1 == c.LAND1 }) {
+		g.e.T042Z = append(g.e.T042Z, T042Z{LAND1: c.LAND1, ZLSCH: transfer, TEXT1: "Bank transfer"})
+	}
+	g.e.T042E = append(g.e.T042E, T042E{ZBUKR: c.BUKRS, ZLSCH: transfer})
+	for _, b := range g.e.T012K {
+		if b.BUKRS == c.BUKRS {
+			g.e.T042A = append(g.e.T042A, T042A{ZBUKR: c.BUKRS, ZLSCH: transfer, WAERS: b.WAERS, RANGF: "00001", HBKID: b.HBKID})
+			g.e.T042I = append(g.e.T042I, T042I{ZBUKR: c.BUKRS, HBKID: b.HBKID, ZLSCH: transfer, WAERS: b.WAERS, HKTID: "00001", UKONT: b.HKONT})
+		}
+	}
 }
 
 // customizing adds the configuration tables a real system carries, including
@@ -592,7 +631,8 @@ func (g *mockGen) customizing() {
 			T030{BUKRS: c.BUKRS, KTOSL: "VST", KONTS: "0000140000"},
 			T030{BUKRS: c.BUKRS, KTOSL: "BNK", KONTS: "0000100000"})
 		g.e.T169G = append(g.e.T169G, T169G{BUKRS: c.BUKRS, TOLSL: "PP", PROZ: "2", WERTO: "5.00"})
-		g.e.T012K = append(g.e.T012K, mockHouseBank(c.BUKRS, banks))
+		g.e.T012K = append(g.e.T012K, mockHouseBanks(c.BUKRS, banks)...)
+		g.mockPaymentMethods(c)
 	}
 	roles := []struct {
 		name, text string

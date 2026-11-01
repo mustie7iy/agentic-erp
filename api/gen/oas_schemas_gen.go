@@ -9366,6 +9366,7 @@ func (*ConflictHeaders) getPurchaseOrderDocumentRes()         {}
 func (*ConflictHeaders) grantRolePermissionRes()              {}
 func (*ConflictHeaders) holdSupplierInvoiceRes()              {}
 func (*ConflictHeaders) importBankStatementsRes()             {}
+func (*ConflictHeaders) listTaxPeriodsRes()                   {}
 func (*ConflictHeaders) lockCostCenterRes()                   {}
 func (*ConflictHeaders) lockFiscalPeriodRes()                 {}
 func (*ConflictHeaders) lockPlanCategoryRes()                 {}
@@ -21348,6 +21349,26 @@ func (*ListSupplierInvoicesBadRequest) listSupplierInvoicesRes() {}
 type ListSupplierInvoicesForbidden Problem
 
 func (*ListSupplierInvoicesForbidden) listSupplierInvoicesRes() {}
+
+type ListTaxPeriodsBadRequest Problem
+
+func (*ListTaxPeriodsBadRequest) listTaxPeriodsRes() {}
+
+type ListTaxPeriodsForbidden Problem
+
+func (*ListTaxPeriodsForbidden) listTaxPeriodsRes() {}
+
+type ListTaxPeriodsNotFound Problem
+
+func (*ListTaxPeriodsNotFound) listTaxPeriodsRes() {}
+
+type ListTaxRegistrationsBadRequest Problem
+
+func (*ListTaxRegistrationsBadRequest) listTaxRegistrationsRes() {}
+
+type ListTaxRegistrationsForbidden Problem
+
+func (*ListTaxRegistrationsForbidden) listTaxRegistrationsRes() {}
 
 type ListWebhookDeliveriesBadRequest Problem
 
@@ -40870,6 +40891,330 @@ func (s *TaxIdentifierInput) SetValue(val string) {
 	s.Value = val
 }
 
+// A filing period of a tax registration: its first and last day.
+// Ref: #/components/schemas/TaxPeriod
+type TaxPeriod struct {
+	// The period's first day.
+	StartDate time.Time `json:"start_date"`
+	// The period's last day.
+	EndDate time.Time `json:"end_date"`
+}
+
+// GetStartDate returns the value of StartDate.
+func (s *TaxPeriod) GetStartDate() time.Time {
+	return s.StartDate
+}
+
+// GetEndDate returns the value of EndDate.
+func (s *TaxPeriod) GetEndDate() time.Time {
+	return s.EndDate
+}
+
+// SetStartDate sets the value of StartDate.
+func (s *TaxPeriod) SetStartDate(val time.Time) {
+	s.StartDate = val
+}
+
+// SetEndDate sets the value of EndDate.
+func (s *TaxPeriod) SetEndDate(val time.Time) {
+	s.EndDate = val
+}
+
+// One page of a tax registration's filing periods.
+// Ref: #/components/schemas/TaxPeriodPage
+type TaxPeriodPage struct {
+	// The registration.
+	RegistrationID uuid.UUID `json:"registration_id"`
+	// The registration's code.
+	RegistrationCode string `json:"registration_code"`
+	// The periods listed start on or before this date: the one asked for, or the registrant company's date
+	// today.
+	StartDateTo time.Time `json:"start_date_to"`
+	// The time zone `start_date_to` is the company's date in, when it was not asked for (IANA name).
+	TimeZone OptString `json:"time_zone"`
+	// The periods on this page.
+	Items []TaxPeriod `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetRegistrationID returns the value of RegistrationID.
+func (s *TaxPeriodPage) GetRegistrationID() uuid.UUID {
+	return s.RegistrationID
+}
+
+// GetRegistrationCode returns the value of RegistrationCode.
+func (s *TaxPeriodPage) GetRegistrationCode() string {
+	return s.RegistrationCode
+}
+
+// GetStartDateTo returns the value of StartDateTo.
+func (s *TaxPeriodPage) GetStartDateTo() time.Time {
+	return s.StartDateTo
+}
+
+// GetTimeZone returns the value of TimeZone.
+func (s *TaxPeriodPage) GetTimeZone() OptString {
+	return s.TimeZone
+}
+
+// GetItems returns the value of Items.
+func (s *TaxPeriodPage) GetItems() []TaxPeriod {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *TaxPeriodPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetRegistrationID sets the value of RegistrationID.
+func (s *TaxPeriodPage) SetRegistrationID(val uuid.UUID) {
+	s.RegistrationID = val
+}
+
+// SetRegistrationCode sets the value of RegistrationCode.
+func (s *TaxPeriodPage) SetRegistrationCode(val string) {
+	s.RegistrationCode = val
+}
+
+// SetStartDateTo sets the value of StartDateTo.
+func (s *TaxPeriodPage) SetStartDateTo(val time.Time) {
+	s.StartDateTo = val
+}
+
+// SetTimeZone sets the value of TimeZone.
+func (s *TaxPeriodPage) SetTimeZone(val OptString) {
+	s.TimeZone = val
+}
+
+// SetItems sets the value of Items.
+func (s *TaxPeriodPage) SetItems(val []TaxPeriod) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *TaxPeriodPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*TaxPeriodPage) listTaxPeriodsRes() {}
+
+// A company's registration with a tax authority (ADR-0049 §10, T61g), from the configuration
+// (`companies[].tax_registrations`). Its periods follow from `frequency` and `first_period_start`,
+// which never change under its code (`listTaxPeriods`).
+// Ref: #/components/schemas/TaxRegistration
+type TaxRegistration struct {
+	// Identifier.
+	ID uuid.UUID `json:"id"`
+	// The registration's code in the configuration, unique in the tenant.
+	Code string `json:"code"`
+	// The registrant: the company the configuration lists the registration under (a tax group's
+	// representative member).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The registrant's company code.
+	CompanyCode string `json:"company_code"`
+	// A tax group's other members, by legal entity and company code; empty for a registration of one
+	// company.
+	GroupMembers []TaxRegistrationGroupMembersItem `json:"group_members"`
+	// The tax authority's code, as the configuration names it (`CRA`, `RQ`, `FTA`).
+	Authority string `json:"authority"`
+	// The last up to four characters of the registration number, without spaces; the number is kept
+	// sealed.
+	NumberLast4 string `json:"number_last4"`
+	// The return the registration files, as the country pack names it.
+	ReturnType string `json:"return_type"`
+	// How often the registration files: a period lasts a month, a quarter or a year. Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Frequency string `json:"frequency"`
+	// The first day of the first period; each later period starts on the same day of a month.
+	FirstPeriodStart time.Time `json:"first_period_start"`
+	// The last day of the last period, once the registration has ended (or its frequency changed, a
+	// registration of a new code continuing); absent while it runs.
+	LastPeriodEnd OptDate `json:"last_period_end"`
+	// `inactive` once the configuration no longer lists it. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+}
+
+// GetID returns the value of ID.
+func (s *TaxRegistration) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCode returns the value of Code.
+func (s *TaxRegistration) GetCode() string {
+	return s.Code
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *TaxRegistration) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *TaxRegistration) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetGroupMembers returns the value of GroupMembers.
+func (s *TaxRegistration) GetGroupMembers() []TaxRegistrationGroupMembersItem {
+	return s.GroupMembers
+}
+
+// GetAuthority returns the value of Authority.
+func (s *TaxRegistration) GetAuthority() string {
+	return s.Authority
+}
+
+// GetNumberLast4 returns the value of NumberLast4.
+func (s *TaxRegistration) GetNumberLast4() string {
+	return s.NumberLast4
+}
+
+// GetReturnType returns the value of ReturnType.
+func (s *TaxRegistration) GetReturnType() string {
+	return s.ReturnType
+}
+
+// GetFrequency returns the value of Frequency.
+func (s *TaxRegistration) GetFrequency() string {
+	return s.Frequency
+}
+
+// GetFirstPeriodStart returns the value of FirstPeriodStart.
+func (s *TaxRegistration) GetFirstPeriodStart() time.Time {
+	return s.FirstPeriodStart
+}
+
+// GetLastPeriodEnd returns the value of LastPeriodEnd.
+func (s *TaxRegistration) GetLastPeriodEnd() OptDate {
+	return s.LastPeriodEnd
+}
+
+// GetStatus returns the value of Status.
+func (s *TaxRegistration) GetStatus() string {
+	return s.Status
+}
+
+// SetID sets the value of ID.
+func (s *TaxRegistration) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCode sets the value of Code.
+func (s *TaxRegistration) SetCode(val string) {
+	s.Code = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *TaxRegistration) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *TaxRegistration) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetGroupMembers sets the value of GroupMembers.
+func (s *TaxRegistration) SetGroupMembers(val []TaxRegistrationGroupMembersItem) {
+	s.GroupMembers = val
+}
+
+// SetAuthority sets the value of Authority.
+func (s *TaxRegistration) SetAuthority(val string) {
+	s.Authority = val
+}
+
+// SetNumberLast4 sets the value of NumberLast4.
+func (s *TaxRegistration) SetNumberLast4(val string) {
+	s.NumberLast4 = val
+}
+
+// SetReturnType sets the value of ReturnType.
+func (s *TaxRegistration) SetReturnType(val string) {
+	s.ReturnType = val
+}
+
+// SetFrequency sets the value of Frequency.
+func (s *TaxRegistration) SetFrequency(val string) {
+	s.Frequency = val
+}
+
+// SetFirstPeriodStart sets the value of FirstPeriodStart.
+func (s *TaxRegistration) SetFirstPeriodStart(val time.Time) {
+	s.FirstPeriodStart = val
+}
+
+// SetLastPeriodEnd sets the value of LastPeriodEnd.
+func (s *TaxRegistration) SetLastPeriodEnd(val OptDate) {
+	s.LastPeriodEnd = val
+}
+
+// SetStatus sets the value of Status.
+func (s *TaxRegistration) SetStatus(val string) {
+	s.Status = val
+}
+
+type TaxRegistrationGroupMembersItem struct {
+	// The member's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The member's company code.
+	CompanyCode string `json:"company_code"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *TaxRegistrationGroupMembersItem) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *TaxRegistrationGroupMembersItem) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *TaxRegistrationGroupMembersItem) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *TaxRegistrationGroupMembersItem) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// One page of tax registrations.
+// Ref: #/components/schemas/TaxRegistrationPage
+type TaxRegistrationPage struct {
+	// The tax registrations on this page.
+	Items []TaxRegistration `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *TaxRegistrationPage) GetItems() []TaxRegistration {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *TaxRegistrationPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *TaxRegistrationPage) SetItems(val []TaxRegistration) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *TaxRegistrationPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*TaxRegistrationPage) listTaxRegistrationsRes() {}
+
 type TerminateContractBadRequest Problem
 
 func (*TerminateContractBadRequest) terminateContractRes() {}
@@ -41126,6 +41471,8 @@ func (*TooManyRequestsHeaders) listRolesRes()                        {}
 func (*TooManyRequestsHeaders) listSegmentsRes()                     {}
 func (*TooManyRequestsHeaders) listSodRulesRes()                     {}
 func (*TooManyRequestsHeaders) listSupplierInvoicesRes()             {}
+func (*TooManyRequestsHeaders) listTaxPeriodsRes()                   {}
+func (*TooManyRequestsHeaders) listTaxRegistrationsRes()             {}
 func (*TooManyRequestsHeaders) listWebhookDeliveriesRes()            {}
 func (*TooManyRequestsHeaders) listWebhookSubscriptionsRes()         {}
 func (*TooManyRequestsHeaders) lockCostCenterRes()                   {}
@@ -41472,6 +41819,8 @@ func (*UnauthorizedHeaders) listRolesRes()                        {}
 func (*UnauthorizedHeaders) listSegmentsRes()                     {}
 func (*UnauthorizedHeaders) listSodRulesRes()                     {}
 func (*UnauthorizedHeaders) listSupplierInvoicesRes()             {}
+func (*UnauthorizedHeaders) listTaxPeriodsRes()                   {}
+func (*UnauthorizedHeaders) listTaxRegistrationsRes()             {}
 func (*UnauthorizedHeaders) listWebhookDeliveriesRes()            {}
 func (*UnauthorizedHeaders) listWebhookSubscriptionsRes()         {}
 func (*UnauthorizedHeaders) lockCostCenterRes()                   {}
