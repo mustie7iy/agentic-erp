@@ -1224,3 +1224,14 @@ const (
 	UnsentTitle              Key = "request.unsent.title"
 	UnsentBody               Key = "request.unsent.body"
 )
+
+// The cancel of a revaluation run (T73i2).
+const (
+	RevaluationCancelTitle        Key = "revaluation.cancel.title"
+	RevaluationCancelHint         Key = "revaluation.cancel.hint"
+	RevaluationCancelReason       Key = "revaluation.cancel.reason"
+	RevaluationCancelButton       Key = "revaluation.cancel"
+	RevaluationCancelRefusedTitle Key = "revaluation.cancel.refused.title"
+	RevaluationDoneCancelled      Key = "revaluation.done.cancelled"
+	ProblemRevaluationNotPosted   Key = "problem.ledger.revaluation_not_posted"
+)

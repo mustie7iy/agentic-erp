@@ -20,6 +20,7 @@ type closeData struct {
 	f              fixture.Env
 	leading, local uuid.UUID    // ledgers 0L and 2L, both kept by company 2000
 	order          uuid.UUID    // the purchase order of company 2000's open GR/IR position
+	returned       uuid.UUID    // order 4500000099, received in March and returned in April
 	statement      uuid.UUID    // company 2000's statement S1, imported and not reconciled
 	accountant     pgtest.Actor // closes periods and revalues; holds every role, as the approvers do
 	viewer         pgtest.Actor // may read periods, ledgers and companies alone
@@ -30,9 +31,10 @@ type closeData struct {
 // accountant closes company 2000's periods and whose approver, holding
 // the controller's role, decides their unlocks: 2L kept beside 0L with a
 // posting in 2L alone in March, a USD supplier item a revaluation on 31
-// March values at a loss of EUR 10.00, an open GR/IR position and a bank
-// statement not reconciled; a person may only read periods and one may
-// read nothing.
+// March values at a loss of EUR 10.00, an open GR/IR position, an order
+// received in March and returned in April (open at March's end alone) and
+// a bank statement not reconciled; a person may only read periods and one
+// may read nothing.
 func closeStack(t *testing.T) (*stack, *closeData) {
 	t.Helper()
 	d := &closeData{}
@@ -40,10 +42,13 @@ func closeStack(t *testing.T) (*stack, *closeData) {
 	perms := append([]string{"payments.statement.read", "payments.statement.import"}, fixture.ClosePermissions...)
 	s := newStack(t, stackOptions{permissions: perms, extend: fixture.Parallel, objects: objects, seed: func(f fixture.Env) {
 		d.f = f
-		f.Revalues(t, fixture.Parallel)
+		f.Revalues(t, fixture.Parallel, fixture.GRIRAccounts)
 		d.leading, d.local = f.Ledger(t, "0L"), f.Ledger(t, "2L")
 		f.LedgerOnly(t, d.local, "2026-03-16", "25.00")
 		d.order = f.GRIROpen(t)
+		d.returned = f.Order(t, f.Supplier, "4500000099")
+		f.GRIRReceived(t, d.returned, "2026-03-20", "-5")
+		f.GRIRReceived(t, d.returned, "2026-04-10", "5")
 		d.statement = f.ImportStatement(t, objects, fixture.MT940("S1", "1", "1000,00", "260416", "990,00", "260417", ":61:2604170417D10,00NMSCNONREF//B1\n"))[0]
 		d.accountant = f.Person(t, "accountant")
 		d.viewer = roleHolder(t, f, "viewer", "ledger.period.read", "ledger.account.read", "tenancy.org.read")
@@ -295,12 +300,23 @@ func TestPreCloseChecks(t *testing.T) {
 	}
 	got := text(section.page(t).doc)
 	holds(t, "company 2000's checks", got, "Pre-close checks", "GR/IR positions still open", "To look at", d.order.String()+" 1 10 EA 4 EA EUR -72.00 2026-03-05",
-		"Ledger 0L compared with ledger 2L in this period.", "Ledger 0L Debits", "Debits and credits net to zero",
-		d.f.Account(t, "2000", "100000").String()+" EUR EUR 0.00 EUR 25.00 EUR -25.00",
+		"4500000099 1 5 EA 0 EA EUR -60.00 2026-03-20", "Ledger 0L compared with ledger 2L in this period.", "Ledger 0L Debits", "Debits and credits net to zero",
+		"100000 Bank - Operating EUR EUR 0.00 EUR 25.00 EUR -25.00",
 		"Bank statements not reconciled", "S1", "Every statement imported, not reconciled")
+	if want := "key_date=2026-03-31"; !strings.Contains(path, want) {
+		t.Errorf("the checks' address: got %s, want the period's end in it (%s)", path, want)
+	}
+	// The order returned in April was open at March's end, not at April's:
+	// each period's checks read the positions as at its end (T73i2).
+	april := text(b.get(checksQuery("legal_entity_id", d.f.DE.String(), "ledger_id", d.leading.String(), "period", "4", "key_date", "2026-04-30")).page(t).doc)
+	if strings.Contains(april, "4500000099") {
+		t.Error("April's checks: show the order returned in April, want it closed at April's end")
+	}
+	company := url.Values{"legal_entity_id": {d.f.DE.String()}}
 	links := map[string]bool{}
 	walk(section.page(t).doc, func(n *html.Node) { links[attrOf(n, "href")] = true })
-	for _, want := range []string{statementPath(d.statement), "/bank?status=imported", "/bank?status=gap"} {
+	for _, want := range []string{statementPath(d.statement), "/bank?" + with(company, "status", "imported").Encode(),
+		"/bank?" + with(company, "status", "gap").Encode()} {
 		if !links[want] {
 			t.Errorf("the checks link %s: not in %v", want, links)
 		}
@@ -313,6 +329,8 @@ func TestPreCloseChecks(t *testing.T) {
 	holds(t, "company 1000's checks", us, "Every order item's receipts and invoices agree.", "The company keeps one ledger: there is nothing to reconcile.",
 		"Every bank statement of the company is reconciled.")
 	status(t, "a query that names no period", b.get("/close/checks?legal_entity_id=x"), http.StatusBadRequest)
+	status(t, "a query that names no period's end", b.get(checksQuery("legal_entity_id", d.f.DE.String(), "ledger_id", d.leading.String(), "key_date", "")),
+		http.StatusBadRequest)
 }
 
 // marchChecks is the checks of company 2000's March 2026 in the ledger.
@@ -323,7 +341,7 @@ func marchChecks(d *closeData, ledger uuid.UUID) string {
 // checksQuery is the checks of March 2026 with the fields given, as
 // name, value pairs.
 func checksQuery(kv ...string) string {
-	q := url.Values{"fiscal_year": {"2026"}, "period": {"3"}}
+	q := url.Values{"fiscal_year": {"2026"}, "period": {"3"}, "key_date": {"2026-03-31"}}
 	for i := 0; i+1 < len(kv); i += 2 {
 		q.Set(kv[i], kv[i+1])
 	}
@@ -417,6 +435,67 @@ func TestRevaluation(t *testing.T) {
 		status(t, "no such run", b.get("/close/revaluation/"+uuid.NewString()), http.StatusNotFound)
 	})
 	holds(t, "French", b.get(posted.location(), "Accept-Language", "fr-CA").page(t).mainText(), "Réévaluation", "Comptabilisée", "-10,00 EUR")
+	// The open item's supplier and entry named, the entry linked (T73i2).
+	var invoice uuid.UUID
+	var number string
+	pgtest.Scan(t, `SELECT id, document_number FROM ledger.journal_entry WHERE tenant_id = $1 AND legal_entity_id = $2 AND currency_tc = 'USD'`,
+		[]any{d.f.Tenant.ID, d.f.DE}, &invoice, &number)
+	holds(t, "the run's item", rp.mainText(), number+" line 2 BP90000001 BP90000001")
+	entries := map[string]bool{}
+	for _, a := range rp.all("a", "") {
+		entries[attrOf(a, "href")] = true
+	}
+	if !entries[entryPath(invoice)] {
+		t.Errorf("the run's item: its entry not linked to %s", entryPath(invoice))
+	}
+}
+
+// TestCancelRevaluation: a posted run's page offers its cancel with a
+// reason, said before the API is called when it is missing; refused while
+// the reset entry's period is closed, the page says so by the API's code
+// and keeps the reason; done once that period is open again, the run is
+// cancelled, its entries linked, and offers no cancel; the form sent
+// again with the run's ETag now is refused as cancelled already.
+func TestCancelRevaluation(t *testing.T) {
+	s, d := closeStack(t)
+	b := s.as(d.accountant)
+	posted := postForm(b, previewAs(b, d, nil).page(t).form("/close/revaluation/post"), "/close/revaluation/post", nil)
+	runPath := strings.TrimSuffix(posted.location(), "?done=posted")
+	cancel := runPath + "/cancel"
+	form := b.get(runPath).page(t).form(cancel)
+	none := postForm(b, form, cancel, nil)
+	status(t, "a cancel without its reason", none, http.StatusUnprocessableEntity)
+	holds(t, "a cancel without its reason", none.page(t).mainText(), "Enter the reason.")
+	// April, the reset entry's period, closed and opened again as the
+	// period's page does it.
+	april := periodOf(t, d, d.leading, 4)
+	decided(t, "April closed", decidePeriodAs(b, april, "close", nil), april, "closed")
+	reason := url.Values{"comment": {"Rates corrected by the bank"}}
+	refused := postForm(b, form, cancel, reason)
+	status(t, "a cancel while April is closed", refused, http.StatusConflict)
+	rp := refused.page(t)
+	holds(t, "a cancel while April is closed", rp.mainText(), "The revaluation was not cancelled", "or cancelled, only while both are open",
+		"ledger.period_not_open", "Rates corrected by the bank")
+	decided(t, "April opened", decidePeriodAs(b, april, "open", nil), april, "opened")
+	done := postForm(b, rp.form(cancel), cancel, reason)
+	if done.status != http.StatusSeeOther || done.location() != runPath+"?done=cancelled" {
+		t.Fatalf("the cancel: got %d to %q, want %s?done=cancelled: %s", done.status, done.location(), runPath, done.body)
+	}
+	after := b.get(done.location()).page(t)
+	holds(t, "the cancelled run", after.mainText(), "The revaluation is cancelled: its entries are reversed.", "Status Cancelled")
+	for _, f := range after.all("form", "") {
+		if attrOf(f, "action") == cancel {
+			t.Error("the cancelled run: offers its cancel")
+		}
+	}
+	var version int
+	pgtest.Scan(t, `SELECT version FROM ledger.revaluation_run WHERE id = $1`, []any{uuid.MustParse(strings.TrimPrefix(runPath, "/close/revaluation/"))}, &version)
+	again := postForm(b, form, cancel, url.Values{"comment": {"Again"}, "if_match": {fmt.Sprintf(`"%d"`, version)}, "idempotency_key": {uuid.NewString()}})
+	status(t, "a cancelled run cancelled again", again, http.StatusConflict)
+	holds(t, "a cancelled run cancelled again", again.page(t).mainText(), "The revaluation is cancelled already.", "ledger.revaluation_not_posted")
+	status(t, "a cancel of no run", b.do(http.MethodPost, "/close/revaluation/x/cancel", url.Values{"csrf_token": {b.csrf()}}), http.StatusNotFound)
+	status(t, "a cancel without its ETag", b.do(http.MethodPost, cancel, url.Values{"csrf_token": {b.csrf()}, "idempotency_key": {uuid.NewString()}}),
+		http.StatusBadRequest)
 }
 
 // TestCloseAsOthers: a person who may only read periods sees them and a

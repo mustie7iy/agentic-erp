@@ -46,8 +46,10 @@ const baselineItems = 950
 // treasurer and AP lead, human acceptance, split into a leaf of its own
 // (T73f3) that inherits the tag (82); T73h2's pilot walkthrough,
 // Arabic-Indic digits and partners on an entry's pages split into T73h3,
-// which inherits the tag (83).
-const pilotItems = 83
+// which inherits the tag (83); T73i2's walk-through by a pilot GL
+// accountant and controller, human acceptance, split into T73i3, which
+// inherits its tag (84).
+const pilotItems = 84
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

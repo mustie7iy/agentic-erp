@@ -68,7 +68,7 @@ func TestReportsStubbed(t *testing.T) {
 			"document_number":"100042","posting_date":"2026-03-16","fiscal_period":3,"amount":%s,"amount_lc":%s,"amount_gc":%s}],"next_page_token":"e2"}`,
 			ledger, uuid.New(), m, m, m)),
 		"GET /v1/ledger-reconciliation": answer(200, fmt.Sprintf(`{"ledger_id":%q,"compare_ledger_id":%q,"trial_balances":[],
-			"items":[{"account_id":%q,"currency":"EUR","balance":%s,"compare_balance":%s,"difference":%s,"difference_lc":%s,"difference_gc":%s}],
+			"items":[{"account_id":%q,"account_number":"400000","account_name":"Sales Revenue","currency":"EUR","balance":%s,"compare_balance":%s,"difference":%s,"difference_lc":%s,"difference_gc":%s}],
 			"next_page_token":"l2"}`, ledger, compare, uuid.New(), m, m, m, m, m)),
 		"GET /v1/audit-events": answer(200, `{"items":[`+auditJSON()+`],"next_page_token":"a2"}`),
 	}}

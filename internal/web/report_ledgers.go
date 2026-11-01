@@ -17,8 +17,9 @@ import (
 // The ledger's reports (ADR-0052 §2): a company's trial balance in a
 // ledger and fiscal year (listBalances), which with getCurrentPrincipal,
 // listLegalEntities, listLedgers and listAccounts makes five calls; the
-// reconciliation of two ledgers it keeps (listLedgerReconciliation, ADR-0045),
-// five as well; and the entries behind one account's difference
+// reconciliation of two ledgers it keeps (listLedgerReconciliation,
+// ADR-0045), its accounts named by the API (T73i2), five with the
+// company's day; and the entries behind one account's difference
 // (listLedgerReconciliationEntries), four with the ledgers and accounts.
 // Their figures are the API's balances as they stand at the moment of the
 // read (07 §7.3); the workspace adds none of its own.
@@ -247,7 +248,7 @@ func (s *Server) reconcileLedgers(w http.ResponseWriter, r *http.Request, p *per
 	for _, tb := range page.TrialBalances {
 		lp.Trials = append(lp.Trials, ui.TrialView{Ledger: codes[tb.LedgerID], Debit: moneyOf(tb.DebitLc), Credit: moneyOf(tb.CreditLc), Balanced: tb.Balanced})
 	}
-	lp.Differences = differenceViews(page.Items, s.accounts(r.Context(), m, lq.company), lq)
+	lp.Differences = differenceViews(page.Items, lq)
 	if next := page.NextPageToken.Or(""); next != "" {
 		lp.More = ui.ReportFor(ui.LedgerReconPath, with(q, "page", next))
 	}
@@ -264,13 +265,13 @@ func ledgerCode(kept []gen.Ledger, id uuid.UUID) string {
 
 // differenceViews are a reconciliation's differences, their accounts
 // named and each linked to the entries behind it.
-func differenceViews(items []gen.LedgerDifference, accounts map[uuid.UUID]string, lq ledgerQuery) []ui.DifferenceView {
+func differenceViews(items []gen.LedgerDifference, lq ledgerQuery) []ui.DifferenceView {
 	out := make([]ui.DifferenceView, 0, len(items))
 	for _, d := range items {
 		q := lq.values()
 		q.Set(ui.FieldAccount, d.AccountID.String())
 		q.Set(ui.FieldCurrency, d.Currency)
-		out = append(out, ui.DifferenceView{Account: accountText(accounts, d.AccountID), Currency: d.Currency, Balance: moneyOf(d.Balance),
+		out = append(out, ui.DifferenceView{Account: d.AccountNumber + " " + d.AccountName, Currency: d.Currency, Balance: moneyOf(d.Balance),
 			Compare: moneyOf(d.CompareBalance), Difference: moneyOf(d.Difference), Entries: ui.ReportFor(ui.ReconEntriesPath, q)})
 	}
 	return out

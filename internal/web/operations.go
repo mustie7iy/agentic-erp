@@ -151,7 +151,7 @@ var (
 	opSupplier     = Operation{ID: "listBusinessPartners", HiddenBy: permReadSuppliers}
 	opOpenItems    = []Operation{opMe, opCompanies, opToday, opAccounts, opSupplier, opListItems}
 	opGRIR         = []Operation{opMe, opCompanies, opListGRIR}
-	opReconcile    = []Operation{opMe, opCompanies, opToday, opLedgers, opAccounts, {ID: "listLedgerReconciliation", HiddenBy: permReadEntries}}
+	opReconcile    = []Operation{opMe, opCompanies, opToday, opLedgers, {ID: "listLedgerReconciliation", HiddenBy: permReadEntries}}
 	opReconEntries = []Operation{opMe, opToday, opLedgers, opAccounts, {ID: "listLedgerReconciliationEntries", HiddenBy: permReadEntries}}
 )
 
@@ -258,8 +258,10 @@ var Screens = func() map[string][]Operation {
 			opAccounts),
 		"POST /close/revaluation/post": append([]Operation{{ID: "postRevaluationRun", HiddenBy: permPostEntries, HumanOnly: true}}, opRevaluation...),
 		"GET /close/revaluation/{id}":  opRevaluationRun,
-		"GET /journal":                 opParkedList,
-		"GET /journal/new":             opEntryForm,
+		"POST /close/revaluation/{id}/cancel": append([]Operation{{ID: "cancelRevaluationRun", HiddenBy: permPostEntries, HumanOnly: true}},
+			opRevaluationRun...),
+		"GET /journal":     opParkedList,
+		"GET /journal/new": opEntryForm,
 		"POST /journal/new": append(append([]Operation{opParkEntry, {ID: "postJournalEntry", HiddenBy: permPostEntries, HumanOnly: true, Write: true}},
 			opEntryForm...), opLookups...),
 		"POST /journal/new/file":                     append(append([]Operation{opParkEntry}, opEntryForm...), opLookups...),

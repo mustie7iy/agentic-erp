@@ -18,7 +18,8 @@ import (
 )
 
 // Bank statements and their reconciliation (ADR-0052 §2, ADR-0047,
-// T73g): the statements of the house banks by status and bank, a gap
+// T73g): the statements of the house banks by status, company (T73i2) and
+// bank, a gap
 // flagged where a statement does not follow the one before it, the import
 // of a bank's file, a statement's lines with their matches and the
 // person's decisions on them (statement.go, statement_actions.go), and
@@ -82,14 +83,17 @@ func (s *Server) showStatements(w http.ResponseWriter, r *http.Request, p *perso
 	if r.Method == http.MethodPost {
 		q = url.Values{"house_bank_id": {up.bank}}
 	}
-	banks := s.houseBanks(r.Context(), m, uuid.Nil)
+	params, valid := statementParams(q)
+	// A company chosen lists its house banks alone, in the list and the
+	// filter, as its statements are.
+	banks := s.houseBanks(r.Context(), m, params.LegalEntityID.Or(uuid.Nil))
 	companies := s.companies(r.Context(), m)
 	l := ui.StatementList{Banks: bankViews(banks, companies), Tabs: bankTabs(q), Done: bankDone[q.Get("done")], UploadRefusal: up.refusal,
-		Filter: ui.BankFilter{Status: q.Get("status"), Banks: bankOptions(banks, q.Get("house_bank_id"), false)}}
+		Filter: ui.BankFilter{Status: q.Get("status"), Banks: bankOptions(banks, q.Get("house_bank_id"), false),
+			Companies: companyOptions(companies, q.Get(ui.FieldCompany))}}
 	if f := uploadForm(p, banks, up); m.may(permImportStatements) && len(f.Banks) > 0 {
 		l.Upload = f // none without a bank to import for
 	}
-	params, valid := statementParams(q)
 	if !valid {
 		l.Invalid, status = true, http.StatusBadRequest
 	} else {
@@ -112,14 +116,19 @@ func (s *Server) showStatements(w http.ResponseWriter, r *http.Request, p *perso
 }
 
 // statementParams are the API's filters the query asks for, and whether
-// its bank is an id.
+// its company and its bank are ids.
 func statementParams(q url.Values) (gen.ListBankStatementsParams, bool) {
 	params := gen.ListBankStatementsParams{PageSize: gen.NewOptInt32(statementPageSize), OrderBy: gen.NewOptString("closing_date desc")}
 	valid := true
-	if v := q.Get("house_bank_id"); v != "" {
-		id, err := uuid.Parse(v)
-		valid = err == nil
-		params.HouseBankID = gen.NewOptUUID(id)
+	for _, f := range []struct {
+		name string
+		set  *gen.OptUUID
+	}{{ui.FieldCompany, &params.LegalEntityID}, {"house_bank_id", &params.HouseBankID}} {
+		if v := q.Get(f.name); v != "" {
+			id, err := uuid.Parse(v)
+			valid = valid && err == nil
+			*f.set = gen.NewOptUUID(id)
+		}
 	}
 	if v := q.Get("status"); v != "" {
 		params.Status = gen.NewOptString(v)

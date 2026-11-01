@@ -186,9 +186,9 @@ type ChecksView struct {
 	Invalid    bool // the query names no company, ledger, year and period
 }
 
-// GRIRCheck is the open GR/IR positions (listGrIrBalances, leading
-// ledger, as they stand now): a page of them, whether there are more, or
-// the refusal.
+// GRIRCheck is the GR/IR positions open at the period's end
+// (listGrIrBalances on the period's end as key date, leading ledger,
+// T73i2): a page of them, whether there are more, or the refusal.
 type GRIRCheck struct {
 	Positions []GRIRPosition
 	More      bool
@@ -197,7 +197,7 @@ type GRIRCheck struct {
 }
 
 // GRIRPosition is one purchase order item's open GR/IR position: the
-// order by id (the API names none on a balance), its received and
+// order by its number (by id when the API names none), its received and
 // invoiced quantities and its balance.
 type GRIRPosition struct {
 	Order              string
@@ -233,9 +233,8 @@ type TrialView struct {
 }
 
 // DifferenceView is one account and currency whose balance differs
-// between the two ledgers: the account by number and name, by id when it
-// cannot be named (the API names none on a difference), linked to the
-// entries behind it.
+// between the two ledgers: the account by number and name, as the API
+// names it (T73i2), linked to the entries behind it.
 type DifferenceView struct {
 	Account    string
 	Currency   string
@@ -247,7 +246,8 @@ type DifferenceView struct {
 
 // StatementCheck is the company's bank statements not reconciled: those
 // imported and those after a gap, each linked to its page and its bank's
-// reconciliation report, whether there are more, and the lists by status.
+// reconciliation report, whether there are more, and the company's lists
+// by status.
 type StatementCheck struct {
 	Rows     []StatementRow
 	More     bool
@@ -293,12 +293,15 @@ type TotalView struct {
 	DifferenceGC Money
 }
 
-// ItemView is one valued item: an open item (its entry and line, its
-// partner by id) or a flagged account's balance in one currency.
+// ItemView is one valued item: an open item (its entry by document
+// number, linked to its page, its line, its partner by number and name;
+// by id when the API names none) or a flagged account's balance in one
+// currency.
 type ItemView struct {
 	Account      string
 	Partner      string // "" for a balance
 	Entry        string // "" for a balance
+	EntryPath    string
 	Line         int32
 	Amount       Money
 	Booked       Money
@@ -344,16 +347,32 @@ type RevaluationPage struct {
 	RunsError *Refusal
 }
 
-// RevaluationRunPage is one revaluation run: its summary, its entries by
-// id, its totals and items, and a notice of its post.
+// RevaluationRunPage is one revaluation run: its summary, its entries
+// linked to their pages, its totals and items, a notice of its post or
+// its cancel, the cancel's form for a posted run, and the API's refusal of
+// the cancel.
 type RevaluationRunPage struct {
 	Header    RunSummary
 	Totals    []TotalView
 	Items     []ItemView
 	Done      i18n.Key
 	Back      string
-	Valuation string // the valuation entry's id; "" when no item had a difference
+	Valuation string // the valuation entry's page; "" when no item had a difference
 	Reset     string
+	Cancel    *CancelRunForm // nil: the run is not posted, or the person may not post
+	Refusal   *Refusal
+}
+
+// CancelRunForm cancels a posted run (cancelRevaluationRun, T73i2): the
+// run's ETag as If-Match, a fresh idempotency key, the reason typed and
+// its error.
+type CancelRunForm struct {
+	Action    string
+	CSRF      string
+	ETag      string
+	Key       string
+	Text      string
+	TextError i18n.Key
 }
 
 // RunSummary is a revaluation run's summary.

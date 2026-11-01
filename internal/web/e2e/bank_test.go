@@ -3,6 +3,7 @@ package e2e
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -53,7 +54,8 @@ func (b bank) report() string { return "/bank/house-banks/" + b.house.String() +
 
 func statementPage(id uuid.UUID) string { return "/bank/statements/" + id.String() }
 
-// checkBankPages checks the statements' list, a statement with the
+// checkBankPages checks the statements' list, of every company and of
+// company 2000, a statement with the
 // agent's proposals and the bank's reconciliation report in the languages
 // at a desktop's and a phone's width, with every check of
 // TestPagesInTheBrowser and axe at zero.
@@ -64,7 +66,10 @@ func checkBankPages(t *testing.T, s bank, langs []lang) {
 	signIn(t, browserCtx, s.stack)
 	for _, l := range langs {
 		for _, width := range []int64{1280, 390} {
-			for _, path := range []string{"/bank", statementPage(s.statement), s.report()} {
+			// The list of one company's statements in one status, as the
+			// pre-close checks link it (T73i2).
+			company := "/bank?" + url.Values{"legal_entity_id": {s.f.DE.String()}, "status": {"imported"}}.Encode()
+			for _, path := range []string{"/bank", company, statementPage(s.statement), s.report()} {
 				t.Run(fmt.Sprintf("%s %d %s", l.lang, width, path), func(t *testing.T) {
 					checkPage(t, browserCtx, s.stack, src, l.header, l.lang, l.dir, width, path)
 				})

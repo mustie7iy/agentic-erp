@@ -78,7 +78,7 @@ func TestReportBudgets(t *testing.T) {
 		})+`],"next_page_token":"e2"}`),
 		"GET /v1/ledger-reconciliation": answer(200, fmt.Sprintf(`{"ledger_id":%q,"compare_ledger_id":%q,"trial_balances":[],"items":[%s],"next_page_token":"l2"}`,
 			ledger, compare, many(reportPageSize, func() string {
-				return fmt.Sprintf(`{"account_id":%q,"currency":"EUR","balance":%s,"compare_balance":%s,"difference":%s,"difference_lc":%s,"difference_gc":%s}`,
+				return fmt.Sprintf(`{"account_id":%q,"account_number":"400000","account_name":"Sales Revenue","currency":"EUR","balance":%s,"compare_balance":%s,"difference":%s,"difference_lc":%s,"difference_gc":%s}`,
 					uuid.New(), m, m, m, m, m)
 			}))),
 		"GET /v1/audit-events": answer(200, `{"items":[`+many(auditPageSize, auditJSON)+`],"next_page_token":"a2"}`),

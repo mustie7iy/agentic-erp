@@ -309,6 +309,10 @@ func ledgerCalls(t *testing.T, e env, h *ledger.Endpoints, d ledgerDocs) map[str
 			_, err := h.ListGrIrBalances(ctx, gen.ListGrIrBalancesParams{LegalEntityID: e.de})
 			return err
 		},
+		"GR/IR balances on a key date": func(ctx context.Context) error {
+			_, err := h.ListGrIrBalances(ctx, gen.ListGrIrBalancesParams{LegalEntityID: e.de, PostingDateTo: gen.NewOptDate(date("2026-03-31"))})
+			return err
+		},
 		"balances": func(ctx context.Context) error {
 			_, err := h.ListBalances(ctx, gen.ListBalancesParams{LegalEntityID: e.de, FiscalYear: 2026})
 			return err

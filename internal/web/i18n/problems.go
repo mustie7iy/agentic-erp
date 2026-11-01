@@ -116,7 +116,7 @@ var PeriodProblems = map[string]Key{
 
 // RevaluationProblems are the codes the revaluation screens (T73i)
 // explain in their own words, looked up before Problems: the ledger codes
-// of a revaluation's preview and post.
+// of a revaluation's preview, its post and its cancel (T73i2).
 var RevaluationProblems = map[string]Key{
 	"ledger.key_date_not_period_end":     ProblemKeyDate,
 	"ledger.ledger_not_kept":             ProblemLedgerNotKept,
@@ -125,6 +125,7 @@ var RevaluationProblems = map[string]Key{
 	"ledger.revaluation_account_missing": ProblemValuationAccount,
 	"ledger.revaluation_exists":          ProblemRevaluationExists,
 	"ledger.period_not_open":             ProblemRevaluationPeriod,
+	"ledger.revaluation_not_posted":      ProblemRevaluationNotPosted,
 }
 
 // EntryProblems are the codes the manual journal entry screens (T73h)

@@ -282,7 +282,7 @@ func TestLedgerReconReport(t *testing.T) {
 	status(t, "entries without an account", b.get("/reports/ledger-reconciliation/entries?"+companyQuery(d)), http.StatusBadRequest)
 	march := periodOfReports(t, d)
 	checks := b.get("/close/checks?" + companyQuery(d, "ledger_id", d.leading.String(), "fiscal_year", "2026", "period", "3",
-		"period_id", march.String())).page(t)
+		"key_date", "2026-03-31", "period_id", march.String())).page(t)
 	got := links(checks)
 	if !got["/reports/gr-ir?legal_entity_id="+d.f.DE.String()] {
 		t.Errorf("the GR/IR check: not linked to its report in %v", got)

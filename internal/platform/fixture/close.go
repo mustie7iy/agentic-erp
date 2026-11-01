@@ -106,3 +106,26 @@ func (e Env) GRIROpen(tb testing.TB) uuid.UUID {
 		VALUES ($1, $2, $3, 1, $4, 'EUR', 'EUR', 'EUR', 'EA', 10, 4, -7200, -7200, -7200, '2026-03-05')`, e.Tenant.ID, e.DE, po, e.Account(tb, "2000", "520000"))
 	return po
 }
+
+// GRIRReceived posts, as the tenant's human, what a goods movement of
+// item 1 of the order posts through GR/IR in company 2000 on the day (T33):
+// qty EA at EUR 12.00 against expense account 520000, signed as the GR/IR
+// line (negative received, positive returned). Company 2000 needs a GR/IR
+// account (GRIRAccounts).
+func (e Env) GRIRReceived(tb testing.TB, order uuid.UUID, day, qty string) {
+	tb.Helper()
+	on, err := time.Parse(time.DateOnly, day)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	expense := e.Account(tb, "2000", "520000")
+	post := ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}}
+	if err := apitest.Committed(tb, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		_, err := post.Post(ctx, ledger.Posting{LegalEntityID: e.DE, DocumentType: "SA", DocumentDate: on, PostingDate: on, Currency: "EUR",
+			SourceContext: "procurement", SourceDocumentID: uuid.Must(uuid.NewV7()),
+			GRIR: []ledger.GRIRItem{{PurchaseOrderID: order, POItemNo: 1, Quantity: qty, Unit: "EA", UnitPrice: 1200, PriceUnit: 1, OffsetAccountID: &expense}}})
+		return err
+	}); err != nil {
+		tb.Fatal(err)
+	}
+}

@@ -318,10 +318,10 @@ templ checkReport(path string) {
 	}
 }
 
-// GRIRTable is the open GR/IR positions.
+// GRIRTable is the open GR/IR positions, their orders' numbers data.
 templ GRIRTable(positions []GRIRPosition) {
 	<div class="table-wrap" role="region" tabindex="0" { labelledBy("grir-caption")... }>
-		<table class="table">
+		<table class="table" hx-disable>
 			<caption class="visually-hidden" { idAttr("grir-caption")... }>
 				@T(i18n.CheckGRIRTitle)
 			</caption>
@@ -710,10 +710,11 @@ templ TotalRow(tv TotalView) {
 	</tr>
 }
 
-// ItemsTable is every valued item, with or without a difference.
+// ItemsTable is every valued item, with or without a difference; its
+// partners' names are data.
 templ ItemsTable(items []ItemView) {
 	<div class="table-wrap" role="region" tabindex="0" { labelledBy("items-caption")... }>
-		<table class="table">
+		<table class="table" hx-disable>
 			<caption class="visually-hidden" { idAttr("items-caption")... }>
 				@T(i18n.RevaluationItemsTitle)
 			</caption>
@@ -748,7 +749,9 @@ templ ItemRow(it ItemView) {
 		</td>
 		<td>
 			if it.Entry != "" {
-				@Code(it.Entry)
+				<a translate="no" { link(it.EntryPath, "")... }>
+					@Value(it.Entry)
+				</a>
 				@space()
 				@T(i18n.RevaluationLine, it.Line)
 				@space()
@@ -840,6 +843,9 @@ templ revaluationRunContent(rp RevaluationRunPage) {
 	if rp.Done != "" {
 		@Notice("revaluation-done", i18n.InvoiceDoneTitle, Paragraph(rp.Done))
 	}
+	if rp.Refusal != nil {
+		@RefusalNotice(*rp.Refusal)
+	}
 	<div hx-disable>
 		@SummaryList(revaluationRows(rp.Header))
 	</div>
@@ -847,12 +853,44 @@ templ revaluationRunContent(rp RevaluationRunPage) {
 		@T(i18n.RevaluationEntriesTitle)
 	</h2>
 	if rp.Valuation != "" {
-		<dl class="facts">
-			@Fact(i18n.RevaluationValuationEntry, Code(rp.Valuation))
-			@Fact(i18n.RevaluationResetEntry, Code(rp.Reset))
-		</dl>
+		<ul class="list">
+			<li class="list__item">
+				<a { link(rp.Valuation, "")... }>
+					@T(i18n.RevaluationValuationEntry)
+				</a>
+			</li>
+			<li class="list__item">
+				<a { link(rp.Reset, "")... }>
+					@T(i18n.RevaluationResetEntry)
+				</a>
+			</li>
+		</ul>
 	} else {
 		@Paragraph(i18n.RevaluationNoEntries)
 	}
+	if rp.Cancel != nil {
+		@CancelRunView(*rp.Cancel)
+	}
 	@valuedLists(rp.Totals, rp.Items)
+}
+
+// CancelRunView is the cancel of a posted run: a real form posting the
+// CSRF token, the run's ETag as If-Match, the form's own idempotency key
+// and the reason.
+templ CancelRunView(f CancelRunForm) {
+	<section class="match" { labelledBy("revaluation-cancel-title")... }>
+		<h2 class="match__title" { idAttr("revaluation-cancel-title")... }>
+			@T(i18n.RevaluationCancelTitle)
+		</h2>
+		<form class="decide" { post(f.Action)... }>
+			@decideHidden(f.CSRF, f.ETag, f.Key)
+			<p class="hint">
+				@T(i18n.RevaluationCancelHint)
+			</p>
+			@CommentField("revaluation-cancel-text", i18n.RevaluationCancelReason, i18n.ActionReasonHint, f.Text, f.TextError)
+			<button class="button button--warning" type="submit" id="revaluation-cancel-button">
+				@T(i18n.RevaluationCancelButton)
+			</button>
+		</form>
+	</section>
 }

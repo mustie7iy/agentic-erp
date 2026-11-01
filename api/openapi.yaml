@@ -7423,7 +7423,7 @@ paths:
       tags:
         - ledger
       summary: List GR/IR balances
-      description: "The GR/IR position of each purchase order item of a legal entity in the leading ledger: its received, invoiced, cleared and migrated quantities and its balance on the GR/IR account (negative: received, not yet invoiced; positive: invoiced, not yet received). A position is zero in every currency once its received quantity equals its invoiced plus its cleared plus its migrated quantity; a closed order's residual position is cleared by a GR/IR clearing (createGrIrClearing). Only orders valued through GR/IR have positions; a migration run takes over the open positions SAP holds for the order items it loads (`migrated_quantity`), and an invoice posted after cutover clears them as it clears the platform's own. With `posting_date_to` the call reports one order's positions on that key date. Each position names its order by number and its account by number and name, and `totals` sums every position the filters select, on every page. Sortable by: `purchase_order_id`, `last_posting_date`."
+      description: "The GR/IR position of each purchase order item of a legal entity in the leading ledger: its received, invoiced, cleared and migrated quantities and its balance on the GR/IR account (negative: received, not yet invoiced; positive: invoiced, not yet received). A position is zero in every currency once its received quantity equals its invoiced plus its cleared plus its migrated quantity; a closed order's residual position is cleared by a GR/IR clearing (createGrIrClearing). Only orders valued through GR/IR have positions; a migration run takes over the open positions SAP holds for the order items it loads (`migrated_quantity`), and an invoice posted after cutover clears them as it clears the platform's own. With `posting_date_to` the call reports the positions as they stood on that key date: one order's, summed from its postings, or, without `purchase_order_id`, every order's, the current positions less what was posted after the key date (a period's close checks them as at its end). Each position names its order by number and its account by number and name, and `totals` sums every position the filters select, on every page. Sortable by: `purchase_order_id`, `last_posting_date`."
       x-permission: ledger.entry.read
       x-problem-codes:
         - request.invalid_order_by
@@ -7440,14 +7440,14 @@ paths:
         - name: purchase_order_id
           in: query
           required: false
-          description: "Only the items of this purchase order; required with `posting_date_to`."
+          description: "Only the items of this purchase order."
           schema:
             type: string
             format: uuid
         - name: posting_date_to
           in: query
           required: false
-          description: "Key date: the positions of the order named by `purchase_order_id` as they stood on this date, summed from its postings (a report, not a page of current positions). Without `purchase_order_id`: 400 `request.invalid_parameter`."
+          description: "Key date: the positions as they stood on this date (a report, not a page of current positions). With `purchase_order_id`, that order's positions summed from its postings; without it, every order's: the current positions less the postings dated after the key date, so its cost follows what was posted since rather than the company's history. `open_only` and `last_posting_date` are as on the key date."
           schema:
             type: string
             format: date
@@ -25830,6 +25830,14 @@ components:
           format: uuid
           description: "The open item's supplier or customer; absent for a balance."
           readOnly: true
+        partner_number:
+          type: string
+          description: "The partner's number (its business partner's `number`), as it is now; absent for a balance."
+          readOnly: true
+        partner_name:
+          type: string
+          description: "The partner's name (its business partner's `name`), as it is now; absent for a balance."
+          readOnly: true
         fiscal_year:
           type: integer
           format: int32
@@ -25839,6 +25847,10 @@ components:
           type: string
           format: uuid
           description: "The open item's entry; absent for a balance."
+          readOnly: true
+        document_number:
+          type: string
+          description: "The open item's entry's document number; absent for a balance."
           readOnly: true
         line_no:
           type: integer
@@ -27066,6 +27078,8 @@ components:
       description: "One account and transaction currency whose balance differs between two ledgers; amounts are signed, debit positive."
       required:
         - account_id
+        - account_number
+        - account_name
         - currency
         - balance
         - compare_balance
@@ -27077,6 +27091,14 @@ components:
           type: string
           format: uuid
           description: G/L account.
+          readOnly: true
+        account_number:
+          type: string
+          description: "The account's number in the chart of accounts."
+          readOnly: true
+        account_name:
+          type: string
+          description: "The account's name."
           readOnly: true
         currency:
           type: string
@@ -27105,6 +27127,8 @@ components:
           readOnly: true
       examples:
         - account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+          account_number: "612000"
+          account_name: Implementation fees
           currency: EUR
           balance:
             amount: "1200.00"

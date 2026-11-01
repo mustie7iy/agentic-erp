@@ -1944,7 +1944,7 @@ written:
   `i18n.RevaluationProblems` those of a preview and a post; the contract
   test holds both to the operations' `x-problem-codes`. A check the API
   refuses is said in its place.
-- **Not built, tracker item T73i2:** cancelling a run
+- **Not built, tracker item T73i2 (built in T73i2, below):** cancelling a run
   (`cancelRevaluationRun`, in §2's list but not the step's criteria);
   orders, partners, entries and the reconciliation's accounts named (by
   id now: a contract change, or more calls than the six); the checks as
@@ -2596,6 +2596,87 @@ company's currency after its company was changed). What it settled:
   1280 and 390 px, and walks the company chosen with htmx and the totals
   said as amounts change, a post at once, a post above the limit and a
   file parked at a phone's width.
+
+## Built in T73i2 (2026-11-01)
+Period close beyond T73i, as accountant and controller (the tracker leaf
+T73i2). What it settled, each decided by default where this ADR, the
+contract or T73i's behaviour settled it:
+- **Contract first, names on the representations.** A page's six calls
+  leave no room for a call per order, partner or entry, so the API names
+  them (an ids filter would have cost a call per kind): `LedgerDifference`
+  carries `account_number` and `account_name` (as `GrIrBalance` already
+  did), `RevaluationItem` carries `partner_number`, `partner_name` (the
+  business partner as it is now, read from the partner context through
+  `internal/app`'s `LedgerPartners`, so the ledger imports no other
+  context) and `document_number` of its entry, on the preview, the post
+  and the run read back. `GrIrBalance.purchase_order_number`, added in
+  batch 22, needed no change. All are additions, non-breaking (oasdiff),
+  each checked by the walkthrough (steps 9, 10 and 15).
+- **The checks as at the period's end.** `listGrIrBalances` takes
+  `posting_date_to` without `purchase_order_id`: every order's positions
+  on the key date. Summing every GR/IR line to the key date costs the
+  company's history (T33f measured 0.7 s at 20,000 positions, why the key
+  date was limited to one order), so the report is the projected
+  positions except the order items posted after the key date, whose
+  positions are summed from their own lines up to it; those lines are
+  read from the fiscal years ending after the key date only. The result
+  equals each order's key-date report on every date of the test. The
+  budget test holds it at p95 54 ms over 20,000 positions (laptop) with
+  no lines after the key date; an item posted since costs its own
+  history, which the budget test does not measure (03-data-model §3.7). The period's page puts
+  its end in the checks' address (`key_date`, required: the checks read no
+  period, which would be a seventh call). The ledger reconciliation was
+  already of the period. **Decided:** the statements check stays as the
+  statements stand now: a statement's status is its reconciliation's
+  state, not a balance at a date, and a statement not reconciled is
+  worth a look whatever its date. The GR/IR check's link goes to T73j's
+  report, which shows the positions as they stand now (the report takes
+  no key date: a T73j2 matter, said here, not built).
+- **Cancelling a run** (`cancelRevaluationRun`, human-only, ADR-0042). A
+  posted run's page offers it, to a person holding `ledger.entry.post`,
+  as a form with the run's ETag, a fresh idempotency key and the reason
+  (`ReasonInput`, required, said before the API is called). Done, the
+  run's page says its entries are reversed and offers no cancel; refused
+  (an entry's period closed: `ledger.period_not_open`, worded for the
+  post and the cancel alike; cancelled already:
+  `ledger.revaluation_not_posted`; a stale form), the page is rendered
+  again, fresh from the API, with the refusal by its code and the reason
+  typed. The run's valuation and reset entries are links to their pages
+  (`/journal/entries/{id}`), which name them; **decided:** no document
+  numbers on the run itself, which the leaf did not ask for (its items'
+  entries are named).
+- **Names shown.** The checks show each order by its number, each
+  difference's account by number and name; a revaluation's items each
+  partner by number and name and each entry by its document number,
+  linked to its page; by id only where the API names none. The GR/IR and
+  items tables are inside `hx-disable`, their names being data.
+- **`/bank` by company.** The statements' list takes the company
+  (`legal_entity_id`, the API's filter) in its filter form beside the
+  house bank, and a company chosen lists its house banks alone; the
+  status tabs keep it, and the checks' links by status name the period's
+  company, so they are no longer tenant-wide.
+- **Calls.** The checks still make six, the run's page six (its cancel
+  is a write before them), the statements' list four. The ledger
+  reconciliation report reads five, no longer `listAccounts`: the API
+  names its accounts.
+- **Not built:** the walk-through by a pilot GL accountant and controller
+  is human acceptance, split into T73i3 (pilot).
+- **Tests.** The ledger: every order's positions on five key dates and
+  equal to each order's on seven, the key date's statement failing
+  (`TestDatabaseFailures`), its budget; the differences' accounts named;
+  the preview's and a run's items named. The workspace, against the real
+  API (`fixture.GRIRReceived` posts real GR/IR lines): an order received
+  in March and returned in April shows by its number in March's checks
+  and not in April's; the checks' address without the period's end
+  refused; the statements' links by status of the company; a run's items
+  named and its entry linked; the cancel without a reason, refused while
+  April is closed and done once it is open again, then refused as
+  cancelled already; `/bank` by company, its house banks and tabs. From
+  the stub: the key date sent, an order without a number, the cancel's
+  401 and 503. The browser suite runs axe on the checks, a posted run
+  with its cancel and the statements of company 2000 in English, French
+  and both pseudo-locales at 1280 and 390 px, and walks the run cancelled
+  with a reason at a desktop's width.
 
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August

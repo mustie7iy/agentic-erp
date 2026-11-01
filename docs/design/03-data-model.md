@@ -924,8 +924,15 @@ Rules enforced in the database:
   from goods receipts and invoices (lines a migration run loaded without an
   order item are on the account but in no position; once the run has taken
   SAP's open positions over, they net to zero). A key date
-  (`posting_date_to`) is a report summed from one order's lines, so it
-  needs `purchase_order_id`.
+  (`posting_date_to`) is a report: one order's positions summed from its
+  lines, or, without `purchase_order_id` (T73i2, a period's close checks
+  them as at its end), every order's, the projected positions except the
+  order items posted after the key date, whose positions are summed from
+  their lines up to it. The lines after the key date are read from the
+  fiscal years that end after it, so an item untouched since costs no
+  line read; an item posted since costs its own history.
+  TestGRIRBalancesBudget measures the case without lines after the key
+  date only.
   A reversal mirrors its entry; where it brings an order item's quantity to
   zero and rounding leaves a balance (the item moved since), it adds a
   GR/IR line of quantity 0 that clears it against `price_difference`, so a

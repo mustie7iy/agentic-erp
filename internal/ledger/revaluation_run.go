@@ -93,6 +93,9 @@ func (e *Endpoints) PostRevaluationRun(ctx context.Context, req *gen.Revaluation
 		return nil, err
 	}
 	rep := revaluationRunToAPI(run)
+	if err := e.nameItems(ctx, rep.Items); err != nil {
+		return nil, err
+	}
 	return &gen.RevaluationRunHeaders{ETag: gen.NewOptString(etag.Format(run.Version)), Location: gen.NewOptString("/v1/revaluation-runs/" + run.ID.String()), Response: rep}, nil
 }
 
@@ -353,7 +356,8 @@ func (e *Endpoints) revaluationRunWithItems(ctx context.Context, tx pgx.Tx, run 
 		return gen.RevaluationRun{}, err
 	}
 	run.Valuation = &r
-	return revaluationRunToAPI(run), nil
+	rep := revaluationRunToAPI(run)
+	return rep, e.nameItems(ctx, rep.Items)
 }
 
 // revaluationRunItems reads a run's items back, with the differences they
