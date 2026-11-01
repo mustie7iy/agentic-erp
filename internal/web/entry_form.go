@@ -216,14 +216,13 @@ func markRefused(prob gen.Problem, lines []entryLine) {
 }
 
 // newEntry is the form of a new entry, of the company the query names
-// (else the first), dated today in the company's currency.
+// (else the first), dated the company's today in its currency.
 func (s *Server) newEntry(w http.ResponseWriter, r *http.Request, p *person) {
 	m, ok := s.whoami(w, r, p)
 	if !ok {
 		return
 	}
-	today := s.today()
-	t := entryTyped{company: r.URL.Query().Get(ui.FieldCompany), docType: "SA", docDate: today, postingDate: today}
+	t := entryTyped{company: r.URL.Query().Get(ui.FieldCompany), docType: "SA"}
 	t.pad()
 	s.showNewEntry(w, r, p, m, http.StatusOK, t, true, nil)
 }
@@ -246,6 +245,10 @@ func (s *Server) showNewEntry(w http.ResponseWriter, r *http.Request, p *person,
 	company, _ := uuid.Parse(t.company) // uuid.Nil when none: its chart is then empty
 	if e, ok := entities[company]; ok && fresh {
 		t.currency = e.LocalCurrency
+	}
+	if fresh {
+		today := s.today(ctx, m, t.company)
+		t.docDate, t.postingDate = today, today
 	}
 	if ch == nil {
 		read := s.chartOf(ctx, m, company)

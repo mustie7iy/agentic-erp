@@ -5633,9 +5633,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The web workspace pre-fills dates from the server's UTC clock, not the company's date in its time zone: a manual entry's document and posting dates, a payment run's run_date and due_by, and the open-item report's key date (at 22:00 in Toronto the form offers tomorrow's date)",
-        "r": "internal/web journal_entries.go:308 today (s.now() in UTC) · entry_form.go:225-226 newEntry docDate/postingDate · payments.go:61 run_date/due_by · report_items.go:142 KeyDate · ADR-0051 as built (the company's date, T72n1-T72n7) · UI later (product owner 2026-10-28, headless first)",
+        "r": "internal/web journal_entries.go:308 today (s.now() in UTC) · entry_form.go:225-226 newEntry docDate/postingDate · payments.go:61 run_date/due_by · report_items.go:142 KeyDate · ADR-0051 as built (the company's date, T72n1-T72n7) · UI later (product owner 2026-10-28, headless first) · done in webdates: getLegalEntityToday (the company's date and zone, contract first) and every date or year the workspace defaults asks it (entry form, payment run proposal, open items' key date, periods' and ledger reports' year), left empty for the person to type when the API cannot tell it · ADR-0051 and ADR-0052 as built",
         "src": "review:batch27",
         "pilot": "po:2026-10-31 · review:batch27",
         "c": []
