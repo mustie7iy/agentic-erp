@@ -524,10 +524,12 @@ func TestStaleBaseVersion(t *testing.T) {
 
 func TestVersionAndRangeLists(t *testing.T) {
 	e := setup(t, false)
-	// Version 2 adds payment numbers for 2026, version 3 for 2027.
+	// Version 2 adds payment numbers for 2026, version 3 for 2027, after
+	// 2026's: a range may not repeat another year's (config.RangeRepeats).
 	doc := document(t)
 	for i, year := range []int{2026, 2027} {
-		doc.NumberRanges = append(doc.NumberRanges, config.NumberRange{Company: "1000", DocumentType: "payment", FiscalYear: year, First: 1, Last: 9})
+		first := int64(1 + 10*i)
+		doc.NumberRanges = append(doc.NumberRanges, config.NumberRange{Company: "1000", DocumentType: "payment", FiscalYear: year, First: first, Last: first + 8})
 		cr := e.propose(t, i+1, doc)
 		e.transition(t, cr, "submit")
 		if code, m := e.transition(t, cr, "activate"); code != 200 {

@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -92,7 +91,7 @@ func yearRanges(company string, y int) []config.NumberRange {
 	var out []config.NumberRange
 	for dt, prefix := range DocumentTypes {
 		first, last := int64(100000), int64(999999)
-		if y != 2026 && !strings.HasPrefix(dt, "journal_") {
+		if y != 2026 && !config.NumberedPerYear(dt) {
 			first, last = 1000000, 1999999
 		}
 		out = append(out, config.NumberRange{Company: company, DocumentType: dt, FiscalYear: y, Prefix: prefix, First: first, Last: last})

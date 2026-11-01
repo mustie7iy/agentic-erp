@@ -42,16 +42,21 @@ func TestRepeated(t *testing.T) {
 	}
 }
 
-// TestRangeRepeats: a range the change adds that repeats another year's
-// numbers of its company and document type is refused, on the added
-// range, the later one when both are added; journal ranges, other
-// companies and types, and two ranges already activated are not.
+// TestRangeRepeats: a range the change adds or changes that repeats
+// another year's numbers of its company and document type is refused, on
+// that range, the later one when both are new; journal ranges, other
+// companies and types, and two activated ranges that already repeated
+// each other are not.
 func TestRangeRepeats(t *testing.T) {
 	r := func(company, dt string, year int, prefix string) NumberRange {
 		return NumberRange{Company: company, DocumentType: dt, FiscalYear: year, Prefix: prefix, First: 1, Last: 999999}
 	}
 	py26, py27 := r("1000", "payment_run", 2026, "PY"), r("1000", "payment_run", 2027, "PY")
 	doc := func(ranges ...NumberRange) *Config { return &Config{NumberRanges: ranges} }
+	span := func(n NumberRange, first, last int64) NumberRange {
+		n.First, n.Last = first, last
+		return n
+	}
 	for name, c := range map[string]struct {
 		base     *Config
 		proposed *Config
@@ -65,13 +70,16 @@ func TestRangeRepeats(t *testing.T) {
 		"journal entries":          {nil, doc(r("1000", "journal_zp", 2026, ""), r("1000", "journal_zp", 2027, "")), ""},
 		"another company":          {nil, doc(py26, r("2000", "payment_run", 2027, "PY")), ""},
 		"another document type":    {nil, doc(py26, r("1000", "supplier_invoice", 2027, "PY")), ""},
+		"a last raised into another year's numbers": {doc(span(py26, 1, 9), span(py27, 11, 19)), doc(span(py26, 1, 15), span(py27, 11, 19)),
+			"number_ranges[1000/payment_run/2026].prefix"},
+		"apart, activated before": {doc(span(py26, 1, 9), span(py27, 11, 19)), doc(span(py26, 1, 9), span(py27, 11, 29)), ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var paths []string
 			for _, f := range RangeRepeats(c.base, c.proposed) {
 				paths = append(paths, f.Path)
 				if f.Severity != SevError || !strings.Contains(f.Message, "would issue PY1") {
-					t.Errorf("finding: got %v, want an error naming PY1", f)
+					t.Errorf("finding: got %v, want an error naming PY1 or PY11", f)
 				}
 			}
 			if got := strings.Join(paths, " "); got != c.want {

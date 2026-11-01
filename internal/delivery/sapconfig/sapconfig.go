@@ -518,7 +518,7 @@ func (g *gen) numberRanges() []config.NumberRange {
 			year, _ := strconv.Atoi(y) // not a number: year 0, which validation of the draft refuses
 			for _, dt := range sortedKeys(types) {
 				prefix := types[dt]
-				if i < len(sorted)-1 && !strings.HasPrefix(dt, "journal_") {
+				if i < len(sorted)-1 && !config.NumberedPerYear(dt) {
 					prefix += y + "-"
 				}
 				out = append(out, config.NumberRange{Company: t.BUKRS, DocumentType: dt, FiscalYear: year, Prefix: prefix, First: 100000, Last: 999999})

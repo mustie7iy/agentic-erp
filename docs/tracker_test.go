@@ -49,8 +49,10 @@ const baselineItems = 950
 // which inherits the tag (83); T73i2's walk-through by a pilot GL
 // accountant and controller, human acceptance, split into T73i3, which
 // inherits its tag (84); T73g2's walk-through by a pilot treasury user,
-// human acceptance, split into T73g3, which inherits the tag (85).
-const pilotItems = 85
+// human acceptance, split into T73g3, which inherits the tag (85). 86 since
+// the product owner added the end-to-end id collision on a new fiscal year's
+// first payment run (review:T73g2) to the pilot (po:2026-11-01, 86).
+const pilotItems = 86
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

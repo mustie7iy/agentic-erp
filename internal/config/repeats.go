@@ -15,16 +15,18 @@ import (
 // payment requests (000079). A range that repeats an earlier year's
 // numbers would have the later year's first document refused, as the
 // first payment run of a new fiscal year was, by the ranges a country pack
-// creates afresh for each year (review:T73g2). The ranges of base (nil
-// before the first version) are not checked against each other: an
-// activated range never changes its prefix or first number
-// (rangeTransitions), so a pair activated before this check would refuse
-// every later change request of the tenant.
+// creates afresh for each year (review:T73g2). Two ranges of base (nil
+// before the first version) that already repeat each other there are let
+// be: an activated range never changes its prefix or first number
+// (rangeTransitions), so such a pair, activated before this check, would
+// refuse every later change request of the tenant. Any other pair is
+// checked, so raising an activated range's last number into another
+// year's numbers is refused.
 func RangeRepeats(base, proposed *Config) []Finding {
-	activated := map[string]bool{}
+	activated := map[string]NumberRange{}
 	if base != nil {
 		for _, n := range base.NumberRanges {
-			activated[n.Key()] = true
+			activated[n.Key()] = n
 		}
 	}
 	var out []Finding
@@ -32,17 +34,17 @@ func RangeRepeats(base, proposed *Config) []Finding {
 	for i, a := range ranges {
 		for _, b := range ranges[i+1:] {
 			if a.Company != b.Company || a.DocumentType != b.DocumentType || a.FiscalYear == b.FiscalYear ||
-				strings.HasPrefix(a.DocumentType, "journal_") || activated[a.Key()] && activated[b.Key()] {
+				NumberedPerYear(a.DocumentType) || repeatedBefore(activated, a, b) {
 				continue
 			}
 			number, ok := repeated(a, b)
 			if !ok {
 				continue
 			}
-			// The finding is on the range the change adds, the later
-			// year's when it adds both.
+			// The finding is on the range the change adds or changes, the
+			// later year's when it does both.
 			n, other := b, a
-			if activated[b.Key()] || !activated[a.Key()] && a.FiscalYear > b.FiscalYear {
+			if unchanged(activated, b) || !unchanged(activated, a) && a.FiscalYear > b.FiscalYear {
 				n, other = a, b
 			}
 			out = append(out, Finding{Severity: SevError, Path: "number_ranges[" + n.Key() + "].prefix", Message: fmt.Sprintf(
@@ -52,6 +54,30 @@ func RangeRepeats(base, proposed *Config) []Finding {
 		}
 	}
 	return out
+}
+
+// NumberedPerYear says whether a document type's numbers are unique only
+// within a fiscal year: a journal entry's, drawn from the journal_<type>
+// range of its fiscal year (ledger) and unique per fiscal year
+// (journal_entry_document, 000134).
+func NumberedPerYear(documentType string) bool { return strings.HasPrefix(documentType, "journal_") }
+
+// repeatedBefore says whether a and b were both activated and already
+// repeated each other's numbers then.
+func repeatedBefore(activated map[string]NumberRange, a, b NumberRange) bool {
+	oldA, okA := activated[a.Key()]
+	oldB, okB := activated[b.Key()]
+	if !okA || !okB {
+		return false
+	}
+	_, ok := repeated(oldA, oldB)
+	return ok
+}
+
+// unchanged says whether n is activated as it is.
+func unchanged(activated map[string]NumberRange, n NumberRange) bool {
+	old, ok := activated[n.Key()]
+	return ok && old == n
 }
 
 // repeated is the smallest number of a that b can issue too, and whether

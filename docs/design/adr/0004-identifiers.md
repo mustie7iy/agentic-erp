@@ -60,10 +60,15 @@ refusal is `config.validation_failed` on
 `proposed.number_ranges[<company>/<type>/<year>].prefix`. A pack applied for
 the next year therefore needs the year in its prefixes (`PY2027-`), or
 numbers above the earlier year's, before it is submitted. This needs no
-fact about banks or ISO 20022: no number and so no id repeats. Two ranges
-already activated are not checked against each other, as an activated
-range's prefix cannot change and the tenant's every later change would be
-refused; none is known outside tests. The SAP draft (`sapconfig`) gives
+fact about banks or ISO 20022: no number and so no id repeats. Two
+activated ranges that already repeat each other are let be, as an
+activated range's prefix and first number cannot change and the tenant's
+every later change would be refused; none is known outside tests. Any
+other pair is checked, so raising an activated range's last number into
+another year's numbers is refused on that range. Journal types are told by
+`config.NumberedPerYear` (the `journal_` prefix the ledger draws them
+with); `partner_change` ranges are checked too, though the partner context
+numbers its changes itself and never draws from them. The SAP draft (`sapconfig`) gives
 the ranges of every year before the extract's latest the year in their
 prefix (`SI2025-`), and the test fixture numbers a year after 2026 from
 1000000.

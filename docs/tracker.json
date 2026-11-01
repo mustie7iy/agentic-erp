@@ -1048,7 +1048,8 @@
       "s": "D",
       "t": "A payment run's end-to-end ids collide across fiscal years (pre-existing, found in T73g2's review): an end-to-end id is the company, the run's document number and a sequence (internal/payments/propose.go), unique per tenant (000008), while run numbers are drawn from a range per fiscal year that the country packs start again at PY1; the first run of a new fiscal year whose range repeats the prefix would draw an id last year's run holds, and its proposal fails on the unique constraint. Needs a check against the configuration's ranges, then the fiscal year in the id or a year-specific prefix required",
       "r": "Confirmed, and earlier than suspected: the run's own number collides first, payment_run (tenant_id, legal_entity_id, document_number) of 000008, so the first run of the new year is refused 409 request.duplicate at :propose; supplier invoices, orders, requisitions, contracts, receipts and down payment requests are numbered the same way. Fixed in the configuration, not the id: config.RangeRepeats (internal/config/repeats.go, called from the change check) refuses a range, other than a journal's, that can issue a number another fiscal year's range of its company and type issues, so a pack applied for a new year needs the year in its prefixes; the SAP draft gives earlier years' prefixes the year; tests TestRunsAcrossYearEnd (payments), TestCanadaPackNextYear (countrypack), TestSubmitRefusals (configuration), walkthrough step 2 next_year_ranges · ADR-0004 As built",
-      "src": "review:T73g2",
+      "src": "review:T73g2 · po:2026-11-01",
+      "pilot": "po:2026-11-01 · review:T73g2",
       "c": []
      }
     ]

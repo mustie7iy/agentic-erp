@@ -1,6 +1,7 @@
 package payments_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/mustie7iy/agentic-erp/internal/app"
@@ -18,13 +19,10 @@ import (
 // duplicate (review:T73g2; config.RangeRepeats refuses that range now).
 func TestRunsAcrossYearEnd(t *testing.T) {
 	f := fixture.NewWith(t, nil, func(c *config.Config) {
-		ranges := c.NumberRanges[:0]
-		for _, n := range c.NumberRanges {
-			if n.FiscalYear != 2027 || n.DocumentType != "payment_run" { // the fixture's own when it is run in 2027
-				ranges = append(ranges, n)
-			}
-		}
-		c.NumberRanges = append(ranges, config.NumberRange{Company: "2000", DocumentType: "payment_run", FiscalYear: 2027, Prefix: "PR2027-",
+		c.NumberRanges = slices.DeleteFunc(c.NumberRanges, func(n config.NumberRange) bool {
+			return n.FiscalYear == 2027 && n.DocumentType == "payment_run" // the fixture's own when it is run in 2027
+		})
+		c.NumberRanges = append(c.NumberRanges, config.NumberRange{Company: "2000", DocumentType: "payment_run", FiscalYear: 2027, Prefix: "PR2027-",
 			First: 100000, Last: 999999})
 	}, perms...)
 	e := setupIn(t, f, func(*app.Config) {})
