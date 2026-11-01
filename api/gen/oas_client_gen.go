@@ -29,6 +29,25 @@ func trimTrailingSlashes(u *url.URL) {
 
 // Invoker invokes operations described by OpenAPI v3 specification.
 type Invoker interface {
+	// AcceptBankStatementGap invokes acceptBankStatementGap operation.
+	//
+	// A person accepts the gap of a statement in `gap` (its opening balance is not the closing balance of
+	// the house bank's statement before it) without the missing statement, with a reason (ADR-0047
+	// Continuity): the statement becomes `imported` and records who accepted it, when and why
+	// (`gap_accepted_at`, `gap_accepted_by`, `gap_reason`); once the bank has no other statement in `gap`,
+	// its lines post again, by hand (`POST .../lines/{line_no}:post`) or by the next run of the rules
+	// (`POST /v1/bank-statements/{id}:match`), which posts what the rules matched while the gap stood. The
+	// acceptance posts nothing itself, and the missing statement's bookings stay out of the ledger: the
+	// reconciliation report shows what they leave as `unexplained` until a person posts it. One person
+	// decides; it is not an approval. People only: agents and integrations are refused (403). A statement
+	// not in `gap` (`imported` or `reconciled`) is 409 `payments.statement_not_in_gap`. If the missing
+	// statement arrives later, it becomes the previous statement and the balances are compared again:
+	// where they meet the statement stays `imported`; where they do not, the new gap stands and the
+	// acceptance goes. If-Match is the statement's ETag. Audited, and published as
+	// BankStatementGapAccepted. Returns the statement with its lines; the response's ETag is its new one.
+	//
+	// POST /v1/bank-statements/{id}:acceptGap
+	AcceptBankStatementGap(ctx context.Context, request *ReasonInput, params AcceptBankStatementGapParams) (AcceptBankStatementGapRes, error)
 	// AcceptBankStatementLineProposal invokes acceptBankStatementLineProposal operation.
 	//
 	// A person accepts the line's open proposal by the reconciliation agent (ADR-0047, T49g): the line is
@@ -2875,6 +2894,179 @@ func (c *Client) requestURL(ctx context.Context) *url.URL {
 		return c.serverURL
 	}
 	return u
+}
+
+// AcceptBankStatementGap invokes acceptBankStatementGap operation.
+//
+// A person accepts the gap of a statement in `gap` (its opening balance is not the closing balance of
+// the house bank's statement before it) without the missing statement, with a reason (ADR-0047
+// Continuity): the statement becomes `imported` and records who accepted it, when and why
+// (`gap_accepted_at`, `gap_accepted_by`, `gap_reason`); once the bank has no other statement in `gap`,
+// its lines post again, by hand (`POST .../lines/{line_no}:post`) or by the next run of the rules
+// (`POST /v1/bank-statements/{id}:match`), which posts what the rules matched while the gap stood. The
+// acceptance posts nothing itself, and the missing statement's bookings stay out of the ledger: the
+// reconciliation report shows what they leave as `unexplained` until a person posts it. One person
+// decides; it is not an approval. People only: agents and integrations are refused (403). A statement
+// not in `gap` (`imported` or `reconciled`) is 409 `payments.statement_not_in_gap`. If the missing
+// statement arrives later, it becomes the previous statement and the balances are compared again:
+// where they meet the statement stays `imported`; where they do not, the new gap stands and the
+// acceptance goes. If-Match is the statement's ETag. Audited, and published as
+// BankStatementGapAccepted. Returns the statement with its lines; the response's ETag is its new one.
+//
+// POST /v1/bank-statements/{id}:acceptGap
+func (c *Client) AcceptBankStatementGap(ctx context.Context, request *ReasonInput, params AcceptBankStatementGapParams) (AcceptBankStatementGapRes, error) {
+	res, err := c.sendAcceptBankStatementGap(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendAcceptBankStatementGap(ctx context.Context, request *ReasonInput, params AcceptBankStatementGapParams) (res AcceptBankStatementGapRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("acceptBankStatementGap"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/bank-statements/{id}:acceptGap"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, AcceptBankStatementGapOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/bank-statements/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":acceptGap"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeAcceptBankStatementGapRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, AcceptBankStatementGapOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeAcceptBankStatementGapResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
 }
 
 // AcceptBankStatementLineProposal invokes acceptBankStatementLineProposal operation.

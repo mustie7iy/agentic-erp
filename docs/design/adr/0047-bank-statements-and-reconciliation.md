@@ -53,7 +53,7 @@ Canadian bank may only offer BAI2.
 - **Continuity.** A statement's opening balance must equal the previous
   statement's closing balance for the account; otherwise it is imported
   with status `gap` and automatic posting stops for the bank until the
-  missing statement arrives or a person resolves the gap.
+  missing statement arrives or a person accepts the gap (as built below).
 - **Accounts.** A house bank has, besides its clearing account
   (`gl_account`), a main bank account (`main_gl_account`, stored as the
   nullable `payments.house_bank.main_gl_account_id`, 000119) and an
@@ -458,8 +458,36 @@ Canadian bank may only offer BAI2.
   with an excluded line reconciles (the exclusion is a person's decision
   that the booking clears nothing in the books); an agent's run of the
   rules may reconcile a statement, as it is a fact of the books rather than
-  a decision; a gap is resolved only by importing the missing statement
-  (accepting a gap without it is a later step).
+  a decision; a gap is resolved by importing the missing statement, or
+  by a person accepting it (below).
+- Accepting a gap (2026-11-01, 000174-000175): `POST
+  /v1/bank-statements/{id}:acceptGap` with a reason (`ReasonInput`),
+  If-Match and Idempotency-Key, permission
+  `payments.statement.gap.accept` (not an approval permission), people
+  only (`x-agent: false`: agents and integrations get 403, as for the
+  other people-only decisions on statements). Under the bank's statement
+  lock and the statement's row lock, an update guarded by `status = 'gap'`
+  makes the statement `imported` and records `gap_accepted_at`,
+  `gap_accepted_by` and `gap_reason` (shown on the statement); a statement
+  not in gap (imported, reconciled, or a gap an import closed meanwhile) is
+  409 `payments.statement_not_in_gap`. Audited
+  (`payments.bank_statement.accept_gap`, with the reason and both
+  balances) and published as `BankStatementGapAccepted` (opening balance,
+  the previous statement's closing balance, reason). Decided by default:
+  one person decides, no second approver: the ADR says "a person resolves
+  the gap", and the acceptance posts nothing itself (each line still goes
+  through its approval tier, and what the missing statement held shows as
+  `unexplained` in the reconciliation until a person posts it, so nothing
+  reconciles on a wrong ledger). The acceptance does not post either: as
+  when an import closes a gap, the lines post by hand or on the next run
+  of the rules (`:match`), which posts what the rules matched while the gap
+  stood. When the missing statement arrives later it becomes the previous
+  statement and is compared again: balances that meet leave the statement
+  `imported` with its acceptance; balances that do not are a new gap
+  (`BankStatementGapFound`), and the acceptance is dropped, as it covered
+  another previous statement (kept in the audit trail). A new permission
+  reaches existing tenants' administrators only when granted, as every
+  permission added since provisioning.
 - Steps: a ADR, configuration and the house bank's columns · b parsers ·
   c tables, upload, idempotency and continuity · d SFTP fetch · e rule
   matching · f posting, clearing, approval and period locks · g agent
@@ -501,7 +529,12 @@ Canadian bank may only offer BAI2.
   (into `statements_directory`, or upload it with
   `POST /v1/bank-statements`); it is placed between the two and the gap
   closes (BankStatementGapClosed), and the next run of the rules
-  (`:match`) posts what waited. A statement the bank corrected under the
+  (`:match`) posts what waited. When the bank cannot deliver it, a person
+  holding `payments.statement.gap.accept` accepts the gap with the reason
+  (`POST /v1/bank-statements/{id}:acceptGap`, BankStatementGapAccepted),
+  runs the rules (`:match`) so what waited posts, and posts what the
+  missing statement held (it shows as `unexplained` in the reconciliation
+  report) with a manual entry. A statement the bank corrected under the
   same id and sequence is refused (409 `payments.statement_conflict`) and
   left in the directory for a person to take up with the bank.
 - **What needs a person.** `erp_bank_statement_files_refused` (a file

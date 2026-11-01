@@ -12396,6 +12396,61 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/bank-statements/{id}:acceptGap":
+    post:
+      operationId: acceptBankStatementGap
+      tags:
+        - payments
+      summary: Accept a bank statement's gap
+      description: "A person accepts the gap of a statement in `gap` (its opening balance is not the closing balance of the house bank's statement before it) without the missing statement, with a reason (ADR-0047 Continuity): the statement becomes `imported` and records who accepted it, when and why (`gap_accepted_at`, `gap_accepted_by`, `gap_reason`); once the bank has no other statement in `gap`, its lines post again, by hand (`POST .../lines/{line_no}:post`) or by the next run of the rules (`POST /v1/bank-statements/{id}:match`), which posts what the rules matched while the gap stood. The acceptance posts nothing itself, and the missing statement's bookings stay out of the ledger: the reconciliation report shows what they leave as `unexplained` until a person posts it. One person decides; it is not an approval. People only: agents and integrations are refused (403). A statement not in `gap` (`imported` or `reconciled`) is 409 `payments.statement_not_in_gap`. If the missing statement arrives later, it becomes the previous statement and the balances are compared again: where they meet the statement stays `imported`; where they do not, the new gap stands and the acceptance goes. If-Match is the statement's ETag. Audited, and published as BankStatementGapAccepted. Returns the statement with its lines; the response's ETag is its new one."
+      x-permission: payments.statement.gap.accept
+      x-agent: false
+      x-problem-codes:
+        - payments.statement_not_in_gap
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of acceptBankStatementGap.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonInput"
+      responses:
+        "200":
+          description: The bank statement, its gap accepted.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankStatement"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   "/v1/bank-statements/{id}/matches":
     get:
       operationId: listBankStatementMatches
@@ -29518,7 +29573,7 @@ components:
               readOnly: true
             status:
               type: string
-              description: "`imported`; `gap` when its opening balance is not the previous statement's closing balance (automatic posting stops for the bank); `reconciled` once every line of it and of the bank's statements before it is posted or excluded and its closing balance, less the lines excluded and those posted after its closing date, is the ledger's balance of the main bank account on that date (T49h): set once, never undone by the server, and its lines are then decided for good. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "`imported`; `gap` when its opening balance is not the previous statement's closing balance: the bank's lines are not posted, automatically or by hand (409 `payments.statement_gap`), until the missing statement arrives or a person accepts the gap (`:acceptGap`, which makes it `imported`); `reconciled` once every line of it and of the bank's statements before it is posted or excluded and its closing balance, less the lines excluded and those posted after its closing date, is the ledger's balance of the main bank account on that date (T49h): set once, never undone by the server, and its lines are then decided for good. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - imported
                 - gap
@@ -29539,6 +29594,20 @@ components:
               type: string
               format: uuid
               description: "Whose action reconciled it: the person, integration or agent whose posting, exclusion or run of the rules left nothing unexplained."
+              readOnly: true
+            gap_accepted_at:
+              type: string
+              format: date-time
+              description: "When a person accepted the statement's gap without the missing statement (`POST /v1/bank-statements/{id}:acceptGap`); absent when none did, or once the missing statement arrived and a new gap stands."
+              readOnly: true
+            gap_accepted_by:
+              type: string
+              format: uuid
+              description: "The person who accepted the gap; absent with `gap_accepted_at`."
+              readOnly: true
+            gap_reason:
+              type: string
+              description: "Why the person accepted the gap; absent with `gap_accepted_at`."
               readOnly: true
     StatementMatch:
       description: "What a bank statement line clears (ADR-0047): found by a matching rule, decided by a person, or proposed by the reconciliation agent for a person to decide (kind `agent`, T49g)."

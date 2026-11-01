@@ -8,6 +8,25 @@ import (
 
 // Handler handles operations described by OpenAPI v3 specification.
 type Handler interface {
+	// AcceptBankStatementGap implements acceptBankStatementGap operation.
+	//
+	// A person accepts the gap of a statement in `gap` (its opening balance is not the closing balance of
+	// the house bank's statement before it) without the missing statement, with a reason (ADR-0047
+	// Continuity): the statement becomes `imported` and records who accepted it, when and why
+	// (`gap_accepted_at`, `gap_accepted_by`, `gap_reason`); once the bank has no other statement in `gap`,
+	// its lines post again, by hand (`POST .../lines/{line_no}:post`) or by the next run of the rules
+	// (`POST /v1/bank-statements/{id}:match`), which posts what the rules matched while the gap stood. The
+	// acceptance posts nothing itself, and the missing statement's bookings stay out of the ledger: the
+	// reconciliation report shows what they leave as `unexplained` until a person posts it. One person
+	// decides; it is not an approval. People only: agents and integrations are refused (403). A statement
+	// not in `gap` (`imported` or `reconciled`) is 409 `payments.statement_not_in_gap`. If the missing
+	// statement arrives later, it becomes the previous statement and the balances are compared again:
+	// where they meet the statement stays `imported`; where they do not, the new gap stands and the
+	// acceptance goes. If-Match is the statement's ETag. Audited, and published as
+	// BankStatementGapAccepted. Returns the statement with its lines; the response's ETag is its new one.
+	//
+	// POST /v1/bank-statements/{id}:acceptGap
+	AcceptBankStatementGap(ctx context.Context, req *ReasonInput, params AcceptBankStatementGapParams) (AcceptBankStatementGapRes, error)
 	// AcceptBankStatementLineProposal implements acceptBankStatementLineProposal operation.
 	//
 	// A person accepts the line's open proposal by the reconciliation agent (ADR-0047, T49g): the line is
