@@ -312,9 +312,9 @@ decided (ADR-0051, P2) that a house bank may hold another currency.
   the USD account) is not in the bank's USD balance, so the
   reconciliation report does not show it as unexplained; refusing such
   postings would be a database rule of its own, not built. The SAP load
-  (T012K) carries no currency, so an SAP foreign-currency house bank is
-  loaded in its company's currency until the extract maps it (tracked);
-  since a currency never changes under a code, check it before go-live.
+  (T012K) carried no currency, so an SAP foreign-currency house bank was
+  loaded in its company's currency; it now takes the account's currency
+  (As built: SAP house banks in their account's currency, below).
 - Tested end to end on a CAD company with a USD bank: configuration, a
   USD run, its file, the USD statement imported, matched, posted with the
   realised loss, reconciled, and the bank account revalued at the month's
@@ -780,3 +780,46 @@ expose its channel's connector). Decided by default, as above:
 - **Contract.** A `detail` text change only: `proposePaymentRun`'s
   description names the problem and says its detail names the supplier.
   No new field; oasdiff reports no breaking change.
+
+## As built: SAP house banks in their account's currency (T53a review)
+
+The SAP load of house banks gave every bank its company's currency, so an
+SAP foreign-currency account would have been created in the wrong one, for
+good: a currency never changes under a bank's code (amendment T53a). Decided
+by default, from the T53a amendment and the configuration draft's pattern
+(`sapconfig`: a value SAP does not give is noted and, where a guess could be
+wrong, left in a form validation refuses):
+
+- **The currency.** The extract's T012K carries the account's currency key,
+  WAERS (check table TCURC; the field as the ABAP dictionary's published
+  mirror shows it, https://leanx.eu/en/sap/table/t012k.html, to be confirmed
+  by an SAP specialist). House banks enter the platform through the
+  configuration generated from SAP (`erp config generate`, then provisioning
+  or a change request), not the `erp migrate` run, so the draft is where
+  the currency is taken: an account in the company's currency leaves the
+  bank's `currency` empty (the company's, as before); another is taken as
+  it is, with a note for the reviewers.
+- **Refused, not guessed.** An account without a currency is drafted with
+  `currency: UNKNOWN` and a note, which validation refuses ("not in the
+  currency reference data") until a reviewer sets it, as `net_days: -1`
+  marks a payment term SAP's days cannot give; a currency the reference data
+  does not know is refused the same way. What an empty WAERS means in SAP is
+  for the specialist; the company's currency would be a guess that could
+  never be corrected.
+- **Revaluation.** A foreign-currency bank's ledger accounts must be
+  flagged `revalue_foreign_currency` with their unrealised gain and loss in
+  `fx_valuation.accounts` (T53a, ADR-0042). SAP's valuation accounts are not
+  in the extract, so the draft does not flag them: its note says so, and the
+  draft validates once a reviewer has.
+- **No reconciliation control.** The configuration is checked by
+  validation and approved through its change request; the migration run's
+  controls cover the data it loads (vendor bank accounts among them, T72d),
+  not configuration, so no control was added. The run's report still counts
+  the extract's T012K rows.
+- **Mock and walkthrough.** The mock's company 3000 has a second house bank
+  account, MUSD, in USD on its own ledger account 102000, beside exchange
+  gain and loss accounts 480000 and 680000. Walkthrough step 1 shows the
+  draft refused until the reviewer revalues 102000, then lists the
+  provisioned house banks through `listHouseBanks`: MAIN in CAD, MUSD in USD.
+- **Still open** (tracked, if the product owner asks): entries in another
+  currency posted by hand on a foreign-currency bank's accounts.

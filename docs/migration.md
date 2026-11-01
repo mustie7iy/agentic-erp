@@ -235,6 +235,14 @@ stopped the run before the load.
   number; another form is noted and left for the reviewers (T72d). Confirm
   that the extract's T012K carries the house bank's bank country and key
   (T012-BANKS/BANKL) and the account number (T012K-BANKN).
+- Each house bank account (T012K) is generated in its currency, T012K-WAERS:
+  an account in another currency than the company's is noted, and the draft
+  validates once its ledger account is flagged `revalue_foreign_currency`
+  with its unrealised gain and loss; an account without WAERS is drafted with
+  `currency: UNKNOWN`, which validation refuses until a reviewer sets it
+  (ADR-0038). Confirm that the extract's T012K carries WAERS, and what an
+  empty one means in your system, before go-live: a bank's currency never
+  changes once it is created.
 - Amounts for currencies with no decimals or three decimals (JPY, KWD) come in
   external format.
 - **SAP digital-access licensing:** reading data is usually fine, but agents

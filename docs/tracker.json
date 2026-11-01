@@ -1329,10 +1329,17 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "SAP load of house banks (T012K) with their account currency, so an SAP foreign-currency house bank is not loaded in its company's currency (a currency never changes under a code); and, if the product owner asks, refuse or report entries in another currency on a foreign-currency bank's accounts (T53a review)",
-        "r": "internal/sap · internal/delivery/sapconfig · ADR-0038 (T53a amendment) · T53",
+        "s": "D",
+        "t": "SAP load of house banks (T012K) with their account currency (WAERS), so an SAP foreign-currency house bank is not loaded in its company's currency (a currency never changes under a code): a foreign-currency account is generated in its currency, noted, and validates once its ledger account is revalued; an account without a currency, or in one the reference data does not know, is refused by validation (T53a review)",
+        "r": "sap.T012K.WAERS · sapconfig houseBankCurrency (unknownCurrency) · mock company 3000 MUSD · walkthrough step 1 · ADR-0038 As built (T012K currency) · T53",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "If the product owner asks: refuse or report entries in another currency posted by hand on a foreign-currency house bank's accounts (a CAD fee on the USD account is not in the bank's USD balance, so the reconciliation does not show it)",
+        "r": "ADR-0038 (T53a amendment, known limits) · T53",
+        "src": "adr:ADR-0038",
         "c": []
        },
        {

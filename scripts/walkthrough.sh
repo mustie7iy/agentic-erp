@@ -391,7 +391,7 @@ person() {
 step_tenant() {
   heading "Step 1 — A tenant for the Canadian pilot company, configured from its SAP system"
   say "The mock SAP extract has a US company 1000, a German 2000 and the pilot, Maple Industries Canada,"
-  say "company $CC in CAD, with Canadian suppliers and a Canadian house bank (T72d)."
+  say "company $CC in CAD, with Canadian suppliers and Canadian house bank accounts in CAD and USD (T72d)."
   # A fixed seed and month: the mock's documents are then the same every
   # run, whatever today is (its random draws depend on -through below 6).
   show erp gen-mock-sap -out data/extract.json -year "$YEAR" -through 9 -seed 42
@@ -409,14 +409,31 @@ step_tenant() {
   say "The company does business in Eastern Time: its business dates (today in its cash position) are in"
   say "America/Toronto, given as the draft is generated (T72n1)."
   show erp config generate -source file:data/extract.json -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" -out config.yaml
-  "$ERP" config generate -source "file:$WORK/data/extract.json" -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" \
-    -out "$WORK/config.yaml" >"$WORK/generate.out" 2>&1 || { sed 's/^/     /' "$WORK/generate.out"; fail "config generate failed"; }
-  grep -q 'Validation: no findings' "$WORK/generate.out" || { sed 's/^/     /' "$WORK/generate.out"; fail "the generated configuration has findings"; }
-  say "  the configuration generated from SAP's customizing validates with no findings."
-  say "SAP's house bank (T012K) is Canadian: no IBAN, its account by institution, transit and account number:"
-  jq -r --arg cc "$CC" '.T012K[] | select(.BUKRS == $cc) | "     T012K \(.HBKID): bank \(.BANKS) \(.BANKL), account \(.BANKN), IBAN \(if .IBAN == "" then "none" else .IBAN end)"' "$WORK/data/extract.json"
+  if "$ERP" config generate -source "file:$WORK/data/extract.json" -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" \
+    -out "$WORK/config.yaml" >"$WORK/generate.out" 2>&1; then
+    fail "a draft with a USD house bank whose account is not revalued validated"
+  fi
+  say "SAP's house banks (T012K) are Canadian: no IBAN, each account by institution, transit and account number,"
+  say "in its own currency (WAERS): MAIN in CAD and MUSD in USD."
+  jq -r --arg cc "$CC" '.T012K[] | select(.BUKRS == $cc) | "     T012K \(.HBKID): bank \(.BANKS) \(.BANKL), account \(.BANKN) in \(.WAERS), IBAN \(if .IBAN == "" then "none" else .IBAN end)"' "$WORK/data/extract.json"
   grep -A 6 '^    house_bank:$' "$WORK/config.yaml" | sed 's/^/     /'
   grep -A 6 '^    house_bank:$' "$WORK/config.yaml" | grep -q 'institution_number: "003"' || fail "the house bank was not generated with its institution number"
+  grep -A 9 '^    house_banks:$' "$WORK/config.yaml" | sed 's/^/     /'
+  grep -A 9 '^    house_banks:$' "$WORK/config.yaml" | grep -q '^        currency: USD$' || fail "the USD house bank was not generated in USD"
+  say "The USD account's ledger account must be revalued at month end (ADR-0042), which SAP's extract cannot"
+  say "tell, so the draft names it and does not validate until a reviewer flags it with its gain and loss accounts:"
+  grep "\[error\]" "$WORK/generate.out" | sed 's/^ */     /'
+  grep -q "\[error\] companies\[$CC\]\.house_banks\[MUSD\]\.gl_account: house bank MUSD is in USD: account 102000 must be revalue_foreign_currency" "$WORK/generate.out" ||
+    { sed 's/^/     /' "$WORK/generate.out"; fail "the draft did not ask for the USD bank's account to be revalued"; }
+  expect "the draft's validation errors" "$(grep -c '\[error\]' "$WORK/generate.out")" 1
+  awk '{ print } /^      - number: "102000"$/ { usd = 1 } usd && /^        type: asset$/ { print "        revalue_foreign_currency: true"; usd = 0 }
+    /^    fiscal_year_start_month: 1$/ { print "    fx_valuation:\n      accounts:\n        - {account: \"102000\", unrealised_gain: \"480000\", unrealised_loss: \"680000\"}" }' \
+    "$WORK/config.yaml" >"$WORK/config.tmp"
+  mv "$WORK/config.tmp" "$WORK/config.yaml"
+  show erp config validate -file config.yaml
+  "$ERP" config validate -file "$WORK/config.yaml" >"$WORK/validate.out" 2>&1 || { sed 's/^/     /' "$WORK/validate.out"; fail "the reviewed configuration does not validate"; }
+  grep -q 'Validation: no findings' "$WORK/validate.out" || { sed 's/^/     /' "$WORK/validate.out"; fail "the reviewed configuration has findings"; }
+  say "  with account 102000 revalued into 480000 and 680000, the configuration validates with no findings."
   say "A second ledger, 2L for local GAAP (ASPE), is added beside the leading IFRS ledger 0L before"
   say "provisioning: parallel ledgers are set up while the company has no postings (ADR-0045)."
   awk '{ print } /^    fiscal_year_start_month: 1$/ { print "    ledgers: [\"0L\", \"2L\"]" }' "$WORK/config.yaml" >"$WORK/config.tmp"
@@ -441,6 +458,10 @@ YAML
   expect "company $CC's currency" "$(field '.items[0].local_currency')" CAD
   api 200 '.items[] | "ledger \(.code) \(.name)\(if .is_leading then ", leading" else "" end)"' listLedgers
   expect "ledgers" "$(field '[.items[].code] | sort | join(" ")')" "0L 2L"
+  say "The house banks loaded from SAP, each in its account's currency:"
+  api 200 '.items[] | "house bank \(.code): \(.currency), account ending \(.account_last4)"' listHouseBanks -p "legal_entity_id=$LE"
+  expect "the house banks' currencies" "$(field '[.items[] | "\(.code) \(.currency)"] | sort | join(", ")')" "MAIN CAD, MUSD USD"
+  expect "the USD account's last four digits" "$(field '.items[] | select(.code == "MUSD") | .account_last4')" 2346
   people
   passed
 }
@@ -745,7 +766,7 @@ PILOT_SETTINGS='
       {"name": "RBCUS", "bic": "ROYCCAT2", "institution_number": "003", "transit_number": "00002", "account_number": "4000001",
        "gl_account": "1020", "main_gl_account": "1030", "incoming_gl_account": "1040", "currency": "USD"}])
     | .release_dual_limit = "4000.00"
-    | .fx_valuation = {"accounts": ["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"})}
+    | .fx_valuation.accounts += (["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"}))
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
         "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})'
 

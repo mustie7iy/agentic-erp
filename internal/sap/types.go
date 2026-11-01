@@ -273,6 +273,15 @@ type T012K struct {
 	BANKS string `json:"BANKS,omitempty"`
 	BANKL string `json:"BANKL,omitempty"`
 	BANKN string `json:"BANKN,omitempty"`
+	// WAERS is the account's currency key (check table TCURC), which the
+	// house bank is generated in: a foreign-currency account in its own
+	// currency, not the company's (ADR-0038, T53a). The field, its data
+	// element and check table are the ABAP dictionary's as a published
+	// mirror shows them (https://leanx.eu/en/sap/table/t012k.html), still to
+	// be confirmed by an SAP specialist, as is what an empty WAERS means
+	// there; the configuration draft refuses an account without one rather
+	// than guess the company's currency.
+	WAERS string `json:"WAERS,omitempty"`
 }
 
 // T074 - alternative reconciliation accounts of special G/L transactions:

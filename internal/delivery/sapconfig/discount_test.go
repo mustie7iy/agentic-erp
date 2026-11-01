@@ -72,9 +72,9 @@ func TestDiscountTermsFromT052(t *testing.T) {
 			if c.note != "" && !strings.Contains(all, c.note+": ") {
 				t.Errorf("notes: got\n%s\nwant one on %s", all, c.note)
 			}
-			valid := !config.HasErrors(config.Validate(cfg, currency.Seeded()))
+			valid := !config.HasErrors(config.Validate(reviewed(cfg), currency.Seeded()))
 			if valid != (c.note == "") {
-				t.Errorf("draft valid: got %v, want %v: %v", valid, c.note == "", config.Validate(cfg, currency.Seeded()))
+				t.Errorf("draft valid: got %v, want %v: %v", valid, c.note == "", config.Validate(reviewed(cfg), currency.Seeded()))
 			}
 		})
 	}
