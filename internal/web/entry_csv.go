@@ -173,7 +173,7 @@ func rowErrors(lines []entryLine) ([]ui.RowError, int) {
 // fields, which its field errors name.
 var apiColumns = map[string]string{"account_id": "account", "amount": "amount", "cost_center_id": "cost_center", "profit_center_id": "profit_center",
 	"segment_id": "segment", "partner_id": "partner", "tax_code": "tax_code", "tax_jurisdiction": "tax_jurisdiction", "tax_base": "tax_base",
-	"quantity": "quantity", "line_text": "line_text"}
+	"quantity": "quantity", quantityUnit: "unit", "line_text": "line_text"}
 
 // csvOrder are the file's columns in the order a row's errors are said.
 var csvOrder = []struct{ field, column string }{

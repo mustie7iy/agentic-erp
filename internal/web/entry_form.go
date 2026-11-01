@@ -24,11 +24,17 @@ import (
 // added (or the one now in a removed line's place) focused. A line left
 // empty is left out when the entry is sent. What is wrong is said on its
 // field before the API is called, and what the API refuses of a line (its
-// field errors, lines[i].field) on its line. The form renders with
-// getCurrentPrincipal, listLegalEntities (a new entry's company and
-// currency) or getParkedJournalEntry (a change's entry), and the
-// company's accounts, which it suggests by number: three or four calls;
-// sending it looks its codes up besides (entry_lookup.go).
+// field errors, lines[i].field) on its line. A new entry is also posted
+// at once or parked from a file (entry_send.go, T73h2). The new entry's
+// form renders with getCurrentPrincipal, listLegalEntities, the
+// company's day, its accounts, which it suggests by number, its ledgers
+// and the ledger groups: six calls; a change's with getParkedJournalEntry
+// in place of the day and ledgers and the lines' partners besides: five.
+// Sending a form looks its codes up besides (entry_lookup.go).
+
+// quantityUnit is the API's name of a line's quantity's unit, which its
+// field errors name (lines[i].quantity.unit).
+const quantityUnit = "quantity.unit"
 
 // docType is a document type as JournalEntryCreate takes it.
 var docType = regexp.MustCompile(`^[A-Z0-9]{2}$`)
@@ -49,7 +55,7 @@ var lineNames = []string{ui.FieldLineAccount, ui.FieldLineAmount, ui.FieldLineCo
 type entryTyped struct {
 	company, docType, docDate, postingDate, taxDate string
 	currency, reference, header, ifMatch            string
-	op, filledFor, postTo                           string
+	op, filledFor, filledOn, postTo                 string
 	errs                                            map[string]i18n.Key
 	linesErr                                        i18n.Key
 	lines                                           []entryLine
@@ -74,7 +80,8 @@ func readEntryForm(r *http.Request) (entryTyped, int) {
 	f := r.PostForm
 	t := entryTyped{company: f.Get(ui.FieldCompany), docType: f.Get(ui.FieldDocType), docDate: f.Get(ui.FieldDocDate), postingDate: f.Get(ui.FieldPostingDate),
 		taxDate: f.Get(ui.FieldTaxDate), currency: f.Get(ui.FieldCurrency), reference: f.Get(ui.FieldReference), header: f.Get(ui.FieldHeaderText),
-		ifMatch: f.Get(ui.FieldIfMatch), op: f.Get(ui.FieldOp), filledFor: f.Get(ui.FieldFilledFor), postTo: f.Get(ui.FieldPostTo)}
+		ifMatch: f.Get(ui.FieldIfMatch), op: f.Get(ui.FieldOp), filledFor: f.Get(ui.FieldFilledFor), filledOn: f.Get(ui.FieldFilledOn),
+		postTo: f.Get(ui.FieldPostTo)}
 	left := map[string]bool{}
 	for _, v := range f[ui.FieldLineRemove] {
 		left[v] = true
@@ -270,7 +277,10 @@ func markRefused(prob gen.Problem, lines []entryLine) {
 		if !ok || !closed || err != nil || n < 0 || n >= len(lines) {
 			continue
 		}
-		api, _, _ := strings.Cut(strings.TrimPrefix(field, "."), ".")
+		api := strings.TrimPrefix(field, ".")
+		if api != quantityUnit { // a quantity's unit is a field of its own on the line
+			api, _, _ = strings.Cut(api, ".")
+		}
 		lines[n].refused = append(lines[n].refused, refusedField{api: api, reason: fe.Code})
 	}
 }
@@ -328,7 +338,8 @@ func (s *Server) showNewEntry(w http.ResponseWriter, r *http.Request, p *person,
 	}
 	loc, _ := i18n.From(ctx) // every request has its locale (localized)
 	f := t.view(loc, ui.NewEntryPath, p, *ch)
-	f.Companies, f.Back, f.FilledFor, f.Changed, f.CompanyError = options, ui.JournalPath, t.filledFor, t.changed, t.errs[ui.FieldCompany]
+	f.Companies, f.Back, f.FilledFor, f.FilledOn, f.Changed, f.CompanyError = options, ui.JournalPath, t.filledFor, t.filledOn, t.changed,
+		t.errs[ui.FieldCompany]
 	f.Local, f.CanPost, f.File = entities[company].LocalCurrency, m.may(permPostEntries), t.file
 	if f.File == nil {
 		f.File = &ui.LinesUpload{}
@@ -341,11 +352,12 @@ func (s *Server) showNewEntry(w http.ResponseWriter, r *http.Request, p *person,
 
 // fill fills in a new entry's currency and dates for the company (an id
 // the person may see): its local currency and its day today
-// (getLegalEntityToday). Those filled in for another company are
-// replaced, and those the person typed kept unless empty; the form then
-// holds them for this company. For a company the person may not see,
-// nothing is filled in, and what the form holds is the person's: sent,
-// the API refuses the company.
+// (getLegalEntityToday). A field still holding what was filled in for
+// another company (its currency, the day filledOn) is replaced, and so
+// is an empty one; what the person typed is kept. When anything filled
+// in for another company is replaced, the form says so. For a company the
+// person may not see, nothing is filled in, and what the form holds is
+// the person's: sent, the API refuses the company.
 func (s *Server) fill(ctx context.Context, m me, t *entryTyped, company string, entities map[uuid.UUID]gen.LegalEntity) {
 	id, err := uuid.Parse(company)
 	if err != nil || t.filledFor == company {
@@ -356,14 +368,22 @@ func (s *Server) fill(ctx context.Context, m me, t *entryTyped, company string, 
 		t.filledFor = ""
 		return
 	}
-	again := t.filledFor != ""
+	before := ""
+	if old, err := uuid.Parse(t.filledFor); err == nil {
+		before = entities[old].LocalCurrency
+	}
 	today := s.today(ctx, m, company)
-	for _, f := range []struct{ field, to *string }{{&t.currency, &e.LocalCurrency}, {&t.docDate, &today}, {&t.postingDate, &today}} {
-		if again || strings.TrimSpace(*f.field) == "" {
+	for _, f := range []struct{ field, was, to *string }{{&t.currency, &before, &e.LocalCurrency}, {&t.docDate, &t.filledOn, &today},
+		{&t.postingDate, &t.filledOn, &today}} {
+		typed := strings.TrimSpace(*f.field)
+		switch {
+		case typed == "":
 			*f.field = *f.to
+		case typed == *f.was && *f.was != *f.to:
+			*f.field, t.changed = *f.to, true
 		}
 	}
-	t.filledFor = company
+	t.filledFor, t.filledOn = company, today
 }
 
 // linesAlone reports whether the answer is the form's lines' section
@@ -395,7 +415,7 @@ func (s *Server) renderForm(w http.ResponseWriter, r *http.Request, p *person, m
 // the form holds its lines: no call to the API.
 func (s *Server) renderTotals(w http.ResponseWriter, r *http.Request, t entryTyped) {
 	loc, _ := i18n.From(r.Context()) // every request has its locale (localized)
-	s.render(w, r, http.StatusOK, ui.EntryTotalsView(totalsOf(loc, t.lines, strings.ToUpper(strings.TrimSpace(t.currency)))))
+	s.render(w, r, http.StatusOK, ui.EntryTotalsBody(totalsOf(loc, t.lines, strings.ToUpper(strings.TrimSpace(t.currency)))))
 }
 
 // formKey is a posted form's idempotency key; ok is false, the answer

@@ -57,6 +57,7 @@ const (
 	FieldLineRemove      = "line_remove"
 	FieldOp              = "op"
 	FieldFilledFor       = "filled_for"
+	FieldFilledOn        = "filled_on"
 	FieldPostTo          = "post_to"
 	FieldCostCenter      = "cost_center_id"
 	FieldProfitCenter    = "profit_center_id"
@@ -438,6 +439,7 @@ type EntryForm struct {
 	Companies    []Option // a new entry's choice
 	CompanyError i18n.Key
 	FilledFor    string   // the company a new entry's currency and dates were filled in for; "" for none
+	FilledOn     string   // the day its dates were filled in with; "" for none
 	Local        string   // the company's currency, "" when not known
 	Changed      bool     // the company was changed: its currency and dates are filled in again
 	PostTo       []Option // a new entry's ledgers; nil when its company keeps one
@@ -501,11 +503,12 @@ func lineInput(action string, l LineInput, name, value string) templ.Attributes 
 	return a
 }
 
-// totalsAttrs ask the form's running totals again, the totals' section
-// alone swapped (htmx; without it they are those of the form's last
-// rendering).
+// totalsAttrs ask the form's running totals again, the totals' contents
+// alone swapped inside their live region, which stays in the page so a
+// screen reader says the change (htmx; without it they are those of the
+// form's last rendering).
 func totalsAttrs(action string) templ.Attributes {
-	return templ.Attributes{"hx-post": string(templ.URL(action)), "hx-trigger": "change", "hx-target": "#entry-totals", "hx-swap": "outerHTML",
+	return templ.Attributes{"hx-post": string(templ.URL(action)), "hx-trigger": "change", "hx-target": "#entry-totals", "hx-swap": "innerHTML",
 		"hx-vals": `{"` + FieldOp + `":"` + OpTotals + `"}`}
 }
 
@@ -527,8 +530,10 @@ func postToText(o Option) templ.Component {
 		return T(i18n.EntryPostToLedger, o.Text)
 	case strings.HasPrefix(o.Value, PostToGroup):
 		return T(i18n.EntryPostToGroup, o.Text)
-	default:
+	case o.Value == "":
 		return T(i18n.EntryPostToAll)
+	default: // a choice the form held that is none of these, refused on its field
+		return Value(o.Value)
 	}
 }
 

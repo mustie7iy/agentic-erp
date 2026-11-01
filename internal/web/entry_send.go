@@ -116,19 +116,21 @@ func (s *Server) parkFile(w http.ResponseWriter, r *http.Request, p *person) {
 // every ledger it keeps (the API's default), each of them, and each
 // ledger group with a ledger it keeps (listLedgers, listLedgerGroups);
 // none when it keeps one ledger, the person may not read ledgers, or
-// they cannot be read (logged: the entry then posts to every ledger).
+// they cannot be read (logged: the entry then posts to every ledger). A
+// choice the form already holds is never dropped (keepChosen): rendered
+// again, it is sent again as chosen.
 func (s *Server) postToOptions(ctx context.Context, m me, company uuid.UUID, chosen string) []ui.Option {
 	if !m.may(permReadAccounts) || company == uuid.Nil {
-		return nil
+		return keepChosen(nil, chosen)
 	}
 	res, err := s.API.ListLedgers(ctx, gen.ListLedgersParams{LegalEntityID: gen.NewOptUUID(company), PageSize: gen.NewOptInt32(maxLedgers)})
 	page, ok := res.(*gen.LedgerPage)
 	if !ok {
 		s.Log.WarnContext(ctx, "web: the company's ledgers could not be read", "answer", res, "error", err)
-		return nil
+		return keepChosen(nil, chosen)
 	}
 	if len(page.Items) < 2 {
-		return nil
+		return keepChosen(nil, chosen)
 	}
 	out := []ui.Option{{Selected: chosen == ""}}
 	kept := map[uuid.UUID]bool{}
@@ -141,7 +143,7 @@ func (s *Server) postToOptions(ctx context.Context, m me, company uuid.UUID, cho
 	groups, ok := gres.(*gen.LedgerGroupPage)
 	if !ok {
 		s.Log.WarnContext(ctx, "web: the ledger groups could not be read", "answer", gres, "error", err)
-		return out
+		return keepChosen(out, chosen)
 	}
 	for _, g := range groups.Items {
 		if keeps(kept, g.LedgerIds) {
@@ -149,7 +151,28 @@ func (s *Server) postToOptions(ctx context.Context, m me, company uuid.UUID, cho
 			out = append(out, ui.Option{Value: v, Text: g.Code + " " + g.Name, Selected: v == chosen})
 		}
 	}
-	return out
+	return keepChosen(out, chosen)
+}
+
+// keepChosen are the options with the choice the form holds, offered and
+// chosen by its value (a ledger's id, a group's code) when they do not
+// hold it: the ledgers could not be read again, or the choice is no
+// longer offered. Never silently every ledger in its place; the API
+// says whether the choice still stands.
+func keepChosen(options []ui.Option, chosen string) []ui.Option {
+	if chosen == "" {
+		return options
+	}
+	for _, o := range options {
+		if o.Selected {
+			return options
+		}
+	}
+	if options == nil {
+		options = []ui.Option{{}}
+	}
+	_, value, _ := strings.Cut(chosen, ":")
+	return append(options, ui.Option{Value: chosen, Text: value, Selected: true})
 }
 
 // keeps reports whether any of the ledgers is kept.

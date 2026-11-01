@@ -1,6 +1,7 @@
 package web
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -67,6 +68,34 @@ func TestCSVLimits(t *testing.T) {
 	}
 	if ui.LineFieldLabel(marked[1].refused[0].api) != i18n.EntryLineAmount {
 		t.Error("markRefused: the amount's field is not named")
+	}
+	unit := make([]entryLine, 1)
+	markRefused(gen.Problem{Errors: []gen.FieldError{{Field: "lines[0].quantity.unit", Code: "unknown"}}}, unit)
+	if got := unit[0].refused; len(got) != 1 || ui.LineFieldLabel(got[0].api) != i18n.EntryLineUnit || apiColumns[got[0].api] != "unit" {
+		t.Errorf("a quantity's unit refused: got %+v, want it named the unit's, on the form and in a file", got)
+	}
+}
+
+// TestKeepChosen: a ledgers' choice the form holds stays chosen when the
+// options do not hold it, never silently every ledger in its place.
+func TestKeepChosen(t *testing.T) {
+	offered := []ui.Option{{Selected: false}, {Value: "ledger:a", Text: "0L Leading"}}
+	for name, tc := range map[string]struct {
+		options []ui.Option
+		chosen  string
+		want    []ui.Option
+	}{
+		"none chosen":   {offered, "", offered},
+		"chosen there":  {[]ui.Option{{}, {Value: "ledger:a", Selected: true}}, "ledger:a", []ui.Option{{}, {Value: "ledger:a", Selected: true}}},
+		"not offered":   {offered, "group:ALL", append(append([]ui.Option{}, offered...), ui.Option{Value: "group:ALL", Text: "ALL", Selected: true})},
+		"none to offer": {nil, "ledger:b", []ui.Option{{}, {Value: "ledger:b", Text: "b", Selected: true}}},
+		"no options":    {nil, "", nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := keepChosen(tc.options, tc.chosen); !slices.Equal(got, tc.want) {
+				t.Errorf("got %+v, want %+v", got, tc.want)
+			}
+		})
 	}
 }
 

@@ -2322,13 +2322,14 @@ company's currency after its company was changed). What it settled:
   dates, and with them: for the company its address names, or the only
   one offered; among several and none named, neither currency nor dates
   are filled in until a company is chosen. The form says for which
-  company they were filled in (a hidden `filled_for`). Choosing the
-  company is an htmx request (`hx-post` with `op=company`, `hx-vals`
-  JSON, no script of the workspace's own): the form is rendered again for
-  it and swapped whole, its currency, dates, ledgers and accounts the
-  company's; what the person typed is kept, except the currency and dates
-  filled in for the other company, which are replaced, and those left
-  empty, which are filled in. Without htmx the change is seen when the
+  company and day they were filled in (hidden `filled_for` and
+  `filled_on`). Choosing the company is an htmx request (`hx-post` with
+  `op=company`, `hx-vals` JSON, no script of the workspace's own): the
+  form is rendered again for it and swapped whole, its ledgers and
+  accounts the company's; a currency or date still holding what was
+  filled in for the other company (its currency, the day `filled_on`) is
+  replaced, and the form says so; an empty one is filled in; one the
+  person typed is kept (review round 1). Without htmx the change is seen when the
   form is sent: a form whose company is not the one it was filled in for
   is not sent (no call to park or post) but rendered for the company,
   422, with a notice that its currency and dates are now this company's,
@@ -2363,7 +2364,10 @@ company's currency after its company was changed). What it settled:
   API's default), one of them (`ledger_id`) or a ledger group
   (`ledger_group`): a select offered when the company keeps more than
   one ledger, listing its ledgers (`listLedgers` by company) and the
-  groups with one of them (`listLedgerGroups`). A parked entry's ledger
+  groups with one of them (`listLedgerGroups`). A choice the form holds
+  stays chosen when the form is rendered again and the ledgers cannot be
+  read, or it is no longer offered (by its id or code): never silently
+  every ledger in its place (review round 1). A parked entry's ledger
   is not changed (`ParkedJournalEntryUpdate` takes none).
 - **A line's tax jurisdiction, declared tax base and quantity.** Four
   more fields per line and CSV columns (`tax_jurisdiction`, `tax_base`,
@@ -2386,8 +2390,10 @@ company's currency after its company was changed). What it settled:
   decimals as the amounts typed (no API names a currency's digits); an
   amount that cannot be read, or whose sum is out of range, is not
   counted and the form says how many are not. With htmx each amount's
-  change asks for them again (`op=totals`: the totals' section alone, no
-  API call, `aria-live` polite); without it they are those of the form's
+  change asks for them again (`op=totals`, no API call): their contents
+  are swapped inside a polite live region that stays in the page, so a
+  screen reader says the change (`innerHTML`, as the payment progress
+  does; review round 1); without it they are those of the form's
   last rendering. The API checks the balance.
 - **Calls.** The new entry's form reads six (`getCurrentPrincipal`, the
   companies, the company's day, its accounts, its ledgers and the ledger

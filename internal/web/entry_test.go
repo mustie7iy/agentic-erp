@@ -152,8 +152,8 @@ func TestRunningTotals(t *testing.T) {
 	hx, headers := asHTMX(v, ui.OpTotals)
 	r := b.do(http.MethodPost, "/journal/new", hx, append(headers, "Accept-Language", "fr-CA")...)
 	status(t, "the totals", r, http.StatusOK)
-	if strings.Contains(r.body, "<html") || !strings.Contains(r.body, `id="entry-totals"`) {
-		t.Errorf("the totals with htmx: got %q, want them alone", r.body)
+	if strings.Contains(r.body, "<html") || strings.Contains(r.body, `id="entry-totals"`) || !strings.Contains(r.body, "summary-list") {
+		t.Errorf("the totals with htmx: got %q, want their contents alone, swapped inside their live region", r.body)
 	}
 	holds(t, "the totals", text(r.page(t).doc), "Débits 1 300,00 EUR", "Crédits 1 000,00 EUR", "Écart 300,00 EUR",
 		"Le montant de 1 ligne ne peut être lu")
@@ -335,9 +335,15 @@ func TestPostToLedgers(t *testing.T) {
 		t.Errorf("posted to the group ALL: got %d entries, want one in each of its 2 ledgers", copies)
 	}
 	for _, wrong := range []string{"ledger:x", "group:all", "book:0L"} {
-		v.Set("post_to", wrong)
-		r := b.do(http.MethodPost, "/journal/new", v)
-		status(t, wrong, r, http.StatusUnprocessableEntity)
-		holds(t, wrong, r.page(t).mainText(), "Choose the ledgers among those offered.")
+		t.Run(wrong, func(t *testing.T) {
+			v.Set("post_to", wrong)
+			r := b.do(http.MethodPost, "/journal/new", v)
+			status(t, wrong, r, http.StatusUnprocessableEntity)
+			p := r.page(t)
+			holds(t, wrong, p.mainText(), "Choose the ledgers among those offered.")
+			if got := chosen(p.doc, "post_to"); got != wrong {
+				t.Errorf("the choice sent again: got %q, want %q kept", got, wrong)
+			}
+		})
 	}
 }

@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -59,6 +60,18 @@ func TestCurrencyFollowsTheCompany(t *testing.T) {
 	hx, headers = asHTMX(typed, ui.OpCompany)
 	filled("Dubai chosen, the currency typed", b.do(http.MethodPost, ui.NewEntryPath, hx, headers...), map[string]string{"currency": "USD",
 		"posting_date": "2026-01-01", "filled_for": dubai.String()})
+	// Toronto's form whose currency and posting date the person typed:
+	// they are kept, and only the document date Toronto's day filled in
+	// becomes Dubai's, which the form says.
+	mine := formValues(p.form(ui.NewEntryPath))
+	mine.Set("currency", "USD")
+	mine.Set("posting_date", "2025-09-30")
+	mine.Set(ui.FieldCompany, dubai.String())
+	hx, headers = asHTMX(mine, ui.OpCompany)
+	r = b.do(http.MethodPost, ui.NewEntryPath, hx, headers...)
+	filled("Dubai chosen, Toronto's form typed on", r, map[string]string{"currency": "USD", "posting_date": "2025-09-30",
+		"document_date": "2026-01-01", "filled_on": "2026-01-01"})
+	holds(t, "Dubai chosen, Toronto's form typed on", text(r.page(t).doc), "The company was changed")
 	v.Set(ui.FieldCompany, uuid.NewString())
 	hx, headers = asHTMX(v, ui.OpCompany)
 	filled("a company the person may not see", b.do(http.MethodPost, ui.NewEntryPath, hx, headers...), map[string]string{"currency": "CAD",
@@ -122,6 +135,14 @@ func TestPostToStubbed(t *testing.T) {
 	if byID(b.get(in(toronto)).page(t), "entry-post-to") != nil {
 		t.Error("ledgers that cannot be read: offered a choice")
 	}
+	// A choice the form holds, rendered again while the ledgers cannot be
+	// read, stays chosen: never every ledger in its place.
+	v := withLines(formValues(b.get(in(toronto)).page(t).form(ui.NewEntryPath)), pair("1.00")...)
+	v.Set(ui.FieldPostTo, ui.PostToLedger+parallel.String())
+	v.Set("op", "add")
+	if got := chosen(b.do(http.MethodPost, ui.NewEntryPath, v).page(t).doc, ui.FieldPostTo); got != ui.PostToLedger+parallel.String() {
+		t.Errorf("a chosen ledger rendered again unread: got %q, want it kept", got)
+	}
 	for _, logged := range []string{"the ledger groups could not be read", "the company's ledgers could not be read"} {
 		if !strings.Contains(s.logs.String(), logged) {
 			t.Errorf("not logged: %s", logged)
@@ -172,5 +193,19 @@ func TestChangeFormPartners(t *testing.T) {
 	before := len(st.queriesWith("ids", partner.String()))
 	if got := edit(); got != partner.String() || len(st.queriesWith("ids", partner.String())) != before {
 		t.Errorf("a person who may not read partners: got %q and %d reads, want the id and none", got, len(st.queriesWith("ids", partner.String()))-before)
+	}
+}
+
+// TestParkFileUnavailable: a file sent while the API cannot say who the
+// person is parks nothing, and the page says the workspace is
+// unavailable.
+func TestParkFileUnavailable(t *testing.T) {
+	st := todayStub(uuid.New(), uuid.New(), nil)
+	_, b, _ := stubStack(t, st)
+	token := field(b.get(ui.NewEntryPath).page(t).form(ui.NewEntryPath), "csrf_token")
+	st.routes["GET /v1/me"] = answer(500, problemJSON(500, "platform.internal"))
+	r := parkFileAs(b, url.Values{"csrf_token": {token}, "idempotency_key": {uuid.NewString()}}, []byte("account,amount\n"))
+	if r.status < 500 {
+		t.Errorf("got %d, want the workspace unavailable", r.status)
 	}
 }

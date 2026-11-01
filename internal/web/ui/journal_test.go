@@ -243,7 +243,7 @@ func TestJournalHelpers(t *testing.T) {
 			t.Errorf("%s's input: got %v, want decimal, asking nothing", name, a)
 		}
 	}
-	for value, want := range map[string]string{"": "Every ledger the company keeps", PostToLedger + "x": "Ledger 0L Leading", PostToGroup + "G1": "Ledger group 0L Leading"} {
+	for value, want := range map[string]string{"": "Every ledger the company keeps", PostToLedger + "x": "Ledger 0L Leading", PostToGroup + "G1": "Ledger group 0L Leading", "book:x": "book:x"} {
 		var b strings.Builder
 		if err := postToText(Option{Value: value, Text: "0L Leading"}).Render(locale(t), &b); err != nil || b.String() != want {
 			t.Errorf("the ledgers' choice %q: got %q (%v), want %q", value, b.String(), err, want)

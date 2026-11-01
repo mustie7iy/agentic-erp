@@ -596,6 +596,7 @@ templ EntryFormView(f EntryForm) {
 			<input { hidden(FieldIfMatch, f.ETag)... }/>
 		} else {
 			<input { hidden(FieldFilledFor, f.FilledFor)... }/>
+			<input { hidden(FieldFilledOn, f.FilledOn)... }/>
 		}
 		if f.Changed {
 			@Notice("entry-changed", i18n.EntryCompanyChangedTitle, Paragraph(i18n.EntryCompanyChanged))
@@ -738,21 +739,29 @@ templ entryFileView(f LinesUpload) {
 	</fieldset>
 }
 
-// EntryTotalsView are the form's running debits, credits and difference,
-// said again when they change (htmx swaps them alone when an amount
-// changes, and with the lines).
+// EntryTotalsView are the form's running debits, credits and difference
+// in their live region, said again when they change: htmx swaps the
+// region's contents (EntryTotals) when an amount changes, and the region
+// with the lines.
 templ EntryTotalsView(t EntryTotals) {
-	<div class="entry__totals" id="entry-totals" aria-live="polite">
+	<div class="entry__totals">
 		<h3>
 			@T(i18n.EntryTotalsTitle)
 		</h3>
-		@SummaryList(totalRows(t))
-		if t.Uncounted > 0 {
-			<p class="hint">
-				@T(i18n.EntryTotalsUncounted, t.Uncounted)
-			</p>
-		}
+		<div id="entry-totals" aria-live="polite">
+			@EntryTotalsBody(t)
+		</div>
 	</div>
+}
+
+// EntryTotalsBody are the running totals inside their live region.
+templ EntryTotalsBody(t EntryTotals) {
+	@SummaryList(totalRows(t))
+	if t.Uncounted > 0 {
+		<p class="hint">
+			@T(i18n.EntryTotalsUncounted, t.Uncounted)
+		</p>
+	}
 }
 
 // companyChoice is a new entry's company.
