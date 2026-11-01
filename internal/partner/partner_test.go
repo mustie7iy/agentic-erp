@@ -330,6 +330,41 @@ func (s *createAndRead) listAndPagePartners(t *testing.T) {
 		t.Errorf("by number, page 2: got %v, want BP00000002 first", rest)
 	}
 	e.Problem(400, "request.invalid_order_by", "GET", "/v1/business-partners?order_by=status", "", "")
+	s.listPartnersByID(t)
+}
+
+// listPartnersByID lists the partners by their ids, alone and with other
+// filters, as a page names the partners its lines give by id.
+func (s *createAndRead) listPartnersByID(t *testing.T) {
+	t.Helper()
+	e := s.e.in(t)
+	customer, _ := e.Must(200, "GET", "/v1/business-partners?number=BP00000002", "", "")
+	second := id(customer["items"].([]any)[0].(map[string]any))
+	numbers := func(q string) string {
+		page, _ := e.Must(200, "GET", "/v1/business-partners"+q, "", "")
+		var out []string
+		for _, it := range page["items"].([]any) {
+			out = append(out, it.(map[string]any)["number"].(string))
+		}
+		if _, ok := page["next_page_token"].(string); ok {
+			out = append(out, "next")
+		}
+		return strings.Join(out, ",")
+	}
+	for name, tc := range map[string]struct{ q, want string }{
+		"one id":                  {"?ids=" + id(s.p), "BP00000001"},
+		"two ids":                 {"?ids=" + second + "," + id(s.p), "BP00000001,BP00000002"},
+		"an id of no partner":     {"?ids=" + uuid.NewString(), ""},
+		"ids with another filter": {"?ids=" + second + "," + id(s.p) + "&role=customer", "BP00000002"},
+		"ids a page at a time":    {"?ids=" + second + "," + id(s.p) + "&page_size=1", "BP00000001,next"},
+	} {
+		t.Run("by "+name, func(t *testing.T) {
+			if got := numbers(tc.q); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+	e.Problem(400, "request.invalid_parameter", "GET", "/v1/business-partners?ids=x", "", "")
 }
 
 // serviceSeesNoCompanyData reads the supplier as the service, which has no company access.

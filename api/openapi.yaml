@@ -2933,13 +2933,28 @@ paths:
       tags:
         - partner
       summary: List business partners
-      description: "Business partners. Filter by `number` or `name_prefix` to look one up. Sortable by: `number`, `name`."
+      description: "Business partners. Filter by `number` or `name_prefix` to look one up, or by `ids` to name the partners other resources give by id (a journal line's `partner_id`). Sortable by: `number`, `name`."
       x-permission: partner.supplier.read
       x-problem-codes:
         - request.invalid_order_by
         - request.invalid_page_size
         - request.invalid_page_token
       parameters:
+        - name: ids
+          in: query
+          required: false
+          description: "Only the partners with these ids, comma-separated, 1 to 100; an id that names no partner of the tenant is left out."
+          schema:
+            type: array
+            items:
+              type: string
+              format: uuid
+            minItems: 1
+            maxItems: 100
+          style: form
+          explode: false
+          example:
+            - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d48"
         - name: number
           in: query
           required: false

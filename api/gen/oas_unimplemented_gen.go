@@ -1786,8 +1786,8 @@ func (UnimplementedHandler) ListBankStatements(ctx context.Context, params ListB
 
 // ListBusinessPartners implements listBusinessPartners operation.
 //
-// Business partners. Filter by `number` or `name_prefix` to look one up. Sortable by: `number`,
-// `name`.
+// Business partners. Filter by `number` or `name_prefix` to look one up, or by `ids` to name the
+// partners other resources give by id (a journal line's `partner_id`). Sortable by: `number`, `name`.
 //
 // GET /v1/business-partners
 func (UnimplementedHandler) ListBusinessPartners(ctx context.Context, params ListBusinessPartnersParams) (r ListBusinessPartnersRes, _ error) {
