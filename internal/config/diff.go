@@ -86,6 +86,10 @@ var tierRules = []struct {
 	// A registration decides which returns a company files and for which
 	// periods: financial, tier 3 (ADR-0049 §10).
 	{rx(`^companies\[\*\]\.tax_registrations`), TierPostingRelated},
+	// The rate type and rounding change what invoices post; documentary
+	// requirements decide which input tax is flagged for the return
+	// (ADR-0049 §6, §8): tier 3, as tax codes are.
+	{rx(`^companies\[\*\]\.tax_settings`), TierPostingRelated},
 	// Every other tax code setting, a dated rate included, decides what
 	// postings and returns carry: tier 3 (ADR-0049 §3), as rates were.
 	{rx(`^companies\[\*\]\.(account_determination|tax_codes|auto_post_limit|manual_entry_approval_limit|release_dual_limit|house_bank)`), TierPostingRelated},

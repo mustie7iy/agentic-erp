@@ -410,6 +410,9 @@ type Exclusion struct {
 	RequestID  *uuid.UUID // the down payment request left out, or nil for the supplier's items
 	Reason     string
 	Amount     money.Minor
+	// TaxCode and the rates in percent name why a request was left out
+	// with tax_code_invalid (taxCheck); nil otherwise.
+	TaxCode, RequestTaxRate, RunTaxRate *string
 }
 
 // houseBank is a row of payments.house_bank.

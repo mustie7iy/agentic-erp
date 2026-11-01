@@ -40,7 +40,12 @@ func toAPI(v Invoice) gen.SupplierInvoice {
 		UpdatedBy: gen.NewOptUUID(v.UpdatedBy), DocumentNumber: v.DocumentNumber, LegalEntityID: v.LegalEntityID, SupplierID: v.SupplierID,
 		SupplierReference: v.SupplierReference, InvoiceDate: v.InvoiceDate, GrossAmount: apitypes.Money(v.Gross, v.Currency, v.Exponent),
 		TaxAmount: apitypes.Money(v.Tax, v.Currency, v.Exponent), Status: v.Status, Source: v.Source, Extensions: apitypes.EncodeObject(v.Extensions),
-		Kind: gen.NewOptString(v.Kind), ReferenceInvoiceID: apitypes.OptUUID(v.ReferenceInvoiceID), Items: make([]gen.SupplierInvoiceItem, len(v.Items))}
+		Kind: gen.NewOptString(v.Kind), ReferenceInvoiceID: apitypes.OptUUID(v.ReferenceInvoiceID), Items: make([]gen.SupplierInvoiceItem, len(v.Items)),
+		DocumentaryWarnings: make([]gen.DocumentaryWarning, len(v.DocumentaryWarnings))}
+	for i, w := range v.DocumentaryWarnings {
+		out.DocumentaryWarnings[i] = gen.DocumentaryWarning{Code: w.Code, Requirement: w.Requirement, Threshold: apitypes.Money(w.Threshold, w.Currency, w.Exponent),
+			ThresholdInclusive: w.Inclusive, Source: w.Source, PendingSignOff: w.PendingSignOff, Message: w.Message()}
+	}
 	if v.PostingDate != nil {
 		out.PostingDate.SetTo(*v.PostingDate)
 	}

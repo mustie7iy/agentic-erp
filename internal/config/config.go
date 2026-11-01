@@ -197,8 +197,12 @@ type Company struct {
 	// WithholdingTaxCodes are the withholding taxes deducted from suppliers
 	// (SAP extended withholding tax, T059P/T059Z; T46e).
 	WithholdingTaxCodes []WithholdingTaxCode `yaml:"withholding_tax_codes,omitempty" json:"withholding_tax_codes,omitempty"`
-	InvoiceTolerance    Tolerance            `yaml:"invoice_tolerance" json:"invoice_tolerance"`
-	AutoPostLimit       string               `yaml:"auto_post_limit" json:"auto_post_limit"`
+	// TaxSettings are the authority's rate type and rounding and the
+	// documentary requirements of input tax, from the country pack
+	// (ADR-0049 §6, §8).
+	TaxSettings      TaxSettings `yaml:"tax_settings,omitempty" json:"tax_settings,omitempty"`
+	InvoiceTolerance Tolerance   `yaml:"invoice_tolerance" json:"invoice_tolerance"`
+	AutoPostLimit    string      `yaml:"auto_post_limit" json:"auto_post_limit"`
 	// ManualEntryApprovalLimit is the largest manual journal entry, by its
 	// debits in the company's currency, that people post without approval
 	// (T35); above it the controller approves the entry first.

@@ -27762,6 +27762,63 @@ components:
           amount:
             amount: "1080.00"
             currency: EUR
+    DocumentaryWarning:
+      type: object
+      description: "A documentary requirement of input tax recovery the invoice may not meet (ADR-0049 §6), from one tier of the company's documentary requirements."
+      required:
+        - code
+        - requirement
+        - threshold
+        - threshold_inclusive
+        - source
+        - pending_sign_off
+        - message
+      properties:
+        code:
+          type: string
+          description: "What is missing. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. `supplier_tax_id_missing`: the supplier's business partner holds no tax identifier, the registration number the document must show; `item_description_missing`: an item without an order has no description."
+          x-extensible-enum:
+            - supplier_tax_id_missing
+            - item_description_missing
+          readOnly: true
+        requirement:
+          type: string
+          description: "The tier's requirement: `supplier_tax_id` or `item_descriptions`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - supplier_tax_id
+            - item_descriptions
+          readOnly: true
+        threshold:
+          $ref: "#/components/schemas/Money"
+          description: "The tier's threshold in the company's currency, which the invoice's gross amount, converted at the tax date's rate of the company's tax rate type, reaches."
+          readOnly: true
+        threshold_inclusive:
+          type: boolean
+          description: "Whether a total equal to the threshold is in the tier (Canada: $100 or more) or only one above it (the UAE: above AED 10,000)."
+          readOnly: true
+        source:
+          type: string
+          description: The law or regulation the tier rests on.
+          readOnly: true
+        pending_sign_off:
+          type: boolean
+          description: "Whether the tier still awaits the tax specialist's confirmation."
+          readOnly: true
+        message:
+          type: string
+          description: The warning for people.
+          readOnly: true
+      additionalProperties: false
+      examples:
+        - code: supplier_tax_id_missing
+          requirement: supplier_tax_id
+          threshold:
+            amount: "100.00"
+            currency: CAD
+          threshold_inclusive: true
+          source: "SOR/91-45 s. 3(b): $100 or more and less than $500, the supplier's registration number"
+          pending_sign_off: false
+          message: "The supplier has no tax identifier; its registration number must be on the document for the input tax of a document of 100.00 CAD or more to be recovered (SOR/91-45 s. 3(b): $100 or more and less than $500, the supplier's registration number)."
     SupplierInvoice:
       description: A supplier invoice (accounts payable).
       allOf:
@@ -27779,6 +27836,7 @@ components:
             - source
             - items
             - extensions
+            - documentary_warnings
           properties:
             document_number:
               type: string
@@ -27886,6 +27944,12 @@ components:
             extensions:
               $ref: "#/components/schemas/Extensions"
               description: Custom fields.
+            documentary_warnings:
+              type: array
+              items:
+                $ref: "#/components/schemas/DocumentaryWarning"
+              description: "What the invoice's document may lack for its input tax to be recovered, by the company's documentary requirements (its `tax_settings`, from the country pack: Canada's $100 and $500 tiers, the UAE's threshold), recorded when the invoice posts (ADR-0049 §6). Warnings, never refusals: the business may post and decide not to claim. Empty before posting, for an invoice or subsequent debit claiming no tax, for a credit memo or subsequent credit, and for invoices posted before the check existed."
+              readOnly: true
             expanded:
               $ref: "#/components/schemas/Expanded"
               description: Expanded references.
@@ -27918,6 +27982,7 @@ components:
                 currency: EUR
           extensions:
             cost_object_hint: MKT-2026
+          documentary_warnings: []
     SupplierInvoiceCreate:
       type: object
       description: "Enter a supplier invoice. It is created `parked`."
@@ -29137,7 +29202,7 @@ components:
           readOnly: true
         reason_code:
           type: string
-          description: "Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. A release also excludes, with `item_reversed` or `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid. `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run date (T46c); a request's exclusion names it (`down_payment_request_id`, `down_payment_request_number`), and the supplier's items may still be paid. `no_house_bank` leaves out a supplier, or a request, of a run proposed without a house bank when none of the supplier's payment methods has a house bank ranked for the run currency (T45c)."
+          description: "Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. A release also excludes, with `item_reversed` or `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid. `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run date (T46c), or whose stated tax no longer matches the tax at the run date's rate (ADR-0049 §4), naming the code and both rates (`tax_code`, `request_tax_rate_percent`, `run_date_tax_rate_percent`); a request's exclusion names it (`down_payment_request_id`, `down_payment_request_number`), and the supplier's items may still be paid. `no_house_bank` leaves out a supplier, or a request, of a run proposed without a house bank when none of the supplier's payment methods has a house bank ranked for the run currency (T45c)."
           x-extensible-enum:
             - supplier_blocked
             - payment_blocked
@@ -29163,6 +29228,18 @@ components:
           $ref: "#/components/schemas/Money"
           description: Amount that would otherwise have been paid.
           readOnly: true
+        tax_code:
+          type: string
+          description: "The request's input tax code, when the request was left out with `tax_code_invalid` (absent on exclusions recorded before it was named)."
+          readOnly: true
+        request_tax_rate_percent:
+          $ref: "#/components/schemas/Decimal"
+          description: "The code's rate in percent on the request's due date, at which the request's tax was calculated; absent without `tax_code`, or when the code has no single rate on that date."
+          readOnly: true
+        run_date_tax_rate_percent:
+          $ref: "#/components/schemas/Decimal"
+          description: "The code's rate in percent on the run date, at which the request would be paid; absent without `tax_code`, or when the code is not valid on the run date as an input code of one component."
+          readOnly: true
       examples:
         - supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
           supplier_name: Tyrell Office Products
@@ -29178,6 +29255,9 @@ components:
           amount:
             amount: "1190.00"
             currency: EUR
+          tax_code: V19
+          request_tax_rate_percent: "19"
+          run_date_tax_rate_percent: "16"
     PaymentExclusionPage:
       type: object
       description: One page of payment exclusions.

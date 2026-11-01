@@ -1540,6 +1540,16 @@ migration runs ahead of the code; invoices are not posted during the
 rollout, as the previous release posts them with the first item's code at
 the invoice date.
 
+A posted invoice's `documentary_warnings` (migration 000180, ADR-0049 §6,
+a JSON array, empty by default and before posting) are what its document
+may lack for its input tax to be recovered, recorded when it posts from
+the company's `tax_settings.documentary_requirements` (from the country
+pack): each requirement (`supplier_tax_id`, the supplier's partner holding
+a tax identifier; `item_descriptions`) of a tier its gross amount, in the
+company's currency at the tax date's rate of `tax_settings.rate_type`,
+reaches. Warnings, never refusals. The column has a default and the
+previous release names its columns, so the migration runs ahead.
+
 A supplier invoice is of a `kind` (migration 000059, T34a), as SAP's MIRO
 transactions are: `invoice`, `credit_memo`, `subsequent_debit` or
 `subsequent_credit`, fixed once entered (trigger
@@ -2157,7 +2167,14 @@ version from before T46c must not release a run a newer one proposed with
 request payments, which it would settle as items payments without items. A
 proposed run whose
 request's tax code ended since is refused at release (409
-`payments.proposal_outdated`). The release posts a
+`payments.proposal_outdated`). Since the T61d follow-up (ADR-0049 §4) a
+request whose stated tax differs from the tax its amount includes at the
+run date's rate is left out with `tax_code_invalid` too, and refused at
+release when the rate changed after the proposal; the exclusion names the
+code and both rates (`request_exclusion.tax_code`, `request_tax_rate`, the
+code's rate on the request's due date, and `run_tax_rate`, absent when the
+code is not valid on the run date; migration 000180, a check that only
+that reason names a code, rates only with a code, each 0 to below 100). The release posts a
 request's payment through `ledger.Postings.PayDownPayment`: Dr the down
 payment account as the supplier's special G/L item A, net of tax; Dr input
 tax on the request's tax code; Cr bank, with the payment as its source

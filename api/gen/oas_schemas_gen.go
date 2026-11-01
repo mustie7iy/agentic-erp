@@ -12958,6 +12958,102 @@ type DisableConnectorUnprocessableEntity Problem
 
 func (*DisableConnectorUnprocessableEntity) disableConnectorRes() {}
 
+// A documentary requirement of input tax recovery the invoice may not meet (ADR-0049 §6), from one
+// tier of the company's documentary requirements.
+// Ref: #/components/schemas/DocumentaryWarning
+type DocumentaryWarning struct {
+	// What is missing. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1. `supplier_tax_id_missing`: the supplier's business partner holds no tax
+	// identifier, the registration number the document must show; `item_description_missing`: an item
+	// without an order has no description.
+	Code string `json:"code"`
+	// The tier's requirement: `supplier_tax_id` or `item_descriptions`. Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	Requirement string `json:"requirement"`
+	// The tier's threshold in the company's currency, which the invoice's gross amount, converted at the
+	// tax date's rate of the company's tax rate type, reaches.
+	Threshold Money `json:"threshold"`
+	// Whether a total equal to the threshold is in the tier (Canada: $100 or more) or only one above it
+	// (the UAE: above AED 10,000).
+	ThresholdInclusive bool `json:"threshold_inclusive"`
+	// The law or regulation the tier rests on.
+	Source string `json:"source"`
+	// Whether the tier still awaits the tax specialist's confirmation.
+	PendingSignOff bool `json:"pending_sign_off"`
+	// The warning for people.
+	Message string `json:"message"`
+}
+
+// GetCode returns the value of Code.
+func (s *DocumentaryWarning) GetCode() string {
+	return s.Code
+}
+
+// GetRequirement returns the value of Requirement.
+func (s *DocumentaryWarning) GetRequirement() string {
+	return s.Requirement
+}
+
+// GetThreshold returns the value of Threshold.
+func (s *DocumentaryWarning) GetThreshold() Money {
+	return s.Threshold
+}
+
+// GetThresholdInclusive returns the value of ThresholdInclusive.
+func (s *DocumentaryWarning) GetThresholdInclusive() bool {
+	return s.ThresholdInclusive
+}
+
+// GetSource returns the value of Source.
+func (s *DocumentaryWarning) GetSource() string {
+	return s.Source
+}
+
+// GetPendingSignOff returns the value of PendingSignOff.
+func (s *DocumentaryWarning) GetPendingSignOff() bool {
+	return s.PendingSignOff
+}
+
+// GetMessage returns the value of Message.
+func (s *DocumentaryWarning) GetMessage() string {
+	return s.Message
+}
+
+// SetCode sets the value of Code.
+func (s *DocumentaryWarning) SetCode(val string) {
+	s.Code = val
+}
+
+// SetRequirement sets the value of Requirement.
+func (s *DocumentaryWarning) SetRequirement(val string) {
+	s.Requirement = val
+}
+
+// SetThreshold sets the value of Threshold.
+func (s *DocumentaryWarning) SetThreshold(val Money) {
+	s.Threshold = val
+}
+
+// SetThresholdInclusive sets the value of ThresholdInclusive.
+func (s *DocumentaryWarning) SetThresholdInclusive(val bool) {
+	s.ThresholdInclusive = val
+}
+
+// SetSource sets the value of Source.
+func (s *DocumentaryWarning) SetSource(val string) {
+	s.Source = val
+}
+
+// SetPendingSignOff sets the value of PendingSignOff.
+func (s *DocumentaryWarning) SetPendingSignOff(val bool) {
+	s.PendingSignOff = val
+}
+
+// SetMessage sets the value of Message.
+func (s *DocumentaryWarning) SetMessage(val string) {
+	s.Message = val
+}
+
 // The down payments to clear against the invoice.
 // Ref: #/components/schemas/DownPaymentClearingInput
 type DownPaymentClearingInput struct {
@@ -29666,7 +29762,9 @@ type PaymentExclusion struct {
 	// here; values may be added within /v1. A release also excludes, with `item_reversed` or
 	// `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid.
 	// `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run
-	// date (T46c); a request's exclusion names it (`down_payment_request_id`,
+	// date (T46c), or whose stated tax no longer matches the tax at the run date's rate (ADR-0049 §4),
+	// naming the code and both rates (`tax_code`, `request_tax_rate_percent`,
+	// `run_date_tax_rate_percent`); a request's exclusion names it (`down_payment_request_id`,
 	// `down_payment_request_number`), and the supplier's items may still be paid. `no_house_bank` leaves
 	// out a supplier, or a request, of a run proposed without a house bank when none of the supplier's
 	// payment methods has a house bank ranked for the run currency (T45c).
@@ -29680,6 +29778,15 @@ type PaymentExclusion struct {
 	DownPaymentRequestNumber OptString `json:"down_payment_request_number"`
 	// Amount that would otherwise have been paid.
 	Amount Money `json:"amount"`
+	// The request's input tax code, when the request was left out with `tax_code_invalid` (absent on
+	// exclusions recorded before it was named).
+	TaxCode OptString `json:"tax_code"`
+	// The code's rate in percent on the request's due date, at which the request's tax was calculated;
+	// absent without `tax_code`, or when the code has no single rate on that date.
+	RequestTaxRatePercent OptDecimal `json:"request_tax_rate_percent"`
+	// The code's rate in percent on the run date, at which the request would be paid; absent without
+	// `tax_code`, or when the code is not valid on the run date as an input code of one component.
+	RunDateTaxRatePercent OptDecimal `json:"run_date_tax_rate_percent"`
 }
 
 // GetSupplierID returns the value of SupplierID.
@@ -29712,6 +29819,21 @@ func (s *PaymentExclusion) GetAmount() Money {
 	return s.Amount
 }
 
+// GetTaxCode returns the value of TaxCode.
+func (s *PaymentExclusion) GetTaxCode() OptString {
+	return s.TaxCode
+}
+
+// GetRequestTaxRatePercent returns the value of RequestTaxRatePercent.
+func (s *PaymentExclusion) GetRequestTaxRatePercent() OptDecimal {
+	return s.RequestTaxRatePercent
+}
+
+// GetRunDateTaxRatePercent returns the value of RunDateTaxRatePercent.
+func (s *PaymentExclusion) GetRunDateTaxRatePercent() OptDecimal {
+	return s.RunDateTaxRatePercent
+}
+
 // SetSupplierID sets the value of SupplierID.
 func (s *PaymentExclusion) SetSupplierID(val uuid.UUID) {
 	s.SupplierID = val
@@ -29740,6 +29862,21 @@ func (s *PaymentExclusion) SetDownPaymentRequestNumber(val OptString) {
 // SetAmount sets the value of Amount.
 func (s *PaymentExclusion) SetAmount(val Money) {
 	s.Amount = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *PaymentExclusion) SetTaxCode(val OptString) {
+	s.TaxCode = val
+}
+
+// SetRequestTaxRatePercent sets the value of RequestTaxRatePercent.
+func (s *PaymentExclusion) SetRequestTaxRatePercent(val OptDecimal) {
+	s.RequestTaxRatePercent = val
+}
+
+// SetRunDateTaxRatePercent sets the value of RunDateTaxRatePercent.
+func (s *PaymentExclusion) SetRunDateTaxRatePercent(val OptDecimal) {
+	s.RunDateTaxRatePercent = val
 }
 
 // One page of payment exclusions.
@@ -39912,6 +40049,12 @@ type SupplierInvoice struct {
 	Items []SupplierInvoiceItem `json:"items"`
 	// Custom fields.
 	Extensions Extensions `json:"extensions"`
+	// What the invoice's document may lack for its input tax to be recovered, by the company's documentary
+	// requirements (its `tax_settings`, from the country pack: Canada's $100 and $500 tiers, the UAE's
+	// threshold), recorded when the invoice posts (ADR-0049 §6). Warnings, never refusals: the business
+	// may post and decide not to claim. Empty before posting, for an invoice or subsequent debit claiming
+	// no tax, for a credit memo or subsequent credit, and for invoices posted before the check existed.
+	DocumentaryWarnings []DocumentaryWarning `json:"documentary_warnings"`
 	// Expanded references.
 	Expanded OptExpanded `json:"expanded"`
 }
@@ -40049,6 +40192,11 @@ func (s *SupplierInvoice) GetItems() []SupplierInvoiceItem {
 // GetExtensions returns the value of Extensions.
 func (s *SupplierInvoice) GetExtensions() Extensions {
 	return s.Extensions
+}
+
+// GetDocumentaryWarnings returns the value of DocumentaryWarnings.
+func (s *SupplierInvoice) GetDocumentaryWarnings() []DocumentaryWarning {
+	return s.DocumentaryWarnings
 }
 
 // GetExpanded returns the value of Expanded.
@@ -40189,6 +40337,11 @@ func (s *SupplierInvoice) SetItems(val []SupplierInvoiceItem) {
 // SetExtensions sets the value of Extensions.
 func (s *SupplierInvoice) SetExtensions(val Extensions) {
 	s.Extensions = val
+}
+
+// SetDocumentaryWarnings sets the value of DocumentaryWarnings.
+func (s *SupplierInvoice) SetDocumentaryWarnings(val []DocumentaryWarning) {
+	s.DocumentaryWarnings = val
 }
 
 // SetExpanded sets the value of Expanded.

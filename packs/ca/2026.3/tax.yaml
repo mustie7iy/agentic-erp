@@ -1,0 +1,26 @@
+# No tax codes yet: ADR-0049 (T61) models them anew (components, account
+# keys, jurisdiction, recoverable share, dated rates). The codes and rates
+# sourced for this pack wait in ../TAX-PENDING-T61a.md for T61a.
+tax_codes: []
+tax_settings:
+  # The authority's rate type and rounding (ADR-0049 §8). Tax is converted
+  # at the Bank of Canada's rate of the day it became payable (Excise Tax Act
+  # s. 159, cited from memory in ADR-0049: pending the tax specialist), which
+  # a tenant records as its average rate; rounding once per document, code
+  # and component (no authoritative per-line rule found: pending the tax
+  # specialist).
+  rate_type: average
+  rounding: document
+  # What a supplier's document must show for its ITC (ADR-0049 §6), by the
+  # total paid or payable, in CAD: SOR/91-45 s. 3 (retrieved 2026-11-01).
+  # The ERP checks what it holds: the supplier's GST/HST registration number
+  # (a tax identifier of its business partner) from $100, and from $500 a
+  # description of each supply. The other $500 items (the recipient's name,
+  # the terms of payment) are on the document only and are not checked.
+  documentary_requirements:
+    - at_least: "100"
+      requires: [supplier_tax_id]
+      source: "SOR/91-45 s. 3(b): $100 or more and less than $500, the supplier's registration number"
+    - at_least: "500"
+      requires: [supplier_tax_id, item_descriptions]
+      source: "SOR/91-45 s. 3(c): $500 or more, also the recipient's name, the terms and a description of each supply"
