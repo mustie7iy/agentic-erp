@@ -136,6 +136,10 @@ type Supplier struct {
 	// PlanningGroup is the supplier's planning group in the legal entity,
 	// "" for none (ADR-0051 §4).
 	PlanningGroup string
+	// TaxSchemes are the schemes of the tax identifiers the partner holds
+	// (CA_GST, AE_TRN, ...): the registration number a document's input tax
+	// recovery may require is one of the company's country (ADR-0049 §6).
+	TaxSchemes []string
 }
 
 // Usable reports why the supplier cannot be ordered from or invoiced in
@@ -169,11 +173,12 @@ func (Suppliers) Supplier(ctx context.Context, partnerID, legalEntity uuid.UUID)
 			EXISTS (SELECT FROM partner.partner_role r WHERE r.tenant_id = p.tenant_id AND r.partner_id = p.id AND r.role = 'supplier'),
 			sc.reconciliation_account_id, sc.payment_term_code, sc.is_posting_blocked, sc.is_payment_blocked,
 			coalesce((SELECT array_agg(w.code ORDER BY w.code) FROM partner.supplier_withholding w WHERE w.tenant_id = p.tenant_id AND w.partner_id = p.id
-				AND w.legal_entity_id = $2 AND w.is_active), '{}'), coalesce(sc.payment_methods, '{}'), coalesce(sc.planning_group, '')
+				AND w.legal_entity_id = $2 AND w.is_active), '{}'), coalesce(sc.payment_methods, '{}'), coalesce(sc.planning_group, ''),
+			coalesce((SELECT array_agg(t.scheme ORDER BY t.scheme) FROM partner.tax_identifier t WHERE t.tenant_id = p.tenant_id AND t.partner_id = p.id), '{}')
 		FROM partner.business_partner p
 		LEFT JOIN partner.supplier_company sc ON sc.tenant_id = p.tenant_id AND sc.partner_id = p.id AND sc.legal_entity_id = $2
 		WHERE p.id = $1`, partnerID, legalEntity).Scan(&s.Number, &s.Name, &s.CountryCode, &s.Status, &s.IsSupplier, &recon, &term, &posting, &payment,
-		&s.WithholdingTaxCodes, &s.PaymentMethods, &s.PlanningGroup)
+		&s.WithholdingTaxCodes, &s.PaymentMethods, &s.PlanningGroup, &s.TaxSchemes)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Supplier{}, false, nil
 	}

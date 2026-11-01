@@ -273,15 +273,17 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 	}
 	// The suppliers' items, keyed by supplier as before, and the requests
 	// left out (T46c), keyed by request.
-	q, args := ks.SQL(`SELECT id, supplier_id, request_id, reason_code, amount FROM (
-		SELECT supplier_id AS id, supplier_id, NULL::uuid AS request_id, reason_code, amount FROM payments.payment_exclusion WHERE payment_run_id = $1
+	q, args := ks.SQL(`SELECT id, supplier_id, request_id, reason_code, amount, tax_code, request_tax_rate, run_tax_rate FROM (
+		SELECT supplier_id AS id, supplier_id, NULL::uuid AS request_id, reason_code, amount, NULL AS tax_code, NULL AS request_tax_rate,
+			NULL AS run_tax_rate FROM payments.payment_exclusion WHERE payment_run_id = $1
 		UNION ALL
-		SELECT down_payment_request_id, supplier_id, down_payment_request_id, reason_code, amount FROM payments.request_exclusion WHERE payment_run_id = $1) x
+		SELECT down_payment_request_id, supplier_id, down_payment_request_id, reason_code, amount, tax_code, trim_scale(request_tax_rate)::text,
+			trim_scale(run_tax_rate)::text FROM payments.request_exclusion WHERE payment_run_id = $1) x
 		WHERE true`, []any{r.ID})
 	rows, _ := tx.Query(ctx, q, args...)
 	exs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Exclusion, error) {
 		var x Exclusion
-		return x, errs.Wrapf(row.Scan(&x.ID, &x.SupplierID, &x.RequestID, &x.Reason, &x.Amount), "scan exclusion")
+		return x, errs.Wrapf(row.Scan(&x.ID, &x.SupplierID, &x.RequestID, &x.Reason, &x.Amount, &x.TaxCode, &x.RequestTaxRate, &x.RunTaxRate), "scan exclusion")
 	})
 	if err != nil {
 		return nil, fmt.Errorf("payments: list exclusions of run %s: %w", r.ID, err)
@@ -301,6 +303,13 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 			ReasonCode: x.Reason, Amount: apitypes.Money(x.Amount, r.Currency, r.Exponent)}
 		if x.RequestID != nil {
 			out.Items[i].DownPaymentRequestNumber.SetTo(numbers[*x.RequestID])
+		}
+		out.Items[i].TaxCode = apitypes.OptString(x.TaxCode)
+		if x.RequestTaxRate != nil {
+			out.Items[i].RequestTaxRatePercent.SetTo(gen.Decimal(*x.RequestTaxRate))
+		}
+		if x.RunTaxRate != nil {
+			out.Items[i].RunDateTaxRatePercent.SetTo(gen.Decimal(*x.RunTaxRate))
 		}
 	}
 	if next != "" {

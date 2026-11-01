@@ -106,7 +106,11 @@ func (e *Endpoints) calculateTax(ctx context.Context, v Invoice, taxDate time.Ti
 	if err != nil {
 		return invoiceTax{}, err
 	}
-	doc, conv, err := e.taxDocument(ctx, v, le.LocalCurrency, taxDate, coded)
+	co, err := e.company(ctx, le.Code)
+	if err != nil {
+		return invoiceTax{}, err
+	}
+	doc, conv, err := e.taxDocument(ctx, v, le.LocalCurrency, taxDate, coded, settingsOf(co))
 	if err != nil {
 		return invoiceTax{}, err
 	}
@@ -114,12 +118,8 @@ func (e *Endpoints) calculateTax(ctx context.Context, v Invoice, taxDate time.Ti
 	if err != nil {
 		return invoiceTax{}, calculationFailed(v.ID, err)
 	}
-	units, err := e.taxTolerance(ctx, le.Code)
-	if err != nil {
-		return invoiceTax{}, err
-	}
 	var costs []money.Minor
-	if res.Items, costs, err = statedTax(v, res.Items, units, conv); err != nil {
+	if res.Items, costs, err = statedTax(v, res.Items, toleranceOf(co), conv); err != nil {
 		return invoiceTax{}, err
 	}
 	for j, i := range coded {
@@ -154,10 +154,12 @@ func calculationFailed(id uuid.UUID, err error) error {
 }
 
 // taxDocument is the calculator's document of an invoice's coded items:
-// their codes' components and rates on the tax date, converted into local
-// currency at the tax date's rate (ADR-0049 §8).
-func (e *Endpoints) taxDocument(ctx context.Context, v Invoice, local string, taxDate time.Time, coded []int) (tax.Document, ledger.Conversion, error) {
-	doc := tax.Document{TaxDate: taxDate, Currency: v.Currency, Codes: map[string]tax.Code{}}
+// their codes' components and rates on the tax date, rounded as the
+// company's tax settings say and converted into local currency at the tax
+// date's rate of their rate type (ADR-0049 §8).
+func (e *Endpoints) taxDocument(ctx context.Context, v Invoice, local string, taxDate time.Time, coded []int, settings config.TaxSettings) (tax.Document,
+	ledger.Conversion, error) {
+	doc := tax.Document{TaxDate: taxDate, Currency: v.Currency, Codes: map[string]tax.Code{}, Rounding: tax.Rounding(settings.Rounding)}
 	for _, i := range coded {
 		code := *v.Items[i].TaxCode
 		doc.Lines = append(doc.Lines, tax.Line{Amount: v.Items[i].Amount, Code: code})
@@ -174,7 +176,7 @@ func (e *Endpoints) taxDocument(ctx context.Context, v Invoice, local string, ta
 		}
 		doc.Codes[code] = t.Calculable()
 	}
-	conv, err := e.Rates.Conversion(ctx, v.Currency, local, taxDate)
+	conv, err := e.taxConversion(ctx, v.Currency, local, taxDate, settings.RateTypeOrAverage())
 	if err != nil {
 		return tax.Document{}, ledger.Conversion{}, err
 	}
@@ -182,14 +184,45 @@ func (e *Endpoints) taxDocument(ctx context.Context, v Invoice, local string, ta
 	return doc, conv, nil
 }
 
-// taxTolerance is the company's tolerance in minor units per tax code
-// (config.Tolerance.TaxUnits).
-func (e *Endpoints) taxTolerance(ctx context.Context, company string) (int, error) {
+// taxConversion converts tax into local currency on the tax date at the
+// rate type the company's tax settings name: the average rate as every
+// posting finds it (Rates.Conversion, which also converts a currency into
+// itself at 1), else the latest rate of that type; without one, 422
+// ledger.no_exchange_rate names the type, the pair and the date.
+func (e *Endpoints) taxConversion(ctx context.Context, from, to string, taxDate time.Time, rateType string) (ledger.Conversion, error) {
+	if rateType == "average" || from == to {
+		return e.Rates.Conversion(ctx, from, to, taxDate)
+	}
+	conv, found, err := e.Rates.OfType(ctx, rateType, from, to, taxDate)
+	if err != nil {
+		return ledger.Conversion{}, err
+	}
+	if !found {
+		return ledger.Conversion{}, problem.Unprocessable("ledger.no_exchange_rate",
+			fmt.Sprintf("No %s exchange rate from %s to %s is valid on %s, the tax date; the company's tax settings convert tax at that rate type.",
+				rateType, from, to, taxDate.Format(time.DateOnly)),
+			problem.FieldError{Field: "currency", Code: "no_exchange_rate", Message: "record the " + rateType + " rate into the company's currency first"})
+	}
+	return conv, nil
+}
+
+// company is the company's configuration, nil when the configuration has
+// none (one set up before its legal entity's): the defaults then apply.
+func (e *Endpoints) company(ctx context.Context, code string) (*config.Company, error) {
 	doc, _, err := e.Settings.Document(ctx)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return toleranceOf(doc.Company(company)), nil
+	return doc.Company(code), nil
+}
+
+// settingsOf is a company's tax settings; without the company, the
+// defaults.
+func settingsOf(co *config.Company) config.TaxSettings {
+	if co == nil {
+		return config.TaxSettings{}
+	}
+	return co.TaxSettings
 }
 
 // toleranceOf is a company's tolerance; without the company in the

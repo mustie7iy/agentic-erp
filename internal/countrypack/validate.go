@@ -27,6 +27,7 @@ func Validate(p *Pack) []config.Finding {
 	v.manifest(&p.Manifest)
 	v.accounts(&p.Accounts)
 	v.taxCodes(p)
+	v.taxSettings(p)
 	v.holidays(p.Calendar.Holidays)
 	v.numberRanges(p.Numbering.NumberRanges)
 	v.paymentTerms(p.Payments.PaymentTerms)
@@ -138,6 +139,19 @@ func (v *validator) taxCodes(p *Pack) {
 		}
 		if len(t.Components) == 0 {
 			v.err(tp+".components", "a pack's tax code has components with dated rates")
+		}
+	}
+}
+
+// taxSettings checks the pack's tax settings as a document's are checked,
+// their thresholds in whole units of the country's currency, so that any
+// currency's digits read them; a tier pending the tax specialist's
+// confirmation has no place in a pack signed off.
+func (v *validator) taxSettings(p *Pack) {
+	v.out = append(v.out, config.CheckTaxSettings("tax.yaml: tax_settings", p.Tax.Settings, 0)...)
+	for i, r := range p.Tax.Settings.DocumentaryRequirements {
+		if r.PendingSignOff && p.Manifest.signedOff() {
+			v.err(fmt.Sprintf("tax.yaml: tax_settings.documentary_requirements[%d].pending_sign_off", i), "a pack signed off holds no tier pending sign-off")
 		}
 	}
 }

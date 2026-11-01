@@ -36637,6 +36637,219 @@ func (s *DisableConnectorUnprocessableEntity) UnmarshalJSON(data []byte) error {
 }
 
 // Encode implements json.Marshaler.
+func (s *DocumentaryWarning) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *DocumentaryWarning) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("code")
+		e.Str(s.Code)
+	}
+	{
+		e.FieldStart("requirement")
+		e.Str(s.Requirement)
+	}
+	{
+		e.FieldStart("threshold")
+		s.Threshold.Encode(e)
+	}
+	{
+		e.FieldStart("threshold_inclusive")
+		e.Bool(s.ThresholdInclusive)
+	}
+	{
+		e.FieldStart("source")
+		e.Str(s.Source)
+	}
+	{
+		e.FieldStart("pending_sign_off")
+		e.Bool(s.PendingSignOff)
+	}
+	{
+		e.FieldStart("unassessed")
+		e.Bool(s.Unassessed)
+	}
+	{
+		e.FieldStart("message")
+		e.Str(s.Message)
+	}
+}
+
+var jsonFieldsNameOfDocumentaryWarning = [8]string{
+	0: "code",
+	1: "requirement",
+	2: "threshold",
+	3: "threshold_inclusive",
+	4: "source",
+	5: "pending_sign_off",
+	6: "unassessed",
+	7: "message",
+}
+
+// Decode decodes DocumentaryWarning from json.
+func (s *DocumentaryWarning) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode DocumentaryWarning to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "code":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.Code = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"code\"")
+			}
+		case "requirement":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Requirement = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"requirement\"")
+			}
+		case "threshold":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				if err := s.Threshold.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"threshold\"")
+			}
+		case "threshold_inclusive":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Bool()
+				s.ThresholdInclusive = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"threshold_inclusive\"")
+			}
+		case "source":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := d.Str()
+				s.Source = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"source\"")
+			}
+		case "pending_sign_off":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := d.Bool()
+				s.PendingSignOff = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"pending_sign_off\"")
+			}
+		case "unassessed":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				v, err := d.Bool()
+				s.Unassessed = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"unassessed\"")
+			}
+		case "message":
+			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				v, err := d.Str()
+				s.Message = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"message\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode DocumentaryWarning")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b11111111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfDocumentaryWarning) {
+					name = jsonFieldsNameOfDocumentaryWarning[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *DocumentaryWarning) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *DocumentaryWarning) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
 func (s *DownPaymentClearingInput) Encode(e *jx.Encoder) {
 	e.ObjStart()
 	s.encodeFields(e)
@@ -79606,15 +79819,36 @@ func (s *PaymentExclusion) encodeFields(e *jx.Encoder) {
 		e.FieldStart("amount")
 		s.Amount.Encode(e)
 	}
+	{
+		if s.TaxCode.Set {
+			e.FieldStart("tax_code")
+			s.TaxCode.Encode(e)
+		}
+	}
+	{
+		if s.RequestTaxRatePercent.Set {
+			e.FieldStart("request_tax_rate_percent")
+			s.RequestTaxRatePercent.Encode(e)
+		}
+	}
+	{
+		if s.RunDateTaxRatePercent.Set {
+			e.FieldStart("run_date_tax_rate_percent")
+			s.RunDateTaxRatePercent.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfPaymentExclusion = [6]string{
+var jsonFieldsNameOfPaymentExclusion = [9]string{
 	0: "supplier_id",
 	1: "supplier_name",
 	2: "reason_code",
 	3: "down_payment_request_id",
 	4: "down_payment_request_number",
 	5: "amount",
+	6: "tax_code",
+	7: "request_tax_rate_percent",
+	8: "run_date_tax_rate_percent",
 }
 
 // Decode decodes PaymentExclusion from json.
@@ -79622,7 +79856,7 @@ func (s *PaymentExclusion) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode PaymentExclusion to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -79692,6 +79926,36 @@ func (s *PaymentExclusion) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"amount\"")
 			}
+		case "tax_code":
+			if err := func() error {
+				s.TaxCode.Reset()
+				if err := s.TaxCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_code\"")
+			}
+		case "request_tax_rate_percent":
+			if err := func() error {
+				s.RequestTaxRatePercent.Reset()
+				if err := s.RequestTaxRatePercent.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"request_tax_rate_percent\"")
+			}
+		case "run_date_tax_rate_percent":
+			if err := func() error {
+				s.RunDateTaxRatePercent.Reset()
+				if err := s.RunDateTaxRatePercent.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"run_date_tax_rate_percent\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -79701,8 +79965,9 @@ func (s *PaymentExclusion) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
+	for i, mask := range [2]uint8{
 		0b00100111,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -107503,6 +107768,14 @@ func (s *SupplierInvoice) encodeFields(e *jx.Encoder) {
 		s.Extensions.Encode(e)
 	}
 	{
+		e.FieldStart("documentary_warnings")
+		e.ArrStart()
+		for _, elem := range s.DocumentaryWarnings {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
 		if s.Expanded.Set {
 			e.FieldStart("expanded")
 			s.Expanded.Encode(e)
@@ -107510,7 +107783,7 @@ func (s *SupplierInvoice) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSupplierInvoice = [28]string{
+var jsonFieldsNameOfSupplierInvoice = [29]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -107538,7 +107811,8 @@ var jsonFieldsNameOfSupplierInvoice = [28]string{
 	24: "workflow_request_id",
 	25: "items",
 	26: "extensions",
-	27: "expanded",
+	27: "documentary_warnings",
+	28: "expanded",
 }
 
 // Decode decodes SupplierInvoice from json.
@@ -107852,6 +108126,24 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"extensions\"")
 			}
+		case "documentary_warnings":
+			requiredBitSet[3] |= 1 << 3
+			if err := func() error {
+				s.DocumentaryWarnings = make([]DocumentaryWarning, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem DocumentaryWarning
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.DocumentaryWarnings = append(s.DocumentaryWarnings, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"documentary_warnings\"")
+			}
 		case "expanded":
 			if err := func() error {
 				s.Expanded.Reset()
@@ -107875,7 +108167,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 		0b11011111,
 		0b01100111,
 		0b00010100,
-		0b00000110,
+		0b00001110,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

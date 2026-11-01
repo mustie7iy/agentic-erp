@@ -291,8 +291,8 @@ start() {
   say ""
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
-  say "  - the GST34's lines (T61j-T61l), and the Canada pack's tax codes (T62g): step 2 configures one code and the GST/HST"
-  say "    registration; step 11 prepares, approves and files a return whose boxes are illustrative, not the GST34's"
+  say "  - the GST34's lines (T61j-T61l), and the Canada pack's tax codes (T62g, Canada pack 2026.4): step 2 configures one code"
+  say "    and the GST/HST registration; step 11 prepares, approves and files a return whose boxes are illustrative, not the GST34's"
   say "  - the liquidity forecast (T53e-T53k): step 13 shows the daily cash position with a memo record"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - accounts receivable, fixed assets (T57), period-end close (T64), consolidation (T68)"
@@ -841,7 +841,7 @@ PILOT_SETTINGS='
       {"number": "1020", "name": "Bank clearing - RBC USD", "type": "asset", "open_items": true, "revalue_foreign_currency": true},
       {"number": "1030", "name": "Bank - RBC USD", "type": "asset", "revalue_foreign_currency": true},
       {"number": "1040", "name": "Bank incoming - RBC USD", "type": "asset", "open_items": true, "revalue_foreign_currency": true}]
-    | .tax_codes = ((.tax_codes // []) + [{"code": "GO5", "description": "GST 5% on sales (walkthrough, until Canada pack 2026.3)",
+    | .tax_codes = ((.tax_codes // []) + [{"code": "GO5", "description": "GST 5% on sales (walkthrough, until Canada pack 2026.4)",
         "direction": "output", "kind": "standard", "category": "S", "components": [{"key": "gst", "jurisdiction": "CA",
         "account_key": "output", "account": "2300", "rates": [{"rate_percent": "5", "valid_from": "@PREV@-01-01"}]}]}])
     | .house_banks = ((.house_banks // []) + [
@@ -1376,7 +1376,7 @@ step_tax() {
   heading "Step 11 — Tax: the billing system's sales entries, their tax checked by the ledger, large ones parked for a person, and the return that files them"
   as carla
   api 200 '.items[] | select(.country == "CA") | "pack CA \(.version): \(.contents.tax_codes) tax codes"' listCountryPacks
-  say "The released Canada packs carry no tax codes yet: GST/HST, QST and PST come with Canada pack 2026.3 (T62g)."
+  say "The released Canada packs carry no tax codes yet: GST/HST, QST and PST come with Canada pack 2026.4 (T62g)."
   say "Step 2 configured one output code for the pilot instead: GO5, GST at 5% from 1 January, to the pack's 2300 GST/HST payable."
   say "The ERP issues no sales invoices before phase 3, so the pilot's billing system posts its sales as journal"
   say "entries (T61f), as a service principal of its own that holds only ledger.entry.post:"
@@ -1744,14 +1744,21 @@ step_grir() {
 step_downpayment() {
   heading "Step 16 — SAP's open down payment is cleared against the supplier's final invoice (SAP F-54)"
   as alex
-  say "$DP_NAME's final invoice arrives: CAD 5,000.00 plus 250.00 GST on V1. Alex enters and posts it."
+  say "$DP_NAME's final invoice arrives: CAD 5,000.00 plus 250.00 GST on V1. Alex enters it in a hurry, without"
+  say "the item's description, and posts it."
   local item invoice fy line
-  item="{\"account_id\": \"$(account 6000)\", \"description\": \"Machine, final invoice\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"5000.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}"
+  item="{\"account_id\": \"$(account 6000)\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"5000.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}"
   api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
     -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$DP_SUPPLIER\", \"supplier_reference\": \"FINAL-DP\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"5250.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"250.00\", \"currency\": \"CAD\"}, \"items\": [$item]}"
   invoice=$(field .id)
   api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
   expect "the final invoice's status" "$(field .status)" posted
+  say "The posting checks the CRA's documentary requirements for the input tax credit, which the Canada pack"
+  say "brings (SOR/91-45 s. 3, ADR-0049 §6): from CAD 100 the supplier's GST/HST number, on file from SAP; from"
+  say "CAD 500 a description of each supply, which this item lacks. A warning on the invoice, not a refusal:"
+  excerpt '.documentary_warnings[] | "warning \(.code): from \(.threshold.amount) \(.threshold.currency), \(.source)"'
+  expect "the final invoice's documentary warnings" "$(field '[.documentary_warnings[] | "\(.code) \(.threshold.amount)"] | join(", ")')" \
+    "item_description_missing 500.00"
   say "She clears the migrated down payment against it, as she would one the platform paid: the transfer credits"
   say "the down payment account, reverses the 100.00 input tax SAP claimed on it (the invoice claims the whole tax)"
   say "and debits the supplier's payables with the down payment, netted against the invoice in the next run."

@@ -68,9 +68,13 @@ type Accounts struct {
 
 // Tax is tax.yaml: the country's tax codes as the configuration keeps
 // them (ADR-0049 §3), each with its components and all their dated rates,
-// future ones included.
+// future ones included, and the country's tax settings (the authority's
+// rate type, rounding and documentary requirements, ADR-0049 §6, §8),
+// which applying the pack sets as the company's tax_settings. Packs
+// released before T61d's follow-up have none: the defaults.
 type Tax struct {
-	TaxCodes []config.TaxCode `yaml:"tax_codes"`
+	TaxCodes []config.TaxCode   `yaml:"tax_codes"`
+	Settings config.TaxSettings `yaml:"tax_settings,omitempty"`
 }
 
 // Calendar is calendar.yaml: the country's public holidays, which applying

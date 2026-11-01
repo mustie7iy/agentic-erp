@@ -1722,9 +1722,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Input tax follow-up: down payment requests' tax checked at the run date's rate (left out with tax_code_invalid when it no longer matches); documentary-requirement warnings for CA ($100/$500 tiers) and the UAE (TRN above AED 10,000); the authority's rate type and rounding from the country pack",
-        "r": "ADR-0049 §4, §6, §8 · after T61d",
+        "s": "D",
+        "t": "Input tax follow-up: down payment requests' tax checked at the run date's rate (left out with tax_code_invalid naming the code, the request's and the run date's rates; a proposed run refused at release when the rate changed since); documentary-requirement warnings on posted supplier invoices (documentary_warnings) from the company's tax_settings, which the country pack brings (Canada 2026.3: SOR/91-45 s. 3's $100/$500 tiers; the UAE's TRN above AED 10,000 for the UAE pack, pending sign-off); the authority's rate type and rounding from the country pack (companies[].tax_settings)",
+        "r": "ADR-0049 §4, §6, §8 · after T61d · db/migrations/000182 · config.TaxSettings · countrypack Tax.Settings · packs/ca/2026.3 · payables.documentaryWarnings · payments.checkTax · tax.Included",
         "src": "baseline",
         "pilot": "po:2026-10-31 · adr:ADR-0049",
         "c": []
@@ -5195,7 +5195,7 @@
        },
        {
         "s": "T",
-        "t": "UAE pack",
+        "t": "UAE pack (its tax_settings with the documentary tier above AED 10,000 requiring the supplier's TRN, pending sign-off, ADR-0049 §6 As built)",
         "r": "T62f",
         "src": "baseline",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0048",
@@ -5203,7 +5203,7 @@
        },
        {
         "s": "T",
-        "t": "Canada pack 2026.3: the tax codes (GST/HST/QST/PST) in the component schema of T61a, from packs/ca/TAX-PENDING-T61a.md, with all their dated rates; 2026.2 plus the tax codes, keeping its cash.yaml (a version without it would drop the suggested liquidity items from tenants that adopted 2026.2), released beside 2026.1 and 2026.2 (both stay as released); signed off by the tax specialist before the pilot",
+        "t": "Canada pack 2026.4: the tax codes (GST/HST/QST/PST) in the component schema of T61a, from packs/ca/TAX-PENDING-T61a.md, with all their dated rates; 2026.3 plus the tax codes, keeping its cash.yaml (a version without it would drop the suggested liquidity items from tenants that adopted 2026.2) and its tax settings (2026.3, the T61d follow-up), released beside 2026.1-2026.3 (all stay as released); signed off by the tax specialist before the pilot",
         "r": "packs/ca/2026.3 · packs/released.sha256 · ADR-0048 · ADR-0049 · T62g",
         "src": "baseline",
         "pilot": "po:2026-10-31 · adr:ADR-0048 · adr:ADR-0049",

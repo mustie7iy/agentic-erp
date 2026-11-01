@@ -381,6 +381,25 @@ fiscal period.
   as part of the proposal (today it checks only validity), and a request whose
   tax no longer matches is left out with `tax_code_invalid` (its existing
   reason). Reversals negate the original's tax items exactly.
+- **As built (T61d follow-up, migration 000182):** the proposal checks a
+  down payment request's tax with `payments.checkTax`: a request with a code
+  whose code is valid on the run date as an input code of one component is
+  paid only if its stated tax is the tax its amount includes at the run
+  date's rate (`tax.Included`, amount × rate / (100 + rate) rounded once,
+  the calculation the request itself uses, moved there from payables);
+  otherwise, and when the code is no longer valid and the request states
+  tax, it is left out with `tax_code_invalid`, its exclusion naming the code,
+  the code's rate on the request's due date (the rate its tax was
+  calculated at; not stored on the request, so read again, which a rate
+  edited before any posting used it would change) and the run date's rate
+  (`request_exclusion.tax_code`, `request_tax_rate`, `run_tax_rate`, absent
+  when not valid; `GET /v1/payment-runs/{id}/exclusions` returns them as
+  `tax_code`, `request_tax_rate_percent`, `run_date_tax_rate_percent`). A
+  request with a code that is not valid and states no tax posts none and is
+  paid, as before. A proposed run whose request's rate changed after the
+  proposal is refused at release with 409 `payments.proposal_outdated`
+  naming both rates. Exact equality is the test: no tolerance applies to
+  a request, which states the tax the ERP calculated.
 
 ### 5. The tax item: one per entry, code and component
 The ledger writes a `ledger.tax_item` with every entry that carries a tax code
@@ -551,7 +570,42 @@ commit-time check, like the balance trigger).
   (a step for the release notes). **Not yet:** down payment requests' tax checked at the run
   date's rate, the documentary-requirement warnings for Canada and the UAE
   (tracker, T61d follow-up), and the tax date held to the open return
-  periods (P6; with the return periods, T61g/T61i).
+  periods (P6; with the return periods, T61g/T61i). The first two were
+  built in the T61d follow-up (below and §4).
+- **As built (T61d follow-up, migration 000182):** the documentary
+  requirements are the company's `tax_settings.documentary_requirements`
+  (config.TaxSettings), which the country pack's `tax.yaml` brings under
+  `tax_settings` (§8): tiers, each with a threshold in the company's
+  currency, `at_least` (a total equal to it is in the tier: Canada's "$100
+  or more") or `above` (the UAE's "above AED 10,000"), what it `requires`,
+  its `source` and `pending_sign_off` for a tier the tax specialist has not
+  confirmed (a pack signed off holds none). The ERP checks what it holds:
+  `supplier_tax_id`, met when the supplier's business partner holds a tax
+  identifier of the company's country (a scheme named after it, `CA_...`,
+  `AE_...`, as the SAP load names them `<LAND1>_TAX`; a US vendor's EIN is
+  no GST/HST number; which schemes count is listed for the tax specialist),
+  and `item_descriptions`, met when every item
+  without an order has a description (an order item is described). When an
+  invoice or subsequent debit claiming tax posts, its gross amount,
+  converted into the company's currency at the tax date's rate of the tax
+  rate type, is held to each tier (when no rate of the type converts it,
+  the check never refuses the posting: every tier is taken as reached and
+  its warnings are marked `unassessed`); each unmet requirement of a tier it
+  reaches is a warning, once (the first tier naming it), stored on the
+  invoice (`supplier_invoice.documentary_warnings`) and returned as the
+  invoice's `documentary_warnings` (code `supplier_tax_id_missing` or
+  `item_description_missing`, the tier's threshold as money, whether it is
+  inclusive, the source, the pending flag, `unassessed` and a message). Credit memos and
+  subsequent credits take tax back and are not checked; an invoice posted
+  before has none. Canada 2026.3 states SOR/91-45 s. 3 (b) and (c) as two
+  tiers (from CAD 100 the supplier's registration number; from CAD 500 also
+  a description of each supply); the recipient's name and the terms, also
+  required from $500, are on the document only and not checked. The UAE
+  pack (T62f) is to state the threshold as `above: "10000"`, requiring
+  `supplier_tax_id`, `pending_sign_off: true` (Executive Regulation Art. 59
+  is read only through secondary summaries). The working papers' filter on
+  these warnings comes with the returns (§11).
+
 
 ### 7. Output tax and the pilot's sales
 The ERP issues no sales invoices until phase 3, so the pilot's output tax
@@ -700,6 +754,22 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   Determination (which code a line has) stays the caller's. The country
   pack's `rounding` setting is not yet in the pack schema: T61c/T61d add it
   with the first caller.
+- **As built (T61d follow-up):** a pack's `tax.yaml` carries
+  `tax_settings` (`rate_type`, `rounding`, `documentary_requirements`),
+  validated as the document's are (thresholds in whole units there) and
+  merged on application as one item, three-way like the pack's lists: the
+  pack's taken where the company kept the adopted pack's, the company's own
+  kept with a conflict note. They become `companies[].tax_settings`
+  (tier 3). Payables calculates an invoice's tax with the settings'
+  `rounding` (`document` by default, or `line`) and converts it into local
+  currency at the tax date's rate of `rate_type` (`average` by default,
+  `Rates.Conversion` as before; another of the ledger's rate types its
+  latest rate on the tax date, 422 `ledger.no_exchange_rate` without one).
+  No new rate type was added: the authority's rates (the Bank of Canada's,
+  the UAE Central Bank's) are recorded under one of the ledger's types,
+  which the pack names. Canada 2026.3 names `average` and `document`, both
+  pending the specialist (the conversion and rounding rules are cited from
+  memory above).
 
 ### 9. Reverse charge and self-assessment
 A `reverse_charge` or `import` code has a `self_output` and a `self_input`

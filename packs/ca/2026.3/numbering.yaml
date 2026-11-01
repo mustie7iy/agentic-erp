@@ -1,0 +1,18 @@
+# Number ranges for every document type the ERP numbers, created for the
+# fiscal year of application. Supplier invoices are gapless; journal
+# ranges cover the entries the documents post (KR, KG, WE, ZP, AB) and
+# manual entries (SA).
+number_ranges:
+  - {document_type: requisition, prefix: PR, first: 1, last: 9999999}
+  - {document_type: purchase_order, prefix: PO, first: 1, last: 9999999}
+  - {document_type: contract, prefix: CT, first: 1, last: 999999}
+  - {document_type: goods_receipt, prefix: GR, first: 1, last: 9999999}
+  - {document_type: supplier_invoice, prefix: SI, first: 1, last: 9999999, gapless: true}
+  - {document_type: down_payment_request, prefix: DP, first: 1, last: 999999}
+  - {document_type: payment_run, prefix: PY, first: 1, last: 999999}
+  - {document_type: journal_sa, prefix: SA, first: 1, last: 9999999}
+  - {document_type: journal_kr, prefix: KR, first: 1, last: 9999999}
+  - {document_type: journal_kg, prefix: KG, first: 1, last: 9999999}
+  - {document_type: journal_we, prefix: WE, first: 1, last: 9999999}
+  - {document_type: journal_zp, prefix: ZP, first: 1, last: 9999999}
+  - {document_type: journal_ab, prefix: AB, first: 1, last: 9999999}

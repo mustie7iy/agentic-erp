@@ -30,6 +30,8 @@ package tax
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
@@ -206,3 +208,18 @@ func (l LineTax) Charged() (money.Minor, error) {
 }
 
 func selfAssessed(key string) bool { return key == KeySelfOutput || key == KeySelfInput }
+
+// Included is the tax an amount that includes it at one rate in percent
+// holds, amount × rate / (100 + rate) rounded once, half away from zero,
+// in minor units of exp digits (ADR-0049 §8): a down payment request's
+// tax, calculated when it is requested and checked again at the rate of
+// the day it is paid (§4). A rate that is not a decimal of 0 to below 100
+// is an error.
+func Included(amount money.Minor, exp int, ratePct string) (money.Minor, error) {
+	rate := money.ParseRat(ratePct)
+	if rate == nil || rate.Sign() < 0 || rate.Cmp(big.NewRat(100, 1)) >= 0 {
+		return 0, fmt.Errorf("tax: rate %q is not a percentage of 0 to below 100", ratePct)
+	}
+	share := new(big.Rat).Quo(rate, new(big.Rat).Add(rate, big.NewRat(100, 1)))
+	return money.Round(new(big.Rat).Mul(money.Rat(amount, exp), share), exp)
+}
