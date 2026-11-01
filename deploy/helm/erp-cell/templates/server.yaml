@@ -101,11 +101,12 @@ spec:
             - {name: ERP_ANALYTICS_URL, value: {{ printf "https://erp-analytics.%s.svc:8443" .Release.Namespace | quote }}}
             {{- with .Values.directory.endpoint }}
             # The global directory over verified TLS as the cells' login
-            # (T72h), whose password is read again for each connection;
+            # (T72h), with an RDS IAM token the server's IRSA role signs for
+            # each new connection (ADR-0035 As built 2026-11-01);
             # the router reaches this cell at the URLs recorded there, as
             # the cell's SPIFFE identity (ADR-0033).
             - {name: ERP_DIRECTORY_URL, value: {{ printf "postgres://%s@%s/%s?sslmode=verify-full&sslrootcert=/etc/erp/rds/ca.pem" ((required "directory.user is required with directory.endpoint: the cells' login, erp_cell_login" $.Values.directory.user) | urlquery) . $.Values.directory.name | quote }}}
-            - {name: ERP_DIRECTORY_PASSWORD, value: file:/etc/erp/directory/password}
+            - {name: ERP_DIRECTORY_REGION, value: {{ required "directory.region is required with directory.endpoint: global.directory_region" $.Values.directory.region | quote }}}
             - {name: ERP_CELL_API_URL, value: {{ printf "https://erp-server.%s.svc:8080" $.Release.Namespace | quote }}}
             - {name: ERP_CELL_CONTROL_URL, value: {{ printf "https://erp-server.%s.svc:9090" $.Release.Namespace | quote }}}
             - {name: ERP_CELL_REGION, value: {{ $.Values.region | quote }}}
@@ -135,7 +136,6 @@ spec:
             - {name: tls, mountPath: /etc/erp/tls, readOnly: true}
             {{- if .Values.directory.endpoint }}
             - {name: rds, mountPath: /etc/erp/rds, readOnly: true}
-            - {name: directory, mountPath: /etc/erp/directory, readOnly: true}
             {{- end }}
             - {name: tmp, mountPath: /tmp}
       volumes:
@@ -152,9 +152,6 @@ spec:
         - name: rds
           configMap:
             name: erp-rds-ca
-        - name: directory
-          secret:
-            secretName: erp-server-directory
         {{- end }}
         - name: tmp
           emptyDir:

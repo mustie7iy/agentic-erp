@@ -84,16 +84,29 @@ GRANT USAGE ON SCHEMA web TO erp_web;
 GRANT SELECT, INSERT, UPDATE, DELETE ON web.session TO erp_web;
 GRANT SELECT ON web.login_client TO erp_web;`
 
-// Login is a client's login to the directory: its name, its password
-// (operators set it in the secret store; Setup sets it again each run, so
-// a changed one takes effect) and the privilege role it is a member of.
+// Login is a client's login to the directory: its name, the privilege
+// role it is a member of, and how it authenticates. In production (IAM)
+// with RDS IAM database authentication: Setup gives it no password (it
+// removes one it had) and grants it rds_iam, the role RDS authenticates
+// its members with IAM tokens by, which takes precedence over a password
+// (RDS user guide, "Creating a database account using IAM authentication"
+// and "IAM database authentication", Limitations). In development with
+// Password, which Setup sets again each run, so a changed one takes
+// effect.
 type Login struct {
 	Name, Password, Role string
+	IAM                  bool
 }
 
+// IAMRole is the role RDS authenticates its members by IAM tokens; RDS
+// has it, a plain PostgreSQL server does not, and Setup fails on one
+// without it rather than leave an IAM login unable to connect.
+const IAMRole = "rds_iam"
+
 // ErrLogin means a login cannot be made least privileged: a name that is
-// not a login's, no password, or a role that already holds more than its
-// privilege role gives it.
+// not a login's, no password (or one for an IAM login), or a role that
+// already holds more than its privilege role (and, for an IAM login,
+// rds_iam) gives it.
 var ErrLogin = errors.New("directory: login")
 
 // ErrServer means another database of the directory's server still lets
@@ -124,7 +137,7 @@ func ServerDatabases() []string { return []string{"postgres", "template1"} }
 // directory's database alone, and refuses (ErrServer) while PUBLIC still
 // holds either. Development and tests give none: their server is shared.
 // Every step leaves what is already there as it is, so a second run
-// changes nothing but the logins' passwords.
+// changes nothing but the password logins' passwords.
 func Setup(ctx context.Context, url string, others []string, logins ...Login) error {
 	pool, err := database.Open(ctx, url, database.Settings{MaxConns: 1})
 	if err != nil {
@@ -158,21 +171,28 @@ func setupIn(ctx context.Context, inTx func(context.Context, database.Scope, fun
 	return nil
 }
 
-// ensureLogin creates the login, or sets its password, makes it a member
-// of its role, takes back what was granted to it directly on the
-// directory's and the web schemas, and then refuses it if it is anything
-// more than its role. The password reaches the server only as its
-// SCRAM-SHA-256 verifier, so no log or statistics of a statement holds it
-// (a failed statement is logged whole); PostgreSQL's format quotes the
-// name and the verifier, neither is spliced in here.
+// ensureLogin creates the login, or sets its password (none for an IAM
+// login), makes it a member of its role (and an IAM login of rds_iam),
+// takes back what was granted to it directly on the directory's and the
+// web schemas, and then refuses it if it is anything more than its role.
+// The password reaches the server only as its SCRAM-SHA-256 verifier, so
+// no log or statistics of a statement holds it (a failed statement is
+// logged whole); PostgreSQL's format quotes the name and the verifier,
+// neither is spliced in here, and gives a null one as NULL unquoted
+// (PASSWORD NULL: no password at all).
 func ensureLogin(ctx context.Context, tx pgx.Tx, l Login) error {
 	roles := []string{RouterRole, CellRole, WebRole}
-	if !slices.Contains(roles, l.Role) || l.Name == "" || slices.Contains(roles, l.Name) || !printable(l.Password) {
-		return fmt.Errorf("%w %q: want a name that is no privilege role, a password of printable ASCII and one of the roles %v", ErrLogin, l.Name, roles)
+	if !slices.Contains(roles, l.Role) || l.Name == "" || slices.Contains(roles, l.Name) || l.IAM != (l.Password == "") || (!l.IAM && !printable(l.Password)) {
+		return fmt.Errorf("%w %q: want a name that is no privilege role, a password of printable ASCII (none with IAM) and one of the roles %v", ErrLogin, l.Name, roles)
+	}
+	var secret *string
+	if !l.IAM {
+		v := verifier(l.Password)
+		secret = &v
 	}
 	var stmt string
 	err := tx.QueryRow(ctx, `SELECT format(CASE WHEN EXISTS (SELECT FROM pg_roles WHERE rolname = $1) THEN 'ALTER ROLE %I LOGIN PASSWORD %L'
-		ELSE 'CREATE ROLE %I LOGIN PASSWORD %L' END, $1::text, $2::text) WHERE $1 <> current_user`, l.Name, verifier(l.Password)).Scan(&stmt)
+		ELSE 'CREATE ROLE %I LOGIN PASSWORD %L' END, $1::text, $2::text) WHERE $1 <> current_user`, l.Name, secret).Scan(&stmt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("%w %q: the owner Setup connects as is no client's login", ErrLogin, l.Name)
 	}
@@ -181,6 +201,9 @@ func ensureLogin(ctx context.Context, tx pgx.Tx, l Login) error {
 	}
 	if err == nil {
 		login, role := pgx.Identifier{l.Name}.Sanitize(), pgx.Identifier{l.Role}.Sanitize()
+		if l.IAM {
+			role += ", " + pgx.Identifier{IAMRole}.Sanitize()
+		}
 		_, err = tx.Exec(ctx, "GRANT "+role+" TO "+login+"; REVOKE ALL ON ALL TABLES IN SCHEMA directory, web FROM "+login+
 			"; REVOKE ALL ON SCHEMA directory, web FROM "+login)
 	}
@@ -283,26 +306,33 @@ const publicRights = `ARRAY(SELECT kind || ' ' || name FROM (
 // this database or the server's, but the rights Grants gives the roles;
 // any schema in the database beyond the system's, public, directory and
 // web, whose PUBLIC rights Setup does not govern; and any of
-// publicRights.
+// publicRights. An IAM login may also be a member of rds_iam, which then
+// must hold nothing either: no role attribute, no membership of any role
+// and no dependency (whatever rds_iam holds or inherits, the login
+// inherits); a password login may not: RDS would take IAM tokens alone
+// from it.
 // Setup does not take such rights back: someone gave them, and the
 // release stops until they look.
 func checkLogin(ctx context.Context, tx pgx.Tx, l Login) error {
 	var attributes, admin bool
 	var others, deps, schemas, public []string
-	err := tx.QueryRow(ctx, `SELECT r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication OR r.rolbypassrls,
+	err := tx.QueryRow(ctx, `SELECT r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication OR r.rolbypassrls
+			OR ($4 AND EXISTS (SELECT FROM pg_roles i WHERE i.rolname = '`+IAMRole+`'
+				AND (i.rolsuper OR i.rolcreaterole OR i.rolcreatedb OR i.rolreplication OR i.rolbypassrls))),
 		EXISTS (SELECT FROM pg_auth_members m WHERE m.member = r.oid AND m.admin_option),
 		ARRAY(SELECT p.rolname || ' in ' || g.rolname FROM pg_auth_members m JOIN pg_roles g ON g.oid = m.roleid JOIN pg_roles p ON p.oid = m.member
-			WHERE (m.member = r.oid AND g.rolname <> $2) OR p.rolname = ANY($3) ORDER BY 1),
+			WHERE (m.member = r.oid AND g.rolname <> $2 AND NOT ($4 AND g.rolname = '`+IAMRole+`')) OR p.rolname = ANY($3)
+				OR ($4 AND p.rolname = '`+IAMRole+`') ORDER BY 1),
 		ARRAY(SELECT o.rolname || ': ' || coalesce(pg_describe_object(d.classid, d.objid, d.objsubid), d.classid::regclass::text) || ' (' || d.deptype::text || ')'
 			FROM pg_shdepend d JOIN pg_roles o ON o.oid = d.refobjid
-			WHERE d.refclassid = 'pg_authid'::regclass AND (o.rolname = $1 OR o.rolname = ANY($3))
+			WHERE d.refclassid = 'pg_authid'::regclass AND (o.rolname = $1 OR o.rolname = ANY($3) OR ($4 AND o.rolname = '`+IAMRole+`'))
 				AND d.dbid IN (0, (SELECT oid FROM pg_database WHERE datname = current_database()))
 				AND NOT (d.deptype = 'a' AND o.rolname = ANY($3) AND (`+expectedACL+`))
 			ORDER BY 1),
 		ARRAY(SELECT nspname::text FROM pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'public', 'directory', 'web')
 			AND nspname NOT LIKE 'pg\_toast%' AND nspname NOT LIKE 'pg\_temp\_%' ORDER BY 1),
 		`+publicRights+`
-		FROM pg_roles r WHERE r.rolname = $1`, l.Name, l.Role, []string{RouterRole, CellRole, WebRole}).Scan(&attributes, &admin, &others, &deps, &schemas, &public)
+		FROM pg_roles r WHERE r.rolname = $1`, l.Name, l.Role, []string{RouterRole, CellRole, WebRole}, l.IAM).Scan(&attributes, &admin, &others, &deps, &schemas, &public)
 	if err != nil {
 		return fmt.Errorf("login %s: read its rights: %w", l.Name, err)
 	}

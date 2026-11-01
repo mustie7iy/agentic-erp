@@ -52,6 +52,34 @@ run "s3_kms_and_sts_are_never_proxied" {
   }
 }
 
+# erp-web's network policy admits STS's endpoint on 443 by these ranges
+# alone (ADR-0035 As built 2026-11-01): the endpoint sits in them, and
+# nothing else does.
+run "sts_has_subnets_of_its_own" {
+  command = apply
+
+  assert {
+    condition     = output.sts_endpoint_cidrs == ["10.10.48.0/28", "10.10.48.16/28", "10.10.48.32/28"]
+    error_message = "a /28 per zone in the VPC's fourth /20, known from the VPC's range alone"
+  }
+  assert {
+    condition     = [for az in var.availability_zones : aws_subnet.sts_endpoint[az].cidr_block] == output.sts_endpoint_cidrs && toset(aws_vpc_endpoint.sts.subnet_ids) == toset([for s in aws_subnet.sts_endpoint : s.id])
+    error_message = "STS's endpoint sits in those subnets alone, one per zone"
+  }
+  assert {
+    condition     = length(setintersection(toset(aws_vpc_endpoint.sts.subnet_ids), toset(concat([for s in aws_subnet.private : s.id], [for s in aws_subnet.public : s.id])))) == 0
+    error_message = "STS's endpoint sits in no subnet the nodes, databases, load balancers or other endpoints use"
+  }
+  assert {
+    condition     = [for s in aws_subnet.public : s.cidr_block] == ["10.10.0.0/20", "10.10.16.0/20", "10.10.32.0/20"] && [for s in aws_subnet.private : s.cidr_block] == ["10.10.64.0/18", "10.10.128.0/18", "10.10.192.0/18"]
+    error_message = "the public and private subnets leave the fourth /20 (10.10.48.0/20) to STS's endpoint"
+  }
+  assert {
+    condition     = toset(aws_vpc_endpoint.kms.subnet_ids) == toset([for s in aws_subnet.private : s.id]) && alltrue([for e in aws_vpc_endpoint.interface : toset(e.subnet_ids) == toset([for s in aws_subnet.private : s.id])])
+    error_message = "the other interface endpoints stay in the private subnets"
+  }
+}
+
 run "kms_cannot_be_moved_to_the_optional_list" {
   command = plan
   variables {
@@ -85,6 +113,10 @@ run "dev_and_test_keep_one_zone_of_egress_and_every_endpoint" {
   assert {
     condition     = length(aws_vpc_endpoint.kms.subnet_ids) == 1 && length(aws_vpc_endpoint.sts.subnet_ids) == 1 && alltrue([for e in aws_vpc_endpoint.interface : length(e.subnet_ids) == 1])
     error_message = "the interface endpoints sit in one zone"
+  }
+  assert {
+    condition     = output.sts_endpoint_cidrs == ["10.10.48.0/28"] && keys(aws_subnet.sts_endpoint) == ["eu-central-1a"]
+    error_message = "STS's endpoint has one subnet of its own, in the first zone"
   }
   assert {
     condition     = aws_vpc_endpoint.kms.private_dns_enabled && aws_vpc_endpoint.sts.private_dns_enabled && length(aws_vpc_endpoint.s3.route_table_ids) == 3

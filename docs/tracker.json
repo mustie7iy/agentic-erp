@@ -8518,11 +8518,27 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The router's, the cells' and erp-web's directory logins authenticate with RDS IAM database authentication in place of their operator-set passwords, before production",
-      "r": "T72h · ADR-0035 amendment 2026-10-28 · internal/directory setup.go · deploy/helm/erp-global · deploy/helm/erp-cell · modules/global",
+      "r": "T72h · ADR-0035 amendment 2026-10-28, As built 2026-11-01 · internal/platform/rdsiam (tokens per new connection from the IRSA role) · internal/directory setup.go (IAM logins: no password, rds_iam) · router, cell and erp-web configuration (ERP_DIRECTORY_REGION, ERP_WEB_DIRECTORY_REGION; a password refused in production) · deploy/helm/erp-global · deploy/helm/erp-cell · modules/global (iam_database_authentication_enabled, directory_users) · modules/cell irsa.tf (router, web and server roles, rds-db:connect on their own login) · no walkthrough step: infrastructure authentication, the walkthrough runs on plain PostgreSQL",
       "src": "po:2026-10-28",
       "pilot": "po:2026-10-31 · po:2026-10-28 · adr:ADR-0035",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "The directory's logins connect with RDS IAM tokens on a real RDS instance in the AWS staging account (the router, a cell and erp-web each as its IRSA role), and the specialist's open points are settled: the token form RDS accepts, rds_iam's rights and membership options on RDS, and the master user's GRANT rds_iam and PASSWORD NULL; and erp-web reaches STS through the endpoint's own subnets once Terraform moved it there: the move in one apply (one subnet per zone), how long STS is unreachable meanwhile, and that STS's private DNS then answers with those subnets' addresses alone",
+      "r": "split of the RDS IAM leaf · ADR-0035 As built 2026-11-01, Not confirmed on an RDS instance · T72h · ADR-0035 As built 2026-11-01, erp-web reaches STS's endpoint by its own subnets (Not confirmed on AWS) · po:2026-11-01",
+      "src": "split:T72h · po:2026-10-28",
+      "pilot": "po:2026-10-31 · po:2026-10-28 · adr:ADR-0035",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "erp-web's egress to STS narrowed to the endpoint's subnets (PO 2026-11-01)",
+      "r": "ADR-0035 As built 2026-11-01 (erp-web reaches STS's endpoint by its own subnets) · modules/network aws_subnet.sts_endpoint (a /28 per zone of egress in the VPC's fourth /20, STS's endpoint alone) · sts_endpoint_cidrs (network, cell, environment outputs) · deploy/helm/erp-global awsEndpoints.stsCidrs (required, /28s only) · deploy/helm/policy/workloads.rego (erp-web on 443: /28s or the internet with the private ranges excepted) · scripts/helm-checks.sh (exact egress, render refusals, three tampered renders) · no walkthrough step: network policy, no API of its own",
+      "src": "po:2026-11-01",
+      "pilot": "po:2026-11-01 · adr:ADR-0035",
       "c": []
      },
      {

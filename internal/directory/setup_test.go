@@ -299,6 +299,104 @@ func TestSetupAgain(t *testing.T) {
 	}
 }
 
+// iamRole gives the test server the rds_iam role every RDS for PostgreSQL
+// instance has and a plain PostgreSQL server does not (RDS user guide,
+// "Creating a database account using IAM authentication": GRANT rds_iam):
+// a role that may not log in and holds nothing. It is the server's, so it
+// stays, as the privilege roles do.
+func iamRole(t *testing.T) {
+	t.Helper()
+	pgtest.Exec(t, `DO $$ BEGIN CREATE ROLE rds_iam NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$`)
+}
+
+// TestSetupIAMLogins: in production a login has no password, one it had
+// taken away, and is a member of rds_iam beside its role, again on a
+// second run; a password login made a member of rds_iam, an IAM login
+// given a password, and rds_iam holding a right are refused.
+func TestSetupIAMLogins(t *testing.T) {
+	ctx := context.Background()
+	iamRole(t)
+	u := pgtest.EmptyDatabase(t)
+	c := pgtest.NewLogin(t)
+	if err := directory.Setup(ctx, u, nil, directory.Login{Name: c.Name, Password: c.Password, Role: directory.CellRole}); err != nil {
+		t.Fatalf("as a password login: %v", err)
+	}
+	iam := directory.Login{Name: c.Name, Role: directory.CellRole, IAM: true}
+	for _, run := range []string{"first", "again"} {
+		if err := directory.Setup(ctx, u, nil, iam); err != nil {
+			t.Fatalf("%s run: %v", run, err)
+		}
+		var password *string
+		var tokens, cell bool
+		pgtest.Scan(t, `SELECT rolpassword, pg_has_role(oid, 'rds_iam', 'MEMBER'), pg_has_role(oid, 'erp_cell', 'MEMBER') FROM pg_authid WHERE rolname = $1`,
+			[]any{c.Name}, &password, &tokens, &cell)
+		if password != nil {
+			t.Errorf("%s run: password %q, want none", run, *password)
+		}
+		if !tokens || !cell {
+			t.Errorf("%s run: member of rds_iam %t, of erp_cell %t, want both", run, tokens, cell)
+		}
+	}
+	dir, err := directory.OpenWith(ctx, c.As(u), nil)
+	if pg, ok := errors.AsType[*pgconn.PgError](err); !ok || pg.Code != "28P01" {
+		if dir != nil {
+			dir.Close()
+		}
+		t.Errorf("its former password: got %v, want it refused (28P01)", err)
+	}
+	other := pgtest.NewLogin(t)
+	if err := directory.Setup(ctx, u, nil, directory.Login{Name: other.Name, Password: other.Password, Role: directory.RouterRole}); err != nil {
+		t.Fatal(err)
+	}
+	pgtest.Exec(t, `GRANT rds_iam TO `+pgx.Identifier{other.Name}.Sanitize())
+	err = directory.Setup(ctx, u, nil, directory.Login{Name: other.Name, Password: other.Password, Role: directory.RouterRole})
+	if !errors.Is(err, directory.ErrLogin) || !strings.Contains(err.Error(), "rds_iam") {
+		t.Errorf("a password login in rds_iam: got %v, want ErrLogin naming rds_iam", err)
+	}
+	if err := directory.Setup(ctx, u, nil, directory.Login{Name: c.Name, Password: "p", Role: directory.CellRole, IAM: true}); !errors.Is(err, directory.ErrLogin) {
+		t.Errorf("an IAM login with a password: got %v, want ErrLogin", err)
+	}
+	// A right of rds_iam's would be every IAM login's: granted in this
+	// database alone, which no other test's Setup reads.
+	owner, err := directory.OpenWith(ctx, u, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	if err := exec(ctx, owner, database.Scope{}, `GRANT SELECT ON directory.placement TO rds_iam`); err != nil {
+		t.Fatal(err)
+	}
+	if err := directory.Setup(ctx, u, nil, iam); !errors.Is(err, directory.ErrLogin) || !strings.Contains(err.Error(), "rds_iam") {
+		t.Errorf("rds_iam holding a right: got %v, want ErrLogin naming it", err)
+	}
+	if err := exec(ctx, owner, database.Scope{}, `REVOKE SELECT ON directory.placement FROM rds_iam`); err != nil {
+		t.Fatal(err)
+	}
+	// rds_iam a member of a role, or given an attribute, passes it to every
+	// IAM login. Both are the server's: made in a transaction rolled back,
+	// which no other test's Setup sees.
+	errDone := errors.New("rolled back")
+	for name, c := range map[string]struct{ sql, want string }{
+		"a member of the router's role": {`GRANT erp_router TO rds_iam`, "rds_iam in erp_router"},
+		"bypassing row security":        {`ALTER ROLE rds_iam BYPASSRLS`, "role attributes true"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := owner.Pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+				if _, err := tx.Exec(ctx, c.sql); err != nil {
+					return err
+				}
+				if err := directory.CheckLogin(ctx, tx, iam); !errors.Is(err, directory.ErrLogin) || !strings.Contains(err.Error(), c.want) {
+					t.Errorf("got %v, want ErrLogin naming %q", err, c.want)
+				}
+				return errDone
+			})
+			if !errors.Is(err, errDone) {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 // TestSetupRefusesLogins: a login is made least privileged or not at all.
 func TestSetupRefusesLogins(t *testing.T) {
 	ctx := context.Background()
@@ -510,7 +608,8 @@ func TestSetupDatabaseFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	logins := []directory.Login{{Name: c.Name, Password: c.Password, Role: directory.CellRole}}
+	iamRole(t)
+	logins := []directory.Login{{Name: c.Name, Password: c.Password, Role: directory.CellRole}, {Name: pgtest.NewLogin(t).Name, Role: directory.WebRole, IAM: true}}
 	// Another database PUBLIC holds both rights on, until the last run
 	// commits: each failed run is rolled back.
 	others := []string{databaseName(t, pgtest.EmptyDatabase(t))}

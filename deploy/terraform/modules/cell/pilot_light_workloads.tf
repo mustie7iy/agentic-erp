@@ -7,7 +7,8 @@
 # replica), the DR cluster key, the secrets' replicas and the DR region's
 # log group. No role trusts both clusters: a token of one cluster assumes
 # nothing in the other region. The global tier's secrets are not read
-# there: the router and the directory are in the home region (modules/global).
+# there, and the router and erp-web have no roles there: they and the
+# directory are in the home region (modules/global).
 
 locals {
   dr_oidc_host = { for k in local.pilot : k => replace(aws_iam_openid_connect_provider.dr[k].url, "https://", "") }
@@ -86,7 +87,7 @@ resource "aws_iam_openid_connect_provider" "dr" {
 }
 
 resource "aws_iam_role" "dr_workload" {
-  for_each = { for name, account in local.service_accounts : name => account if var.pilot_light }
+  for_each = { for name, account in local.cell_accounts : name => account if var.pilot_light }
   name     = "${local.prefix}-dr-${replace(each.key, "_", "-")}"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"

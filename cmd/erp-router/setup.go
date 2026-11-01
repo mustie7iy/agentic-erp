@@ -26,14 +26,16 @@ func command(ctx context.Context, args []string, getenv func(string) string, std
 }
 
 // setupSettings are setup-directory's: the directory as its owner, the RDS
-// master user, and the clients' logins with their passwords.
+// master user, and the clients' logins: in production authenticating with
+// RDS IAM tokens and no password (ADR-0035 As built 2026-11-01), in
+// development with their passwords.
 type setupSettings struct {
 	adminURL string // ERP_DIRECTORY_ADMIN_URL, a value or a reference
 	logins   []directory.Login
 }
 
-// The logins' default names, and the settings naming each login and its
-// password (a reference: env: or file:).
+// The logins' default names, and the settings naming each login and, in
+// development, its password (a reference: env: or file:).
 var setupLogins = []struct{ role, user, password, name string }{
 	{directory.RouterRole, "ERP_DIRECTORY_ROUTER_USER", "ERP_DIRECTORY_ROUTER_PASSWORD", "erp_router_login"},
 	{directory.CellRole, "ERP_DIRECTORY_CELL_USER", "ERP_DIRECTORY_CELL_PASSWORD", "erp_cell_login"},
@@ -67,7 +69,14 @@ func loadSetup(getenv func(string) string) (setupSettings, error) {
 		if name == "" {
 			name = l.name
 		}
-		s.logins = append(s.logins, directory.Login{Name: name, Password: resolve(l.password), Role: l.role})
+		login := directory.Login{Name: name, Role: l.role, IAM: env == config.Production}
+		switch {
+		case !login.IAM:
+			login.Password = resolve(l.password)
+		case getenv(l.password) != "":
+			errs = append(errs, fmt.Errorf("%s must not be set with ERP_ENV=production: the login authenticates with RDS IAM tokens", l.password))
+		}
+		s.logins = append(s.logins, login)
 	}
 	return s, errors.Join(errs...)
 }
@@ -85,9 +94,9 @@ var serverDatabases = directory.ServerDatabases
 //
 // It is what the erp-global chart's pre-install and pre-upgrade hook Job
 // runs, once per release, with the master credentials, which no service of
-// the platform holds (T72h); each login's password is set again, so a
-// changed one takes effect with the release. Runs started together
-// serialize on the schema's advisory lock.
+// the platform holds (T72h); in production each login is given no password
+// and rds_iam, in development its password again, so a changed one takes
+// effect. Runs started together serialize on the schema's advisory lock.
 func setupCmd(ctx context.Context, getenv func(string) string, stderr io.Writer) int {
 	s, err := loadSetup(getenv)
 	if err != nil {

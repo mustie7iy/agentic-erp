@@ -74,6 +74,13 @@ func Presign(req *http.Request, accessKey, secretKey, region, service string, ex
 // PresignWith is Presign with credentials that may carry a session token,
 // which goes into the query as X-Amz-Security-Token.
 func PresignWith(req *http.Request, c Credentials, region, service string, expires time.Duration, now time.Time) string {
+	return PresignPayload(req, c, region, service, UnsignedPayload, expires, now)
+}
+
+// PresignPayload is PresignWith signing payloadHash as the request's
+// payload in place of UnsignedPayload: an RDS IAM authentication token
+// signs the empty payload's hash (internal/platform/rdsiam).
+func PresignPayload(req *http.Request, c Credentials, region, service, payloadHash string, expires time.Duration, now time.Time) string {
 	accessKey, secretKey := c.AccessKey, c.SecretKey
 	amzDate := now.UTC().Format("20060102T150405Z")
 	scope := amzDate[:8] + "/" + region + "/" + service + "/aws4_request"
@@ -90,7 +97,7 @@ func PresignWith(req *http.Request, c Credentials, region, service string, expir
 	if c.SessionToken != "" {
 		q.Set("X-Amz-Security-Token", c.SessionToken)
 	}
-	_, signature := sign(req, canon, q, UnsignedPayload, secretKey, scope, amzDate)
+	_, signature := sign(req, canon, q, payloadHash, secretKey, scope, amzDate)
 	q.Set("X-Amz-Signature", signature)
 	u := *req.URL
 	u.RawQuery = CanonicalQuery(q)

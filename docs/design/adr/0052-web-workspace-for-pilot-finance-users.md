@@ -1129,7 +1129,9 @@ Decisions for the product owner (T73b):
   and no service holds the master credentials (ADR-0035, amendment of
   2026-10-28). erp-web still works as `erp_web` (`SET LOCAL ROLE`, its
   own role now), so the question of the master's `SET ROLE` no longer
-  arises for the directory.
+  arises for the directory. Since 2026-11-01 the three logins have no
+  passwords in production: they authenticate with RDS IAM tokens their
+  IRSA roles sign (ADR-0035, As built 2026-11-01).
 - **D2:** whether the API's audit trail should record people's client
   addresses (for erp-web's users, the router would have to trust erp-web
   to forward them, which it cannot authenticate today). Decided

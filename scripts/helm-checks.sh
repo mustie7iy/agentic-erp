@@ -31,10 +31,13 @@
 #     subnets alone, ready only once the load balancer finds it healthy;
 #     erp-web (ADR-0052) likewise behind its own load balancer, in
 #     production, on its own https hostname, reaching the router's public
-#     listener alone, with no SPIFFE certificate; the router, erp-web and
-#     the cell reach the directory as logins of their own (T72h), whose
-#     passwords the setup hook gives them, and the directory's master
-#     credentials reach that hook alone;
+#     listener, the directory, STS's endpoint by its own subnets and the
+#     internet alone (nothing else in the VPC on 443: the policy refuses
+#     more, and tampered renders prove it), with no SPIFFE certificate;
+#     the router, erp-web and
+#     the cell reach the directory as logins of their own (T72h), with
+#     RDS IAM tokens their IRSA roles sign and no password, and the
+#     directory's master credentials reach that hook alone;
 #   - deploy/helm/erp-delivery likewise: the cell's Argo CD Applications,
 #     one per add-on of addons.txt in its order, then erp-cluster, erp-cell
 #     and (on the home cell alone) erp-global with the cell's release.json;
@@ -453,7 +456,7 @@ required cell region trustDomain vpcCidr monitoringNamespace tracingNamespace se
   images.nats.repository images.nats.digest images.temporal.repository images.temporal.digest \
   server.roleArn server.operatorIssuers server.objectBucket server.fieldKmsKeyArn \
   server.awsEndpoints.sts server.awsEndpoints.kms server.awsEndpoints.s3 \
-  database.writerHost database.masterSecretArn database.caBundle directory.user directory.passwordSecret
+  database.writerHost database.masterSecretArn database.caBundle directory.user directory.region
 for bad in 'images.server.digest=latest' 'images.server.repository=registry.example/erp-server@sha256:1' 'cell=dev-1'; do
   if "$HELM" template erp-cell "$chart" --namespace erp -f "$values" --set "$bad" >/dev/null 2>&1; then
     echo "helm-checks: erp-cell took $bad" >&2
@@ -515,15 +518,17 @@ if gates != ["target-health.elbv2.k8s.aws/erp-router"]:
     sys.exit("helm-checks: erp-global's router is ready before the load balancer finds it healthy (readiness gate %r)" % gates)
 # The web workspace (ADR-0052): its own balancer's subnets alone, in
 # production on its https hostname, reaching the router's public listener,
-# the directory database (its sessions, over verified TLS) and the
-# identity providers on 443, nothing else; its SPIFFE identity a client
+# the directory database (its sessions, over verified TLS), STS's VPC
+# endpoint by its own /28s (its IRSA role, which signs its directory
+# login's tokens; product owner 2026-11-01) and
+# the identity providers on 443, nothing else; its SPIFFE identity a client
 # certificate for the router alone, which no cell accepts (T73c).
 web = next(d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"] == "erp-web")
 pod = web["spec"]["template"]["spec"]
 env = {e["name"]: e.get("value") for e in pod["containers"][0]["env"]}
 for name, value in {"ERP_ENV": "production", "ERP_WEB_PROXY_FROM": ",".join(want), "ERP_WEB_PUBLIC_URL": "https://app.dev.erp.example",
                     "ERP_WEB_API_URL": "https://api.dev.erp.example", "ERP_WEB_API_DIAL": "erp-router.erp-global.svc.cluster.local:8081",
-                    "ERP_WEB_DIRECTORY_PASSWORD": "file:/etc/erp/secrets/directory-password", "ERP_WEB_SESSION_KEY": "file:/etc/erp/secrets/session-key",
+                    "ERP_WEB_DIRECTORY_REGION": "eu-central-1", "ERP_AWS_STS_ENDPOINT": "https://sts.eu-central-1.amazonaws.com", "ERP_WEB_SESSION_KEY": "file:/etc/erp/secrets/session-key",
                     "ERP_WEB_CLIENT_CREDENTIALS": "file:/etc/erp/web-clients/", "ERP_TLS_CERT": "file:/etc/erp/tls/tls.crt",
                     "ERP_TLS_KEY": "file:/etc/erp/tls/tls.key"}.items():
     if env.get(name) != value:
@@ -540,9 +545,10 @@ if sources != want:
     sys.exit("helm-checks: erp-web's public listener takes %r, want its load balancer's subnets alone" % sources)
 egress = [([p.get("podSelector", {}).get("matchLabels", {}).get("app.kubernetes.io/name") or p.get("ipBlock", {}).get("cidr") for p in rule.get("to", [])],
            [x["port"] for x in rule["ports"]]) for rule in policy["spec"]["egress"]]
-outside = [p.get("ipBlock", {}).get("except") for p in policy["spec"]["egress"][2].get("to", [])]
-if egress != [(["erp-router"], [8081]), (["10.16.0.0/16"], [5432]), (["0.0.0.0/0"], [443])] or outside != [["10.16.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16"]]:
-    sys.exit("helm-checks: erp-web reaches %r, want the router's public listener, the directory in the VPC and the identity providers alone" % egress)
+outside = [p.get("ipBlock", {}).get("except") for p in policy["spec"]["egress"][3].get("to", [])]
+sts = ["10.16.48.0/28", "10.16.48.16/28", "10.16.48.32/28"]
+if egress != [(["erp-router"], [8081]), (["10.16.0.0/16"], [5432]), (sts, [443]), (["0.0.0.0/0"], [443])] or outside != [["10.16.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16"]]:
+    sys.exit("helm-checks: erp-web reaches %r, want the router's public listener, the directory in the VPC, STS's endpoint by its own subnets and the identity providers alone" % egress)
 into = next(d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "erp-router-from-web")
 if [p["podSelector"]["matchLabels"]["app.kubernetes.io/name"] for rule in into["spec"]["ingress"] for p in rule["from"]] != ["erp-web"]:
     sys.exit("helm-checks: the router's listener is opened to more than erp-web")
@@ -568,6 +574,7 @@ if env.get("ERP_WEB_SESSION_KEY_PREVIOUS") != "file:/etc/erp/secrets/session-key
 PY
 for value in trustDomain vpcCidr trust.caBundle secrets.prefix images.router.repository images.router.digest \
   router.targetGroupArn router.proxyFrom router.operatorIssuers directory.endpoint directory.masterSecretArn directory.caBundle \
+  router.roleArn web.roleArn directory.region awsEndpoints.sts awsEndpoints.stsCidrs \
   directory.logins.router directory.logins.cell directory.logins.web \
   images.web.repository images.web.digest web.hostname web.apiUrl web.targetGroupArn web.proxyFrom; do
   if "$HELM" template erp-global "$chart" --namespace erp-global -f "$values" --set "$value=null" >/dev/null 2>"$work/err"; then
@@ -581,13 +588,56 @@ for value in trustDomain vpcCidr trust.caBundle secrets.prefix images.router.rep
   fi
 done
 for bad in 'images.router.digest=latest' 'router.proxyFrom={}' 'router.proxyFrom={10.16.0.0}' 'images.web.digest=latest' \
-  'web.proxyFrom={}' 'web.proxyFrom={10.16.0.0}' 'web.hostname=App_Workspace' 'web.apiUrl=http://api.dev.erp.example' 'web.apiUrl=https://api.dev.erp.example/v1'; do
-  if "$HELM" template erp-global "$chart" --namespace erp-global -f "$values" --set "$bad" >/dev/null 2>&1; then
+  'web.proxyFrom={}' 'web.proxyFrom={10.16.0.0}' 'web.hostname=App_Workspace' 'web.apiUrl=http://api.dev.erp.example' 'web.apiUrl=https://api.dev.erp.example/v1' \
+  'awsEndpoints.stsCidrs={}' 'awsEndpoints.stsCidrs={10.16.0.0/16}' 'awsEndpoints.stsCidrs={0.0.0.0/0}' 'awsEndpoints.stsCidrs={10.16.48.0}'; do
+  if "$HELM" template erp-global "$chart" --namespace erp-global -f "$values" --set "$bad" >/dev/null 2>"$work/err"; then
     echo "helm-checks: erp-global took $bad" >&2
     exit 1
   fi
+  # STS's subnets are refused by their own check, not for another reason.
+  case "$bad" in awsEndpoints.stsCidrs=*)
+    if ! grep -q "awsEndpoints.stsCidrs must list the /28 subnets" "$work/err"; then
+      cat "$work/err" >&2
+      echo "helm-checks: rendering erp-global with $bad failed for another reason" >&2
+      exit 1
+    fi ;;
+  esac
 done
-echo "helm-checks: erp-global refuses to render without each value it requires, with an image not by digest, no load balancer subnets, or a web hostname or API address that is not one"
+echo "helm-checks: erp-global refuses to render without each value it requires, with an image not by digest, no load balancer subnets, a web hostname or API address that is not one, or STS's subnets missing or wider than /28s"
+# erp-web on 443 (product owner 2026-11-01): the policy refuses the
+# rendered release with erp-web's rule to STS's subnets widened back to the
+# VPC or opened to every address, or the internet rule's exceptions
+# dropped. Each tamper must change the rule it names, checked before
+# conftest runs.
+for tamper in vpc every-peer no-except; do
+  python3 - "$work/erp-global.json" "$tamper" "$work/erp-global-$tamper.json" <<'PY'
+import json, sys
+docs, tamper, out = json.load(open(sys.argv[1])), sys.argv[2], sys.argv[3]
+policy = next(d for d in docs if d and d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "erp-web")
+rules = policy["spec"]["egress"]
+before = json.dumps(rules)
+if tamper == "vpc":
+    rules[2]["to"] = [{"ipBlock": {"cidr": "10.16.0.0/16"}}]
+elif tamper == "every-peer":
+    del rules[2]["to"]
+else:
+    del rules[3]["to"][0]["ipBlock"]["except"]
+if json.dumps(rules) == before:
+    sys.exit("helm-checks: the %s tamper left erp-web's policy unchanged" % tamper)
+json.dump(docs, open(out, "w"))
+PY
+  if out="$("$CONFTEST" test --combine --policy deploy/helm/policy --namespace workloads --no-color "$work/erp-global-$tamper.json" 2>&1)"; then
+    echo "$out"
+    echo "helm-checks: the policy took erp-web's 443 egress tampered ($tamper)" >&2
+    exit 1
+  fi
+  if ! grep -q "^FAIL .*Deployment/erp-web: NetworkPolicy erp-web admits .*on 443" <<<"$out"; then
+    echo "$out"
+    echo "helm-checks: the policy refused erp-web's 443 egress tampered ($tamper) for another reason" >&2
+    exit 1
+  fi
+done
+echo "helm-checks: the policy refuses erp-web reaching the VPC, every address or the private ranges on 443"
 rotating "$work/erp-cell.json" "$work/erp-global.json"
 echo "helm-checks: every rotating password is refreshed within five minutes"
 
@@ -713,43 +763,49 @@ reach "$work/erp-cell.json" 10.16.0.0/16
 reach "$work/erp-global.json" 10.16.0.0/16
 
 # The directory's logins (T72h): the router, erp-web and the cell connect
-# as logins of their own with their own passwords; the directory's master
-# credentials reach the setup hook alone, which makes those logins with
-# the passwords the services read, and runs in production over verified
+# as logins of their own, with RDS IAM tokens their IRSA roles sign
+# (ADR-0035 As built 2026-11-01): no password setting, no password secret
+# anywhere; the directory's master credentials reach the setup hook
+# alone, which makes those logins, and runs in production over verified
 # TLS to the directory alone.
 python3 - "$work/erp-global.json" "$work/erp-cell.json" <<'PY'
-import json, sys
+import json, re, sys
 master = "arn:aws:secretsmanager:eu-central-1:222222222222:secret:rds!db-2"
 glob, cell = ([d for d in json.load(open(p)) if d] for p in sys.argv[1:3])
+def doc(docs, kind, name):
+    return next(d for d in docs if d["kind"] == kind and d["metadata"]["name"] == name)
 def env(docs, kind, name):
-    d = next(d for d in docs if d["kind"] == kind and d["metadata"]["name"] == name)
-    return {e["name"]: e.get("value") for e in d["spec"]["template"]["spec"]["containers"][0]["env"]}
-def keys(docs, name):
-    d = next(d for d in docs if d["kind"] == "ExternalSecret" and d["metadata"]["name"] == name)
-    return {x["secretKey"]: (x["remoteRef"]["key"], x["remoteRef"].get("property")) for x in d["spec"]["data"]}
+    return {e["name"]: e.get("value") for e in doc(docs, kind, name)["spec"]["template"]["spec"]["containers"][0]["env"]}
 holders = sorted(d["metadata"]["name"] for d in glob + cell if d["kind"] == "ExternalSecret" and master in json.dumps(d["spec"]))
 if holders != ["erp-directory-setup"]:
     sys.exit("helm-checks: the directory's master credentials reach %s, want the setup hook alone" % holders)
-setup = next(d for d in glob if d["kind"] == "ExternalSecret" and d["metadata"]["name"] == "erp-directory-setup")
+setup = doc(glob, "ExternalSecret", "erp-directory-setup")
 if "helm.sh/hook" not in setup["metadata"].get("annotations", {}):
     sys.exit("helm-checks: the directory's setup secret is not a hook: the master credentials would outlive the release's hooks")
-for who, url, pw, login, secret in [
-        (env(glob, "Deployment", "erp-router"), "ERP_DIRECTORY_URL", "ERP_DIRECTORY_PASSWORD", "erp_router_login", ("erp-router", "erp/global/directory-router-password")),
-        (env(glob, "Deployment", "erp-web"), "ERP_WEB_DIRECTORY_URL", "ERP_WEB_DIRECTORY_PASSWORD", "erp_web_login", ("erp-web", "erp/global/directory-web-password")),
-        (env(cell, "Deployment", "erp-server"), "ERP_DIRECTORY_URL", "ERP_DIRECTORY_PASSWORD", "erp_cell_login", ("erp-server-directory", "erp/global/directory-cell-password"))]:
-    docs = cell if secret[0] == "erp-server-directory" else glob
-    if not (who.get(url) or "").startswith("postgres://%s@" % login) or "sslmode=verify-full" not in who[url]:
-        sys.exit("helm-checks: %s is %r, want the directory over verified TLS as %s" % (url, who.get(url), login))
-    if not (who.get(pw) or "").startswith("file:") or (secret[1], None) not in keys(docs, secret[0]).values():
-        sys.exit("helm-checks: %s's directory password is not %s, its login's own (%r)" % (secret[0], secret[1], keys(docs, secret[0])))
+passwords = sorted(d["metadata"]["name"] for d in glob + cell if d["kind"] == "ExternalSecret"
+                   and any(re.search(r"/directory-[a-z]+-password$", x["remoteRef"]["key"]) for x in d["spec"].get("data", [])))
+if passwords:
+    sys.exit("helm-checks: %s still read a directory login's password; the logins authenticate with IAM tokens" % passwords)
+for docs, account, role, url, region, login in [
+        (glob, "erp-router", "arn:aws:iam::222222222222:role/erp-dev1-router", "ERP_DIRECTORY_URL", "ERP_DIRECTORY_REGION", "erp_router_login"),
+        (glob, "erp-web", "arn:aws:iam::222222222222:role/erp-dev1-web", "ERP_WEB_DIRECTORY_URL", "ERP_WEB_DIRECTORY_REGION", "erp_web_login"),
+        (cell, "erp-server", "arn:aws:iam::222222222222:role/erp-dev1-server", "ERP_DIRECTORY_URL", "ERP_DIRECTORY_REGION", "erp_cell_login")]:
+    who = env(docs, "Deployment", account)
+    if not (who.get(url) or "").startswith("postgres://%s@" % login) or "sslmode=verify-full&sslrootcert=" not in who[url]:
+        sys.exit("helm-checks: %s's %s is %r, want the directory over verified TLS as %s" % (account, url, who.get(url), login))
+    if who.get(region) != "eu-central-1" or any(k.endswith("DIRECTORY_PASSWORD") for k in who):
+        sys.exit("helm-checks: %s's directory settings %r: want its region for IAM tokens and no password" % (account, who))
+    if account != "erp-server" and who.get("ERP_AWS_STS_ENDPOINT") != "https://sts.eu-central-1.amazonaws.com":
+        sys.exit("helm-checks: %s exchanges its token at %r, want the region's STS endpoint" % (account, who.get("ERP_AWS_STS_ENDPOINT")))
+    sa = doc(docs, "ServiceAccount", account)
+    if sa["metadata"].get("annotations", {}).get("eks.amazonaws.com/role-arn") != role:
+        sys.exit("helm-checks: %s's service account is not its IRSA role %s" % (account, role))
 job = env(glob, "Job", "erp-directory-setup")
 want = {"ERP_ENV": "production", "ERP_DIRECTORY_ROUTER_USER": "erp_router_login", "ERP_DIRECTORY_CELL_USER": "erp_cell_login", "ERP_DIRECTORY_WEB_USER": "erp_web_login"}
-if any(job.get(k) != v for k, v in want.items()):
-    sys.exit("helm-checks: the setup hook's settings are %r, want %r" % (job, want))
-got = {k: v for k, v in keys(glob, "erp-directory-setup").items() if k.endswith("Password")}
-if got != {"routerPassword": ("erp/global/directory-router-password", None), "cellPassword": ("erp/global/directory-cell-password", None),
-           "webPassword": ("erp/global/directory-web-password", None)}:
-    sys.exit("helm-checks: the setup hook gives the logins %r, not the passwords the services read" % got)
+if any(job.get(k) != v for k, v in want.items()) or any(k.endswith("_PASSWORD") for k in job):
+    sys.exit("helm-checks: the setup hook's settings are %r, want %r and no login password" % (job, want))
+if sorted(x["secretKey"] for x in setup["spec"]["data"]) != ["password", "username"]:
+    sys.exit("helm-checks: the setup hook reads %r, want the master credentials alone" % setup["spec"]["data"])
 url = setup["spec"]["target"]["template"]["data"]["admin-url"]
 if "@erp-dev-directory.abc.eu-central-1.rds.amazonaws.com:5432/directory?sslmode=verify-full&sslrootcert=" not in url:
     sys.exit("helm-checks: the setup hook reaches %r, want the directory over verified TLS" % url)
@@ -759,7 +815,7 @@ to = [([p.get("ipBlock", {}).get("cidr") or p.get("podSelector", {}).get("matchL
 if to != [(["kube-dns"], [("TCP", 53), ("UDP", 53)]), (["10.16.0.0/16"], [("TCP", 5432)])] or policy["spec"].get("ingress"):
     sys.exit("helm-checks: the setup hook's network policy %r: want the cluster's DNS (the default deny is not there on a first install) and the directory in the VPC alone" % policy["spec"])
 PY
-echo "helm-checks: the router, erp-web and the cell reach the directory as logins of their own; its master credentials reach the setup hook alone"
+echo "helm-checks: the router, erp-web and the cell reach the directory as logins of their own with IAM tokens; its master credentials reach the setup hook alone"
 
 echo "== erp-delivery"
 chart=deploy/helm/erp-delivery

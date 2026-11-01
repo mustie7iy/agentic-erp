@@ -48,7 +48,8 @@ func TestLoadConfigProduction(t *testing.T) {
 		"ERP_WEB_PUBLIC_CERT": "file:" + tlstest.WriteFile(t, dir, "tls.crt", public.CertPEM),
 		"ERP_WEB_PUBLIC_KEY":  "file:" + tlstest.WriteFile(t, dir, "tls.key", public.KeyPEM),
 		"ERP_WEB_PROXY_FROM":  "10.16.0.0/24,10.16.1.0/24", "ERP_WEB_API_DIAL": "erp-router.erp-global.svc:8081", "ERP_WEB_ADDR": ":8443", "ERP_LOG_LEVEL": "warn", "ERP_SHUTDOWN_TIMEOUT": "5s",
-		"ERP_WEB_DIRECTORY_URL": "postgres://erp_admin@directory:5432/directory?sslmode=verify-full", "ERP_WEB_DIRECTORY_PASSWORD": "file:" + tlstest.WriteFile(t, dir, "password", []byte("pw\n")),
+		"ERP_WEB_DIRECTORY_URL": "postgres://erp_web_login@directory:5432/directory?sslmode=verify-full", "ERP_WEB_DIRECTORY_REGION": "eu-central-1",
+		"AWS_ROLE_ARN": "arn:aws:iam::222222222222:role/erp-dev1-web", "AWS_WEB_IDENTITY_TOKEN_FILE": "/var/run/secrets/eks.amazonaws.com/serviceaccount/token",
 		"ERP_WEB_SESSION_KEY": "env:KEY", "KEY": strings.Repeat("k", 32), "ERP_WEB_SESSION_KEY_PREVIOUS": "env:OLD", "OLD": strings.Repeat("o", 40),
 		"ERP_WEB_CLIENT_CREDENTIALS": "file:/etc/erp/web-clients/",
 	}))
@@ -67,9 +68,9 @@ func TestLoadConfigProduction(t *testing.T) {
 	if want := []netip.Prefix{netip.MustParsePrefix("10.16.0.0/24"), netip.MustParsePrefix("10.16.1.0/24")}; !slices.Equal(c.ProxyFrom, want) {
 		t.Errorf("proxy sources: got %v, want %v", c.ProxyFrom, want)
 	}
-	if pw, err := c.DirectoryPassword(t.Context()); err != nil || pw != "pw" || len(c.SessionSecrets) != 2 || string(c.SessionSecrets[0]) != strings.Repeat("k", 32) ||
+	if c.DirectoryPassword == nil || len(c.SessionSecrets) != 2 || string(c.SessionSecrets[0]) != strings.Repeat("k", 32) ||
 		c.CredentialPrefix != "file:/etc/erp/web-clients/" {
-		t.Errorf("sign-in: got password %q (%v), %d secrets, prefix %q", pw, err, len(c.SessionSecrets), c.CredentialPrefix)
+		t.Errorf("sign-in: got a token source %t, %d secrets, prefix %q", c.DirectoryPassword != nil, len(c.SessionSecrets), c.CredentialPrefix)
 	}
 	if c.Addr != ":8443" || c.APIDial != "erp-router.erp-global.svc:8081" || c.ShutdownTimeout != 5*time.Second || c.LogLevel.String() != "WARN" || c.PublicURL.Host != "app.example.com" {
 		t.Errorf("settings: got %+v", c)
@@ -86,8 +87,9 @@ func TestLoadConfigRefuses(t *testing.T) {
 		"ERP_ENV": "production", "ERP_WEB_PUBLIC_URL": "https://app.example.com", "ERP_WEB_API_URL": "https://api.example.com",
 		"ERP_WEB_PUBLIC_CERT":   "file:" + tlstest.WriteFile(t, dir, "tls.crt", public.CertPEM),
 		"ERP_WEB_PUBLIC_KEY":    "file:" + tlstest.WriteFile(t, dir, "tls.key", public.KeyPEM),
-		"ERP_WEB_DIRECTORY_URL": "postgres://erp_admin@directory:5432/directory?sslmode=verify-full",
-		"ERP_WEB_SESSION_KEY":   "env:KEY", "KEY": strings.Repeat("k", 32), "ERP_WEB_CLIENT_CREDENTIALS": "file:/etc/erp/web-clients/",
+		"ERP_WEB_DIRECTORY_URL": "postgres://erp_web_login@directory:5432/directory?sslmode=verify-full", "ERP_WEB_DIRECTORY_REGION": "eu-central-1",
+		"AWS_ROLE_ARN": "arn:aws:iam::222222222222:role/erp-dev1-web", "AWS_WEB_IDENTITY_TOKEN_FILE": "/var/run/secrets/eks.amazonaws.com/serviceaccount/token",
+		"ERP_WEB_SESSION_KEY": "env:KEY", "KEY": strings.Repeat("k", 32), "ERP_WEB_CLIENT_CREDENTIALS": "file:/etc/erp/web-clients/",
 	}
 	with := func(set map[string]string) map[string]string {
 		m := maps.Clone(prod)
@@ -116,7 +118,10 @@ func TestLoadConfigRefuses(t *testing.T) {
 		"no directory":              {with(map[string]string{"ERP_WEB_DIRECTORY_URL": ""}), "ERP_WEB_DIRECTORY_URL is required with ERP_ENV=production"},
 		"an unverified directory":   {with(map[string]string{"ERP_WEB_DIRECTORY_URL": "postgres://directory/directory?sslmode=require"}), "sslmode=verify-full"},
 		"a directory not a URL":     {with(map[string]string{"ERP_WEB_DIRECTORY_URL": "postgres://[::1"}), "sslmode=verify-full"},
-		"a missing password":        {with(map[string]string{"ERP_WEB_DIRECTORY_PASSWORD": "file:/nonexistent"}), "ERP_WEB_DIRECTORY_PASSWORD"},
+		"a password":                {with(map[string]string{"ERP_WEB_DIRECTORY_PASSWORD": "file:/etc/erp/secrets/directory-password"}), "ERP_WEB_DIRECTORY_PASSWORD must not be set with ERP_ENV=production"},
+		"no directory region":       {with(map[string]string{"ERP_WEB_DIRECTORY_REGION": ""}), "ERP_WEB_DIRECTORY_REGION is required with ERP_ENV=production"},
+		"no IRSA role":              {with(map[string]string{"AWS_ROLE_ARN": ""}), "AWS_ROLE_ARN and AWS_WEB_IDENTITY_TOKEN_FILE are required"},
+		"a missing password":        {with(map[string]string{"ERP_ENV": "development", "ERP_WEB_DIRECTORY_PASSWORD": "file:/nonexistent"}), "ERP_WEB_DIRECTORY_PASSWORD"},
 		"no session key":            {with(map[string]string{"ERP_WEB_SESSION_KEY": ""}), "ERP_WEB_SESSION_KEY must reference"},
 		"a session key value":       {with(map[string]string{"ERP_WEB_SESSION_KEY": strings.Repeat("v", 40)}), "ERP_WEB_SESSION_KEY must reference"},
 		"a short session key":       {with(map[string]string{"KEY": "short"}), "ERP_WEB_SESSION_KEY must reference"},

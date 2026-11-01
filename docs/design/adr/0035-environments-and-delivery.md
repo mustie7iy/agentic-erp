@@ -945,3 +945,233 @@ database's ACL with the server's, dbid 0).
   of the directory's database who is no superuser and owns not the other)
   and `TestSetupDatabaseFailures`. Development and the other packages'
   tests give Setup no other database: their server is shared.
+
+**As built (2026-11-01, product owner 2026-10-28): the directory's logins
+authenticate with RDS IAM database authentication.** In production
+(`ERP_ENV=production`) the router's, the cells' and erp-web's logins have no
+password: each presents, for each new connection, an RDS IAM token its
+workload's IRSA role signs. Development keeps the password logins above,
+unchanged.
+
+- *The token* (`internal/platform/rdsiam`): a Signature Version 4
+  presigned `GET` of the endpoint the connection names (`host:port`) with
+  `Action=connect` and `DBUser=<login>`, for the service `rds-db` in the
+  directory's region, `X-Amz-Expires=900`, the empty payload's SHA-256
+  signed, with the scheme cut off, as the AWS SDK for Go v2 builds it
+  (`feature/rds/auth`, `BuildAuthToken`,
+  https://github.com/aws/aws-sdk-go-v2/blob/main/feature/rds/auth/connect.go;
+  its test expects `host:port?Action=connect…DBUser=…`). The RDS user guide
+  ("IAM database authentication",
+  https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.html):
+  tokens are generated with Signature Version 4, each lives 15 minutes, and
+  "the token is only used for authentication and doesn't affect the
+  session after it is established"; temporary credentials signing a token
+  must still be valid when it is used. The signer is `sigv4` (checked
+  against AWS's test vectors), given the payload hash
+  (`PresignPayload`); `TestMint` recomputes the signature from the
+  Signature Version 4 steps written out by hand, apart from the signer.
+- *Per new connection*: the token is `database.Settings.Password`, which
+  pgx's `BeforeConnect` asks for each new connection, so a pool mints one
+  for each connection it opens and none for those it holds.
+- *Credentials*: the workload's IRSA role alone (`AWS_ROLE_ARN`,
+  `AWS_WEB_IDENTITY_TOKEN_FILE`, exchanged at STS by
+  `awscreds.WebIdentity`, cached until five minutes before they end): no
+  static keys, environment keys or instance metadata, so a pod without its
+  role fails rather than signs as its node. STS is `ERP_AWS_STS_ENDPOINT`,
+  https, by default the region's (`https://sts.<region>.amazonaws.com`);
+  the charts give the VPC endpoint's regional name (`cell.aws_endpoints.sts`).
+- *Settings, failing startup in production when missing or wrong*:
+  `ERP_DIRECTORY_REGION` (router, cell; erp-web's
+  `ERP_WEB_DIRECTORY_REGION`), the IRSA variables, a URL naming one host
+  and its login and no password; `ERP_DIRECTORY_PASSWORD`
+  (`ERP_WEB_DIRECTORY_PASSWORD`) set in production is refused, never used
+  in the token's place. TLS is as before: production's URLs are
+  `sslmode=verify-full` with the RDS bundle as `sslrootcert`
+  (`config.CheckDatabaseTLS`, erp-web's own check), and the directory's
+  parameter group sets `rds.force_ssl=1` and TLS 1.3.
+- *Setup*: `directory.Login.IAM` (production's `erp-router
+  setup-directory`, which refuses `ERP_DIRECTORY_*_PASSWORD` there) gives
+  the login `PASSWORD NULL`, taking away one it had, and grants it
+  `rds_iam` beside its privilege role, as the guide's PostgreSQL example
+  does as the master user ("Creating a database account using IAM
+  authentication",
+  https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.DBAccounts.html:
+  `CREATE USER db_userx; GRANT rds_iam TO db_userx;`). `checkLogin` lets an
+  IAM login be a member of `rds_iam` and refuses `rds_iam` holding
+  anything: a role attribute (superuser, create role or database,
+  replication, bypass row security), membership of any role, or a
+  dependency in the database or the server, since whatever it holds or
+  inherits every IAM login inherits (review round 1); a password login made a member of `rds_iam` is
+  refused, since "if the IAM role (`rds_iam`) is added to a user …, IAM
+  authentication takes precedence over password authentication" (the
+  guide's Limitations). Without `rds_iam` (a plain PostgreSQL server) the
+  `GRANT` fails and the release stops.
+- *Terraform*: the directory has `iam_database_authentication_enabled`;
+  `modules/global` names the logins (`directory_logins`, lower-case: the
+  user name must match the database's case for case, the guide's note) and
+  outputs each one's `rds-db:connect` resource,
+  `arn:aws:rds-db:<region>:<account>:dbuser:<DbiResourceId>/<login>`
+  ("Creating and using an IAM policy for IAM database access",
+  https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.IAMPolicy.html),
+  and `directory_region`. The home cell (`modules/cell`
+  `directory_users`) gives the router and erp-web roles of their own,
+  trusting `erp-global`'s `erp-router` and `erp-web` service accounts
+  alone, each allowed `rds-db:connect` on its own login and nothing else,
+  and the server's role the cells' login. The three password secrets are
+  gone from the global tier's list.
+- *Helm*: `erp-global` annotates the router's and erp-web's service
+  accounts with their roles (`router.roleArn`, `web.roleArn`), gives them
+  `ERP_DIRECTORY_REGION` / `ERP_WEB_DIRECTORY_REGION` (`directory.region`)
+  and `ERP_AWS_STS_ENDPOINT` (`awsEndpoints.sts`), and no password; the
+  setup hook reads the master credentials alone. `erp-cell` drops
+  `directory.passwordSecret` and its ExternalSecret and gives the server
+  `ERP_DIRECTORY_REGION` (`directory.region`). `helm-checks.sh` holds each
+  client to its login over verified TLS, its region, its role and no
+  password setting or secret anywhere.
+- *Rollout*: the directory keeps `apply_immediately = false`, and RDS
+  applies an existing instance's change to IAM authentication in the next
+  maintenance window unless told otherwise ("Enabling and disabling IAM
+  database authentication",
+  https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.Enabling.html).
+  A release of these charts before then would leave the logins with no
+  password and no IAM: on an instance made before this change, operators
+  apply Terraform and see `IAMDatabaseAuthenticationEnabled` true (`aws
+  rds describe-db-instances`) before the first release; a new instance is
+  made with it.
+- *Decided by default*: production refuses a password setting rather than
+  preferring IAM over it (no silent fallback, CLAUDE.md); the IRSA role is
+  the only credential source for the tokens; erp-web's network policy
+  admitted the VPC on 443, for STS's interface endpoint, whose regional name
+  resolves to addresses in the VPC (it admitted nothing in the VPC on 443
+  before); the product owner had it narrowed to the endpoint's own
+  subnets on 2026-11-01 (the next section); the router's and erp-web's roles are made on the home cell
+  alone and have no counterparts in the pilot light, since the router, erp-web
+  and the directory stay in the home region (ADR-0040); `rds_iam` is
+  granted as the guide shows, with PostgreSQL 17's default options
+  (`INHERIT` and `SET` true); the password secrets are removed from
+  Terraform (their `recovery_window_in_days`, 30). The refusal, the IRSA
+  role as the only source, erp-web's wider egress and `rds_iam`'s options
+  bear on security posture and are listed for the product owner.
+- *Not confirmed on an RDS instance (for the specialist; the tracker's
+  staging leaf)*: that RDS accepts the SDK v2 form of the token (no `/`
+  before `?`, the empty payload's hash) as built; whether `rds_iam` holds
+  any right or dependency on RDS, which would stop every release here;
+  whether `GRANT rds_iam … WITH INHERIT FALSE, SET FALSE` would keep IAM
+  authentication working (the guide says nested and indirect grants work,
+  nothing on the options); that `rds_iam` is a member of no role and has
+  no attribute on RDS, which `checkLogin` requires; that the master user
+  may `ALTER ROLE … PASSWORD
+  NULL` on a login it made; and the guide's 300–1000 MiB of extra memory
+  IAM authentication needs on the instance, against the directory's
+  `db.t4g.medium`.
+- *Tests*: `rdsiam` (`TestMint` against the hand-written signature,
+  `TestForURL`, `TestLoad` through a TLS STS double, each refusal);
+  `TestSetupIAMLogins` (a password login turned IAM, a second run, the
+  refusals) and `TestSetupDatabaseFailures` with an IAM login: the test
+  server, plain PostgreSQL, has no `rds_iam`, so the tests make it as RDS
+  has it (`NOLOGIN`, holding nothing); the router's, the cell's and
+  erp-web's configuration tests; `TestSetupProduction`;
+  `TestProductionOperatorWithoutRoles` runs the router on production's
+  configuration, whose token source it replaces by the test login's
+  password (the test server takes no token); Terraform's module tests;
+  `helm-checks.sh`.
+- *No walkthrough step*: this is infrastructure authentication with no API
+  of its own, and the walkthrough runs in development on plain PostgreSQL,
+  which has no IAM; the evidence is the tests above and, on AWS, the
+  staging leaf.
+
+**As built (2026-11-01, product owner 2026-11-01): erp-web reaches STS's
+endpoint on 443 by the endpoint's own subnets, nothing else in the VPC.**
+The section above let erp-web reach the whole VPC on 443 for STS; the
+product owner asked for it narrowed (security posture). The router's
+policy is unchanged: it admitted 443 to every address before the IRSA
+change, for the tenants' identity providers, and that change did not widen
+it; the cells' policies did not change either.
+
+- *Why STS needs subnets of its own*: a network policy admits addresses
+  (`ipBlock`), not a security group or a DNS name, and the endpoint's
+  interfaces get their addresses only when it is created. STS's endpoint
+  sat in the private subnets with the nodes, the pods, the databases, the
+  cluster's own interfaces ("Amazon EKS creates 2–4 elastic network
+  interfaces in the subnets that you specify",
+  https://docs.aws.amazon.com/eks/latest/userguide/network-reqs.html; the
+  cell gives the private subnets) and every other interface endpoint:
+  those subnets are three quarters of the VPC, so admitting them would
+  have narrowed nothing. The tightest block Terraform knows at plan time is
+  a subnet that holds the endpoint and nothing else.
+- *Network layout* (`modules/network`): a `/28` per zone of egress, the
+  smallest subnet AWS allows ("between a /28 netmask and /16 netmask",
+  https://docs.aws.amazon.com/vpc/latest/userguide/subnet-sizing.html),
+  `aws_subnet.sts_endpoint`, carved from the VPC's fourth `/20`
+  (`cidrsubnet(cidrsubnet(cidr, 4, 3), 8, i)`), which no subnet used: the
+  public subnets are the first three `/20`s, the private ones the upper
+  three `/18`s. With `zone_redundant` that is three (`10.x.48.0/28`,
+  `.48.16/28`, `.48.32/28`), without it one, in the first zone, where the
+  interface endpoints sit. STS's endpoint takes those subnets alone ("for
+  each subnet that you specify … we create an endpoint network interface
+  in the subnet", one subnet per zone,
+  https://docs.aws.amazon.com/vpc/latest/privatelink/create-interface-endpoint.html);
+  KMS and the other interface endpoints stay in the private subnets. The
+  subnets have no route table of their own: the endpoint only answers, and
+  the VPC's main table routes the VPC alone. The ranges come from the
+  VPC's range alone, so they are known at plan time: `sts_endpoint_cidrs`
+  of `modules/network`, `modules/cell` and the environment's `cell` output.
+  The pilot light's network gets the same subnets (one module); nothing
+  there uses them yet, since erp-web runs in the home region alone
+  (ADR-0040).
+- *Helm*: `erp-global`'s `awsEndpoints.stsCidrs` (`cell.sts_endpoint_cidrs`)
+  is erp-web's only reach in the VPC on 443; the chart refuses to render
+  without it, with an empty list or with anything but IPv4 `/28`s, so no
+  wider block stands in. 5432 to the VPC (the directory) and 443 to the
+  internet outside the private, shared and link-local ranges are as before.
+- *Policy* (`deploy/helm/policy/workloads.rego`): any egress rule of a
+  NetworkPolicy that may select erp-web's Pods (by labels, every Pod, or by
+  expressions, which is not judged and counts as selecting) and admits TCP
+  443 (named, in a range, every port of TCP, or every port) must name IPv4
+  blocks alone, each a `/28` or narrower, or a block from which each
+  private (RFC 1918), shared (100.64.0.0/10) and link-local range it
+  touches is excepted. The rendered release does not carry the VPC's range;
+  the VPC lies in those ranges, so a VPC-wide block, `0.0.0.0/0` without
+  those exceptions, a rule to every peer, an IPv6 block, or a pod or
+  namespace selector is refused. A field set to `null`, the policy's
+  selector among them (a null selector selects every Pod), counts as omitted,
+  as Kubernetes reads it (no peers is every peer, no ports every port, no
+  protocol TCP; review round 1). Other workloads are not judged by it.
+- *Checks*: the network module's tests (the endpoint's subnets, their
+  ranges, nothing else in them, the other endpoints where they were), the
+  cell's and the environment's (the output, in each shape); the policy's
+  unit tests; `helm-checks.sh` holds erp-web's egress to exactly the test
+  values' three `/28`s on 443, refuses each missing, empty or wider
+  `stsCidrs` at render, and runs the policy on three tampered renders (the
+  STS rule widened to the VPC, opened to every peer, the internet rule's
+  exceptions dropped), each checked to differ from the render and to be
+  refused for erp-web's 443.
+- *Rollout*: moving an existing endpoint's subnets is an in-place change
+  (`ModifyVpcEndpoint`: "If you add a subnet, we create an endpoint network
+  interface in the subnet … If you remove a subnet, we delete its endpoint
+  network interface",
+  https://docs.aws.amazon.com/vpc/latest/privatelink/interface-endpoints.html).
+  Apply Terraform before the chart release that narrows the policy: a
+  release first would admit the new subnets while the endpoint still
+  answers from the private ones, and erp-web could not reach STS; the old
+  rule admits the whole VPC, so Terraform first, then the release, keeps
+  erp-web working throughout. Other IRSA clients admit the VPC on 443 and
+  are not affected by the move.
+- *Not confirmed on AWS (the tracker's staging leaf, beside the RDS IAM
+  points)*: that one modification can move the endpoint from one subnet
+  to another in the same zone (the guide allows one subnet per zone;
+  whether the add and the remove in one call pass that rule is not
+  stated), how long STS is unreachable in a zone while its interface is
+  replaced, and that STS's private DNS answers with the new interfaces'
+  addresses alone afterwards. If AWS refuses the swap, the endpoint's
+  modification fails and the endpoint stays in the private subnets (the
+  new subnets may already exist; the old chart still admits the VPC); then the move takes two applies, the
+  endpoint first replaced (`terraform apply -replace`, STS unreachable
+  through it until the new one is available) or its subnets first
+  removed and then added zone by zone, decided on staging before
+  production.
+- *Decided by default, for the product owner*: a dedicated `/28` per zone
+  rather than the shared private subnets (above), in the fourth `/20`; the
+  policy's limit as "a /28 or narrower" rather than the exact ranges (the
+  rendered release cannot know them; the chart and `helm-checks.sh` hold
+  the exact ones); other workloads' 443 egress left as it was.

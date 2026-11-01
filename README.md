@@ -273,7 +273,14 @@ database is set up first, as its owner, by `erp-router setup-directory`
 `ERP_DIRECTORY_CELL_PASSWORD`, `ERP_DIRECTORY_WEB_PASSWORD` for the
 router's, the cells' and erp-web's logins, `erp_router_login`,
 `erp_cell_login` and `erp_web_login` unless `ERP_DIRECTORY_*_USER` names
-others), which the services then connect as (T72h). It also takes
+others), which the services then connect as (T72h). In production
+(`ERP_ENV=production`) the logins have no passwords: setup-directory
+grants them `rds_iam`, and the router, the cells and erp-web present an
+RDS IAM token for each new connection, signed as their IRSA role
+(`AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE`) for the directory's region
+(`ERP_DIRECTORY_REGION`, erp-web's `ERP_WEB_DIRECTORY_REGION`; STS at
+`ERP_AWS_STS_ENDPOINT`); a password setting is refused there
+([ADR-0035](docs/design/adr/0035-environments-and-delivery.md)). It also takes
 `PUBLIC`'s `CONNECT` and `TEMPORARY` on the server's other databases
 (`postgres`, `template1`), and stops, naming the database,
 where it cannot: run against a development server, its logins may then no
