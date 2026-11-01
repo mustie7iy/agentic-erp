@@ -825,7 +825,7 @@ companies (all in the tenant, under RLS). A registration change is financial
   rebates, ITC restrictions for the year) are entered as manual entries with a
   tax code of kind `adjustment` mapped to their box (104, 107, 110, 111; UAE
   Box 1 and 9 adjustment columns), so they too are items with a document.
-- **As built (T61h, migration 000173):** decided by default from this
+- **As built (T61h, migration 000174):** decided by default from this
   section, ADR-0048, ADR-0046 and the API rules, each listed for the
   product owner to overrule.
   - **The definition.** A pack's optional `returns.yaml` (ADR-0048) lists
@@ -901,7 +901,7 @@ companies (all in the tenant, under RLS). A registration change is financial
     (`listTaxReturnDraftItems`: each item's entry with its document number,
     posting date, reference and header text, its code, component, amounts
     and what it adds to the box; the amounts add up to the box's), both
-    `tax.return.read` (migration 000173). Drill-down stops at the entry
+    `tax.return.read` (migration 000174). Drill-down stops at the entry
     (`getJournalEntry`); the documents are T59's, the export T63's.
   - **Walkthrough.** No released pack defines a return until T61j, so the
     walkthrough serves a copy of the latest Canada pack with an

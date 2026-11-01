@@ -1768,7 +1768,7 @@
        {
         "s": "D",
         "t": "The return engine: returns.yaml in the pack schema (boxes as item selections or CEL expressions), a draft return from unreported items with prior-period items apart up to the pack's threshold (P7), drill-down to items, GET /v1/tax-returns:compute",
-        "r": "db/migrations/000173 · countrypack returns.yaml (Returns, Validate) · rules.CompileFormula · ledger.TaxItems.Unreported, UnreportedItems · internal/taxfiling draft.go, returns.go · GET /v1/tax-registrations/{id}/draft-return, /draft-return/items (the path decided in ADR-0049 §11 As built) · ERP_PACKS_DIR · walkthrough step 11 · T61h",
+        "r": "db/migrations/000174 · countrypack returns.yaml (Returns, Validate) · rules.CompileFormula · ledger.TaxItems.Unreported, UnreportedItems · internal/taxfiling draft.go, returns.go · GET /v1/tax-registrations/{id}/draft-return, /draft-return/items (the path decided in ADR-0049 §11 As built) · ERP_PACKS_DIR · walkthrough step 11 · T61h",
         "src": "baseline",
         "pilot": "po:2026-10-31 · adr:ADR-0049",
         "c": []
