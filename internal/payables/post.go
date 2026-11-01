@@ -505,6 +505,29 @@ func grirItem(o procurement.Order, kind string, it Item, amount money.Minor) (le
 		fmt.Sprintf("Order item %d is not on purchase order %s.", *it.POItemNo, o.DocumentNumber))
 }
 
+// requireUnpaid refuses a reversal of an invoice whose open item is cleared
+// or in a payment run.
+func (e *Endpoints) requireUnpaid(ctx context.Context, v Invoice) error {
+	cleared, err := e.Postings.IsCleared(ctx, *v.JournalEntryYear, *v.JournalEntryID)
+	if err != nil {
+		return err
+	}
+	if cleared {
+		return problem.Conflict("payables.invoice_cleared", "The invoice's open item is cleared; reverse the payment first.")
+	}
+	// RunOf takes the proposals lock after this read; the read is only for
+	// the clearer refusal: the ledger's reversal checks clearing again under
+	// its exclusive lock on the entry.
+	run, inRun, err := e.Payments.RunOf(ctx, v.LegalEntityID, *v.JournalEntryYear, *v.JournalEntryID)
+	if err != nil {
+		return err
+	}
+	if inRun {
+		return problem.Conflict("payables.invoice_in_payment_run", "The invoice is in payment run "+run+". Reject the run once it is proposed; a releasing run pays the invoice (resume a stopped release with :release), then reverse the payment first.")
+	}
+	return nil
+}
+
 // ReverseInvoice reverses a posted invoice's entry; an invoice whose open
 // item is cleared (paid) or in a live payment run cannot be reversed, nor
 // one whose reversal would leave its order items past what the match
@@ -533,22 +556,8 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 	if err := requireNoClearedDownPayments(ctx, tx, v); err != nil {
 		return Invoice{}, err
 	}
-	cleared, err := e.Postings.IsCleared(ctx, *v.JournalEntryYear, *v.JournalEntryID)
-	if err != nil {
+	if err := e.requireUnpaid(ctx, v); err != nil {
 		return Invoice{}, err
-	}
-	if cleared {
-		return Invoice{}, problem.Conflict("payables.invoice_cleared", "The invoice's open item is cleared; reverse the payment first.")
-	}
-	// RunOf takes the proposals lock after this read; the read is only for
-	// the clearer refusal: the ledger's reversal checks clearing again under
-	// its exclusive lock on the entry.
-	run, inRun, err := e.Payments.RunOf(ctx, v.LegalEntityID, *v.JournalEntryYear, *v.JournalEntryID)
-	if err != nil {
-		return Invoice{}, err
-	}
-	if inRun {
-		return Invoice{}, problem.Conflict("payables.invoice_in_payment_run", "The invoice is in payment run "+run+". Reject the run once it is proposed; a releasing run pays the invoice (resume a stopped release with :release), then reverse the payment first.")
 	}
 	if err := e.reversible(ctx, tx, v); err != nil {
 		return Invoice{}, err
