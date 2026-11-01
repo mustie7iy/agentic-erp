@@ -373,7 +373,9 @@ func TestTaxReturnPeople(t *testing.T) {
 // noApproval is an approvals context whose policy asks for none.
 type noApproval struct{ taxfiling.Opener }
 
-func (noApproval) Open(context.Context, approvals.NewRequest) (uuid.UUID, bool, error) { return uuid.Nil, false, nil }
+func (noApproval) Open(context.Context, approvals.NewRequest) (uuid.UUID, bool, error) {
+	return uuid.Nil, false, nil
+}
 
 // TestPrepareFailures: a snapshot whose sums, expressions or corrected
 // figures leave the range of an amount, a policy that asks no approval,
