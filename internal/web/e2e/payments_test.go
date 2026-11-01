@@ -240,7 +240,7 @@ func TestRunSectionsInTheBrowser(t *testing.T) {
 		got, err := chromedp.Run(ctx, chromedp.Evaluate[[]int](`window.erpPolls`))
 		polls = got
 		return err == nil && len(got) >= 2
-	}, "the status was not polled twice: %v", polls)
+	}, "the status was not polled twice: %v", pollsSeen{&polls})
 	changed, err := chromedp.Run(ctx, chromedp.Evaluate[int](`window.erpChanges`))
 	if err != nil {
 		t.Fatal(err)
@@ -268,6 +268,12 @@ func TestRunSectionsInTheBrowser(t *testing.T) {
 		t.Errorf("browser: %s", e)
 	}
 }
+
+// pollsSeen prints the polls' answers as they were last read, when a
+// wait for them ends.
+type pollsSeen struct{ polls *[]int }
+
+func (p pollsSeen) String() string { return fmt.Sprint(*p.polls) }
 
 // watchStatus counts the changes to the progress' status region's
 // content, which a screen reader reads out (htmx's own classes on the

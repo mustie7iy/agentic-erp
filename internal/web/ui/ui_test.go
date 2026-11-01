@@ -203,6 +203,8 @@ func paymentComponents() map[string]templ.Component {
 		"files refused":       FilesSection(FilesView{Run: "/payments/1", Error: &r}),
 		"files none":          FilesSection(FilesView{Run: "/payments/1"}),
 		"FilesLink":           FilesLink("/payments/1/files"),
+		"filesBody":           filesBody(FilesView{Run: "/payments/1", Error: &r}),
+		"filesPageContent":    filesPageContent(FilesView{Run: "/payments/1"}),
 		"FilesPage":           FilesPage(signedIn(), FilesView{Run: "/payments/1", Files: []BankFileView{fileView(false)}}),
 		"FileItem":            FileItem(fileView(true)),
 		"FileStatusTag":       FileStatusTag(Label{Key: i18n.FileStatusFailed}),
