@@ -288,8 +288,8 @@ start() {
   say ""
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
-  say "  - the return lifecycle and the GST34's lines (T61i-T61l), and the Canada pack's tax codes (T62g): step 2 configures one code"
-  say "    and the GST/HST registration; step 11 computes a draft return whose boxes are illustrative, not the GST34's"
+  say "  - the GST34's lines (T61j-T61l), and the Canada pack's tax codes (T62g): step 2 configures one code and the GST/HST"
+  say "    registration; step 11 prepares, approves and files a return whose boxes are illustrative, not the GST34's"
   say "  - the liquidity forecast (T53e-T53k): step 13 shows the daily cash position with a memo record"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - accounts receivable, fixed assets (T57), period-end close (T64), consolidation (T68)"
@@ -374,12 +374,13 @@ people() {
     n=$((n + 1))
   done <"$WORK/permissions"
   show erp call grantRolePermission -p "id=$staff" -body '{"permission_code": "..."}' "# $n permissions"
-  for code in Z_PURCH_MGR process_owner controller solution_architect Z_TREASURY_MGR vendor_master_approver; do
+  for code in Z_PURCH_MGR process_owner controller solution_architect Z_TREASURY_MGR vendor_master_approver tax_manager; do
     # shellcheck disable=SC2046 # permission codes are single words
     grant "$(role "$code")" workflow.request.decide $(grep '\.approve$' "$WORK/permissions")
   done
   grant "$(role Z_TREASURY_MGR)" payments.run.release payments.file.transmit
-  say "  the approver roles Z_PURCH_MGR, process_owner, controller, solution_architect and vendor_master_approver"
+  say "  the approver roles Z_PURCH_MGR, process_owner, controller, solution_architect, vendor_master_approver and"
+  say "  tax_manager (who approves tax returns, ADR-0049 §11)"
   say "  decide approval requests; Z_TREASURY_MGR also releases payment runs and transmits bank files."
   QUIET=1 api 200 '' listRoles -p page_size=100
   cp "$WORK/last.json" "$WORK/roles.json"
@@ -390,7 +391,7 @@ people() {
   person sam "Sam Solution Architect" finance_staff solution_architect
   person tom "Tom Treasurer" finance_staff Z_TREASURY_MGR
   person tara "Tara Treasury Manager" finance_staff Z_TREASURY_MGR
-  person fiona "Fiona Finance Director" finance_staff Z_TREASURY_MGR
+  person fiona "Fiona Finance Director" finance_staff Z_TREASURY_MGR tax_manager
 }
 
 # person SUBJECT NAME ROLE... creates a person who may act in every
@@ -1211,7 +1212,7 @@ step_ledgers() {
 }
 
 step_tax() {
-  heading "Step 11 — Tax: the tax on a sales entry, calculated and checked by the ledger, and the registration it is filed under"
+  heading "Step 11 — Tax: the tax on a sales entry, calculated and checked by the ledger, and the return that files it"
   as carla
   api 200 '.items[] | select(.country == "CA") | "pack CA \(.version): \(.contents.tax_codes) tax codes"' listCountryPacks
   say "The released Canada packs carry no tax codes yet: GST/HST, QST and PST come with Canada pack 2026.3 (T62g)."
@@ -1299,6 +1300,59 @@ tax_return() {
   say "the draft leaves the items of migrated entries out (ADR-0037); its clearing's reversal, posted here, is reported."
   say "The period under way has not ended, so its return cannot be drafted yet:"
   refused 409 tax.period_not_ended getTaxReturnDraft -p "id=$registration" -p "period_start=$running"
+  file_return "$registration" "$start" "$end"
+}
+
+# file_return REGISTRATION START END is step 11's return of START to END
+# (T61i): prepared once its fiscal periods are closed, claiming the
+# draft's items; approved by Fiona, the tax manager, not Carla who
+# prepared it; recorded as filed, which locks the periods; the period's
+# draft then empty.
+file_return() {
+  local registration=$1 start=$2 end=$3 leading ret request p
+  local body="{\"period_start\": \"$start\"}"
+  say "Carla prepares the return of $start to $end (T61i): a snapshot of the draft that claims its items, so no later"
+  say "draft or return reports them again. The leading ledger's fiscal periods of the tax period must be closed first,"
+  say "so no posting is under way in it:"
+  QUIET=1 api 200 '' listLedgers
+  leading=$(field '.items[] | select(.is_leading) | .id')
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=${start%%-*}" -p "ledger_id=$leading" -p page_size=100
+  cp "$WORK/last.json" "$WORK/tax-periods.json"
+  local open
+  open=$(jq -r --arg s "$start" --arg e "$end" '[.items[] | select((.is_special | not) and .status == "open" and .start_date <= $e and .end_date >= $s)
+    | "\(.id)/\(.version)"] | join(" ")' "$WORK/tax-periods.json")
+  if [ -n "$open" ]; then
+    refused 409 tax.fiscal_period_open prepareTaxReturn -p "id=$registration" -body "$body"
+    for p in $open; do
+      QUIET=1 api 200 '' closeFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+    done
+    show erp call closeFiscalPeriod -p "id=..." -if-match '"2"' "# $(wc -w <<<"$open" | tr -d ' ') periods of the leading ledger"
+  fi
+  api 201 '"return \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end): \(.status), \(.item_count) items, hash \(.items_hash[0:12])...", (.boxes[] | "  \(.code) \(.amount.amount)")' \
+    prepareTaxReturn -p "id=$registration" -body "$body"
+  expect "the return's output tax" "$(field '.boxes[] | select(.code == "output_tax") | .amount.amount')" "60.00"
+  ret=$(field .id)
+  request=$(field .approval_request_id)
+  say "A second return of the period cannot be prepared while this one stands:"
+  refused 409 tax.return_in_progress prepareTaxReturn -p "id=$registration" -body "$body"
+  say "It waits for a tax manager's approval. Carla prepared it, so she cannot approve it (four eyes):"
+  QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
+  refused 403 workflow.own_request approveApprovalRequest -p "id=$request" -if-match "$ETAG" -body '{"comment": "Mine"}'
+  approve fiona "$request" "Boxes agree with the tax accounts"
+  as carla
+  say "Carla files it on the CRA's portal herself (P3: the ERP files nothing) and records the confirmation the portal"
+  say "gives; the number here is illustrative. Recording it filed locks the fiscal periods of the tax period (T32)."
+  QUIET=1 api 200 '' getTaxReturn -p "id=$ret"
+  expect "approved, by another person" "$(field '"\(.status) \(.approved_by != .created_by)"')" "approved true"
+  api 200 '"return \(.status): confirmation \(.filing.confirmation_number) of \(.filing.filed_on)"' fileTaxReturn -p "id=$ret" -if-match "$ETAG" \
+    -body "{\"confirmation_number\": \"WALKTHROUGH-0001\", \"filed_on\": \"$TODAY\"}"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=${start%%-*}" -p "ledger_id=$leading" -p page_size=100
+  expect "the tax period's fiscal periods" "$(jq -r --arg s "$start" --arg e "$end" '[.items[] | select((.is_special | not) and .start_date <= $e
+    and .end_date >= $s) | .status] | unique | join(" ")' "$WORK/last.json")" locked
+  say "The items it reported are in no later draft: the period's draft is empty now, and the next return starts afresh."
+  api 200 '"draft of \(.period_start) to \(.period_end): \(.item_count) items, output tax \((.boxes[] | select(.code == "output_tax")).amount.amount)"' \
+    getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
+  expect "the period's draft after filing" "$(field .item_count)" 0
 }
 
 # center_approved REQUESTER has the controller approve the center change

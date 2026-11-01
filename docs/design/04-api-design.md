@@ -271,6 +271,19 @@ Nothing is stored or claimed. A period not ended is 409
 `tax.period_not_ended`, a date that starts no period 422 `tax.not_a_period`,
 a return the adopted pack does not define 409 `tax.return_undefined`.
 
+A return is prepared from the draft (ADR-0049 §11 As built, T61i): `POST
+/v1/tax-registrations/{id}/returns` (`tax.return.prepare`, `kind` `original`
+or `amendment`) stores the snapshot and claims its items, once the fiscal
+periods of the tax period are closed (409 `tax.fiscal_period_open`), and
+opens a `tax_return` approval request decided by a holder of `tax_manager`
+other than the preparer; `POST /v1/tax-returns/{id}:file` (`tax.return.file`,
+If-Match) records the authority's confirmation and locks the fiscal periods;
+`:withdraw` (`tax.return.prepare`) releases the items of a return not filed.
+All are human-only (`x-agent: false`). `GET /v1/tax-returns/{id}` and `GET
+/v1/tax-registrations/{id}/returns` (`tax.return.read`) read them. Events
+`TaxReturnPrepared`, `TaxReturnApproved`, `TaxReturnFiled`,
+`TaxReturnWithdrawn`, `TaxReturnRejected`.
+
 ## 4.7 Concurrency and idempotency
 
 Per ADR-0008:
@@ -548,7 +561,7 @@ with the month's total against the tenant's cap.
 | payments | `payment-runs`, `bank-files` | `:propose` (202), `:submit`, `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
 | cash | `cash-position` (computed on read, ADR-0051), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
 | controlling | `plan-categories`, `plan-batches` (by batch key), `plan-lines`, `cost-center-plan-actual`, `profit-center-plan-actual` (computed on read, ADR-0050 §8) | `:lock`, `:unlock` |
-| tax | `tax-registrations` (from the configuration), `tax-registrations/{id}/periods`, `tax-registrations/{id}/draft-return` and its `items` (computed on read, ADR-0049 §10-§11) | |
+| tax | `tax-registrations` (from the configuration), `tax-registrations/{id}/periods`, `tax-registrations/{id}/draft-return` and its `items` (computed on read, ADR-0049 §10-§11), `tax-registrations/{id}/returns`, `tax-returns/{id}` | `:file`, `:withdraw` (T61i) |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |
 | audit | `audit-events` | `:verify` |
 | integration | `migration-runs`, `connectors` | `:start`, `:reconcile`, `:enable`, `:disable` |

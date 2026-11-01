@@ -1749,9 +1749,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Return lifecycle: prepared snapshot, approved by another person, recorded as filed by a person with the authority's confirmation (P3), withdrawn, amended; human-only transitions, audit and outbox events, periods locked on filing",
-        "r": "T61i",
+        "r": "db/migrations/000174 · tax.tax_return, tax_return_box, tax_return_item · ledger.TaxItems.Claim, Release · ledger.ReturnPeriods · approvals.TaxReturn (tax_manager) · POST /v1/tax-registrations/{id}/returns · GET /v1/tax-returns/{id} · :file · :withdraw · ADR-0049 §11 As built · walkthrough step 11 · T61i",
         "src": "baseline",
         "c": []
        },

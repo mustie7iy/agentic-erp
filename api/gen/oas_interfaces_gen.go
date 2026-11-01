@@ -285,6 +285,10 @@ type ExcludeBankStatementLineRes interface {
 	excludeBankStatementLineRes()
 }
 
+type FileTaxReturnRes interface {
+	fileTaxReturnRes()
+}
+
 type GetAccountRes interface {
 	getAccountRes()
 }
@@ -527,6 +531,10 @@ type GetSupplierInvoiceRes interface {
 
 type GetTaxReturnDraftRes interface {
 	getTaxReturnDraftRes()
+}
+
+type GetTaxReturnRes interface {
+	getTaxReturnRes()
 }
 
 type GetUploadRes interface {
@@ -841,6 +849,10 @@ type ListTaxReturnDraftItemsRes interface {
 	listTaxReturnDraftItemsRes()
 }
 
+type ListTaxReturnsRes interface {
+	listTaxReturnsRes()
+}
+
 type ListWebhookDeliveriesRes interface {
 	listWebhookDeliveriesRes()
 }
@@ -931,6 +943,10 @@ type PostRevaluationRunRes interface {
 
 type PostSupplierInvoiceRes interface {
 	postSupplierInvoiceRes()
+}
+
+type PrepareTaxReturnRes interface {
+	prepareTaxReturnRes()
 }
 
 type PreviewRevaluationRes interface {
@@ -1195,4 +1211,8 @@ type VerifyAuditChainRes interface {
 
 type WithdrawChangeRequestRes interface {
 	withdrawChangeRequestRes()
+}
+
+type WithdrawTaxReturnRes interface {
+	withdrawTaxReturnRes()
 }

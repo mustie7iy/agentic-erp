@@ -2660,4 +2660,23 @@ of the registration's companies dated on or before the period's end, by
 the boxes of the country pack's `returns.yaml`. Migration 000173 adds the
 partial index `ledger.tax_item_unreported` (`tenant_id`, `legal_entity_id`,
 `tax_date` where `reported_in` is null) the selection reads, and the
-permission `tax.return.read`. T61i stores the prepared return.
+permission `tax.return.read`.
+
+A prepared return is stored (ADR-0049 §11 As built, T61i; migration
+000174, which also creates the context's outbox, `tax.outbox`, and the
+permissions `tax.return.prepare`, `tax.return.approve` and
+`tax.return.file`):
+
+| Table | Purpose |
+|---|---|
+| `tax.tax_return` | A return of a registration's period: `original`, or `amendment` of the period's filed return (`amends_id`, `tax_return_amends`, `tax_return_amends_filed`); its status `prepared` -> `approved` -> `filed`, or `withdrawn` or `rejected` before filing (`tax_return_transition`, each move setting its own fields alone, `tax_return_fixed`); the definition and pack version its boxes follow, its currency, item count and `items_hash` (SHA-256 of its items' keys and local amounts), the prior-period figures; its `tax_return` approval request (workflow context), the approver, never its creator (`tax_return_four_eyes`), the filing's confirmation number and date, after the period's end (`tax_return_filed`), and who withdrew or rejected it and why (`tax_return_ended`). One return of a period in progress (`tax_return_in_progress`) and one original that stands (`tax_return_one_original`) |
+| `tax.tax_return_box` | The snapshot's boxes in the definition's order: amount, prior-period part, the period's corrected amount and a selection box's item count (`tax_return_box_items`); written while the return is prepared (`tax_return_snapshot`), insert-only |
+| `tax.tax_return_item` | The keys of the ledger's tax items the return claimed (no foreign key across the schema); written while it is prepared, insert-only |
+
+The items' `ledger.tax_item.reported_in` names the return while it stands:
+set from null when it is prepared and released to null when it is withdrawn
+or rejected, never moved to another (`tax_item_fixed`), and held at commit to
+a standing return whose snapshot claims the item, of a company its
+registration covers, dated by its period's end, or released by one ended
+(`tax_item_reported`, a deferred trigger of the tax filing context, served
+by `ledger.tax_item_reported_in`).

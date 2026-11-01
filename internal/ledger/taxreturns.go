@@ -1,6 +1,8 @@
 package ledger
 
 import (
+	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -161,4 +163,128 @@ func taxItemsOf(ctx context.Context, legalEntities []uuid.UUID) (pgx.Tx, error) 
 		}
 	}
 	return tx, nil
+}
+
+// ClaimedItem is an item a return claimed: its key and its amounts in
+// local currency, which the return's hash covers.
+type ClaimedItem struct {
+	FiscalYear                   int16
+	EntryID                      uuid.UUID
+	ItemNo                       int32
+	BaseLC, TaxLC, RecoverableLC money.Minor
+}
+
+// claimed is an item as Claim's update returns it: its key and amounts,
+// and what Unreported groups it by.
+type claimed struct {
+	ClaimedItem
+	group TaxItemGroup
+}
+
+// Claim reports in the return ret the items Unreported reads of the legal
+// entities, each one the caller may act in, dated on or before end (and
+// on or after from, when given) that one of the selections chooses: it
+// sets their reported_in, an update that waits for and then skips an item
+// another return claimed first, so an item is reported once (ADR-0049
+// §11). It returns the items claimed, in key order, and their groups as
+// Unreported groups them against the period's start.
+func (TaxItems) Claim(ctx context.Context, legalEntities []uuid.UUID, from *time.Time, start, end time.Time, sels []TaxItemSelection,
+	ret uuid.UUID) ([]TaxItemGroup, []ClaimedItem, error) {
+	tx, err := taxItemsOf(ctx, legalEntities)
+	if err != nil {
+		return nil, nil, err
+	}
+	var all []claimed
+	for _, sel := range sels {
+		rows, _ := tx.Query(ctx, `UPDATE ledger.tax_item i SET reported_in = $8 FROM ledger.journal_entry e
+			WHERE e.tenant_id = i.tenant_id AND e.fiscal_year = i.fiscal_year AND e.id = i.journal_entry_id
+				AND i.legal_entity_id = ANY($1) AND i.tax_date <= $2 AND i.reported_in IS NULL AND e.source_context <> 'integration'
+				AND ($9::date IS NULL OR i.tax_date >= $9) AND i.direction = $3
+				AND (coalesce(cardinality($4::text[]), 0) = 0 OR i.kind = ANY($4))
+				AND (coalesce(cardinality($5::text[]), 0) = 0 OR i.component = ANY($5))
+				AND (coalesce(cardinality($6::text[]), 0) = 0 OR i.jurisdiction = ANY($6))
+				AND (coalesce(cardinality($7::text[]), 0) = 0 OR i.account_key = ANY($7))
+			RETURNING i.fiscal_year, i.journal_entry_id, i.item_no, i.direction, i.kind, i.component, i.jurisdiction, i.account_key,
+				CASE WHEN i.tax_date < $10 THEN i.tax_date END, i.base_lc, i.tax_lc, i.recoverable_lc`,
+			legalEntities, end, sel.Direction, sel.Kinds, sel.Components, sel.Jurisdictions, sel.AccountKeys, ret, from, start)
+		items, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (claimed, error) {
+			var c claimed
+			g := &c.group
+			err := row.Scan(&c.FiscalYear, &c.EntryID, &c.ItemNo, &g.Direction, &g.Kind, &g.Component, &g.Jurisdiction, &g.AccountKey,
+				&g.PriorTaxDate, &c.BaseLC, &c.TaxLC, &c.RecoverableLC)
+			return c, errs.Wrapf(err, "scan claimed tax item")
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("ledger: claim %s tax items to %s for return %s: %w", sel.Direction, end.Format(time.DateOnly), ret, err)
+		}
+		all = append(all, items...)
+	}
+	return groupClaimed(all)
+}
+
+// groupClaimed sorts the claimed items by key and sums them into the
+// groups Unreported would read them as.
+func groupClaimed(all []claimed) ([]TaxItemGroup, []ClaimedItem, error) {
+	slices.SortFunc(all, func(a, b claimed) int {
+		if c := cmp.Compare(a.FiscalYear, b.FiscalYear); c != 0 {
+			return c
+		}
+		if c := bytes.Compare(a.EntryID[:], b.EntryID[:]); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.ItemNo, b.ItemNo)
+	})
+	type key struct {
+		direction, kind, component, jurisdiction, accountKey string
+		hasJurisdiction                                      bool
+		prior                                                time.Time
+	}
+	var groups []TaxItemGroup
+	at := map[key]int{}
+	items := make([]ClaimedItem, len(all))
+	for n, c := range all {
+		items[n] = c.ClaimedItem
+		g := c.group
+		k := key{direction: g.Direction, kind: g.Kind, component: g.Component, accountKey: g.AccountKey, hasJurisdiction: g.Jurisdiction != nil}
+		if g.Jurisdiction != nil {
+			k.jurisdiction = *g.Jurisdiction
+		}
+		if g.PriorTaxDate != nil {
+			k.prior = *g.PriorTaxDate
+		}
+		i, ok := at[k]
+		if !ok {
+			g.PriorPeriod = g.PriorTaxDate != nil
+			at[k], groups = len(groups), append(groups, g)
+			i = len(groups) - 1
+		}
+		sum := &groups[i]
+		sum.Items++
+		var err error
+		if sum.BaseLC, err = money.Sum(sum.BaseLC, c.BaseLC); err == nil {
+			if sum.TaxLC, err = money.Sum(sum.TaxLC, c.TaxLC); err == nil {
+				sum.RecoverableLC, err = money.Sum(sum.RecoverableLC, c.RecoverableLC)
+			}
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("ledger: claimed tax items: %w", err)
+		}
+	}
+	return groups, items, nil
+}
+
+// Release returns the items reported in the return ret to unreported, as
+// its withdrawal or rejection does, and counts them. The owning context
+// decided who may end the return: its approver need not act in its
+// companies.
+func (TaxItems) Release(ctx context.Context, ret uuid.UUID) (int64, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return 0, err
+	}
+	tag, err := tx.Exec(ctx, `UPDATE ledger.tax_item SET reported_in = NULL WHERE reported_in = $1`, ret)
+	if err != nil {
+		return 0, fmt.Errorf("ledger: release the tax items of return %s: %w", ret, err)
+	}
+	return tag.RowsAffected(), nil
 }

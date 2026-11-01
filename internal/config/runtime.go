@@ -5,6 +5,11 @@ import (
 	"strings"
 )
 
+// TaxReturnRole is the role whose holder, never the preparer, approves a
+// prepared tax return (ADR-0049 §11: tax_manager): a fixed role every
+// tenant is provisioned with, as the configuration tiers' roles are.
+const TaxReturnRole = "tax_manager"
+
 // ApprovalSteps for a configuration change of the given tier. Tier 1 needs
 // no approval; higher tiers need more, and more senior, approvers. The
 // roles are identity roles with these codes.
@@ -48,8 +53,9 @@ func Evidence(changes []Change) []string {
 	return out
 }
 
-// RoleNames are the roles the document's approval policies name, which
-// must exist as identity roles for requests to be routed.
+// RoleNames are the roles the document's approval policies name, and the
+// fixed TaxReturnRole, which must exist as identity roles for requests to
+// be routed.
 func (c *Config) RoleNames() []string {
 	seen := map[string]bool{}
 	var out []string
@@ -77,5 +83,6 @@ func (c *Config) RoleNames() []string {
 			add(s.Role)
 		}
 	}
+	add(TaxReturnRole)
 	return out
 }

@@ -900,6 +900,20 @@ func encodeExcludeBankStatementLineRequest(
 	return nil
 }
 
+func encodeFileTaxReturnRequest(
+	req *TaxReturnFile,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeGrantRolePermissionRequest(
 	req *RolePermissionCreate,
 	r *http.Request,
@@ -1173,6 +1187,20 @@ func encodePostSupplierInvoiceRequest(
 		if req.Set {
 			req.Encode(e)
 		}
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodePrepareTaxReturnRequest(
+	req *TaxReturnPrepare,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
 	}
 	encoded := e.Bytes()
 	ht.SetBody(r, bytes.NewReader(encoded), contentType)
@@ -1939,6 +1967,20 @@ func encodeVerifyAuditChainRequest(
 }
 
 func encodeWithdrawChangeRequestRequest(
+	req *ReasonInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeWithdrawTaxReturnRequest(
 	req *ReasonInput,
 	r *http.Request,
 ) error {

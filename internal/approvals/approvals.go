@@ -69,6 +69,9 @@ const (
 	// PaymentRunRelease is a second person's approval of a large payment
 	// run's release, before the releaser releases it (ADR-0038).
 	PaymentRunRelease = "payment_run_release"
+	// TaxReturn is a tax return's approval by a person other than its
+	// preparer, before it is recorded as filed (ADR-0049 §11, T61i).
+	TaxReturn = "tax_return"
 )
 
 // Request statuses.
@@ -110,6 +113,10 @@ const DefaultCenterChangeRole = "controller"
 // is a controller's decision, a fixed role as for period unlocks.
 const DefaultGRIRClearingRole = "controller"
 
+// DefaultTaxReturnRole approves a prepared tax return (ADR-0049 §11): a
+// fixed role, config.TaxReturnRole, as for period unlocks.
+const DefaultTaxReturnRole = config.TaxReturnRole
+
 // ObjectPermissions is the approval permission of each object type
 // (x-object-permissions of approveApprovalRequest).
 var ObjectPermissions = map[string]string{
@@ -123,6 +130,7 @@ var ObjectPermissions = map[string]string{
 	// The second person is a releaser too: the approval is half of the
 	// release step.
 	PaymentRunRelease: "payments.run.release",
+	TaxReturn:         "tax.return.approve",
 }
 
 func init() {
@@ -466,6 +474,8 @@ func steps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) 
 		out = append(out, policyStep{DefaultCenterChangeRole, 1})
 	case GRIRClearing:
 		out = append(out, policyStep{DefaultGRIRClearingRole, 1})
+	case TaxReturn:
+		out = append(out, policyStep{DefaultTaxReturnRole, 1})
 	case ManualEntry:
 		return manualEntrySteps(ctx, rates, doc, in)
 	case PurchaseOrder, OrderChange:
