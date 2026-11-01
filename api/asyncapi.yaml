@@ -97,6 +97,7 @@ info:
     - name: agents
     - name: cash
     - name: controlling
+    - name: tax
     - name: platform
 
 defaultContentType: application/json
@@ -344,6 +345,18 @@ channels:
     messages:
       PlanCategoryChanged: {$ref: '#/components/messages/PlanCategoryChanged'}
       PlanBatchApplied: {$ref: '#/components/messages/PlanBatchApplied'}
+  tax:
+    address: 'erp.{cell}.tax.{tenant}.{event}'
+    title: Tax filing events
+    description: Tax returns prepared, approved, filed, withdrawn and rejected (ADR-0049 §11-§12).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      TaxReturnPrepared: {$ref: '#/components/messages/TaxReturnPrepared'}
+      TaxReturnApproved: {$ref: '#/components/messages/TaxReturnApproved'}
+      TaxReturnFiled: {$ref: '#/components/messages/TaxReturnFiled'}
+      TaxReturnWithdrawn: {$ref: '#/components/messages/TaxReturnWithdrawn'}
+      TaxReturnRejected: {$ref: '#/components/messages/TaxReturnRejected'}
   platform:
     address: 'erp.{cell}.platform.{tenant}.{event}'
     title: Platform operation events
@@ -541,6 +554,16 @@ operations:
     messages:
       - $ref: '#/channels/controlling/messages/PlanCategoryChanged'
       - $ref: '#/channels/controlling/messages/PlanBatchApplied'
+  publishTaxEvents:
+    action: send
+    title: Tax filing publishes
+    channel: {$ref: '#/channels/tax'}
+    messages:
+      - $ref: '#/channels/tax/messages/TaxReturnPrepared'
+      - $ref: '#/channels/tax/messages/TaxReturnApproved'
+      - $ref: '#/channels/tax/messages/TaxReturnFiled'
+      - $ref: '#/channels/tax/messages/TaxReturnWithdrawn'
+      - $ref: '#/channels/tax/messages/TaxReturnRejected'
   publishPlatformEvents:
     action: send
     title: Platform publishes
@@ -2803,6 +2826,91 @@ components:
         - name: applied
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000602, source: /erp/eu-1/controlling, type: com.example.erp.controlling.plan_batch_applied.v1, subject: 0192a000-0000-7000-8000-000000000b01, time: '2026-10-27T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {plan_batch_id: 0192a000-0000-7000-8000-000000000b01, plan_category_id: 0192a000-0000-7000-8000-000000000a01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, fiscal_year: 2027, batch_key: budget-2027-v1, line_count: 12, replaced_count: 0, cost_center_ids: [0192a000-0000-7000-8000-000000000201], profit_center_ids: []}
+    TaxReturnPrepared:
+      name: TaxReturnPrepared
+      x-webhook: true
+      title: Tax return prepared
+      summary: "A tax return of a registration's period was prepared and its tax items claimed."
+      description: "Emitted by `prepareTaxReturn` (ADR-0049 §11): the snapshot of the period's draft, its boxes and the hash of the items it claimed, whose `reported_in` now names it; it waits for its `tax_return` approval request. Subject is the tax return id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.tax.tax_return_prepared.v1}
+      payload: {$ref: '#/components/schemas/TaxReturnPreparedV1'}
+      examples:
+        - name: example
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000701, source: /erp/eu-1/tax, type: com.example.erp.tax.tax_return_prepared.v1, subject: 0192a000-0000-7000-8000-000000000e31, time: '2026-10-05T14:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {tax_return_id: 0192a000-0000-7000-8000-000000000e31, registration_id: 0192a000-0000-7000-8000-000000000e01, registration_code: GSTHST, legal_entity_id: 0192a000-0000-7000-8000-000000000201, kind: original, return_type: GST34, period_start: '2026-07-01', period_end: '2026-09-30', amends_id: null, pack_country: CA, pack_version: '2026.3', item_count: 2, items_hash: 9f2c1e0b5a7d3c4e8f6a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a6, boxes: [{code: output_tax, amount: {amount: '60.00', currency: CAD}, corrected_amount: {amount: '60.00', currency: CAD}}], approval_request_id: 0192a000-0000-7000-8000-000000000e32}
+    TaxReturnApproved:
+      name: TaxReturnApproved
+      x-webhook: true
+      title: Tax return approved
+      summary: "A person other than its preparer approved a tax return."
+      description: "Emitted when the return's `tax_return` approval request is approved (ADR-0049 §11): it may now be recorded as filed. Subject is the tax return id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.tax.tax_return_approved.v1}
+      payload: {$ref: '#/components/schemas/TaxReturnApprovedV1'}
+      examples:
+        - name: example
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000702, source: /erp/eu-1/tax, type: com.example.erp.tax.tax_return_approved.v1, subject: 0192a000-0000-7000-8000-000000000e31, time: '2026-10-06T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
+          payload: {tax_return_id: 0192a000-0000-7000-8000-000000000e31, registration_id: 0192a000-0000-7000-8000-000000000e01, registration_code: GSTHST, legal_entity_id: 0192a000-0000-7000-8000-000000000201, kind: original, return_type: GST34, period_start: '2026-07-01', period_end: '2026-09-30', approval_request_id: 0192a000-0000-7000-8000-000000000e32, approved_by: 0192a000-0000-7000-8000-000000000105}
+    TaxReturnFiled:
+      name: TaxReturnFiled
+      x-webhook: true
+      title: Tax return filed
+      summary: "A person recorded a tax return as filed with the authority's confirmation."
+      description: "Emitted by `fileTaxReturn` (ADR-0049 P3): the snapshot is final, and the fiscal periods of the leading ledger it covers that were not locked are locked (each also publishes `PeriodLocked`). Subject is the tax return id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.tax.tax_return_filed.v1}
+      payload: {$ref: '#/components/schemas/TaxReturnFiledV1'}
+      examples:
+        - name: example
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000703, source: /erp/eu-1/tax, type: com.example.erp.tax.tax_return_filed.v1, subject: 0192a000-0000-7000-8000-000000000e31, time: '2026-10-15T09:30:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {tax_return_id: 0192a000-0000-7000-8000-000000000e31, registration_id: 0192a000-0000-7000-8000-000000000e01, registration_code: GSTHST, legal_entity_id: 0192a000-0000-7000-8000-000000000201, kind: original, return_type: GST34, period_start: '2026-07-01', period_end: '2026-09-30', confirmation_number: CRA-2026-1015-00042, filed_on: '2026-10-15', item_count: 2, items_hash: 9f2c1e0b5a7d3c4e8f6a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a6, locked_periods: [{period_id: 0192a000-0000-7000-8000-000000000f09, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: '3000', fiscal_year: 2026, period: 9}]}
+    TaxReturnWithdrawn:
+      name: TaxReturnWithdrawn
+      x-webhook: true
+      title: Tax return withdrawn
+      summary: "A tax return not yet filed was withdrawn and its tax items released."
+      description: "Emitted by `withdrawTaxReturn`, or when the preparer withdraws its approval request (ADR-0049 §11): its items are unreported again, for the period's next return. Subject is the tax return id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.tax.tax_return_withdrawn.v1}
+      payload: {$ref: '#/components/schemas/TaxReturnWithdrawnV1'}
+      examples:
+        - name: example
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000704, source: /erp/eu-1/tax, type: com.example.erp.tax.tax_return_withdrawn.v1, subject: 0192a000-0000-7000-8000-000000000e31, time: '2026-10-05T15:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {tax_return_id: 0192a000-0000-7000-8000-000000000e31, registration_id: 0192a000-0000-7000-8000-000000000e01, registration_code: GSTHST, legal_entity_id: 0192a000-0000-7000-8000-000000000201, kind: original, return_type: GST34, period_start: '2026-07-01', period_end: '2026-09-30', previous_status: prepared, status: withdrawn, released_items: 2, comment: A late invoice of the period is to be posted first}
+    TaxReturnRejected:
+      name: TaxReturnRejected
+      x-webhook: true
+      title: Tax return rejected
+      summary: "A tax return's approval request was rejected and its tax items released."
+      description: "Emitted when the return's `tax_return` approval request is rejected (ADR-0049 §11): its items are unreported again, for the period's next return. Subject is the tax return id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.tax.tax_return_rejected.v1}
+      payload: {$ref: '#/components/schemas/TaxReturnRejectedV1'}
+      examples:
+        - name: example
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000705, source: /erp/eu-1/tax, type: com.example.erp.tax.tax_return_rejected.v1, subject: 0192a000-0000-7000-8000-000000000e31, time: '2026-10-06T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000105}
+          payload: {tax_return_id: 0192a000-0000-7000-8000-000000000e31, registration_id: 0192a000-0000-7000-8000-000000000e01, registration_code: GSTHST, legal_entity_id: 0192a000-0000-7000-8000-000000000201, kind: original, return_type: GST34, period_start: '2026-07-01', period_end: '2026-09-30', previous_status: prepared, status: rejected, released_items: 2, comment: Box output_tax misses the October billing summary}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -3233,6 +3341,108 @@ components:
         change: {type: string, description: 'Open enum: created, proposed, updated, accepted, rejected, realised, cancelled.'}
         status: {type: string, description: 'The stored status after the change. Open enum: proposed, active, realised, cancelled, rejected.'}
         version: {type: integer, description: The record's version after the change.}
+    TaxReturnPreparedV1:
+      type: object
+      required: ["tax_return_id", "registration_id", "registration_code", "legal_entity_id", "kind", "return_type", "period_start", "period_end", "amends_id", "pack_country", "pack_version", "item_count", "items_hash", "boxes", "approval_request_id"]
+      properties:
+        tax_return_id: {$ref: '#/components/schemas/Uuid', description: '`tax.tax_return.id`.'}
+        registration_id: {$ref: '#/components/schemas/Uuid'}
+        registration_code: {type: string}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The registrant.}
+        kind: {type: string, description: 'Open enum: original, amendment.'}
+        return_type: {type: string}
+        period_start: {$ref: '#/components/schemas/Date'}
+        period_end: {$ref: '#/components/schemas/Date'}
+        amends_id: {type: [string, 'null'], format: uuid, description: The filed return an amendment corrects; null for an original.}
+        pack_country: {type: string}
+        pack_version: {type: string}
+        item_count: {type: integer, description: The tax items claimed.}
+        items_hash: {type: string, description: SHA-256 (hex) of the claimed items' keys and local amounts.}
+        boxes:
+          type: array
+          description: The boxes in the definition's order.
+          items:
+            type: object
+            required: ["code", "amount", "corrected_amount"]
+            properties:
+              code: {type: string}
+              amount: {$ref: '#/components/schemas/Money'}
+              corrected_amount: {$ref: '#/components/schemas/Money'}
+        approval_request_id: {$ref: '#/components/schemas/Uuid'}
+    TaxReturnApprovedV1:
+      type: object
+      required: ["tax_return_id", "registration_id", "registration_code", "legal_entity_id", "kind", "return_type", "period_start", "period_end", "approval_request_id", "approved_by"]
+      properties:
+        tax_return_id: {$ref: '#/components/schemas/Uuid', description: '`tax.tax_return.id`.'}
+        registration_id: {$ref: '#/components/schemas/Uuid'}
+        registration_code: {type: string}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The registrant.}
+        kind: {type: string, description: 'Open enum: original, amendment.'}
+        return_type: {type: string}
+        period_start: {$ref: '#/components/schemas/Date'}
+        period_end: {$ref: '#/components/schemas/Date'}
+        approval_request_id: {$ref: '#/components/schemas/Uuid'}
+        approved_by: {$ref: '#/components/schemas/Uuid', description: The approver, never the preparer.}
+    TaxReturnFiledV1:
+      type: object
+      required: ["tax_return_id", "registration_id", "registration_code", "legal_entity_id", "kind", "return_type", "period_start", "period_end", "confirmation_number", "filed_on", "item_count", "items_hash", "locked_periods"]
+      properties:
+        tax_return_id: {$ref: '#/components/schemas/Uuid', description: '`tax.tax_return.id`.'}
+        registration_id: {$ref: '#/components/schemas/Uuid'}
+        registration_code: {type: string}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The registrant.}
+        kind: {type: string, description: 'Open enum: original, amendment.'}
+        return_type: {type: string}
+        period_start: {$ref: '#/components/schemas/Date'}
+        period_end: {$ref: '#/components/schemas/Date'}
+        confirmation_number: {type: string, description: "The authority's confirmation number."}
+        filed_on: {$ref: '#/components/schemas/Date'}
+        item_count: {type: integer}
+        items_hash: {type: string}
+        locked_periods:
+          type: array
+          description: The fiscal periods the filing locked; those already locked are not listed.
+          items:
+            type: object
+            required: ["period_id", "legal_entity_id", "company_code", "fiscal_year", "period"]
+            properties:
+              period_id: {$ref: '#/components/schemas/Uuid'}
+              legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+              company_code: {type: string}
+              fiscal_year: {type: integer}
+              period: {type: integer}
+    TaxReturnWithdrawnV1:
+      type: object
+      required: ["tax_return_id", "registration_id", "registration_code", "legal_entity_id", "kind", "return_type", "period_start", "period_end", "previous_status", "status", "released_items", "comment"]
+      properties:
+        tax_return_id: {$ref: '#/components/schemas/Uuid', description: '`tax.tax_return.id`.'}
+        registration_id: {$ref: '#/components/schemas/Uuid'}
+        registration_code: {type: string}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The registrant.}
+        kind: {type: string, description: 'Open enum: original, amendment.'}
+        return_type: {type: string}
+        period_start: {$ref: '#/components/schemas/Date'}
+        period_end: {$ref: '#/components/schemas/Date'}
+        previous_status: {type: string, description: 'Open enum: prepared, approved.'}
+        status: {type: string, description: 'Open enum: withdrawn.'}
+        released_items: {type: integer, description: The tax items released to the next return.}
+        comment: {type: [string, 'null'], description: Why it was withdrawn.}
+    TaxReturnRejectedV1:
+      type: object
+      required: ["tax_return_id", "registration_id", "registration_code", "legal_entity_id", "kind", "return_type", "period_start", "period_end", "previous_status", "status", "released_items", "comment"]
+      properties:
+        tax_return_id: {$ref: '#/components/schemas/Uuid', description: '`tax.tax_return.id`.'}
+        registration_id: {$ref: '#/components/schemas/Uuid'}
+        registration_code: {type: string}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The registrant.}
+        kind: {type: string, description: 'Open enum: original, amendment.'}
+        return_type: {type: string}
+        period_start: {$ref: '#/components/schemas/Date'}
+        period_end: {$ref: '#/components/schemas/Date'}
+        previous_status: {type: string, description: 'Open enum: prepared.'}
+        status: {type: string, description: 'Open enum: rejected.'}
+        released_items: {type: integer, description: The tax items released to the next return.}
+        comment: {type: [string, 'null'], description: "The rejection's comment."}
     PlanCategoryChangedV1:
       type: object
       required: [plan_category_id, code, name, locked, change]

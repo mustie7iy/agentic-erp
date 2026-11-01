@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -41,7 +42,7 @@ func test() config.TaxRegistration {
 // output code S5 (5% on 240000) and the registrations test and UNDEF; company
 // 1000 has gst, without a pack, and vat, a group with 2000 in another
 // currency. The API carries the test packs alone.
-func returnsEnv(t *testing.T) fixture.Env {
+func returnsEnv(t *testing.T, perms ...string) fixture.Env {
 	t.Helper()
 	e := fixture.NewWith(t, nil, func(doc *config.Config) {
 		registered(gst(), vat())(doc)
@@ -54,7 +55,7 @@ func returnsEnv(t *testing.T) fixture.Env {
 		undefined.Code, undefined.Authority, undefined.Number, undefined.ReturnType = "UNDEF", "TAX2", "DE000000002", "TEST-9"
 		de.TaxRegistrations = []config.TaxRegistration{test(), undefined}
 		doc.Packs = append(doc.Packs, config.PackAdoption{Company: "2000", Country: "DE", Version: "2026.1", AppliedOn: "2026-01-01"})
-	}, returnPerms...)
+	}, slices.Concat(returnPerms, perms)...)
 	e.API = apitest.NewWith(t, func(c *app.Config) { c.Packs = apitest.Packs(t, "testdata/packs") })
 	return e
 }
@@ -143,7 +144,10 @@ func TestGetTaxReturnDraft(t *testing.T) {
 	pgtest.Scan(t, `SELECT count(*) FROM ledger.tax_item WHERE tenant_id = $1 AND reported_in IS NOT NULL`, []any{e.Tenant.ID}, &claimed)
 	want(t, "items claimed by a draft", claimed, 0)
 
-	pgtest.Exec(t, `UPDATE ledger.tax_item SET reported_in = gen_random_uuid() WHERE journal_entry_id = $1`, q1Purchase)
+	// Reported in a return of another registration, not this one's: its
+	// check that a return claims it is off (T61i's prepare claims them).
+	pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica;
+		UPDATE ledger.tax_item SET reported_in = gen_random_uuid() WHERE journal_entry_id = '%s'; END $$`, q1Purchase))
 	q2, _ = e.Must(200, "GET", compute(testID, "2026-04-01"), "", "")
 	want(t, "Q2 without the reported purchase", boxes(q2), "sales=300.00/100.00#3 out=15.00/5.00#3 in=0.00/0.00#0 cost=0.00/0.00#0 net=15.00/5.00")
 	want(t, "now within the threshold", fmt.Sprint(q2["prior_period"].(map[string]any)["above_threshold"]), "false")
@@ -247,8 +251,19 @@ func TestComputeRefusals(t *testing.T) {
 
 // overflowing is a ledger port whose items' sums overflow an amount.
 type overflowing struct {
-	groups []ledger.TaxItemGroup
-	items  []ledger.ReturnItem
+	ledger.TaxItems // claims and releases as the ledger does, unless claim is set
+	groups          []ledger.TaxItemGroup
+	items           []ledger.ReturnItem
+	claim           bool // claims claimed, grouped as groups
+	claimed         []ledger.ClaimedItem
+}
+
+func (o overflowing) Claim(ctx context.Context, les []uuid.UUID, from *time.Time, start, end time.Time, sels []ledger.TaxItemSelection,
+	ret uuid.UUID) ([]ledger.TaxItemGroup, []ledger.ClaimedItem, error) {
+	if o.claim {
+		return o.groups, o.claimed, nil
+	}
+	return o.TaxItems.Claim(ctx, les, from, start, end, sels, ret)
 }
 
 func (o overflowing) Unreported(context.Context, []uuid.UUID, time.Time, time.Time) ([]ledger.TaxItemGroup, error) {

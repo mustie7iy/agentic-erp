@@ -191,6 +191,7 @@ func TestApprovalObjectsLocated(t *testing.T) {
 		approvals.InvoiceException: "/v1/supplier-invoices/", approvals.PeriodUnlock: "/v1/fiscal-periods/",
 		approvals.ManualEntry: "/v1/parked-journal-entries/", approvals.PurchaseOrder: "/v1/purchase-orders/", approvals.CenterChange: "/v1/center-changes/",
 		approvals.PaymentRunRelease: "/v1/payment-runs/", approvals.GRIRClearing: "/v1/gr-ir-clearings/",
+		approvals.TaxReturn: "/v1/tax-returns/",
 	}
 	for kind := range approvals.ObjectPermissions {
 		t.Run(kind, func(t *testing.T) {

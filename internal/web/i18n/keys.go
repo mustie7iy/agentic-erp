@@ -91,6 +91,7 @@ const (
 	ObjectCenterChange Key = "object.center_change"
 	ObjectRunRelease   Key = "object.payment_run_release"
 	ObjectGRIRClearing Key = "object.gr_ir_clearing"
+	ObjectTaxReturn    Key = "object.tax_return"
 	StatusPending      Key = "approval.status.pending"
 	StatusApproved     Key = "approval.status.approved"
 	StatusRejected     Key = "approval.status.rejected"

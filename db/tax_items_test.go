@@ -58,7 +58,7 @@ func (s taxScene) taxedEntry(tx pgx.Tx, items bool) (uuid.UUID, error) {
 // TestTaxItemRules: an entry's tax lines have their items when it
 // commits, of its legal entity and adding up to its tax lines per account
 // and code; output tax recovers nothing and input tax at most itself; an
-// item is fixed but for the return that reports it, set once (T61c).
+// item is fixed but for the return that reports it (T61c, T61i).
 func TestTaxItemRules(t *testing.T) {
 	need(t)
 	s := newTaxScene(t)
@@ -306,10 +306,10 @@ func TestTaxItemRules(t *testing.T) {
 			return exec(tx, "UPDATE ledger.tax_item SET "+set+" WHERE journal_entry_id = $1", entry)
 		}
 	}
-	t.Run("reported once", func(t *testing.T) {
+	t.Run("reported in a return", func(t *testing.T) {
+		// Set and released by a return alone (T61i, TestTaxItemReported).
 		failsOn(t, asApp(t, s.tenant, report("reported_in = NULL")), "tax_item_fixed")
-		mustApp(t, s.tenant, report("reported_in = gen_random_uuid()"))
-		failsOn(t, asApp(t, s.tenant, report("reported_in = gen_random_uuid()")), "tax_item_fixed")
+		failsOn(t, asApp(t, s.tenant, report("reported_in = gen_random_uuid()")), "tax_item_reported")
 	})
 	t.Run("otherwise fixed", func(t *testing.T) {
 		del := "DELETE FROM ledger.tax_item WHERE journal_entry_id = $1"

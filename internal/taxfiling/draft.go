@@ -153,16 +153,9 @@ func boxSumOf(sel *countrypack.Selection, groups []ledger.TaxItemGroup, selected
 // selection boxes' sums, and the prior-period items held to the pack's
 // threshold.
 func (s *returnScope) draft(ctx context.Context, sums returnSums) (*gen.TaxReturnDraft, error) {
-	all, prior := map[string]money.Minor{}, map[string]money.Minor{}
-	for code, b := range sums.boxes {
-		all[code], prior[code] = b.all, b.prior
-	}
-	all, err := s.def.Evaluate(ctx, all)
-	if err == nil {
-		prior, err = s.def.Evaluate(ctx, prior)
-	}
+	all, prior, err := s.values(ctx, sums)
 	if err != nil {
-		return nil, fmt.Errorf("taxfiling: return of %s: %w", s.reg.Code, err)
+		return nil, err
 	}
 	threshold, set := s.def.Threshold(s.exp)
 	m := func(v money.Minor) gen.Money { return apitypes.Money(v, s.currency, s.exp) }
@@ -182,6 +175,23 @@ func (s *returnScope) draft(ctx context.Context, sums returnSums) (*gen.TaxRetur
 		out.Boxes[i] = box
 	}
 	return out, nil
+}
+
+// values are every box's value from the selection boxes' sums, in all and
+// their prior-period part, by code: the expression boxes computed.
+func (s *returnScope) values(ctx context.Context, sums returnSums) (all, prior map[string]money.Minor, err error) {
+	all, prior = map[string]money.Minor{}, map[string]money.Minor{}
+	for code, b := range sums.boxes {
+		all[code], prior[code] = b.all, b.prior
+	}
+	all, err = s.def.Evaluate(ctx, all)
+	if err == nil {
+		prior, err = s.def.Evaluate(ctx, prior)
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("taxfiling: return of %s: %w", s.reg.Code, err)
+	}
+	return all, prior, nil
 }
 
 // itemCursor is a box items page's position: the last item's place in the

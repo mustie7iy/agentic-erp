@@ -14,8 +14,7 @@
 // from the registration alone and are computed on read
 // (config.TaxPeriods), never stored. A registration change is a governed
 // configuration change (tier 3), audited and published by the
-// configuration context's activation (ADR-0011, ADR-0007); this context
-// adds no event of its own until returns move (T61i). Every read runs in
+// configuration context's activation (ADR-0011, ADR-0007). Every read runs in
 // the request's transaction under row-level security (ADR-0003), and a
 // caller sees the registrations covering a company they may act in.
 //
@@ -23,8 +22,12 @@
 // boxes of the country pack's returns.yaml (ADR-0048), for the return type
 // of the registration, summed from the tax items no return has reported,
 // read through the ledger's port (ledger.TaxItems); it claims no item, so
-// it writes no audit record and publishes nothing. T61i prepares a return
-// from it and claims its items.
+// it writes no audit record and publishes nothing.
+//
+// A return is prepared from it (T61i, lifecycle.go): a snapshot claiming
+// its items, approved by another person, recorded as filed, withdrawn or
+// amended, each move a person's, audited and published through the tax
+// outbox (ADR-0011, ADR-0007), the return read FOR UPDATE (ADR-0008).
 package taxfiling
 
 import (
@@ -68,6 +71,10 @@ type Endpoints struct {
 	// Packs are the country packs whose returns.yaml defines the boxes.
 	Items TaxItems
 	Packs *countrypack.Library
+	// Approvals opens a prepared return's approval request (T61i), and
+	// Periods reads and locks the fiscal periods a return covers.
+	Approvals Opener
+	Periods   FiscalPeriods
 }
 
 // registrationFixed is the refusal of a configuration that changes what a

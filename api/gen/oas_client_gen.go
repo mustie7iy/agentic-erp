@@ -155,8 +155,9 @@ type Invoker interface {
 	// object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The
 	// request is `approved` when the last step is complete, and the object moves on (a requisition becomes
 	// `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry
-	// is posted, a bank statement line is posted). A manual entry is checked again as it is posted: when
-	// that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
+	// is posted, a bank statement line is posted, a tax return becomes `approved` by a holder of
+	// `tax_manager` who did not prepare it). A manual entry is checked again as it is posted: when that
+	// refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
 	// fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
 	// statement line's posting (`bank_clearing`) and a GR/IR clearing's (`gr_ir_clearing`, 409
 	// `ledger.gr_ir_clearing_outdated` when a position moved since it was proposed), and whoever matched
@@ -702,6 +703,22 @@ type Invoker interface {
 	//
 	// POST /v1/bank-statements/{id}/lines/{line_no}:exclude
 	ExcludeBankStatementLine(ctx context.Context, request *ReasonInput, params ExcludeBankStatementLineParams) (ExcludeBankStatementLineRes, error)
+	// FileTaxReturn invokes fileTaxReturn operation.
+	//
+	// Records that a person filed the approved return with the authority on its portal, with the
+	// authority's confirmation number and the date it gives (ADR-0049 P3: the ERP files nothing itself).
+	// The snapshot is final from then on. Recording it filed locks the fiscal periods of the leading
+	// ledger of the registration's companies that overlap its tax period, those not yet locked, as
+	// `lockFiscalPeriod` does (events `PeriodLocked`; `TaxReturnFiled`'s `locked_periods` names them, and
+	// `listFiscalPeriods` shows them `locked`): an item dated in the period that arrives later is posted
+	// in an open period and reported in the next return or an amendment. A period reopened since the
+	// return was prepared is refused (409 `tax.fiscal_period_open`). `filed_on` lies after the period's
+	// end and not after the registrant's date today in its time zone (422 `tax.invalid_filed_on`); a
+	// confirmation number of only spaces is 422 `tax.confirmation_required`. Requires status `approved`
+	// (409 `tax.invalid_return_status`). Event `TaxReturnFiled`. Human-only.
+	//
+	// POST /v1/tax-returns/{id}:file
+	FileTaxReturn(ctx context.Context, request *TaxReturnFile, params FileTaxReturnParams) (FileTaxReturnRes, error)
 	// GetAccount invokes getAccount operation.
 	//
 	// Returns one general ledger account.
@@ -1158,6 +1175,14 @@ type Invoker interface {
 	//
 	// GET /v1/supplier-invoices/{id}/document
 	GetSupplierInvoiceDocument(ctx context.Context, params GetSupplierInvoiceDocumentParams) (GetSupplierInvoiceDocumentRes, error)
+	// GetTaxReturn invokes getTaxReturn operation.
+	//
+	// Returns one tax return (ADR-0049 §11, T61i), the object of a `tax_return` approval request (its
+	// `object_id`): its snapshot, status and who moved it. A return of a registration the caller does not
+	// see is not found.
+	//
+	// GET /v1/tax-returns/{id}
+	GetTaxReturn(ctx context.Context, params GetTaxReturnParams) (GetTaxReturnRes, error)
 	// GetTaxReturnDraft invokes getTaxReturnDraft operation.
 	//
 	// A draft of a registration's return for one of its periods (ADR-0049 §11, T61h), computed on demand
@@ -1783,6 +1808,15 @@ type Invoker interface {
 	//
 	// GET /v1/tax-registrations/{id}/draft-return/items
 	ListTaxReturnDraftItems(ctx context.Context, params ListTaxReturnDraftItemsParams) (ListTaxReturnDraftItemsRes, error)
+	// ListTaxReturns invokes listTaxReturns operation.
+	//
+	// The returns prepared for a registration (ADR-0049 §11, T61i), in every status, by period start,
+	// filtered by period and status: an original per period and the amendments that correct a filed one. A
+	// registration the caller does not see (`listTaxRegistrations`) is not found. Sortable by:
+	// `period_start`.
+	//
+	// GET /v1/tax-registrations/{id}/returns
+	ListTaxReturns(ctx context.Context, params ListTaxReturnsParams) (ListTaxReturnsRes, error)
 	// ListWebhookDeliveries invokes listWebhookDeliveries operation.
 	//
 	// The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:
@@ -2126,6 +2160,29 @@ type Invoker interface {
 	//
 	// POST /v1/supplier-invoices/{id}:post
 	PostSupplierInvoice(ctx context.Context, request OptSupplierInvoicePost, params PostSupplierInvoiceParams) (PostSupplierInvoiceRes, error)
+	// PrepareTaxReturn invokes prepareTaxReturn operation.
+	//
+	// Prepares the registration's return for one of its ended periods (ADR-0049 §11, T61i): a snapshot of
+	// the draft (`getTaxReturnDraft`) as it stands, its boxes, the keys of the tax items it claims and
+	// their hash, and the country pack version that defines it. The items' `reported_in` is set in the
+	// same transaction under a lock on the registration, so an item is reported in one return and two
+	// prepares of one period cannot both succeed; the draft of the period and later drafts no longer read
+	// them. Every fiscal period of the leading ledger of the registration's companies overlapping the tax
+	// period must be closed or locked, so no posting is under way (409 `tax.fiscal_period_open`, naming
+	// the period); items posted later in an open period with an earlier tax date are claimed as the draft
+	// reads them. It opens a `tax_return` approval request (`approval_request_id`), which a holder of the
+	// role `tax_manager` with `tax.return.approve` decides, never the preparer and never an agent;
+	// approved, the return is recorded as filed (`fileTaxReturn`). Event `TaxReturnPrepared`. `kind`
+	// `amendment` corrects the period's filed return (P7: when a correction must not wait for the next
+	// return): it claims the unreported items dated within the period, which arrived after the filing, and
+	// gives each box its correction (`amount`) and the period's corrected figure (`corrected_amount`), by
+	// the amended return's pack version; without a filed return of the period, or with nothing to correct,
+	// 409 `tax.nothing_to_amend`. One original stands per period (409 `tax.return_exists`) and one return
+	// of a period is in progress at a time (409 `tax.return_in_progress`). Refused as `getTaxReturnDraft`
+	// is otherwise. Human-only.
+	//
+	// POST /v1/tax-registrations/{id}/returns
+	PrepareTaxReturn(ctx context.Context, request *TaxReturnPrepare, params PrepareTaxReturnParams) (PrepareTaxReturnRes, error)
 	// PreviewRevaluation invokes previewRevaluation operation.
 	//
 	// Values, without posting, what a revaluation run of a legal entity and ledger at a key date would
@@ -2280,7 +2337,8 @@ type Invoker interface {
 	// `workflow.request.decide` the caller must hold the step's role and the approval permission of the
 	// object type, listed in `x-object-permissions`. The object is rejected with it (for example a
 	// supplier invoice exception leaves the invoice `rejected`); a payment run whose release is rejected
-	// (`payment_run_release`) is rejected too, its items freed (product owner 2026-10-25).
+	// (`payment_run_release`) is rejected too, its items freed (product owner 2026-10-25); a rejected tax
+	// return (`tax_return`) releases its tax items.
 	//
 	// POST /v1/approval-requests/{id}:reject
 	RejectApprovalRequest(ctx context.Context, request *CommentRequiredInput, params RejectApprovalRequestParams) (RejectApprovalRequestRes, error)
@@ -2853,6 +2911,17 @@ type Invoker interface {
 	//
 	// POST /v1/change-requests/{id}:withdraw
 	WithdrawChangeRequest(ctx context.Context, request *ReasonInput, params WithdrawChangeRequestParams) (WithdrawChangeRequestRes, error)
+	// WithdrawTaxReturn invokes withdrawTaxReturn operation.
+	//
+	// Withdraws a prepared or approved return that is not filed (ADR-0049 §11): its pending approval
+	// request is cancelled and its tax items are released, so the period's draft reads them again and a
+	// return of the period can be prepared anew. The snapshot is kept, with who withdrew it and why. A
+	// filed return is not withdrawn but amended (`prepareTaxReturn` with `kind` `amendment`). Requires
+	// status `prepared` or `approved` (409 `tax.invalid_return_status`). Event `TaxReturnWithdrawn`.
+	// Human-only.
+	//
+	// POST /v1/tax-returns/{id}:withdraw
+	WithdrawTaxReturn(ctx context.Context, request *ReasonInput, params WithdrawTaxReturnParams) (WithdrawTaxReturnRes, error)
 }
 
 // Client implements OAS client.
@@ -4377,8 +4446,9 @@ func (c *Client) sendApplyPlanBatch(ctx context.Context, request *PlanBatchCreat
 // object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The
 // request is `approved` when the last step is complete, and the object moves on (a requisition becomes
 // `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry
-// is posted, a bank statement line is posted). A manual entry is checked again as it is posted: when
-// that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
+// is posted, a bank statement line is posted, a tax return becomes `approved` by a holder of
+// `tax_manager` who did not prepare it). A manual entry is checked again as it is posted: when that
+// refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
 // fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
 // statement line's posting (`bank_clearing`) and a GR/IR clearing's (`gr_ir_clearing`, 409
 // `ledger.gr_ir_clearing_outdated` when a position moved since it was proposed), and whoever matched
@@ -13701,6 +13771,176 @@ func (c *Client) sendExcludeBankStatementLine(ctx context.Context, request *Reas
 	return result, nil
 }
 
+// FileTaxReturn invokes fileTaxReturn operation.
+//
+// Records that a person filed the approved return with the authority on its portal, with the
+// authority's confirmation number and the date it gives (ADR-0049 P3: the ERP files nothing itself).
+// The snapshot is final from then on. Recording it filed locks the fiscal periods of the leading
+// ledger of the registration's companies that overlap its tax period, those not yet locked, as
+// `lockFiscalPeriod` does (events `PeriodLocked`; `TaxReturnFiled`'s `locked_periods` names them, and
+// `listFiscalPeriods` shows them `locked`): an item dated in the period that arrives later is posted
+// in an open period and reported in the next return or an amendment. A period reopened since the
+// return was prepared is refused (409 `tax.fiscal_period_open`). `filed_on` lies after the period's
+// end and not after the registrant's date today in its time zone (422 `tax.invalid_filed_on`); a
+// confirmation number of only spaces is 422 `tax.confirmation_required`. Requires status `approved`
+// (409 `tax.invalid_return_status`). Event `TaxReturnFiled`. Human-only.
+//
+// POST /v1/tax-returns/{id}:file
+func (c *Client) FileTaxReturn(ctx context.Context, request *TaxReturnFile, params FileTaxReturnParams) (FileTaxReturnRes, error) {
+	res, err := c.sendFileTaxReturn(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendFileTaxReturn(ctx context.Context, request *TaxReturnFile, params FileTaxReturnParams) (res FileTaxReturnRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("fileTaxReturn"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/tax-returns/{id}:file"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, FileTaxReturnOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/tax-returns/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":file"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeFileTaxReturnRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, FileTaxReturnOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeFileTaxReturnResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetAccount invokes getAccount operation.
 //
 // Returns one general ledger account.
@@ -21966,6 +22206,139 @@ func (c *Client) sendGetSupplierInvoiceDocument(ctx context.Context, params GetS
 
 	stage = "DecodeResponse"
 	result, err := decodeGetSupplierInvoiceDocumentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetTaxReturn invokes getTaxReturn operation.
+//
+// Returns one tax return (ADR-0049 §11, T61i), the object of a `tax_return` approval request (its
+// `object_id`): its snapshot, status and who moved it. A return of a registration the caller does not
+// see is not found.
+//
+// GET /v1/tax-returns/{id}
+func (c *Client) GetTaxReturn(ctx context.Context, params GetTaxReturnParams) (GetTaxReturnRes, error) {
+	res, err := c.sendGetTaxReturn(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetTaxReturn(ctx context.Context, params GetTaxReturnParams) (res GetTaxReturnRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getTaxReturn"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/tax-returns/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetTaxReturnOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/tax-returns/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetTaxReturnOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetTaxReturnResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -39773,6 +40146,230 @@ func (c *Client) sendListTaxReturnDraftItems(ctx context.Context, params ListTax
 	return result, nil
 }
 
+// ListTaxReturns invokes listTaxReturns operation.
+//
+// The returns prepared for a registration (ADR-0049 §11, T61i), in every status, by period start,
+// filtered by period and status: an original per period and the amendments that correct a filed one. A
+// registration the caller does not see (`listTaxRegistrations`) is not found. Sortable by:
+// `period_start`.
+//
+// GET /v1/tax-registrations/{id}/returns
+func (c *Client) ListTaxReturns(ctx context.Context, params ListTaxReturnsParams) (ListTaxReturnsRes, error) {
+	res, err := c.sendListTaxReturns(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListTaxReturns(ctx context.Context, params ListTaxReturnsParams) (res ListTaxReturnsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listTaxReturns"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/tax-registrations/{id}/returns"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListTaxReturnsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/tax-registrations/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/returns"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "period_start" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "period_start",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PeriodStart.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListTaxReturnsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListTaxReturnsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListWebhookDeliveries invokes listWebhookDeliveries operation.
 //
 // The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:
@@ -43674,6 +44271,172 @@ func (c *Client) sendPostSupplierInvoice(ctx context.Context, request OptSupplie
 	return result, nil
 }
 
+// PrepareTaxReturn invokes prepareTaxReturn operation.
+//
+// Prepares the registration's return for one of its ended periods (ADR-0049 §11, T61i): a snapshot of
+// the draft (`getTaxReturnDraft`) as it stands, its boxes, the keys of the tax items it claims and
+// their hash, and the country pack version that defines it. The items' `reported_in` is set in the
+// same transaction under a lock on the registration, so an item is reported in one return and two
+// prepares of one period cannot both succeed; the draft of the period and later drafts no longer read
+// them. Every fiscal period of the leading ledger of the registration's companies overlapping the tax
+// period must be closed or locked, so no posting is under way (409 `tax.fiscal_period_open`, naming
+// the period); items posted later in an open period with an earlier tax date are claimed as the draft
+// reads them. It opens a `tax_return` approval request (`approval_request_id`), which a holder of the
+// role `tax_manager` with `tax.return.approve` decides, never the preparer and never an agent;
+// approved, the return is recorded as filed (`fileTaxReturn`). Event `TaxReturnPrepared`. `kind`
+// `amendment` corrects the period's filed return (P7: when a correction must not wait for the next
+// return): it claims the unreported items dated within the period, which arrived after the filing, and
+// gives each box its correction (`amount`) and the period's corrected figure (`corrected_amount`), by
+// the amended return's pack version; without a filed return of the period, or with nothing to correct,
+// 409 `tax.nothing_to_amend`. One original stands per period (409 `tax.return_exists`) and one return
+// of a period is in progress at a time (409 `tax.return_in_progress`). Refused as `getTaxReturnDraft`
+// is otherwise. Human-only.
+//
+// POST /v1/tax-registrations/{id}/returns
+func (c *Client) PrepareTaxReturn(ctx context.Context, request *TaxReturnPrepare, params PrepareTaxReturnParams) (PrepareTaxReturnRes, error) {
+	res, err := c.sendPrepareTaxReturn(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendPrepareTaxReturn(ctx context.Context, request *TaxReturnPrepare, params PrepareTaxReturnParams) (res PrepareTaxReturnRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("prepareTaxReturn"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/tax-registrations/{id}/returns"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, PrepareTaxReturnOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/tax-registrations/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/returns"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodePrepareTaxReturnRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, PrepareTaxReturnOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodePrepareTaxReturnResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // PreviewRevaluation invokes previewRevaluation operation.
 //
 // Values, without posting, what a revaluation run of a legal entity and ledger at a key date would
@@ -45299,7 +46062,8 @@ func (c *Client) sendRedeliverWebhookDelivery(ctx context.Context, params Redeli
 // `workflow.request.decide` the caller must hold the step's role and the approval permission of the
 // object type, listed in `x-object-permissions`. The object is rejected with it (for example a
 // supplier invoice exception leaves the invoice `rejected`); a payment run whose release is rejected
-// (`payment_run_release`) is rejected too, its items freed (product owner 2026-10-25).
+// (`payment_run_release`) is rejected too, its items freed (product owner 2026-10-25); a rejected tax
+// return (`tax_return`) releases its tax items.
 //
 // POST /v1/approval-requests/{id}:reject
 func (c *Client) RejectApprovalRequest(ctx context.Context, request *CommentRequiredInput, params RejectApprovalRequestParams) (RejectApprovalRequestRes, error) {
@@ -54394,6 +55158,171 @@ func (c *Client) sendWithdrawChangeRequest(ctx context.Context, request *ReasonI
 
 	stage = "DecodeResponse"
 	result, err := decodeWithdrawChangeRequestResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// WithdrawTaxReturn invokes withdrawTaxReturn operation.
+//
+// Withdraws a prepared or approved return that is not filed (ADR-0049 §11): its pending approval
+// request is cancelled and its tax items are released, so the period's draft reads them again and a
+// return of the period can be prepared anew. The snapshot is kept, with who withdrew it and why. A
+// filed return is not withdrawn but amended (`prepareTaxReturn` with `kind` `amendment`). Requires
+// status `prepared` or `approved` (409 `tax.invalid_return_status`). Event `TaxReturnWithdrawn`.
+// Human-only.
+//
+// POST /v1/tax-returns/{id}:withdraw
+func (c *Client) WithdrawTaxReturn(ctx context.Context, request *ReasonInput, params WithdrawTaxReturnParams) (WithdrawTaxReturnRes, error) {
+	res, err := c.sendWithdrawTaxReturn(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendWithdrawTaxReturn(ctx context.Context, request *ReasonInput, params WithdrawTaxReturnParams) (res WithdrawTaxReturnRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("withdrawTaxReturn"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/tax-returns/{id}:withdraw"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, WithdrawTaxReturnOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/tax-returns/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":withdraw"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeWithdrawTaxReturnRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, WithdrawTaxReturnOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeWithdrawTaxReturnResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

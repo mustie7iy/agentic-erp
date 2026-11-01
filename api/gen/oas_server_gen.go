@@ -134,8 +134,9 @@ type Handler interface {
 	// object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The
 	// request is `approved` when the last step is complete, and the object moves on (a requisition becomes
 	// `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry
-	// is posted, a bank statement line is posted). A manual entry is checked again as it is posted: when
-	// that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
+	// is posted, a bank statement line is posted, a tax return becomes `approved` by a holder of
+	// `tax_manager` who did not prepare it). A manual entry is checked again as it is posted: when that
+	// refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
 	// fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
 	// statement line's posting (`bank_clearing`) and a GR/IR clearing's (`gr_ir_clearing`, 409
 	// `ledger.gr_ir_clearing_outdated` when a position moved since it was proposed), and whoever matched
@@ -681,6 +682,22 @@ type Handler interface {
 	//
 	// POST /v1/bank-statements/{id}/lines/{line_no}:exclude
 	ExcludeBankStatementLine(ctx context.Context, req *ReasonInput, params ExcludeBankStatementLineParams) (ExcludeBankStatementLineRes, error)
+	// FileTaxReturn implements fileTaxReturn operation.
+	//
+	// Records that a person filed the approved return with the authority on its portal, with the
+	// authority's confirmation number and the date it gives (ADR-0049 P3: the ERP files nothing itself).
+	// The snapshot is final from then on. Recording it filed locks the fiscal periods of the leading
+	// ledger of the registration's companies that overlap its tax period, those not yet locked, as
+	// `lockFiscalPeriod` does (events `PeriodLocked`; `TaxReturnFiled`'s `locked_periods` names them, and
+	// `listFiscalPeriods` shows them `locked`): an item dated in the period that arrives later is posted
+	// in an open period and reported in the next return or an amendment. A period reopened since the
+	// return was prepared is refused (409 `tax.fiscal_period_open`). `filed_on` lies after the period's
+	// end and not after the registrant's date today in its time zone (422 `tax.invalid_filed_on`); a
+	// confirmation number of only spaces is 422 `tax.confirmation_required`. Requires status `approved`
+	// (409 `tax.invalid_return_status`). Event `TaxReturnFiled`. Human-only.
+	//
+	// POST /v1/tax-returns/{id}:file
+	FileTaxReturn(ctx context.Context, req *TaxReturnFile, params FileTaxReturnParams) (FileTaxReturnRes, error)
 	// GetAccount implements getAccount operation.
 	//
 	// Returns one general ledger account.
@@ -1137,6 +1154,14 @@ type Handler interface {
 	//
 	// GET /v1/supplier-invoices/{id}/document
 	GetSupplierInvoiceDocument(ctx context.Context, params GetSupplierInvoiceDocumentParams) (GetSupplierInvoiceDocumentRes, error)
+	// GetTaxReturn implements getTaxReturn operation.
+	//
+	// Returns one tax return (ADR-0049 §11, T61i), the object of a `tax_return` approval request (its
+	// `object_id`): its snapshot, status and who moved it. A return of a registration the caller does not
+	// see is not found.
+	//
+	// GET /v1/tax-returns/{id}
+	GetTaxReturn(ctx context.Context, params GetTaxReturnParams) (GetTaxReturnRes, error)
 	// GetTaxReturnDraft implements getTaxReturnDraft operation.
 	//
 	// A draft of a registration's return for one of its periods (ADR-0049 §11, T61h), computed on demand
@@ -1762,6 +1787,15 @@ type Handler interface {
 	//
 	// GET /v1/tax-registrations/{id}/draft-return/items
 	ListTaxReturnDraftItems(ctx context.Context, params ListTaxReturnDraftItemsParams) (ListTaxReturnDraftItemsRes, error)
+	// ListTaxReturns implements listTaxReturns operation.
+	//
+	// The returns prepared for a registration (ADR-0049 §11, T61i), in every status, by period start,
+	// filtered by period and status: an original per period and the amendments that correct a filed one. A
+	// registration the caller does not see (`listTaxRegistrations`) is not found. Sortable by:
+	// `period_start`.
+	//
+	// GET /v1/tax-registrations/{id}/returns
+	ListTaxReturns(ctx context.Context, params ListTaxReturnsParams) (ListTaxReturnsRes, error)
 	// ListWebhookDeliveries implements listWebhookDeliveries operation.
 	//
 	// The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:
@@ -2105,6 +2139,29 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices/{id}:post
 	PostSupplierInvoice(ctx context.Context, req OptSupplierInvoicePost, params PostSupplierInvoiceParams) (PostSupplierInvoiceRes, error)
+	// PrepareTaxReturn implements prepareTaxReturn operation.
+	//
+	// Prepares the registration's return for one of its ended periods (ADR-0049 §11, T61i): a snapshot of
+	// the draft (`getTaxReturnDraft`) as it stands, its boxes, the keys of the tax items it claims and
+	// their hash, and the country pack version that defines it. The items' `reported_in` is set in the
+	// same transaction under a lock on the registration, so an item is reported in one return and two
+	// prepares of one period cannot both succeed; the draft of the period and later drafts no longer read
+	// them. Every fiscal period of the leading ledger of the registration's companies overlapping the tax
+	// period must be closed or locked, so no posting is under way (409 `tax.fiscal_period_open`, naming
+	// the period); items posted later in an open period with an earlier tax date are claimed as the draft
+	// reads them. It opens a `tax_return` approval request (`approval_request_id`), which a holder of the
+	// role `tax_manager` with `tax.return.approve` decides, never the preparer and never an agent;
+	// approved, the return is recorded as filed (`fileTaxReturn`). Event `TaxReturnPrepared`. `kind`
+	// `amendment` corrects the period's filed return (P7: when a correction must not wait for the next
+	// return): it claims the unreported items dated within the period, which arrived after the filing, and
+	// gives each box its correction (`amount`) and the period's corrected figure (`corrected_amount`), by
+	// the amended return's pack version; without a filed return of the period, or with nothing to correct,
+	// 409 `tax.nothing_to_amend`. One original stands per period (409 `tax.return_exists`) and one return
+	// of a period is in progress at a time (409 `tax.return_in_progress`). Refused as `getTaxReturnDraft`
+	// is otherwise. Human-only.
+	//
+	// POST /v1/tax-registrations/{id}/returns
+	PrepareTaxReturn(ctx context.Context, req *TaxReturnPrepare, params PrepareTaxReturnParams) (PrepareTaxReturnRes, error)
 	// PreviewRevaluation implements previewRevaluation operation.
 	//
 	// Values, without posting, what a revaluation run of a legal entity and ledger at a key date would
@@ -2259,7 +2316,8 @@ type Handler interface {
 	// `workflow.request.decide` the caller must hold the step's role and the approval permission of the
 	// object type, listed in `x-object-permissions`. The object is rejected with it (for example a
 	// supplier invoice exception leaves the invoice `rejected`); a payment run whose release is rejected
-	// (`payment_run_release`) is rejected too, its items freed (product owner 2026-10-25).
+	// (`payment_run_release`) is rejected too, its items freed (product owner 2026-10-25); a rejected tax
+	// return (`tax_return`) releases its tax items.
 	//
 	// POST /v1/approval-requests/{id}:reject
 	RejectApprovalRequest(ctx context.Context, req *CommentRequiredInput, params RejectApprovalRequestParams) (RejectApprovalRequestRes, error)
@@ -2832,6 +2890,17 @@ type Handler interface {
 	//
 	// POST /v1/change-requests/{id}:withdraw
 	WithdrawChangeRequest(ctx context.Context, req *ReasonInput, params WithdrawChangeRequestParams) (WithdrawChangeRequestRes, error)
+	// WithdrawTaxReturn implements withdrawTaxReturn operation.
+	//
+	// Withdraws a prepared or approved return that is not filed (ADR-0049 §11): its pending approval
+	// request is cancelled and its tax items are released, so the period's draft reads them again and a
+	// return of the period can be prepared anew. The snapshot is kept, with who withdrew it and why. A
+	// filed return is not withdrawn but amended (`prepareTaxReturn` with `kind` `amendment`). Requires
+	// status `prepared` or `approved` (409 `tax.invalid_return_status`). Event `TaxReturnWithdrawn`.
+	// Human-only.
+	//
+	// POST /v1/tax-returns/{id}:withdraw
+	WithdrawTaxReturn(ctx context.Context, req *ReasonInput, params WithdrawTaxReturnParams) (WithdrawTaxReturnRes, error)
 }
 
 // Server implements http server based on OpenAPI v3 specification and
