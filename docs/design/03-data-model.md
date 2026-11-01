@@ -911,8 +911,10 @@ Rules enforced in the database:
   them as at its end), every order's, the projected positions except the
   order items posted after the key date, whose positions are summed from
   their lines up to it. The lines after the key date are read from the
-  fiscal years that end after it, so the report costs what was posted
-  since, not the company's history (TestGRIRBalancesBudget).
+  fiscal years that end after it, so an item untouched since costs no
+  line read; an item posted since costs its own history.
+  TestGRIRBalancesBudget measures the case without lines after the key
+  date only.
   A reversal mirrors its entry; where it brings an order item's quantity to
   zero and rounding leaves a balance (the item moved since), it adds a
   GR/IR line of quantity 0 that clears it against `price_difference`, so a

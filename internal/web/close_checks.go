@@ -41,7 +41,10 @@ type checkQuery struct {
 }
 
 // parseChecks is the query's company, ledger, year, period and the
-// period's end, and whether it names them.
+// period's end, and whether it names them. The period's page builds the
+// address from the period it read; the end is taken as given, not checked
+// against the year and period, which would cost the checks a seventh call
+// (getFiscalPeriod).
 func parseChecks(q url.Values) (checkQuery, bool) {
 	company, err1 := uuid.Parse(q.Get(ui.FieldCompany))
 	ledger, err2 := uuid.Parse(q.Get(ui.FieldLedger))

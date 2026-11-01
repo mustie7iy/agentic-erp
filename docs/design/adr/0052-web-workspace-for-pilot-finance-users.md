@@ -2336,9 +2336,10 @@ contract or T73i's behaviour settled it:
   positions except the order items posted after the key date, whose
   positions are summed from their own lines up to it; those lines are
   read from the fiscal years ending after the key date only. The result
-  equals each order's key-date report on every date of the test, and the
-  budget test holds it at p95 54 ms over 20,000 positions (laptop, no
-  lines after the key date; 03-data-model §3.7). The period's page puts
+  equals each order's key-date report on every date of the test. The
+  budget test holds it at p95 54 ms over 20,000 positions (laptop) with
+  no lines after the key date; an item posted since costs its own
+  history, which the budget test does not measure (03-data-model §3.7). The period's page puts
   its end in the checks' address (`key_date`, required: the checks read no
   period, which would be a seventh call). The ledger reconciliation was
   already of the period. **Decided:** the statements check stays as the

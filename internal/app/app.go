@@ -363,14 +363,14 @@ func opener() approvals.Approvals {
 	return approvals.Approvals{Settings: configuration.Settings{}, Roles: identity.Directory{}, Rates: rates()}
 }
 
-// rates converts document amounts into their company's currency for the
-// contexts that compare them with configured amounts.
 // LedgerPartners names a revaluation's partners for the ledger from the
 // partner context's published names (T73i2): the ledger does not import
 // the partner context. Exported for the ledger's tests, which wire their
 // endpoints as the API does.
 type LedgerPartners struct{}
 
+// PartnerNames are the partners' numbers and names by id, as the partner
+// context publishes them; an id that names no partner is left out.
 func (LedgerPartners) PartnerNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]ledger.PartnerName, error) {
 	named, err := partner.Payees{}.Names(ctx, ids)
 	out := make(map[uuid.UUID]ledger.PartnerName, len(named))
@@ -380,6 +380,8 @@ func (LedgerPartners) PartnerNames(ctx context.Context, ids []uuid.UUID) (map[uu
 	return out, err
 }
 
+// rates converts document amounts into their company's currency for the
+// contexts that compare them with configured amounts.
 func rates() ledger.Rates { return ledger.Rates{LegalEntities: tenancy.Directory{}} }
 
 // postings posts journal entries for the contexts that post.
