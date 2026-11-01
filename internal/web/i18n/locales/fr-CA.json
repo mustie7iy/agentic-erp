@@ -310,7 +310,7 @@
   "item.description.hint": "Au plus 200 caractères. Vide : aucune.",
   "item.quantity.hint": "Dans l'unité de la ligne.",
   "item.amount.hint": "Hors taxes, dans la devise de la facture.",
-  "item.taxcode.hint": "1 à 4 lettres ou chiffres. Vide : aucun code de taxe.",
+  "item.taxcode.hint": "1 à 4 lettres ou chiffres. Vide : aucun ou, sur une ligne d'un poste de commande, le code du poste.",
   "invoice.done.changed": "La facture est modifiée. Une facture sur commande est rapprochée de nouveau avant d'être comptabilisée.",
   "invoice.done.unchanged": "Rien n'a été modifié : le formulaire contenait la facture telle qu'elle est.",
   "refusal.tax.stated": "Taxe indiquée sur la facture",

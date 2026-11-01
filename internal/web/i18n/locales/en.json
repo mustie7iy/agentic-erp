@@ -310,7 +310,7 @@
   "item.description.hint": "At most 200 characters. Empty: none.",
   "item.quantity.hint": "In the line's unit.",
   "item.amount.hint": "Net, in the invoice's currency.",
-  "item.taxcode.hint": "1 to 4 letters or digits. Empty: no tax code.",
+  "item.taxcode.hint": "1 to 4 letters or digits. Empty: none, or, on a line of an order item, the order item's code.",
   "invoice.done.changed": "The invoice is changed. An invoice on an order is matched again before it posts.",
   "invoice.done.unchanged": "Nothing was changed: the form held the invoice as it is.",
   "refusal.tax.stated": "Tax the invoice states",

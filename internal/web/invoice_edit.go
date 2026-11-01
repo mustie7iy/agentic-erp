@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -17,14 +18,18 @@ import (
 // A parked invoice's change (ADR-0052 §7, T73e2): the form shows the
 // invoice's header and lines as they are, and sends what the person
 // changed as a merge patch (updateSupplierInvoice) with the ETag the form
-// was opened with and its own idempotency key. Only what changed is sent:
-// the API matches an invoice on an order again after any change, and a
-// change unlinks an approved exception, so a field sent as it was would
-// cost a match. Lines are changed, never added or left out: their order
-// items, units and accounts are kept as the invoice has them, and the
-// lines are sent as a whole, as the merge patch replaces them. The form
-// reads getCurrentPrincipal and getSupplierInvoice; sending it reads the
-// invoice again, to change what was typed against the invoice as it is.
+// was opened with and its own idempotency key. Only what the person
+// changed is sent: each field travels with its value when the form was
+// opened, so a value someone else changed meanwhile is never sent back
+// over theirs, and a field sent as it was would cost a match (the API
+// matches an invoice on an order again after any change, and a change
+// unlinks an approved exception). Lines are changed, never added or left
+// out: their order items, units and accounts are kept as the invoice has
+// them, and the lines are sent as a whole, as the merge patch replaces
+// them. The form reads getCurrentPrincipal and getSupplierInvoice; sending
+// it reads the invoice again and puts the person's changes on it as it is
+// now, which is also what a refused form shows, at the invoice's version
+// now.
 
 // maxItemText is the longest description of an invoice's line
 // (SupplierInvoiceItem.description).
@@ -39,6 +44,7 @@ type invoiceTyped struct {
 	linesErr                                     i18n.Key
 	items                                        []itemTyped
 	refusal                                      *ui.Refusal
+	opened                                       *invoiceTyped // the values the form sends as opened (FieldWas)
 }
 
 // itemTyped is one line as typed, what is wrong with it and what the API
@@ -80,38 +86,68 @@ func invoiceTypedOf(inv gen.SupplierInvoice, tag string, loc i18n.Locale) invoic
 		t.items = append(t.items, itemTyped{description: it.Description.Or(""), quantity: loc.AmountInput(it.Quantity.Value),
 			amount: loc.AmountInput(it.Amount.Amount), taxCode: it.TaxCode.Or("")})
 	}
+	opened := t
+	t.opened = &opened
 	return t
 }
 
-// readInvoiceForm reads the posted form: its header, and its lines in
-// their order.
-func readInvoiceForm(r *http.Request, ifMatch string) invoiceTyped {
-	f := r.PostForm
-	t := invoiceTyped{reference: f.Get(ui.FieldSupplierReference), invoiceDate: f.Get(ui.FieldInvoiceDate), postingDate: f.Get(ui.FieldPostingDate),
-		taxDate: f.Get(ui.FieldTaxDate), gross: f.Get(ui.FieldGross), tax: f.Get(ui.FieldTax), ifMatch: ifMatch}
+// readInvoiceForm reads the posted form's fields whose names have the
+// prefix: its header, and its lines in their order; "" for what was typed,
+// ui.FieldWas for the values the form was opened with.
+func readInvoiceForm(f url.Values, prefix string) invoiceTyped {
+	t := invoiceTyped{reference: f.Get(prefix + ui.FieldSupplierReference), invoiceDate: f.Get(prefix + ui.FieldInvoiceDate),
+		postingDate: f.Get(prefix + ui.FieldPostingDate), taxDate: f.Get(prefix + ui.FieldTaxDate), gross: f.Get(prefix + ui.FieldGross),
+		tax: f.Get(prefix + ui.FieldTax)}
 	at := func(name string, i int) string {
-		if v := f[name]; i < len(v) {
+		if v := f[prefix+name]; i < len(v) {
 			return v[i]
 		}
 		return ""
 	}
-	for i := range len(f[ui.FieldItemAmount]) {
+	for i := range len(f[prefix+ui.FieldItemAmount]) {
 		t.items = append(t.items, itemTyped{description: at(ui.FieldItemDescription, i), quantity: at(ui.FieldItemQuantity, i),
 			amount: at(ui.FieldItemAmount, i), taxCode: at(ui.FieldItemTaxCode, i)})
 	}
 	return t
 }
 
+// rebase is the invoice as it is now (now) with the person's own changes
+// on it: each field whose typed value is not the one the form was opened
+// with. ok is false when the form's lines are not the invoice's lines now
+// (changed since the form was opened): there is nothing to put them on.
+func rebase(typed, opened, now invoiceTyped) (invoiceTyped, bool) {
+	if len(typed.items) != len(opened.items) || len(opened.items) != len(now.items) {
+		return now, false
+	}
+	pick := func(t, o, n string) string {
+		if strings.TrimSpace(t) != strings.TrimSpace(o) {
+			return t
+		}
+		return n
+	}
+	out := now
+	out.reference, out.invoiceDate = pick(typed.reference, opened.reference, now.reference), pick(typed.invoiceDate, opened.invoiceDate, now.invoiceDate)
+	out.postingDate, out.taxDate = pick(typed.postingDate, opened.postingDate, now.postingDate), pick(typed.taxDate, opened.taxDate, now.taxDate)
+	out.gross, out.tax = pick(typed.gross, opened.gross, now.gross), pick(typed.tax, opened.tax, now.tax)
+	out.items = make([]itemTyped, len(now.items))
+	for i, n := range now.items {
+		t, o := typed.items[i], opened.items[i]
+		out.items[i] = itemTyped{description: pick(t.description, o.description, n.description), quantity: pick(t.quantity, o.quantity, n.quantity),
+			amount: pick(t.amount, o.amount, n.amount), taxCode: pick(t.taxCode, o.taxCode, n.taxCode)}
+	}
+	return out, true
+}
+
 // invoiceChange checks the form in the person's locale, before the API is
 // called so what was typed stays on the page, against the invoice as it
 // is now, and makes the merge patch of what changed: nil when nothing
-// did. ok is false when anything is wrong, said on its field, or when the
-// invoice's lines are not the form's (linesErr).
+// did. ok is false when anything is wrong, said on its field. The form
+// has the invoice's lines (rebase).
 func invoiceChange(loc i18n.Locale, t *invoiceTyped, inv gen.SupplierInvoice) (*gen.SupplierInvoiceUpdate, bool) {
 	body := &gen.SupplierInvoiceUpdate{}
 	t.headerChange(loc, inv, body)
 	body.Items = t.itemsChange(loc, inv)
-	if len(t.errs) > 0 || t.linesErr != "" || slices.ContainsFunc(t.items, func(it itemTyped) bool { return len(it.errs) > 0 }) {
+	if len(t.errs) > 0 || slices.ContainsFunc(t.items, func(it itemTyped) bool { return len(it.errs) > 0 }) {
 		return nil, false
 	}
 	if !body.SupplierReference.Set && !body.InvoiceDate.Set && !body.PostingDate.Set && !body.TaxDate.Set && !body.GrossAmount.Set &&
@@ -185,13 +221,8 @@ func typedAmount(loc i18n.Locale, typed string) (string, i18n.Key) {
 }
 
 // itemsChange checks each line and returns the invoice's lines with the
-// changes, nil when none changed. A form whose lines are not the
-// invoice's (it changed since the form was opened) sets linesErr.
+// changes, nil when none changed.
 func (t *invoiceTyped) itemsChange(loc i18n.Locale, inv gen.SupplierInvoice) []gen.SupplierInvoiceItem {
-	if len(t.items) != len(inv.Items) {
-		t.linesErr = i18n.InvoiceEditLinesChanged
-		return nil
-	}
 	out := slices.Clone(inv.Items)
 	changed := false
 	for i := range t.items {
@@ -247,12 +278,17 @@ func (it *itemTyped) change(loc i18n.Locale, item *gen.SupplierInvoiceItem) bool
 func (t invoiceTyped) view(inv gen.SupplierInvoice, p *person) ui.InvoiceForm {
 	f := ui.InvoiceForm{Action: invoicePath(inv.ID) + "/edit", Back: invoicePath(inv.ID), Number: inv.DocumentNumber, CSRF: p.CSRF, Key: uuid.NewString(),
 		ETag: t.ifMatch, Currency: inv.GrossAmount.Currency, Reference: t.reference, InvoiceDate: t.invoiceDate, PostingDate: t.postingDate,
-		TaxDate: t.taxDate, Gross: t.gross, Tax: t.tax, Errors: t.errs, LinesError: t.linesErr, Refusal: t.refusal}
+		TaxDate: t.taxDate, Gross: t.gross, Tax: t.tax, Errors: t.errs, LinesError: t.linesErr, Refusal: t.refusal,
+		Was: map[string]string{ui.FieldSupplierReference: t.opened.reference, ui.FieldInvoiceDate: t.opened.invoiceDate, ui.FieldPostingDate: t.opened.postingDate,
+			ui.FieldTaxDate: t.opened.taxDate, ui.FieldGross: t.opened.gross, ui.FieldTax: t.opened.tax}}
 	// The form shows the invoice's lines alone: the lines of one that are
 	// not the invoice's are not shown (saveInvoice), so each has its line.
 	for i, it := range t.items {
 		in := ui.ItemInput{No: i + 1, OrderItem: inv.Items[i].PoItemNo.Or(0), Unit: inv.Items[i].Quantity.Unit, Description: it.description,
 			Quantity: it.quantity, Amount: it.amount, TaxCode: it.taxCode, Errors: it.errs}
+		o := t.opened.items[i]
+		in.Was = map[string]string{ui.FieldItemDescription: o.description, ui.FieldItemQuantity: o.quantity, ui.FieldItemAmount: o.amount,
+			ui.FieldItemTaxCode: o.taxCode}
 		for _, rf := range it.refused {
 			in.Refused = append(in.Refused, ui.FieldRefusal{Field: ui.ItemFieldLabel(rf.api), Reason: rf.reason})
 		}
@@ -291,12 +327,14 @@ func (s *Server) showInvoiceForm(w http.ResponseWriter, r *http.Request, p *pers
 	s.render(w, r, status, ui.InvoiceEdit(s.page(i18n.InvoiceEditTitle, ui.InvoicesPath, p, m), t.view(inv, p)))
 }
 
-// saveInvoice sends a parked invoice's change at the ETag the form was
-// opened with: done, the person goes to the invoice's page, which says
-// so (or that nothing changed); refused (a change meanwhile, an invoice
-// no longer parked, a value the API does not take), the form says why,
-// keeps what was typed and takes the invoice's version now. A form whose
-// lines are no longer the invoice's is shown again as the invoice is.
+// saveInvoice sends what the person changed of a parked invoice at the
+// ETag the form was opened with: done, the person goes to the invoice's
+// page, which says so (or that nothing changed); refused (a change
+// meanwhile, an invoice no longer parked, a value the API does not take),
+// the form says why and shows the invoice at its version now with the
+// person's changes on it, so sending it again sends those alone. A form
+// whose lines are no longer the invoice's is shown again as the invoice
+// is.
 func (s *Server) saveInvoice(w http.ResponseWriter, r *http.Request, p *person) {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
@@ -316,14 +354,15 @@ func (s *Server) saveInvoice(w http.ResponseWriter, r *http.Request, p *person) 
 		return
 	}
 	loc, _ := i18n.From(r.Context()) // every request has its locale (localized)
-	t := readInvoiceForm(r, ifMatch)
+	now := invoiceTypedOf(inv, tag, loc)
+	t, same := rebase(readInvoiceForm(r.PostForm, ""), readInvoiceForm(r.PostForm, ui.FieldWas), now)
+	if !same {
+		now.linesErr = i18n.InvoiceEditLinesChanged
+		s.showInvoiceForm(w, r, p, m, inv, http.StatusConflict, now)
+		return
+	}
 	body, valid := invoiceChange(loc, &t, inv)
 	switch {
-	case t.linesErr != "":
-		fresh := invoiceTypedOf(inv, tag, loc)
-		fresh.linesErr = t.linesErr
-		s.showInvoiceForm(w, r, p, m, inv, http.StatusConflict, fresh)
-		return
 	case !valid:
 		s.showInvoiceForm(w, r, p, m, inv, http.StatusUnprocessableEntity, t)
 		return
@@ -331,13 +370,13 @@ func (s *Server) saveInvoice(w http.ResponseWriter, r *http.Request, p *person) 
 		http.Redirect(w, r, invoicePath(id)+"?done=unchanged", http.StatusSeeOther)
 		return
 	}
-	res, err := s.API.UpdateSupplierInvoice(r.Context(), body, gen.UpdateSupplierInvoiceParams{ID: id, IfMatch: t.ifMatch, IdempotencyKey: key})
+	res, err := s.API.UpdateSupplierInvoice(r.Context(), body, gen.UpdateSupplierInvoiceParams{ID: id, IfMatch: ifMatch, IdempotencyKey: key})
 	if _, ok := res.(*gen.UpdateSupplierInvoiceOKHeaders); ok {
 		http.Redirect(w, r, invoicePath(id)+"?done=changed", http.StatusSeeOther)
 		return
 	}
 	if prob, show := s.refusal(w, r, p, "updateSupplierInvoice", res, err); show {
-		t.refusal, t.ifMatch = explainIn(i18n.InvoiceProblems, i18n.InvoiceRefusedTitle, prob, m), tag
+		t.refusal = explainIn(i18n.InvoiceProblems, i18n.InvoiceRefusedTitle, prob, m)
 		for i, rf := range refusedFields(prob, "items", len(t.items)) {
 			t.items[i].refused = rf
 		}

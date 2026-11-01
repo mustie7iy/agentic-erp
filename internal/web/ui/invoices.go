@@ -451,6 +451,9 @@ const (
 	FieldItemQuantity      = "item_quantity"
 	FieldItemAmount        = "item_amount"
 	FieldItemTaxCode       = "item_tax_code"
+	// FieldWas prefixes a field's value when the form was opened, sent
+	// beside it so the change is what the person changed (T73e2).
+	FieldWas = "was_"
 )
 
 // InvoiceForm is a parked invoice's change (updateSupplierInvoice,
@@ -474,6 +477,7 @@ type InvoiceForm struct {
 	LinesError   i18n.Key
 	Items        []ItemInput
 	Refusal      *Refusal
+	Was          map[string]string // the header's values the form was opened with, by field
 }
 
 // ItemInput is one line of an invoice's change: its number, its order
@@ -489,7 +493,12 @@ type ItemInput struct {
 	TaxCode     string
 	Errors      map[string]i18n.Key
 	Refused     []FieldRefusal
+	Was         map[string]string // its values the form was opened with, by field
 }
+
+// headerFields are the header's fields of an invoice's change, sent with
+// the values the form was opened with.
+var headerFields = []string{FieldSupplierReference, FieldInvoiceDate, FieldPostingDate, FieldTaxDate, FieldGross, FieldTax}
 
 // itemFields are a line's fields in the change form, with the API's name
 // of each and its label.

@@ -776,6 +776,9 @@ templ invoiceEditContent(f InvoiceForm) {
 	}
 	<form class="entry" { post(f.Action)... }>
 		@decideHidden(f.CSRF, f.ETag, f.Key)
+		for _, name := range headerFields {
+			<input { hidden(FieldWas+name, f.Was[name])... }/>
+		}
 		// Not the entry form's grey header: an error's red on its grey is
 		// below WCAG's contrast (4.3:1).
 		<fieldset class="fieldset">
@@ -841,6 +844,9 @@ templ ItemInputView(it ItemInput) {
 		<legend class="entry-line__legend">
 			@T(i18n.InvoiceEditItem, it.No)
 		</legend>
+		for _, fd := range itemFields {
+			<input { hidden(FieldWas+fd.Name, it.Was[fd.Name])... }/>
+		}
 		<dl class="facts">
 			if it.OrderItem != 0 {
 				@Fact(i18n.LineOrderItem, Number(it.OrderItem))

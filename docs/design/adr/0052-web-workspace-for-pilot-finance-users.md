@@ -2427,27 +2427,35 @@ where it departs from the step as first written:
   holds the header (supplier's reference, invoice, posting and tax
   dates, gross and tax amounts in the invoice's currency) and each line's
   description, quantity, net amount and tax code, its order item and unit
-  shown and kept. `POST /invoices/{id}/edit` reads the invoice again and
-  sends, as `updateSupplierInvoice`'s merge patch, only what differs from
-  it: the API matches an invoice on an order again after any change and
-  unlinks an approved exception, so a field sent unchanged would cost a
-  match. A changed line sends the invoice's lines whole, as the patch
+  shown and kept. `POST /invoices/{id}/edit` sends, as
+  `updateSupplierInvoice`'s merge patch, only what the person changed:
+  each field travels with its value when the form was opened (`was_…`),
+  and the invoice read again takes the fields typed differently from
+  those. A value someone else changed meanwhile is never sent back over
+  theirs, and the API matches an invoice on an order again after any
+  change and unlinks an approved exception, so a field sent unchanged
+  would cost a match. A changed line sends the invoice's lines whole, as the patch
   replaces them, each keeping its order item, unit, account and centers;
   an emptied optional date, description or tax code is cleared (null, or
-  the field left out of the line). Nothing changed sends nothing and says
+  the field left out of the line), except that a line of an order item
+  left without a tax code takes its order item's, as the API does and the
+  field's hint says. Nothing changed sends nothing and says
   so. Amounts and quantities are typed in the person's locale and read
   strictly (`Locale.Amount`, `Locale.Quantity`, six decimals, no sign);
   what is wrong is said on its field before any call, with what was typed
   kept. The form carries the ETag it was opened with and a fresh
-  idempotency key; a 412 shows "changed since you opened it" with the
-  text kept at the invoice's version now, a line's field the API refuses
+  idempotency key; a 412 (or any refusal) shows the
+  invoice at its version now with the person's own changes on it, so
+  sending it again sends those alone (go-reviewer, round 1: keeping every
+  typed field at the new ETag would have sent the other person's change
+  back), a line's field the API refuses
   (`items[i].field`) is said on its line, and a form whose lines are no
   longer the invoice's (409, no call) is shown again as the invoice is.
   Lines are changed, not added or left out (T73e3).
-- **Decided by default (for the product owner to overrule).** The change
-  sends what differs from the invoice read when it is sent, not from the
-  form's opening: with the ETag as If-Match the two are the same version,
-  or the API refuses the change. The form's header is not on the entry
+- **Decided by default (for the product owner to overrule).** A field
+  both people changed takes the person's value after the 412 they were
+  shown, unmarked. Amounts are compared as typed: "119" for "119.00" is a
+  change, which the API refuses for its digits. The form's header is not on the entry
   form's grey: the error text's red on it is 4.3:1, below WCAG 2.2's
   4.5:1 (the entry form's own header errors have the same contrast: a
   pre-existing finding, reported).

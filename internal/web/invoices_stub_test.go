@@ -164,7 +164,8 @@ func TestChangeInvoiceUnavailable(t *testing.T) {
 	}})
 	v := url.Values{"csrf_token": {token}, "if_match": {`"3"`}, "idempotency_key": {uuid.NewString()}, "supplier_reference": {"R-10"},
 		"invoice_date": {"2026-03-10"}, "tax_date": {"2026-03-11"}, "gross_amount": {"1.00"}, "tax_amount": {"0.00"}, "item_quantity": {"1"},
-		"item_amount": {"1.00"}}
+		"item_amount": {"1.00"}, "was_supplier_reference": {"R-9"}, "was_invoice_date": {"2026-03-10"}, "was_tax_date": {"2026-03-11"},
+		"was_gross_amount": {"1.00"}, "was_tax_amount": {"0.00"}, "was_item_quantity": {"1"}, "was_item_amount": {"1.00"}}
 	status(t, "the change unavailable", b.do(http.MethodPost, editPath(id), v), http.StatusServiceUnavailable)
 }
 

@@ -107,6 +107,13 @@ func TestChangeInvoice(t *testing.T) {
 	if orderItems != "1 Paper, 2 Toner" {
 		t.Errorf("an invoice on an order: got %q", orderItems)
 	}
+	// A line of an order item left without a tax code takes its order
+	// item's, as the form's hint says.
+	status(t, "an order item's code emptied", b.do(http.MethodPost, editPath(d.clean), editForm(t, b, d.clean, url.Values{"item_tax_code": {"", ""}})),
+		http.StatusSeeOther)
+	if got := invoiceRow(t, d.clean); !strings.HasSuffix(got, " V1") {
+		t.Errorf("an order item's code emptied: got %q, want the order item's V1", got)
+	}
 
 	held := b.get(editPath(d.variance))
 	if held.status != http.StatusSeeOther || held.location() != invoicePath(d.variance) {
@@ -168,18 +175,20 @@ func TestChangeInvoiceRefusals(t *testing.T) {
 	holds(t, "no quantity", noQuantity.page(t).mainText(), "Enter the quantity.", "A reference has at most 40 characters.")
 
 	old := editForm(t, b, d.account, url.Values{"supplier_reference": {"W-1-OLD"}})
-	status(t, "a change meanwhile", b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"supplier_reference": {"W-1B"}})),
+	// Someone else changes the line's description meanwhile.
+	status(t, "a change meanwhile", b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"item_description": {"Fees B"}})),
 		http.StatusSeeOther)
 	stale := b.do(http.MethodPost, editPath(d.account), old)
 	status(t, "stale", stale, http.StatusPreconditionFailed)
 	sp := stale.page(t)
 	holds(t, "stale", sp.mainText(), "The invoice changed since you opened it.", "request.version_mismatch")
 	again := formValues(sp.form(editPath(d.account)))
-	if got := again.Get("supplier_reference") + " " + again.Get("if_match"); got != `W-1-OLD "2"` {
-		t.Errorf("stale: kept %q, want the reference typed at the version now", got)
+	if got := again.Get("supplier_reference") + " " + again.Get("item_description") + " " + again.Get("if_match"); got != `W-1-OLD Fees B "2"` {
+		t.Errorf("stale: got %q, want the reference typed on the invoice as it is now, at its version", got)
 	}
 	status(t, "sent again", b.do(http.MethodPost, editPath(d.account), again), http.StatusSeeOther)
-	if got, want := invoiceRow(t, d.account), "W-1-OLD 3 - - Fees V1"; got != want {
+	// The other person's description stays: only the reference was sent.
+	if got, want := invoiceRow(t, d.account), "W-1-OLD 3 - - Fees B V1"; got != want {
 		t.Errorf("sent again: got %q, want %q", got, want)
 	}
 
