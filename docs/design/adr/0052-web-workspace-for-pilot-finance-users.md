@@ -2580,6 +2580,42 @@ company's currency after its company was changed). What it settled:
   the inventory marks it (`Operation.Write`), not a read.
 - **Arabic-Indic digits** are not read: T73l, which reads digits per
   locale, is not built, so amounts stay ASCII (T73h3).
+- **A change after another person's** (review:T73e2, the class T73e2
+  fixed in the invoice's change). A parked entry's change refused for a
+  stale version used to show what was typed at the entry's version now,
+  so sending it again sent every typed field and line back over the
+  change the form never showed. The change's form now carries its values
+  as opened (`was_…`): each header field, a print of the lines as the
+  entry had them (`was_lines`, SHA-256 of the API's values, the same in
+  every locale) and one of the lines as the form showed them
+  (`was_shown_lines`). Refused by the API, the form is the entry as it
+  is now with the person's own changes on it, at its version now and
+  with its values as opened now: each header field typed otherwise than
+  opened, and the lines as typed unless someone else changed them. The
+  API replaces the lines as a whole (`ParkedJournalEntryUpdate.lines`),
+  so they are rebased whole, not line by line (lines added and left out
+  have no identity to match): lines the person left as shown take the
+  entry's now; lines both changed are shown as the entry has them now,
+  the person's not kept, and the form says so (`entry.lines.changed`),
+  as the invoice's change does when its lines changed. A form refused by
+  the checks, or whose lines are added to or left out (with or without
+  htmx), keeps the version and values it was opened with, so its next
+  send meets the 412 rather than take the version now unseen. A sent
+  change still sends the form whole: with the ETag as If-Match the API
+  takes it only at the version whose values the form shows. A refused
+  change reads the lines' partners again to show the entry as it is now.
+  Tested against the real API (`TestChangeAfterAnotherChange`,
+  `TestChangeKeepsItsVersion`: the first failed on the code before, each
+  other change lost on the second send) and in the browser.
+  **Decided by default (for the product owner to overrule):** rebase,
+  not a confirmation step: the person's changes are kept and shown on
+  the entry as it is now, and the 412 itself is the confirmation, as for
+  the invoice; a header field both people changed takes the person's
+  value, unmarked; lines both changed lose the person's line edits
+  rather than send them over unseen lines (showing both side by side is
+  new UI, not built). After a refusal that kept the typed lines, a form
+  sent in another locale than it was shown in counts its lines as changed
+  by the person (conservative: never a lost update).
 - **Tests.** Handlers against the real API: a post within the limit and
   above it (parked once, from the same form sent twice), a refused post
   keeping what was typed; company 2000's form switched to company 1000

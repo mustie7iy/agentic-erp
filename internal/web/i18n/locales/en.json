@@ -893,6 +893,7 @@
   "entry.lines": "Lines",
   "entry.lines.hint": "Debit positive, credit negative, without grouping: 1200.00 or -1200.00. The account by its number, centers and segment by code, the partner by number. A line left empty is left out.",
   "entry.lines.few": "An entry has at least two lines.",
+  "entry.lines.changed": "The entry's lines changed since you opened this form. It now shows them as they are: make your change to the lines again.",
   "entry.line.heading": "Line %d",
   "entry.line.account": "Account",
   "entry.line.amount": "Amount",

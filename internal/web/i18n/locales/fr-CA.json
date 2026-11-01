@@ -893,6 +893,7 @@
   "entry.lines": "Lignes",
   "entry.lines.hint": "Débit positif, crédit négatif, sans séparateur de milliers : 1200,00 ou -1200,00. Le compte par son numéro, les centres et le segment par leur code, le partenaire par son numéro. Une ligne laissée vide est ignorée.",
   "entry.lines.few": "Une écriture compte au moins deux lignes.",
+  "entry.lines.changed": "Les lignes de l'écriture ont changé depuis l'ouverture de ce formulaire. Il les montre maintenant telles qu'elles sont : refaites votre modification des lignes.",
   "entry.line.heading": "Ligne %d",
   "entry.line.account": "Compte",
   "entry.line.amount": "Montant",

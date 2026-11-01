@@ -237,3 +237,47 @@ func TestJournalJobsInTheBrowser(t *testing.T) {
 		t.Errorf("browser: %s", e)
 	}
 }
+
+// TestEntryChangeAfterAnotherInTheBrowser: the accountant opens a parked
+// entry's change and types a reference while the entry's header text is
+// changed; saved, the change is refused (412) and the
+// form shows the entry as it is now with the reference typed on it, axe
+// at zero; saved again, both changes are the entry's.
+func TestEntryChangeAfterAnotherInTheBrowser(t *testing.T) {
+	s := newJournaling(t)
+	src := axe(t)
+	browserCtx := browse(t)
+	signIn(t, browserCtx, s.stack)
+	ctx, c := tab(t, browserCtx, "", 1280)
+	edit := parkedPage(s.parked) + "/edit"
+	if err := chromedp.Do(ctx, chromedp.Navigate(s.url+edit), chromedp.WaitVisible(chromedp.CSS("#entry-reference"))); err != nil {
+		t.Fatal(err)
+	}
+	// Another change meanwhile, as the API makes it: the header text and
+	// the version.
+	pgtest.Exec(t, `UPDATE ledger.parked_entry SET header_text = 'Checked by Sam', version = version + 1 WHERE id = $1`, s.parked)
+	if err := chromedp.Do(ctx, chromedp.SendKeys(chromedp.CSS("#entry-reference"), "R-7"), chromedp.Click(chromedp.CSS("#entry-send-button"))); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, ctx, edit, "The entry changed since you opened it.")
+	valueIs(t, ctx, "entry-header", "Checked by Sam")
+	valueIs(t, ctx, "entry-reference", "R-7")
+	audit(t, ctx, src, "en", "ltr", 1280)
+	if err := chromedp.Do(ctx, chromedp.Click(chromedp.CSS("#entry-send-button"))); err != nil {
+		t.Fatal(err)
+	}
+	waitForText(t, ctx, "?done=changed", "The entry is changed.")
+	var header, reference string
+	pgtest.Scan(t, `SELECT header_text, reference FROM ledger.parked_entry WHERE id = $1`, []any{s.parked}, &header, &reference)
+	if header != "Checked by Sam" {
+		t.Errorf("the entry sent again: header text %q, want the other change's", header)
+	}
+	if reference != "R-7" {
+		t.Errorf("the entry sent again: reference %q, want the one typed", reference)
+	}
+	for _, e := range c.errors() {
+		if !strings.Contains(e, "status of 412") { // the refused change is the browser's to log
+			t.Errorf("browser: %s", e)
+		}
+	}
+}

@@ -5555,6 +5555,13 @@
        },
        {
         "s": "D",
+        "t": "A parked journal entry's change refused by a stale version (412) loses another person's change on its next send: saveEntry shows the form with what was typed and takes the entry's version now, so sending it again sends every typed line over the change the form never showed (found in T73e2's review; T73e2 fixed the same class in the invoice's change by sending only what the person changed, each field with its value when the form was opened)",
+        "r": "internal/web/entry_form.go saveEntry · changeOf · invoice_edit.go rebase (the fix's pattern)",
+        "src": "review:T73e2",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "Payment runs: propose (202 with progress: the operation's section polled by htmx every two seconds, the run's page loaded again once it stops), runs by status with company and number filters, run detail with payments and exclusions (paged), release and reject with SoD (the proposer refused both, the release's approver its release, shown by the problem's code), operation cancel (at the operation's version read when sent) and resume of a release that stopped, bank file status and transmit; the two-person release from T72m (PO 2026-10-22, already in the API): when the release answers payments.release_approval_required the page offers asking for the second approval (:submit) and shows the request's pending/approved/rejected/withdrawn state, the approval itself decided in the approvals inbox (T73d, payment_run_release named there); scenarios as proposer and as releaser; EN and FR; axe at zero at 1280 and 390 px",
         "r": "internal/web payments.go · payment_run.go · payment_progress.go · payment_actions.go · ui/payments.templ · i18n PaymentProblems · fixture payments.go · TestPropose · TestProposeRefusals · TestRunList · TestReleaseAndTransmit · TestRejectRun · TestCancelAndResume · TestTwoPersonRelease · TestTwoPersonReleaseRejected · TestRunsAsOthers · TestRunsStubbed · TestRunsRefusedInPlace · TestRunsUnavailable · TestPaymentsInTheBrowser · TestPaymentJobsInTheBrowser · ADR-0052 Built in T73f · T73f",
         "src": "baseline",

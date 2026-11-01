@@ -907,6 +907,7 @@ const (
 	EntryLinesTitle              Key = "entry.lines"
 	EntryLinesHint               Key = "entry.lines.hint"
 	EntryLinesTooFew             Key = "entry.lines.few"
+	EntryLinesChanged            Key = "entry.lines.changed"
 	EntryLineHeading             Key = "entry.line.heading"
 	EntryLineAccount             Key = "entry.line.account"
 	EntryLineAmount              Key = "entry.line.amount"

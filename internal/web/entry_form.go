@@ -2,6 +2,8 @@ package web
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -24,8 +26,12 @@ import (
 // added (or the one now in a removed line's place) focused. A line left
 // empty is left out when the entry is sent. What is wrong is said on its
 // field before the API is called, and what the API refuses of a line (its
-// field errors, lines[i].field) on its line. A new entry is also posted
-// at once or parked from a file (entry_send.go, T73h2). The new entry's
+// field errors, lines[i].field) on its line. A change's form carries its
+// values as it was opened (ui.FieldWas): refused, the change is shown as
+// the entry is now with the person's own changes on it (rebase), so
+// sending it again never sends back what someone else changed meanwhile.
+// A new entry is also posted at once or parked from a file (entry_send.go,
+// T73h2). The new entry's
 // form renders with getCurrentPrincipal, listLegalEntities, the
 // company's day, its accounts, which it suggests by number, its ledgers
 // and the ledger groups: six calls; a change's with getParkedJournalEntry
@@ -51,12 +57,15 @@ var lineNames = []string{ui.FieldLineAccount, ui.FieldLineAmount, ui.FieldLineCo
 // asks (its op), what is wrong with it, and the API's refusal of it. A
 // new entry's form also holds the company its currency and dates were
 // filled in for (filledFor), the ledgers it posts to, whether the
-// company was changed since, and what is wrong with a file of its lines.
+// company was changed since, and what is wrong with a file of its lines;
+// a change's form its values as it was opened (was, by
+// ui.EntryWasFields' names).
 type entryTyped struct {
 	company, docType, docDate, postingDate, taxDate string
 	currency, reference, header, ifMatch            string
 	op, filledFor, filledOn, postTo                 string
 	errs                                            map[string]i18n.Key
+	was                                             map[string]string
 	linesErr                                        i18n.Key
 	lines                                           []entryLine
 	refusal                                         *ui.Refusal
@@ -81,7 +90,10 @@ func readEntryForm(r *http.Request) (entryTyped, int) {
 	t := entryTyped{company: f.Get(ui.FieldCompany), docType: f.Get(ui.FieldDocType), docDate: f.Get(ui.FieldDocDate), postingDate: f.Get(ui.FieldPostingDate),
 		taxDate: f.Get(ui.FieldTaxDate), currency: f.Get(ui.FieldCurrency), reference: f.Get(ui.FieldReference), header: f.Get(ui.FieldHeaderText),
 		ifMatch: f.Get(ui.FieldIfMatch), op: f.Get(ui.FieldOp), filledFor: f.Get(ui.FieldFilledFor), filledOn: f.Get(ui.FieldFilledOn),
-		postTo: f.Get(ui.FieldPostTo)}
+		postTo: f.Get(ui.FieldPostTo), was: map[string]string{}}
+	for _, name := range ui.EntryWasFields {
+		t.was[name] = f.Get(ui.FieldWas + name)
+	}
 	left := map[string]bool{}
 	for _, v := range f[ui.FieldLineRemove] {
 		left[v] = true
@@ -252,7 +264,7 @@ func shaped(lines []entryLine) bool {
 // view is the form as the page shows it, the lines' errors and refusals
 // on their lines, and its running totals.
 func (t entryTyped) view(loc i18n.Locale, action string, p *person, ch chart) ui.EntryForm {
-	f := ui.EntryForm{Action: action, CSRF: p.CSRF, Key: uuid.NewString(), ETag: t.ifMatch, DocType: t.docType, DocDate: t.docDate, PostingDate: t.postingDate,
+	f := ui.EntryForm{Action: action, CSRF: p.CSRF, Key: uuid.NewString(), ETag: t.ifMatch, Was: t.was, DocType: t.docType, DocDate: t.docDate, PostingDate: t.postingDate,
 		TaxDate: t.taxDate, Currency: t.currency, Reference: t.reference, Header: t.header, Errors: t.errs, LinesError: t.linesErr, Accounts: ch.options(),
 		Refusal: t.refusal, Totals: totalsOf(loc, t.lines, t.currency)}
 	for _, l := range t.lines {
@@ -525,8 +537,15 @@ func (s *Server) editEntry(w http.ResponseWriter, r *http.Request, p *person) {
 		http.Redirect(w, r, parkedPath(id), http.StatusSeeOther)
 		return
 	}
-	ctx := r.Context()
-	ch := s.chartOf(ctx, m, pe.LegalEntityID)
+	ch := s.chartOf(r.Context(), m, pe.LegalEntityID)
+	t := s.parkedTyped(r.Context(), m, pe, tag, ch)
+	t.pad()
+	s.showEdit(w, r, p, m, pe, http.StatusOK, t, ch)
+}
+
+// parkedTyped is a parked entry's change form as the entry is at the
+// version tag, its values as opened the entry's.
+func (s *Server) parkedTyped(ctx context.Context, m me, pe gen.ParkedJournalEntry, tag string, ch chart) entryTyped {
 	loc, _ := i18n.From(ctx) // every request has its locale (localized)
 	t := entryTyped{docType: pe.DocumentType, docDate: pe.DocumentDate.Format(time.DateOnly), postingDate: pe.PostingDate.Format(time.DateOnly),
 		currency: pe.Currency, reference: pe.Reference.Or(""), header: pe.HeaderText.Or(""), ifMatch: tag}
@@ -537,8 +556,91 @@ func (s *Server) editEntry(w http.ResponseWriter, r *http.Request, p *person) {
 	for i, l := range pe.Lines {
 		t.lines = append(t.lines, parkedLineTyped(loc, i+1, l, ch, partners))
 	}
-	t.pad()
-	s.showEdit(w, r, p, m, pe, http.StatusOK, t, ch)
+	t.was = map[string]string{ui.FieldLinesPrint: entryPrint(pe.Lines), ui.FieldShownPrint: shownPrint(t.lines)}
+	for _, f := range t.headerFields() {
+		t.was[f.name] = *f.value
+	}
+	return t
+}
+
+// headerField is a header's field by its name and its value's place in
+// the form.
+type headerField struct {
+	name  string
+	value *string
+}
+
+// headerFields is the change's header, field by field.
+func (t *entryTyped) headerFields() []headerField {
+	return []headerField{{ui.FieldDocType, &t.docType}, {ui.FieldDocDate, &t.docDate}, {ui.FieldPostingDate, &t.postingDate}, {ui.FieldTaxDate, &t.taxDate},
+		{ui.FieldCurrency, &t.currency}, {ui.FieldReference, &t.reference}, {ui.FieldHeaderText, &t.header}}
+}
+
+// entryPrint is a print of a parked entry's lines as the API gives them:
+// equal prints are the same lines, whatever the locale or the chart's page
+// they are shown with.
+func entryPrint(lines []gen.ParkedJournalLine) string {
+	rows := make([][]string, 0, len(lines))
+	for _, l := range lines {
+		base, q := l.TaxBase.Or(gen.Money{}), l.Quantity.Or(gen.Quantity{})
+		rows = append(rows, []string{l.AccountID.String(), l.Amount.Amount, l.Amount.Currency, idText(l.PartnerID), l.TaxCode.Or(""),
+			l.TaxJurisdiction.Or(""), base.Amount, base.Currency, q.Value, q.Unit, l.CostCenterCode.Or(""), l.ProfitCenterCode.Or(""),
+			l.SegmentCode.Or(""), l.LineText.Or("")})
+	}
+	return printOf(rows)
+}
+
+// shownPrint is a print of the lines as the form shows them, those left
+// empty left out: a form sent with its lines as shown has their print.
+func shownPrint(lines []entryLine) string {
+	rows := make([][]string, 0, len(lines))
+	for _, l := range lines {
+		if !l.blank() {
+			rows = append(rows, []string{strings.TrimSpace(l.account), strings.TrimSpace(l.amount), strings.TrimSpace(l.costCenter),
+				strings.TrimSpace(l.profitCenter), strings.TrimSpace(l.segment), strings.TrimSpace(l.partner), strings.TrimSpace(l.taxCode),
+				strings.TrimSpace(l.taxArea), strings.TrimSpace(l.taxBase), strings.TrimSpace(l.quantity), strings.TrimSpace(l.unit),
+				strings.TrimSpace(l.text)})
+		}
+	}
+	return printOf(rows)
+}
+
+// printOf is a SHA-256 of the rows' fields, each ended so that no two
+// rows' fields run together.
+func printOf(rows [][]string) string {
+	h := sha256.New()
+	for _, row := range rows {
+		for _, v := range row {
+			h.Write([]byte(v)) // a hash.Hash's Write never fails
+			h.Write([]byte{0})
+		}
+		h.Write([]byte{1})
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// rebase is the entry as it is now (now) with the person's own changes on
+// it: each header field typed otherwise than the form was opened with,
+// and the lines as typed unless someone else changed them since; the
+// lines, which the API replaces as a whole, are now's when the person
+// left them as shown. ok is false when both changed the lines: the
+// entry's lines now are shown, not the person's, since sending these
+// again would send them over a change the form never showed.
+func rebase(typed, now entryTyped) (entryTyped, bool) {
+	out := now
+	mine := typed.headerFields()
+	for i, f := range out.headerFields() {
+		if v := *mine[i].value; strings.TrimSpace(v) != strings.TrimSpace(typed.was[f.name]) {
+			*f.value = v
+		}
+	}
+	switch {
+	case now.was[ui.FieldLinesPrint] == typed.was[ui.FieldLinesPrint]:
+		out.lines = typed.lines
+	case shownPrint(typed.lines) != typed.was[ui.FieldShownPrint]:
+		return out, false
+	}
+	return out, true
 }
 
 // parkedLineTyped is a parked line as the form shows it to be changed: its
@@ -577,10 +679,12 @@ func (s *Server) showEdit(w http.ResponseWriter, r *http.Request, p *person, m m
 
 // saveEntry sends a parked entry's change (updateParkedJournalEntry, at
 // the ETag the form was opened with), or, when the form's lines were
-// changed instead, renders it again: done, the person goes to the entry's
-// page; refused (a change meanwhile, an entry no longer parked, another
-// person's), the form says why, keeps what was typed and takes the
-// entry's version now.
+// changed instead, renders it again at that ETag and with its values as
+// opened: done, the person goes to the entry's page; refused by the
+// checks, the form is shown as sent, so its next send meets the 412 of a
+// change meanwhile rather than take the version now unseen; refused by
+// the API (a change meanwhile, an entry no longer parked, another
+// person's), changeRefused.
 func (s *Server) saveEntry(w http.ResponseWriter, r *http.Request, p *person) {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
@@ -623,10 +727,26 @@ func (s *Server) saveEntry(w http.ResponseWriter, r *http.Request, p *person) {
 		return
 	}
 	if prob, show := s.refusal(w, r, p, "updateParkedJournalEntry", res, err); show {
-		t.refusal, t.ifMatch = explainIn(i18n.EntryProblems, i18n.EntryRefusedTitle, prob, m), tag
-		markRefused(prob, t.lines)
-		s.showEdit(w, r, p, m, pe, int(prob.Status), t, ch)
+		s.changeRefused(w, r, p, m, pe, tag, ch, t, prob)
 	}
+}
+
+// changeRefused shows a change the API refused, saying why: the entry as
+// it was read at tag with the person's changes on it (rebase), its values
+// as opened the entry's at tag, so sending it again sends what the person
+// changed and nothing someone else changed meanwhile back over theirs.
+// The fields the API refused are said on the lines sent, when they are
+// those shown.
+func (s *Server) changeRefused(w http.ResponseWriter, r *http.Request, p *person, m me, pe gen.ParkedJournalEntry, tag string, ch chart,
+	t entryTyped, prob gen.Problem) {
+	markRefused(prob, t.lines)
+	shown, ok := rebase(t, s.parkedTyped(r.Context(), m, pe, tag, ch))
+	if !ok {
+		shown.linesErr = i18n.EntryLinesChanged
+	}
+	shown.refusal = explainIn(i18n.EntryProblems, i18n.EntryRefusedTitle, prob, m)
+	shown.pad()
+	s.showEdit(w, r, p, m, pe, int(prob.Status), shown, ch)
 }
 
 // changeOf is a parked entry's change as a merge patch: its header as
