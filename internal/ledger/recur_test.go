@@ -393,7 +393,7 @@ func (b brokenRelease) Commit(ctx context.Context) error {
 // TestParkPermission: the permission the recurrer checks the owner for is
 // the one parking an entry takes.
 func TestParkPermission(t *testing.T) {
-	if got := api.MustOperations()["parkJournalEntry"].Permission; got != ledger.ParkPermission {
-		t.Errorf("got %s, want parkJournalEntry's x-permission %s", ledger.ParkPermission, got)
+	if contract := api.MustOperations()["parkJournalEntry"].Permission; contract != ledger.ParkPermission {
+		t.Errorf("got %s, want parkJournalEntry's x-permission %s", ledger.ParkPermission, contract)
 	}
 }
