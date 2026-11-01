@@ -203,8 +203,8 @@ func paymentComponents() map[string]templ.Component {
 		"Run":                 Run(signedIn(), runPage(true)),
 		"run plain":           runContent(runPage(false)),
 		"run building":        runContent(RunPage{Number: "PR1", Building: true, Progress: "/payments/1/progress"}),
-		"run refused lists":   runContent(RunPage{Number: "PR1", PaymentsError: &r, ExclusionsError: &r, FilesShown: true, FilesError: &r}),
-		"run empty lists":     runContent(RunPage{Number: "PR1", FilesShown: true}),
+		"run refused lists":   runContent(RunPage{Number: "PR1", PaymentsError: &r, ExclusionsError: &r}),
+		"run empty lists":     runContent(RunPage{Number: "PR1", Files: "/payments/1/files"}),
 		"runLists":            runLists(runPage(true)),
 		"RunActions":          RunActions(RunPage{Why: i18n.RunOwn}),
 		"RunFormView":         RunFormView(RunForm{Verb: RunReject, ID: "run-reject", Action: "/x", Text: "t", TextError: i18n.ActionReasonNeeded}),
@@ -217,7 +217,13 @@ func paymentComponents() map[string]templ.Component {
 		"optionalAmount":      optionalAmount(nil),
 		"ExclusionsTable":     ExclusionsTable([]ExclusionView{exclusionView(true), exclusionView(false)}),
 		"ExclusionRow":        ExclusionRow(exclusionView(false)),
-		"FilesSection":        FilesSection(RunPage{Files: []BankFileView{fileView(true), fileView(false)}}),
+		"FilesSection":        FilesSection(FilesView{Run: "/payments/1", Files: []BankFileView{fileView(true), fileView(false)}}),
+		"files refused":       FilesSection(FilesView{Run: "/payments/1", Error: &r}),
+		"files none":          FilesSection(FilesView{Run: "/payments/1"}),
+		"FilesLink":           FilesLink("/payments/1/files"),
+		"filesBody":           filesBody(FilesView{Run: "/payments/1", Error: &r}),
+		"filesPageContent":    filesPageContent(FilesView{Run: "/payments/1"}),
+		"FilesPage":           FilesPage(signedIn(), FilesView{Run: "/payments/1", Files: []BankFileView{fileView(false)}}),
 		"FileItem":            FileItem(fileView(true)),
 		"FileStatusTag":       FileStatusTag(Label{Key: i18n.FileStatusFailed}),
 		"ProgressLink":        ProgressLink("/payments/1/progress"),
@@ -225,6 +231,7 @@ func paymentComponents() map[string]templ.Component {
 		"progress plain":      ProgressSection(progressView(false)),
 		"progressBody":        progressBody(progressView(false)),
 		"ProgressStatus":      ProgressStatus(progressView(true)),
+		"ProgressPoll":        ProgressPoll(progressView(true)),
 		"CancelFormView":      CancelFormView(CancelForm{Action: "/x", CSRF: "c", Key: "k", Operation: "o1"}),
 		"ProgressPage":        ProgressPage(signedIn(), progressView(true)),
 		"progressPageContent": progressPageContent(progressView(false)),
@@ -268,15 +275,16 @@ func proposeForm(failed bool) ProposeForm {
 
 // runPage is a run: with everything, or plain.
 func runPage(full bool) RunPage {
-	h := RunHeader{Status: Label{Key: i18n.RunStatusProposed}, RunDate: day, DueBy: day, Total: Money{Amount: "119.00", Currency: "EUR"}, ProposedBy: Name{Text: "Avery"}}
+	h := RunHeader{Status: Label{Key: i18n.RunStatusProposed}, Company: "Acme GmbH", Bank: "MAIN", RunDate: day, DueBy: day, Total: Money{Amount: "119.00", Currency: "EUR"}, ProposedBy: Name{Text: "Avery"}}
 	if !full {
+		h.Company, h.Bank = "", ""
 		return RunPage{Number: "PR1", Header: h, Payments: []PaymentView{paymentView(false)}, Exclusions: []ExclusionView{exclusionView(false)}}
 	}
 	r := refusal()
 	h.DecidedBy, h.DecidedAt = &Name{Text: "Blake"}, &day
 	return RunPage{Number: "PR1", Header: h, Approval: new(approvalBlock(true)), Progress: "/payments/1/progress", Payments: []PaymentView{paymentView(true)},
 		PaymentsMore: "/payments/1?payments_page=p", Exclusions: []ExclusionView{exclusionView(true)}, ExclusionsMore: "/payments/1?exclusions_page=e",
-		FilesShown: true, Files: []BankFileView{fileView(true)}, Actions: []RunForm{{Verb: RunRelease, ID: "run-release", Action: "/x"}},
+		Files: "/payments/1/files", Actions: []RunForm{{Verb: RunRelease, ID: "run-release", Action: "/x"}},
 		Why: i18n.RunApprovalWaits, Done: i18n.RunDoneSubmitted, Refusal: &r}
 }
 
@@ -292,9 +300,10 @@ func approvalBlock(approved bool) ReleaseApproval {
 
 // paymentView is a payment: a down payment with everything, or plain.
 func paymentView(full bool) PaymentView {
-	p := PaymentView{Supplier: "s1", Amount: Money{Amount: "119.00", Currency: "EUR"}, EndToEnd: "E2E", Items: 1}
+	p := PaymentView{Supplier: "Supplier GmbH", Amount: Money{Amount: "119.00", Currency: "EUR"}, EndToEnd: "E2E", Items: 1}
 	if full {
 		p.Discount, p.Withholding, p.Method, p.DownPayment, p.Posted = &Money{Amount: "1.00", Currency: "EUR"}, &Money{Amount: "2.00", Currency: "EUR"}, "T", true, true
+		p.Bank = "MAIN"
 	}
 	return p
 }
@@ -302,9 +311,9 @@ func paymentView(full bool) PaymentView {
 // exclusionView is an exclusion: of a down payment request, or of a
 // supplier's items.
 func exclusionView(request bool) ExclusionView {
-	ex := ExclusionView{Supplier: "s1", Reason: Label{Key: i18n.ExclusionNoBankAccount}, Amount: Money{Amount: "59.50", Currency: "EUR"}}
+	ex := ExclusionView{Supplier: "Vendor Ltd", Reason: Label{Key: i18n.ExclusionNoBankAccount}, Amount: Money{Amount: "59.50", Currency: "EUR"}}
 	if request {
-		ex.DownPayment, ex.Reason = "d1", Label{Raw: "sanctions_hit"}
+		ex.DownPayment, ex.Reason = "2100000001", Label{Raw: "sanctions_hit"}
 	}
 	return ex
 }
@@ -327,7 +336,7 @@ func progressView(full bool) ProgressView {
 		return v
 	}
 	r, total := refusal(), int64(10)
-	v.Kind, v.Status, v.Total, v.Running = Label{Key: i18n.OperationRelease}, Label{Key: i18n.OperationRunning}, &total, true
+	v.Kind, v.Status, v.Total, v.Running, v.Shown = Label{Key: i18n.OperationRelease}, Label{Key: i18n.OperationRunning}, &total, true, "d1"
 	v.Error, v.Refusal, v.Cancel = &r, &r, &CancelForm{Action: "/x", Operation: "o1"}
 	return v
 }
@@ -379,14 +388,16 @@ func TestPaymentHelpers(t *testing.T) {
 func bankComponents() map[string]templ.Component {
 	r := refusal()
 	return map[string]templ.Component{
-		"Statements":               Statements(signedIn(), statementList(true)),
-		"statements plain":         statementsContent(statementList(false)),
-		"statements invalid":       statementsContent(StatementList{Invalid: true}),
-		"statements refused":       statementsContent(StatementList{Refusal: &r}),
-		"statements empty":         statementsContent(StatementList{Filter: BankFilter{Banks: []Option{}}}),
-		"HouseBankItem":            HouseBankItem(HouseBank{Code: "MAIN", Account: "•••• 3000", Currency: "EUR", Company: "Acme", Inactive: true}),
-		"house bank plain":         HouseBankItem(HouseBank{Code: "MAIN", Account: "•••• 3000", Currency: "EUR"}),
-		"BankFilterForm":           BankFilterForm(BankFilter{Status: "gap", Banks: []Option{{Value: "b1", Text: "MAIN", Selected: true}}}),
+		"Statements":         Statements(signedIn(), statementList(true)),
+		"statements plain":   statementsContent(statementList(false)),
+		"statements invalid": statementsContent(StatementList{Invalid: true}),
+		"statements refused": statementsContent(StatementList{Refusal: &r}),
+		"statements empty":   statementsContent(StatementList{Filter: BankFilter{Banks: []Option{}}}),
+		"HouseBankItem":      HouseBankItem(HouseBank{Code: "MAIN", Account: "•••• 3000", Currency: "EUR", Company: "Acme", Inactive: true}),
+		"house bank plain":   HouseBankItem(HouseBank{Code: "MAIN", Account: "•••• 3000", Currency: "EUR"}),
+		"BankFilterForm": BankFilterForm(BankFilter{Status: "gap", Banks: []Option{{Value: "b1", Text: "MAIN", Selected: true}},
+			Companies: []Option{{Value: "c1", Text: "Acme", Selected: true}}}),
+		"bank filter companies":    BankFilterForm(BankFilter{Companies: []Option{{Value: "c1", Text: "Acme"}}}),
 		"StatementCard":            StatementCard(statementRow(true)),
 		"statement card plain":     StatementCard(statementRow(false)),
 		"StatementStatusTag":       StatementStatusTag(Label{Key: i18n.StatementStatusGap}),

@@ -81,3 +81,13 @@ func (Actors) Actor(ctx context.Context, tx pgx.Tx, id uuid.UUID) (reqctx.Princi
 	}
 	return p, nil
 }
+
+// Active tells whether the principal with the id is active: a template's
+// owner, for whom the ledger's recurrer parks entries (ADR-0056).
+func (Actors) Active(ctx context.Context, tx pgx.Tx, id uuid.UUID) (bool, error) {
+	var active bool
+	if err := tx.QueryRow(ctx, `SELECT status = 'active' FROM identity.principal WHERE id = $1`, id).Scan(&active); err != nil {
+		return false, fmt.Errorf("identity: read the status of principal %s: %w", id, err)
+	}
+	return active, nil
+}

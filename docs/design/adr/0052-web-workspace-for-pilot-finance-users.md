@@ -1845,7 +1845,9 @@ and where it departs from the step as first written:
   supplier by id: the API gives no supplier's name on them and
   `listBusinessPartners` filters by no id, so naming them is a contract
   change (tracker item T73f2). Within the six calls, a run's page names
-  neither its company nor its house bank (its list card does).
+  neither its company nor its house bank (its list card does). Both
+  were built in T73f2 (below), the bank files then moving into a
+  section of their own.
 - **Refusals.** `i18n.PaymentProblems` explains the codes of a
   proposal, a release and its approval, a rejection, a cancellation and
   a transmission, and the general ones in a run's words; the contract
@@ -1942,7 +1944,7 @@ written:
   `i18n.RevaluationProblems` those of a preview and a post; the contract
   test holds both to the operations' `x-problem-codes`. A check the API
   refuses is said in its place.
-- **Not built, tracker item T73i2:** cancelling a run
+- **Not built, tracker item T73i2 (built in T73i2, below):** cancelling a run
   (`cancelRevaluationRun`, in §2's list but not the step's criteria);
   orders, partners, entries and the reconciliation's accounts named (by
   id now: a contract change, or more calls than the six); the checks as
@@ -2399,6 +2401,282 @@ the step as first written:
   pseudo-locale check no longer reads an `option`'s `value`, which the
   form sends and nobody sees. The screen-reader review of §10 and the
   pilot approver's walk-through are the human acceptance left in T73d3.
+
+## Built in T73f2: payment runs named, sessions ended under htmx, a quiet poll (2026-11-01)
+What T73f left (tracker T73f2, split from T73f); decided by default, each
+listed in the batch digest for the product owner to overrule.
+- **Suppliers by name, no contract change.** When T73f was built the API
+  named no supplier on a payment or an exclusion; batch 27/28 gave both
+  `supplier_name` (and an exclusion its `down_payment_request_number`),
+  so the run's page uses them and asks the API for nothing new: a
+  payment and an exclusion show their supplier by name (as data,
+  `translate="no"`), an excluded down payment request by its number (by
+  id when the API gives none), and each payment its house bank by the
+  `house_bank_code` the API gives. The tracker item from batch 22/23's
+  review on the same views is closed with it.
+- **The run's company and house bank within the six calls.** The run
+  gives its house bank's code (`house_bank_code`), not its company's
+  name, and a run's page already read six (§10). The company is named
+  as every other page names it, from `listLegalEntities` (§10's
+  "companies"), and the bank files, read only once a run is released or
+  being released, moved into a section of their own that htmx loads into
+  the page (`GET /payments/{id}/files`, `hx-trigger="load"`, a page of
+  its own with a link without htmx), as the progress and the invoice's
+  order are. A run's page reads `getCurrentPrincipal`, `getPaymentRun`,
+  `listPayments`, `listPaymentExclusions`, `listLegalEntities` and
+  `listPrincipalNames`: six; the files' section two
+  (`getCurrentPrincipal`, for the transmission's permission and the
+  page's navigation, and `listBankFiles`). A run proposed without a
+  house bank says that the suppliers' payment methods choose it per
+  payment, as its list card does; a company that could not be named is
+  left out of the summary, as on the invoice's page. Not chosen: a
+  `legal_entity_name` on the run, which no other representation carries
+  (the API names companies by id everywhere), for a page that can read
+  it within its budget.
+- **A session that ended, under htmx.** A request htmx sends for a part
+  of a page (the progress' poll, a lazy section, an entry form's lines)
+  whose session ended was answered with a 303 to sign in, which the
+  request itself followed: the sign-in page was put in the section's
+  place, and the poll asked for it every two seconds. Now every redirect
+  to sign in (`signedIn`'s, the API's 401 that ends the session, and its
+  RFC 9470 step-up challenge) answers an htmx request (`HX-Request:
+  true`) with 204 and `HX-Redirect`, which htmx follows by loading the
+  sign-in as the page, and comes back to the page the request is part
+  of (htmx's `HX-Current-URL`, through `safeReturn`, so only a path of
+  the workspace's own, never a sign-in step) rather than to the
+  section's own address. A request without htmx keeps its 303. The one
+  helper (`redirect`) serves every route, so no lazy section is left
+  out; `Vary: HX-Request` on both answers.
+- **A quiet poll.** The status region (`role="status"`) is read out
+  whenever its content changes, and htmx replaced it every two seconds
+  with the same status, so a screen reader could read the same status
+  again and again. The poller inside the region now sends the digest of
+  the status it shows (`shown`: a SHA-256 of the status as rendered in
+  the person's language, so a change of wording counts and a change no
+  one can see, such as the operation's version alone, does not); the
+  workspace answers 204 while the status is still that one, which htmx
+  leaves in place, and otherwise the new status with its own digest
+  (`hx-swap="outerHTML"` on the poller, so the region itself stays and
+  is read out as it changes). Once the operation stops, the answer is
+  still `HX-Redirect` to the run's page. The workspace keeps no state
+  for it.
+- **Tests.** Handlers against the real API: the built run's company,
+  house bank and suppliers by name with each payment's bank; the
+  status polled unchanged answered 204 with nothing in it, one polled
+  with another digest answered with the status and the same poll; the
+  files' section and page, a transmission sent from the section, the
+  outsider's files refused in their place. From the stub: a company the
+  API does not name, a run without a house bank, a payment's and an
+  exclusion's supplier and request number, the files refused in place
+  and an API that cannot answer them. Sign-in: a progress' poll, an
+  order's section, a run's files and an entry form's lines after the
+  session ended, without a session, and after the API's 401 and its
+  step-up challenge, each 204 with `HX-Redirect` back to the page htmx
+  names, "/" when it names none of the workspace's or no address at
+  all. The browser: axe on the files' page in English, French and both
+  pseudo-locales at 1280 and 390 px and on a released run's page once
+  its files' section loaded; on a run being proposed, two polls answered
+  204 and no change to the status region's content (a
+  `MutationObserver` on it); then the session's cookie deleted, the next
+  poll takes the browser to sign in and back to the run's page, never the
+  sign-in in the status' place.
+- **Departs from the tracker row.** Its walk-through by a pilot
+  treasurer and AP lead is human acceptance, split into a leaf of its
+  own that keeps the pilot tag (T73f3).
+
+## Built in T73h2 (2026-11-01)
+Manual journal entries beyond T73h, on the entry form, as GL accountant,
+with the money-risk item of batch 32's review (the form kept the first
+company's currency after its company was changed). What it settled:
+- **The currency follows the company** (review:batch32). A new entry's
+  currency is filled in by the rule the webdates section set for its
+  dates, and with them: for the company its address names, or the only
+  one offered; among several and none named, neither currency nor dates
+  are filled in until a company is chosen. The form says for which
+  company and day they were filled in (hidden `filled_for` and
+  `filled_on`). Choosing the company is an htmx request (`hx-post` with
+  `op=company`, `hx-vals` JSON, no script of the workspace's own): the
+  form is rendered again for it and swapped whole, its ledgers and
+  accounts the company's; a currency or date still holding what was
+  filled in for the other company (its currency, the day `filled_on`) is
+  replaced, and the form says so; an empty one is filled in; one the
+  person typed is kept (review round 1). Without htmx the change is seen when the
+  form is sent: a form whose company is not the one it was filled in for
+  is not sent (no call to park or post) but rendered for the company,
+  422, with a notice that nothing was sent, that the currency and dates
+  filled in for the other company are now this company's and those the
+  person typed kept, to be checked and sent again. Choosing another
+  company, either way, resets the ledgers to every ledger it keeps. A
+  company the person may not see fills nothing in, and the API refuses
+  it.
+- **Foreign-currency entries stay offered**, as the API takes them
+  (`JournalEntryCreate.currency`, converted at the posting date's rates):
+  the currency's hint names the company's own (“The company's currency
+  is CAD. In another currency the entry is a foreign-currency entry,
+  converted at the posting date's rate.”), so a currency other than the
+  company's is one the person typed, never one left from another
+  company. Decided by default from the API and this rule; the product
+  owner may overrule (an explicit foreign-currency switch instead).
+- **Post at once.** The form's second button posts the new entry
+  (`postJournalEntry`, human-only, offered with `ledger.entry.post`);
+  posted, the person goes to the journal entry (`?done=posted`). Above
+  the company's limit the API refuses it with `ledger.approval_required`
+  and the same entry is parked for the person (`parkJournalEntry`), its
+  page saying so (`?done=limit`); posting it from there asks another
+  person's approval as before. The park's idempotency key is derived from
+  the form's (UUIDv5 of it), so the same form sent again parks it once.
+  Implicit submission still parks: the post is never the default button.
+- **Park straight from a CSV file.** The new entry's form has a file and
+  its own submit button (`formaction` `/journal/new/file`,
+  `formenctype` multipart, so the form itself stays url-encoded for
+  htmx), parking the entry with the file's lines in place of those typed,
+  under the form's header. The file is read as T73h's upload reads it
+  (the same columns, checks, lookups and row errors); a refusal keeps the
+  lines typed and lists the file's rows, and the file is chosen again.
+  The upload's limits are `csrfUpload`'s (4 MB).
+- **Ledgers.** A new entry posts to every ledger its company keeps (the
+  API's default), one of them (`ledger_id`) or a ledger group
+  (`ledger_group`): a select offered when the company keeps more than
+  one ledger, listing its ledgers (`listLedgers` by company) and the
+  groups with one of them (`listLedgerGroups`). A choice the form holds
+  stays chosen when the form is rendered again and the ledgers cannot be
+  read, or it is no longer offered (by its id or code): never silently
+  every ledger in its place (review round 1). A parked entry's ledger
+  is not changed (`ParkedJournalEntryUpdate` takes none).
+- **A line's tax jurisdiction, declared tax base and quantity.** Four
+  more fields per line and CSV columns (`tax_jurisdiction`, `tax_base`,
+  `quantity`, `unit`): the jurisdiction ISO 3166-2's shape, the base an
+  amount as the line's is typed, the quantity a decimal of at most six
+  places in the person's locale with its unit, each both or neither,
+  checked before the API is called; whether the line's tax code takes
+  them is the API's (`ledger.jurisdiction_*`, `ledger.tax_base_*`,
+  `ledger.unknown_unit`, explained in the entry's words).
+- **Partners named in the change form.** A parked line names its
+  partner by id; the change's form shows its number, read with the new
+  `ids` filter of `listBusinessPartners` (contract first: the smallest
+  change, comma-separated, 1 to 100, also what T73f2 and T73j2 need), and
+  sent back the number is looked up as typed. Partners that cannot be
+  read leave the id, which is sent as it is. Named on a parked or posted
+  entry's page is T73h3: those pages read six already.
+- **Running totals.** Debits, credits and their difference under the
+  lines, summed by the workspace in integer ten-thousandths
+  (`money.Minor`, `money.Sum`, never a float), shown with as many
+  decimals as the amounts typed (no API names a currency's digits); an
+  amount that cannot be read, or whose sum is out of range, is not
+  counted and the form says how many are not. With htmx each amount's
+  change asks for them again (`op=totals`, no API call): their contents
+  are swapped inside a polite live region that stays in the page, so a
+  screen reader says the change (`innerHTML`, as the payment progress
+  does; review round 1), and when a line is added or left out they come
+  with the lines as an out-of-band swap of the region's contents (review
+  round 2); the form's buttons follow the totals, outside the lines'
+  section, and come with the lines out of band too, so the line's add
+  is offered while the form takes another (review round 3); without it they are those of the form's
+  last rendering. The API checks the balance.
+- **Calls.** The new entry's form reads six (`getCurrentPrincipal`, the
+  companies, the company's day, its accounts, its ledgers and the ledger
+  groups), the budget of §10; a change's form five (its partners
+  besides). A post refused for the limit makes a second write, the park:
+  the inventory marks it (`Operation.Write`), not a read.
+- **Arabic-Indic digits** are not read: T73l, which reads digits per
+  locale, is not built, so amounts stay ASCII (T73h3).
+- **Tests.** Handlers against the real API: a post within the limit and
+  above it (parked once, from the same form sent twice), a refused post
+  keeping what was typed; company 2000's form switched to company 1000
+  without htmx (refused, rendered in USD, parked when sent again) and
+  with htmx; the totals alone in French; a line's jurisdiction, base and
+  quantity checked, refused by the API on their line, parked and shown to
+  be changed in French with the partner's number; an entry parked from a
+  file in French and the file's, header's, company's and API's refusals;
+  an entry parked in ledger 2L and posted to the group ALL. From the
+  stub: Toronto's form (CAD, 31 December) switched to Dubai (AED,
+  1 January) with and without htmx, a typed currency kept, a company not
+  seen; the ledgers offered, and not when unread; partners by ids, unread
+  and not readable. The browser suite audits the form in every locale at
+  1280 and 390 px, and walks the company chosen with htmx and the totals
+  said as amounts change, a post at once, a post above the limit and a
+  file parked at a phone's width.
+
+## Built in T73i2 (2026-11-01)
+Period close beyond T73i, as accountant and controller (the tracker leaf
+T73i2). What it settled, each decided by default where this ADR, the
+contract or T73i's behaviour settled it:
+- **Contract first, names on the representations.** A page's six calls
+  leave no room for a call per order, partner or entry, so the API names
+  them (an ids filter would have cost a call per kind): `LedgerDifference`
+  carries `account_number` and `account_name` (as `GrIrBalance` already
+  did), `RevaluationItem` carries `partner_number`, `partner_name` (the
+  business partner as it is now, read from the partner context through
+  `internal/app`'s `LedgerPartners`, so the ledger imports no other
+  context) and `document_number` of its entry, on the preview, the post
+  and the run read back. `GrIrBalance.purchase_order_number`, added in
+  batch 22, needed no change. All are additions, non-breaking (oasdiff),
+  each checked by the walkthrough (steps 9, 10 and 15).
+- **The checks as at the period's end.** `listGrIrBalances` takes
+  `posting_date_to` without `purchase_order_id`: every order's positions
+  on the key date. Summing every GR/IR line to the key date costs the
+  company's history (T33f measured 0.7 s at 20,000 positions, why the key
+  date was limited to one order), so the report is the projected
+  positions except the order items posted after the key date, whose
+  positions are summed from their own lines up to it; those lines are
+  read from the fiscal years ending after the key date only. The result
+  equals each order's key-date report on every date of the test. The
+  budget test holds it at p95 54 ms over 20,000 positions (laptop) with
+  no lines after the key date; an item posted since costs its own
+  history, which the budget test does not measure (03-data-model §3.7). The period's page puts
+  its end in the checks' address (`key_date`, required: the checks read no
+  period, which would be a seventh call). The ledger reconciliation was
+  already of the period. **Decided:** the statements check stays as the
+  statements stand now: a statement's status is its reconciliation's
+  state, not a balance at a date, and a statement not reconciled is
+  worth a look whatever its date. The GR/IR check's link goes to T73j's
+  report, which shows the positions as they stand now (the report takes
+  no key date: a T73j2 matter, said here, not built).
+- **Cancelling a run** (`cancelRevaluationRun`, human-only, ADR-0042). A
+  posted run's page offers it, to a person holding `ledger.entry.post`,
+  as a form with the run's ETag, a fresh idempotency key and the reason
+  (`ReasonInput`, required, said before the API is called). Done, the
+  run's page says its entries are reversed and offers no cancel; refused
+  (an entry's period closed: `ledger.period_not_open`, worded for the
+  post and the cancel alike; cancelled already:
+  `ledger.revaluation_not_posted`; a stale form), the page is rendered
+  again, fresh from the API, with the refusal by its code and the reason
+  typed. The run's valuation and reset entries are links to their pages
+  (`/journal/entries/{id}`), which name them; **decided:** no document
+  numbers on the run itself, which the leaf did not ask for (its items'
+  entries are named).
+- **Names shown.** The checks show each order by its number, each
+  difference's account by number and name; a revaluation's items each
+  partner by number and name and each entry by its document number,
+  linked to its page; by id only where the API names none. The GR/IR and
+  items tables are inside `hx-disable`, their names being data.
+- **`/bank` by company.** The statements' list takes the company
+  (`legal_entity_id`, the API's filter) in its filter form beside the
+  house bank, and a company chosen lists its house banks alone; the
+  status tabs keep it, and the checks' links by status name the period's
+  company, so they are no longer tenant-wide.
+- **Calls.** The checks still make six, the run's page six (its cancel
+  is a write before them), the statements' list four. The ledger
+  reconciliation report reads five, no longer `listAccounts`: the API
+  names its accounts.
+- **Not built:** the walk-through by a pilot GL accountant and controller
+  is human acceptance, split into T73i3 (pilot).
+- **Tests.** The ledger: every order's positions on five key dates and
+  equal to each order's on seven, the key date's statement failing
+  (`TestDatabaseFailures`), its budget; the differences' accounts named;
+  the preview's and a run's items named. The workspace, against the real
+  API (`fixture.GRIRReceived` posts real GR/IR lines): an order received
+  in March and returned in April shows by its number in March's checks
+  and not in April's; the checks' address without the period's end
+  refused; the statements' links by status of the company; a run's items
+  named and its entry linked; the cancel without a reason, refused while
+  April is closed and done once it is open again, then refused as
+  cancelled already; `/bank` by company, its house banks and tabs. From
+  the stub: the key date sent, an order without a number, the cancel's
+  401 and 503. The browser suite runs axe on the checks, a posted run
+  with its cancel and the statements of company 2000 in English, French
+  and both pseudo-locales at 1280 and 390 px, and walks the run cancelled
+  with a reason at a desktop's width.
 
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August

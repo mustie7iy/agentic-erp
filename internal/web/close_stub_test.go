@@ -116,7 +116,7 @@ func TestChecksStubbed(t *testing.T) {
 			"last_posting_date":"2026-03-05"}],"next_page_token":"g2"}`, company, uuid.New(), uuid.New(), m, m, m)),
 		"GET /v1/ledger-reconciliation": answer(200, fmt.Sprintf(`{"ledger_id":%q,"compare_ledger_id":%q,"trial_balances":[
 			{"ledger_id":%q,"debit_lc":%s,"credit_lc":%s,"debit_gc":%s,"credit_gc":%s,"balanced":false}],
-			"items":[{"account_id":%q,"currency":"EUR","balance":%s,"compare_balance":%s,"difference":%s,"difference_lc":%s,"difference_gc":%s}],
+			"items":[{"account_id":%q,"account_number":"400000","account_name":"Sales Revenue","currency":"EUR","balance":%s,"compare_balance":%s,"difference":%s,"difference_lc":%s,"difference_gc":%s}],
 			"next_page_token":"l2"}`, local, leading, local, m, m, m, m, uuid.New(), m, m, m, m, m)),
 		"GET /v1/bank-statements": func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Query().Get("status") == "gap" {
@@ -127,10 +127,10 @@ func TestChecksStubbed(t *testing.T) {
 		},
 	}}
 	_, b, _ := stubStack(t, st)
-	q := url.Values{"legal_entity_id": {company.String()}, "ledger_id": {local.String()}, "fiscal_year": {"2026"}, "period": {"3"}}
+	q := url.Values{"legal_entity_id": {company.String()}, "ledger_id": {local.String()}, "fiscal_year": {"2026"}, "period": {"3"}, "key_date": {"2026-03-31"}}
 	got := b.get("/close/checks?"+q.Encode(), "HX-Request", "true")
 	status(t, "the checks", got, http.StatusOK)
-	holds(t, "the checks", text(got.page(t).doc), "3 KG 0 KG", "Ledger 2L compared with ledger 0L in this period.", "Debits and credits do not net to zero",
+	holds(t, "the checks", text(got.page(t).doc), " 2 3 KG 0 KG", "400000 Sales Revenue", "Ledger 2L compared with ledger 0L in this period.", "Debits and credits do not net to zero",
 		"There are more than are shown here.", "Gap before it")
 	if strings.Contains(text(got.page(t).doc), "Back to the period") {
 		t.Error("a section without its period: links back to one")
@@ -140,6 +140,12 @@ func TestChecksStubbed(t *testing.T) {
 		if v.Has("compare_ledger_id") {
 			asked["ledger"], asked["compare"] = v.Get("ledger_id"), v.Get("compare_ledger_id")
 		}
+		if v.Has("open_only") {
+			asked["key date"] = v.Get("posting_date_to")
+		}
+	}
+	if asked["key date"] != "2026-03-31" {
+		t.Errorf("GR/IR positions read at %q, want the period's end 2026-03-31", asked["key date"])
 	}
 	if asked["ledger"] != local.String() || asked["compare"] != leading.String() {
 		t.Errorf("reconciled: got %v, want 2L with 0L", asked)
@@ -170,7 +176,8 @@ func TestCloseUnavailable(t *testing.T) {
 	limited := answer(429, problemJSON(429, "request.rate_limited"))
 	empty := answer(200, `{"items":[]}`)
 	ledgers := answer(200, `{"items":[`+ledgerJSON(leading, "0L", true, id)+","+ledgerJSON(uuid.New(), "2L", false, id)+`]}`)
-	checks := "/close/checks?" + url.Values{"legal_entity_id": {id.String()}, "ledger_id": {leading.String()}, "fiscal_year": {"2026"}, "period": {"3"}}.Encode()
+	checks := "/close/checks?" + url.Values{"legal_entity_id": {id.String()}, "ledger_id": {leading.String()}, "fiscal_year": {"2026"}, "period": {"3"},
+		"key_date": {"2026-03-31"}}.Encode()
 	path := periodPath(id)
 	for name, tc := range map[string]struct {
 		routes   map[string]http.HandlerFunc
@@ -197,6 +204,8 @@ func TestCloseUnavailable(t *testing.T) {
 		"post: unavailable":          {map[string]http.HandlerFunc{"GET /v1/me": me, "POST /v1/revaluation-runs": unavailable}, http.MethodPost, "/close/revaluation/post", http.StatusServiceUnavailable, ""},
 		"run: who am I, 401":         {map[string]http.HandlerFunc{"GET /v1/me": challenge}, http.MethodGet, revaluationRunPath(id), http.StatusSeeOther, "return=%2Fclose%2Frevaluation%2F" + id.String()},
 		"run: unavailable":           {map[string]http.HandlerFunc{"GET /v1/me": me, "GET /v1/revaluation-runs/": unavailable}, http.MethodGet, revaluationRunPath(id), http.StatusServiceUnavailable, ""},
+		"cancel: who am I, 401":      {map[string]http.HandlerFunc{"GET /v1/me": challenge}, http.MethodPost, revaluationRunPath(id) + "/cancel", http.StatusSeeOther, "return=%2Fclose%2Frevaluation%2F" + id.String()},
+		"cancel: unavailable":        {map[string]http.HandlerFunc{"GET /v1/me": me, "POST /v1/revaluation-runs/": unavailable}, http.MethodPost, revaluationRunPath(id) + "/cancel", http.StatusServiceUnavailable, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, b, token := stubStack(t, &stubbed{routes: tc.routes})
@@ -205,7 +214,7 @@ func TestCloseUnavailable(t *testing.T) {
 				r = b.get(tc.path)
 			} else {
 				r = b.do(tc.method, tc.path, url.Values{"csrf_token": {token}, "if_match": {`"1"`}, "idempotency_key": {uuid.NewString()},
-					"legal_entity_id": {id.String()}, "key_date": {"2026-03-31"}})
+					"legal_entity_id": {id.String()}, "key_date": {"2026-03-31"}, "comment": {"Rates corrected"}})
 			}
 			if r.status != tc.status || !strings.HasSuffix(r.location(), tc.location) && !strings.Contains(r.location(), tc.location) {
 				t.Errorf("got %d to %q, want %d to %q", r.status, r.location(), tc.status, tc.location)

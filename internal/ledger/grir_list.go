@@ -13,7 +13,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
-	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -43,7 +42,11 @@ type GRIRBalance struct {
 // page is an index range scan on (legal entity, sort column, id), over the
 // open positions' partial index by default. $1: legal entity, one the
 // caller may act in (reportEntity).
-const grirPositionSelect = `SELECT * FROM (SELECT p.id, p.legal_entity_id, p.purchase_order_id, p.po_item_no, p.account_id, a.number AS account_number, a.name AS account_name,
+const grirPositionSelect = `SELECT * FROM (` + grirProjected + `) b WHERE true`
+
+// grirProjected is the projected positions of $1 the legal entity, a WHERE
+// the caller may extend.
+const grirProjected = `SELECT p.id, p.legal_entity_id, p.purchase_order_id, p.po_item_no, p.account_id, a.number AS account_number, a.name AS account_name,
 		trim_scale(p.received)::text AS received, trim_scale(p.invoiced)::text AS invoiced, trim_scale(p.cleared)::text AS cleared,
 		trim_scale(p.migrated)::text AS migrated, p.uom_code, p.amount_tc, p.amount_lc, p.amount_gc,
 		p.currency_tc, p.currency_lc, p.currency_gc, ctc.exponent AS exp_tc, clc.exponent AS exp_lc, cgc.exponent AS exp_gc, p.last_posting_date, p.is_open
@@ -52,7 +55,7 @@ const grirPositionSelect = `SELECT * FROM (SELECT p.id, p.legal_entity_id, p.pur
 	JOIN ref.currency ctc ON ctc.code = p.currency_tc
 	JOIN ref.currency clc ON clc.code = p.currency_lc
 	JOIN ref.currency cgc ON cgc.code = p.currency_gc
-	WHERE p.legal_entity_id = $1) b WHERE true`
+	WHERE p.legal_entity_id = $1`
 
 // grirKeyDateSelect sums one order's lines on the legal entity's GR/IR
 // account up to a key date: a report over the order's history, bounded by
@@ -62,7 +65,13 @@ const grirPositionSelect = `SELECT * FROM (SELECT p.id, p.legal_entity_id, p.pur
 // entries recorded as GR/IR clearings (T72e), take-overs the integration
 // context's (T72f); a reversal is its document's context's. $1: legal
 // entity, one the caller may act in; $2 order; $3 key date.
-const grirKeyDateSelect = `SELECT * FROM (SELECT md5(l.purchase_order_id::text || '/' || l.po_item_no::text)::uuid AS id, l.legal_entity_id, l.purchase_order_id,
+const grirKeyDateSelect = `SELECT * FROM (` + grirLinesSelect + ` WHERE l.legal_entity_id = $1 AND l.purchase_order_id = $2 AND l.posting_date <= $3
+	GROUP BY l.legal_entity_id, l.purchase_order_id, l.po_item_no, l.account_id, a.number, a.name) b WHERE true`
+
+// grirLinesSelect sums lines on the legal entity's GR/IR account in the
+// leading ledger per order item, as a position: its WHERE and GROUP BY
+// are the caller's.
+const grirLinesSelect = `SELECT md5(l.purchase_order_id::text || '/' || l.po_item_no::text)::uuid AS id, l.legal_entity_id, l.purchase_order_id,
 		l.po_item_no, l.account_id, a.number AS account_number, a.name AS account_name,
 		trim_scale(coalesce(-sum(l.quantity) FILTER (WHERE e.source_context = 'procurement' AND c.journal_entry_id IS NULL), 0))::text AS received,
 		trim_scale(coalesce(sum(l.quantity) FILTER (WHERE e.source_context = 'payables'), 0))::text AS invoiced,
@@ -80,8 +89,28 @@ const grirKeyDateSelect = `SELECT * FROM (SELECT md5(l.purchase_order_id::text |
 	LEFT JOIN ledger.gr_ir_clearing_entry c ON c.tenant_id = e.tenant_id AND c.fiscal_year = e.fiscal_year AND c.journal_entry_id = e.id
 	JOIN ref.currency ctc ON ctc.code = e.currency_tc
 	JOIN ref.currency clc ON clc.code = e.currency_lc
-	JOIN ref.currency cgc ON cgc.code = e.currency_gc
-	WHERE l.legal_entity_id = $1 AND l.purchase_order_id = $2 AND l.posting_date <= $3
+	JOIN ref.currency cgc ON cgc.code = e.currency_gc`
+
+// grirAsAtSelect is every order item's position of a legal entity on a key
+// date (T73i2: a period's close checks them as at its end). Summing every
+// GR/IR line up to the key date costs the company's whole history (T33f
+// measured 0.7 s at 20,000 positions), so the positions are the current
+// ones, projected, except for the order items posted after the key date,
+// whose positions are summed from their own lines up to it (as
+// grirKeyDateSelect sums one order's): a projected position is the sum of
+// its lines (03-data-model §3.7), so an item with no line after the key
+// date stood then as it stands now. The lines after it are found in the
+// fiscal years from $3 on, the first that ends after the key date, so only
+// those years' partitions are read. $1: legal entity, one the caller may
+// act in; $2 key date; $3 that fiscal year.
+const grirAsAtSelect = `WITH later AS (SELECT DISTINCT l.purchase_order_id, l.po_item_no
+	FROM ledger.journal_line l
+	JOIN ledger.account_determination d ON d.tenant_id = l.tenant_id AND d.legal_entity_id = l.legal_entity_id AND d.key = 'gr_ir' AND d.account_id = l.account_id
+	JOIN ledger.ledger lg ON lg.tenant_id = l.tenant_id AND lg.id = l.ledger_id AND lg.is_leading
+	WHERE l.legal_entity_id = $1 AND l.fiscal_year >= $3 AND l.posting_date > $2 AND l.purchase_order_id IS NOT NULL)
+SELECT * FROM (` + grirProjected + ` AND NOT EXISTS (SELECT FROM later x WHERE x.purchase_order_id = p.purchase_order_id AND x.po_item_no = p.po_item_no)
+	UNION ALL ` + grirLinesSelect + `
+	WHERE l.legal_entity_id = $1 AND (l.purchase_order_id, l.po_item_no) IN (SELECT purchase_order_id, po_item_no FROM later) AND l.posting_date <= $2
 	GROUP BY l.legal_entity_id, l.purchase_order_id, l.po_item_no, l.account_id, a.number, a.name) b WHERE true`
 
 var grirBalanceSort = pagination.Sort{Default: "purchase_order_id", Fields: []pagination.Field{
@@ -90,19 +119,16 @@ var grirBalanceSort = pagination.Sort{Default: "purchase_order_id", Fields: []pa
 
 // ListGrIrBalances implements GET /v1/gr-ir-balances: the GR/IR positions
 // of a legal entity's order items (T33), current ones from their
-// projection, or one order's on a key date from its lines, each naming its
-// order and account, with the totals of every position selected. A legal
-// entity the caller cannot act in has none, and no totals.
+// projection, or on a key date, one order's from its lines or every
+// order's from both (T73i2), each naming its order and account, with the
+// totals of every position selected. A legal entity the caller cannot act
+// in has none, and no totals.
 func (e *Endpoints) ListGrIrBalances(ctx context.Context, params gen.ListGrIrBalancesParams) (gen.ListGrIrBalancesRes, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
 	order, to, openOnly := apitypes.Ptr[uuid.UUID](params.PurchaseOrderID), apitypes.Ptr[time.Time](params.PostingDateTo), params.OpenOnly.Or(true)
-	if to != nil && order == nil {
-		return nil, problem.BadRequest("request.invalid_parameter", "A key date (posting_date_to) reports one purchase order's positions from its history; name the order.",
-			problem.FieldError{Field: "purchase_order_id", Code: "required", Message: "the order whose positions on the key date are reported"})
-	}
 	scope := fmt.Sprintf("listGrIrBalances|%s|%s|%v|%t", params.LegalEntityID, order, to, openOnly)
 	ks, err := e.Pages.Keyset(grirBalanceSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
@@ -112,7 +138,10 @@ func (e *Endpoints) ListGrIrBalances(ctx context.Context, params gen.ListGrIrBal
 	if err != nil || !ok {
 		return &gen.GrIrBalancePage{Items: []gen.GrIrBalance{}}, err
 	}
-	query, args := grirQuery(le.ID, order, to, openOnly)
+	query, args, err := grirQuery(ctx, tx, le, order, to, openOnly)
+	if err != nil {
+		return nil, err
+	}
 	q, pageArgs := ks.SQL(query, args)
 	rows, _ := tx.Query(ctx, q, pageArgs...)
 	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (GRIRBalance, error) { return scanGRIRBalance(r) })
@@ -138,13 +167,23 @@ func (e *Endpoints) ListGrIrBalances(ctx context.Context, params gen.ListGrIrBal
 }
 
 // grirQuery is the positions' query and its arguments: the projection's
-// current positions, or one order's on a key date, all of them or the
-// open ones, of a legal entity the caller may act in.
-func grirQuery(le uuid.UUID, order *uuid.UUID, to *time.Time, openOnly bool) (string, []any) {
-	query, args := grirPositionSelect, []any{le}
+// current positions, or on a key date one order's or every order's, all of
+// them or the open ones, of a legal entity the caller may act in.
+func grirQuery(ctx context.Context, tx pgx.Tx, le tenancy.Entity, order *uuid.UUID, to *time.Time, openOnly bool) (string, []any, error) {
+	query, args := grirPositionSelect, []any{le.ID}
 	switch {
-	case to != nil:
+	case to != nil && order != nil:
 		query, args = grirKeyDateSelect, append(args, *order, *to)
+	case to != nil:
+		// The first fiscal year ending after the key date: lines posted
+		// after it are in that year or later ones. None ends after it:
+		// nothing can have been posted since, and no year is that late.
+		var since int16
+		if err := tx.QueryRow(ctx, `SELECT coalesce(min(fiscal_year), 32767) FROM ledger.fiscal_period WHERE calendar_id = $1 AND end_date > $2`,
+			le.FiscalCalendarID, *to).Scan(&since); err != nil {
+			return "", nil, fmt.Errorf("ledger: GR/IR positions of %s on %s: fiscal year: %w", le.ID, to.Format(time.DateOnly), err)
+		}
+		query, args = grirAsAtSelect, append(args, *to, since)
 	case order != nil:
 		// Only when given, so a cached generic plan keeps it an index condition.
 		query, args = query+` AND purchase_order_id = $2`, append(args, *order)
@@ -153,7 +192,7 @@ func grirQuery(le uuid.UUID, order *uuid.UUID, to *time.Time, openOnly bool) (st
 		// A literal condition, so the planner uses the open positions' partial index.
 		query += ` AND is_open`
 	}
-	return query, args
+	return query, args, nil
 }
 
 // grirPage renders the page's positions with their orders' numbers, read

@@ -112,10 +112,11 @@ func (s *Server) periodHeader(ctx context.Context, p *person, m me, fp gen.Fisca
 		Special: fp.IsSpecial, Status: labelOf(periodStatuses, fp.Status), UpdatedAt: fp.UpdatedAt, UpdatedBy: names[fp.UpdatedBy]}
 }
 
-// checksOf is the pre-close checks of a period.
+// checksOf is the pre-close checks of a period, as at its end.
 func checksOf(fp gen.FiscalPeriod) string {
 	return ui.ChecksPath + "?" + url.Values{ui.FieldCompany: {fp.LegalEntityID.String()}, ui.FieldLedger: {fp.LedgerID.String()},
-		ui.FieldYear: {strconv.Itoa(int(fp.FiscalYear))}, ui.FieldPeriod: {strconv.Itoa(int(fp.Period))}, "period_id": {fp.ID.String()}}.Encode()
+		ui.FieldYear: {strconv.Itoa(int(fp.FiscalYear))}, ui.FieldPeriod: {strconv.Itoa(int(fp.Period))}, ui.FieldKeyDate: {fp.EndDate.Format(time.DateOnly)},
+		"period_id": {fp.ID.String()}}.Encode()
 }
 
 // periodForms are the person's decisions on the period in its status

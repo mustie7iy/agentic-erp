@@ -35,7 +35,7 @@ const maxCenters = 500
 var (
 	sourceContexts = map[string]i18n.Key{"ledger": i18n.SourceLedger, "payables": i18n.SourcePayables, "payments": i18n.SourcePayments,
 		"procurement": i18n.SourceProcurement, "receivables": i18n.SourceReceivables, "assets": i18n.SourceAssets, "integration": i18n.SourceIntegration}
-	entryDone = map[string]i18n.Key{"reversed": i18n.EntryDoneReversed}
+	entryDone = map[string]i18n.Key{"reversed": i18n.EntryDoneReversed, "posted": i18n.EntryDonePosted}
 )
 
 // journalEntries is the journal: the entries of the company, ledger and

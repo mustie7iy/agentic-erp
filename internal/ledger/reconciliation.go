@@ -148,9 +148,15 @@ func (e *Endpoints) ListLedgerReconciliation(ctx context.Context, params gen.Lis
 		return nil, fmt.Errorf("ledger: reconcile %s: %s with %s: %w", r.le.ID, r.ledger, r.compare, err)
 	}
 	diffs, next := pagination.Page(ks, diffs, func(d difference) (string, uuid.UUID) { return d.AccountID.String(), d.ID })
+	accounts, err := accountNames(ctx, tx, diffs)
+	if err != nil {
+		return nil, err
+	}
 	for _, d := range diffs {
 		lc, gc := r.exps[r.le.LocalCurrency], r.exps[r.group]
-		page.Items = append(page.Items, gen.LedgerDifference{AccountID: d.AccountID, Currency: d.Currency, Balance: apitypes.Money(d.Balance, d.Currency, d.Exp),
+		a := accounts[d.AccountID]
+		page.Items = append(page.Items, gen.LedgerDifference{AccountID: d.AccountID, AccountNumber: a.Number, AccountName: a.Name, Currency: d.Currency,
+			Balance:        apitypes.Money(d.Balance, d.Currency, d.Exp),
 			CompareBalance: apitypes.Money(d.Compare, d.Currency, d.Exp), Difference: apitypes.Money(d.Diff, d.Currency, d.Exp),
 			DifferenceLc: apitypes.Money(d.DiffLC, r.le.LocalCurrency, lc), DifferenceGc: apitypes.Money(d.DiffGC, r.group, gc)})
 	}
@@ -158,6 +164,27 @@ func (e *Endpoints) ListLedgerReconciliation(ctx context.Context, params gen.Lis
 		page.NextPageToken.SetTo(next)
 	}
 	return &page, nil
+}
+
+// accountName is what an account is known by.
+type accountName struct{ Number, Name string }
+
+// accountNames are the numbers and names of a page's accounts, by id
+// (T73i2): a difference names its account as the GR/IR report does, so a
+// reader needs no chart of accounts beside it.
+func accountNames(ctx context.Context, tx pgx.Tx, diffs []difference) (map[uuid.UUID]accountName, error) {
+	ids := make([]uuid.UUID, len(diffs))
+	for i, d := range diffs {
+		ids[i] = d.AccountID
+	}
+	rows, _ := tx.Query(ctx, `SELECT id, number, name FROM ledger.gl_account WHERE id = ANY($1)`, ids)
+	out := make(map[uuid.UUID]accountName, len(ids))
+	var id uuid.UUID
+	var a accountName
+	if _, err := pgx.ForEachRow(rows, []any{&id, &a.Number, &a.Name}, func() error { out[id] = a; return nil }); err != nil {
+		return nil, fmt.Errorf("ledger: names of %d reconciled accounts: %w", len(ids), err)
+	}
+	return out, nil
 }
 
 // ledgerTotals is one ledger's trial balance totals.

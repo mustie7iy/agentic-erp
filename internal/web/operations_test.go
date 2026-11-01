@@ -73,10 +73,11 @@ func TestScreensAgainstTheContract(t *testing.T) {
 				t.Errorf("the workspace serves %s %s as %q, want the inventory's %q", method, r.URL.Path, pattern, route)
 			}
 			// ADR-0052 §10: at most six API calls render a page; a form's
-			// own write comes first and is not one of them.
+			// own write comes first and is not one of them, nor is a
+			// write it makes besides (Operation.Write).
 			reads := calls
 			if method == "POST" && len(calls) > 1 {
-				reads = calls[1:]
+				reads = slices.DeleteFunc(slices.Clone(calls[1:]), func(op Operation) bool { return op.Write })
 			}
 			// Nor are the lookups that turn a form's codes into the
 			// write's ids (T73h): a page of each list, and at most

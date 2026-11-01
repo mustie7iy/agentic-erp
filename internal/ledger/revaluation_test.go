@@ -173,6 +173,21 @@ func TestRevaluationPreview(t *testing.T) {
 			t.Errorf("totals:\ngot  %s\nwant %s", strings.Join(totals, "\n     "), strings.Join(wantTotals, "\n     "))
 		}
 	})
+	t.Run("items named", func(t *testing.T) {
+		// Each open item's partner by number and name and its entry by
+		// document number (T73i2); the balance has neither.
+		got, _ := e.in(t).Must(200, "POST", path, preview(e.de, "2026-03-31"), "")
+		var named []string
+		for _, x := range got["items"].([]any) {
+			it := x.(map[string]any)
+			named = append(named, fmt.Sprint(it["partner_number"], " ", it["partner_name"], " ", it["document_number"]))
+		}
+		want := []string{"<nil> <nil> <nil>", "BP00000001 BP00000001 " + inv1.DocumentNumber, "BP00000002 BP00000002 " + inv3.DocumentNumber,
+			"BP00000001 BP00000001 " + inv6.DocumentNumber}
+		if strings.Join(named, "\n") != strings.Join(want, "\n") {
+			t.Errorf("items named:\ngot  %s\nwant %s", strings.Join(named, "\n     "), strings.Join(want, "\n     "))
+		}
+	})
 	t.Run("group currency valued on its own", func(t *testing.T) {
 		// In the group's currency the item is worth what it was booked at,
 		// whatever local currency's rate did.

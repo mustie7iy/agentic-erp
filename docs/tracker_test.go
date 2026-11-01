@@ -20,7 +20,7 @@ import (
 // references, ADRs and history. It must match exactly and only ever falls: an
 // item given its real source, or removed, lowers it here, so no new item can
 // take a baseline item's place unseen in the diff.
-const baselineItems = 951
+const baselineItems = 950
 
 // pilotItems is the number of leaves carrying "pilot": the pilot-ready list the
 // product owner approved on 2026-10-31, the finish line of the first pilot. It
@@ -42,8 +42,14 @@ const baselineItems = 951
 // leaf of the pilot (79), T73d2's pilot approver's walk-through and the two
 // object summaries no operation reads split from it (T73d3, 80), and the
 // product owner added P6's hold of chosen tax dates to open returns (T61o,
-// po:2026-11-01, 81).
-const pilotItems = 81
+// po:2026-11-01, 81). 82 since batch 35: T73f2's walk-through by a pilot
+// treasurer and AP lead, human acceptance, split into a leaf of its own
+// (T73f3) that inherits the tag (82); T73h2's pilot walkthrough,
+// Arabic-Indic digits and partners on an entry's pages split into T73h3,
+// which inherits the tag (83); T73i2's walk-through by a pilot GL
+// accountant and controller, human acceptance, split into T73i3, which
+// inherits its tag (84).
+const pilotItems = 84
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

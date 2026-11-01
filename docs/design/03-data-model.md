@@ -633,6 +633,8 @@ erDiagram
   ledger ||--o{ journal_entry : in
   parked_entry ||--|{ parked_entry_line : contains
   parked_entry |o--o| journal_entry : "posted as"
+  entry_template ||--|{ entry_template_line : contains
+  entry_template |o--o{ parked_entry : "parked from"
   segment ||--o{ profit_center : groups
   profit_center ||--|{ profit_center_company : "posted in"
   profit_center ||--o{ profit_center_period : "valid in"
@@ -784,6 +786,22 @@ Rules enforced in the database:
   entries (`x-agent: false`); people and service principals post them at
   once, agents never. Agents may hold `ledger.entry.park`;
   `ledger.entry.approve` is an approval permission (agents never hold it).
+- An entry template (`entry_template`, `entry_template_line`, ADR-0056,
+  migrations 000184-000185) is a parked entry's header and lines without
+  dates, its name unique per legal entity (`entry_template_name_once`),
+  `active` then `retired` for good (trigger
+  `ledger.check_entry_template_change`, which also keeps its creator,
+  company and ledgers, and its owner once set); its lines change only while
+  it is active. Its optional schedule (`frequency` monthly, quarterly or
+  yearly, `day_of_month`, `starts_on`, `ends_on` or `occurrences`) is all
+  or nothing (`entry_template_schedule`); the ERP keeps `next_due_on`,
+  `last_occurrence_on` and the latest refusal (`refused_on`,
+  `refusal_code`, `refusal_detail`, all or none). A parked entry made from
+  it names it (`template_id`); one the ERP parked for a due date names the
+  date (`occurrence_date`), is a system principal's (`created_by_kind`
+  `system`) and has an owner (`parked_entry_occurrence`), once per template
+  and date (`parked_entry_occurrence_once`); neither changes (trigger
+  `parked_entry_keep_template`).
 - A clearing's entry is one of the clearing's legal entity, and its date
   falls in an open period of that legal entity and the entry's ledger
   (trigger `ledger.check_clearing_period`, migration 000049, T32), as a
@@ -906,8 +924,15 @@ Rules enforced in the database:
   from goods receipts and invoices (lines a migration run loaded without an
   order item are on the account but in no position; once the run has taken
   SAP's open positions over, they net to zero). A key date
-  (`posting_date_to`) is a report summed from one order's lines, so it
-  needs `purchase_order_id`.
+  (`posting_date_to`) is a report: one order's positions summed from its
+  lines, or, without `purchase_order_id` (T73i2, a period's close checks
+  them as at its end), every order's, the projected positions except the
+  order items posted after the key date, whose positions are summed from
+  their lines up to it. The lines after the key date are read from the
+  fiscal years that end after it, so an item untouched since costs no
+  line read; an item posted since costs its own history.
+  TestGRIRBalancesBudget measures the case without lines after the key
+  date only.
   A reversal mirrors its entry; where it brings an order item's quantity to
   zero and rounding leaves a balance (the item moved since), it adds a
   GR/IR line of quantity 0 that clears it against `price_difference`, so a

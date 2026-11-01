@@ -504,6 +504,24 @@ func (UnimplementedHandler) CreateDownPaymentRequest(ctx context.Context, req *D
 	return r, ht.ErrNotImplemented
 }
 
+// CreateEntryTemplate implements createEntryTemplate operation.
+//
+// Saves a manual journal entry without its dates as a template (ADR-0056, `EntryTemplateChanged`), for
+// a person to park entries from (`parkFromEntryTemplate`) or, with a `schedule`, for the ERP to park
+// one entry per due date. It is checked as parking checks an entry (`parkJournalEntry`), on its
+// schedule's first date or else its company's date today; every use checks it again, since accounts
+// and centers may be blocked later. Its name is unique in its legal entity (409
+// `ledger.template_name_taken`). A person owns what they save, and owns the entries the schedule
+// parks; an agent's or a service's template has no owner until a person takes it on by changing it,
+// and its schedule parks nothing until then. Scheduled entries are parked, never posted: the owner
+// posts them with `postParkedJournalEntry`, within the approval limit or with someone else's approval.
+// Amounts are fixed: the parked entry may be changed before it is posted.
+//
+// POST /v1/entry-templates
+func (UnimplementedHandler) CreateEntryTemplate(ctx context.Context, req *EntryTemplateCreate, params CreateEntryTemplateParams) (r CreateEntryTemplateRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateExchangeRate implements createExchangeRate operation.
 //
 // Records a rate. Rates are insert-only; recording the same rate type, currency pair and `valid_from`
@@ -1225,6 +1243,16 @@ func (UnimplementedHandler) GetDownPaymentRequest(ctx context.Context, params Ge
 	return r, ht.ErrNotImplemented
 }
 
+// GetEntryTemplate implements getEntryTemplate operation.
+//
+// Returns one entry template with its lines, its schedule's next due date (`next_due_on`), the last
+// date it parked an entry for and the last it could not (`last_refusal`).
+//
+// GET /v1/entry-templates/{id}
+func (UnimplementedHandler) GetEntryTemplate(ctx context.Context, params GetEntryTemplateParams) (r GetEntryTemplateRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetExchangeRate implements getExchangeRate operation.
 //
 // Returns one exchange rate.
@@ -1787,8 +1815,8 @@ func (UnimplementedHandler) ListBankStatements(ctx context.Context, params ListB
 
 // ListBusinessPartners implements listBusinessPartners operation.
 //
-// Business partners. Filter by `number` or `name_prefix` to look one up. Sortable by: `number`,
-// `name`.
+// Business partners. Filter by `number` or `name_prefix` to look one up, or by `ids` to name the
+// partners other resources give by id (a journal line's `partner_id`). Sortable by: `number`, `name`.
 //
 // GET /v1/business-partners
 func (UnimplementedHandler) ListBusinessPartners(ctx context.Context, params ListBusinessPartnersParams) (r ListBusinessPartnersRes, _ error) {
@@ -1936,6 +1964,16 @@ func (UnimplementedHandler) ListDownPaymentRequests(ctx context.Context, params 
 	return r, ht.ErrNotImplemented
 }
 
+// ListEntryTemplates implements listEntryTemplates operation.
+//
+// Entry templates (ADR-0056): saved manual entries, with their schedules, newest first. Sortable by:
+// `created_at`.
+//
+// GET /v1/entry-templates
+func (UnimplementedHandler) ListEntryTemplates(ctx context.Context, params ListEntryTemplatesParams) (r ListEntryTemplatesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListExchangeRates implements listExchangeRates operation.
 //
 // Exchange rates by type and currency pair. Sortable by: `valid_from`.
@@ -1972,9 +2010,11 @@ func (UnimplementedHandler) ListGoodsReceipts(ctx context.Context, params ListGo
 // a closed order's residual position is cleared by a GR/IR clearing (createGrIrClearing). Only orders
 // valued through GR/IR have positions; a migration run takes over the open positions SAP holds for the
 // order items it loads (`migrated_quantity`), and an invoice posted after cutover clears them as it
-// clears the platform's own. With `posting_date_to` the call reports one order's positions on that key
-// date. Each position names its order by number and its account by number and name, and `totals` sums
-// every position the filters select, on every page. Sortable by: `purchase_order_id`,
+// clears the platform's own. With `posting_date_to` the call reports the positions as they stood on
+// that key date: one order's, summed from its postings, or, without `purchase_order_id`, every
+// order's, the current positions less what was posted after the key date (a period's close checks them
+// as at its end). Each position names its order by number and its account by number and name, and
+// `totals` sums every position the filters select, on every page. Sortable by: `purchase_order_id`,
 // `last_posting_date`.
 //
 // GET /v1/gr-ir-balances
@@ -2676,6 +2716,21 @@ func (UnimplementedHandler) OpenFiscalPeriod(ctx context.Context, params OpenFis
 	return r, ht.ErrNotImplemented
 }
 
+// ParkFromEntryTemplate implements parkFromEntryTemplate operation.
+//
+// Parks a manual journal entry from an active entry template (409 `ledger.template_retired` otherwise)
+// at the version the caller read (`If-Match`), dated as the request says, for a person to post
+// (`ParkedJournalEntryChanged`): an ordinary parked entry naming the template (`template_id`), checked
+// as `parkJournalEntry` checks one and owned as it would be, by the caller when a person. From there
+// it is changed, posted (`postParkedJournalEntry`, with the open period and the approval limit) or
+// cancelled as any parked entry. Any principal who may park entries in the template's company may use
+// it, not only its owner; the template's schedule does not move.
+//
+// POST /v1/entry-templates/{id}:park
+func (UnimplementedHandler) ParkFromEntryTemplate(ctx context.Context, req *EntryTemplateUse, params ParkFromEntryTemplateParams) (r ParkFromEntryTemplateRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ParkJournalEntry implements parkJournalEntry operation.
 //
 // Parks a manual journal entry for a person to post (`ParkedJournalEntryChanged`). It is checked as a
@@ -3321,6 +3376,17 @@ func (UnimplementedHandler) ResumeWebhookSubscription(ctx context.Context, param
 	return r, ht.ErrNotImplemented
 }
 
+// RetireEntryTemplate implements retireEntryTemplate operation.
+//
+// Retires an active entry template for good (status `retired`, `EntryTemplateChanged`): it changes no
+// more, nothing is parked from it, and its schedule ends. Entries parked from it stay as they are.
+// Only its owner retires it (403 `ledger.not_template_owner`), as for `updateEntryTemplate`.
+//
+// POST /v1/entry-templates/{id}:retire
+func (UnimplementedHandler) RetireEntryTemplate(ctx context.Context, params RetireEntryTemplateParams) (r RetireEntryTemplateRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ReverseGoodsReceipt implements reverseGoodsReceipt operation.
 //
 // Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
@@ -3637,6 +3703,22 @@ func (UnimplementedHandler) UpdateContract(ctx context.Context, req *ContractUpd
 //
 // PATCH /v1/cost-centers/{id}
 func (UnimplementedHandler) UpdateCostCenter(ctx context.Context, req *CenterTextsUpdate, params UpdateCostCenterParams) (r UpdateCostCenterRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateEntryTemplate implements updateEntryTemplate operation.
+//
+// Changes an active entry template (409 `ledger.template_retired` otherwise; `EntryTemplateChanged`).
+// JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears `reference`, `header_text`
+// or `schedule`, and `lines` replaces the lines as a whole. The legal entity and the ledgers do not
+// change. It is checked again as saving checks it, and its schedule goes on after the last date the
+// ERP parked or refused: a changed schedule parks nothing for dates before it. Entries parked from it
+// before do not change. Only its owner changes it (403 `ledger.not_template_owner`): the person who
+// saved it; a person who changes an agent's or service's template no person owns takes it on and
+// becomes its owner; an agent or service changes only a template it saved that no person has taken on.
+//
+// PATCH /v1/entry-templates/{id}
+func (UnimplementedHandler) UpdateEntryTemplate(ctx context.Context, req *EntryTemplateUpdate, params UpdateEntryTemplateParams) (r UpdateEntryTemplateRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

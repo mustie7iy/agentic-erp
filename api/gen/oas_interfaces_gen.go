@@ -153,6 +153,10 @@ type CreateDownPaymentRequestRes interface {
 	createDownPaymentRequestRes()
 }
 
+type CreateEntryTemplateRes interface {
+	createEntryTemplateRes()
+}
+
 type CreateExchangeRateRes interface {
 	createExchangeRateRes()
 }
@@ -391,6 +395,10 @@ type GetCurrentPrincipalRes interface {
 
 type GetDownPaymentRequestRes interface {
 	getDownPaymentRequestRes()
+}
+
+type GetEntryTemplateRes interface {
+	getEntryTemplateRes()
 }
 
 type GetExchangeRateRes interface {
@@ -665,6 +673,10 @@ type ListDownPaymentRequestsRes interface {
 	listDownPaymentRequestsRes()
 }
 
+type ListEntryTemplatesRes interface {
+	listEntryTemplatesRes()
+}
+
 type ListExchangeRatesRes interface {
 	listExchangeRatesRes()
 }
@@ -913,6 +925,10 @@ type OpenFiscalPeriodRes interface {
 	openFiscalPeriodRes()
 }
 
+type ParkFromEntryTemplateRes interface {
+	parkFromEntryTemplateRes()
+}
+
 type ParkJournalEntryRes interface {
 	parkJournalEntryRes()
 }
@@ -1061,6 +1077,10 @@ type ResumeWebhookSubscriptionRes interface {
 	resumeWebhookSubscriptionRes()
 }
 
+type RetireEntryTemplateRes interface {
+	retireEntryTemplateRes()
+}
+
 type ReverseGoodsReceiptRes interface {
 	reverseGoodsReceiptRes()
 }
@@ -1155,6 +1175,10 @@ type UpdateContractRes interface {
 
 type UpdateCostCenterRes interface {
 	updateCostCenterRes()
+}
+
+type UpdateEntryTemplateRes interface {
+	updateEntryTemplateRes()
 }
 
 type UpdateLegalEntityRes interface {

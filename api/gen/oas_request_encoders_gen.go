@@ -480,6 +480,20 @@ func encodeCreateDownPaymentRequestRequest(
 	return nil
 }
 
+func encodeCreateEntryTemplateRequest(
+	req *EntryTemplateCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateExchangeRateRequest(
 	req *ExchangeRateCreate,
 	r *http.Request,
@@ -1085,6 +1099,20 @@ func encodeMoveHierarchyNodeRequest(
 
 func encodeMoveProfitCenterRequest(
 	req *ProfitCenterMove,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeParkFromEntryTemplateRequest(
+	req *EntryTemplateUse,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -1715,6 +1743,20 @@ func encodeUpdateContractRequest(
 
 func encodeUpdateCostCenterRequest(
 	req *CenterTextsUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateEntryTemplateRequest(
+	req *EntryTemplateUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

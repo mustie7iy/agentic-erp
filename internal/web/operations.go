@@ -75,6 +75,7 @@ type Operation struct {
 	// request's page calls the one of its object's type, one read
 	// whichever it is.
 	PerObject bool
+	Write     bool // a form's write besides its first: a new entry posted at once is parked above its limit (T73h2)
 }
 
 var (
@@ -95,12 +96,14 @@ var (
 	opStatement     = []Operation{opMe, {ID: "getBankStatement", HiddenBy: permReadStatements},
 		{ID: "listBankStatementMatches", HiddenBy: permReadStatements}, {ID: "getBankStatementRules", HiddenBy: permReadStatements}, opHouseBanks, opNames}
 	// opRuns are the reads of the payment runs' list (payments.go), opRun
-	// those of a run's page (payment_run.go) and opProgress those of its
-	// operation's progress (payment_progress.go).
+	// those of a run's page (payment_run.go), opFiles those of its bank
+	// files' section and opProgress those of its operation's progress
+	// (payment_progress.go).
 	opRuns   = []Operation{opMe, opCompanies, opToday, opHouseBanks, {ID: "listPaymentRuns", HiddenBy: permReadRuns}, opNames}
 	opGetRun = Operation{ID: "getPaymentRun", HiddenBy: permReadRuns}
 	opRun    = []Operation{opMe, opGetRun, {ID: "listPayments", HiddenBy: permReadRuns}, {ID: "listPaymentExclusions", HiddenBy: permReadRuns},
-		{ID: "listBankFiles", HiddenBy: permReadRuns}, opNames}
+		opCompanies, opNames}
+	opFiles    = []Operation{opMe, {ID: "listBankFiles", HiddenBy: permReadRuns}}
 	opProgress = []Operation{opMe, opGetRun, {ID: "getOperation", HiddenBy: permReadOperations}}
 	// opPeriods are the reads of the periods' list (close.go), opPeriod
 	// those of a period's page (period.go) and opChecks those of the
@@ -128,8 +131,9 @@ var (
 	opJournal     = []Operation{opMe, opCompanies, opLedgers, {ID: "listCostCenters", HiddenBy: permReadCenters}, {ID: "listProfitCenters", HiddenBy: permReadCenters}, {ID: "listJournalEntries", HiddenBy: permReadEntries}}
 	opEntry       = []Operation{opMe, {ID: "getJournalEntry", HiddenBy: permReadEntries}, opCompanies, opLedgers, opAccounts, opNames}
 	opGetParked   = Operation{ID: "getParkedJournalEntry", HiddenBy: permReadEntries}
-	opEntryForm   = []Operation{opMe, opCompanies, opToday, opAccounts}
-	opChangeForm  = []Operation{opMe, opGetParked, opCompanies, opAccounts}
+	opEntryForm   = []Operation{opMe, opCompanies, opToday, opAccounts, opLedgers, {ID: "listLedgerGroups", HiddenBy: permReadAccounts}}
+	opChangeForm  = []Operation{opMe, opGetParked, opCompanies, opAccounts, {ID: "listBusinessPartners", HiddenBy: permReadSuppliers}}
+	opParkEntry   = Operation{ID: "parkJournalEntry", HiddenBy: permParkEntries}
 	opParkedEntry = []Operation{opMe, opGetParked, opCompanies, opAccounts, opNames, opGet}
 	opLookups     = []Operation{{ID: "listAccounts", Lookup: true}, {ID: "listCostCenters", Lookup: true}, {ID: "listProfitCenters", Lookup: true},
 		{ID: "listSegments", Lookup: true}, {ID: "listBusinessPartners", Lookup: true}}
@@ -147,7 +151,7 @@ var (
 	opSupplier     = Operation{ID: "listBusinessPartners", HiddenBy: permReadSuppliers}
 	opOpenItems    = []Operation{opMe, opCompanies, opToday, opAccounts, opSupplier, opListItems}
 	opGRIR         = []Operation{opMe, opCompanies, opListGRIR}
-	opReconcile    = []Operation{opMe, opCompanies, opToday, opLedgers, opAccounts, {ID: "listLedgerReconciliation", HiddenBy: permReadEntries}}
+	opReconcile    = []Operation{opMe, opCompanies, opToday, opLedgers, {ID: "listLedgerReconciliation", HiddenBy: permReadEntries}}
 	opReconEntries = []Operation{opMe, opToday, opLedgers, opAccounts, {ID: "listLedgerReconciliationEntries", HiddenBy: permReadEntries}}
 )
 
@@ -244,6 +248,7 @@ var Screens = func() map[string][]Operation {
 		"POST /payments/propose":                    append([]Operation{{ID: "proposePaymentRun", HiddenBy: permProposeRuns}}, opRuns...),
 		"GET /payments/{id}":                        opRun,
 		"GET /payments/{id}/progress":               opProgress,
+		"GET /payments/{id}/files":                  opFiles,
 		"POST /payments/{id}/cancel":                append([]Operation{{ID: "cancelOperation", HiddenBy: permCancelOperations}}, opProgress...),
 		"GET /close":                                opPeriods,
 		"GET /close/periods/{id}":                   opPeriod,
@@ -251,11 +256,15 @@ var Screens = func() map[string][]Operation {
 		"GET /close/revaluation":                    opRevaluation,
 		"POST /close/revaluation/preview": append(append([]Operation{{ID: "previewRevaluation", HiddenBy: permReadEntries}}, opRevaluation...),
 			opAccounts),
-		"POST /close/revaluation/post":               append([]Operation{{ID: "postRevaluationRun", HiddenBy: permPostEntries, HumanOnly: true}}, opRevaluation...),
-		"GET /close/revaluation/{id}":                opRevaluationRun,
-		"GET /journal":                               opParkedList,
-		"GET /journal/new":                           opEntryForm,
-		"POST /journal/new":                          append(append([]Operation{{ID: "parkJournalEntry", HiddenBy: permParkEntries}}, opEntryForm...), opLookups...),
+		"POST /close/revaluation/post": append([]Operation{{ID: "postRevaluationRun", HiddenBy: permPostEntries, HumanOnly: true}}, opRevaluation...),
+		"GET /close/revaluation/{id}":  opRevaluationRun,
+		"POST /close/revaluation/{id}/cancel": append([]Operation{{ID: "cancelRevaluationRun", HiddenBy: permPostEntries, HumanOnly: true}},
+			opRevaluationRun...),
+		"GET /journal":     opParkedList,
+		"GET /journal/new": opEntryForm,
+		"POST /journal/new": append(append([]Operation{opParkEntry, {ID: "postJournalEntry", HiddenBy: permPostEntries, HumanOnly: true, Write: true}},
+			opEntryForm...), opLookups...),
+		"POST /journal/new/file":                     append(append([]Operation{opParkEntry}, opEntryForm...), opLookups...),
 		"GET /journal/parked/{id}":                   opParkedEntry,
 		"GET /journal/parked/{id}/edit":              opChangeForm,
 		"POST /journal/parked/{id}/edit":             append(append([]Operation{opUpdateParked}, opChangeForm...), opLookups...),

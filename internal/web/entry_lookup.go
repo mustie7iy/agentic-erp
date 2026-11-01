@@ -29,8 +29,12 @@ import (
 // lengths say, checked before the API is called so a typed value stays on
 // the page: a center's or segment's code, a tax code, and texts.
 var (
-	centerCode = regexp.MustCompile(`^[0-9A-Z_-]{1,10}$`)
-	taxCode    = regexp.MustCompile(`^[A-Z0-9]{1,4}$`)
+	centerCode   = regexp.MustCompile(`^[0-9A-Z_-]{1,10}$`)
+	taxCode      = regexp.MustCompile(`^[A-Z0-9]{1,4}$`)
+	jurisdiction = regexp.MustCompile(`^[A-Z]{2}-[A-Z0-9]{1,3}$`)
+	unitCode     = regexp.MustCompile(`^[A-Z0-9]{1,6}$`)
+	// quantityValue is Quantity.value once the decimal sign is a point.
+	quantityValue = regexp.MustCompile(`^-?(0|[1-9][0-9]{0,13})(\.[0-9]{1,6})?$`)
 )
 
 const (
@@ -47,7 +51,8 @@ type entryLine struct {
 	no                             int
 	account, amount, costCenter    string
 	profitCenter, segment, partner string
-	taxCode, text                  string
+	taxCode, taxArea, taxBase      string
+	quantity, unit, text           string
 	errs                           map[string]i18n.Key
 	refused                        []refusedField
 	focus                          bool
@@ -60,7 +65,8 @@ type refusedField struct{ api, reason string }
 
 // blank reports whether the line holds nothing: it is left out.
 func (l entryLine) blank() bool {
-	return strings.TrimSpace(l.account+l.amount+l.costCenter+l.profitCenter+l.segment+l.partner+l.taxCode+l.text) == ""
+	return strings.TrimSpace(l.account+l.amount+l.costCenter+l.profitCenter+l.segment+l.partner+l.taxCode+l.taxArea+l.taxBase+l.quantity+
+		l.unit+l.text) == ""
 }
 
 // fail records what is wrong with the line's field.
@@ -73,11 +79,12 @@ func (l *entryLine) fail(field string, k i18n.Key) {
 
 // check checks the line's shapes in the person's locale and the
 // currency: its account and amount required, the amount a decimal that is
-// not zero, the codes the API's shapes, the text at most 200 characters.
-// The codes are taken in capitals, as the API keeps them.
+// not zero, the codes the API's shapes, its tax and quantity (checkTax),
+// the text at most 200 characters. The codes are taken in capitals, as
+// the API keeps them.
 func (l *entryLine) check(loc i18n.Locale, currency string) {
 	l.account, l.partner = strings.TrimSpace(l.account), strings.TrimSpace(l.partner)
-	for _, code := range []*string{&l.costCenter, &l.profitCenter, &l.segment, &l.taxCode} {
+	for _, code := range []*string{&l.costCenter, &l.profitCenter, &l.segment, &l.taxCode, &l.taxArea, &l.unit} {
 		*code = strings.ToUpper(strings.TrimSpace(*code))
 	}
 	if l.account == "" {
@@ -110,6 +117,43 @@ func (l *entryLine) check(loc i18n.Locale, currency string) {
 			l.fail(ui.FieldLineText, e)
 		}
 	}
+	l.checkTax(loc, currency)
+}
+
+// checkTax checks the line's tax jurisdiction (ISO 3166-2), its declared
+// tax base (an amount in the currency, as the line's is typed) and its
+// quantity, a decimal of at most six places with its unit, each both or
+// neither; the API says whether the line's tax code takes them.
+func (l *entryLine) checkTax(loc i18n.Locale, currency string) {
+	if l.taxArea != "" {
+		if !jurisdiction.MatchString(l.taxArea) {
+			l.fail(ui.FieldLineTaxArea, i18n.EntryTaxAreaInvalid)
+		}
+		l.sent.TaxJurisdiction = gen.NewOptString(l.taxArea)
+	}
+	if strings.TrimSpace(l.taxBase) != "" {
+		base, ok := loc.Amount(l.taxBase)
+		if !ok {
+			l.fail(ui.FieldLineTaxBase, i18n.EntryAmountInvalid)
+		}
+		l.sent.TaxBase = gen.NewOptMoney(gen.Money{Amount: base, Currency: currency})
+	}
+	value := strings.Replace(strings.TrimSpace(l.quantity), loc.DecimalSign(), ".", 1)
+	switch {
+	case value == "" && l.unit == "":
+		return
+	case value == "":
+		l.fail(ui.FieldLineQuantity, i18n.EntryQuantityNeeded)
+	case !quantityValue.MatchString(value):
+		l.fail(ui.FieldLineQuantity, i18n.EntryQuantityInvalid)
+	}
+	switch {
+	case l.unit == "":
+		l.fail(ui.FieldLineUnit, i18n.EntryUnitNeeded)
+	case !unitCode.MatchString(l.unit):
+		l.fail(ui.FieldLineUnit, i18n.EntryUnitInvalid)
+	}
+	l.sent.Quantity = gen.NewOptQuantity(gen.Quantity{Value: value, Unit: l.unit})
 }
 
 // textError is what is wrong with a text of at most max characters.

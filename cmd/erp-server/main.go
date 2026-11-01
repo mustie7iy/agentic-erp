@@ -761,7 +761,10 @@ func (s *server) startOperations(runCtx context.Context) {
 	// workflow engine: the outbox of their transmission (T44e, ADR-0038).
 	transmitter := &payments.Transmitter{Endpoints: app.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
 	s.spawn("bank file transmitter", func() { transmitter.Run(runCtx) })
+	recurrences := &workflows.Recurrences{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Endpoints: app.Ledger(apiCfg)}
 	if engine == nil {
+		recurrer := &workflows.Recurrer{Recurrences: recurrences, Log: log}
+		s.spawn("recurring entries", func() { recurrer.Run(runCtx) })
 		proposer := &payments.Proposer{Endpoints: app.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
 		s.spawn("proposer", func() { proposer.Run(runCtx) })
 		releaser := &workflows.Releaser{Payments: &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Payments(apiCfg)}, Pool: pool, WorkerRole: cfg.WorkerRole, Log: log}
@@ -774,10 +777,11 @@ func (s *server) startOperations(runCtx context.Context) {
 	s.spawnCritical("workflow worker", func() error {
 		return engine.Worker(runCtx, cfg.Temporal.TaskQueue, func(r workflow.Registry) {
 			workflows.Register(r, activities, &workflows.Simulations{Worker: s.simulator}, &workflows.Migrations{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Integration(apiCfg), Actors: identity.Actors{}},
-				&workflows.Approvals{Pool: pool, AppRole: cfg.AppRole}, &workflows.Statements{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Payments(apiCfg)})
+				&workflows.Approvals{Pool: pool, AppRole: cfg.AppRole}, &workflows.Statements{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Payments(apiCfg)},
+				recurrences)
 		})
 	})
-	dispatcher := &workflows.Dispatcher{Deadline: cfg.Temporal.EscalateAfter, Escalations: cfg.Temporal.Escalations, Pool: pool, WorkerRole: cfg.WorkerRole, Client: engine, Queue: cfg.Temporal.TaskQueue, Interval: dispatchInterval, Statements: cfg.Temporal.StatementFetch, Log: log}
+	dispatcher := &workflows.Dispatcher{Deadline: cfg.Temporal.EscalateAfter, Escalations: cfg.Temporal.Escalations, Pool: pool, WorkerRole: cfg.WorkerRole, Client: engine, Queue: cfg.Temporal.TaskQueue, Interval: dispatchInterval, Statements: cfg.Temporal.StatementFetch, Recurring: recurrences, Log: log}
 	s.spawn("dispatcher", func() { dispatcher.Run(runCtx) })
 }
 

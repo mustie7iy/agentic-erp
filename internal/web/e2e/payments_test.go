@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 	"github.com/google/uuid"
 
@@ -87,9 +88,9 @@ func proposeRun(t *testing.T, f fixture.Env, a pgtest.Actor) uuid.UUID {
 
 func runPage(id uuid.UUID) string { return "/payments/" + id.String() }
 
-// checkRunPages checks the runs' list, a released run with its bank
-// file, a proposed run and one being proposed (its progress polled), and
-// a run's progress page, in the languages at a desktop's and a phone's
+// checkRunPages checks the runs' list, a released run and its bank
+// files' page, a proposed run and one being proposed (its progress
+// polled), and a run's progress page, in the languages at a desktop's and a phone's
 // width, with every check of TestPagesInTheBrowser and axe at zero.
 func checkRunPages(t *testing.T, s runs, langs []lang) {
 	t.Helper()
@@ -98,7 +99,8 @@ func checkRunPages(t *testing.T, s runs, langs []lang) {
 	signIn(t, browserCtx, s.stack)
 	for _, l := range langs {
 		for _, width := range []int64{1280, 390} {
-			for _, path := range []string{"/payments", runPage(s.released), runPage(s.proposed), runPage(s.queued), runPage(s.queued) + "/progress"} {
+			for _, path := range []string{"/payments", runPage(s.released), runPage(s.released) + "/files", runPage(s.proposed), runPage(s.queued),
+				runPage(s.queued) + "/progress"} {
 				t.Run(fmt.Sprintf("%s %d %s", l.lang, width, path), func(t *testing.T) {
 					checkPage(t, browserCtx, s.stack, src, l.header, l.lang, l.dir, width, path)
 				})
@@ -203,3 +205,86 @@ func TestPaymentScreenshots(t *testing.T) {
 		}
 	}
 }
+
+// TestRunSectionsInTheBrowser: a released run's page loads its bank
+// files' section, checked by axe once it is there. While a run's
+// proposal waits, its progress' status is polled every two seconds and
+// answered 204, so the status region is never changed and a screen
+// reader does not read the same status out again; once the session has
+// ended, the next poll's answer sends the browser to sign in
+// (HX-Redirect), back to the run's page, never the sign-in put in the
+// status' place (T73f2).
+func TestRunSectionsInTheBrowser(t *testing.T) {
+	s := newRuns(t, "")
+	src := axe(t)
+	browserCtx := browse(t)
+	signIn(t, browserCtx, s.stack)
+	ctx, c := tab(t, browserCtx, "", 390)
+	if err := chromedp.Do(ctx,
+		chromedp.Navigate(s.url+runPage(s.released)),
+		chromedp.WaitVisible(chromedp.CSS("#files-title")),
+	); err != nil {
+		t.Fatal(err)
+	}
+	waitForText(t, ctx, runPage(s.released), "Written, not sent")
+	audit(t, ctx, src, "en", "ltr", 390)
+	if err := chromedp.Do(ctx,
+		chromedp.Navigate(s.url+runPage(s.queued)),
+		chromedp.WaitVisible(chromedp.CSS(`[role="status"] [hx-get]`)),
+		chromedp.Evaluate[chromedp.Void](watchStatus),
+	); err != nil {
+		t.Fatal(err)
+	}
+	var polls []int
+	pgtest.Eventually(t, 20*time.Second, func() bool {
+		got, err := chromedp.Run(ctx, chromedp.Evaluate[[]int](`window.erpPolls`))
+		polls = got
+		return err == nil && len(got) >= 2
+	}, "the status was not polled twice: %v", pollsSeen{&polls})
+	changed, err := chromedp.Run(ctx, chromedp.Evaluate[int](`window.erpChanges`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed != 0 {
+		t.Errorf("the status region while nothing changed: changed %d times, want none (polls answered %v)", changed, polls)
+	}
+	for i, st := range polls {
+		if st != 204 {
+			t.Errorf("poll %d: answered %d, want 204", i, st)
+		}
+	}
+	if _, err := chromedp.Call(ctx, network.DeleteCookies, network.DeleteCookiesParams{Name: "__Host-Http-erp-session", URL: s.url + "/"}); err != nil {
+		t.Fatal(err)
+	}
+	pgtest.Eventually(t, 20*time.Second, func() bool {
+		left, err := chromedp.Run(ctx, chromedp.Evaluate[bool](`window.erpPolls === undefined && document.readyState === "complete"`))
+		return err == nil && left
+	}, "the browser stayed on the page whose session ended")
+	waitForText(t, ctx, runPage(s.queued), "Progress")
+	if n, err := chromedp.Run(ctx, chromedp.Evaluate[int](`document.querySelectorAll("main").length + document.querySelectorAll('[role="status"] h1').length`)); err != nil || n != 1 {
+		t.Errorf("after sign-in again: %d main elements and headings in the status, want the run's page alone (%v)", n, err)
+	}
+	for _, e := range c.errors() {
+		t.Errorf("browser: %s", e)
+	}
+}
+
+// pollsSeen prints the polls' answers as they were last read, when a
+// wait for them ends.
+type pollsSeen struct{ polls *[]int }
+
+func (p pollsSeen) String() string { return fmt.Sprint(*p.polls) }
+
+// watchStatus counts the changes to the progress' status region's
+// content, which a screen reader reads out (htmx's own classes on the
+// poller while it asks are no content), and the statuses of the answers
+// to its polls.
+const watchStatus = `(() => {
+	window.erpChanges = 0;
+	window.erpPolls = [];
+	new MutationObserver(records => { window.erpChanges += records.length }).observe(document.querySelector('[role="status"]'),
+		{subtree: true, childList: true, characterData: true});
+	document.body.addEventListener("htmx:afterRequest", e => {
+		if (e.detail.requestConfig.path.includes("part=status")) window.erpPolls.push(e.detail.xhr.status);
+	});
+})()`

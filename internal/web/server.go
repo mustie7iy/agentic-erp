@@ -210,6 +210,7 @@ func (s *Server) paymentRoutes(route func(string, http.HandlerFunc)) {
 	route("POST "+ui.ProposePath, s.signedIn(s.csrf(s.propose)))
 	route("GET "+ui.PaymentsPath+"/{id}", s.signedIn(s.run))
 	route("GET "+ui.PaymentsPath+"/{id}/progress", s.signedIn(s.progress))
+	route("GET "+ui.PaymentsPath+"/{id}/files", s.signedIn(s.files))
 	route("POST "+ui.PaymentsPath+"/{id}/cancel", s.signedIn(s.csrf(s.cancelRunOperation)))
 	for verb := range runOps {
 		route("POST "+ui.PaymentsPath+"/{id}/"+verb, s.signedIn(s.csrf(s.decideRun(verb))))
@@ -228,6 +229,7 @@ func (s *Server) closeRoutes(route func(string, http.HandlerFunc)) {
 	route("POST "+ui.PreviewPath, s.signedIn(s.csrf(s.previewRevaluation)))
 	route("POST "+ui.RevaluePostPath, s.signedIn(s.csrf(s.postRevaluation)))
 	route("GET "+ui.RevaluationPath+"/{id}", s.signedIn(s.revaluationRun))
+	route("POST "+ui.RevaluationPath+"/{id}/cancel", s.signedIn(s.csrf(s.cancelRevaluation)))
 }
 
 // journalRoutes routes the manual journal entries' pages (T73h).
@@ -235,6 +237,7 @@ func (s *Server) journalRoutes(route func(string, http.HandlerFunc)) {
 	route("GET "+ui.JournalPath, s.signedIn(s.parkedEntries))
 	route("GET "+ui.NewEntryPath, s.signedIn(s.newEntry))
 	route("POST "+ui.NewEntryPath, s.signedIn(s.csrf(s.parkEntry)))
+	route("POST "+ui.NewEntryFile, s.signedIn(s.csrfUpload(s.parkFile)))
 	route("GET "+ui.ParkedBase+"/{id}", s.signedIn(s.parkedEntry))
 	route("GET "+ui.ParkedBase+"/{id}/edit", s.signedIn(s.editEntry))
 	route("POST "+ui.ParkedBase+"/{id}/edit", s.signedIn(s.csrf(s.saveEntry)))

@@ -150,14 +150,16 @@ func TestJournalJobsInTheBrowser(t *testing.T) {
 		} else {
 			keys(t, desk, "100000", "\t", "-900.00", "\t", "")
 		}
-		// Past the profit center, segment, partner, tax code, text and
-		// the box that leaves the line out: the next line, or the form's
-		// buttons.
-		keys(t, desk, tabs(7)...)
+		// Past the profit center, segment, partner, tax code, tax
+		// jurisdiction, tax base, quantity, unit, text and the box that
+		// leaves the line out: the next line, or the form's buttons.
+		keys(t, desk, tabs(11)...)
 		switch {
 		case i == 1:
 		case i < 10:
 			focusedIs(t, desk, "entry-send-button")
+			keys(t, desk, "\t")
+			focusedIs(t, desk, "entry-post-button")
 			keys(t, desk, "\t")
 			focusedIs(t, desk, "entry-add-button")
 			keys(t, desk, "\r")

@@ -37,6 +37,7 @@ var statementS1 = fixture.MT940("S1", "1", "1000,00", "260416", "957,25", "26041
 type bankData struct {
 	statement uuid.UUID // S1
 	bank      uuid.UUID // house bank MAIN of company 2000
+	de, us    uuid.UUID // companies 2000, MAIN •••• 3000's, and 1000
 	objects   blobstore.Dir
 	viewer    pgtest.Actor // may read statements and companies alone
 	outsider  pgtest.Actor // may read nothing
@@ -55,6 +56,7 @@ func bankStack(t *testing.T) (*stack, *bankData) {
 		f.Reconciles(t)
 		f.OpeningBalance(t, 100000)
 		d.bank = f.HouseBank(t)
+		d.de, d.us = f.DE, f.US
 		d.statement = f.ImportStatement(t, d.objects, statementS1)[0]
 		f.Propose(t, d.statement, 4, `"posting_rule": "NCHG", "reason": "The bank booked 60.00 of charges for the quarter."`)
 		reason, _ := json.Marshal(planted)
@@ -205,6 +207,8 @@ func TestStatementList(t *testing.T) {
 		"the bank":      {"house_bank_id=" + d.bank.String(), 1},
 		"another bank":  {"house_bank_id=" + uuid.NewString(), 0},
 		"both, the tab": {"house_bank_id=" + d.bank.String() + "&status=gap", 0},
+		"the company":   {"legal_entity_id=" + d.de.String(), 1},
+		"another":       {"legal_entity_id=" + d.us.String(), 0},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := len(b.get("/bank?"+tc.query).page(t).all("li", "card")); got != tc.want {
@@ -213,6 +217,31 @@ func TestStatementList(t *testing.T) {
 		})
 	}
 	status(t, "a bank that is no id", b.get("/bank?house_bank_id=x"), http.StatusBadRequest)
+	status(t, "a company that is no id", b.get("/bank?legal_entity_id=x"), http.StatusBadRequest)
+	// A company chosen (T73i2): its house banks alone, chosen in the
+	// filter, and kept by the status tabs.
+	us := b.get("/bank?legal_entity_id=" + d.us.String()).page(t)
+	if strings.Contains(us.mainText(), "MAIN •••• 3000") {
+		t.Errorf("company 1000's statements: show company 2000's house bank: %s", us.mainText())
+	}
+	de := b.get("/bank?legal_entity_id=" + d.de.String()).page(t)
+	selected := ""
+	walk(de.doc, func(n *html.Node) {
+		if n.Data == "option" && hasAttr(n, "selected") {
+			selected += attrOf(n, "value")
+		}
+	})
+	if selected != d.de.String() {
+		t.Errorf("the company filter: chosen %q, want %s", selected, d.de)
+	}
+	tabs := map[string]bool{}
+	for _, a := range de.all("a", "") {
+		tabs[attrOf(a, "href")] = true
+	}
+	gapTab := "/bank?" + (url.Values{"legal_entity_id": {d.de.String()}, "status": {"gap"}}).Encode()
+	if !tabs[gapTab] {
+		t.Errorf("the gap tab: not %s in %v", gapTab, tabs)
+	}
 	fr := b.get("/bank", "Accept-Language", "fr-CA").page(t).mainText()
 	holds(t, "French", fr, "1 000,00 EUR", "Relevés bancaires", "Importé")
 	t.Run("a gap", func(t *testing.T) {

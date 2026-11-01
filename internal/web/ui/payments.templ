@@ -221,11 +221,8 @@ templ runContent(rp RunPage) {
 	} else {
 		@runLists(rp)
 	}
-	if rp.FilesShown {
-		<h2>
-			@T(i18n.RunFilesTitle)
-		</h2>
-		@FilesSection(rp)
+	if rp.Files != "" {
+		@FilesLink(rp.Files)
 	}
 }
 
@@ -327,6 +324,7 @@ templ PaymentsTable(payments []PaymentView) {
 			<thead>
 				<tr>
 					@HeaderCell(i18n.PaySupplier)
+					@HeaderCell(i18n.RunBank)
 					@HeaderCell(i18n.PayAmount)
 					@HeaderCell(i18n.PayDiscount)
 					@HeaderCell(i18n.PayWithholding)
@@ -349,10 +347,17 @@ templ PaymentsTable(payments []PaymentView) {
 templ PaymentRow(pv PaymentView) {
 	<tr>
 		<td>
-			@Code(pv.Supplier)
+			@Data(pv.Supplier)
 			if pv.DownPayment {
 				@space()
 				@Tag(i18n.PayDownPayment, "")
+			}
+		</td>
+		<td>
+			if pv.Bank != "" {
+				@Code(pv.Bank)
+			} else {
+				@T(i18n.LineNone)
 			}
 		</td>
 		<td>
@@ -424,7 +429,7 @@ templ ExclusionsTable(exclusions []ExclusionView) {
 templ ExclusionRow(ex ExclusionView) {
 	<tr>
 		<td>
-			@Code(ex.Supplier)
+			@Data(ex.Supplier)
 		</td>
 		<td>
 			@labelText(ex.Reason)
@@ -444,18 +449,61 @@ templ ExclusionRow(ex ExclusionView) {
 
 // FilesSection is the run's bank files, each with its transmission while
 // it may be sent, or why there are none.
-templ FilesSection(rp RunPage) {
-	if rp.FilesError != nil {
-		@RefusalNotice(*rp.FilesError)
-	} else if len(rp.Files) == 0 {
+templ FilesSection(v FilesView) {
+	<section { labelledBy("files-title")... }>
+		<h2 { idAttr("files-title")... }>
+			@T(i18n.RunFilesTitle)
+		</h2>
+		@filesBody(v)
+	</section>
+}
+
+templ filesBody(v FilesView) {
+	if v.Error != nil {
+		@RefusalNotice(*v.Error)
+	} else if len(v.Files) == 0 {
 		@Paragraph(i18n.RunFilesNone)
 	} else {
 		<ul class="list">
-			for _, f := range rp.Files {
+			for _, f := range v.Files {
 				@FileItem(f)
 			}
 		</ul>
 	}
+}
+
+// FilesLink is where a released run's bank files are shown: a link,
+// which htmx replaces with the files' section itself once the page
+// loaded.
+templ FilesLink(path string) {
+	<div { lazy(path)... }>
+		<h2>
+			@T(i18n.RunFilesTitle)
+		</h2>
+		<p>
+			<a { link(path, "")... }>
+				@T(i18n.RunFilesShow)
+			</a>
+		</p>
+	</div>
+}
+
+// FilesPage is a run's bank files as a page of their own, for a browser
+// without htmx.
+templ FilesPage(s Shell, v FilesView) {
+	@Layout(s, filesPageContent(v))
+}
+
+templ filesPageContent(v FilesView) {
+	<p>
+		<a { link(v.Run, "")... }>
+			@T(i18n.ProgressBack)
+		</a>
+	</p>
+	<h1>
+		@T(i18n.RunFilesTitle)
+	</h1>
+	@filesBody(v)
 }
 
 // FileItem is one bank file.
@@ -511,8 +559,8 @@ templ progressBody(v ProgressView) {
 		@RefusalNotice(*v.Refusal)
 	}
 	if v.Running {
-		<div role="status" { poll(v.Self)... }>
-			@ProgressStatus(v)
+		<div role="status">
+			@ProgressPoll(v)
 		</div>
 		<p class="hint">
 			@T(i18n.ProgressAuto)
@@ -529,6 +577,14 @@ templ progressBody(v ProgressView) {
 		@Paragraph(i18n.ResumeHint)
 		@RunFormView(*v.Resume)
 	}
+}
+
+// ProgressPoll is the operation's state while it runs, asked for again
+// every two seconds.
+templ ProgressPoll(v ProgressView) {
+	<div { poll(v.Self, v.Shown)... }>
+		@ProgressStatus(v)
+	</div>
 }
 
 // ProgressStatus is the operation's state: what it does, how far it is,

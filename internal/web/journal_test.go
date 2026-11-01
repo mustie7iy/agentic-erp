@@ -14,6 +14,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/web/ui"
 )
 
 // journalData is what journalStack's tenant holds.
@@ -102,7 +103,8 @@ func withLines(v url.Values, lines ...typedLine) url.Values {
 	}
 	for _, l := range lines {
 		for name, value := range map[string]string{"line_account": l.account, "line_amount": l.amount, "line_cost_center": l.cost,
-			"line_profit_center": l.profit, "line_segment": l.segment, "line_partner": l.partner, "line_tax_code": l.tax, "line_text": l.text} {
+			"line_profit_center": l.profit, "line_segment": l.segment, "line_partner": l.partner, "line_tax_code": l.tax, "line_text": l.text,
+			"line_tax_jurisdiction": "", "line_tax_base": "", "line_quantity": "", "line_unit": ""} {
 			out.Add(name, value)
 		}
 	}
@@ -230,14 +232,14 @@ func TestEntryForm(t *testing.T) {
 	b := s.as(d.accountant)
 	p := b.get("/journal/new").page(t)
 	form := p.form("/journal/new")
-	if got := field(form, "currency"); got != "USD" {
-		t.Errorf("the first company's currency: got %q, want USD (Acme Corp US)", got)
-	}
 	// Two companies offered and none named: the form can change its
-	// company, so its dates are typed (datedCompany); company 1000's, in
-	// UTC, is today.
-	if got := field(form, "posting_date"); got != "" {
-		t.Errorf("the posting date among two companies: got %q, want none", got)
+	// company, so its currency and dates are typed, or filled in once a
+	// company is chosen (datedCompany); company 1000's day, in UTC, is
+	// today.
+	for _, name := range []string{"currency", "posting_date", "filled_for"} {
+		if got := field(form, name); got != "" {
+			t.Errorf("%s among two companies: got %q, want none", name, got)
+		}
 	}
 	us := b.get("/journal/new?legal_entity_id=" + d.f.US.String()).page(t).form("/journal/new")
 	if got := field(us, "posting_date"); got != s.clock.Now().UTC().Format("2006-01-02") {
@@ -275,9 +277,25 @@ func TestEntryForm(t *testing.T) {
 	v.Del("csrf_token")
 	frag := b.do(http.MethodPost, "/journal/new", v, "HX-Request", "true", "X-CSRF-Token", token)
 	status(t, "a line left out with htmx", frag, http.StatusOK)
-	if strings.Contains(frag.body, "<html") || !strings.Contains(frag.body, `id="entry-lines"`) {
-		t.Errorf("a line left out with htmx: got %q, want the lines' section alone", frag.body)
+	bodyHolds(t, "a line left out with htmx", frag, map[string]bool{"<html": false, `id="entry-lines"`: true, `id="entry-totals"`: false,
+		`hx-swap-oob="innerHTML:#entry-totals"`: true, `hx-swap-oob="innerHTML:#entry-buttons"`: true, `id="entry-add-button"`: true})
+	full := url.Values{}
+	for k, vs := range v {
+		full[k] = vs
 	}
+	full = withLines(full, make([]typedLine, ui.MaxFormLines-1)...)
+	full.Set("op", "add")
+	capped := b.do(http.MethodPost, "/journal/new", full, "HX-Request", "true", "X-CSRF-Token", token)
+	status(t, "the hundredth line added with htmx", capped, http.StatusOK)
+	bodyHolds(t, "the hundredth line added with htmx", capped, map[string]bool{`id="line-100-line_account"`: true,
+		`hx-swap-oob="innerHTML:#entry-buttons"`: true, `id="entry-send-button"`: true, `id="entry-add-button"`: false})
+	full = withLines(full, make([]typedLine, ui.MaxFormLines)...)
+	full.Del("op")
+	full.Set("line_remove", "1")
+	fewer := b.do(http.MethodPost, "/journal/new", full, "HX-Request", "true", "X-CSRF-Token", token)
+	status(t, "a line left out of a hundred with htmx", fewer, http.StatusOK)
+	bodyHolds(t, "a line left out of a hundred with htmx", fewer, map[string]bool{`id="line-99-line_account"`: true,
+		`id="line-100-line_account"`: false, `hx-swap-oob="innerHTML:#entry-buttons"`: true, `id="entry-add-button"`: true})
 	if v := frag.header.Values("Vary"); !strings.Contains(strings.Join(v, " "), "HX-Request") {
 		t.Errorf("the section's Vary: got %v, want HX-Request in it", v)
 	}
@@ -326,6 +344,41 @@ func TestEntryForm(t *testing.T) {
 	holds(t, "the entry parked", pe, "The entry is parked.", "Status Parked", "Reference ACCR-3", "Header text March accrual", "Debits EUR 1,200.50",
 		"520000 Office Supplies EUR 1,200.50 CC100 PC10 SEG1 None V0 Paper", d.f.Supplier.String(), "Owner accountant")
 	status(t, "a form that is not the page's", b.do(http.MethodPost, "/journal/new", url.Values{"csrf_token": {b.csrf()}}), http.StatusBadRequest)
+	switched := newEntryForm(b, d, nil)
+	switched.Set("legal_entity_id", d.f.US.String())
+	hx, headers := asHTMX(switched, ui.OpCompany)
+	// htmx swaps the totals' and buttons' contents into these by id, so
+	// every form the page can hold carries both.
+	for name, r := range map[string]response{
+		"the new entry's page":         b.get("/journal/new"),
+		"the parked entry's change":    b.get(parkedPath(id) + "/edit"),
+		"the company chosen with htmx": b.do(http.MethodPost, "/journal/new", hx, headers...),
+	} {
+		t.Run(name, func(t *testing.T) {
+			status(t, name, r, http.StatusOK)
+			p := r.page(t)
+			for _, target := range []string{"entry-totals", "entry-buttons"} {
+				if got := byID(p, target) != nil; !got {
+					t.Errorf("%s: the element %s present %v, want true", name, target, got)
+				}
+			}
+		})
+	}
+}
+
+// bodyHolds checks, one by one, that each text is in the response's body
+// when true and absent when false.
+func bodyHolds(t *testing.T, what string, r response, want map[string]bool) {
+	t.Helper()
+	t.Run(what, func(t *testing.T) {
+		for in, present := range want {
+			t.Run(in, func(t *testing.T) {
+				if got := strings.Contains(r.body, in); got != present {
+					t.Errorf("%s: %s present %v, want %v", what, in, got, present)
+				}
+			})
+		}
+	})
 }
 
 // parkAs parks, as the browser's person, a new entry of company 2000 on

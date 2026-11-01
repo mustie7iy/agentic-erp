@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -140,12 +139,37 @@ func TestGRIRBalances(t *testing.T) {
 			t.Errorf("totals: got %v, want none", got)
 		}
 	})
-	t.Run("key date without an order", func(t *testing.T) {
-		c := g.Client
-		c.T = t
-		p := c.Problem(400, "request.invalid_parameter", "GET", "/v1/gr-ir-balances?legal_entity_id="+g.de.String()+"&posting_date_to=2026-03-09", "", "")
-		if got := fmt.Sprint(p["errors"]); !strings.Contains(got, "purchase_order_id") {
-			t.Errorf("field errors: got %s, want one on purchase_order_id", got)
+	t.Run("every order on a key date", func(t *testing.T) {
+		// 3 March: both orders received, neither invoiced; 9 March: the
+		// closed one invoiced in full, the open one not yet (10 March);
+		// 1 March: nothing posted. Positions changed after the key date
+		// are summed from their lines, the others are the projection's.
+		for _, c := range []struct{ name, query, want string }{
+			{"before any posting", "&posting_date_to=2026-03-01", "0 - 0.00 EUR 0.00 EUR"},
+			{"both received", "&posting_date_to=2026-03-03", "2 -40.00 EUR -40.00 EUR -40.00 EUR"},
+			{"one invoiced in full", "&posting_date_to=2026-03-09", "1 -30.00 EUR -30.00 EUR -30.00 EUR"},
+			{"one invoiced in full, every position", "&posting_date_to=2026-03-09&open_only=false", "2 -30.00 EUR -30.00 EUR -30.00 EUR"},
+			{"today", "&posting_date_to=2026-12-31", "1 -10.00 EUR -10.00 EUR -10.00 EUR"},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				if got := totals(list(t, c.query)); got != c.want {
+					t.Errorf("positions and balances: got %s, want %s", got, c.want)
+				}
+			})
+		}
+	})
+	t.Run("every order on a key date as each order's", func(t *testing.T) {
+		for _, day := range []string{"2026-03-01", "2026-03-02", "2026-03-03", "2026-03-04", "2026-03-09", "2026-03-10", "2026-12-31"} {
+			t.Run(day, func(t *testing.T) {
+				var each []any
+				// By order, as the listing sorts them.
+				for _, order := range []string{min(open.String(), closed.String()), max(open.String(), closed.String())} {
+					each = append(each, list(t, "&open_only=false&posting_date_to="+day+"&purchase_order_id="+order)["items"].([]any)...)
+				}
+				if got, want := fmt.Sprint(list(t, "&open_only=false&posting_date_to="+day)["items"]), fmt.Sprint(each); got != want {
+					t.Errorf("every order's positions: got %s, want each order's %s", got, want)
+				}
+			})
 		}
 	})
 	g.checkProjected(t)
@@ -253,8 +277,11 @@ func TestGRIRBalancesBudget(t *testing.T) {
 	}
 	t.Logf("seeded 20,050 positions in %v", time.Since(start))
 	pgtest.Exec(t, `ANALYZE ledger.gr_ir_position`)
-	// The last case pages over every position: its totals sum all 20,050.
-	for _, order := range []string{"purchase_order_id", "last_posting_date%20desc", "purchase_order_id&open_only=false"} {
+	// The third case pages over every position: its totals sum all 20,050.
+	// The last lists them on a key date (T73i2), the projection's positions
+	// less the items posted since, of which there are none here.
+	for _, order := range []string{"purchase_order_id", "last_posting_date%20desc", "purchase_order_id&open_only=false",
+		"purchase_order_id&posting_date_to=2026-06-30"} {
 		var times []time.Duration
 		for range 10 {
 			start := time.Now()

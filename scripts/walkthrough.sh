@@ -558,6 +558,9 @@ step_migrate() {
   local laurentian
   laurentian=$(field '.items[0].id')
   if [ -z "$laurentian" ] || [ "$laurentian" = null ]; then fail "the migrated supplier Laurentian Paper is not there"; fi
+  say "A journal line names its partner by id; the workspace names it by the partners' ids (T73h2):"
+  api 200 '.items[] | "partner \(.id | .[0:8])... is \(.number) \(.name)"' listBusinessPartners -p "ids=$laurentian"
+  expect "the supplier named by its id" "$(field '.items[0].name')" "Laurentian Paper"
   api 200 '.items[] | "bank account \(.purpose): \(.account_scheme), bank \(.bank_country_code) \(.institution_number)-\(.transit_number), account ending \(.account_last4), valid from \(.valid_from)"' \
     listBankAccounts -p "id=$laurentian"
   expect "the Canadian account's scheme and bank" "$(field '.items[0] | "\(.account_scheme) \(.institution_number) \(.transit_number)"')" "ca 001 00010"
@@ -1237,6 +1240,52 @@ empty_statement() {
   } >"$WORK/camt053-empty.xml"
 }
 
+# recurring_rent is step 8's recurring entry (ADR-0056): Tom saves the
+# monthly rent as an entry template whose schedule starts on Maple's date
+# in Toronto; the ERP parks that date's entry for him, once however often
+# its worker runs, and he finds it among his entries and posts it.
+recurring_rent() {
+  say "Tom books Maple's office rent, CAD 4,500.00, every month. He saves it as an entry template with a monthly"
+  say "schedule from today, Maple's date in Toronto. The ERP parks each month's entry for him and never posts it:"
+  say "Tom posts it, within the CAD 10,000.00 limit, or someone else approves it (product owner 2026-11-01)."
+  local toronto rent sap_bank tpl entry i n
+  toronto=$(TZ=America/Toronto date +%F)
+  rent=$(account 6000)
+  sap_bank=$(account 100000)
+  api 201 '"template \(.name): \(.status), \(.schedule.frequency) on day \(.schedule.day_of_month) from \(.schedule.starts_on), next due \(.next_due_on)"' \
+    createEntryTemplate -body "{\"legal_entity_id\": \"$LE\", \"name\": \"Office rent\", \"currency\": \"CAD\", \"header_text\": \"Monthly office rent\", \"schedule\": {\"frequency\": \"monthly\", \"day_of_month\": $((10#${toronto:8:2})), \"starts_on\": \"$toronto\"}, \"lines\": [{\"account_id\": \"$rent\", \"amount\": {\"amount\": \"4500.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$sap_bank\", \"amount\": {\"amount\": \"-4500.00\", \"currency\": \"CAD\"}}]}"
+  tpl=$(field .id)
+  expect "the template's first due date, Maple's today" "$(field .next_due_on)" "$toronto"
+  say "Without a workflow engine the server's recurring entries worker parks due dates every second (with one,"
+  say "the dispatcher starts a workflow per template and date, in date order). Today's entry appears, parked for Tom:"
+  n=0
+  for i in $(seq 1 120); do
+    QUIET=1 api 200 '' listParkedJournalEntries -p "template_id=$tpl"
+    n=$(field '.items | length')
+    [ "$n" = 0 ] || break
+    sleep 0.25
+  done
+  expect "entries parked from the template (attempt $i)" "$n" 1
+  sleep 3 # three more of the worker's rounds: they find the date parked and park nothing
+  api 200 '.items[] | "parked entry \(.id[0:8])…: \(.status), \(.created_by_kind) for the \(.occurrence_date) date, owner \(.owner_id[0:8])…, \(.lines[0].amount.amount) \(.lines[0].amount.currency)"' \
+    listParkedJournalEntries -p "template_id=$tpl"
+  expect "entries parked from the template after more rounds" "$(field '.items | length')" 1
+  expect "the entry's date" "$(field '.items[0].occurrence_date')" "$toronto"
+  expect "who parked it" "$(field '.items[0].created_by_kind')" system
+  expect "the template it names" "$(field '.items[0].template_name')" "Office rent"
+  entry=$(field '.items[0].id')
+  api 200 '"template \(.name): last parked \(.last_occurrence_on), next due \(.next_due_on)"' getEntryTemplate -p "id=$tpl"
+  expect "the template's last date" "$(field .last_occurrence_on)" "$toronto"
+  say "Tom's inbox: his entries waiting for him to post them, the rent among them, besides the event"
+  say "ParkedJournalEntryChanged that names the template and the date:"
+  api 200 '.items[] | "parked entry \(.id[0:8])…: \(.header_text // "") \(.posting_date)\(if .template_id then ", from template \(.template_name)" else "" end)"' \
+    listParkedJournalEntries -p owned_by=me -p status=parked
+  expect "the rent in Tom's inbox" "$(jq -r --arg e "$entry" '[.items[] | select(.id == $e)] | length' "$WORK/last.json")" 1
+  QUIET=1 api 200 '' getParkedJournalEntry -p "id=$entry"
+  api 200 '"parked entry: \(.status), journal entry \(.journal_entry_id)"' postParkedJournalEntry -p "id=$entry" -if-match "$ETAG" -body '{}'
+  expect "the rent entry's status" "$(field .status)" posted
+}
+
 step_statement() {
   heading "Step 8 — The bank statement: imported, a gap accepted, matched by rules, posted with approval, reconciled"
   as tom
@@ -1255,6 +1304,7 @@ step_statement() {
   as tom
   api 200 '"parked entry: \(.status), journal entry \(.journal_entry_id)"' getParkedJournalEntry -p "id=$parked"
   expect "parked entry status" "$(field .status)" posted
+  recurring_rent
   local yesterday
   yesterday=$(date_add "$TODAY" -1)
   say "RBC's statement of $yesterday, before the funding, closes the empty account at 0.00. Tom imports it:"
@@ -1330,6 +1380,14 @@ step_fx() {
   expect "the migrated USD invoice's revaluation" \
     "$(jq -r --arg e "$FX_ENTRY" '.items[] | select(.journal_entry_id == $e) | "\(.amount.amount) \(.amount_lc.amount) \(.direction) \(.difference_lc.amount)"' "$WORK/last.json")" \
     "-1000.00 -1350.00 loss -50.00"
+  local fx_item
+  fx_item=$(jq -c --arg e "$FX_ENTRY" '.items[] | select(.journal_entry_id == $e)' "$WORK/last.json")
+  say "The item names its entry by document number and its supplier by number and name (T73i2):"
+  jq -r '"     entry \(.document_number) line \(.line_no), supplier \(.partner_number) \(.partner_name)"' <<<"$fx_item"
+  QUIET=1 api 200 '' getJournalEntry -p "id=$FX_ENTRY"
+  expect "the item's document number" "$(jq -r .document_number <<<"$fx_item")" "$(field .document_number)"
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$(jq -r .partner_id <<<"$fx_item")"
+  expect "the item's supplier" "$(jq -r '"\(.partner_number) \(.partner_name)"' <<<"$fx_item")" "$(field '"\(.number) \(.name)"')"
   passed
 }
 
@@ -1355,9 +1413,10 @@ step_ledgers() {
   say "A local-GAAP adjustment posts to 2L alone, and the ledger reconciliation shows the difference:"
   api 201 '"2L only: entry \(.document_number), \(.header_text)"' postJournalEntry \
     -body "{\"legal_entity_id\": \"$LE\", \"ledger_id\": \"$l2\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"ASPE: expense the implementation fees\", \"lines\": [{\"account_id\": \"$fees\", \"amount\": {\"amount\": \"1200.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$retained\", \"amount\": {\"amount\": \"-1200.00\", \"currency\": \"CAD\"}}]}"
-  api 200 '.items[] | "account \(.account_id | acct): 0L \(.balance.amount), 2L \(.compare_balance.amount), difference \(.difference.amount) \(.currency)"' listLedgerReconciliation \
+  api 200 '.items[] | "account \(.account_number) \(.account_name): 0L \(.balance.amount), 2L \(.compare_balance.amount), difference \(.difference.amount) \(.currency)"' listLedgerReconciliation \
     -p "legal_entity_id=$LE" -p "compare_ledger_id=$l2" -p "fiscal_year=$YEAR"
   expect "accounts that differ" "$(field '.items | length')" 2
+  expect "the fees account, named by the reconciliation (T73i2)" "$(field "[.items[] | select(.account_id == \"$fees\") | .account_number] | join(\" \")")" 6100
   passed
 }
 
@@ -1737,6 +1796,13 @@ step_grir() {
   say "Every open position of the company, totalled by the report (no adding up):"
   api 200 '"\(.totals.positions) open position(s), \(.totals.balance_lc.amount) \(.totals.balance_lc.currency) (group \(.totals.balance_gc.amount) \(.totals.balance_gc.currency))\(if .totals.balance then ", \(.totals.balance.amount) \(.totals.balance.currency) in the orders'"'"' currency" else "" end)"' \
     listGrIrBalances -p "legal_entity_id=$LE" -p page_size=1
+  local yesterday
+  yesterday=$(date_add "$TODAY" -1)
+  say "The period's close checks them as at its end (T73i2). As at yesterday, before today's invoices, the shelving"
+  say "units SAP received were not yet invoiced, so their migrated credit was still open, and Tyrell's order had no position:"
+  api 200 "$GRIR_POSITION" listGrIrBalances -p "legal_entity_id=$LE" -p "posting_date_to=$yesterday"
+  expect "the shelving units' position as at yesterday" "$(field "[.items[] | select(.purchase_order_id == \"$GRIR_PO\") | .balance.amount] | join(\" \")")" "$GRIR_BALANCE"
+  expect "Tyrell's order as at yesterday" "$(field "[.items[] | select(.purchase_order_id == \"$PO\")] | length")" 0
   say "She proposes clearing it to the price difference account; the controller decides."
   api 201 '"GR/IR clearing of \(.purchase_order_number): \(.status), \(.total.amount) \(.total.currency) against \(.offset_account.number) \(.offset_account.name)\([.items[] | "\n  item \(.po_item_no) \(.description): \(.quantity.value) \(.quantity.unit), \(.amount.amount) \(.amount.currency)"] | join(""))"' \
     createGrIrClearing -p "id=$PO" -body "{\"reason\": \"Damaged chair credited by Tyrell and kept; no further delivery or invoice\", \"posting_date\": \"$TODAY\"}"

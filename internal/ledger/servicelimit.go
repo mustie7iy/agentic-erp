@@ -70,7 +70,7 @@ func (e *Endpoints) postDirect(ctx context.Context, in NewEntry) (je Entry, park
 		return Entry{}, nil, err
 	}
 	if over != nil {
-		pe, err := parkPrepared(ctx, tx, p, v, in, over)
+		pe, err := parkPrepared(ctx, tx, p, v, in, parking{limit: over})
 		if err != nil {
 			return Entry{}, nil, err
 		}

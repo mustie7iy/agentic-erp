@@ -365,7 +365,11 @@ func (e *Endpoints) PreviewRevaluation(ctx context.Context, req *gen.Revaluation
 	if err != nil {
 		return nil, err
 	}
-	return &gen.RevaluationPreviewHeaders{Response: revaluationToAPI(r, totals)}, nil
+	rep := revaluationToAPI(r, totals)
+	if err := e.nameItems(ctx, rep.Items); err != nil {
+		return nil, err
+	}
+	return &gen.RevaluationPreviewHeaders{Response: rep}, nil
 }
 
 // revaluationTarget resolves the legal entity, ledger (the leading one by

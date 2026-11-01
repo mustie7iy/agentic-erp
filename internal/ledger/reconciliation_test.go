@@ -2,6 +2,7 @@ package ledger_test
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"testing"
 
@@ -73,6 +74,7 @@ func differences(t *testing.T, r reconEnv) {
 		t.Errorf("ledgers: got %v with %v, want 0L %s with 2L %s", page["ledger_id"], page["compare_ledger_id"], r.leading, r.local)
 	}
 	want := map[string][3]string{r.bank: {"10.00", "60.00", "-50.00"}, r.revenue: {"-10.00", "-60.00", "50.00"}}
+	names := map[string]string{r.bank: "100000 Bank - Operating", r.revenue: "400000 Sales Revenue"}
 	items := page["items"].([]any)
 	if len(items) != len(want) {
 		t.Fatalf("differences: got %d, want %d", len(items), len(want))
@@ -86,6 +88,9 @@ func differences(t *testing.T, r reconEnv) {
 		}
 		if lc := amount(d["difference_lc"]); lc != w[2] {
 			t.Errorf("account %v: difference lc got %s, want %s", d["account_id"], lc, w[2])
+		}
+		if got, want := fmt.Sprint(d["account_number"], " ", d["account_name"]), names[d["account_id"].(string)]; got != want {
+			t.Errorf("account %v: named %s, want %s", d["account_id"], got, want)
 		}
 	}
 	for i, tb := range page["trial_balances"].([]any) {

@@ -67,6 +67,7 @@ func closeComponents() map[string]templ.Component {
 		"RevaluationStatusTag": RevaluationStatusTag(Label{Key: i18n.RevaluationPosted}),
 		"RevaluationRun":       RevaluationRun(signedIn(), revaluationRunPage(true)),
 		"revaluation run":      revaluationRunContent(revaluationRunPage(false)),
+		"CancelRunView":        CancelRunView(CancelRunForm{Action: "/x"}),
 	}
 }
 
@@ -154,7 +155,8 @@ func itemView(item bool) ItemView {
 	m := Money{Amount: "-10.00", Currency: "EUR"}
 	v := ItemView{Account: "100000", Amount: m, Booked: m, Valued: m, Difference: m, DifferenceGC: m, Direction: Label{Raw: "sideways"}}
 	if item {
-		v.Account, v.Entry, v.Line, v.Partner, v.Rate, v.Direction = "211000", "e1", 2, "s1", "0.900000000000", Label{Key: i18n.DirectionLoss}
+		v.Account, v.Entry, v.EntryPath, v.Line, v.Partner, v.Rate, v.Direction = "211000", "100012", "/journal/entries/e1", 2, "BP1 Tyrell", "0.900000000000",
+			Label{Key: i18n.DirectionLoss}
 	}
 	return v
 }
@@ -193,8 +195,10 @@ func revaluationRunPage(full bool) RevaluationRunPage {
 		return RevaluationRunPage{Header: h, Back: "/close/revaluation", Items: []ItemView{itemView(false)}}
 	}
 	h.Company = "Acme GmbH"
-	return RevaluationRunPage{Header: h, Back: "/close/revaluation", Done: i18n.RevaluationDonePosted, Valuation: "e1", Reset: "e2",
-		Totals: []TotalView{totalView()}, Items: []ItemView{itemView(true)}}
+	r := refusal()
+	return RevaluationRunPage{Header: h, Back: "/close/revaluation", Done: i18n.RevaluationDonePosted, Valuation: "/journal/entries/e1",
+		Reset: "/journal/entries/e2", Totals: []TotalView{totalView()}, Items: []ItemView{itemView(true)}, Refusal: &r,
+		Cancel: &CancelRunForm{Action: "/close/revaluation/1/cancel", CSRF: "c", ETag: `"1"`, Key: "k", Text: "t", TextError: i18n.ActionReasonNeeded}}
 }
 
 // TestCloseHelpers: each status and direction has its colour, the unlock
