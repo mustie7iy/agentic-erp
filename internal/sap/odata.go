@@ -54,9 +54,12 @@ var DefaultEntities = []EntityMapping{
 	{Table: "LFA1", Service: "API_BUSINESS_PARTNER", Entity: "A_Supplier",
 		Fields: map[string]string{"LIFNR": "Supplier", "NAME1": "SupplierName", "LAND1": "Country",
 			"STCD1": "TaxNumber1", "SPERR": "PostingIsBlocked"}},
+	// LFB1-ZWELS is A_SupplierCompany's PaymentMethodsList, a string, as
+	// the SAP Cloud SDK's type of the entity has it
+	// (https://help.sap.com/doc/505cd8d2cbd340a38eeae8b63b5df753/1.0/en-US/interfaces/_sap_cloud_sdk_vdm_business_partner_service.suppliercompanytype.html).
 	{Table: "LFB1", Service: "API_BUSINESS_PARTNER", Entity: "A_SupplierCompany", CompanyField: "CompanyCode",
 		Fields: map[string]string{"LIFNR": "Supplier", "BUKRS": "CompanyCode", "AKONT": "ReconciliationAccount",
-			"ZTERM": "PaymentTerms"}},
+			"ZTERM": "PaymentTerms", "ZWELS": "PaymentMethodsList"}},
 	{Table: "LFBK", Service: "API_BUSINESS_PARTNER", Entity: "A_BusinessPartnerBank",
 		Fields: map[string]string{"LIFNR": "BusinessPartner", "BANKS": "BankCountryKey", "BANKN": "BankAccount", "BANKL": "BankNumber"}},
 	{Table: "EKKO", Service: "API_PURCHASEORDER_PROCESS_SRV", Entity: "A_PurchaseOrder", CompanyField: "CompanyCode",

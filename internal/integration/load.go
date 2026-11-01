@@ -171,7 +171,7 @@ func (l *loader) partners(ctx context.Context) error {
 		var in []partner.SupplierCompanyInput
 		for _, c := range companies[v.LIFNR] {
 			in = append(in, partner.SupplierCompanyInput{LegalEntityID: l.t.entities[c.BUKRS].ID,
-				ReconciliationAccountID: l.t.charts[c.BUKRS][sap.Alpha(c.AKONT)].ID, PaymentTermCode: c.ZTERM})
+				ReconciliationAccountID: l.t.charts[c.BUKRS][sap.Alpha(c.AKONT)].ID, PaymentTermCode: c.ZTERM, PaymentMethods: paymentMethods(c.ZWELS)})
 		}
 		var err error
 		if id, ok := l.refs["LFA1/"+v.LIFNR]; ok {

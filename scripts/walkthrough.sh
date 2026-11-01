@@ -420,6 +420,14 @@ step_tenant() {
   grep -A 6 '^    house_bank:$' "$WORK/config.yaml" | grep -q 'institution_number: "003"' || fail "the house bank was not generated with its institution number"
   grep -A 9 '^    house_banks:$' "$WORK/config.yaml" | sed 's/^/     /'
   grep -A 9 '^    house_banks:$' "$WORK/config.yaml" | grep -q '^        currency: USD$' || fail "the USD house bank was not generated in USD"
+  say "SAP's payment methods are set up per country (T042Z) and company code (T042E), and its bank selection (T042A)"
+  say "ranks, per method and currency, the house banks that pay: the draft gives the company bank transfer, through"
+  say "MAIN in CAD and MUSD in USD (ADR-0038)."
+  jq -r '.T042Z[] | select(.LAND1 == "CA") | "     T042Z country \(.LAND1), method \(.ZLSCH): \(.TEXT1)"' "$WORK/data/extract.json"
+  jq -r --arg cc "$CC" '.T042E[] | select(.ZBUKR == $cc) | "     T042E company \(.ZBUKR), method \(.ZLSCH)"' "$WORK/data/extract.json"
+  jq -r --arg cc "$CC" '.T042A[] | select(.ZBUKR == $cc) | "     T042A method \(.ZLSCH), \(.WAERS), rank \(.RANGF): house bank \(.HBKID)"' "$WORK/data/extract.json"
+  grep -A 9 '^    payment_methods:$' "$WORK/config.yaml" | sed 's/^/     /'
+  expect "the generated method's ranking" "$(grep -A 9 '^    payment_methods:$' "$WORK/config.yaml" | grep -cE '^ +- (MAIN|MUSD)$')" 2
   say "The USD account's ledger account must be revalued at month end (ADR-0042), which SAP's extract cannot"
   say "tell, so the draft names it and does not validate until a reviewer flags it with its gain and loss accounts:"
   grep "\[error\]" "$WORK/generate.out" | sed 's/^ */     /'
@@ -462,6 +470,13 @@ YAML
   api 200 '.items[] | "house bank \(.code): \(.currency), account ending \(.account_last4)"' listHouseBanks -p "legal_entity_id=$LE"
   expect "the house banks' currencies" "$(field '[.items[] | "\(.code) \(.currency)"] | sort | join(", ")')" "MAIN CAD, MUSD USD"
   expect "the USD account's last four digits" "$(field '.items[] | select(.code == "MUSD") | .account_last4')" 2346
+  say "And its payment methods from SAP, in the active configuration:"
+  api 200 '.items[0].document.companies[] | select(.code == "'"$CC"'") | .payment_methods[] |
+    "payment method \(.code) \(.description): \([.ranking[] | "\(.currency) through \(.house_banks | join(", "))"] | join("; "))"' \
+    listConfigVersions -p is_active=true
+  expect "the company's payment method rankings" \
+    "$(field '[.items[0].document.companies[] | select(.code == "'"$CC"'") | .payment_methods[] | .code as $m | .ranking[] | "\($m) \(.currency) \(.house_banks | join(" "))"] | join(", ")')" \
+    "T CAD MAIN, T USD MUSD"
   people
   passed
 }
@@ -512,6 +527,10 @@ step_migrate() {
   api 200 '.items[] | "bank account \(.purpose): \(.account_scheme), bank \(.bank_country_code) \(.institution_number)-\(.transit_number), account ending \(.account_last4), valid from \(.valid_from)"' \
     listBankAccounts -p "id=$laurentian"
   expect "the Canadian account's scheme and bank" "$(field '.items[0] | "\(.account_scheme) \(.institution_number) \(.transit_number)"')" "ca 001 00010"
+  say "Its payment methods came over from its company data (LFB1-ZWELS), each a method of the company's (step 1):"
+  api 200 '.supplier_companies[] | "company data: payment terms \(.payment_term_code), payment methods \(.payment_methods // [] | join(", "))"' \
+    getBusinessPartner -p "id=$laurentian"
+  expect "the migrated supplier's payment methods" "$(field '[.supplier_companies[].payment_methods // [] | .[]] | join(" ")')" T
   say "SAP's parked corrections load as their kind (RBKP-XRECH, RSEG-TBTKZ; T72b), never as invoices to pay:"
   say "amounts stay positive and the kind gives the direction; parked, they hold no open item until posted."
   local kind

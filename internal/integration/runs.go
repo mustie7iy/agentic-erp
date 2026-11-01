@@ -220,7 +220,7 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 		return target{}, nil, c, problem.Conflict("integration.connector_disabled", "The run's connector is disabled.")
 	}
 	t := target{charts: map[string]map[string]ledger.ChartAccount{}, terms: map[string]bool{}, ranges: map[string]bool{},
-		taxes: map[string]map[string]config.TaxCode{}, year: r.Scope.FiscalYear, balances: r.Mode == "balances"}
+		taxes: map[string]map[string]config.TaxCode{}, methods: map[string]map[string]bool{}, year: r.Scope.FiscalYear, balances: r.Mode == "balances"}
 	if t.entities, err = e.entities(ctx, r.Scope); err != nil {
 		return t, nil, c, err
 	}
@@ -245,6 +245,10 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 		t.taxes[co.Code] = map[string]config.TaxCode{}
 		for _, code := range co.TaxCodes {
 			t.taxes[co.Code][code.Code] = code
+		}
+		t.methods[co.Code] = map[string]bool{}
+		for _, m := range co.PaymentMethods {
+			t.methods[co.Code][m.Code] = true
 		}
 	}
 	if t.exponents, err = currency.Load(ctx, tx); err != nil {

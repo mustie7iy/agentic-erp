@@ -823,3 +823,78 @@ wrong, left in a form validation refuses):
   provisioned house banks through `listHouseBanks`: MAIN in CAD, MUSD in USD.
 - **Still open** (tracked, if the product owner asks): entries in another
   currency posted by hand on a foreign-currency bank's accounts.
+
+## As built: SAP payment methods, bank ranking and suppliers' methods (T45b follow-up, pilot)
+
+The configuration draft generated from SAP (`erp config generate`,
+`delivery/sapconfig`) had no payment methods, and the partner migration
+loaded suppliers without theirs, so a migrated company could only pay
+through a run proposed for one house bank. Decided by default, from the
+decision above and the draft's pattern (a value SAP does not give is noted
+and left in a form validation refuses; what the configuration has no
+counterpart for is noted):
+
+- **Which tables.** The leaf named the ranking "T042E/T042I". The ABAP
+  dictionary's published mirror shows the ranking elsewhere: T042E is the
+  company code's specifications per payment method ("Company Code-Specific
+  Specifications for Payment Methods": ZBUKR, ZLSCH, the minimum and
+  maximum amount VONBT/BISBT, …), T042A the bank selection ("Bank selection
+  for payment program": ZBUKR, ZLSCH, WAERS, the ranking order RANGF, HBKID)
+  and T042I the account determination ("Account determination for payment
+  program": ZBUKR, HBKID, ZLSCH, WAERS, the account HKTID and the bank
+  subaccount UKONT); T042Z holds the methods per country (LAND1, ZLSCH,
+  TEXT1) (https://leanx.eu/en/sap/table/t042e.html, …/t042a.html,
+  …/t042i.html, …/t042z.html). SAP Help ("Selecting the House Bank",
+  https://help.sap.com/saphelp_globext607_10/helpdata/en/01/a9bf27455711d182b40000e829fbfe/content.htm)
+  says the payment program finds the house bank by method and currency,
+  falls back to the entry without a currency, finds the account by bank,
+  method and currency, and pays from the bank of highest priority in the
+  ranking. So the extract carries T042Z, T042E, T042A and T042I, and the
+  ranking is T042A's. All four, and that a lower RANGF ranks first, are on
+  the specialist list.
+- **The draft.** A company's methods are its T042E rows, each named by the
+  T042Z row of the company's country (T001 LAND1) and ranking, per currency,
+  the banks T042A ranks for it, in RANGF order (an order that is not a
+  number ranks last, noted). A T042A row without a currency, which SAP uses
+  for any currency the method has no row for, ranks its bank for its
+  account's currency, the only one a house bank pays in (ADR-0051 §3),
+  unless the method ranks that currency with rows of its own, which SAP
+  would take instead; both noted.
+- **Refused, not guessed.** A method T042Z does not name is drafted without
+  a description, a method T042A ranks no bank for without a ranking, a
+  ranked bank the company does not have (no T012K account) or ranked for
+  another currency than its account's is kept: each noted, and validation
+  refuses the draft until a reviewer corrects it. T042A rows of a method
+  T042E does not set up are left out, and a company without T042E rows has
+  no methods, each noted.
+- **No counterpart, noted.** T042E's minimum and maximum amount per method
+  (per-bank and per-method amount limits stay out of scope, above), and a
+  T042I bank subaccount (UKONT) that is not the house bank's ledger
+  account: SAP posts a payment by the method to the subaccount, the
+  platform credits the bank's one clearing account for every method.
+  T042I's account ID (HKTID) is not used: the extract takes one account per
+  house bank (T012K).
+- **Suppliers' methods.** LFB1-ZWELS ("List of the Payment Methods to be
+  Considered", DZWELS, CHAR 10; https://leanx.eu/en/sap/table/lfb1.html),
+  one character per method, blanks skipped, loads in its order as the
+  supplier's `payment_methods` in the company, on creation and when an
+  earlier run's supplier is set up in a further company. The quality gate
+  refuses a run whose vendor lists a method the company's active
+  configuration does not have, or one twice, before anything loads, as it
+  refuses unknown payment terms; the partner context checks the same again
+  (`PaymentMethods` port). That ZWELS's order is SAP's order of preference
+  is on the specialist list. The OData source maps it to
+  `A_SupplierCompany`'s `PaymentMethodsList` (SAP Cloud SDK,
+  https://help.sap.com/doc/505cd8d2cbd340a38eeae8b63b5df753/1.0/en-US/interfaces/_sap_cloud_sdk_vdm_business_partner_service.suppliercompanytype.html);
+  the T042 tables, like T012K, come from file extracts.
+- **No contract change.** The run's report counts the tables a run reads;
+  the T042 tables are read only by the draft, so its extract counts are
+  unchanged, and the API already returns a supplier's methods
+  (`supplier_companies[].payment_methods`) and the configuration's.
+- **Mock and walkthrough.** Every mock company pays by bank transfer T
+  through each house bank in its account's currency; company 3000's vendors
+  list T in ZWELS. Walkthrough step 1 shows the T042 rows and the drafted
+  method, then the method's ranking in the active configuration through
+  `listConfigVersions` (T: MAIN for CAD, MUSD for USD); step 3 shows the
+  migrated supplier Laurentian Paper's methods through `getBusinessPartner`.
+

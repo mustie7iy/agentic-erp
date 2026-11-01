@@ -8179,9 +8179,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "SAP payment methods and bank ranking (T042Z, T042E/T042I) mapped to companies[].payment_methods in sapconfig, and suppliers' methods (LFB1-ZWELS) to their company data in the partner migration",
-      "r": "follow-up of the SAP load · delivery/sapconfig · ADR-0038 · after T45c",
+      "r": "follow-up of the SAP load · delivery/sapconfig paymethods.go (ranking from T042A, as the dictionary has it) · integration quality gate and load · ADR-0038 As built · walkthrough steps 1 and 3",
       "src": "baseline",
       "c": []
      },
