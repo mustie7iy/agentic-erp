@@ -51,7 +51,7 @@ func TestLegalEntityToday(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			c := f.Client.In(t)
+			c := f.In(t)
 			c.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Now = func() time.Time { return at } })
 			id := tc.entity(f)
 			got, _ := c.Must(200, "GET", "/v1/legal-entities/"+id.String()+"/today", "", "")
@@ -74,7 +74,7 @@ func TestLegalEntityToday(t *testing.T) {
 // config.not_bootstrapped, not UTC's date).
 func TestLegalEntityTodayRefused(t *testing.T) {
 	f := zoned(t)
-	outsider := f.Client.In(t)
+	outsider := f.In(t)
 	outsider.As = f.Tenant.Agent // holds tenancy.org.read, acts in no company
 	outsider.Problem(404, "request.not_found", "GET", "/v1/legal-entities/"+f.US.String()+"/today", "", "")
 	f.Problem(404, "request.not_found", "GET", "/v1/legal-entities/"+uuid.NewString()+"/today", "", "")
