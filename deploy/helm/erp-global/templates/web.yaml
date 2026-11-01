@@ -330,9 +330,12 @@ spec:
 # balancer's subnets alone; the admin listener none (kubelet's probes are
 # not subject to policies); erp-web reaches the router's public listener,
 # the directory database in the VPC on 5432 (its sessions; the rule
-# admits the VPC's 5432, as the router's does), and the tenants'
-# identity providers on 443 (discovery, keys, token endpoint), anywhere
-# outside the VPC.
+# admits the VPC's 5432, as the router's does), the VPC on 443 for STS's
+# interface endpoint (its IRSA role; the rule admits every address of the
+# VPC on 443, the cluster's private API endpoint and the other interface
+# endpoints too, which erp-web's role and token may use for nothing), and
+# the tenants' identity providers on 443 (discovery, keys, token
+# endpoint), anywhere outside the VPC.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

@@ -372,6 +372,29 @@ func TestSetupIAMLogins(t *testing.T) {
 	if err := exec(ctx, owner, database.Scope{}, `REVOKE SELECT ON directory.placement FROM rds_iam`); err != nil {
 		t.Fatal(err)
 	}
+	// rds_iam a member of a role, or given an attribute, passes it to every
+	// IAM login. Both are the server's: made in a transaction rolled back,
+	// which no other test's Setup sees.
+	errDone := errors.New("rolled back")
+	for name, c := range map[string]struct{ sql, want string }{
+		"a member of the router's role": {`GRANT erp_router TO rds_iam`, "rds_iam in erp_router"},
+		"bypassing row security":        {`ALTER ROLE rds_iam BYPASSRLS`, "role attributes true"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := owner.Pool.InTx(ctx, database.Scope{}, func(ctx context.Context, tx pgx.Tx) error {
+				if _, err := tx.Exec(ctx, c.sql); err != nil {
+					return err
+				}
+				if err := directory.CheckLogin(ctx, tx, iam); !errors.Is(err, directory.ErrLogin) || !strings.Contains(err.Error(), c.want) {
+					t.Errorf("got %v, want ErrLogin naming %q", err, c.want)
+				}
+				return errDone
+			})
+			if !errors.Is(err, errDone) {
+				t.Fatal(err)
+			}
+		})
+	}
 }
 
 // TestSetupRefusesLogins: a login is made least privileged or not at all.

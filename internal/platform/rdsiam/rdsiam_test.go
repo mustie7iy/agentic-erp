@@ -106,14 +106,17 @@ func TestForURL(t *testing.T) {
 		})
 	}
 	for name, u := range map[string]string{
-		"not a URL":           "postgres://u@db.example:5432/%zz",
-		"another kind":        "mysql://u@db.example:3306/d",
-		"no login":            "postgres://db.example:5432/d",
-		"a password":          "postgres://u:secret@db.example:5432/d",
-		"no host":             "postgres://u@:5432/d",
-		"bad port":            "postgres://u@db.example:99999/d",
-		"two hosts":           "postgres://u@a.example,b.example/d",
-		"a port not a number": "postgres://u@db.example:x/d",
+		"not a URL":            "postgres://u@db.example:5432/%zz",
+		"another kind":         "mysql://u@db.example:3306/d",
+		"no login":             "postgres://db.example:5432/d",
+		"a password":           "postgres://u:secret@db.example:5432/d",
+		"no host":              "postgres://u@:5432/d",
+		"bad port":             "postgres://u@db.example:99999/d",
+		"two hosts":            "postgres://u@a.example,b.example/d",
+		"a host parameter":     "postgres://u@db.example:5432/d?host=other.example",
+		"a hostaddr parameter": "postgres://u@db.example:5432/d?hostaddr=10.0.0.1",
+		"a port parameter":     "postgres://u@db.example:5432/d?port=6432",
+		"a port not a number":  "postgres://u@db.example:x/d",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := rdsiam.ForURL(u, "eu-central-1", failing{}); !errors.Is(err, rdsiam.ErrSettings) {

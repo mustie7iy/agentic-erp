@@ -997,9 +997,11 @@ unchanged.
   authentication",
   https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.DBAccounts.html:
   `CREATE USER db_userx; GRANT rds_iam TO db_userx;`). `checkLogin` lets an
-  IAM login be a member of `rds_iam` and refuses any dependency of
-  `rds_iam`'s in the database or the server, since its rights would be
-  every IAM login's; a password login made a member of `rds_iam` is
+  IAM login be a member of `rds_iam` and refuses `rds_iam` holding
+  anything: a role attribute (superuser, create role or database,
+  replication, bypass row security), membership of any role, or a
+  dependency in the database or the server, since whatever it holds or
+  inherits every IAM login inherits (review round 1); a password login made a member of `rds_iam` is
   refused, since "if the IAM role (`rds_iam`) is added to a user …, IAM
   authentication takes precedence over password authentication" (the
   guide's Limitations). Without `rds_iam` (a plain PostgreSQL server) the
@@ -1026,12 +1028,24 @@ unchanged.
   `ERP_DIRECTORY_REGION` (`directory.region`). `helm-checks.sh` holds each
   client to its login over verified TLS, its region, its role and no
   password setting or secret anywhere.
+- *Rollout*: the directory keeps `apply_immediately = false`, and RDS
+  applies an existing instance's change to IAM authentication in the next
+  maintenance window unless told otherwise ("Enabling and disabling IAM
+  database authentication",
+  https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.Enabling.html).
+  A release of these charts before then would leave the logins with no
+  password and no IAM: on an instance made before this change, operators
+  apply Terraform and see `IAMDatabaseAuthenticationEnabled` true (`aws
+  rds describe-db-instances`) before the first release; a new instance is
+  made with it.
 - *Decided by default*: production refuses a password setting rather than
   preferring IAM over it (no silent fallback, CLAUDE.md); the IRSA role is
   the only credential source for the tokens; erp-web's network policy
   admits the VPC on 443, for STS's interface endpoint, whose regional name
   resolves to addresses in the VPC (it admitted nothing in the VPC on 443
-  before); the router's and erp-web's roles are made on the home cell
+  before; the rule admits every address of the VPC on 443, the cluster's
+  private API endpoint and the other interface endpoints among them, since
+  a network policy cannot name the endpoint's security group); the router's and erp-web's roles are made on the home cell
   alone and have no counterparts in the pilot light, since the router, erp-web
   and the directory stay in the home region (ADR-0040); `rds_iam` is
   granted as the guide shows, with PostgreSQL 17's default options
@@ -1045,7 +1059,9 @@ unchanged.
   any right or dependency on RDS, which would stop every release here;
   whether `GRANT rds_iam … WITH INHERIT FALSE, SET FALSE` would keep IAM
   authentication working (the guide says nested and indirect grants work,
-  nothing on the options); that the master user may `ALTER ROLE … PASSWORD
+  nothing on the options); that `rds_iam` is a member of no role and has
+  no attribute on RDS, which `checkLogin` requires; that the master user
+  may `ALTER ROLE … PASSWORD
   NULL` on a login it made; and the guide's 300–1000 MiB of extra memory
   IAM authentication needs on the instance, against the directory's
   `db.t4g.medium`.

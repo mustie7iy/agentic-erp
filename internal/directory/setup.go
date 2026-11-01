@@ -307,17 +307,22 @@ const publicRights = `ARRAY(SELECT kind || ' ' || name FROM (
 // any schema in the database beyond the system's, public, directory and
 // web, whose PUBLIC rights Setup does not govern; and any of
 // publicRights. An IAM login may also be a member of rds_iam, which then
-// must hold nothing either (rds_iam's rights would be the login's), and a
-// password login may not: RDS would take IAM tokens alone from it.
+// must hold nothing either: no role attribute, no membership of any role
+// and no dependency (whatever rds_iam holds or inherits, the login
+// inherits); a password login may not: RDS would take IAM tokens alone
+// from it.
 // Setup does not take such rights back: someone gave them, and the
 // release stops until they look.
 func checkLogin(ctx context.Context, tx pgx.Tx, l Login) error {
 	var attributes, admin bool
 	var others, deps, schemas, public []string
-	err := tx.QueryRow(ctx, `SELECT r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication OR r.rolbypassrls,
+	err := tx.QueryRow(ctx, `SELECT r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication OR r.rolbypassrls
+			OR ($4 AND EXISTS (SELECT FROM pg_roles i WHERE i.rolname = '`+IAMRole+`'
+				AND (i.rolsuper OR i.rolcreaterole OR i.rolcreatedb OR i.rolreplication OR i.rolbypassrls))),
 		EXISTS (SELECT FROM pg_auth_members m WHERE m.member = r.oid AND m.admin_option),
 		ARRAY(SELECT p.rolname || ' in ' || g.rolname FROM pg_auth_members m JOIN pg_roles g ON g.oid = m.roleid JOIN pg_roles p ON p.oid = m.member
-			WHERE (m.member = r.oid AND g.rolname <> $2 AND NOT ($4 AND g.rolname = '`+IAMRole+`')) OR p.rolname = ANY($3) ORDER BY 1),
+			WHERE (m.member = r.oid AND g.rolname <> $2 AND NOT ($4 AND g.rolname = '`+IAMRole+`')) OR p.rolname = ANY($3)
+				OR ($4 AND p.rolname = '`+IAMRole+`') ORDER BY 1),
 		ARRAY(SELECT o.rolname || ': ' || coalesce(pg_describe_object(d.classid, d.objid, d.objsubid), d.classid::regclass::text) || ' (' || d.deptype::text || ')'
 			FROM pg_shdepend d JOIN pg_roles o ON o.oid = d.refobjid
 			WHERE d.refclassid = 'pg_authid'::regclass AND (o.rolname = $1 OR o.rolname = ANY($3) OR ($4 AND o.rolname = '`+IAMRole+`'))

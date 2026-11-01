@@ -75,7 +75,9 @@ func (t Token) Mint(ctx context.Context) (string, error) {
 // ForURL is the login's tokens for a postgres URL naming one host: its
 // host and port (5432 when none is named) and its user. A token is signed
 // for the endpoint the connection names, so a URL with fallback hosts,
-// each of which would need its own, is refused.
+// each of which would need its own, is refused, and so is one whose host,
+// hostaddr or port parameter would send pgx elsewhere than the token
+// names.
 func ForURL(dbURL, region string, creds awscreds.Provider) (Token, error) {
 	u, err := url.Parse(dbURL)
 	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.User == nil || u.User.Username() == "" {
@@ -88,8 +90,9 @@ func ForURL(dbURL, region string, creds awscreds.Provider) (Token, error) {
 	if port == "" {
 		port = "5432"
 	}
-	if n, err := strconv.Atoi(port); host == "" || strings.Contains(u.Host, ",") || err != nil || n < 1 || n > 65535 {
-		return Token{}, fmt.Errorf("%w: want a URL naming one host and port, not %q", ErrSettings, u.Host)
+	q := u.Query()
+	if n, err := strconv.Atoi(port); host == "" || strings.Contains(u.Host, ",") || err != nil || n < 1 || n > 65535 || q.Has("host") || q.Has("hostaddr") || q.Has("port") {
+		return Token{}, fmt.Errorf("%w: want a URL naming one host and port in its authority alone, not %q", ErrSettings, u.Host)
 	}
 	return Token{Endpoint: net.JoinHostPort(host, port), User: u.User.Username(), Region: region, Credentials: creds}, nil
 }
