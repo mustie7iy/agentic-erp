@@ -44,8 +44,10 @@ const baselineItems = 950
 // product owner added P6's hold of chosen tax dates to open returns (T61o,
 // po:2026-11-01, 81). 82 since batch 35: T73f2's walk-through by a pilot
 // treasurer and AP lead, human acceptance, split into a leaf of its own
-// (T73f3) that inherits the tag.
-const pilotItems = 82
+// (T73f3) that inherits the tag (82); T73h2's pilot walkthrough,
+// Arabic-Indic digits and partners on an entry's pages split into T73h3,
+// which inherits the tag (83).
+const pilotItems = 83
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -68,6 +69,34 @@ func TestCSVLimits(t *testing.T) {
 	if ui.LineFieldLabel(marked[1].refused[0].api) != i18n.EntryLineAmount {
 		t.Error("markRefused: the amount's field is not named")
 	}
+	unit := make([]entryLine, 1)
+	markRefused(gen.Problem{Errors: []gen.FieldError{{Field: "lines[0].quantity.unit", Code: "unknown"}}}, unit)
+	if got := unit[0].refused; len(got) != 1 || ui.LineFieldLabel(got[0].api) != i18n.EntryLineUnit || apiColumns[got[0].api] != "unit" {
+		t.Errorf("a quantity's unit refused: got %+v, want it named the unit's, on the form and in a file", got)
+	}
+}
+
+// TestKeepChosen: a ledgers' choice the form holds stays chosen when the
+// options do not hold it, never silently every ledger in its place.
+func TestKeepChosen(t *testing.T) {
+	offered := []ui.Option{{Selected: false}, {Value: "ledger:a", Text: "0L Leading"}}
+	for name, tc := range map[string]struct {
+		options []ui.Option
+		chosen  string
+		want    []ui.Option
+	}{
+		"none chosen":   {offered, "", offered},
+		"chosen there":  {[]ui.Option{{}, {Value: "ledger:a", Selected: true}}, "ledger:a", []ui.Option{{}, {Value: "ledger:a", Selected: true}}},
+		"not offered":   {offered, "group:ALL", append(append([]ui.Option{}, offered...), ui.Option{Value: "group:ALL", Text: "ALL", Selected: true})},
+		"none to offer": {nil, "ledger:b", []ui.Option{{}, {Value: "ledger:b", Text: "b", Selected: true}}},
+		"no options":    {nil, "", nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := keepChosen(tc.options, tc.chosen); !slices.Equal(got, tc.want) {
+				t.Errorf("got %+v, want %+v", got, tc.want)
+			}
+		})
+	}
 }
 
 // TestLookupsBounded: a send looks at most maxCodeLookups codes up one by
@@ -92,5 +121,45 @@ func TestLookupsBounded(t *testing.T) {
 	}
 	if got := lk.lookUp([]string{"Z"}, book{}, i18n.EntryPartnerUnknown, find); got["Z"].err != i18n.EntryPartnerUnknown || calls != 2 {
 		t.Errorf("a whole book: %d calls, got %+v", calls, got)
+	}
+}
+
+// TestTotals: the running totals sum the amounts typed exactly, in the
+// locale, with as many decimals as the most an amount has; an amount
+// that cannot be read, or whose sum is out of range, is not counted, and
+// a currency that is none is not shown.
+func TestTotals(t *testing.T) {
+	catalog, err := i18n.Load(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	en, fr := catalog.Match("en"), catalog.Match("fr-CA")
+	lines := func(amounts ...string) []entryLine {
+		out := make([]entryLine, len(amounts))
+		for i, a := range amounts {
+			out[i] = entryLine{amount: a}
+		}
+		return out
+	}
+	for name, tc := range map[string]struct {
+		loc      i18n.Locale
+		amounts  []string
+		currency string
+		want     ui.EntryTotals
+	}{
+		"balanced":      {en, []string{"1200.50", "-1200.5", ""}, "EUR", ui.EntryTotals{Debits: "1200.50", Credits: "1200.50", Difference: "0.00", Currency: "EUR"}},
+		"in French":     {fr, []string{"12,5", "-2,25"}, "CAD", ui.EntryTotals{Debits: "12.50", Credits: "2.25", Difference: "10.25", Currency: "CAD"}},
+		"whole amounts": {en, []string{"100", "-40"}, "JPY", ui.EntryTotals{Debits: "100", Credits: "40", Difference: "60", Currency: "JPY"}},
+		"four decimals": {en, []string{"0.0001", "-1"}, "BHD", ui.EntryTotals{Debits: "0.0001", Credits: "1.0000", Difference: "-0.9999", Currency: "BHD"}},
+		"none":          {en, nil, "", ui.EntryTotals{Debits: "0", Credits: "0", Difference: "0"}},
+		"not read":      {en, []string{"1,5", "x", "5"}, "eur", ui.EntryTotals{Debits: "5", Credits: "0", Difference: "5", Uncounted: 2}},
+		"out of range": {en, []string{"900000000000000", "900000000000000", "999999999999999999"}, "EUR",
+			ui.EntryTotals{Debits: "900000000000000", Credits: "0", Difference: "900000000000000", Currency: "EUR", Uncounted: 2}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := totalsOf(tc.loc, lines(tc.amounts...), tc.currency); got != tc.want {
+				t.Errorf("got %+v, want %+v", got, tc.want)
+			}
+		})
 	}
 }

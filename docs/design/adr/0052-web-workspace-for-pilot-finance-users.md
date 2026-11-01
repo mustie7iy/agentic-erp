@@ -2484,6 +2484,119 @@ listed in the batch digest for the product owner to overrule.
   treasurer and AP lead is human acceptance, split into a leaf of its
   own that keeps the pilot tag (T73f3).
 
+## Built in T73h2 (2026-11-01)
+Manual journal entries beyond T73h, on the entry form, as GL accountant,
+with the money-risk item of batch 32's review (the form kept the first
+company's currency after its company was changed). What it settled:
+- **The currency follows the company** (review:batch32). A new entry's
+  currency is filled in by the rule the webdates section set for its
+  dates, and with them: for the company its address names, or the only
+  one offered; among several and none named, neither currency nor dates
+  are filled in until a company is chosen. The form says for which
+  company and day they were filled in (hidden `filled_for` and
+  `filled_on`). Choosing the company is an htmx request (`hx-post` with
+  `op=company`, `hx-vals` JSON, no script of the workspace's own): the
+  form is rendered again for it and swapped whole, its ledgers and
+  accounts the company's; a currency or date still holding what was
+  filled in for the other company (its currency, the day `filled_on`) is
+  replaced, and the form says so; an empty one is filled in; one the
+  person typed is kept (review round 1). Without htmx the change is seen when the
+  form is sent: a form whose company is not the one it was filled in for
+  is not sent (no call to park or post) but rendered for the company,
+  422, with a notice that nothing was sent, that the currency and dates
+  filled in for the other company are now this company's and those the
+  person typed kept, to be checked and sent again. Choosing another
+  company, either way, resets the ledgers to every ledger it keeps. A
+  company the person may not see fills nothing in, and the API refuses
+  it.
+- **Foreign-currency entries stay offered**, as the API takes them
+  (`JournalEntryCreate.currency`, converted at the posting date's rates):
+  the currency's hint names the company's own (“The company's currency
+  is CAD. In another currency the entry is a foreign-currency entry,
+  converted at the posting date's rate.”), so a currency other than the
+  company's is one the person typed, never one left from another
+  company. Decided by default from the API and this rule; the product
+  owner may overrule (an explicit foreign-currency switch instead).
+- **Post at once.** The form's second button posts the new entry
+  (`postJournalEntry`, human-only, offered with `ledger.entry.post`);
+  posted, the person goes to the journal entry (`?done=posted`). Above
+  the company's limit the API refuses it with `ledger.approval_required`
+  and the same entry is parked for the person (`parkJournalEntry`), its
+  page saying so (`?done=limit`); posting it from there asks another
+  person's approval as before. The park's idempotency key is derived from
+  the form's (UUIDv5 of it), so the same form sent again parks it once.
+  Implicit submission still parks: the post is never the default button.
+- **Park straight from a CSV file.** The new entry's form has a file and
+  its own submit button (`formaction` `/journal/new/file`,
+  `formenctype` multipart, so the form itself stays url-encoded for
+  htmx), parking the entry with the file's lines in place of those typed,
+  under the form's header. The file is read as T73h's upload reads it
+  (the same columns, checks, lookups and row errors); a refusal keeps the
+  lines typed and lists the file's rows, and the file is chosen again.
+  The upload's limits are `csrfUpload`'s (4 MB).
+- **Ledgers.** A new entry posts to every ledger its company keeps (the
+  API's default), one of them (`ledger_id`) or a ledger group
+  (`ledger_group`): a select offered when the company keeps more than
+  one ledger, listing its ledgers (`listLedgers` by company) and the
+  groups with one of them (`listLedgerGroups`). A choice the form holds
+  stays chosen when the form is rendered again and the ledgers cannot be
+  read, or it is no longer offered (by its id or code): never silently
+  every ledger in its place (review round 1). A parked entry's ledger
+  is not changed (`ParkedJournalEntryUpdate` takes none).
+- **A line's tax jurisdiction, declared tax base and quantity.** Four
+  more fields per line and CSV columns (`tax_jurisdiction`, `tax_base`,
+  `quantity`, `unit`): the jurisdiction ISO 3166-2's shape, the base an
+  amount as the line's is typed, the quantity a decimal of at most six
+  places in the person's locale with its unit, each both or neither,
+  checked before the API is called; whether the line's tax code takes
+  them is the API's (`ledger.jurisdiction_*`, `ledger.tax_base_*`,
+  `ledger.unknown_unit`, explained in the entry's words).
+- **Partners named in the change form.** A parked line names its
+  partner by id; the change's form shows its number, read with the new
+  `ids` filter of `listBusinessPartners` (contract first: the smallest
+  change, comma-separated, 1 to 100, also what T73f2 and T73j2 need), and
+  sent back the number is looked up as typed. Partners that cannot be
+  read leave the id, which is sent as it is. Named on a parked or posted
+  entry's page is T73h3: those pages read six already.
+- **Running totals.** Debits, credits and their difference under the
+  lines, summed by the workspace in integer ten-thousandths
+  (`money.Minor`, `money.Sum`, never a float), shown with as many
+  decimals as the amounts typed (no API names a currency's digits); an
+  amount that cannot be read, or whose sum is out of range, is not
+  counted and the form says how many are not. With htmx each amount's
+  change asks for them again (`op=totals`, no API call): their contents
+  are swapped inside a polite live region that stays in the page, so a
+  screen reader says the change (`innerHTML`, as the payment progress
+  does; review round 1), and when a line is added or left out they come
+  with the lines as an out-of-band swap of the region's contents (review
+  round 2); the form's buttons follow the totals, outside the lines'
+  section, and come with the lines out of band too, so the line's add
+  is offered while the form takes another (review round 3); without it they are those of the form's
+  last rendering. The API checks the balance.
+- **Calls.** The new entry's form reads six (`getCurrentPrincipal`, the
+  companies, the company's day, its accounts, its ledgers and the ledger
+  groups), the budget of §10; a change's form five (its partners
+  besides). A post refused for the limit makes a second write, the park:
+  the inventory marks it (`Operation.Write`), not a read.
+- **Arabic-Indic digits** are not read: T73l, which reads digits per
+  locale, is not built, so amounts stay ASCII (T73h3).
+- **Tests.** Handlers against the real API: a post within the limit and
+  above it (parked once, from the same form sent twice), a refused post
+  keeping what was typed; company 2000's form switched to company 1000
+  without htmx (refused, rendered in USD, parked when sent again) and
+  with htmx; the totals alone in French; a line's jurisdiction, base and
+  quantity checked, refused by the API on their line, parked and shown to
+  be changed in French with the partner's number; an entry parked from a
+  file in French and the file's, header's, company's and API's refusals;
+  an entry parked in ledger 2L and posted to the group ALL. From the
+  stub: Toronto's form (CAD, 31 December) switched to Dubai (AED,
+  1 January) with and without htmx, a typed currency kept, a company not
+  seen; the ledgers offered, and not when unread; partners by ids, unread
+  and not readable. The browser suite audits the form in every locale at
+  1280 and 390 px, and walks the company chosen with htmx and the totals
+  said as amounts change, a post at once, a post above the limit and a
+  file parked at a phone's width.
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF

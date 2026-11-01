@@ -558,6 +558,9 @@ step_migrate() {
   local laurentian
   laurentian=$(field '.items[0].id')
   if [ -z "$laurentian" ] || [ "$laurentian" = null ]; then fail "the migrated supplier Laurentian Paper is not there"; fi
+  say "A journal line names its partner by id; the workspace names it by the partners' ids (T73h2):"
+  api 200 '.items[] | "partner \(.id | .[0:8])... is \(.number) \(.name)"' listBusinessPartners -p "ids=$laurentian"
+  expect "the supplier named by its id" "$(field '.items[0].name')" "Laurentian Paper"
   api 200 '.items[] | "bank account \(.purpose): \(.account_scheme), bank \(.bank_country_code) \(.institution_number)-\(.transit_number), account ending \(.account_last4), valid from \(.valid_from)"' \
     listBankAccounts -p "id=$laurentian"
   expect "the Canadian account's scheme and bank" "$(field '.items[0] | "\(.account_scheme) \(.institution_number) \(.transit_number)"')" "ca 001 00010"

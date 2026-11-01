@@ -1348,8 +1348,8 @@ type Handler interface {
 	ListBankStatements(ctx context.Context, params ListBankStatementsParams) (ListBankStatementsRes, error)
 	// ListBusinessPartners implements listBusinessPartners operation.
 	//
-	// Business partners. Filter by `number` or `name_prefix` to look one up. Sortable by: `number`,
-	// `name`.
+	// Business partners. Filter by `number` or `name_prefix` to look one up, or by `ids` to name the
+	// partners other resources give by id (a journal line's `partner_id`). Sortable by: `number`, `name`.
 	//
 	// GET /v1/business-partners
 	ListBusinessPartners(ctx context.Context, params ListBusinessPartnersParams) (ListBusinessPartnersRes, error)

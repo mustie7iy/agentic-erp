@@ -75,6 +75,7 @@ type Operation struct {
 	// request's page calls the one of its object's type, one read
 	// whichever it is.
 	PerObject bool
+	Write     bool // a form's write besides its first: a new entry posted at once is parked above its limit (T73h2)
 }
 
 var (
@@ -130,8 +131,9 @@ var (
 	opJournal     = []Operation{opMe, opCompanies, opLedgers, {ID: "listCostCenters", HiddenBy: permReadCenters}, {ID: "listProfitCenters", HiddenBy: permReadCenters}, {ID: "listJournalEntries", HiddenBy: permReadEntries}}
 	opEntry       = []Operation{opMe, {ID: "getJournalEntry", HiddenBy: permReadEntries}, opCompanies, opLedgers, opAccounts, opNames}
 	opGetParked   = Operation{ID: "getParkedJournalEntry", HiddenBy: permReadEntries}
-	opEntryForm   = []Operation{opMe, opCompanies, opToday, opAccounts}
-	opChangeForm  = []Operation{opMe, opGetParked, opCompanies, opAccounts}
+	opEntryForm   = []Operation{opMe, opCompanies, opToday, opAccounts, opLedgers, {ID: "listLedgerGroups", HiddenBy: permReadAccounts}}
+	opChangeForm  = []Operation{opMe, opGetParked, opCompanies, opAccounts, {ID: "listBusinessPartners", HiddenBy: permReadSuppliers}}
+	opParkEntry   = Operation{ID: "parkJournalEntry", HiddenBy: permParkEntries}
 	opParkedEntry = []Operation{opMe, opGetParked, opCompanies, opAccounts, opNames, opGet}
 	opLookups     = []Operation{{ID: "listAccounts", Lookup: true}, {ID: "listCostCenters", Lookup: true}, {ID: "listProfitCenters", Lookup: true},
 		{ID: "listSegments", Lookup: true}, {ID: "listBusinessPartners", Lookup: true}}
@@ -254,11 +256,13 @@ var Screens = func() map[string][]Operation {
 		"GET /close/revaluation":                    opRevaluation,
 		"POST /close/revaluation/preview": append(append([]Operation{{ID: "previewRevaluation", HiddenBy: permReadEntries}}, opRevaluation...),
 			opAccounts),
-		"POST /close/revaluation/post":               append([]Operation{{ID: "postRevaluationRun", HiddenBy: permPostEntries, HumanOnly: true}}, opRevaluation...),
-		"GET /close/revaluation/{id}":                opRevaluationRun,
-		"GET /journal":                               opParkedList,
-		"GET /journal/new":                           opEntryForm,
-		"POST /journal/new":                          append(append([]Operation{{ID: "parkJournalEntry", HiddenBy: permParkEntries}}, opEntryForm...), opLookups...),
+		"POST /close/revaluation/post": append([]Operation{{ID: "postRevaluationRun", HiddenBy: permPostEntries, HumanOnly: true}}, opRevaluation...),
+		"GET /close/revaluation/{id}":  opRevaluationRun,
+		"GET /journal":                 opParkedList,
+		"GET /journal/new":             opEntryForm,
+		"POST /journal/new": append(append([]Operation{opParkEntry, {ID: "postJournalEntry", HiddenBy: permPostEntries, HumanOnly: true, Write: true}},
+			opEntryForm...), opLookups...),
+		"POST /journal/new/file":                     append(append([]Operation{opParkEntry}, opEntryForm...), opLookups...),
 		"GET /journal/parked/{id}":                   opParkedEntry,
 		"GET /journal/parked/{id}/edit":              opChangeForm,
 		"POST /journal/parked/{id}/edit":             append(append([]Operation{opUpdateParked}, opChangeForm...), opLookups...),

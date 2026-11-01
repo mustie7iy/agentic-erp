@@ -64,6 +64,17 @@ func journalComponents() map[string]templ.Component {
 		"entry line plain":    EntryLineView("/x", lineInput2(false)),
 		"RefusedItem":         RefusedItem(FieldRefusal{Field: i18n.EntryLineCostCenter, Reason: "not_allowed"}),
 		"refused item whole":  RefusedItem(FieldRefusal{Reason: "unbalanced"}),
+		"entry form full":     EntryFormView(fullEntryForm()),
+		"currencyField":       currencyField(fullEntryForm()),
+		"currency plain":      currencyField(EntryForm{}),
+		"postToField":         postToField(fullEntryForm()),
+		"entryFileView":       entryFileView(*fullEntryForm().File),
+		"entry file plain":    entryFileView(LinesUpload{}),
+		"EntryTotalsView":     EntryTotalsView(fullEntryForm().Totals),
+		"EntryTotalsBody":     EntryTotalsBody(EntryTotals{Debits: "1", Credits: "1", Difference: "0"}),
+		"EntryLinesSwap":      EntryLinesSwap(fullEntryForm()),
+		"entryButtons":        entryButtons(fullEntryForm()),
+		"entryButtonsBody":    entryButtonsBody(entryForm(true)),
 	}
 }
 
@@ -183,6 +194,19 @@ func entryForm(edit bool) EntryForm {
 	return f
 }
 
+// fullEntryForm is a new entry's form with everything T73h2 added: its
+// company changed, its currency's company and errors, its ledgers, its
+// totals with lines not counted, the post and a file with wrong rows.
+func fullEntryForm() EntryForm {
+	f := entryForm(false)
+	f.FilledFor, f.FilledOn, f.Changed, f.Local, f.CanPost = "c1", "2026-01-01", true, "CAD", true
+	f.Errors = map[string]i18n.Key{FieldCurrency: i18n.ProposeCurrencyInvalid, FieldPostTo: i18n.EntryPostToInvalid}
+	f.PostTo = []Option{{}, {Value: PostToLedger + "l1", Text: "0L Leading", Selected: true}, {Value: PostToGroup + "ALL", Text: "ALL Every"}}
+	f.Totals = EntryTotals{Debits: "10.00", Credits: "9.00", Difference: "1.00", Currency: "CAD", Uncounted: 2}
+	f.File = &LinesUpload{FileError: i18n.CSVFileNeeded, Rows: []RowError{{Row: 2, Column: "amount", Error: i18n.EntryAmountInvalid}}, More: 3, Again: true}
+	return f
+}
+
 // TestJournalHelpers: each status has its colour, the cancellation and
 // the withdrawal alone need a reason, the paths drop empty values, the
 // form's lines are named, valued, suggested and focused as they should
@@ -216,25 +240,38 @@ func TestJournalHelpers(t *testing.T) {
 	if got := LineFieldLabel("cost_center_id"); got != i18n.EntryLineCostCenter {
 		t.Errorf("LineFieldLabel: got %q", got)
 	}
-	if got := LineFieldLabel("quantity"); got != "" {
+	if got := LineFieldLabel("cost_center_code"); got != "" {
 		t.Errorf("LineFieldLabel of a field the form has not: got %q", got)
 	}
-	l := LineInput{No: 2, Account: "a", Amount: "b", CostCenter: "c", ProfitCenter: "d", Segment: "e", Partner: "f", TaxCode: "g", Text: "h", Focus: true}
+	l := LineInput{No: 2, Account: "a", Amount: "b", CostCenter: "c", ProfitCenter: "d", Segment: "e", Partner: "f", TaxCode: "g", TaxArea: "h",
+		TaxBase: "i", Quantity: "j", Unit: "k", Text: "l", Focus: true}
 	var got []string
 	for _, fd := range lineFields {
 		got = append(got, lineValue(l, fd.Name))
 	}
-	if strings.Join(got, "") != "abcdefgh" {
+	if strings.Join(got, "") != "abcdefghijkl" {
 		t.Errorf("lineValue: got %v", got)
 	}
-	if a := lineInput(l, FieldLineAccount, "a"); a["list"] != "entry-accounts" || a["autofocus"] != true || a["id"] != "line-2-line_account" {
+	if a := lineInput("/journal/new", l, FieldLineAccount, "a"); a["list"] != "entry-accounts" || a["autofocus"] != true || a["id"] != "line-2-line_account" {
 		t.Errorf("the account's input: got %v", a)
 	}
-	if a := lineInput(LineInput{No: 2}, FieldLineAccount, ""); a["autofocus"] != nil {
+	if a := lineInput("/journal/new", LineInput{No: 2}, FieldLineAccount, ""); a["autofocus"] != nil {
 		t.Errorf("an account not just added: got %v", a)
 	}
-	if a := lineInput(l, FieldLineAmount, "b"); a["inputmode"] != "decimal" {
-		t.Errorf("the amount's input: got %v", a)
+	if a := lineInput("/journal/new", l, FieldLineAmount, "b"); a["inputmode"] != "decimal" || a["hx-target"] != "#entry-totals" ||
+		a["hx-vals"] != `{"op":"totals"}` {
+		t.Errorf("the amount's input: got %v, want decimal, its change asking the totals again", a)
+	}
+	for _, name := range []string{FieldLineTaxBase, FieldLineQuantity} {
+		if a := lineInput("/journal/new", l, name, ""); a["inputmode"] != "decimal" || a["hx-post"] != nil {
+			t.Errorf("%s's input: got %v, want decimal, asking nothing", name, a)
+		}
+	}
+	for value, want := range map[string]string{"": "Every ledger the company keeps", PostToLedger + "x": "Ledger 0L Leading", PostToGroup + "G1": "Ledger group 0L Leading", "book:x": "book:x"} {
+		var b strings.Builder
+		if err := postToText(Option{Value: value, Text: "0L Leading"}).Render(locale(t), &b); err != nil || b.String() != want {
+			t.Errorf("the ledgers' choice %q: got %q (%v), want %q", value, b.String(), err, want)
+		}
 	}
 	if !anyChosen([]Option{{Value: "a"}}) || anyChosen([]Option{{Value: "a", Selected: true}}) {
 		t.Error("anyChosen: none chosen is any")

@@ -30805,8 +30805,8 @@ func (s *Server) handleListBankStatementsRequest(args [0]string, argsEscaped boo
 
 // handleListBusinessPartnersRequest handles listBusinessPartners operation.
 //
-// Business partners. Filter by `number` or `name_prefix` to look one up. Sortable by: `number`,
-// `name`.
+// Business partners. Filter by `number` or `name_prefix` to look one up, or by `ids` to name the
+// partners other resources give by id (a journal line's `partner_id`). Sortable by: `number`, `name`.
 //
 // GET /v1/business-partners
 func (s *Server) handleListBusinessPartnersRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -30947,6 +30947,10 @@ func (s *Server) handleListBusinessPartnersRequest(args [0]string, argsEscaped b
 			Body:             nil,
 			RawBody:          rawBody,
 			Params: middleware.Parameters{
+				{
+					Name: "ids",
+					In:   "query",
+				}: params.Ids,
 				{
 					Name: "number",
 					In:   "query",

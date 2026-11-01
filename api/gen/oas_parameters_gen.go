@@ -21014,6 +21014,9 @@ func decodeListBankStatementsParams(args [0]string, argsEscaped bool, r *http.Re
 
 // ListBusinessPartnersParams is parameters of listBusinessPartners operation.
 type ListBusinessPartnersParams struct {
+	// Only the partners with these ids, comma-separated, 1 to 100; an id that names no partner of the
+	// tenant is left out.
+	Ids []uuid.UUID `json:",omitempty"`
 	// Only the partner with this number.
 	Number OptString `json:",omitempty,omitzero"`
 	// Only partners whose normalized name starts with this text.
@@ -21036,6 +21039,15 @@ type ListBusinessPartnersParams struct {
 }
 
 func unpackListBusinessPartnersParams(packed middleware.Parameters) (params ListBusinessPartnersParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "ids",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Ids = v.([]uuid.UUID)
+		}
+	}
 	{
 		key := middleware.ParameterKey{
 			Name: "number",
@@ -21113,6 +21125,66 @@ func unpackListBusinessPartnersParams(packed middleware.Parameters) (params List
 
 func decodeListBusinessPartnersParams(args [0]string, argsEscaped bool, r *http.Request) (params ListBusinessPartnersParams, _ error) {
 	q := uri.NewQueryDecoder(r.URL.Query())
+	// Decode query: ids.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "ids",
+			Style:   uri.QueryStyleForm,
+			Explode: false,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				params.Ids = nil
+				return d.DecodeArray(func(d uri.Decoder) error {
+					var paramsDotIdsVal uuid.UUID
+					if err := func() error {
+						val, err := d.DecodeValue()
+						if err != nil {
+							return err
+						}
+
+						c, err := conv.ToUUID(val)
+						if err != nil {
+							return err
+						}
+
+						paramsDotIdsVal = c
+						return nil
+					}(); err != nil {
+						return err
+					}
+					params.Ids = append(params.Ids, paramsDotIdsVal)
+					return nil
+				})
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if params.Ids == nil {
+					return nil // optional
+				}
+				if err := (validate.Array{
+					MinLength:    1,
+					MinLengthSet: true,
+					MaxLength:    100,
+					MaxLengthSet: true,
+				}).ValidateLength(len(params.Ids)); err != nil {
+					return errors.Wrap(err, "array")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "ids",
+			In:   "query",
+			Err:  err,
+		}
+	}
 	// Decode query: number.
 	if err := func() error {
 		cfg := uri.QueryParameterDecodingConfig{

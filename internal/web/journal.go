@@ -42,7 +42,7 @@ var (
 	// parkedDone are the notices of what was just done to a parked entry.
 	parkedDone = map[string]i18n.Key{"parked": i18n.ParkedDoneParked, "changed": i18n.ParkedDoneChanged, "uploaded": i18n.ParkedDoneUploaded,
 		"posted": i18n.ParkedDonePosted, "submitted": i18n.ParkedDoneSubmitted, "cancelled": i18n.ParkedDoneCancelled,
-		"withdrawn": i18n.ParkedDoneWithdrawn}
+		"withdrawn": i18n.ParkedDoneWithdrawn, "limit": i18n.ParkedDoneLimit}
 )
 
 // parkedPath is a parked entry's page, entryPath a posted one's.

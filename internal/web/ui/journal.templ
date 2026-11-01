@@ -589,11 +589,17 @@ templ entryFormContent(f EntryForm) {
 // form's own idempotency key and, for a change, the entry's ETag as
 // If-Match; its header, then its lines.
 templ EntryFormView(f EntryForm) {
-	<form class="entry" { post(f.Action)... }>
+	<form class="entry" id="entry-form" { post(f.Action)... }>
 		<input { csrfInput(f.CSRF)... }/>
 		<input { hidden(FieldIdempotency, f.Key)... }/>
 		if f.Edit {
 			<input { hidden(FieldIfMatch, f.ETag)... }/>
+		} else {
+			<input { hidden(FieldFilledFor, f.FilledFor)... }/>
+			<input { hidden(FieldFilledOn, f.FilledOn)... }/>
+		}
+		if f.Changed {
+			@Notice("entry-changed", i18n.EntryCompanyChangedTitle, Paragraph(i18n.EntryCompanyChanged))
 		}
 		<fieldset class="fieldset entry__header">
 			<legend class="field__label">
@@ -613,7 +619,10 @@ templ EntryFormView(f EntryForm) {
 				@InputField("entry-docdate", FieldDocDate, "date", i18n.EntryDocDate, i18n.FilterDateHint, f.DocDate, f.Errors[FieldDocDate])
 				@InputField("entry-postingdate", FieldPostingDate, "date", i18n.EntryPostingDate, i18n.EntryPostingDateHint, f.PostingDate, f.Errors[FieldPostingDate])
 				@InputField("entry-taxdate", FieldTaxDate, "date", i18n.EntryTaxDate, i18n.EntryTaxDateHint, f.TaxDate, f.Errors[FieldTaxDate])
-				@InputField("entry-currency", FieldCurrency, "text", i18n.EntryCurrency, i18n.EntryCurrencyHint, f.Currency, f.Errors[FieldCurrency])
+				@currencyField(f)
+				if len(f.PostTo) > 0 {
+					@postToField(f)
+				}
 				@InputField("entry-reference", FieldReference, "text", i18n.EntryReference, i18n.EntryReferenceHint, f.Reference, f.Errors[FieldReference])
 				@InputField("entry-header", FieldHeaderText, "text", i18n.EntryHeaderText, i18n.EntryHeaderTextHint, f.Header, f.Errors[FieldHeaderText])
 			</div>
@@ -626,7 +635,135 @@ templ EntryFormView(f EntryForm) {
 			}
 		</datalist>
 		@EntryLines(f)
+		@EntryTotalsView(f.Totals)
+		@entryButtons(f)
+		if f.File != nil {
+			@entryFileView(*f.File)
+		}
 	</form>
+}
+
+// currencyField is the entry's currency: the company's, filled in, or
+// another the API converts into it (a foreign-currency entry), which the
+// hint says when the company's is known.
+templ currencyField(f EntryForm) {
+	<div { fieldClass(f.Errors[FieldCurrency])... }>
+		<label class="field__label" for="entry-currency">
+			@T(i18n.EntryCurrency)
+		</label>
+		<p class="field__hint" id="entry-currency-hint">
+			if f.Local != "" {
+				@T(i18n.EntryCurrencyOf, f.Local)
+			} else {
+				@T(i18n.EntryCurrencyHint)
+			}
+		</p>
+		if f.Errors[FieldCurrency] != "" {
+			<p class="field__error" id="entry-currency-error">
+				@T(f.Errors[FieldCurrency])
+			</p>
+		}
+		<input class="input" translate="no" { inputAttrs("entry-currency", FieldCurrency, "text", f.Currency, f.Errors[FieldCurrency])... }/>
+	</div>
+}
+
+// postToField is the ledgers a new entry posts to: every ledger its
+// company keeps, one of them, or a ledger group.
+templ postToField(f EntryForm) {
+	<div { fieldClass(f.Errors[FieldPostTo])... }>
+		<label class="field__label" for="entry-post-to">
+			@T(i18n.EntryPostTo)
+		</label>
+		<p class="field__hint" id="entry-post-to-hint">
+			@T(i18n.EntryPostToHint)
+		</p>
+		if f.Errors[FieldPostTo] != "" {
+			<p class="field__error" id="entry-post-to-error">
+				@T(f.Errors[FieldPostTo])
+			</p>
+		}
+		<select class="select" { postToSelect(f.Errors[FieldPostTo])... }>
+			for _, o := range f.PostTo {
+				<option translate="no" { option(o)... }>
+					@postToText(o)
+				</option>
+			}
+		</select>
+	</div>
+}
+
+// entryFileView parks the new entry with a CSV file's lines in place of
+// those typed, and says what is wrong with the file or its rows.
+templ entryFileView(f LinesUpload) {
+	<fieldset class="fieldset entry__file">
+		<legend class="field__label">
+			@T(i18n.EntryFileTitle)
+		</legend>
+		if len(f.Rows) > 0 {
+			<div class="refusal" role="alert" { labelledBy("entry-rows-title")... }>
+				<h3 class="refusal__title" { idAttr("entry-rows-title")... }>
+					@T(i18n.UploadLinesRowsTitle)
+				</h3>
+				<ul class="list">
+					for _, e := range f.Rows {
+						@RowErrorItem(e)
+					}
+				</ul>
+				if f.More > 0 {
+					@Paragraph(i18n.UploadLinesMore, f.More)
+				}
+			</div>
+		}
+		<div { fieldClass(f.FileError)... }>
+			<label class="field__label" for="entry-file">
+				@T(i18n.UploadLinesFile)
+			</label>
+			<p class="field__hint" id="entry-file-hint">
+				@T(i18n.EntryFileHint)
+			</p>
+			if f.FileError != "" {
+				<p class="field__error" id="entry-file-error">
+					@T(f.FileError)
+				</p>
+			}
+			if f.Again {
+				<p class="hint">
+					@T(i18n.UploadChooseAgain)
+				</p>
+			}
+			<input class="input" { entryFileInput(f.FileError)... }/>
+		</div>
+		<div class="filters__buttons">
+			<button { fileButton()... }>
+				@T(i18n.EntryFileButton)
+			</button>
+		</div>
+	</fieldset>
+}
+
+// EntryTotalsView are the form's running debits, credits and difference
+// in their live region, said again when they change: htmx swaps the
+// region's contents (EntryTotalsBody) when an amount changes, and out of
+// band when the lines do (EntryLinesSwap).
+templ EntryTotalsView(t EntryTotals) {
+	<div class="entry__totals">
+		<h3>
+			@T(i18n.EntryTotalsTitle)
+		</h3>
+		<div id="entry-totals" aria-live="polite">
+			@EntryTotalsBody(t)
+		</div>
+	</div>
+}
+
+// EntryTotalsBody are the running totals inside their live region.
+templ EntryTotalsBody(t EntryTotals) {
+	@SummaryList(totalRows(t))
+	if t.Uncounted > 0 {
+		<p class="hint">
+			@T(i18n.EntryTotalsUncounted, t.Uncounted)
+		</p>
+	}
 }
 
 // companyChoice is a new entry's company.
@@ -640,7 +777,7 @@ templ companyChoice(f EntryForm) {
 				@T(f.CompanyError)
 			</p>
 		}
-		<select class="select" { uploadSelect("entry-company", FieldCompany, f.CompanyError)... }>
+		<select class="select" { companySelect(f.Action, f.CompanyError)... }>
 			for _, o := range f.Companies {
 				<option translate="no" { option(o)... }>
 					@Value(o.Text)
@@ -650,9 +787,8 @@ templ companyChoice(f EntryForm) {
 	</div>
 }
 
-// EntryLines are the form's lines and its buttons, the section htmx swaps
-// when a line is added or left out. The form's send comes first, so it
-// is the button Enter presses in a field (HTML's implicit submission).
+// EntryLines are the form's lines, the section htmx swaps when a line is
+// added or left out.
 templ EntryLines(f EntryForm) {
 	<div class="entry__lines" id="entry-lines">
 		<h2>
@@ -669,7 +805,35 @@ templ EntryLines(f EntryForm) {
 		for _, l := range f.Lines {
 			@EntryLineView(f.Action, l)
 		}
-		<div class="filters__buttons">
+	</div>
+}
+
+// EntryLinesSwap is what htmx swaps when the form's lines change: the
+// lines' section, and the running totals' contents out of band, inside
+// their live region, which stays in the page.
+templ EntryLinesSwap(f EntryForm) {
+	@EntryLines(f)
+	<div hx-swap-oob="innerHTML:#entry-totals">
+		@EntryTotalsBody(f.Totals)
+	</div>
+	<div hx-swap-oob="innerHTML:#entry-buttons">
+		@entryButtonsBody(f)
+	</div>
+}
+
+// entryButtons are the form's buttons, after its lines and totals and
+// outside the section htmx swaps. The send comes first, so it is the
+// button Enter presses in a field (HTML's implicit submission).
+templ entryButtons(f EntryForm) {
+	<div class="filters__buttons" id="entry-buttons">
+		@entryButtonsBody(f)
+	</div>
+}
+
+// entryButtonsBody are the buttons inside their section: the line's add
+// offered while the form takes another, so htmx sends them again with
+// the lines (EntryLinesSwap).
+templ entryButtonsBody(f EntryForm) {
 			<button class="button" type="submit" name="op" value="send" id="entry-send-button">
 				if f.Edit {
 					@T(i18n.EntrySaveButton)
@@ -677,13 +841,16 @@ templ EntryLines(f EntryForm) {
 					@T(i18n.EntryParkButton)
 				}
 			</button>
+			if f.CanPost {
+				<button class="button button--secondary" type="submit" name="op" value="post" id="entry-post-button">
+					@T(i18n.EntryPostButton)
+				</button>
+			}
 			if f.CanAdd() {
 				<button { addButton(f.Action)... }>
 					@T(i18n.EntryAddLine)
 				</button>
 			}
-		</div>
-	</div>
 }
 
 // EntryLineView is one line of the form: its fields, each with its error,
@@ -704,7 +871,7 @@ templ EntryLineView(action string, l LineInput) {
 							@T(l.Errors[fd.Name])
 						</p>
 					}
-					<input { lineInput(l, fd.Name, lineValue(l, fd.Name))... }/>
+					<input { lineInput(action, l, fd.Name, lineValue(l, fd.Name))... }/>
 				</div>
 			}
 		</div>

@@ -182,7 +182,12 @@ func (e *Endpoints) ListBusinessPartners(ctx context.Context, params gen.ListBus
 	if err != nil {
 		return nil, err
 	}
-	scope := "listBusinessPartners|" + params.Number.Value + "|" + params.NamePrefix.Value + "|" + params.Role.Value + "|" + params.Status.Value
+	ids := make([]string, len(params.Ids))
+	for i, id := range params.Ids {
+		ids[i] = id.String()
+	}
+	scope := "listBusinessPartners|" + params.Number.Value + "|" + params.NamePrefix.Value + "|" + params.Role.Value + "|" + params.Status.Value +
+		"|" + strings.Join(ids, ",")
 	ks, err := e.Pages.Keyset(partnerSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
@@ -197,7 +202,8 @@ func (e *Endpoints) ListBusinessPartners(ctx context.Context, params gen.ListBus
 	}
 	q, args := ks.SQL(partnerSelect+` WHERE ($1 = '' OR p.number = $1) AND ($2 = '' OR p.name_norm LIKE $2)
 		AND ($3 = '' OR EXISTS (SELECT FROM partner.partner_role r WHERE r.tenant_id = p.tenant_id AND r.partner_id = p.id AND r.role = $3))
-		AND ($4 = '' OR p.status = $4)`, []any{params.Number.Value, prefix, params.Role.Value, params.Status.Value})
+		AND ($4 = '' OR p.status = $4) AND ($5::uuid[] IS NULL OR p.id = ANY($5::uuid[]))`,
+		[]any{params.Number.Value, prefix, params.Role.Value, params.Status.Value, params.Ids})
 	rows, _ := tx.Query(ctx, q, args...)
 	ps, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Partner, error) { return scanPartner(r) })
 	if err != nil {

@@ -2,8 +2,10 @@ package ui
 
 import (
 	"context"
+	"maps"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/a-h/templ"
@@ -18,6 +20,7 @@ import (
 const (
 	JournalPath  = "/journal"
 	NewEntryPath = JournalPath + "/new"
+	NewEntryFile = NewEntryPath + "/file"
 	ParkedBase   = JournalPath + "/parked"
 	EntriesPath  = JournalPath + "/entries"
 )
@@ -46,9 +49,16 @@ const (
 	FieldLineSegment     = "line_segment"
 	FieldLinePartner     = "line_partner"
 	FieldLineTaxCode     = "line_tax_code"
+	FieldLineTaxArea     = "line_tax_jurisdiction"
+	FieldLineTaxBase     = "line_tax_base"
+	FieldLineQuantity    = "line_quantity"
+	FieldLineUnit        = "line_unit"
 	FieldLineText        = "line_text"
 	FieldLineRemove      = "line_remove"
 	FieldOp              = "op"
+	FieldFilledFor       = "filled_for"
+	FieldFilledOn        = "filled_on"
+	FieldPostTo          = "post_to"
 	FieldCostCenter      = "cost_center_id"
 	FieldProfitCenter    = "profit_center_id"
 	FieldDocumentNumber  = "document_number"
@@ -58,9 +68,24 @@ const (
 	FieldRequest         = "approval_request_id"
 )
 
-// OpAdd is the entry form's button that adds a line; any other sends the
-// entry (parks it, or saves the change of a parked one).
-const OpAdd = "add"
+// What the entry form asks: OpAdd adds a line, OpPost posts the new
+// entry at once, OpCompany (htmx, the company chosen) renders the form
+// again for the company and OpTotals (htmx, an amount changed) its
+// running totals alone; any other sends the entry (parks it, or saves the
+// change of a parked one).
+const (
+	OpAdd     = "add"
+	OpPost    = "post"
+	OpCompany = "company"
+	OpTotals  = "totals"
+)
+
+// A new entry's ledgers (FieldPostTo): none for every ledger its company
+// keeps, else one ledger by its id or a ledger group by its code.
+const (
+	PostToLedger = "ledger:"
+	PostToGroup  = "group:"
+)
 
 // ParkedRow is one parked entry of the list. Its header text is data, an
 // agent's perhaps.
@@ -380,6 +405,10 @@ type LineInput struct {
 	Segment      string
 	Partner      string
 	TaxCode      string
+	TaxArea      string // the tax jurisdiction
+	TaxBase      string
+	Quantity     string
+	Unit         string
 	Text         string
 	Errors       map[string]i18n.Key
 	Refused      []FieldRefusal
@@ -409,6 +438,11 @@ type EntryForm struct {
 	Company      string   // a change's company, named; "" for a new entry
 	Companies    []Option // a new entry's choice
 	CompanyError i18n.Key
+	FilledFor    string   // the company a new entry's currency and dates were filled in for; "" for none
+	FilledOn     string   // the day its dates were filled in with; "" for none
+	Local        string   // the company's currency, "" when not known
+	Changed      bool     // the company was changed: its currency and dates are filled in again
+	PostTo       []Option // a new entry's ledgers; nil when its company keeps one
 	DocType      string
 	DocDate      string
 	PostingDate  string
@@ -419,9 +453,22 @@ type EntryForm struct {
 	Errors       map[string]i18n.Key // the header's, by field name
 	LinesError   i18n.Key
 	Lines        []LineInput
-	Accounts     []Option // the company's accounts, suggested by number
+	Totals       EntryTotals
+	Accounts     []Option     // the company's accounts, suggested by number
+	CanPost      bool         // a new entry may be posted at once
+	File         *LinesUpload // a new entry parked from a file: what is wrong with it; nil when not offered
 	Refusal      *Refusal
 	Back         string
+}
+
+// EntryTotals are the form's running debits, credits and their
+// difference in the form's currency (decimal strings as the API writes
+// amounts), and how many lines' amounts could not be read and are not
+// counted.
+type EntryTotals struct {
+	Debits, Credits, Difference string
+	Currency                    string
+	Uncounted                   int
 }
 
 // CanAdd reports whether the form takes another line.
@@ -432,8 +479,9 @@ func lineID(no int, field string) string { return "line-" + strconv.Itoa(no) + "
 
 // lineInput is a line's input: its id, name and value, the lines' hint
 // and its error by id, aria-invalid with an error, the accounts'
-// suggestions on the account, and autofocus on the line just added.
-func lineInput(l LineInput, name, value string) templ.Attributes {
+// suggestions on the account, autofocus on the line just added, and on
+// the amount the running totals asked again when it changes (htmx).
+func lineInput(action string, l LineInput, name, value string) templ.Attributes {
 	id := lineID(l.No, name)
 	a := templ.Attributes{"id": id, "name": name, "type": "text", "value": value, "class": "input", "translate": "no", "aria-describedby": "lines-hint",
 		"autocomplete": "off"}
@@ -448,8 +496,77 @@ func lineInput(l LineInput, name, value string) templ.Attributes {
 		}
 	case FieldLineAmount:
 		a["inputmode"] = "decimal"
+		maps.Copy(a, totalsAttrs(action))
+	case FieldLineTaxBase, FieldLineQuantity:
+		a["inputmode"] = "decimal"
 	}
 	return a
+}
+
+// totalsAttrs ask the form's running totals again, the totals' contents
+// alone swapped inside their live region, which stays in the page so a
+// screen reader says the change (htmx; without it they are those of the
+// form's last rendering).
+func totalsAttrs(action string) templ.Attributes {
+	return templ.Attributes{"hx-post": string(templ.URL(action)), "hx-trigger": "change", "hx-target": "#entry-totals", "hx-swap": "innerHTML",
+		"hx-vals": `{"` + FieldOp + `":"` + OpTotals + `"}`}
+}
+
+// companySelect is a new entry's company: chosen with htmx, the form is
+// rendered again for it, its currency, dates, ledgers and accounts the
+// company's; without htmx, sending the form does so (FieldFilledFor).
+func companySelect(action string, err i18n.Key) templ.Attributes {
+	a := uploadSelect("entry-company", FieldCompany, err)
+	maps.Copy(a, templ.Attributes{"hx-post": string(templ.URL(action)), "hx-trigger": "change", "hx-target": "#entry-form", "hx-swap": "outerHTML",
+		"hx-vals": `{"` + FieldOp + `":"` + OpCompany + `"}`})
+	return a
+}
+
+// postToText is a ledgers' choice in words: every ledger, a ledger or a
+// ledger group, its code and name data.
+func postToText(o Option) templ.Component {
+	switch {
+	case strings.HasPrefix(o.Value, PostToLedger):
+		return T(i18n.EntryPostToLedger, o.Text)
+	case strings.HasPrefix(o.Value, PostToGroup):
+		return T(i18n.EntryPostToGroup, o.Text)
+	case o.Value == "":
+		return T(i18n.EntryPostToAll)
+	default: // a choice the form held that is none of these, refused on its field
+		return Value(o.Value)
+	}
+}
+
+// postToSelect is the ledgers' choice, its hint and error by id.
+func postToSelect(err i18n.Key) templ.Attributes {
+	a := templ.Attributes{"id": "entry-post-to", "name": FieldPostTo, "aria-describedby": "entry-post-to-hint"}
+	if err != "" {
+		a["aria-describedby"], a["aria-invalid"] = "entry-post-to-hint entry-post-to-error", "true"
+	}
+	return a
+}
+
+// entryFileInput is a new entry's file of lines, its hint and error by id.
+func entryFileInput(err i18n.Key) templ.Attributes {
+	a := templ.Attributes{"id": "entry-file", "name": FieldFile, "type": "file", "aria-describedby": "entry-file-hint", "accept": ".csv,text/csv"}
+	if err != "" {
+		a["aria-describedby"], a["aria-invalid"] = "entry-file-hint entry-file-error", "true"
+	}
+	return a
+}
+
+// fileButton parks the new entry with a file's lines: the form sent as
+// a multipart form to the file's path, without htmx.
+func fileButton() templ.Attributes {
+	return templ.Attributes{"type": "submit", "class": "button button--secondary", "id": "entry-file-button",
+		"formaction": string(templ.URL(NewEntryFile)), "formenctype": "multipart/form-data", "formmethod": "post"}
+}
+
+// totalRows are the running totals as the form shows them.
+func totalRows(t EntryTotals) []Row {
+	return []Row{{Key: i18n.EntryDebits, Value: amount(Money{Amount: t.Debits, Currency: t.Currency})},
+		{Key: i18n.EntryCredits, Value: amount(Money{Amount: t.Credits, Currency: t.Currency})},
+		{Key: i18n.EntryDifference, Value: amount(Money{Amount: t.Difference, Currency: t.Currency})}}
 }
 
 // removeBox leaves the line out: on the next send without htmx, at once
@@ -475,7 +592,9 @@ var lineFields = []struct {
 	{FieldLineAccount, "account_id", i18n.EntryLineAccount}, {FieldLineAmount, "amount", i18n.EntryLineAmount},
 	{FieldLineCostCenter, "cost_center_id", i18n.EntryLineCostCenter}, {FieldLineProfit, "profit_center_id", i18n.EntryLineProfitCenter},
 	{FieldLineSegment, "segment_id", i18n.EntryLineSegment}, {FieldLinePartner, "partner_id", i18n.EntryLinePartner},
-	{FieldLineTaxCode, "tax_code", i18n.EntryLineTaxCode}, {FieldLineText, "line_text", i18n.EntryLineText},
+	{FieldLineTaxCode, "tax_code", i18n.EntryLineTaxCode}, {FieldLineTaxArea, "tax_jurisdiction", i18n.EntryLineTaxArea},
+	{FieldLineTaxBase, "tax_base", i18n.EntryLineTaxBase}, {FieldLineQuantity, "quantity", i18n.EntryLineQuantity},
+	{FieldLineUnit, "quantity.unit", i18n.EntryLineUnit}, {FieldLineText, "line_text", i18n.EntryLineText},
 }
 
 // LineFieldLabel is the label of a line's field by the API's name of
@@ -506,6 +625,14 @@ func lineValue(l LineInput, name string) string {
 		return l.Partner
 	case FieldLineTaxCode:
 		return l.TaxCode
+	case FieldLineTaxArea:
+		return l.TaxArea
+	case FieldLineTaxBase:
+		return l.TaxBase
+	case FieldLineQuantity:
+		return l.Quantity
+	case FieldLineUnit:
+		return l.Unit
 	default:
 		return l.Text
 	}
