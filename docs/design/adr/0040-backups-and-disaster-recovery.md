@@ -400,3 +400,7 @@ recovers; and the subordinate CA issues from the home region only.
 Raised to the product owner on 2026-10-29 and tracked as its own item
 (review:T72j), on which the rehearsal (T41g) waits; until then the
 runbook's steps 5, 7 and 8 cannot complete for the home cell (above).
+On 2026-10-31 the product owner deferred the decision, the global tier's
+recovery and a subordinate CA in the DR region (about USD 400 a month,
+ADR-0035 Consequences) among it, to the pre-production checkpoint; the
+item and the rehearsal (T41g) wait on it.

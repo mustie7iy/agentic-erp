@@ -6824,7 +6824,7 @@
        },
        {
         "s": "T",
-        "t": "The directory's logins reach no other database on the directory's server (follow-up of T72h's review): PUBLIC's CONNECT and TEMPORARY defaults and hand grants on other databases (e.g. postgres) stay usable by every login. Decided (product owner 2026-10-31, as recommended in dirhard step 2, batch 25): Setup also revokes PUBLIC's CONNECT and TEMPORARY on the server's other databases (postgres, template1), then refuses while PUBLIC or a login still holds either on any of them, rdsadmin (RDS's own database) checked too; confirmed on a real RDS instance with \\l",
+        "t": "The directory's logins reach no other database on the directory's server (follow-up of T72h's review): PUBLIC's CONNECT and TEMPORARY defaults and hand grants on other databases (e.g. postgres) stay usable by every login. Decided (product owner 2026-10-31, as recommended in dirhard step 2, batch 25): Setup, given the list of the server's other databases (postgres, template1), also revokes PUBLIC's CONNECT and TEMPORARY on each, then refuses while PUBLIC or a login still holds either on any of them, rdsadmin (RDS's own database) checked too; confirmed on a real RDS instance with \\l",
         "r": "internal/directory/setup.go · ADR-0035",
         "src": "review:T72h · review:batch25 · po:2026-10-31",
         "c": []
@@ -7279,9 +7279,9 @@
        },
        {
         "s": "T",
-        "t": "A home-region failure of the environment's home cell recovered beyond the cell: the global tier (the router's and the web workspace's load balancers, the directory and its secrets) and the subordinate CA, which stay in the home region and VPC with no DR counterpart (the DR VPC is not peered), so the failover runbook's steps 5, 7 and 8 can complete for the production pilot cell; needs a decision first",
+        "t": "A home-region failure of the environment's home cell recovered beyond the cell: the global tier (the router's and the web workspace's load balancers, the directory and its secrets) and the subordinate CA, which stay in the home region and VPC with no DR counterpart (the DR VPC is not peered), so the failover runbook's steps 5, 7 and 8 can complete for the production pilot cell; needs a decision first, which the product owner deferred on 2026-10-31 to the pre-production checkpoint, with the DR subordinate CA's cost (about USD 400 a month, ADR-0035 Consequences)",
         "r": "ADR-0040 as built 2026-10-29 (Not covered) and runbook · modules/global · modules/subordinate-ca · deploy/helm/erp-cell secrets.yaml (directory password) · T72j · T41g waits on it",
-        "src": "review:T72j",
+        "src": "review:T72j · po:2026-10-31",
         "c": []
        },
        {
@@ -7294,8 +7294,8 @@
        {
         "s": "T",
         "t": "The region failover rehearsed on the production pilot cell before it takes live traffic (a pre-pilot gate), then yearly in a maintenance window (PO, 2026-10-19)",
-        "r": "ADR-0040 · T41g (waits on: the production AWS pilot cell, after T72j, and the global tier and subordinate CA recovered from a home-region failure)",
-        "src": "baseline",
+        "r": "ADR-0040 · T41g (waits on: the production AWS pilot cell, after T72j, and the global tier and subordinate CA recovered from a home-region failure, deferred by the product owner on 2026-10-31 to the pre-production checkpoint)",
+        "src": "po:2026-10-19 · po:2026-10-31",
         "c": []
        },
        {
