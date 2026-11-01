@@ -109,9 +109,11 @@ func (s Setup) Apply(ctx context.Context, doc *config.Config) error {
 	return nil
 }
 
-// resolve finds the legal entities of the document's registrations. A
-// company without one is skipped while checking (strict false) and an
-// error while applying, since the document was checked.
+// resolve finds the legal entities and dates of the document's
+// registrations. A company without a legal entity, or a date that does not
+// parse, is skipped while checking (strict false), since the ledger's
+// section or the document's validation reports it, and is an error while
+// applying, since the document was checked.
 func (s Setup) resolve(ctx context.Context, doc *config.Config, strict bool) ([]wanted, error) {
 	var out []wanted
 	for _, co := range doc.Companies {
@@ -128,7 +130,10 @@ func (s Setup) resolve(ctx context.Context, doc *config.Config, strict bool) ([]
 				continue
 			}
 			if err := w.dates(); err != nil {
-				return nil, err
+				if strict {
+					return nil, err
+				}
+				continue // the document's validation names the date
 			}
 			out = append(out, w)
 		}

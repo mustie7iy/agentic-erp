@@ -757,7 +757,8 @@ companies (all in the tenant, under RLS). A registration change is financial
   registrations of one authority whose periods overlap, and one number
   (as fieldcrypt normalizes it) on two registrations of one authority
   whose periods overlap, so a return reports an item once (§11). The
-  number's format is not checked: no pack or primary source defines the
+  number must be printable ASCII (its last four characters are shown)
+  of at most 40 characters without spaces; its format is not checked: no pack or primary source defines the
   BN/RT or TRN format here (a tracker item for the tax specialist). The
   registration is kept by `taxfiling.Setup` in `tax.registration`, the
   number sealed with the tenant's key, fingerprinted and shown by its last

@@ -125,18 +125,20 @@ func (v *validator) taxRegistrations(p string, co *Company, companies map[string
 	return out
 }
 
-// taxNumber checks that a registration number is given, printable and,
-// as it is sealed, at most maxTaxNumber characters. Its format is the
-// authority's, which the tax specialist states (T61g leaves it unchecked).
+// taxNumber checks that a registration number is given, in printable
+// ASCII (so its last four characters, which are shown, are four bytes)
+// and, as it is sealed, at most maxTaxNumber characters without spaces.
+// Its format is the authority's, which the tax specialist states (T61g
+// leaves it unchecked).
 func (v *validator) taxNumber(rp, number string) {
 	n := fieldcrypt.Normalize(number)
 	switch {
 	case n == "":
 		v.err(rp+".number", "the registration number is required")
+	case strings.IndexFunc(n, func(r rune) bool { return r > unicode.MaxASCII || !unicode.IsPrint(r) }) >= 0:
+		v.err(rp+".number", "the registration number has a character other than printable ASCII letters, digits and punctuation")
 	case len(n) > maxTaxNumber:
 		v.err(rp+".number", "the registration number has more than %d characters without spaces", maxTaxNumber)
-	case strings.IndexFunc(n, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0:
-		v.err(rp+".number", "the registration number has a character that cannot be printed")
 	}
 }
 

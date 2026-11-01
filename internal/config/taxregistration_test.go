@@ -79,6 +79,7 @@ func TestTaxRegistrationRules(t *testing.T) {
 		{"number missing", mutated(func(r *TaxRegistration) { r.Number = "  " }), p + ".number"},
 		{"number too long", mutated(func(r *TaxRegistration) { r.Number = "12345678901234567890123456789012345678901" }), p + ".number"},
 		{"number not printable", mutated(func(r *TaxRegistration) { r.Number = "123\u0000456" }), p + ".number"},
+		{"number in full-width digits", mutated(func(r *TaxRegistration) { r.Number = "\uff11\uff12\uff13" }), p + ".number"},
 		{"return type", mutated(func(r *TaxRegistration) { r.ReturnType = "gst 34" }), p + ".return_type"},
 		{"frequency", mutated(func(r *TaxRegistration) { r.Frequency = "weekly" }), p + ".frequency"},
 		{"frequency with an end", mutated(func(r *TaxRegistration) { r.Frequency, r.LastPeriodEnd = "weekly", "2026-03-31" }), p + ".frequency"},
@@ -107,7 +108,7 @@ func TestTaxRegistrationRules(t *testing.T) {
 // TestTaxRegistrationAcrossCompanies: a code names one registration in the
 // tenant; a company in a tax group files no other return of the authority
 // for the group's periods; one number is one registration at a time,
-// whatever the authority's code is written as.
+// however its letters' case and spaces are written.
 func TestTaxRegistrationAcrossCompanies(t *testing.T) {
 	group := registration()
 	group.Code, group.Authority, group.GroupMembers = "VAT", "FTA", []string{"2000"}

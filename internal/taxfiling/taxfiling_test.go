@@ -194,7 +194,9 @@ func TestTaxPeriodsToday(t *testing.T) {
 		t.Fatal(err)
 	}
 	want(t, "through", page.StartDateTo.Format(time.DateOnly)+" "+page.TimeZone.Value, "2027-01-01 Asia/Dubai")
-	want(t, "periods", len(page.Items), 5)
+	if len(page.Items) != 5 {
+		t.Fatalf("periods: got %d, want 5", len(page.Items))
+	}
 	want(t, "the last", page.Items[4].StartDate.Format(time.DateOnly), "2027-01-01")
 }
 
@@ -380,8 +382,9 @@ func TestGroupOfThree(t *testing.T) {
 	want(t, "members", len(members), 2)
 }
 
-// TestUnparsedDates: a document whose dates were not validated is refused
-// by the check, never read as another date.
+// TestUnparsedDates: a date that does not parse is the document's
+// validation finding, so the check passes over its registration; applying
+// such a document, which validation refuses first, fails.
 func TestUnparsedDates(t *testing.T) {
 	e := env(t)
 	for name, f := range map[string]func(r *config.TaxRegistration){
@@ -393,12 +396,17 @@ func TestUnparsedDates(t *testing.T) {
 			f(&r)
 			doc := fixture.Document(t)
 			registered(r)(doc)
+			var findings []config.Finding
 			err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-				_, err := setup().Check(ctx, nil, doc)
+				var err error
+				findings, err = setup().Check(ctx, nil, doc)
 				return err
 			})
+			want(t, "check", err, nil)
+			want(t, "findings", len(findings), 0)
+			err = apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { return setup().Apply(ctx, doc) })
 			if err == nil {
-				t.Error("check: got no error, want the date refused")
+				t.Error("apply: got no error, want the date refused")
 			}
 		})
 	}
