@@ -154,7 +154,10 @@ that does not parse, a line with a document amount and no company code amount
 or the two of opposite signs, a vendor line without a document amount, a
 document that does not balance in its currency or whose document amounts add
 up to more than an amount holds, and a rate an entry cannot record (zero at
-its 12 decimals, or 10^16 and above). A line with a company code amount and no
+its 12 decimals, or 10^16 and above). An open item with a document amount and
+no company code amount is refused whatever its document posts in, in both
+modes: the load would leave it out, posting no line of no company code amount
+(review:batch31; ADR-0005 As built). A line with a company code amount and no
 document amount (an exchange difference SAP posted in local currency) is
 loaded as one (ADR-0005, As built). A company whose payables hold such items
 values its payables account at period end (`fx_valuation.accounts`, with an

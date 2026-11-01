@@ -396,14 +396,18 @@ func (q *qualityCheck) journalLine(l sap.ACDOCA, s *journalScan) {
 	}
 }
 
-// openItem reports whether a journal line loads as an open item: a vendor
-// item SAP has not cleared, on a supplier reconciliation account (an
-// ordinary payable or a down payment, as the load gives it its partner),
-// or a line of a GR/IR position the load takes over. A line that does not
-// parse is journalLine's to refuse.
+// openItem reports whether a journal line is an open item: a vendor item
+// SAP has not cleared, on a supplier reconciliation account (an ordinary
+// payable or a down payment, as the load gives it its partner), or a line
+// of a GR/IR position the load takes over, with an amount in company
+// currency (HSL) or in its document currency (hasDocumentAmount). One with
+// a document amount alone is an item the load would leave out, posting
+// no line of no company code amount, so documentCurrencies refuses it
+// (review:batch31). A line whose HSL does not parse is journalLine's to
+// refuse.
 func (q *qualityCheck) openItem(l sap.ACDOCA) bool {
 	amt, err := q.t.amount(l.HSL, q.currency[l.RBUKRS])
-	if err != nil || amt == 0 {
+	if err != nil || amt == 0 && !q.hasDocumentAmount(l) {
 		return false
 	}
 	account := q.t.charts[l.RBUKRS][sap.Alpha(l.RACCT)]

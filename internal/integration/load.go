@@ -571,8 +571,10 @@ func (l *loader) journalDocument(ctx context.Context, key string, lines []sap.AC
 // order, in company code currency or in its foreign document currency
 // (foreignDocuments) at the rate SAP's amounts imply; lines of no company
 // code amount are left out (in a foreign currency they have no document
-// amount either, which the quality gate checks), so it also maps each SAP
-// line to its platform line number, the same in every run.
+// amount either, and in company currency no open item among them has one,
+// which the quality gate checks: foreignDocument, documentCurrencies), so
+// it also maps each SAP line to its platform line number, the same in
+// every run.
 func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) (ledger.Posting, loadedEntry) {
 	slices.SortFunc(lines, func(a, b sap.ACDOCA) int { return cmp.Compare(a.DOCLN, b.DOCLN) })
 	first := lines[0]
@@ -680,7 +682,7 @@ func (l *loader) openingLines(c sap.T001) ([]ledger.PostingLine, string, money.M
 			balances[account] += amt
 		case line.AUGBL != "":
 			cleared += amt
-		case amt != 0:
+		case amt != 0: // an open item of a document amount alone is refused by the quality gate (documentCurrencies)
 			partnerID := l.vendors[line.LIFNR]
 			text := "Open item " + cmp.Or(line.XBLNR, line.BELNR) + " (SAP " + line.BELNR + ")"
 			open = append(open, ledger.PostingLine{AccountID: l.t.charts[c.BUKRS][account].ID, Amount: amt, PartnerID: &partnerID, Text: &text})

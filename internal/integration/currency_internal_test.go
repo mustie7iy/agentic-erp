@@ -323,3 +323,71 @@ func TestDocumentCurrencyQualityPasses(t *testing.T) {
 		}
 	}
 }
+
+// TestDocumentAmountAlone (review:batch31): an open vendor item with an
+// amount in its document currency (WSL) and none in company currency
+// (HSL), which the load would post no line for, is refused naming its
+// document and line, in both modes, whatever its document posts in: in
+// company currency, in a document not all in its currency or cleared
+// together with one in another, without a document currency (or without
+// either, as an OData extract), and in a foreign currency. One that
+// carries no document amount in company currency has none, and one with
+// a company code amount alone in company currency loads from it.
+func TestDocumentAmountAlone(t *testing.T) {
+	last := func(e *sap.Extract) *sap.ACDOCA { return &e.ACDOCA[len(e.ACDOCA)-1] }
+	// alone appends document 0100000011 in the given currencies: line 1
+	// on 170000, line 2 the vendor's of the given document amount, both of
+	// no company code amount.
+	alone := func(e *sap.Extract, debit, credit, wsl string) {
+		withDocument(e, "0100000011", debit, sap.ACDOCA{RACCT: "0000211000", HSL: "0.00", WSL: wsl, LIFNR: "0000000001"})
+		last(e).RWCUR = credit
+	}
+	const item = "2000/2026/0100000011/000002: open item of SAP document 0100000011 "
+	inUSD := []string{"2000/2026/0100000011/000001: line has 0.01 USD in its document currency (WSL) and no amount in company currency (HSL)",
+		"2000/2026/0100000011/000002: line has -0.01 USD in its document currency (WSL) and no amount in company currency (HSL)"}
+	cases := []struct {
+		name                string
+		change              func(e *sap.Extract)
+		documents, balances []string
+	}{
+		{"in company currency", func(e *sap.Extract) { alone(e, "EUR", "EUR", "-0.01") },
+			[]string{item + `has no amount in company currency EUR (HSL), but its document amount (WSL) is "-0.01"`},
+			[]string{item + `has no amount in company currency EUR (HSL), but its document amount (WSL) is "-0.01"`}},
+		{"in company currency, not a number", func(e *sap.Extract) { alone(e, "EUR", "EUR", "-x") },
+			[]string{item + `has no amount in company currency EUR (HSL), but its document amount (WSL) is "-x"`},
+			[]string{item + `has no amount in company currency EUR (HSL), but its document amount (WSL) is "-x"`}},
+		{"in a document not all in its currency", func(e *sap.Extract) { alone(e, "EUR", "USD", "-0.01") },
+			[]string{item + "is in document currency USD, and not every line of its document is"},
+			[]string{item + "is in document currency USD, and not every line of its document is"}},
+		{"without a document currency", func(e *sap.Extract) { alone(e, "", "", "-0.01") },
+			[]string{item + "has no document currency (RWCUR)"}, []string{item + "has no document currency (RWCUR)"}},
+		{"without a document currency or amount", func(e *sap.Extract) { alone(e, "", "", ""); last(e).WSL = "" },
+			[]string{item + "has no document currency (RWCUR)"}, []string{item + "has no document currency (RWCUR)"}},
+		{"in a foreign currency", func(e *sap.Extract) { alone(e, "USD", "USD", "-0.01") }, inUSD, inUSD},
+		{"cleared together with a document in another currency", func(e *sap.Extract) {
+			alone(e, "USD", "USD", "-0.01")
+			debit := &e.ACDOCA[len(e.ACDOCA)-2]
+			debit.HSL, debit.WSL = "1.00", "2.01"
+			e.ACDOCA = append(e.ACDOCA, sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000011", DOCLN: "000003",
+				RACCT: "0000211000", HSL: "-1.00", WSL: "-2.00", BUDAT: "20260310", BLART: "KZ", RWCUR: "USD", LIFNR: "0000000001", AUGBL: "0100000013"})
+			withDocument(e, "0100000013", "EUR", sap.ACDOCA{RACCT: "0000211000", HSL: "-50.00", WSL: "-50.00", LIFNR: "0000000001", AUGBL: "0100000013"})
+		}, []string{item + "is in document currency USD, and SAP cleared its document together with documents in another currency"},
+			// balances mode takes no clearing over: the document posts on its own in USD
+			inUSD[1:]},
+		{"carrying no document amount in company currency", func(e *sap.Extract) { alone(e, "EUR", "EUR", ""); last(e).WSL = "" }, nil, nil},
+		{"a company code amount alone in company currency", func(e *sap.Extract) {
+			withDocument(e, "0100000011", "EUR", sap.ACDOCA{RACCT: "0000211000", HSL: "-50.00", WSL: "0.00", LIFNR: "0000000001"})
+		}, nil, nil},
+	}
+	for _, balances := range []bool{false, true} {
+		var run []documentCurrencyCase
+		for _, c := range cases {
+			want, mode := c.documents, "documents"
+			if balances {
+				want, mode = c.balances, "balances"
+			}
+			run = append(run, documentCurrencyCase{mode + ": " + c.name, func(e *sap.Extract, t *target) { t.balances = balances; c.change(e) }, want})
+		}
+		runDocumentCurrencyCases(t, run)
+	}
+}

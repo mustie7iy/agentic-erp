@@ -223,3 +223,63 @@ func TestForeignItemAcrossRuns(t *testing.T) {
 		})
 	}
 }
+
+// TestDocumentAmountAloneRun (review:batch31): in either mode, a run whose
+// extract holds an open vendor item with an amount in its document
+// currency and none in company currency, in a document that posts in
+// company currency, fails at the quality gate naming its document and
+// line and posts nothing, where the journal posting (documents) or the
+// opening entry (balances) would have left it out; an open item in
+// company currency of a company code amount alone loads from it.
+func TestDocumentAmountAloneRun(t *testing.T) {
+	small := func(x *sap.Extract, belnr, debit, credit, hsl, wsl string) {
+		line := fxLine(belnr, "000001", "0000520000", strings.TrimPrefix(hsl, "-"), strings.TrimPrefix(wsl, "-"), "20260310", "RE")
+		line.RWCUR = debit
+		vendor := vendorLine(belnr, "000002", hsl, wsl, "20260310", "RE", "")
+		vendor.RWCUR = credit
+		x.ACDOCA = append(x.ACDOCA, line, vendor)
+	}
+	for _, mode := range []string{"documents", "balances"} {
+		t.Run(mode, func(t *testing.T) {
+			e := dpSetup(t)
+			x := fxTiny()
+			small(x, "0100000024", "EUR", "USD", "0.00", "-0.01")
+			small(x, "0100000025", "EUR", "EUR", "0.00", "-0.01")
+			write(t, e.dir, "alone.json", x)
+			before := e.entries(t)
+			_, got := e.act(t, e.run(t, e.connector(t, "alone.json"), mode, false, e.DE.String()), "start")
+			if got["status"] != "failed" {
+				t.Fatalf("status: got %v, want failed: %v", got["status"], got["report"])
+			}
+			var refused []string
+			for _, i := range got["report"].(map[string]any)["quality"].([]any) {
+				if m := i.(map[string]any); m["severity"] == "error" {
+					refused = append(refused, fmt.Sprint(m["key"]))
+				}
+			}
+			if got, want := strings.Join(refused, ", "), "2000/2026/0100000024/000002, 2000/2026/0100000025/000002"; got != want {
+				t.Errorf("lines refused: got %s, want %s", got, want)
+			}
+			if n := e.entries(t); n != before {
+				t.Errorf("journal entries: got %d, want %d, nothing posted", n, before)
+			}
+
+			x = fxTiny()
+			small(x, "0100000025", "EUR", "EUR", "-50.00", "0.00")
+			write(t, e.dir, "local.json", x)
+			if _, got := e.act(t, e.run(t, e.connector(t, "local.json"), mode, false, e.DE.String()), "start"); got["status"] != "loaded" {
+				t.Fatalf("company code amount alone: got %v, want loaded: %v", got["status"], got["report"])
+			}
+			items, _ := e.Must(200, "GET", "/v1/open-items?partner_id="+supplierOf(t, e, "0000000001").String(), "", "")
+			var eur []string
+			for _, it := range items["items"].([]any) {
+				if a := it.(map[string]any)["amount"].(map[string]any); a["currency"] == "EUR" && a["amount"] == "-50.00" {
+					eur = append(eur, fmt.Sprint(a["amount"]))
+				}
+			}
+			if len(eur) != 1 {
+				t.Errorf("the open EUR item of a company code amount alone: got %v, want one of -50.00", eur)
+			}
+		})
+	}
+}
