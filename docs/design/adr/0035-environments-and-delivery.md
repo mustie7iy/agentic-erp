@@ -914,8 +914,10 @@ database's ACL with the server's, dbid 0).
   superuser (`NOSUPERUSER`, a member of `rds_superuser`: RDS user guide,
   "Understanding the rds_superuser role",
   https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Appendix.PostgreSQL.CommonDBATasks.Roles.rds_superuser.html).
-  Where it neither owns a database nor holds the right with the grant
-  option, its `REVOKE` only warns and leaves the right (§`REVOKE`, Notes),
+  Where it neither owns a database (nor is a member of the owning role)
+  nor holds the right with the grant option, its `REVOKE` only warns and
+  leaves the right, and a `REVOKE` removes only the grants its own role
+  made (§`REVOKE`, Notes, and Description),
   so Setup reads the rights again and stops the release rather than
   trusting the statement; a role holding no right at all gets an error,
   reported with the database. The only statements are `REVOKE … ON

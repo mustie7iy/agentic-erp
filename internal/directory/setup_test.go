@@ -3,7 +3,6 @@ package directory_test
 import (
 	"context"
 	"errors"
-	"net/url"
 	"strings"
 	"testing"
 
@@ -497,11 +496,7 @@ func TestSetupRefusesServerWideRights(t *testing.T) {
 // dbName is the quoted name of the database u names.
 func dbName(t *testing.T, u string) string {
 	t.Helper()
-	parsed, err := url.Parse(u)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return pgx.Identifier{strings.TrimPrefix(parsed.Path, "/")}.Sanitize()
+	return pgx.Identifier{databaseName(t, u)}.Sanitize()
 }
 
 // TestSetupDatabaseFailures: every statement of a setup failing in turn

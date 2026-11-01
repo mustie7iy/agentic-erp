@@ -311,8 +311,9 @@ func checkLogin(ctx context.Context, tx pgx.Tx, l Login) error {
 
 // takePublicDatabases revokes PUBLIC's CONNECT and TEMPORARY on each of
 // others PUBLIC holds either on, then refuses any PUBLIC still holds: a
-// REVOKE by a role that neither owns the database nor holds the right
-// with the grant option only warns and leaves it (PostgreSQL 17 manual,
+// REVOKE by a role that neither owns the database (nor is a member of its
+// owner) nor holds the right with the grant option only warns and leaves
+// it, and removes only the grants it made itself (PostgreSQL 17 manual,
 // REVOKE, Notes), as RDS's master user, no superuser (RDS user guide,
 // "Understanding the rds_superuser role"), would on a database another
 // role owns. A database PUBLIC holds nothing on gets no REVOKE, so a
@@ -344,7 +345,7 @@ func takePublicDatabases(ctx context.Context, tx pgx.Tx, others []string) error 
 	for i, h := range held {
 		names[i] = h.Privilege + " on database " + h.Database
 	}
-	return fmt.Errorf("%w: PUBLIC still holds %s after Setup revoked it; the database's owner must revoke it", ErrServer, strings.Join(names, ", "))
+	return fmt.Errorf("%w: PUBLIC still holds %s after Setup revoked it; whoever granted it (the database's owner, or a role holding the right with the grant option) must revoke it", ErrServer, strings.Join(names, ", "))
 }
 
 // publicRight is a right PUBLIC holds on a database.

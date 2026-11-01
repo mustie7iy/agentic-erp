@@ -3,6 +3,7 @@ package directory_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"slices"
 	"strings"
@@ -28,13 +29,19 @@ func databaseName(t *testing.T, u string) string {
 
 // publicHolds is PUBLIC's CONNECT and TEMPORARY on the databases named,
 // as "CONNECT on name".
-func publicHolds(ctx context.Context, t *testing.T, q interface {
+func publicHolds(ctx context.Context, q interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
-}, names []string) []string {
-	t.Helper()
+}, names []string) ([]string, error) {
 	rows, _ := q.Query(ctx, `SELECT p || ' on ' || datname FROM pg_database, unnest(ARRAY['CONNECT', 'TEMPORARY']) p
 		WHERE datname = ANY($1) AND has_database_privilege('public', oid, p) ORDER BY 1`, names)
-	held, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
+// mustHold is publicHolds on a connection outside any transaction the
+// test holds, failing the test on error.
+func mustHold(ctx context.Context, t *testing.T, c *pgx.Conn, names []string) []string {
+	t.Helper()
+	held, err := publicHolds(ctx, c, names)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,15 +67,25 @@ func TestSetupTakesPUBLICsRightsOnTheServer(t *testing.T) {
 	errDone := errors.New("rolled back")
 	err = directory.SetupIn(ctx, func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
 		return pool.InTx(ctx, scope, func(ctx context.Context, tx pgx.Tx) error {
+			// No t.Fatal in here: it would leave the transaction, and its
+			// locks on the server's pg_database rows, open; errors roll it
+			// back.
 			want := []string{"CONNECT on postgres", "CONNECT on template1", "TEMPORARY on postgres"}
-			if got := publicHolds(ctx, t, tx, server); !slices.Equal(got, want) {
-				t.Fatalf("before: got %v, want a fresh server's %v", got, want)
+			got, err := publicHolds(ctx, tx, server)
+			if err != nil {
+				return fmt.Errorf("before: %w", err)
+			}
+			if !slices.Equal(got, want) {
+				return fmt.Errorf("before: got %v, want a fresh server's %v", got, want)
 			}
 			if err := fn(ctx, tx); err != nil {
 				return err
 			}
-			if got := publicHolds(ctx, t, tx, server); len(got) > 0 {
-				t.Errorf("after: got PUBLIC holding %v, want nothing", got)
+			if got, err = publicHolds(ctx, tx, server); err != nil {
+				return fmt.Errorf("after: %w", err)
+			}
+			if len(got) > 0 {
+				return fmt.Errorf("after: got PUBLIC holding %v, want nothing", got)
 			}
 			return errDone
 		})
@@ -96,10 +113,10 @@ func TestSetupAgainOnTheServer(t *testing.T) {
 		t.Fatalf("setup: %v", err)
 	}
 	admin := pgtest.Admin(t)
-	if got := publicHolds(ctx, t, admin, others); len(got) > 0 {
+	if got := mustHold(ctx, t, admin, others); len(got) > 0 {
 		t.Errorf("after setup: got PUBLIC holding %v, want nothing", got)
 	}
-	if got, want := publicHolds(ctx, t, admin, []string{databaseName(t, u)}), []string{"CONNECT on " + databaseName(t, u)}; !slices.Equal(got, want) {
+	if got, want := mustHold(ctx, t, admin, []string{databaseName(t, u)}), []string{"CONNECT on " + databaseName(t, u)}; !slices.Equal(got, want) {
 		t.Errorf("the directory's own: got PUBLIC holding %v, want %v", got, want)
 	}
 	for _, db := range []string{plain, template} {
@@ -130,7 +147,7 @@ func TestSetupAgainOnTheServer(t *testing.T) {
 	if err := directory.Setup(ctx, u, all, login); err != nil {
 		t.Fatalf("after a grant by hand: %v", err)
 	}
-	if got := publicHolds(ctx, t, admin, others); len(got) > 0 {
+	if got := mustHold(ctx, t, admin, others); len(got) > 0 {
 		t.Errorf("after a grant by hand: got PUBLIC holding %v, want it taken back", got)
 	}
 }
