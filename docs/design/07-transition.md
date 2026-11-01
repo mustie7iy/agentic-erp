@@ -1673,6 +1673,19 @@ items and their sources listed at each batch. It runs in ci-local and, because
 a change to the tracker alone skips GitHub's suite, in ci.yml's `tracker` job
 on every event.
 
+A leaf the first pilot needs carries `pilot` (product owner, 2026-10-31): the
+sources that put it in the pilot scope, in `src`'s grammar, the product owner's
+approval of the pilot-ready list first (`po:2026-10-31 · adr:ADR-0049`). The
+tagged leaves are the finish line of the pilot; the rest is backlog.
+`TestTrackerPilotScope` refuses a `pilot` that is not a known source or names
+nothing real, one that does not start with a product owner decision (`po:`), a
+group carrying it (the scope is a list of leaves), a leaf carrying it whose
+title or reference says "post-pilot", and any change in the number of tagged
+leaves (`pilotItems`), so a leaf joins or leaves the pilot scope only in a
+reviewed diff naming the product owner's decision. As with `baseline`, the
+count cannot tell a tag moved from one leaf to another in the same change;
+review does, with the tagged leaves that changed listed at each batch.
+
 ## 7.6 After the transition: completing Phase 1 (T30–T47)
 
 T1–T29 moved Phase 1 onto the foundation. These steps finish what Phase 1 still
