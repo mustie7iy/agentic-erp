@@ -2719,7 +2719,9 @@ where it departs from the step as first written:
   left without a tax code takes its order item's, as the API does and the
   field's hint says. Nothing changed sends nothing and says
   so. Amounts and quantities are typed in the person's locale and read
-  strictly (`Locale.Amount`, `Locale.Quantity`, six decimals, no sign);
+  strictly (`Locale.Amount`, `Locale.Quantity`, six decimals; a
+  negative quantity refused by the form, as `Locale.Quantity` is the one
+  reader the entry form shares and reads a sign, batch 36);
   what is wrong is said on its field before any call, with what was typed
   kept. The form carries the ETag it was opened with and a fresh
   idempotency key; a 412 (or any refusal) shows the
