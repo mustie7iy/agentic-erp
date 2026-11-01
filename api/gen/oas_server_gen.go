@@ -60,6 +60,11 @@ type Handler interface {
 	// cost center category in use): 409 `ledger.controlling_invalid`, naming each finding (ADR-0050 §4).
 	// A tax registration whose company, group, authority, number, return type, frequency or first period
 	// changed under its code since submission is refused: 409 `tax.registration_fixed` (ADR-0049 §10).
+	// While replicas of several versions run (a rolling upgrade), a proposal setting a key that a running
+	// replica's version does not know, which it would ignore (a company's `release_dual_limit`), is
+	// refused: 409 `config.replica_lacks_key`, each such key in `errors` (`field` the key's path, e.g.
+	// `companies[].release_dual_limit`, and the versions lacking it in `message`); activate it once every
+	// replica runs a version that knows the key (ADR-0038).
 	//
 	// POST /v1/change-requests/{id}:activate
 	ActivateChangeRequest(ctx context.Context, params ActivateChangeRequestParams) (ActivateChangeRequestRes, error)

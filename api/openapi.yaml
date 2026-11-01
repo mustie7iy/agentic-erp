@@ -2422,7 +2422,7 @@ paths:
       tags:
         - configuration
       summary: Activate a change request
-      description: "Creates and activates a new configuration version from an approved change request; each context applies its part. Human-only. Requires status `approved`; a change of validation rules also needs a passed simulation of this exact proposal (409 `config.rules_not_simulated`). The ledger checks the controlling rules again against its data, which may have changed since submission (a default cost or profit center no longer usable, postings in the year a center accounting switch turns on, a removed cost center category in use): 409 `ledger.controlling_invalid`, naming each finding (ADR-0050 §4). A tax registration whose company, group, authority, number, return type, frequency or first period changed under its code since submission is refused: 409 `tax.registration_fixed` (ADR-0049 §10)."
+      description: "Creates and activates a new configuration version from an approved change request; each context applies its part. Human-only. Requires status `approved`; a change of validation rules also needs a passed simulation of this exact proposal (409 `config.rules_not_simulated`). The ledger checks the controlling rules again against its data, which may have changed since submission (a default cost or profit center no longer usable, postings in the year a center accounting switch turns on, a removed cost center category in use): 409 `ledger.controlling_invalid`, naming each finding (ADR-0050 §4). A tax registration whose company, group, authority, number, return type, frequency or first period changed under its code since submission is refused: 409 `tax.registration_fixed` (ADR-0049 §10). While replicas of several versions run (a rolling upgrade), a proposal setting a key that a running replica's version does not know, which it would ignore (a company's `release_dual_limit`), is refused: 409 `config.replica_lacks_key`, each such key in `errors` (`field` the key's path, e.g. `companies[].release_dual_limit`, and the versions lacking it in `message`); activate it once every replica runs a version that knows the key (ADR-0038)."
       x-permission: config.change.activate
       x-agent: false
       x-problem-codes:
@@ -2430,6 +2430,7 @@ paths:
         - config.base_version_stale
         - config.invalid_status
         - config.not_bootstrapped
+        - config.replica_lacks_key
         - config.rules_not_simulated
         - config.unknown_base_version
         - config.unknown_keys

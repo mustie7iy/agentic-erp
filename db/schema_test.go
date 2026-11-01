@@ -283,6 +283,7 @@ func TestDesignRules(t *testing.T) {
 	if bad := query(`SELECT c.oid::regclass::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE n.nspname IN ` + tenantSchemas + ` AND c.relkind IN ('r','p') AND NOT c.relispartition
 		AND c.oid <> 'tenancy.tenant'::regclass AND c.oid <> 'audit.chain_head'::regclass
+		AND c.oid <> 'config.replica'::regclass -- the cell's replicas, no tenant's (000181)
 		AND NOT EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indisprimary
 		                AND (SELECT attname FROM pg_attribute WHERE attrelid = c.oid AND attnum = i.indkey[0]) = 'tenant_id')`); len(bad) > 0 {
 		t.Errorf("primary keys not led by tenant_id: %v", bad)

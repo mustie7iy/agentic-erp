@@ -166,6 +166,18 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	if err := s.newAPI(); err != nil {
 		return err
 	}
+	return s.launch(ctx, started)
+}
+
+// launch records the replica, starts the workers and the relay and serves
+// until the server stops; the record is stopped last, once every request
+// and worker has ended.
+func (s *server) launch(ctx context.Context, started func(api, admin net.Listener)) (err error) {
+	stopRecord, err := s.register(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { err = withRecord(err, stopRecord()) }() // after serve: the row outlives every request and worker
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	startWorkersHook(s, runCtx)
@@ -205,12 +217,19 @@ func (s *server) prepare(ctx context.Context) error {
 // stop stops the workers and waits for them, so that run's deferred closes
 // (the pool, the engine, the directory) never run under a worker still using
 // them, and returns err joined with a critical worker's failure, when one
-// had one. Once wait returned, every worker's fail happened before, so
-// failure is read without a lock.
+// had one. failure is read under mu: the replica's record is not one of
+// the workers wait waits for, and may fail while the server stops.
 func (s *server) stop(cancel context.CancelFunc, err error) error {
 	cancel()
 	s.wait()
-	return errors.Join(err, s.failure)
+	return errors.Join(err, s.firstFailure())
+}
+
+// firstFailure is the first critical failure, or nil.
+func (s *server) firstFailure() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.failure
 }
 
 // server is what run wires together, one step after the other, before it
@@ -245,6 +264,7 @@ type server struct {
 	apiCfg       app.Config
 	apiHandler   http.Handler
 	simulator    *configuration.SimulationWorker
+	registry     *configuration.Replica // records this replica and the configuration keys it knows
 
 	// workers counts the background workers spawn started and wait waits
 	// for; running has every one of them by name, true until it stopped.
@@ -253,7 +273,8 @@ type server struct {
 	running map[string]bool
 	// failed is closed when a critical worker (spawnCritical) fails, which
 	// serve watches to stop the server; failure is that first failure,
-	// joined into the server's exit by stop.
+	// joined into the server's exit by stop. failure is guarded by mu (read
+	// through firstFailure): the replica's record may fail outside wait.
 	failed   chan struct{}
 	failOnce sync.Once
 	failure  error
@@ -637,6 +658,45 @@ func (s *server) newAPI() error {
 	return nil
 }
 
+// withRecord joins the record's failure into the server's exit, unless
+// stop joined it already (it failed while the server served or stopped).
+func withRecord(err, failed error) error {
+	if failed == nil || errors.Is(err, failed) {
+		return err
+	}
+	return errors.Join(err, failed)
+}
+
+// register records the replica, its version and the configuration keys it
+// knows, before it serves: an activation setting a key this version does
+// not know is refused while it runs (ADR-0038 rollout, 06 §6.4). A replica
+// that cannot record itself does not start. The record is kept on a
+// context of its own, not runCtx, which a shutdown cancels at once: the
+// row must outlive the requests the API drains and the workers stop waits
+// for, or an activation could pass while this replica still reads the
+// configuration. The function returned stops it and deletes the row; run
+// calls it last; it returns the record's failure, if any. A record failing
+// for too long fails the server, as a critical worker does.
+func (s *server) register(ctx context.Context) (func() error, error) {
+	if s.registry == nil { // tests set their own, with a clock
+		s.registry = &configuration.Replica{Pool: s.pool, WorkerRole: s.cfg.WorkerRole, Build: buildinfo.Get(), Log: s.log, Begin: s.beginCheck}
+	}
+	if err := s.registry.Register(ctx); err != nil {
+		return nil, fmt.Errorf("erp-server: %w", err)
+	}
+	recordCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	done := make(chan struct{})
+	var failed error // read after done
+	go func() {
+		defer close(done)
+		if err := worker.Recover(func() error { return s.registry.Run(recordCtx) }); err != nil {
+			failed = fmt.Errorf("erp-server: replica record: %w", err)
+			s.fail(failed)
+		}
+	}()
+	return func() error { cancel(); <-done; return failed }, nil
+}
+
 // startWorkersHook is what run calls to start the workers; tests wrap it to see
 // the server whose workers they check.
 var startWorkersHook = (*server).startWorkers
@@ -953,7 +1013,9 @@ func (s *server) start(name string, critical bool, fn func() error) {
 // fail records the first critical worker's failure and closes failed.
 func (s *server) fail(err error) {
 	s.failOnce.Do(func() {
+		s.mu.Lock()
 		s.failure = err
+		s.mu.Unlock()
 		close(s.failed)
 	})
 }
