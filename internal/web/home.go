@@ -52,7 +52,7 @@ func (s *Server) unauthorized(w http.ResponseWriter, r *http.Request, p *person,
 		s.toSignIn(w, r, p.ID)
 		return
 	}
-	if !p.SteppedUp.IsZero() && s.now().Sub(p.SteppedUp) < stepUpGrace {
+	if !s.stepsUp(p, res) {
 		s.render(w, r, http.StatusUnauthorized, ui.Problem(s.page(i18n.SignInFailedTitle, "", p, me{}), i18n.SignInFailedTitle, i18n.SignInStepUpBody, "/", i18n.NotFoundHome))
 		return
 	}
@@ -73,6 +73,14 @@ func (s *Server) unauthorized(w http.ResponseWriter, r *http.Request, p *person,
 		ret = r.URL.RequestURI()
 	}
 	http.Redirect(w, r, signInPath(p.LoginCode, ret, extra), http.StatusSeeOther)
+}
+
+// stepsUp reports whether the API's 401 sends the person to sign in again
+// for a step-up (RFC 9470): its challenge asks one, and they did not just
+// sign in for one.
+func (s *Server) stepsUp(p *person, res *gen.UnauthorizedHeaders) bool {
+	return params(res.WWWAuthenticate.Or(""))["error"] == "insufficient_user_authentication" &&
+		(p.SteppedUp.IsZero() || s.now().Sub(p.SteppedUp) >= stepUpGrace)
 }
 
 // params reads a Bearer challenge's auth-params (RFC 9110 §11.2), quoted

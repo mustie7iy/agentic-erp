@@ -246,7 +246,7 @@ func (s *Server) csrfUpload(next func(http.ResponseWriter, *http.Request, *perso
 		r.Body = http.MaxBytesReader(w, r.Body, maxUploadBody)
 		var tooLarge *http.MaxBytesError
 		if err := r.ParseMultipartForm(maxUploadBody); errors.As(err, &tooLarge) {
-			s.render(w, r, http.StatusRequestEntityTooLarge, ui.Problem(s.shell(i18n.UploadRefusedTitle, ""), i18n.UploadRefusedTitle,
+			s.render(w, r, http.StatusRequestEntityTooLarge, ui.Problem(s.chrome(r, i18n.UploadRefusedTitle), i18n.UploadRefusedTitle,
 				i18n.UploadFileTooLarge, ui.BankPath, i18n.StatementBack))
 			return
 		}
@@ -271,7 +271,7 @@ func tokenOK(token string, p *person) bool {
 func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, p *person) {
 	key := r.PostForm.Get(ui.FieldIdempotency)
 	if _, err := uuid.Parse(key); err != nil {
-		s.render(w, r, http.StatusBadRequest, ui.Problem(s.shell(i18n.RefusedTitle, ""), i18n.RefusedTitle, i18n.ProblemInvoiceBody, ui.BankPath, i18n.StatementBack))
+		s.render(w, r, http.StatusBadRequest, ui.Problem(s.chrome(r, i18n.RefusedTitle), i18n.RefusedTitle, i18n.ProblemInvoiceBody, ui.BankPath, i18n.StatementBack))
 		return
 	}
 	m, ok := s.whoami(w, r, p)

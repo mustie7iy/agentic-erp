@@ -366,6 +366,9 @@ func texts(n *html.Node, out *[]string) {
 			return // a form's own value (a token, an ETag), never shown
 		}
 		for _, key := range []string{"aria-label", "aria-description", "aria-roledescription", "aria-valuetext", "title", "alt", "placeholder", "label", "value"} {
+			if key == "value" && n.Data == "option" {
+				continue // what the form sends; the person meets the option's text
+			}
 			if v, ok := attr(n, key); ok {
 				*out = append(*out, v)
 			}

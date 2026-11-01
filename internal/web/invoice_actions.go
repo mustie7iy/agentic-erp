@@ -34,7 +34,7 @@ func (s *Server) formFields(w http.ResponseWriter, r *http.Request, back string,
 	}
 	if ifMatch = r.PostForm.Get(ui.FieldIfMatch); ifMatch == "" {
 		// Not the page's form: nothing to keep or explain.
-		s.render(w, r, http.StatusBadRequest, ui.Problem(s.shell(i18n.RefusedTitle, ""), i18n.RefusedTitle, i18n.ProblemInvoiceBody, back, backText))
+		s.render(w, r, http.StatusBadRequest, ui.Problem(s.chrome(r, i18n.RefusedTitle), i18n.RefusedTitle, i18n.ProblemInvoiceBody, back, backText))
 		return "", "", false
 	}
 	return ifMatch, key, true

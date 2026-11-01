@@ -49,7 +49,9 @@ func newApprovals(t *testing.T) approvals {
 	return a
 }
 
-// TestApprovalsInTheBrowser: the inbox and a request's page in English,
+// TestApprovalsInTheBrowser: the inbox, the list of all requests
+// filtered, a request's page with its object's summary, and a signed-in
+// person's 404 in English,
 // French and both pseudo-locales at a desktop's and a phone's width (PO
 // P8), with every check of TestPagesInTheBrowser and axe at zero; then
 // the approver's job as they do it: open a request from the inbox,
@@ -61,7 +63,8 @@ func TestApprovalsInTheBrowser(t *testing.T) {
 	src := axe(t)
 	signIn(t, browserCtx, s.stack)
 	langs := []struct{ header, lang, dir string }{{"", "en", "ltr"}, {"en-XA", "en-XA", "ltr"}, {"ar-XB", "ar-XB", "rtl"}, {"fr-CA", "fr-CA", "ltr"}}
-	paths := []string{"/approvals", "/approvals/" + s.requisition.String(), "/approvals/" + s.agent.String()}
+	paths := []string{"/approvals", "/approvals/" + s.requisition.String(), "/approvals/" + s.agent.String(), "/approvals?view=all&status=pending",
+		"/no-such-page"}
 	for _, lang := range langs {
 		for _, width := range []int64{1280, 390} {
 			for _, path := range paths {
@@ -193,6 +196,53 @@ func screenshots(t *testing.T, browserCtx context.Context, s approvals) {
 			if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("%s-%d.png", name, width)), png, 0o600); err != nil {
 				t.Fatal(err)
 			}
+		}
+	}
+}
+
+// TestWithdrawInTheBrowser: the requester finds their request in their
+// own list, opens it, sees its object's summary, is refused withdrawing it
+// without a reason and withdraws it with one, back in their list with the
+// notice; each state passes axe, at a phone's width.
+func TestWithdrawInTheBrowser(t *testing.T) {
+	s := newApprovals(t)
+	src := axe(t)
+	browserCtx := browse(t)
+	s.signInAs(s.requester)
+	signIn(t, browserCtx, s.stack)
+	ctx, c := tab(t, browserCtx, "", 390)
+	link := fmt.Sprintf(`a[href="/approvals/%s"]`, s.requisition)
+	if err := chromedp.Do(ctx,
+		chromedp.Navigate(s.url+"/approvals?view=mine"),
+		chromedp.WaitVisible(chromedp.CSS(link)),
+	); err != nil {
+		t.Fatal(err)
+	}
+	audit(t, ctx, src, "en", "ltr", 390)
+	if err := chromedp.Do(ctx,
+		chromedp.Click(chromedp.CSS(link)),
+		chromedp.WaitVisible(chromedp.CSS("#withdraw-reason")),
+	); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, ctx, "/approvals/"+s.requisition.String(), "Withdraw your request")
+	audit(t, ctx, src, "en", "ltr", 390)
+	if err := chromedp.Do(ctx, chromedp.Click(chromedp.CSS(`form[action$="/cancel"] button`))); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, ctx, "/approvals/"+s.requisition.String()+"/cancel", "Enter why you withdraw the request.")
+	audit(t, ctx, src, "en", "ltr", 390)
+	if err := chromedp.Do(ctx,
+		chromedp.SendKeys(chromedp.CSS("#withdraw-reason"), "Ordered through the framework contract instead"),
+		chromedp.Click(chromedp.CSS(`form[action$="/cancel"] button`)),
+	); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, ctx, "/approvals?done=cancelled&view=mine", "You withdrew your request.")
+	audit(t, ctx, src, "en", "ltr", 390)
+	for _, e := range c.errors() {
+		if !strings.Contains(e, "status of 422") { // the refused withdrawal is the browser's to log
+			t.Errorf("browser: %s", e)
 		}
 	}
 }

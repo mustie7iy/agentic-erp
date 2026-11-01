@@ -1273,14 +1273,15 @@ type Handler interface {
 	ListAgentToolCalls(ctx context.Context, params ListAgentToolCallsParams) (ListAgentToolCallsRes, error)
 	// ListApprovalRequests implements listApprovalRequests operation.
 	//
-	// Approval requests; filter by `status=pending` for everything waiting, or by `decidable_by=me` for
-	// the caller's inbox: the pending requests the caller may approve now, as `approveApprovalRequest`
-	// decides it (a person, not the requester, holding `workflow.request.decide` unbarred by a
-	// segregation-of-duties rule, the object type's approval permission and the current step's role, who
-	// has not approved the request yet and whom the owning context does not bar, such as whoever matched a
-	// bank statement line by hand). An agent's or a service's inbox is empty. A page of `decidable_by=me`
-	// may hold fewer requests than `page_size`, even none, while `next_page_token` is set: requests the
-	// owning context bars are left out after they are read. Sortable by: `created_at`.
+	// Approval requests; filter by `status=pending` for everything waiting, by `requested_by=me` for the
+	// requests the caller asked for, or by `decidable_by=me` for the caller's inbox: the pending requests
+	// the caller may approve now, as `approveApprovalRequest` decides it (a person, not the requester,
+	// holding `workflow.request.decide` unbarred by a segregation-of-duties rule, the object type's
+	// approval permission and the current step's role, who has not approved the request yet and whom the
+	// owning context does not bar, such as whoever matched a bank statement line by hand). An agent's or a
+	// service's inbox is empty. A page of `decidable_by=me` may hold fewer requests than `page_size`, even
+	// none, while `next_page_token` is set: requests the owning context bars are left out after they are
+	// read. Sortable by: `created_at`.
 	//
 	// GET /v1/approval-requests
 	ListApprovalRequests(ctx context.Context, params ListApprovalRequestsParams) (ListApprovalRequestsRes, error)

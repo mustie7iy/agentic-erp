@@ -380,8 +380,10 @@ func TestDecideRefusals(t *testing.T) {
 	if got := ownPage.mainText(); !strings.Contains(got, "You asked for this approval. Someone else decides it.") {
 		t.Errorf("own request: got %q", got)
 	}
-	if len(ownPage.all("form", "decide")) != 0 {
-		t.Error("own request: decision forms offered")
+	for _, f := range ownPage.all("form", "decide") {
+		if a := attrOf(f, "action"); !strings.HasSuffix(a, "/cancel") {
+			t.Errorf("own request: a decision form to %s offered, want the withdrawal alone", a)
+		}
 	}
 	// The requester holds none of the steps' roles: nothing waits for them.
 	ownInbox := own.get("/approvals").page(t)

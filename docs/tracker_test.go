@@ -39,8 +39,9 @@ const baselineItems = 951
 // own leaf (T62h). 79 since batch 34: the staging half of RDS IAM logins
 // split from T72h's leaf, and the product owner had erp-web's egress to STS
 // narrowed to the endpoint's subnets (po:2026-11-01), a security-posture
-// leaf of the pilot.
-const pilotItems = 79
+// leaf of the pilot (79); T73d2's pilot approver's walk-through and the two
+// object summaries no operation reads split from it (T73d3, 80).
+const pilotItems = 80
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

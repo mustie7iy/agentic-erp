@@ -172,8 +172,9 @@ func (s *Server) mux() *http.ServeMux {
 	route("POST /logout", s.signedIn(s.csrf(s.logout)))
 	route("GET "+ui.ApprovalsPath, s.signedIn(s.inbox))
 	route("GET "+ui.ApprovalsPath+"/{id}", s.signedIn(s.request))
-	route("POST "+ui.ApprovalsPath+"/{id}/approve", s.signedIn(s.csrf(s.decide(true))))
-	route("POST "+ui.ApprovalsPath+"/{id}/reject", s.signedIn(s.csrf(s.decide(false))))
+	for verb := range decideOps {
+		route("POST "+ui.ApprovalsPath+"/{id}/"+verb, s.signedIn(s.csrf(s.decide(verb))))
+	}
 	route("GET "+ui.InvoicesPath, s.signedIn(s.invoices))
 	route("GET "+ui.InvoicesPath+"/{id}", s.signedIn(s.invoice))
 	route("GET "+ui.InvoicesPath+"/{id}/order", s.signedIn(s.order))
@@ -199,7 +200,7 @@ func (s *Server) mux() *http.ServeMux {
 		s.render(w, r, http.StatusOK, ui.StatusPage(s.shell(i18n.StatusTitle, "/health"), st))
 	})
 	route("GET /static/", s.Assets.ServeHTTP)
-	route("/", s.notFound)
+	route("/", s.anyone(s.notFound))
 	return mux
 }
 

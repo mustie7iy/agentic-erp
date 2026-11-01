@@ -408,6 +408,23 @@ func (s *Server) signedIn(next func(http.ResponseWriter, *http.Request, *person)
 	}
 }
 
+// anyone serves next to anyone: with the signed-in person on the request,
+// as signedIn puts them, when the browser holds a session whose access
+// token is good for now; without one otherwise. It renews nothing and
+// sends no one to sign in: the pages it serves (an address that is no
+// page) need no one, and a person merely keeps their navigation there.
+func (s *Server) anyone(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if c, err := r.Cookie(sessionCookie); err == nil && s.Store != nil {
+			if sess, err := s.Store.Load(r.Context(), c.Value); err == nil && sess.AccessExpiry.Sub(s.now()) > refreshAhead {
+				p := &person{Session: sess}
+				r = r.WithContext(context.WithValue(WithToken(r.Context(), p.AccessToken), personKey{}, p))
+			}
+		}
+		next(w, r)
+	}
+}
+
 // errSessionOver means the session can go on no more: its access token
 // expired and the provider will not renew it.
 var errSessionOver = errors.New("web: the session's tokens cannot be renewed")
@@ -518,9 +535,10 @@ func (s *Server) csrf(next func(http.ResponseWriter, *http.Request, *person)) fu
 }
 
 // refused is the page of a request refused as a possible forgery: by the
-// CSRF token or by CrossOriginProtection.
+// CSRF token (a signed-in person's, with their navigation) or by
+// CrossOriginProtection.
 func (s *Server) refused(w http.ResponseWriter, r *http.Request) {
-	s.render(w, r, http.StatusForbidden, ui.Problem(s.shell(i18n.RefusedTitle, ""), i18n.RefusedTitle, i18n.RefusedBody, "/", i18n.NotFoundHome))
+	s.render(w, r, http.StatusForbidden, ui.Problem(s.chrome(r, i18n.RefusedTitle), i18n.RefusedTitle, i18n.RefusedBody, "/", i18n.NotFoundHome))
 }
 
 // logout signs the person out (ADR-0052 §5, G9): the API's session ends

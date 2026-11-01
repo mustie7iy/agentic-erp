@@ -42,7 +42,7 @@ func (s *Server) decideLine(verb string) func(http.ResponseWriter, *http.Request
 		}
 		line, err := strconv.ParseInt(r.PostForm.Get(ui.FieldLine), 10, 32)
 		if err != nil || line < 1 {
-			s.render(w, r, http.StatusBadRequest, ui.Problem(s.shell(i18n.RefusedTitle, ""), i18n.RefusedTitle, i18n.ProblemInvoiceBody,
+			s.render(w, r, http.StatusBadRequest, ui.Problem(s.chrome(r, i18n.RefusedTitle), i18n.RefusedTitle, i18n.ProblemInvoiceBody,
 				statementPath(id), i18n.StatementBack))
 			return
 		}
