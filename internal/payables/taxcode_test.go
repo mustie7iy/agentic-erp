@@ -1,6 +1,7 @@
 package payables_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -23,7 +24,7 @@ func taxItems(t *testing.T, entry any) string {
 // posts (ADR-0049 §4): entered with a one-rate code that gains a
 // non-deductible component before it posts, its stated tax no longer
 // matches (422 payables.tax_mismatch, decision P5, naming the code's
-// figure); corrected, it posts the GST on the tax account and the PST on
+// figure in its detail and its fields); corrected, it posts the GST on the tax account and the PST on
 // the item's line, with an item per component.
 func TestTaxCodeChangedBeforePosting(t *testing.T) {
 	e := setup(t)
@@ -36,6 +37,15 @@ func TestTaxCodeChangedBeforePosting(t *testing.T) {
 	p := e.Problem(422, "payables.tax_mismatch", "POST", "/v1/supplier-invoices/"+id(inv)+":post", `{"posting_date": "2026-03-21"}`, e.tag(t, id(inv)))
 	if detail := fmt.Sprint(p["detail"]); !strings.Contains(detail, "26.00 (V1 26.00)") {
 		t.Errorf("detail: got %s, want V1's 26.00 named", detail)
+	}
+	// The same figures as fields, for a client's own words (ADR-0052 D3).
+	figures, err := json.Marshal(p["calculated_tax"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(figures), `{"calculated":{"amount":"26.00","currency":"EUR"},"codes":[{"tax":{"amount":"26.00","currency":"EUR"},"tax_code":"V1"}],`+
+		`"stated":{"amount":"19.00","currency":"EUR"}}`; got != want {
+		t.Errorf("calculated_tax:\ngot  %s\nwant %s", got, want)
 	}
 	e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(inv), `{"gross_amount": {"amount": "126.00", "currency": "EUR"}, "tax_amount": {"amount": "26.00", "currency": "EUR"}}`,
 		e.tag(t, id(inv)))

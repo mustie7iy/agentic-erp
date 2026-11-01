@@ -1774,13 +1774,22 @@ step_downpayment() {
   heading "Step 16 — SAP's open down payment is cleared against the supplier's final invoice (SAP F-54)"
   as alex
   say "$DP_NAME's final invoice arrives: CAD 5,000.00 plus 250.00 GST on V1. Alex enters it in a hurry, without"
-  say "the item's description, and posts it."
+  say "the item's description, and misreads the tax as 260.00."
   local item invoice fy line
   item="{\"account_id\": \"$(account 6000)\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"5000.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}"
   api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
-    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$DP_SUPPLIER\", \"supplier_reference\": \"FINAL-DP\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"5250.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"250.00\", \"currency\": \"CAD\"}, \"items\": [$item]}"
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$DP_SUPPLIER\", \"supplier_reference\": \"FINAL-DP\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"5260.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"260.00\", \"currency\": \"CAD\"}, \"items\": [$item]}"
   invoice=$(field .id)
-  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  say "Posting calculates the tax at the codes' rates and refuses the invoice's 260.00. The problem carries the"
+  say "figures as fields (T73e2, ADR-0052 decision D3), which the web workspace shows in the clerk's language:"
+  refused 422 payables.tax_mismatch postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  excerpt '.calculated_tax | "stated \(.stated.amount) \(.stated.currency), calculated \(.calculated.amount) \(.calculated.currency): \([.codes[] | "\(.tax_code) \(.tax.amount)"] | join(", "))"'
+  expect "the refused tax's figures" "$(field '.calculated_tax | "\(.stated.amount) \(.calculated.amount) \([.codes[] | "\(.tax_code) \(.tax.amount)"] | join(" "))"')" \
+    "260.00 250.00 V1 250.00"
+  say "Alex corrects the parked invoice's tax and gross (a merge patch of the two figures alone) and posts it."
+  api 200 '"\(.document_number): \(.status), tax \(.tax_amount.amount), gross \(.gross_amount.amount)"' updateSupplierInvoice -p "id=$invoice" -if-match '"1"' \
+    -body '{"gross_amount": {"amount": "5250.00", "currency": "CAD"}, "tax_amount": {"amount": "250.00", "currency": "CAD"}}'
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
   expect "the final invoice's status" "$(field .status)" posted
   say "The posting checks the CRA's documentary requirements for the input tax credit, which the Canada pack"
   say "brings (SOR/91-45 s. 3, ADR-0049 §6): from CAD 100 the supplier's GST/HST number, on file from SAP; from"

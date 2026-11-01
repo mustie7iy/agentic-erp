@@ -166,6 +166,10 @@ Errors use RFC 9457 Problem Details (`application/problem+json`):
 `code` values are stable and documented; clients and agents branch on `code`,
 never on `detail`. Database constraint violations are translated to these
 codes by the repository layer; a raw database message never reaches a client.
+A refusal whose figures a client must show carries them as fields of the
+problem, never only in `detail`: `payables.tax_mismatch` carries
+`calculated_tax` (the tax stated, the tax its codes' rates give, and each
+code's; ADR-0052 decision D3, T73e2).
 Each operation lists the codes its handler can answer in `x-problem-codes`,
 and the document lists those the request pipeline can answer on any
 operation (authentication, authorization, rate limits, idempotency,
