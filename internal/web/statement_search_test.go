@@ -278,3 +278,48 @@ func TestLineSearchClosed(t *testing.T) {
 		}
 	}
 }
+
+// TestStatementSearchUnavailable: the person, the search or the rules'
+// run the API cannot answer is the unavailable page; a currency without
+// minor units takes whole amounts; a camt.053 file is named .xml.
+func TestStatementSearchUnavailable(t *testing.T) {
+	id := uuid.New()
+	broken := answer(500, problemJSON(500, "platform.internal"))
+	var query url.Values
+	jpy := strings.NewReplacer(`"-20.00","currency":"AED"`, `"-20","currency":"JPY"`).Replace(bankStatementJSON(id))
+	st := &stubbed{routes: map[string]http.HandlerFunc{
+		"GET /v1/me": answer(200, meJSON(permReadStatements, permMatchLines)),
+		"GET /v1/bank-statements/": func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case strings.HasSuffix(r.URL.Path, "/payments"):
+				query = r.URL.Query()
+				if query.Get("amount_min") == "" {
+					broken(w, r)
+					return
+				}
+				answer(200, `{"items":[]}`)(w, r)
+			case strings.HasSuffix(r.URL.Path, "/file"):
+				w.Header().Set("Content-Type", "application/octet-stream")
+				_, _ = io.WriteString(w, `<?xml version="1.0"?><Document/>`) // the test's own answer
+			default:
+				answer(200, jpy)(w, r)
+			}
+		},
+	}}
+	_, b, token := stubStack(t, st)
+	search := linePaymentsPath(statementPath(id), 1)
+	status(t, "the search unanswered", b.get(search), http.StatusServiceUnavailable)
+	status(t, "whole yen", b.get(search+"?amount_min=1500"), http.StatusOK)
+	if got := query.Get("amount_min"); got != "1500" {
+		t.Errorf("a yen bound: got %q, want 1500", got)
+	}
+	status(t, "yen with decimals", b.get(search+"?amount_min=1500.5"), http.StatusBadRequest)
+	file := b.get(statementPath(id) + "/file")
+	if got, want := file.header.Get("Content-Disposition"), `attachment; filename="statement-`+id.String()+`.xml"`; got != want {
+		t.Errorf("a camt.053 file's name: got %q, want %q", got, want)
+	}
+	st.routes["GET /v1/me"] = broken
+	status(t, "the search without the person", b.get(search), http.StatusServiceUnavailable)
+	rules := sendForm(b, statementPath(id)+"/"+rulesVerb, map[string]string{"csrf_token": token, "if_match": `"4"`, "idempotency_key": uuid.NewString()})
+	status(t, "the rules without the person", rules, http.StatusServiceUnavailable)
+}
