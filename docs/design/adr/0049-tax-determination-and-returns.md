@@ -354,6 +354,15 @@ tax_codes:
 - Country packs (ADR-0048, amended) write all their rates; the "later rates
   noted" note and the re-application after a change are gone. T62f (the UAE
   pack) and T62e's tax codes are written in this schema.
+- **As built (T62g):** Canada pack 2026.4 writes T62e's sourced codes in this
+  schema: one component per code (`gst`, `hst` with the province as its
+  jurisdiction, `qst`, and `pst_bc`, `rst_mb`, `pst_sk` as `non_deductible`
+  components without an account), every dated rate written ahead and
+  behind (NB, NL and PE's increases of 2016, NS's decrease of 2025-04-01).
+  Activating them sets up rates from 2013-04-01 (`TestCanadaPackTaxCodes`
+  in the ledger, which also calculates HON 13% and QST 9.975% on 1,000.00
+  as payables does: 130.00 and 99.75, wholly recoverable; BC PST 70.00
+  not). Details and what the specialist confirms: ADR-0048, Canada pack.
 - Validation adds: components unique per code; a `non_deductible` component has
   no account of its own; `self_output`/`self_input` come in pairs on a
   `reverse_charge` or `import` code; recoverable 0-100% with three decimals;
@@ -597,7 +606,7 @@ commit-time check, like the balance trigger).
   `item_description_missing`, the tier's threshold as money, whether it is
   inclusive, the source, the pending flag, `unassessed` and a message). Credit memos and
   subsequent credits take tax back and are not checked; an invoice posted
-  before has none. Canada 2026.3 states SOR/91-45 s. 3 (b) and (c) as two
+  before has none. Canada 2026.3 (and 2026.4, which keeps its settings) states SOR/91-45 s. 3 (b) and (c) as two
   tiers (from CAD 100 the supplier's registration number; from CAD 500 also
   a description of each supply); the recipient's name and the terms, also
   required from $500, are on the document only and not checked. The UAE
@@ -767,7 +776,7 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   latest rate on the tax date, 422 `ledger.no_exchange_rate` without one).
   No new rate type was added: the authority's rates (the Bank of Canada's,
   the UAE Central Bank's) are recorded under one of the ledger's types,
-  which the pack names. Canada 2026.3 names `average` and `document`, both
+  which the pack names. Canada 2026.3 and 2026.4 name `average` and `document`, both
   pending the specialist (the conversion and rounding rules are cited from
   memory above).
 

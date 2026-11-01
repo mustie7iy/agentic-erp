@@ -34,8 +34,10 @@ const baselineItems = 951
 // foreign-currency open item that HSL 0 drops from the pilot migration
 // (review:batch31) joined as a data-correctness gap in its path (75). 76 since batch 32:
 // preparing a later tax period's return first claims an earlier unfiled
-// period's items (review:batch32), a gap in the pilot's return chain.
-const pilotItems = 76
+// period's items (review:batch32), a gap in the pilot's return chain. 77
+// since batch 33: T62g's sign-off part, in the approved scope, became its
+// own leaf (T62h).
+const pilotItems = 77
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

@@ -5210,11 +5210,19 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Canada pack 2026.4: the tax codes (GST/HST/QST/PST) in the component schema of T61a, from packs/ca/TAX-PENDING-T61a.md, with all their dated rates; 2026.3 plus the tax codes, keeping its cash.yaml (a version without it would drop the suggested liquidity items from tenants that adopted 2026.2) and its tax settings (2026.3, the T61d follow-up), released beside 2026.1-2026.3 (all stay as released); signed off by the tax specialist before the pilot",
-        "r": "packs/ca/2026.3 · packs/released.sha256 · ADR-0048 · ADR-0049 · T62g",
+        "s": "D",
+        "t": "Canada pack 2026.4: the tax codes (GST/HST/QST/PST) in the component schema of T61a, from packs/ca/TAX-PENDING-T61a.md, with all their dated rates; 2026.3 plus the tax codes, keeping its cash.yaml (a version without it would drop the suggested liquidity items from tenants that adopted 2026.2) and its tax settings (2026.3, the T61d follow-up), released beside 2026.1-2026.3 (all stay as released); not signed off (the sign-off is T62h)",
+        "r": "packs/ca/2026.4 · packs/released.sha256 · TestCanadaPackTaxCodes · TestCanadaPack2026_4 · ADR-0048 · ADR-0049 · T62g",
         "src": "baseline",
         "pilot": "po:2026-10-31 · adr:ADR-0048 · adr:ADR-0049",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Canada pack signed off by the tax specialist before the pilot: a new version with sign_off in pack.yaml (a released version never changes), after the specialist confirms 2026.4's tax codes, their proposed recovery accounts, PST expensed on the item, the QST and PST start dates and the holiday items listed in ADR-0048, and the tax settings 2026.3 brought (rate type, rounding), which ADR-0049 marks pending the specialist",
+        "r": "packs/ca · packs/released.sha256 · ADR-0048 · T62h",
+        "src": "split:T62g · adr:ADR-0048",
+        "pilot": "po:2026-10-31 · adr:ADR-0048",
         "c": []
        }
       ]
