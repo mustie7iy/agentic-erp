@@ -916,7 +916,8 @@ var maxRate = new(big.Rat).SetFrac(new(big.Int).Exp(big.NewInt(10), big.NewInt(1
 // source system gives (Posting.Rate): above zero to the 12 decimals it
 // keeps, and below 10^16.
 func RecordableRate(r *big.Rat) bool {
-	return money.ParseRat(r.FloatString(12)).Sign() > 0 && r.Cmp(maxRate) < 0
+	shown := money.ParseRat(r.FloatString(12)) // what the entry records
+	return shown.Sign() > 0 && shown.Cmp(maxRate) < 0
 }
 
 var errTooLarge = problem.Unprocessable("ledger.amount_too_large", "A converted amount is too large to post.")

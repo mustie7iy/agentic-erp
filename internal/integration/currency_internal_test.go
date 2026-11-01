@@ -237,7 +237,8 @@ func TestSourceRateWithoutAmount(t *testing.T) {
 // tax checked in its document currency (where SAP is assumed to calculate
 // it, for an SAP specialist to confirm): 19%
 // of its document amount passes whatever its company code amounts round
-// to, and a tax that is not is refused in that currency.
+// to, and a tax that is not is refused in that currency; a down payment
+// or tax amount in it that does not parse is foreignDocument's to refuse.
 func TestForeignDownPaymentTax(t *testing.T) {
 	runDocumentCurrencyCases(t, []documentCurrencyCase{
 		{"19% in document currency", func(e *sap.Extract, _ *target) {
@@ -248,6 +249,14 @@ func TestForeignDownPaymentTax(t *testing.T) {
 			inUSD(e)
 			e.ACDOCA[1].WSL, e.ACDOCA[2].WSL = "381.00", "-2381.00"
 		}, []string{"2000/2026/0100000009: the down payment's tax on V1 is 381.00 USD, not 19% of the down payment, 380.00"}},
+		{"a document amount that does not parse", func(e *sap.Extract, _ *target) {
+			inUSD(e)
+			e.ACDOCA[0].WSL = "x"
+		}, []string{"2000/2026/0100000009/000001: document amount (WSL)"}},
+		{"a tax amount that does not parse", func(e *sap.Extract, _ *target) {
+			inUSD(e)
+			e.ACDOCA[1].WSL = "x"
+		}, []string{"2000/2026/0100000009/000002: document amount (WSL)"}},
 	})
 }
 
