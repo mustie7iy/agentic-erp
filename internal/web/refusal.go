@@ -56,13 +56,27 @@ var segregation = []string{"identity.sod_conflict", "workflow.segregation_of_dut
 // the person's language, the API's own title for a code the catalog does
 // not hold, with the code and the trace id for support; a
 // segregation-of-duties refusal lists the person's barred permissions
-// (getCurrentPrincipal).
+// (getCurrentPrincipal), a refused tax its figures.
 func explain(title i18n.Key, prob gen.Problem, m me) *ui.Refusal {
 	r := &ui.Refusal{Title: title, Message: i18n.Problems[prob.Code], Fallback: prob.Title, Code: prob.Code, Trace: prob.TraceID.Or("")}
 	if slices.Contains(segregation, prob.Code) {
 		r.Barred = m.Barred
 	}
+	if t, ok := prob.CalculatedTax.Get(); ok {
+		r.Tax = taxFigures(t)
+	}
 	return r
+}
+
+// taxFigures are a refused tax's figures as the page shows them
+// (payables.tax_mismatch, ADR-0052 decision D3): in the person's words
+// rather than the detail's English.
+func taxFigures(t gen.CalculatedTax) *ui.TaxFigures {
+	f := &ui.TaxFigures{Stated: moneyOf(t.Stated), Calculated: moneyOf(t.Calculated)}
+	for _, c := range t.Codes {
+		f.Codes = append(f.Codes, ui.CodeTax{Code: c.TaxCode, Tax: moneyOf(c.Tax)})
+	}
+	return f
 }
 
 // inPlace is the refusal of one of a page's reads, explained in the

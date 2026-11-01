@@ -328,3 +328,63 @@ func shot(t *testing.T, ctx context.Context, name string) {
 		t.Fatal(err)
 	}
 }
+
+// TestInvoiceChangeInTheBrowser: a parked invoice's change in every
+// language at both widths, axe at zero; and the AP clerk's correction on
+// a phone in French: a post refused for its tax shows the tax per code,
+// the clerk opens the change, types a figure wrongly, is told so on its
+// field, corrects the tax and the gross, saves and posts.
+func TestInvoiceChangeInTheBrowser(t *testing.T) {
+	browserCtx := browse(t)
+	s := newInvoices(t)
+	src := axe(t)
+	signIn(t, browserCtx, s.stack)
+	edit := invoicePath(s.taxWrong) + "/edit"
+	for _, l := range []lang{{"", "en", "ltr"}, {"fr-CA", "fr-CA", "ltr"}, {"en-XA", "en-XA", "ltr"}, {"ar-XB", "ar-XB", "rtl"}} {
+		for _, width := range []int64{1280, 390} {
+			t.Run(fmt.Sprintf("%s %d", l.lang, width), func(t *testing.T) {
+				checkPage(t, browserCtx, s.stack, src, l.header, l.lang, l.dir, width, edit)
+			})
+		}
+	}
+	ctx, c := tab(t, browserCtx, "fr-CA", 390)
+	if err := chromedp.Do(ctx,
+		chromedp.Navigate(s.url+invoicePath(s.taxWrong)),
+		chromedp.WaitVisible(chromedp.CSS(`form[action$="/post"] button`)),
+		chromedp.Click(chromedp.CSS(`form[action$="/post"] button`)),
+	); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, ctx, invoicePath(s.taxWrong)+"/post", "Taxe aux taux de chaque code")
+	audit(t, ctx, src, "fr-CA", "ltr", 390)
+	shot(t, ctx, "tax-refused-390")
+	if err := chromedp.Do(ctx,
+		chromedp.Click(chromedp.CSS(fmt.Sprintf(`a[href="%s"]`, edit))),
+		chromedp.WaitVisible(chromedp.CSS("#invoice-tax")),
+		chromedp.SetValue(chromedp.CSS("#invoice-tax"), "19.00.0"),
+		chromedp.Click(chromedp.CSS(`form[action="`+edit+`"] button[type="submit"]`)),
+	); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, ctx, edit, "Entrez le montant en chiffres")
+	audit(t, ctx, src, "fr-CA", "ltr", 390)
+	shot(t, ctx, "change-refused-390")
+	if err := chromedp.Do(ctx,
+		chromedp.SetValue(chromedp.CSS("#invoice-tax"), "19,00"),
+		chromedp.SetValue(chromedp.CSS("#invoice-gross"), "119,00"),
+		chromedp.Click(chromedp.CSS(`form[action="`+edit+`"] button[type="submit"]`)),
+	); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, ctx, invoicePath(s.taxWrong)+"?done=changed", "La facture est modifiée.")
+	if err := chromedp.Do(ctx, chromedp.Click(chromedp.CSS(`form[action$="/post"] button`))); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, ctx, invoicePath(s.taxWrong)+"?done=posted", "La facture est comptabilisée.")
+	audit(t, ctx, src, "fr-CA", "ltr", 390)
+	for _, e := range c.errors() {
+		if !strings.Contains(e, "status of 422") { // the refused post and change are the browser's to log
+			t.Errorf("browser: %s", e)
+		}
+	}
+}

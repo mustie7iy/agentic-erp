@@ -2678,6 +2678,87 @@ contract or T73i's behaviour settled it:
   and both pseudo-locales at 1280 and 390 px, and walks the run cancelled
   with a reason at a desktop's width.
 
+## Built in T73e2 (2026-11-01)
+Invoices beyond the queue, first slice: editing a parked invoice, and a
+refused tax's figures as fields (decision D3). What it settled, and
+where it departs from the step as first written:
+- **Contract (D3, the tax half).** `Problem` gains `calculated_tax`
+  (`CalculatedTax`: `stated`, `calculated` and `codes[]` of `CodeTax`
+  `tax_code` and `tax`, each `Money` in the invoice's currency,
+  self-assessed tax left out as in the detail), set by
+  `payables.tax_mismatch` alone (`problem.Problem.CalculatedTax`, built
+  in `payables.mismatch` from the figures its detail names). Additive:
+  no client branches on a field it does not know. The walkthrough's step
+  16 has Alex enter the final invoice with 260.00 of tax, read the
+  refusal's figures, correct the invoice with `updateSupplierInvoice` and
+  post it. 04 §4.6 says figures go in fields, never only in `detail`.
+- **Tax per code on the page.** Shown where the API gives it: a
+  refusal's notice (`RefusalNotice`, any screen) lists the tax stated,
+  the tax at the codes' rates and a table of each code's, in the
+  person's words and number format; §8 is unchanged, the `detail` still
+  not shown. The invoice's representation still carries no tax per code
+  (a parked invoice's would be calculated on every read): T73e3.
+- **Editing a parked invoice.** `GET /invoices/{id}/edit` (two reads:
+  `getCurrentPrincipal`, `getSupplierInvoice`), linked from a parked
+  invoice's actions for a person holding `payables.invoice.capture`
+  (advisory); an invoice in any other status goes to its page. The form
+  holds the header (supplier's reference, invoice, posting and tax
+  dates, gross and tax amounts in the invoice's currency) and each line's
+  description, quantity, net amount and tax code, its order item and unit
+  shown and kept. `POST /invoices/{id}/edit` sends, as
+  `updateSupplierInvoice`'s merge patch, only what the person changed:
+  each field travels with its value when the form was opened (`was_…`),
+  and the invoice read again takes the fields typed differently from
+  those. A value someone else changed meanwhile is never sent back over
+  theirs, and the API matches an invoice on an order again after any
+  change and unlinks an approved exception, so a field sent unchanged
+  would cost a match. A changed line sends the invoice's lines whole, as the patch
+  replaces them, each keeping its order item, unit, account and centers;
+  an emptied optional date, description or tax code is cleared (null, or
+  the field left out of the line), except that a line of an order item
+  left without a tax code takes its order item's, as the API does and the
+  field's hint says. Nothing changed sends nothing and says
+  so. Amounts and quantities are typed in the person's locale and read
+  strictly (`Locale.Amount`, `Locale.Quantity`, six decimals, no sign);
+  what is wrong is said on its field before any call, with what was typed
+  kept. The form carries the ETag it was opened with and a fresh
+  idempotency key; a 412 (or any refusal) shows the
+  invoice at its version now with the person's own changes on it, so
+  sending it again sends those alone (go-reviewer, round 1: keeping every
+  typed field at the new ETag would have sent the other person's change
+  back); a form the checks refuse before any call keeps the version and
+  values it was opened with, so its next send meets the 412 rather than
+  take the version now unseen (round 2), a line's field the API refuses
+  (`items[i].field`) is said on its line, and a form whose lines are no
+  longer the invoice's (409, no call) is shown again as the invoice is.
+  Lines are changed, not added or left out (T73e3).
+- **Decided by default (for the product owner to overrule).** A field
+  both people changed takes the person's value after the 412 they were
+  shown, unmarked. Amounts are compared as typed: "119" for "119.00" is a
+  change, which the API refuses for its digits. The form's header is not on the entry
+  form's grey: the error text's red on it is 4.3:1, below WCAG 2.2's
+  4.5:1 (the entry form's own header errors have the same contrast: a
+  pre-existing finding, reported).
+- **Capture by upload: not built, waiting for the product owner.** §7
+  says uploads go through "the API's signed path variant (ADR-0020),
+  relayed by erp-web". The API offers that path only with the directory
+  store; with S3, as every deployed cell runs, `createUpload` answers a
+  presigned URL on the bucket, and nothing in the contract asks for the
+  API's path. Relaying the bytes to the bucket from `erp-web` (its
+  network policy, the bucket's reach), or a contract change that has the
+  API issue its own signed path on S3, is security posture, and so is the
+  size `erp-web` accepts and holds in memory (50 MB uploads, against the
+  4 MB T73g holds three times). Asked in the batch's question; T73e3.
+- **Tests.** `TestChangeInvoice`, `TestChangeInvoiceInFrench`,
+  `TestChangeInvoiceRefusals` and `TestTaxCorrected` against the real API
+  and PostgreSQL; `TestChangeInvoiceUnavailable` and the change's rows of
+  `TestInvoicesUnavailable` from the stub; `TestQuantity`; payables'
+  `TestTaxCodeChangedBeforePosting` checks the figures. The browser suite
+  runs axe at zero on the change form in English, French and both
+  pseudo-locales at 1280 and 390 px, and walks, in French on a phone, a
+  post refused with its tax per code, a change refused on its field, the
+  correction and the post (`TestInvoiceChangeInTheBrowser`).
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF

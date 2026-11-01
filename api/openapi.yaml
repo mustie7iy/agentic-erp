@@ -18667,11 +18667,68 @@ components:
           items:
             $ref: "#/components/schemas/FieldError"
           description: Field-level errors (422 and some 400/409).
+        calculated_tax:
+          $ref: "#/components/schemas/CalculatedTax"
+          description: "With `payables.tax_mismatch` only: the tax the invoice's codes' rates give, in all and per code, beside the tax it states (ADR-0052, decision D3)."
       examples:
         - type: "https://errors.example.com/request/not-found"
           title: Raise the tier 2 approval limit
           status: 409
           code: payables.invoice.post
+    CalculatedTax:
+      type: object
+      description: "The figures of a supplier invoice whose stated tax its tax codes' rates do not bear out within the company's tolerance (422 `payables.tax_mismatch`): the tax it states, the tax calculated at its items' codes' rates on its tax date, and each code's share of it, in the invoice's currency. Self-assessed tax, which the supplier does not charge, is left out of both."
+      readOnly: true
+      required:
+        - stated
+        - calculated
+        - codes
+      properties:
+        stated:
+          $ref: "#/components/schemas/Money"
+          description: The tax the invoice states (`tax_amount`).
+        calculated:
+          $ref: "#/components/schemas/Money"
+          description: The tax its codes' rates give.
+        codes:
+          type: array
+          items:
+            $ref: "#/components/schemas/CodeTax"
+          description: "Each code's calculated tax, in the order of the items that first carry it."
+      additionalProperties: false
+      examples:
+        - stated:
+            amount: "20.00"
+            currency: EUR
+          calculated:
+            amount: "19.00"
+            currency: EUR
+          codes:
+            - tax_code: V1
+              tax:
+                amount: "19.00"
+                currency: EUR
+    CodeTax:
+      type: object
+      description: The tax calculated at one tax code's rates.
+      readOnly: true
+      required:
+        - tax_code
+        - tax
+      properties:
+        tax_code:
+          type: string
+          description: The tax code.
+          pattern: "^[A-Z0-9]{1,4}$"
+        tax:
+          $ref: "#/components/schemas/Money"
+          description: The tax its rates give the items carrying it.
+      additionalProperties: false
+      examples:
+        - tax_code: V1
+          tax:
+            amount: "19.00"
+            currency: EUR
     OperationProgress:
       type: object
       description: Progress of a long-running operation, as counts.

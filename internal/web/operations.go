@@ -18,6 +18,7 @@ const (
 	permReadApprovals         = "workflow.request.read"
 	permDecide                = "workflow.request.decide"
 	permReadInvoices          = "payables.invoice.read"
+	permCaptureInvoices       = "payables.invoice.capture"
 	permReadRecommendations   = "agents.session.read"
 	permDecideRecommendations = "agents.recommendation.decide"
 	permReadOrders            = "procurement.order.read"
@@ -89,7 +90,10 @@ var (
 	// opInvoice are the reads of an invoice's page (invoice.go).
 	opInvoice = []Operation{opMe, {ID: "getSupplierInvoice", HiddenBy: permReadInvoices}, {ID: "listMatchResults", HiddenBy: permReadInvoices},
 		{ID: "listRecommendations", HiddenBy: permReadRecommendations}, opNames, opCompanies}
-	opHouseBanks = Operation{ID: "listHouseBanks", HiddenBy: permReadStatements}
+	// opInvoiceForm are the reads of a parked invoice's change form
+	// (invoice_edit.go).
+	opInvoiceForm = []Operation{opMe, {ID: "getSupplierInvoice", HiddenBy: permReadInvoices}}
+	opHouseBanks  = Operation{ID: "listHouseBanks", HiddenBy: permReadStatements}
 	// opStatementList are the reads of the statements' list (bank.go),
 	// opStatement those of a statement's page (statement.go).
 	opStatementList = []Operation{opMe, opHouseBanks, opCompanies, {ID: "listBankStatements", HiddenBy: permReadStatements}}
@@ -238,6 +242,8 @@ var Screens = func() map[string][]Operation {
 		"GET /invoices/{id}/order": {opMe, {ID: "getSupplierInvoice", HiddenBy: permReadInvoices}, {ID: "getPurchaseOrder", HiddenBy: permReadOrders},
 			{ID: "listGoodsReceipts", HiddenBy: permReadReceipts}},
 		"GET /invoices/{id}/document": {{ID: "getSupplierInvoiceDocument", HiddenBy: permReadInvoices}},
+		"GET /invoices/{id}/edit":     opInvoiceForm,
+		"POST /invoices/{id}/edit":    append([]Operation{{ID: "updateSupplierInvoice", HiddenBy: permCaptureInvoices}}, opInvoiceForm...),
 		"POST /invoices/{id}/recommendations/{rec}/decide": append([]Operation{{ID: "decideRecommendation", HiddenBy: permDecideRecommendations,
 			HumanOnly: true}}, opInvoice...),
 		"GET /bank":                                 opStatementList,

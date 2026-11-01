@@ -127,6 +127,14 @@ func TestInvoicesUnavailable(t *testing.T) {
 		"document: unavailable": {map[string]http.HandlerFunc{"GET /v1/supplier-invoices/": unavailable}, http.MethodGet, path + "/document", http.StatusServiceUnavailable, ""},
 		"action: who am I, 401": {map[string]http.HandlerFunc{"GET /v1/me": challenge}, http.MethodPost, path + "/post", http.StatusSeeOther, "return=%2Finvoices%2F" + id.String()},
 		"action: rate limited":  {map[string]http.HandlerFunc{"GET /v1/me": me, "POST /v1/supplier-invoices/": answer(429, problemJSON(429, "request.rate_limited"))}, http.MethodPost, path + "/hold", http.StatusServiceUnavailable, ""},
+		"change: who am I, 401": {map[string]http.HandlerFunc{"GET /v1/me": challenge}, http.MethodGet, path + "/edit", http.StatusSeeOther,
+			"return=%2Finvoices%2F" + id.String() + "%2Fedit"},
+		"change: unavailable": {map[string]http.HandlerFunc{"GET /v1/me": me, "GET /v1/supplier-invoices/": unavailable}, http.MethodGet, path + "/edit",
+			http.StatusServiceUnavailable, ""},
+		"change sent: who am I, 401": {map[string]http.HandlerFunc{"GET /v1/me": challenge}, http.MethodPost, path + "/edit", http.StatusSeeOther,
+			"return=%2Finvoices%2F" + id.String()},
+		"change sent: unavailable": {map[string]http.HandlerFunc{"GET /v1/me": me, "GET /v1/supplier-invoices/": unavailable}, http.MethodPost, path + "/edit",
+			http.StatusServiceUnavailable, ""},
 		"decision: who am I, 401": {map[string]http.HandlerFunc{"GET /v1/me": challenge}, http.MethodPost, path + "/recommendations/" + id.String() + "/decide", http.StatusSeeOther,
 			"return=%2Finvoices%2F" + id.String() + "%2Frecommendations%2F" + id.String()},
 	} {
@@ -143,6 +151,22 @@ func TestInvoicesUnavailable(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestChangeInvoiceUnavailable: an API that cannot take a change makes
+// the page unavailable, never the form as if it were refused.
+func TestChangeInvoiceUnavailable(t *testing.T) {
+	id := uuid.New()
+	_, b, token := stubStack(t, &stubbed{routes: map[string]http.HandlerFunc{
+		"GET /v1/me":                   answer(200, meJSON(permReadInvoices, permCaptureInvoices)),
+		"GET /v1/supplier-invoices/":   answer(200, invoiceJSON(id)),
+		"PATCH /v1/supplier-invoices/": answer(503, problemJSON(503, "platform.unavailable")),
+	}})
+	v := url.Values{"csrf_token": {token}, "if_match": {`"3"`}, "idempotency_key": {uuid.NewString()}, "supplier_reference": {"R-10"},
+		"invoice_date": {"2026-03-10"}, "tax_date": {"2026-03-11"}, "gross_amount": {"1.00"}, "tax_amount": {"0.00"}, "item_quantity": {"1"},
+		"item_amount": {"1.00"}, "was_supplier_reference": {"R-9"}, "was_invoice_date": {"2026-03-10"}, "was_tax_date": {"2026-03-11"},
+		"was_gross_amount": {"1.00"}, "was_tax_amount": {"0.00"}, "was_item_quantity": {"1"}, "was_item_amount": {"1.00"}}
+	status(t, "the change unavailable", b.do(http.MethodPost, editPath(id), v), http.StatusServiceUnavailable)
 }
 
 // TestReasonError: a reason is required where an action needs one, and

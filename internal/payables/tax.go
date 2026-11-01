@@ -377,7 +377,8 @@ func sameSide(was, tax, recoverable money.Minor) bool {
 }
 
 // mismatch refuses an invoice whose stated tax is beyond the tolerance
-// (422 payables.tax_mismatch), naming each code's calculated tax.
+// (422 payables.tax_mismatch), naming each code's calculated tax in its
+// detail and as its figures (calculated_tax, ADR-0052 decision D3).
 func mismatch(v Invoice, items []tax.ComponentTax, charged money.Minor) error {
 	byCode := map[string]money.Minor{}
 	var codes []string
@@ -390,13 +391,20 @@ func mismatch(v Invoice, items []tax.ComponentTax, charged money.Minor) error {
 		}
 		byCode[c.Code] += c.Tax
 	}
+	in := func(m money.Minor) problem.Money {
+		return problem.Money{Amount: m.Plain(v.Exponent), Currency: v.Currency}
+	}
+	figures := &problem.CalculatedTax{Stated: in(v.Tax), Calculated: in(charged), Codes: make([]problem.CodeTax, len(codes))}
 	parts := make([]string, len(codes))
 	for i, c := range codes {
 		parts[i] = c + " " + byCode[c].Plain(v.Exponent)
+		figures.Codes[i] = problem.CodeTax{TaxCode: c, Tax: in(byCode[c])}
 	}
-	return problem.Unprocessable("payables.tax_mismatch", fmt.Sprintf("The invoice states tax of %s %s; the tax calculated at its codes' rates is %s (%s), "+
+	p := problem.Unprocessable("payables.tax_mismatch", fmt.Sprintf("The invoice states tax of %s %s; the tax calculated at its codes' rates is %s (%s), "+
 		"beyond the company's tolerance or with no component to take the difference.", v.Tax.Plain(v.Exponent), v.Currency, charged.Plain(v.Exponent), strings.Join(parts, ", ")),
 		problem.FieldError{Field: "tax_amount", Code: "tax_mismatch", Message: "the tax the codes' rates give: " + charged.Plain(v.Exponent)})
+	p.CalculatedTax = figures
+	return p
 }
 
 // taxPostings adds an invoice's tax lines and items to out: per code and

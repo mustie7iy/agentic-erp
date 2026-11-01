@@ -32,6 +32,29 @@ type FieldError struct {
 	Message string `json:"message"`
 }
 
+// Money is an amount as the API writes it: a decimal string with the
+// currency's minor-unit digits, and the currency.
+type Money struct {
+	Amount   string `json:"amount"`
+	Currency string `json:"currency"`
+}
+
+// CalculatedTax are the figures of a supplier invoice whose stated tax its
+// codes' rates do not bear out (payables.tax_mismatch): carried as fields
+// so a client shows them in its own words, which it may not do with the
+// English detail (ADR-0052, decision D3).
+type CalculatedTax struct {
+	Stated     Money     `json:"stated"`
+	Calculated Money     `json:"calculated"`
+	Codes      []CodeTax `json:"codes"`
+}
+
+// CodeTax is the tax one code's rates give.
+type CodeTax struct {
+	TaxCode string `json:"tax_code"`
+	Tax     Money  `json:"tax"`
+}
+
 // Problem is an RFC 9457 problem document.
 type Problem struct {
 	Type     string       `json:"type"`
@@ -42,6 +65,9 @@ type Problem struct {
 	Instance string       `json:"instance,omitempty"`
 	TraceID  string       `json:"trace_id,omitempty"`
 	Errors   []FieldError `json:"errors,omitempty"`
+	// CalculatedTax are payables.tax_mismatch's figures (ADR-0052,
+	// decision D3), set by that problem alone.
+	CalculatedTax *CalculatedTax `json:"calculated_tax,omitempty"`
 
 	// RetryAfter, in seconds, is sent as the Retry-After header when set.
 	RetryAfter int `json:"-"`
