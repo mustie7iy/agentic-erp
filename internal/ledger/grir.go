@@ -246,7 +246,7 @@ func (p Postings) prepareGRIR(ctx context.Context, tx pgx.Tx, in Posting) (grirP
 		return g, err
 	}
 	g.rates.expTC, g.rates.expLC, g.rates.expGC = exps[in.Currency], exps[g.le.LocalCurrency], exps[g.group]
-	if g.rates.toLC, g.rates.toGC, err = postingRates(ctx, tx, in.Currency, g.le.LocalCurrency, g.group, in.PostingDate); err != nil {
+	if g.rates.toLC, g.rates.toGC, err = postingRates(ctx, tx, in.Currency, g.le.LocalCurrency, g.group, in.PostingDate, nil); err != nil {
 		return g, err
 	}
 	if g.grir, err = determined(ctx, g.le.ID, "gr_ir", "ledger.no_gr_ir_account"); err != nil {

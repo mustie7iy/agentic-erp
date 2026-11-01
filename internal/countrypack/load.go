@@ -210,3 +210,37 @@ func Load(fsys fs.FS, dir string) (*Pack, []config.Finding, error) {
 	}
 	return p, findings, nil
 }
+
+// AddUnreleased adds the packs in fsys (cc/version directories) as they
+// are, hashed but not released: for a demonstration or a test of a pack
+// not yet released, such as the walkthrough's illustrative return
+// (ADR-0049 §11). Production refuses them (ERP_PACKS_DIR). A pack already
+// in the library, or invalid, is refused; each warns that it is not
+// released.
+func (l *Library) AddUnreleased(fsys fs.FS) error {
+	dirs, err := packDirs(fsys)
+	if err != nil {
+		return err
+	}
+	for _, dir := range dirs {
+		if _, dup := l.packs[dir]; dup {
+			return fmt.Errorf("countrypack: pack %s is released; an unreleased pack takes another version", dir)
+		}
+		h, err := Hash(fsys, dir)
+		if err != nil {
+			return err
+		}
+		p, warnings, err := Load(fsys, dir)
+		if err != nil {
+			return err
+		}
+		l.packs[dir], l.hashes[dir] = p, h
+		l.Warnings = append(l.Warnings, config.Finding{Severity: config.SevWarning, Path: dir,
+			Message: "not released: added from a directory for a demonstration or a test; production refuses it"})
+		for _, w := range warnings {
+			w.Path = dir + "/" + w.Path
+			l.Warnings = append(l.Warnings, w)
+		}
+	}
+	return nil
+}

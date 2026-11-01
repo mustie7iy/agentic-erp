@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -152,6 +153,10 @@ type Config struct {
 	// Packs are the country packs the API lists and applies (ADR-0048);
 	// nil: those embedded in the image (packs.FS). Tests release their own.
 	Packs fs.FS
+	// UnreleasedPacks is a directory of further packs taken as they are
+	// (ERP_PACKS_DIR, refused in production): the walkthrough's
+	// illustrative return (ADR-0049 §11). Empty: none.
+	UnreleasedPacks string
 }
 
 // certifications bounds agents' autonomy by their type's certification
@@ -201,7 +206,8 @@ func New(cfg Config) (http.Handler, error) {
 		analyticsAPI:   analyticsEndpoints(cfg, loopback).Init(),
 		cashAPI:        Cash(cfg),
 		controllingAPI: &controlling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{}},
-		taxfilingAPI:   &taxfiling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now},
+		taxfilingAPI: &taxfiling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now,
+			Items: ledger.TaxItems{}, Packs: library},
 	}
 	return httpapi.New(h, httpapi.Pipeline{
 		Pool: cfg.Pool, AppRole: cfg.AppRole, Verifier: cfg.Verifier, Limits: cfg.Limits, RequestTimeout: cfg.RequestTimeout,
@@ -248,6 +254,9 @@ func countryPacks(cfg Config) (*countrypack.Library, error) {
 		fsys = packs.FS
 	}
 	lib, err := countrypack.LoadAll(fsys)
+	if err == nil && cfg.UnreleasedPacks != "" {
+		err = lib.AddUnreleased(os.DirFS(cfg.UnreleasedPacks))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("app: country packs: %w", err)
 	}

@@ -26,8 +26,14 @@ const baselineItems = 951
 // product owner approved on 2026-10-31, the finish line of the first pilot. It
 // must match exactly, so a leaf joining or leaving the pilot scope shows in the
 // diff; a leaf's pilot value starts with the product owner's decision (po:),
-// which TestTrackerPilotScope refuses a value without.
-const pilotItems = 72
+// which TestTrackerPilotScope refuses a value without. 73 since the leaf
+// loading SAP's foreign-currency open items was split in two, its GR/IR
+// positions apart (fxopen, 2026-11-01), within the same decision. 75 since
+// batch 31: a leaf split from a pilot leaf inherits its tag, so the tax
+// registration number formats split from T61g joined (74), and the
+// foreign-currency open item that HSL 0 drops from the pilot migration
+// (review:batch31) joined as a data-correctness gap in its path (75).
+const pilotItems = 75
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

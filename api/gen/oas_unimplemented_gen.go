@@ -13,6 +13,28 @@ type UnimplementedHandler struct{}
 
 var _ Handler = UnimplementedHandler{}
 
+// AcceptBankStatementGap implements acceptBankStatementGap operation.
+//
+// A person accepts the gap of a statement in `gap` (its opening balance is not the closing balance of
+// the house bank's statement before it) without the missing statement, with a reason (ADR-0047
+// Continuity): the statement becomes `imported` and records who accepted it, when and why
+// (`gap_accepted_at`, `gap_accepted_by`, `gap_reason`); once the bank has no other statement in `gap`,
+// its lines post again, by hand (`POST .../lines/{line_no}:post`) or by the next run of the rules
+// (`POST /v1/bank-statements/{id}:match`), which posts what the rules matched while the gap stood. The
+// acceptance posts nothing itself, and the missing statement's bookings stay out of the ledger: the
+// reconciliation report shows what they leave as `unexplained` until a person posts it. One person
+// decides; it is not an approval. People only: agents and integrations are refused (403). A statement
+// not in `gap` (`imported` or `reconciled`) is 409 `payments.statement_not_in_gap`. If the missing
+// statement arrives later, it becomes the previous statement and the balances are compared again:
+// where they meet the statement stays `imported`; where they do not, the new gap stands and the
+// acceptance goes. If-Match is the statement's ETag. Audited, and published as
+// BankStatementGapAccepted. Returns the statement with its lines; the response's ETag is its new one.
+//
+// POST /v1/bank-statements/{id}:acceptGap
+func (UnimplementedHandler) AcceptBankStatementGap(ctx context.Context, req *ReasonInput, params AcceptBankStatementGapParams) (r AcceptBankStatementGapRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // AcceptBankStatementLineProposal implements acceptBankStatementLineProposal operation.
 //
 // A person accepts the line's open proposal by the reconciliation agent (ADR-0047, T49g): the line is
@@ -1516,6 +1538,29 @@ func (UnimplementedHandler) GetSupplierInvoiceDocument(ctx context.Context, para
 	return r, ht.ErrNotImplemented
 }
 
+// GetTaxReturnDraft implements getTaxReturnDraft operation.
+//
+// A draft of a registration's return for one of its periods (ADR-0049 §11, T61h), computed on demand
+// from the tax items no return has reported yet, of the companies the registration covers (its
+// registrant and a tax group's members), dated on or before the period's end; nothing is stored or
+// claimed, so computing it again gives the same draft until items are posted or a return is prepared
+// (T61i). Items dated before the period's start are prior-period items, shown apart in each box and
+// summed against the country pack's threshold (P7). Items of entries migrated from SAP are left out:
+// SAP's returns reported them (ADR-0037). The boxes are the country pack's definition of the
+// registration's `return_type` (`returns.yaml`, of the pack version the registrant's company adopted),
+// in its order, in the registrant's local currency; each selection box drills down to its items
+// (`listTaxReturnDraftItems`). The period must have ended on the registrant's date in its time zone
+// (409 `tax.period_not_ended`); a `period_start` that starts none of the registration's periods is 422
+// `tax.not_a_period`; a pack without the return's definition is 409 `tax.return_undefined`; companies
+// of different local currencies are 409 `tax.return_currency_mixed`. A registration the caller does
+// not see (`listTaxRegistrations`) is not found; one covering a company the caller may not act in is
+// 403 `tax.registration_companies`.
+//
+// GET /v1/tax-registrations/{id}/draft-return
+func (UnimplementedHandler) GetTaxReturnDraft(ctx context.Context, params GetTaxReturnDraftParams) (r GetTaxReturnDraftRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetUpload implements getUpload operation.
 //
 // Returns one upload: `open` until bytes arrive through this API (`received`) or the upload is
@@ -2342,6 +2387,19 @@ func (UnimplementedHandler) ListTaxRegistrations(ctx context.Context, params Lis
 	return r, ht.ErrNotImplemented
 }
 
+// ListTaxReturnDraftItems implements listTaxReturnDraftItems operation.
+//
+// The drill-down of a selection box of a draft return (`getTaxReturnDraft`, ADR-0049 §11, T61h): the
+// unreported tax items of the registration's companies, dated on or before the period's end, that the
+// box selects, each with what it adds to the box, paged in tax date and entry order; the amounts add
+// up to the box's. Refused as `getTaxReturnDraft` is; a box the return does not have, or one computed
+// from other boxes, is 422 `tax.not_a_selection_box`.
+//
+// GET /v1/tax-registrations/{id}/draft-return/items
+func (UnimplementedHandler) ListTaxReturnDraftItems(ctx context.Context, params ListTaxReturnDraftItemsParams) (r ListTaxReturnDraftItemsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListWebhookDeliveries implements listWebhookDeliveries operation.
 //
 // The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:
@@ -2667,18 +2725,29 @@ func (UnimplementedHandler) PostGoodsReceipt(ctx context.Context, req *GoodsRece
 // entity's currency at the average rate of its posting date, exceed the company's
 // `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a
 // closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks
-// someone else's approval (T35). A line on the legal entity's GR/IR account (account determination
-// `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. It posts to
-// every ledger its company keeps as linked entries of one posting group sharing the document number
-// (`posting_group_id`), each period checked open in its ledger, and returns the leading ledger's;
-// `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to those ledgers
-// only (ADR-0045). Output tax (ADR-0049 §7, T61f): a billing system posts its sales here, one entry
-// per sales invoice or a summary per code and jurisdiction, idempotent by its `Idempotency-Key`; each
-// output code's tax lines (in a jurisdiction, where the code levies its lines' subdivision) are the
-// tax its base lines give at the rates of the tax date, within one minor unit per component, or 422
-// `ledger.output_tax_mismatch`; a code with tax lines and no base line is an adjustment of tax alone.
-// Zero-rated and exempt bases carry their codes without tax lines and are recorded as tax items at
-// rate 0. Human-only: agents propose entries by parking them.
+// someone else's approval (T35). A service principal (an integration such as the pilot's billing
+// system) is held to its company's `service_posting_limit` instead, measured the same way (the
+// `manual_entry_approval_limit` for a company without one; 0 when it has neither), and an entry of its
+// above that limit is not refused but parked for a person (ADR-0049 §7, product owner 2026-10-22,
+// T61n): the answer is 200 with the parked entry (`status` `parked`, `created_by_kind` `service`,
+// `limit_exceeded` naming the limit and the debits, each with its currency), its `Location` the parked
+// entry, and nothing is posted and no number drawn; a person posts it with `postParkedJournalEntry`,
+// taking it on, and that is measured against the `manual_entry_approval_limit` as any manual entry is.
+// At or below the limit the entry posts (201) as a person's does. A closed period refuses a service's
+// entry before it is measured, as a person's. A line on the legal entity's GR/IR account (account
+// determination `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it.
+// It posts to every ledger its company keeps as linked entries of one posting group sharing the
+// document number (`posting_group_id`), each period checked open in its ledger, and returns the
+// leading ledger's; `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to
+// those ledgers only (ADR-0045). Output tax (ADR-0049 §7, T61f): a billing system posts its sales
+// here, one entry per sales invoice or a summary per code and jurisdiction, idempotent by its
+// `Idempotency-Key`; each output code's tax lines (in a jurisdiction, where the code levies its lines'
+// subdivision) are the tax its base lines give at the rates of the tax date, within one minor unit per
+// component, or 422 `ledger.output_tax_mismatch`; a code with tax lines and no base line is an
+// adjustment of tax alone. Zero-rated and exempt bases carry their codes without tax lines and are
+// recorded as tax items at rate 0. People and service principals post here; an agent never does,
+// whatever its level or permissions (403 `identity.agent_not_allowed`; below autonomy level 2 it is
+// refused for its autonomy first), and proposes entries by parking them.
 //
 // POST /v1/journal-entries
 func (UnimplementedHandler) PostJournalEntry(ctx context.Context, req *JournalEntryCreate, params PostJournalEntryParams) (r PostJournalEntryRes, _ error) {

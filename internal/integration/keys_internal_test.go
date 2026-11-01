@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -11,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
 
 // refusingBlocks is the partner port of a loader test: it refuses every
@@ -88,5 +90,56 @@ func TestOpenItemCountVendorKeyFails(t *testing.T) {
 	rc := &reconciler{e: &Endpoints{Suppliers: failingSuppliers{err: down}, Reports: itemCounts{partner: uuid.New()}}, vendorOf: map[uuid.UUID]string{}}
 	if err := rc.openPayableItems(context.Background(), companyScope{cc: "2000"}, nil); !errors.Is(err, down) {
 		t.Errorf("open payable items: got %v, want the failed read", err)
+	}
+}
+
+// foreignItems is the reports port of a reconciler test: it reports the
+// open items of one partner in USD.
+type foreignItems struct {
+	Reports
+	partner uuid.UUID
+	sum     money.Minor
+}
+
+func (r foreignItems) OpenForeignItems(context.Context, uuid.UUID, int16) (map[uuid.UUID]map[string]money.Minor, error) {
+	return map[uuid.UUID]map[string]money.Minor{r.partner: {"USD": r.sum}}, nil
+}
+
+// TestForeignItemsVendorKeyFails: the open items in a foreign currency of
+// a partner that is no migrated vendor are named by the supplier's name,
+// so a failed read of it fails the reconciliation.
+func TestForeignItemsVendorKeyFails(t *testing.T) {
+	down := errors.New("down")
+	rc := &reconciler{e: &Endpoints{Suppliers: failingSuppliers{err: down}, Reports: foreignItems{partner: uuid.New(), sum: -100}},
+		ext: &sap.Extract{}, vendorOf: map[uuid.UUID]string{}}
+	if err := rc.foreignItems(context.Background(), companyScope{cc: "2000", cur: "EUR"}); !errors.Is(err, down) {
+		t.Errorf("open items in USD: got %v, want the failed read", err)
+	}
+}
+
+// TestForeignItemsDiffer: a vendor's open USD items that differ are listed
+// in USD under "USD items of vendor <LIFNR>" (without its leading zeros) and fail both checks, and a
+// document amount that does not parse is refused.
+func TestForeignItemsDiffer(t *testing.T) {
+	vendor := uuid.New()
+	line := func(docln, wsl string) sap.ACDOCA {
+		return sap.ACDOCA{RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000011", DOCLN: docln, RACCT: "0000211000", LIFNR: "0000000001", RWCUR: "USD", WSL: wsl}
+	}
+	rc := &reconciler{e: &Endpoints{Reports: foreignItems{partner: vendor, sum: -9000}},
+		ext: &sap.Extract{ACDOCA: []sap.ACDOCA{line("000001", "-100.00"), line("000002", "x")}}, t: target{exponents: map[string]int{"USD": 2, "EUR": 2}},
+		vendorOf: map[uuid.UUID]string{vendor: "1"}, recon: map[string]bool{"2000/0000211000": true}}
+	if err := rc.foreignItems(context.Background(), companyScope{cc: "2000", cur: "EUR"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := fmt.Sprint(rc.rec.Diffs), "[{2000 USD items of vendor 1 -100.00 USD -90.00 USD}]"; got != want {
+		t.Errorf("differences: got %s, want %s", got, want)
+	}
+	for i, want := range []string{"Open items in USD total -100.00 USD -90.00 USD false", "Open items in USD: vendors with differences 0 1 false"} {
+		if c := rc.rec.Checks[i]; fmt.Sprint(c.Name, " ", c.SAP, " ", c.Platform, " ", c.Pass) != want {
+			t.Errorf("check %d: got %v, want %s", i, c, want)
+		}
+	}
+	if len(rc.rec.Issues) != 1 || rc.rec.Issues[0].Key != "2000/2026/0100000011/000002" {
+		t.Errorf("issues: got %v, want the document amount that does not parse refused", rc.rec.Issues)
 	}
 }

@@ -118,18 +118,48 @@ later year's run clears it; this needs SAP's clearing date and the clearing
 document's fiscal year (AUGDT, AUGGJ, for an SAP specialist to confirm) in
 the extract (ADR-0034 As built, tracker).
 
-In either mode every migrated line posts in company code currency (ACDOCA HSL),
-so the quality gate refuses an open item whose document currency (ACDOCA RWCUR,
-SAP's transaction currency; its amount, WSL, is carried and not yet read) is
-not the company's: an open vendor item, an open down payment or a line of an
-open GR/IR position, named by its document and line. Loaded in local currency
-only, it could not be cleared in its own currency (`ledger.mixed_items`).
-Foreign-currency open items are not migrated yet; loading them in their
-document currency is decided (product owner, 2026-10-31) and tracked. An open item without a
-document currency is refused too, rather than assumed to be in the company's
-(an OData extract does not carry RWCUR yet). Lines SAP reports as cleared
-(AUGBL), lines of no amount and lines on other accounts are not checked
-(ADR-0005, As built).
+A document whose lines are all in one document currency (ACDOCA RWCUR, SAP's
+transaction currency) other than the company's posts in that currency, as the
+platform posts a document of its own in it (product owner, 2026-10-31): each
+line's document amount (WSL) is its amount and its company code amount (HSL)
+is kept as its local amount, unconverted; the entry records the rate SAP's
+amounts imply (the company code amount over the document amount of the line
+with the largest document amount), since the extract does not carry the
+document's own rate. So an open vendor item or open down payment in USD of a
+CAD company is a USD item: a USD payment or final invoice clears it, a payment
+run in USD pays it, and a revaluation values it as one posted on the platform,
+while the trial balance and the open payables stay SAP's in CAD. A down
+payment's request is in its document currency, and its tax is checked in it,
+on the assumption that SAP calculates it there (for an SAP specialist to
+confirm). Documents SAP cleared together post in one currency:
+in `documents` mode the documents cleared together (directly or through
+others) post in the currency an earlier run posted those of them it loaded in,
+else in their document currency when they share one, and a set that mixes
+currencies (a USD invoice paid in CAD) posts in company currency as before. A
+document that would have to clear with an earlier run's documents in a
+currency it is not in (a USD item loaded open, then paid in CAD) is refused by
+the quality gate. In `balances` mode the documents holding an open
+item in a foreign currency load whole on their own beside the opening entry,
+as down payments do, and the others are part of the opening balances.
+
+The quality gate refuses, naming the document and line: an open item without a
+document currency (an OData extract does not carry RWCUR and WSL until they are
+mapped against the pilot system's `$metadata`; they then load as a file
+extract's do), rather than assume the company's; an open item whose document's
+lines are not all in its currency, or whose document SAP cleared together with
+documents in another currency; a line of an open GR/IR position in a foreign
+currency, which is not migrated yet (tracked); and, for a document that posts
+in a foreign currency, a currency the platform does not know, a document amount
+that does not parse, a line with a document amount and no company code amount
+or the two of opposite signs, a vendor line without a document amount, a
+document that does not balance in its currency or whose document amounts add
+up to more than an amount holds, and a rate an entry cannot record (zero at
+its 12 decimals, or 10^16 and above). A line with a company code amount and no
+document amount (an exchange difference SAP posted in local currency) is
+loaded as one (ADR-0005, As built). A company whose payables hold such items
+values its payables account at period end (`fx_valuation.accounts`, with an
+adjustment account; ADR-0042), or its revaluation is refused naming the
+account.
 
 ## Reconciliation controls
 
@@ -146,6 +176,10 @@ They must be equal.
   the open payables net to zero and the count shows
 - Open down payments (special G/L A), in total and per vendor, where either
   side has any (T72c)
+- Open items in each foreign document currency (ordinary items and down
+  payments), in total and per vendor, in that currency, where either side has
+  any: the controls in company currency cannot tell an item loaded with the
+  wrong document amount
 - Vendor count per company code
 - Each vendor's payments bank account: SAP's first LFBK row as it loads
   (scheme, bank country, Canadian routing, last four characters) against the

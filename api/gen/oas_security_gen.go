@@ -52,6 +52,7 @@ func findAuthorization(h http.Header, prefix string) (string, bool) {
 
 // operationRolesOidc is a private map storing roles per operation.
 var operationRolesOidc = map[string][]string{
+	AcceptBankStatementGapOperation:           []string{},
 	AcceptBankStatementLineProposalOperation:  []string{},
 	AcceptMemoRecordProposalOperation:         []string{},
 	ActivateChangeRequestOperation:            []string{},
@@ -183,6 +184,7 @@ var operationRolesOidc = map[string][]string{
 	GetSodRuleOperation:                       []string{},
 	GetSupplierInvoiceOperation:               []string{},
 	GetSupplierInvoiceDocumentOperation:       []string{},
+	GetTaxReturnDraftOperation:                []string{},
 	GetUploadOperation:                        []string{},
 	GetWebhookDeliveryOperation:               []string{},
 	GetWebhookSubscriptionOperation:           []string{},
@@ -260,6 +262,7 @@ var operationRolesOidc = map[string][]string{
 	ListSupplierInvoicesOperation:             []string{},
 	ListTaxPeriodsOperation:                   []string{},
 	ListTaxRegistrationsOperation:             []string{},
+	ListTaxReturnDraftItemsOperation:          []string{},
 	ListWebhookDeliveriesOperation:            []string{},
 	ListWebhookSubscriptionsOperation:         []string{},
 	LockCostCenterOperation:                   []string{},

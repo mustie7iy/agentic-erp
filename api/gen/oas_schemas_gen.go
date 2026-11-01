@@ -10,6 +10,70 @@ import (
 	"github.com/google/uuid"
 )
 
+type AcceptBankStatementGapBadRequest Problem
+
+func (*AcceptBankStatementGapBadRequest) acceptBankStatementGapRes() {}
+
+type AcceptBankStatementGapForbidden Problem
+
+func (*AcceptBankStatementGapForbidden) acceptBankStatementGapRes() {}
+
+type AcceptBankStatementGapNotFound Problem
+
+func (*AcceptBankStatementGapNotFound) acceptBankStatementGapRes() {}
+
+// AcceptBankStatementGapOKHeaders wraps BankStatement with response headers.
+type AcceptBankStatementGapOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           BankStatement
+}
+
+// GetETag returns the value of ETag.
+func (s *AcceptBankStatementGapOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AcceptBankStatementGapOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *AcceptBankStatementGapOKHeaders) GetResponse() BankStatement {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *AcceptBankStatementGapOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AcceptBankStatementGapOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AcceptBankStatementGapOKHeaders) SetResponse(val BankStatement) {
+	s.Response = val
+}
+
+func (*AcceptBankStatementGapOKHeaders) acceptBankStatementGapRes() {}
+func (*AcceptBankStatementGapOKHeaders) matchBankStatementRes()     {}
+
+type AcceptBankStatementGapPreconditionFailed Problem
+
+func (*AcceptBankStatementGapPreconditionFailed) acceptBankStatementGapRes() {}
+
+type AcceptBankStatementGapPreconditionRequired Problem
+
+func (*AcceptBankStatementGapPreconditionRequired) acceptBankStatementGapRes() {}
+
+type AcceptBankStatementGapUnprocessableEntity Problem
+
+func (*AcceptBankStatementGapUnprocessableEntity) acceptBankStatementGapRes() {}
+
 type AcceptBankStatementLineProposalBadRequest Problem
 
 func (*AcceptBankStatementLineProposalBadRequest) acceptBankStatementLineProposalRes() {}
@@ -4643,13 +4707,14 @@ type BankStatement struct {
 	// The house bank's statement before it, whose closing balance its opening balance was compared with;
 	// absent for the bank's first.
 	PreviousStatementID OptUUID `json:"previous_statement_id"`
-	// `imported`; `gap` when its opening balance is not the previous statement's closing balance
-	// (automatic posting stops for the bank); `reconciled` once every line of it and of the bank's
-	// statements before it is posted or excluded and its closing balance, less the lines excluded and
-	// those posted after its closing date, is the ledger's balance of the main bank account on that date
-	// (T49h): set once, never undone by the server, and its lines are then decided for good. Open
-	// enumeration: clients must accept and preserve values not listed here; values may be added within
-	// /v1.
+	// `imported`; `gap` when its opening balance is not the previous statement's closing balance: the
+	// bank's lines are not posted, automatically or by hand (409 `payments.statement_gap`), until the
+	// missing statement arrives or a person accepts the gap (`:acceptGap`, which makes it `imported`);
+	// `reconciled` once every line of it and of the bank's statements before it is posted or excluded and
+	// its closing balance, less the lines excluded and those posted after its closing date, is the
+	// ledger's balance of the main bank account on that date (T49h): set once, never undone by the server,
+	// and its lines are then decided for good. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
 	Status string `json:"status"`
 	// The booked entries, in the bank's order; absent in lists.
 	Lines []BankStatementLine `json:"lines"`
@@ -4658,6 +4723,14 @@ type BankStatement struct {
 	// Whose action reconciled it: the person, integration or agent whose posting, exclusion or run of the
 	// rules left nothing unexplained.
 	ReconciledBy OptUUID `json:"reconciled_by"`
+	// When a person accepted the statement's gap without the missing statement
+	// (`POST /v1/bank-statements/{id}:acceptGap`); absent when none did, or once the missing statement
+	// arrived and a new gap stands.
+	GapAcceptedAt OptDateTime `json:"gap_accepted_at"`
+	// The person who accepted the gap; absent with `gap_accepted_at`.
+	GapAcceptedBy OptUUID `json:"gap_accepted_by"`
+	// Why the person accepted the gap; absent with `gap_accepted_at`.
+	GapReason OptString `json:"gap_reason"`
 }
 
 // GetID returns the value of ID.
@@ -4790,6 +4863,21 @@ func (s *BankStatement) GetReconciledBy() OptUUID {
 	return s.ReconciledBy
 }
 
+// GetGapAcceptedAt returns the value of GapAcceptedAt.
+func (s *BankStatement) GetGapAcceptedAt() OptDateTime {
+	return s.GapAcceptedAt
+}
+
+// GetGapAcceptedBy returns the value of GapAcceptedBy.
+func (s *BankStatement) GetGapAcceptedBy() OptUUID {
+	return s.GapAcceptedBy
+}
+
+// GetGapReason returns the value of GapReason.
+func (s *BankStatement) GetGapReason() OptString {
+	return s.GapReason
+}
+
 // SetID sets the value of ID.
 func (s *BankStatement) SetID(val uuid.UUID) {
 	s.ID = val
@@ -4918,6 +5006,21 @@ func (s *BankStatement) SetReconciledAt(val OptDateTime) {
 // SetReconciledBy sets the value of ReconciledBy.
 func (s *BankStatement) SetReconciledBy(val OptUUID) {
 	s.ReconciledBy = val
+}
+
+// SetGapAcceptedAt sets the value of GapAcceptedAt.
+func (s *BankStatement) SetGapAcceptedAt(val OptDateTime) {
+	s.GapAcceptedAt = val
+}
+
+// SetGapAcceptedBy sets the value of GapAcceptedBy.
+func (s *BankStatement) SetGapAcceptedBy(val OptUUID) {
+	s.GapAcceptedBy = val
+}
+
+// SetGapReason sets the value of GapReason.
+func (s *BankStatement) SetGapReason(val OptString) {
+	s.GapReason = val
 }
 
 // BankStatementHeaders wraps BankStatement with response headers.
@@ -9291,6 +9394,7 @@ func (s *ConflictHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*ConflictHeaders) acceptBankStatementGapRes()           {}
 func (*ConflictHeaders) acceptBankStatementLineProposalRes()  {}
 func (*ConflictHeaders) acceptMemoRecordProposalRes()         {}
 func (*ConflictHeaders) activateChangeRequestRes()            {}
@@ -9363,10 +9467,12 @@ func (*ConflictHeaders) excludeBankStatementLineRes()         {}
 func (*ConflictHeaders) getAnalyticsModelRes()                {}
 func (*ConflictHeaders) getBankFileContentRes()               {}
 func (*ConflictHeaders) getPurchaseOrderDocumentRes()         {}
+func (*ConflictHeaders) getTaxReturnDraftRes()                {}
 func (*ConflictHeaders) grantRolePermissionRes()              {}
 func (*ConflictHeaders) holdSupplierInvoiceRes()              {}
 func (*ConflictHeaders) importBankStatementsRes()             {}
 func (*ConflictHeaders) listTaxPeriodsRes()                   {}
+func (*ConflictHeaders) listTaxReturnDraftItemsRes()          {}
 func (*ConflictHeaders) lockCostCenterRes()                   {}
 func (*ConflictHeaders) lockFiscalPeriodRes()                 {}
 func (*ConflictHeaders) lockPlanCategoryRes()                 {}
@@ -16282,6 +16388,22 @@ func (s *GetSupplierInvoiceOKHeaders) SetResponse(val SupplierInvoice) {
 
 func (*GetSupplierInvoiceOKHeaders) getSupplierInvoiceRes() {}
 
+type GetTaxReturnDraftBadRequest Problem
+
+func (*GetTaxReturnDraftBadRequest) getTaxReturnDraftRes() {}
+
+type GetTaxReturnDraftForbidden Problem
+
+func (*GetTaxReturnDraftForbidden) getTaxReturnDraftRes() {}
+
+type GetTaxReturnDraftNotFound Problem
+
+func (*GetTaxReturnDraftNotFound) getTaxReturnDraftRes() {}
+
+type GetTaxReturnDraftUnprocessableEntity Problem
+
+func (*GetTaxReturnDraftUnprocessableEntity) getTaxReturnDraftRes() {}
+
 type GetUploadBadRequest Problem
 
 func (*GetUploadBadRequest) getUploadRes() {}
@@ -21370,6 +21492,22 @@ type ListTaxRegistrationsForbidden Problem
 
 func (*ListTaxRegistrationsForbidden) listTaxRegistrationsRes() {}
 
+type ListTaxReturnDraftItemsBadRequest Problem
+
+func (*ListTaxReturnDraftItemsBadRequest) listTaxReturnDraftItemsRes() {}
+
+type ListTaxReturnDraftItemsForbidden Problem
+
+func (*ListTaxReturnDraftItemsForbidden) listTaxReturnDraftItemsRes() {}
+
+type ListTaxReturnDraftItemsNotFound Problem
+
+func (*ListTaxReturnDraftItemsNotFound) listTaxReturnDraftItemsRes() {}
+
+type ListTaxReturnDraftItemsUnprocessableEntity Problem
+
+func (*ListTaxReturnDraftItemsUnprocessableEntity) listTaxReturnDraftItemsRes() {}
+
 type ListWebhookDeliveriesBadRequest Problem
 
 func (*ListWebhookDeliveriesBadRequest) listWebhookDeliveriesRes() {}
@@ -21607,45 +21745,6 @@ func (*MatchBankStatementLineUnprocessableEntity) matchBankStatementLineRes() {}
 type MatchBankStatementNotFound Problem
 
 func (*MatchBankStatementNotFound) matchBankStatementRes() {}
-
-// MatchBankStatementOKHeaders wraps BankStatement with response headers.
-type MatchBankStatementOKHeaders struct {
-	ETag               OptString
-	IdempotentReplayed OptBool
-	Response           BankStatement
-}
-
-// GetETag returns the value of ETag.
-func (s *MatchBankStatementOKHeaders) GetETag() OptString {
-	return s.ETag
-}
-
-// GetIdempotentReplayed returns the value of IdempotentReplayed.
-func (s *MatchBankStatementOKHeaders) GetIdempotentReplayed() OptBool {
-	return s.IdempotentReplayed
-}
-
-// GetResponse returns the value of Response.
-func (s *MatchBankStatementOKHeaders) GetResponse() BankStatement {
-	return s.Response
-}
-
-// SetETag sets the value of ETag.
-func (s *MatchBankStatementOKHeaders) SetETag(val OptString) {
-	s.ETag = val
-}
-
-// SetIdempotentReplayed sets the value of IdempotentReplayed.
-func (s *MatchBankStatementOKHeaders) SetIdempotentReplayed(val OptBool) {
-	s.IdempotentReplayed = val
-}
-
-// SetResponse sets the value of Response.
-func (s *MatchBankStatementOKHeaders) SetResponse(val BankStatement) {
-	s.Response = val
-}
-
-func (*MatchBankStatementOKHeaders) matchBankStatementRes() {}
 
 type MatchBankStatementPreconditionFailed Problem
 
@@ -23292,9 +23391,10 @@ type MigrationDiff struct {
 	// What differs: an account number, `vendor <LIFNR>`, `down payments of vendor <LIFNR>`,
 	// `partner <id> (<name>)` or `down payments of partner <id> (<name>)` (a platform supplier that is no
 	// migrated vendor, by its id and name), `bank account of vendor <LIFNR>`,
-	// `order item <EBELN>/<EBELP>`, `GR/IR of order item <EBELN>/<EBELP>`, or
-	// `open items of vendor <LIFNR>` or `open items of partner <id> (<name>)` (the number of open payable
-	// items).
+	// `order item <EBELN>/<EBELP>`, `GR/IR of order item <EBELN>/<EBELP>`, `open items of vendor <LIFNR>`
+	// or `open items of partner <id> (<name>)` (the number of open payable items), or
+	// `<currency> items of vendor <LIFNR>` or `<currency> items of partner <id> (<name>)` (the open items
+	// in a foreign document currency, in it).
 	Key string `json:"key"`
 	// SAP's value: an amount with its currency code (`1250.00 EUR`), a quantity, a count of open items, a
 	// GR/IR position as its balance and quantity (`750.00 EUR, quantity 5`), or a bank account as the load
@@ -27347,6 +27447,52 @@ func (o OptOperationResult) Or(d OperationResult) OperationResult {
 	return d
 }
 
+// NewOptParkedEntryLimit returns new OptParkedEntryLimit with value set to v.
+func NewOptParkedEntryLimit(v ParkedEntryLimit) OptParkedEntryLimit {
+	return OptParkedEntryLimit{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptParkedEntryLimit is optional ParkedEntryLimit.
+type OptParkedEntryLimit struct {
+	Value ParkedEntryLimit
+	Set   bool
+}
+
+// IsSet returns true if OptParkedEntryLimit was set.
+func (o OptParkedEntryLimit) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptParkedEntryLimit) Reset() {
+	var v ParkedEntryLimit
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptParkedEntryLimit) SetTo(v ParkedEntryLimit) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptParkedEntryLimit) Get() (v ParkedEntryLimit, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptParkedEntryLimit) Or(d ParkedEntryLimit) ParkedEntryLimit {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptPartnerSummary returns new OptPartnerSummary with value set to v.
 func NewOptPartnerSummary(v PartnerSummary) OptPartnerSummary {
 	return OptPartnerSummary{
@@ -28164,6 +28310,63 @@ type ParkJournalEntryUnprocessableEntity Problem
 
 func (*ParkJournalEntryUnprocessableEntity) parkJournalEntryRes() {}
 
+// Why the ERP parked an entry instead of posting it (ADR-0049 §7, T61n): a service principal (an
+// integration such as a billing system) posted it with `postJournalEntry`, and its debits, converted
+// exactly into its company's currency at the average rate of its posting date, exceeded the company's
+// `service_posting_limit` (its `manual_entry_approval_limit` when it has none). The figures are the
+// ones measured when it was parked and never change, also when a person changes the entry afterwards.
+// Ref: #/components/schemas/ParkedEntryLimit
+type ParkedEntryLimit struct {
+	// The limit the entry exceeded. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Kind   string `json:"kind"`
+	Debits Money  `json:"debits"`
+	Limit  Money  `json:"limit"`
+	// The reason in words: the debits and the limit, each with its currency, and, for an entry in another
+	// currency than its company's, that the debits were converted at the average rate of its posting date.
+	Detail string `json:"detail"`
+}
+
+// GetKind returns the value of Kind.
+func (s *ParkedEntryLimit) GetKind() string {
+	return s.Kind
+}
+
+// GetDebits returns the value of Debits.
+func (s *ParkedEntryLimit) GetDebits() Money {
+	return s.Debits
+}
+
+// GetLimit returns the value of Limit.
+func (s *ParkedEntryLimit) GetLimit() Money {
+	return s.Limit
+}
+
+// GetDetail returns the value of Detail.
+func (s *ParkedEntryLimit) GetDetail() string {
+	return s.Detail
+}
+
+// SetKind sets the value of Kind.
+func (s *ParkedEntryLimit) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetDebits sets the value of Debits.
+func (s *ParkedEntryLimit) SetDebits(val Money) {
+	s.Debits = val
+}
+
+// SetLimit sets the value of Limit.
+func (s *ParkedEntryLimit) SetLimit(val Money) {
+	s.Limit = val
+}
+
+// SetDetail sets the value of Detail.
+func (s *ParkedEntryLimit) SetDetail(val string) {
+	s.Detail = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/ParkedJournalEntry
 type ParkedJournalEntry struct {
@@ -28219,7 +28422,8 @@ type ParkedJournalEntry struct {
 	// Fiscal year of the journal entry, set with `journal_entry_id`.
 	JournalFiscalYear OptInt32 `json:"journal_fiscal_year"`
 	// The lines, balancing to zero.
-	Lines []ParkedJournalLine `json:"lines"`
+	Lines         []ParkedJournalLine `json:"lines"`
+	LimitExceeded OptParkedEntryLimit `json:"limit_exceeded"`
 }
 
 // GetID returns the value of ID.
@@ -28342,6 +28546,11 @@ func (s *ParkedJournalEntry) GetLines() []ParkedJournalLine {
 	return s.Lines
 }
 
+// GetLimitExceeded returns the value of LimitExceeded.
+func (s *ParkedJournalEntry) GetLimitExceeded() OptParkedEntryLimit {
+	return s.LimitExceeded
+}
+
 // SetID sets the value of ID.
 func (s *ParkedJournalEntry) SetID(val uuid.UUID) {
 	s.ID = val
@@ -28462,6 +28671,11 @@ func (s *ParkedJournalEntry) SetLines(val []ParkedJournalLine) {
 	s.Lines = val
 }
 
+// SetLimitExceeded sets the value of LimitExceeded.
+func (s *ParkedJournalEntry) SetLimitExceeded(val OptParkedEntryLimit) {
+	s.LimitExceeded = val
+}
+
 // ParkedJournalEntryHeaders wraps ParkedJournalEntry with response headers.
 type ParkedJournalEntryHeaders struct {
 	ETag               OptString
@@ -28511,6 +28725,7 @@ func (s *ParkedJournalEntryHeaders) SetResponse(val ParkedJournalEntry) {
 }
 
 func (*ParkedJournalEntryHeaders) parkJournalEntryRes() {}
+func (*ParkedJournalEntryHeaders) postJournalEntryRes() {}
 
 // One page of parked journal entries.
 // Ref: #/components/schemas/ParkedJournalEntryPage
@@ -38394,6 +38609,7 @@ func (s *ServiceUnavailableHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*ServiceUnavailableHeaders) acceptBankStatementGapRes()           {}
 func (*ServiceUnavailableHeaders) acceptBankStatementLineProposalRes()  {}
 func (*ServiceUnavailableHeaders) acceptMemoRecordProposalRes()         {}
 func (*ServiceUnavailableHeaders) activateChangeRequestRes()            {}
@@ -41215,6 +41431,632 @@ func (s *TaxRegistrationPage) SetNextPageToken(val OptString) {
 
 func (*TaxRegistrationPage) listTaxRegistrationsRes() {}
 
+// A box of a draft tax return.
+// Ref: #/components/schemas/TaxReturnBox
+type TaxReturnBox struct {
+	// The box's code in the return's definition.
+	Code string `json:"code"`
+	// The box's label in the return's definition.
+	Label string `json:"label"`
+	// `selection`: a sum of one measure of the tax items the box selects, which `listTaxReturnDraftItems`
+	// lists; `expression`: computed from earlier boxes. Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Kind string `json:"kind"`
+	// The box's value, prior-period items included.
+	Amount Money `json:"amount"`
+	// The part of `amount` from prior-period items; of an expression box, its expression over the earlier
+	// boxes' prior-period parts.
+	PriorPeriodAmount Money `json:"prior_period_amount"`
+	// The items a selection box sums; absent for an expression box.
+	ItemCount OptInt64 `json:"item_count"`
+}
+
+// GetCode returns the value of Code.
+func (s *TaxReturnBox) GetCode() string {
+	return s.Code
+}
+
+// GetLabel returns the value of Label.
+func (s *TaxReturnBox) GetLabel() string {
+	return s.Label
+}
+
+// GetKind returns the value of Kind.
+func (s *TaxReturnBox) GetKind() string {
+	return s.Kind
+}
+
+// GetAmount returns the value of Amount.
+func (s *TaxReturnBox) GetAmount() Money {
+	return s.Amount
+}
+
+// GetPriorPeriodAmount returns the value of PriorPeriodAmount.
+func (s *TaxReturnBox) GetPriorPeriodAmount() Money {
+	return s.PriorPeriodAmount
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *TaxReturnBox) GetItemCount() OptInt64 {
+	return s.ItemCount
+}
+
+// SetCode sets the value of Code.
+func (s *TaxReturnBox) SetCode(val string) {
+	s.Code = val
+}
+
+// SetLabel sets the value of Label.
+func (s *TaxReturnBox) SetLabel(val string) {
+	s.Label = val
+}
+
+// SetKind sets the value of Kind.
+func (s *TaxReturnBox) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *TaxReturnBox) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetPriorPeriodAmount sets the value of PriorPeriodAmount.
+func (s *TaxReturnBox) SetPriorPeriodAmount(val Money) {
+	s.PriorPeriodAmount = val
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *TaxReturnBox) SetItemCount(val OptInt64) {
+	s.ItemCount = val
+}
+
+// A draft tax return (ADR-0049 §11, T61h): the boxes of the country pack's definition of the
+// registration's return type, computed from the unreported tax items of its companies dated on or
+// before the period's end. Amounts are in the registrant's local currency; a selection box sums one
+// measure of the items it selects, an expression box is computed from earlier boxes. Not stored:
+// computed again, it changes only as items are posted or reported.
+// Ref: #/components/schemas/TaxReturnDraft
+type TaxReturnDraft struct {
+	// The registration.
+	RegistrationID uuid.UUID `json:"registration_id"`
+	// The registration's code.
+	RegistrationCode string `json:"registration_code"`
+	// The return type, as the registration and the country pack name it.
+	ReturnType string `json:"return_type"`
+	// The return's name in the country pack.
+	ReturnName string `json:"return_name"`
+	// The period's first day.
+	PeriodStart time.Time `json:"period_start"`
+	// The period's last day.
+	PeriodEnd time.Time `json:"period_end"`
+	// The country pack whose definition the boxes follow: the version the registrant's company adopted.
+	Pack TaxReturnDraftPack `json:"pack"`
+	// The registrant's local currency, which every amount is in (ISO 4217).
+	Currency string `json:"currency"`
+	// The tax items some selection box selects, prior-period ones included.
+	ItemCount int64 `json:"item_count"`
+	// The items dated before the period's start that no return has reported (P7): reported in this return
+	// as a prior-period adjustment up to the country pack's threshold; above it a person chooses an
+	// amendment or a voluntary disclosure.
+	PriorPeriod TaxReturnDraftPriorPeriod `json:"prior_period"`
+	// The return's boxes in the definition's order.
+	Boxes []TaxReturnBox `json:"boxes"`
+}
+
+// GetRegistrationID returns the value of RegistrationID.
+func (s *TaxReturnDraft) GetRegistrationID() uuid.UUID {
+	return s.RegistrationID
+}
+
+// GetRegistrationCode returns the value of RegistrationCode.
+func (s *TaxReturnDraft) GetRegistrationCode() string {
+	return s.RegistrationCode
+}
+
+// GetReturnType returns the value of ReturnType.
+func (s *TaxReturnDraft) GetReturnType() string {
+	return s.ReturnType
+}
+
+// GetReturnName returns the value of ReturnName.
+func (s *TaxReturnDraft) GetReturnName() string {
+	return s.ReturnName
+}
+
+// GetPeriodStart returns the value of PeriodStart.
+func (s *TaxReturnDraft) GetPeriodStart() time.Time {
+	return s.PeriodStart
+}
+
+// GetPeriodEnd returns the value of PeriodEnd.
+func (s *TaxReturnDraft) GetPeriodEnd() time.Time {
+	return s.PeriodEnd
+}
+
+// GetPack returns the value of Pack.
+func (s *TaxReturnDraft) GetPack() TaxReturnDraftPack {
+	return s.Pack
+}
+
+// GetCurrency returns the value of Currency.
+func (s *TaxReturnDraft) GetCurrency() string {
+	return s.Currency
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *TaxReturnDraft) GetItemCount() int64 {
+	return s.ItemCount
+}
+
+// GetPriorPeriod returns the value of PriorPeriod.
+func (s *TaxReturnDraft) GetPriorPeriod() TaxReturnDraftPriorPeriod {
+	return s.PriorPeriod
+}
+
+// GetBoxes returns the value of Boxes.
+func (s *TaxReturnDraft) GetBoxes() []TaxReturnBox {
+	return s.Boxes
+}
+
+// SetRegistrationID sets the value of RegistrationID.
+func (s *TaxReturnDraft) SetRegistrationID(val uuid.UUID) {
+	s.RegistrationID = val
+}
+
+// SetRegistrationCode sets the value of RegistrationCode.
+func (s *TaxReturnDraft) SetRegistrationCode(val string) {
+	s.RegistrationCode = val
+}
+
+// SetReturnType sets the value of ReturnType.
+func (s *TaxReturnDraft) SetReturnType(val string) {
+	s.ReturnType = val
+}
+
+// SetReturnName sets the value of ReturnName.
+func (s *TaxReturnDraft) SetReturnName(val string) {
+	s.ReturnName = val
+}
+
+// SetPeriodStart sets the value of PeriodStart.
+func (s *TaxReturnDraft) SetPeriodStart(val time.Time) {
+	s.PeriodStart = val
+}
+
+// SetPeriodEnd sets the value of PeriodEnd.
+func (s *TaxReturnDraft) SetPeriodEnd(val time.Time) {
+	s.PeriodEnd = val
+}
+
+// SetPack sets the value of Pack.
+func (s *TaxReturnDraft) SetPack(val TaxReturnDraftPack) {
+	s.Pack = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *TaxReturnDraft) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *TaxReturnDraft) SetItemCount(val int64) {
+	s.ItemCount = val
+}
+
+// SetPriorPeriod sets the value of PriorPeriod.
+func (s *TaxReturnDraft) SetPriorPeriod(val TaxReturnDraftPriorPeriod) {
+	s.PriorPeriod = val
+}
+
+// SetBoxes sets the value of Boxes.
+func (s *TaxReturnDraft) SetBoxes(val []TaxReturnBox) {
+	s.Boxes = val
+}
+
+func (*TaxReturnDraft) getTaxReturnDraftRes() {}
+
+// The country pack whose definition the boxes follow: the version the registrant's company adopted.
+type TaxReturnDraftPack struct {
+	// The pack's country (ISO 3166-1 alpha-2).
+	Country string `json:"country"`
+	// The pack's version (YYYY.N).
+	Version string `json:"version"`
+}
+
+// GetCountry returns the value of Country.
+func (s *TaxReturnDraftPack) GetCountry() string {
+	return s.Country
+}
+
+// GetVersion returns the value of Version.
+func (s *TaxReturnDraftPack) GetVersion() string {
+	return s.Version
+}
+
+// SetCountry sets the value of Country.
+func (s *TaxReturnDraftPack) SetCountry(val string) {
+	s.Country = val
+}
+
+// SetVersion sets the value of Version.
+func (s *TaxReturnDraftPack) SetVersion(val string) {
+	s.Version = val
+}
+
+// The items dated before the period's start that no return has reported (P7): reported in this return
+// as a prior-period adjustment up to the country pack's threshold; above it a person chooses an
+// amendment or a voluntary disclosure.
+type TaxReturnDraftPriorPeriod struct {
+	// The prior-period items some selection box selects.
+	ItemCount int64 `json:"item_count"`
+	// Their tax, signed like the journal (debit positive: input tax positive, output tax negative).
+	Tax Money `json:"tax"`
+	// The country pack's threshold; absent when the pack sets none (always the next return).
+	Threshold OptMoney `json:"threshold"`
+	// Whether, of any one earlier period, the input or the output tax of its items exceeds the threshold
+	// in magnitude: provisional and conservative, so that a person reviews; which measure the threshold
+	// applies to (net or gross, per period or pooled, per error) is open (ADR-0049 §11).
+	AboveThreshold bool `json:"above_threshold"`
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *TaxReturnDraftPriorPeriod) GetItemCount() int64 {
+	return s.ItemCount
+}
+
+// GetTax returns the value of Tax.
+func (s *TaxReturnDraftPriorPeriod) GetTax() Money {
+	return s.Tax
+}
+
+// GetThreshold returns the value of Threshold.
+func (s *TaxReturnDraftPriorPeriod) GetThreshold() OptMoney {
+	return s.Threshold
+}
+
+// GetAboveThreshold returns the value of AboveThreshold.
+func (s *TaxReturnDraftPriorPeriod) GetAboveThreshold() bool {
+	return s.AboveThreshold
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *TaxReturnDraftPriorPeriod) SetItemCount(val int64) {
+	s.ItemCount = val
+}
+
+// SetTax sets the value of Tax.
+func (s *TaxReturnDraftPriorPeriod) SetTax(val Money) {
+	s.Tax = val
+}
+
+// SetThreshold sets the value of Threshold.
+func (s *TaxReturnDraftPriorPeriod) SetThreshold(val OptMoney) {
+	s.Threshold = val
+}
+
+// SetAboveThreshold sets the value of AboveThreshold.
+func (s *TaxReturnDraftPriorPeriod) SetAboveThreshold(val bool) {
+	s.AboveThreshold = val
+}
+
+// A tax item a draft return's box sums (ADR-0049 §5): the entry and item it is, what it taxed, and
+// what it adds to the box. Amounts are in local currency, signed like the journal (debit positive).
+// Ref: #/components/schemas/TaxReturnItem
+type TaxReturnItem struct {
+	// The entry's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry that wrote the item (`getJournalEntry`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's document number.
+	DocumentNumber string `json:"document_number"`
+	// The entry's posting date.
+	PostingDate time.Time `json:"posting_date"`
+	// The entry's reference (a supplier's invoice number, say); absent when it has none.
+	Reference OptString `json:"reference"`
+	// The entry's header text (the billing system's invoice, say); absent when it has none.
+	HeaderText OptString `json:"header_text"`
+	// The item's number in its entry.
+	ItemNo int32 `json:"item_no"`
+	// The entry's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Its company code.
+	CompanyCode string `json:"company_code"`
+	// The item's tax date.
+	TaxDate time.Time `json:"tax_date"`
+	// The tax code.
+	TaxCode string `json:"tax_code"`
+	// The tax code's component.
+	Component string `json:"component"`
+	// The component's or the line's jurisdiction; absent when it has none.
+	Jurisdiction OptString `json:"jurisdiction"`
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Direction string `json:"direction"`
+	// The tax code's kind. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Kind string `json:"kind"`
+	// The component's account key. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	AccountKey string `json:"account_key"`
+	// The base taxed.
+	Base Money `json:"base"`
+	// The tax.
+	Tax Money `json:"tax"`
+	// The part of the tax recovered (none of output tax).
+	Recoverable Money `json:"recoverable"`
+	// What the item adds to the box: the box's measure of it, negated where the box shows credits
+	// positive.
+	BoxAmount Money `json:"box_amount"`
+	// Whether the item is dated before the period's start.
+	PriorPeriod bool `json:"prior_period"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *TaxReturnItem) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *TaxReturnItem) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *TaxReturnItem) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *TaxReturnItem) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetReference returns the value of Reference.
+func (s *TaxReturnItem) GetReference() OptString {
+	return s.Reference
+}
+
+// GetHeaderText returns the value of HeaderText.
+func (s *TaxReturnItem) GetHeaderText() OptString {
+	return s.HeaderText
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *TaxReturnItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *TaxReturnItem) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *TaxReturnItem) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetTaxDate returns the value of TaxDate.
+func (s *TaxReturnItem) GetTaxDate() time.Time {
+	return s.TaxDate
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *TaxReturnItem) GetTaxCode() string {
+	return s.TaxCode
+}
+
+// GetComponent returns the value of Component.
+func (s *TaxReturnItem) GetComponent() string {
+	return s.Component
+}
+
+// GetJurisdiction returns the value of Jurisdiction.
+func (s *TaxReturnItem) GetJurisdiction() OptString {
+	return s.Jurisdiction
+}
+
+// GetDirection returns the value of Direction.
+func (s *TaxReturnItem) GetDirection() string {
+	return s.Direction
+}
+
+// GetKind returns the value of Kind.
+func (s *TaxReturnItem) GetKind() string {
+	return s.Kind
+}
+
+// GetAccountKey returns the value of AccountKey.
+func (s *TaxReturnItem) GetAccountKey() string {
+	return s.AccountKey
+}
+
+// GetBase returns the value of Base.
+func (s *TaxReturnItem) GetBase() Money {
+	return s.Base
+}
+
+// GetTax returns the value of Tax.
+func (s *TaxReturnItem) GetTax() Money {
+	return s.Tax
+}
+
+// GetRecoverable returns the value of Recoverable.
+func (s *TaxReturnItem) GetRecoverable() Money {
+	return s.Recoverable
+}
+
+// GetBoxAmount returns the value of BoxAmount.
+func (s *TaxReturnItem) GetBoxAmount() Money {
+	return s.BoxAmount
+}
+
+// GetPriorPeriod returns the value of PriorPeriod.
+func (s *TaxReturnItem) GetPriorPeriod() bool {
+	return s.PriorPeriod
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *TaxReturnItem) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *TaxReturnItem) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *TaxReturnItem) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *TaxReturnItem) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetReference sets the value of Reference.
+func (s *TaxReturnItem) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetHeaderText sets the value of HeaderText.
+func (s *TaxReturnItem) SetHeaderText(val OptString) {
+	s.HeaderText = val
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *TaxReturnItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *TaxReturnItem) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *TaxReturnItem) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetTaxDate sets the value of TaxDate.
+func (s *TaxReturnItem) SetTaxDate(val time.Time) {
+	s.TaxDate = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *TaxReturnItem) SetTaxCode(val string) {
+	s.TaxCode = val
+}
+
+// SetComponent sets the value of Component.
+func (s *TaxReturnItem) SetComponent(val string) {
+	s.Component = val
+}
+
+// SetJurisdiction sets the value of Jurisdiction.
+func (s *TaxReturnItem) SetJurisdiction(val OptString) {
+	s.Jurisdiction = val
+}
+
+// SetDirection sets the value of Direction.
+func (s *TaxReturnItem) SetDirection(val string) {
+	s.Direction = val
+}
+
+// SetKind sets the value of Kind.
+func (s *TaxReturnItem) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetAccountKey sets the value of AccountKey.
+func (s *TaxReturnItem) SetAccountKey(val string) {
+	s.AccountKey = val
+}
+
+// SetBase sets the value of Base.
+func (s *TaxReturnItem) SetBase(val Money) {
+	s.Base = val
+}
+
+// SetTax sets the value of Tax.
+func (s *TaxReturnItem) SetTax(val Money) {
+	s.Tax = val
+}
+
+// SetRecoverable sets the value of Recoverable.
+func (s *TaxReturnItem) SetRecoverable(val Money) {
+	s.Recoverable = val
+}
+
+// SetBoxAmount sets the value of BoxAmount.
+func (s *TaxReturnItem) SetBoxAmount(val Money) {
+	s.BoxAmount = val
+}
+
+// SetPriorPeriod sets the value of PriorPeriod.
+func (s *TaxReturnItem) SetPriorPeriod(val bool) {
+	s.PriorPeriod = val
+}
+
+// One page of the tax items a draft return's box sums.
+// Ref: #/components/schemas/TaxReturnItemPage
+type TaxReturnItemPage struct {
+	// The box's code.
+	Box string `json:"box"`
+	// The registrant's local currency (ISO 4217).
+	Currency string `json:"currency"`
+	// The items on this page.
+	Items []TaxReturnItem `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetBox returns the value of Box.
+func (s *TaxReturnItemPage) GetBox() string {
+	return s.Box
+}
+
+// GetCurrency returns the value of Currency.
+func (s *TaxReturnItemPage) GetCurrency() string {
+	return s.Currency
+}
+
+// GetItems returns the value of Items.
+func (s *TaxReturnItemPage) GetItems() []TaxReturnItem {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *TaxReturnItemPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetBox sets the value of Box.
+func (s *TaxReturnItemPage) SetBox(val string) {
+	s.Box = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *TaxReturnItemPage) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetItems sets the value of Items.
+func (s *TaxReturnItemPage) SetItems(val []TaxReturnItem) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *TaxReturnItemPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*TaxReturnItemPage) listTaxReturnDraftItemsRes() {}
+
 type TerminateContractBadRequest Problem
 
 func (*TerminateContractBadRequest) terminateContractRes() {}
@@ -41265,6 +42107,7 @@ func (s *TooManyRequestsHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*TooManyRequestsHeaders) acceptBankStatementGapRes()           {}
 func (*TooManyRequestsHeaders) acceptBankStatementLineProposalRes()  {}
 func (*TooManyRequestsHeaders) acceptMemoRecordProposalRes()         {}
 func (*TooManyRequestsHeaders) activateChangeRequestRes()            {}
@@ -41396,6 +42239,7 @@ func (*TooManyRequestsHeaders) getSegmentRes()                       {}
 func (*TooManyRequestsHeaders) getSodRuleRes()                       {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceRes()               {}
+func (*TooManyRequestsHeaders) getTaxReturnDraftRes()                {}
 func (*TooManyRequestsHeaders) getUploadRes()                        {}
 func (*TooManyRequestsHeaders) getWebhookDeliveryRes()               {}
 func (*TooManyRequestsHeaders) getWebhookSubscriptionRes()           {}
@@ -41473,6 +42317,7 @@ func (*TooManyRequestsHeaders) listSodRulesRes()                     {}
 func (*TooManyRequestsHeaders) listSupplierInvoicesRes()             {}
 func (*TooManyRequestsHeaders) listTaxPeriodsRes()                   {}
 func (*TooManyRequestsHeaders) listTaxRegistrationsRes()             {}
+func (*TooManyRequestsHeaders) listTaxReturnDraftItemsRes()          {}
 func (*TooManyRequestsHeaders) listWebhookDeliveriesRes()            {}
 func (*TooManyRequestsHeaders) listWebhookSubscriptionsRes()         {}
 func (*TooManyRequestsHeaders) lockCostCenterRes()                   {}
@@ -41613,6 +42458,7 @@ func (s *UnauthorizedHeaders) SetResponse(val Problem) {
 	s.Response = val
 }
 
+func (*UnauthorizedHeaders) acceptBankStatementGapRes()           {}
 func (*UnauthorizedHeaders) acceptBankStatementLineProposalRes()  {}
 func (*UnauthorizedHeaders) acceptMemoRecordProposalRes()         {}
 func (*UnauthorizedHeaders) activateChangeRequestRes()            {}
@@ -41744,6 +42590,7 @@ func (*UnauthorizedHeaders) getSegmentRes()                       {}
 func (*UnauthorizedHeaders) getSodRuleRes()                       {}
 func (*UnauthorizedHeaders) getSupplierInvoiceDocumentRes()       {}
 func (*UnauthorizedHeaders) getSupplierInvoiceRes()               {}
+func (*UnauthorizedHeaders) getTaxReturnDraftRes()                {}
 func (*UnauthorizedHeaders) getUploadRes()                        {}
 func (*UnauthorizedHeaders) getWebhookDeliveryRes()               {}
 func (*UnauthorizedHeaders) getWebhookSubscriptionRes()           {}
@@ -41821,6 +42668,7 @@ func (*UnauthorizedHeaders) listSodRulesRes()                     {}
 func (*UnauthorizedHeaders) listSupplierInvoicesRes()             {}
 func (*UnauthorizedHeaders) listTaxPeriodsRes()                   {}
 func (*UnauthorizedHeaders) listTaxRegistrationsRes()             {}
+func (*UnauthorizedHeaders) listTaxReturnDraftItemsRes()          {}
 func (*UnauthorizedHeaders) listWebhookDeliveriesRes()            {}
 func (*UnauthorizedHeaders) listWebhookSubscriptionsRes()         {}
 func (*UnauthorizedHeaders) lockCostCenterRes()                   {}

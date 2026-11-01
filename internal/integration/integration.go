@@ -121,6 +121,7 @@ type Postings interface {
 	TakenOverGRIR(ctx context.Context, legalEntity uuid.UUID, orders []uuid.UUID) (map[uuid.UUID]ledger.GRIRTakenOverOrder, error)
 	Clear(ctx context.Context, legalEntity uuid.UUID, date time.Time, by ledger.ItemRef, items []ledger.ItemRef) (uuid.UUID, error)
 	EntryYears(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]int16, error)
+	EntryCurrencies(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
 	ClearedTogether(ctx context.Context, items []ledger.ItemRef) (bool, error)
 	LockAllEntries(ctx context.Context) error
 }
@@ -131,6 +132,7 @@ type Reports interface {
 	OpenPayables(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error)
 	OpenPayableItems(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]int, error)
 	OpenDownPayments(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error)
+	OpenForeignItems(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]map[string]money.Minor, error)
 	OpenGRIR(ctx context.Context, legalEntity uuid.UUID, orders []uuid.UUID) (map[uuid.UUID]map[int32]ledger.OpenGRIR, error)
 }
 

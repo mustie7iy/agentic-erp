@@ -6,6 +6,7 @@ package gen
 type OperationName = string
 
 const (
+	AcceptBankStatementGapOperation           OperationName = "AcceptBankStatementGap"
 	AcceptBankStatementLineProposalOperation  OperationName = "AcceptBankStatementLineProposal"
 	AcceptMemoRecordProposalOperation         OperationName = "AcceptMemoRecordProposal"
 	ActivateChangeRequestOperation            OperationName = "ActivateChangeRequest"
@@ -137,6 +138,7 @@ const (
 	GetSodRuleOperation                       OperationName = "GetSodRule"
 	GetSupplierInvoiceOperation               OperationName = "GetSupplierInvoice"
 	GetSupplierInvoiceDocumentOperation       OperationName = "GetSupplierInvoiceDocument"
+	GetTaxReturnDraftOperation                OperationName = "GetTaxReturnDraft"
 	GetUploadOperation                        OperationName = "GetUpload"
 	GetWebhookDeliveryOperation               OperationName = "GetWebhookDelivery"
 	GetWebhookSubscriptionOperation           OperationName = "GetWebhookSubscription"
@@ -214,6 +216,7 @@ const (
 	ListSupplierInvoicesOperation             OperationName = "ListSupplierInvoices"
 	ListTaxPeriodsOperation                   OperationName = "ListTaxPeriods"
 	ListTaxRegistrationsOperation             OperationName = "ListTaxRegistrations"
+	ListTaxReturnDraftItemsOperation          OperationName = "ListTaxReturnDraftItems"
 	ListWebhookDeliveriesOperation            OperationName = "ListWebhookDeliveries"
 	ListWebhookSubscriptionsOperation         OperationName = "ListWebhookSubscriptions"
 	LockCostCenterOperation                   OperationName = "LockCostCenter"

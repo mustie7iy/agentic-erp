@@ -34,6 +34,7 @@ ADMIN_ADDR="${WALKTHROUGH_ADMIN_ADDR:-127.0.0.1:19090}"
 PAUSE="${WALKTHROUGH_PAUSE:-0}"
 TODAY=$(date -u +%F)
 YEAR=${TODAY:0:4}
+PREV=$((YEAR - 1))
 CC=3000 # the pilot's SAP company code, Maple Industries Canada in the mock extract
 
 if [ -t 1 ]; then
@@ -65,12 +66,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# date_add DATE DAYS is the date DAYS days after DATE, with GNU or BSD date.
+# date_add DATE DAYS is the date DAYS days after DATE (before it when
+# DAYS is negative), with GNU or BSD date.
 date_add() {
+  local n=$2
+  case "$n" in -*) ;; *) n="+$n" ;; esac
   if date -u -d "$1" +%F >/dev/null 2>&1; then
-    date -u -d "$1 +$2 days" +%F
+    date -u -d "$1 $n days" +%F
   else
-    date -u -j -v"+$2"d -f %F "$1" +%F
+    date -u -j -v"${n}d" -f %F "$1" +%F
   fi
 }
 
@@ -287,8 +291,8 @@ start() {
   say ""
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
-  say "  - tax returns (T61h-T61l), and the Canada pack's tax codes (T62g, Canada pack 2026.3): step 2 configures one code and the"
-  say "    GST/HST registration, step 11 uses the code and lists the registration's filing periods"
+  say "  - the return lifecycle and the GST34's lines (T61i-T61l), and the Canada pack's tax codes (T62g): step 2 configures one code"
+  say "    and the GST/HST registration; step 11 computes a draft return whose boxes are illustrative, not the GST34's"
   say "  - the liquidity forecast (T53e-T53k): step 13 shows the daily cash position with a memo record"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - accounts receivable, fixed assets (T57), period-end close (T64), consolidation (T68)"
@@ -298,6 +302,8 @@ start() {
   export ERP_HTTP_ADDR="$API_ADDR" ERP_ADMIN_ADDR="$ADMIN_ADDR"
   export ERP_API_URL="http://$API_ADDR" ERP_ADMIN_URL="http://$ADMIN_ADDR" ERP_CONTROL_URL="http://$ADMIN_ADDR"
   export ERP_EXTRACT_DIR="$WORK/data" ERP_OBJECT_DIR="$WORK/data/objects"
+  illustrative_pack
+  export ERP_PACKS_DIR="$WORK/packs"
   ERP_PAGE_TOKEN_KEY=$(head -c 32 /dev/urandom | base64)
   ERP_FIELD_KEY=$(head -c 32 /dev/urandom | base64)
   export ERP_PAGE_TOKEN_KEY ERP_FIELD_KEY
@@ -315,6 +321,24 @@ start() {
   curl -sf "http://$ADMIN_ADDR/readyz" >/dev/null || fail "erp-server is not ready after a minute ($i checks)"
   say ""
   say "erp-server is up (development, development issuer on): API $ERP_API_URL, admin $ERP_ADMIN_URL."
+}
+
+# illustrative_pack copies the latest released Canada pack to the next
+# version with the illustrative return of scripts/walkthrough/returns.yaml
+# (T61h), for erp-server to serve unreleased (ERP_PACKS_DIR, development
+# only): the released packs define no return until T61j. CA_PACK is its
+# version.
+illustrative_pack() {
+  local latest
+  latest=$(cd "$ROOT/packs/ca" && ls -d 20*.* | sort -t. -k1,1n -k2,2n | tail -1)
+  CA_PACK="${latest%%.*}.$((${latest#*.} + 1))"
+  mkdir -p "$WORK/packs/ca"
+  cp -R "$ROOT/packs/ca/$latest" "$WORK/packs/ca/$CA_PACK"
+  sed -e "s/^version: \"$latest\"$/version: \"$CA_PACK\"/" \
+    -e "s/^name: Canada$/name: \"Canada $latest with the walkthrough's illustrative return (not released)\"/" \
+    "$ROOT/packs/ca/$latest/pack.yaml" >"$WORK/packs/ca/$CA_PACK/pack.yaml"
+  grep -q "^version: \"$CA_PACK\"$" "$WORK/packs/ca/$CA_PACK/pack.yaml" || fail "the illustrative pack's version was not set"
+  cp "$ROOT/scripts/walkthrough/returns.yaml" "$WORK/packs/ca/$CA_PACK/returns.yaml"
 }
 
 # ---------------------------------------------------------------- the people
@@ -435,14 +459,20 @@ step_tenant() {
   grep -q "\[error\] companies\[$CC\]\.house_banks\[MUSD\]\.gl_account: house bank MUSD is in USD: account 102000 must be revalue_foreign_currency" "$WORK/generate.out" ||
     { sed 's/^/     /' "$WORK/generate.out"; fail "the draft did not ask for the USD bank's account to be revalued"; }
   expect "the draft's validation errors" "$(grep -c '\[error\]' "$WORK/generate.out")" 1
-  awk '{ print } /^      - number: "102000"$/ { usd = 1 } usd && /^        type: asset$/ { print "        revalue_foreign_currency: true"; usd = 0 }
-    /^    fiscal_year_start_month: 1$/ { print "    fx_valuation:\n      accounts:\n        - {account: \"102000\", unrealised_gain: \"480000\", unrealised_loss: \"680000\"}" }' \
+  say "SAP also holds an open supplier invoice in USD (ACDOCA RWCUR), which loads in USD: the reviewer has the payables"
+  say "account 211000 revalued too, its differences on a payables valuation account 211099 (ADR-0042)."
+  jq -r --arg cc "$CC" '.ACDOCA[] | select(.RBUKRS == $cc and .RWCUR != null and .RWCUR != "CAD" and .LIFNR != "" and .AUGBL == "")
+    | "     ACDOCA \(.BELNR)/\(.DOCLN): account \(.RACCT), vendor \(.LIFNR), \(.WSL) \(.RWCUR) (\(.HSL) CAD)"' "$WORK/data/extract.json"
+  awk '{ print } /^      - number: "102000"$/ { usd = 1 } usd && /^        type: asset$/ { print "        revalue_foreign_currency: true"; usd = 0
+      print "      - number: \"211099\"\n        name: Payables valuation\n        type: liability" }
+    /^    fiscal_year_start_month: 1$/ { print "    fx_valuation:\n      accounts:\n        - {account: \"102000\", unrealised_gain: \"480000\", unrealised_loss: \"680000\"}"
+      print "        - {account: \"211000\", adjustment: \"211099\", unrealised_gain: \"480000\", unrealised_loss: \"680000\"}" }' \
     "$WORK/config.yaml" >"$WORK/config.tmp"
   mv "$WORK/config.tmp" "$WORK/config.yaml"
   show erp config validate -file config.yaml
   "$ERP" config validate -file "$WORK/config.yaml" >"$WORK/validate.out" 2>&1 || { sed 's/^/     /' "$WORK/validate.out"; fail "the reviewed configuration does not validate"; }
   grep -q 'Validation: no findings' "$WORK/validate.out" || { sed 's/^/     /' "$WORK/validate.out"; fail "the reviewed configuration has findings"; }
-  say "  with account 102000 revalued into 480000 and 680000, the configuration validates with no findings."
+  say "  with accounts 102000 and 211000 revalued into 480000 and 680000, the configuration validates with no findings."
   say "A second ledger, 2L for local GAAP (ASPE), is added beside the leading IFRS ledger 0L before"
   say "provisioning: parallel ledgers are set up while the company has no postings (ADR-0045)."
   awk '{ print } /^    fiscal_year_start_month: 1$/ { print "    ledgers: [\"0L\", \"2L\"]" }' "$WORK/config.yaml" >"$WORK/config.tmp"
@@ -511,7 +541,8 @@ step_migrate() {
   for check in 'Trial balance: accounts with differences' 'Open payables total' 'Open payables: vendors with differences' \
     'Open payable items' 'Open payable items: vendors with differences' 'Parked supplier invoices' 'Parked supplier credit memos' 'Parked subsequent debits' 'Parked subsequent credits' \
     'Vendor bank accounts: vendors with differences' 'Quantities invoiced in SAP: order items with differences' \
-    'Open down payments total' 'Open down payments: vendors with differences' 'Open GR/IR total' 'Open GR/IR: order items with differences'; do
+    'Open down payments total' 'Open down payments: vendors with differences' 'Open items in USD total' 'Open items in USD: vendors with differences' \
+    'Open GR/IR total' 'Open GR/IR: order items with differences'; do
     grep "$check" "$WORK/migrate.out" | grep -q 'PASS$' || fail "the reconciliation check '$check' did not pass"
   done
   delta_migration "$connector"
@@ -557,8 +588,37 @@ step_migrate() {
     expect "the migrated $kind's status" "$(field .status)" posted
   done
   migrated_down_payment
+  migrated_foreign_item
   migrated_grir
   passed
+}
+
+# migrated_foreign_item shows SAP's open invoice in USD of the CAD company
+# (the mock's foreignInvoice) as it loaded, in its document currency
+# (ADR-0005 As built, product owner 2026-10-31): an open item of USD
+# 1,000.00 worth CAD 1,350.00 as SAP booked it, its entry in USD at the
+# rate SAP's amounts imply, and the reconciliation's USD controls. Step 9
+# revalues it. It keeps the item's entry in FX_ENTRY.
+migrated_foreign_item() {
+  local lifnr name supplier
+  lifnr=$(jq -r --arg cc "$CC" '[.ACDOCA[] | select(.RBUKRS == $cc and .RWCUR == "USD" and .LIFNR != "" and .AUGBL == "")] | first | .LIFNR' "$WORK/data/extract.json")
+  name=$(jq -r --arg v "$lifnr" '.LFA1[] | select(.LIFNR == $v) | .NAME1' "$WORK/data/extract.json")
+  say "SAP's open invoice from $name is in USD, the company's currency being CAD: each line carries its document"
+  say "currency and amount (RWCUR, WSL) beside its company code amount (HSL), and the document loaded in USD,"
+  say "as the platform posts an invoice in USD: an open item that a USD payment clears and month end revalues."
+  QUIET=1 api 200 '' listBusinessPartners -p "name_prefix=$name"
+  supplier=$(field '.items[0].id')
+  api 200 '.items[] | select(.amount.currency != "CAD") | "open item \(.document_number): \(.amount.amount) \(.amount.currency), worth \(.amount_lc.amount) \(.amount_lc.currency)"' \
+    listOpenItems -p "partner_id=$supplier" -p page_size=100
+  expect "the open USD item of $name" \
+    "$(field '[.items[] | select(.amount.currency != "CAD") | "\(.amount.amount) \(.amount.currency) \(.amount_lc.amount) \(.amount_lc.currency)"] | join(", ")')" \
+    "-1000.00 USD -1350.00 CAD"
+  FX_ENTRY=$(field '.items[] | select(.amount.currency == "USD") | .journal_entry_id')
+  api 200 '"journal entry \(.document_number): \(.currency), \(.rate_tc_lc) \(.local_currency) per \(.currency), \([.lines[] | "\(.amount.amount) \(.amount.currency) = \(.amount_lc.amount) \(.amount_lc.currency)"] | join(" / "))"' \
+    getJournalEntry -p "id=$FX_ENTRY"
+  expect "the USD invoice's entry rate, SAP's" "$(field .rate_tc_lc)" 1.350000000000
+  say "The reconciliation agreed in CAD and compared the USD items in USD:"
+  grep -E 'Open items in USD' "$WORK/migrate.out" | sed 's/^/     /'
 }
 
 # parallel_run_extract splits SAP's receipt of the eight shelving units
@@ -759,7 +819,10 @@ migrated_down_payment() {
 # walkthrough's sales entry: GST at 5% (Excise Tax Act, Part IX, s. 165(1);
 # CRA, "Charge and collect the tax - Which rate to charge",
 # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html).
-# @YEAR@ is replaced with this year and @CC@ with the company code.
+# The code's rate and the registration start a year back, so a filing
+# period has always ended, whatever today is (step 11).
+# @YEAR@ is replaced with this year, @PREV@ with last year and @CC@ with
+# the company code.
 PILOT_SETTINGS='
 .payment_terms += [{"key": "2/10N30", "description": "2% in 10 days, 30 days net", "net_days": 30,
     "discounts": [{"days": 10, "percent": "2"}]}]
@@ -779,15 +842,16 @@ PILOT_SETTINGS='
       {"number": "1040", "name": "Bank incoming - RBC USD", "type": "asset", "open_items": true, "revalue_foreign_currency": true}]
     | .tax_codes = ((.tax_codes // []) + [{"code": "GO5", "description": "GST 5% on sales (walkthrough, until Canada pack 2026.3)",
         "direction": "output", "kind": "standard", "category": "S", "components": [{"key": "gst", "jurisdiction": "CA",
-        "account_key": "output", "account": "2300", "rates": [{"rate_percent": "5", "valid_from": "@YEAR@-01-01"}]}]}])
+        "account_key": "output", "account": "2300", "rates": [{"rate_percent": "5", "valid_from": "@PREV@-01-01"}]}]}])
     | .house_banks = ((.house_banks // []) + [
       {"name": "RBC", "bic": "ROYCCAT2", "institution_number": "003", "transit_number": "00002", "account_number": "1000001",
        "gl_account": "1010", "main_gl_account": "1000", "incoming_gl_account": "1015"},
       {"name": "RBCUS", "bic": "ROYCCAT2", "institution_number": "003", "transit_number": "00002", "account_number": "4000001",
        "gl_account": "1020", "main_gl_account": "1030", "incoming_gl_account": "1040", "currency": "USD"}])
     | .tax_registrations = [{"code": "GSTHST", "authority": "CRA", "number": "123456789 RT 0001", "return_type": "GST34",
-        "frequency": "quarterly", "first_period_start": "@YEAR@-01-01"}]
+        "frequency": "quarterly", "first_period_start": "@PREV@-01-01"}]
     | .release_dual_limit = "4000.00"
+    | .service_posting_limit = "1000.00"
     | .fx_valuation.accounts += (["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"}))
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
         "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})'
@@ -798,6 +862,9 @@ step_pack() {
   api 200 '.items[] | "pack \(.country) \(.version): \(.contents.accounts) accounts, \(.contents.tax_codes) tax codes, \(.contents.holidays) holidays, \(.contents.number_ranges) number ranges; signed off: \(.signed_off)"' listCountryPacks
   local version
   version=$(field '[.items[] | select(.country == "CA") | .version] | sort_by(split(".") | map(tonumber)) | last')
+  expect "the latest Canada pack" "$version" "$CA_PACK"
+  say "CA $version is this walkthrough's own, not released: the latest released Canada pack with an illustrative"
+  say "tax return definition (returns.yaml) for step 11, as no released pack defines a return until T61j."
   say "Ada applies the latest Canada pack, $version, to company $CC. The merge keeps what the company"
   say "already has (SAP's chart and number ranges) and adds the rest; it becomes a draft change request."
   api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
@@ -811,9 +878,11 @@ step_pack() {
   say "Ada adds the pilot's own settings to the proposal: RBC house banks in CAD and USD, USD accounts revalued"
   say "at month end, bank statement rules (match by end-to-end id, approval above CAD 10,000), payment runs"
   say "above CAD 4,000 released only after a second person approves, a 2/10 net 30 cash discount term,"
-  say "cost center categories, liquidity items, an output tax code for GST and the GST/HST registration (step 11). The company keeps SAP's"
+  say "cost center categories, liquidity items, an output tax code for GST, the GST/HST registration and, for the"
+  say "billing system's entries, a service posting limit of CAD 1,000 (step 11). The company keeps SAP's"
   say "down payment account (T074), so the pack's own, 1400, is left out: a company has one (ADR-0037)."
   local settings=${PILOT_SETTINGS//@YEAR@/$YEAR}
+  settings=${settings//@PREV@/$PREV}
   settings=${settings//@CC@/$CC}
   jq "{title: \"Canada pack $version and the pilot's settings\", rationale: \"Pilot company set-up\", proposed: (.proposed | $settings)}" \
     "$WORK/last.json" >"$WORK/proposal.json"
@@ -1148,8 +1217,22 @@ statement() {
   CLOSING=$closing
 }
 
+# empty_statement DATE BALANCE writes RBC's camt.053 statement of the
+# day with no entries, opening and closing at the balance.
+empty_statement() {
+  {
+    printf '<?xml version="1.0" encoding="UTF-8"?>\n'
+    printf '<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02"><BkToCstmrStmt>\n'
+    printf '<GrpHdr><MsgId>RBC-%s</MsgId><CreDtTm>%sT23:00:00</CreDtTm></GrpHdr>\n' "$1" "$1"
+    printf '<Stmt><Id>RBC-1000001-%s</Id><ElctrncSeqNb>0</ElctrncSeqNb><Acct><Id><Othr><Id>1000001</Id></Othr></Id><Ccy>CAD</Ccy></Acct>\n' "$1"
+    printf '<Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="CAD">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>%s</Dt></Dt></Bal>\n' "$2" "$1"
+    printf '<Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp><Amt Ccy="CAD">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>%s</Dt></Dt></Bal>\n' "$2" "$1"
+    printf '</Stmt></BkToCstmrStmt></Document>\n'
+  } >"$WORK/camt053-empty.xml"
+}
+
 step_statement() {
-  heading "Step 8 — The bank statement: imported, matched by rules, posted with approval, reconciled"
+  heading "Step 8 — The bank statement: imported, a gap accepted, matched by rules, posted with approval, reconciled"
   as tom
   local bank sap_bank
   bank=$(account 1000)
@@ -1166,17 +1249,36 @@ step_statement() {
   as tom
   api 200 '"parked entry: \(.status), journal entry \(.journal_entry_id)"' getParkedJournalEntry -p "id=$parked"
   expect "parked entry status" "$(field .status)" posted
+  local yesterday
+  yesterday=$(date_add "$TODAY" -1)
+  say "RBC's statement of $yesterday, before the funding, closes the empty account at 0.00. Tom imports it:"
+  empty_statement "$yesterday" 0.00
+  api 201 '.statements[] | "statement \(.statement_ref): \(.status), closing \(.closing_balance.amount) \(.closing_balance.currency)"' \
+    importBankStatements -body "{\"house_bank_id\": \"$RBC\", \"format\": \"camt.053\"}" -file file=@camt053-empty.xml
   say "RBC's end-of-day statement (camt.053) shows the run's payments leaving the account."
   statement 500000.00
   say "  $(grep -c '<Ntry>' "$WORK/camt053.xml") entries, opening 500000.00, closing $CLOSING CAD"
-  say "Tom imports it, the file as a part of the upload's form:"
+  say "Tom imports it, the file as a part of the upload's form. It opens at 500,000.00, not at yesterday's 0.00:"
+  say "the bank's statement that carried the funding never arrived, so it is in gap (ADR-0047 Continuity)."
   api 201 '' importBankStatements -body "{\"house_bank_id\": \"$RBC\", \"format\": \"camt.053\"}" -file file=@camt053.xml
   local st
   st=$(field '.statements[0].id')
   if [ -z "$st" ] || [ "$st" = null ]; then fail "the statement was not imported"; fi
-  excerpt '.statements[] | "statement \(.statement_ref): \(.status), \(.line_count) lines"'
-  say "The matching rules found each payment by its end-to-end id. Lines up to CAD 10,000.00 post at once;"
-  say "the others wait for the controller:"
+  excerpt '.statements[] | "statement \(.statement_ref): \(.status), opening \(.opening_balance.amount), \(.line_count) lines"'
+  expect "statement status" "$(field '.statements[0].status')" gap
+  say "The rules matched each payment by its end-to-end id, but nothing posts for RBC while the gap stands:"
+  api 200 '"statement \(.statement_ref): \(.status); lines \([.lines[]?.status] | group_by(.) | map("\(.[0]) \(length)") | join(", "))"' getBankStatement -p "id=$st"
+  expect "lines matched, none posted" "$(field '[.lines[] | select(.status != "matched")] | length')" 0
+  refused 409 payments.statement_gap postBankStatementLine -p "id=$st" -p line_no=1 -if-match "$ETAG"
+  say "The bank cannot send the missing statement again; the funding is in the ledger already. Tom accepts the gap"
+  say "with the reason, audited and published (BankStatementGapAccepted), and agents could not have done it:"
+  QUIET=1 api 200 '' getBankStatement -p "id=$st"
+  api 200 '"statement \(.statement_ref): \(.status), gap accepted by \(.gap_accepted_by[0:8])…: \(.gap_reason)"' acceptBankStatementGap -p "id=$st" -if-match "$ETAG" \
+    -body '{"reason": "RBC cannot redeliver the statement that carried the funding; the transfer is in the ledger (parked entry, approved by Carla)."}'
+  expect "statement status after the acceptance" "$(field .status)" imported
+  say "Tom runs the rules again: lines up to CAD 10,000.00 post at once; the others wait for the controller:"
+  api 200 '"statement \(.statement_ref): lines \([.lines[]?.status] | group_by(.) | map("\(.[0]) \(length)") | join(", "))"' matchBankStatement -p "id=$st" -if-match "$ETAG"
+  expect "lines still matched after the run" "$(field '[.lines[] | select(.status == "matched")] | length')" 0
   api 200 '.items[] | "line \(.line_no): \(.status) by rule \(.rule)\(if .approval_request_id then ", approval request \(.approval_request_id[0:8])…" else "" end)"' listBankStatementMatches -p "id=$st"
   local r
   for r in $(field '.items[] | select(.approval_request_id != null and .status == "matched") | .approval_request_id'); do
@@ -1217,6 +1319,11 @@ step_fx() {
     -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$eom\"}"
   expect "the bank account's revaluation" \
     "$(jq -r --arg a "$usd_bank" '.items[] | select(.account_id == $a) | "\(.direction) \(.difference_lc.amount)"' "$WORK/last.json")" "gain 250.00"
+  say "SAP's USD invoice that the migration loaded in USD (step 3) is valued as one the platform posted: USD 1,000.00"
+  say "booked at CAD 1,350.00 is owed at 1.40, CAD 1,400.00, a loss of CAD 50.00 on the payables account."
+  expect "the migrated USD invoice's revaluation" \
+    "$(jq -r --arg e "$FX_ENTRY" '.items[] | select(.journal_entry_id == $e) | "\(.amount.amount) \(.amount_lc.amount) \(.direction) \(.difference_lc.amount)"' "$WORK/last.json")" \
+    "-1000.00 -1350.00 loss -50.00"
   passed
 }
 
@@ -1248,38 +1355,78 @@ step_ledgers() {
   passed
 }
 
+# billing creates the pilot's billing system as a service principal that
+# posts journal entries in every company, and mints its token.
+billing() {
+  as ada
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "billing_integration", "name": "Billing integration"}'
+  local role id
+  role=$(field .id)
+  grant "$role" ledger.entry.post
+  api 201 '"principal \(.display_name): \(.kind)"' createPrincipal \
+    -body '{"kind": "service", "external_subject": "billing", "display_name": "Maple billing system", "all_companies": true}'
+  id=$(field .id)
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$id\", \"role_id\": \"$role\"}"
+  token billing "Maple billing system"
+  printf '%s\tMaple billing system\n' "$id" >>"$WORK/names"
+}
+
 step_tax() {
-  heading "Step 11 — Tax: the tax on a sales entry, calculated and checked by the ledger, and the registration it is filed under"
+  heading "Step 11 — Tax: the billing system's sales entries, their tax checked by the ledger, large ones parked for a person, and the draft return"
   as carla
   api 200 '.items[] | select(.country == "CA") | "pack CA \(.version): \(.contents.tax_codes) tax codes"' listCountryPacks
   say "The released Canada packs carry no tax codes yet: GST/HST, QST and PST come with Canada pack 2026.3 (T62g)."
   say "Step 2 configured one output code for the pilot instead: GO5, GST at 5% from 1 January, to the pack's 2300 GST/HST payable."
   say "The ERP issues no sales invoices before phase 3, so the pilot's billing system posts its sales as journal"
-  say "entries (T61f): CAD 1,000.00 of sales with GO5 and its CAD 50.00 of GST."
+  say "entries (T61f), as a service principal of its own that holds only ledger.entry.post:"
+  billing
+  accounts
+  as billing
   local cash sales gst
   cash=$(account 100000)
   sales=$(account 4000)
   gst=$(account 2300)
-  # sale LINES is a sales entry of today in CAD with the lines given as
-  # "account amount [code]" triples' JSON.
+  # sale TEXT LINES [TAX_DATE] is a sales entry of today in CAD with the
+  # lines' JSON, taxed on TAX_DATE when given.
   sale() {
-    printf '{"legal_entity_id": "%s", "document_date": "%s", "posting_date": "%s", "currency": "CAD", "header_text": "%s", "lines": [%s]}' \
-      "$LE" "$TODAY" "$TODAY" "$1" "$2"
+    printf '{"legal_entity_id": "%s", "document_date": "%s", "posting_date": "%s", %s"currency": "CAD", "header_text": "%s", "lines": [%s]}' \
+      "$LE" "${3:-$TODAY}" "$TODAY" "${3:+\"tax_date\": \"$3\", }" "$1" "$2"
   }
   line() {
     printf '{"account_id": "%s", "amount": {"amount": "%s", "currency": "CAD"}%s}' "$1" "$2" "${3:+, \"tax_code\": \"$3\"}"
   }
   local entry='"journal entry \(.document_number): \([.lines[] | "\(.amount.amount)\(if .tax_code then " \(.tax_code)" else "" end)"] | join(" / "))"'
-  api 201 "$entry" postJournalEntry -body "$(sale "Billing: invoice 1042" "$(line "$cash" 1050.00), $(line "$sales" -1000.00 GO5), $(line "$gst" -50.00 GO5)")"
-  say "The ledger calculates 5% of the base itself at the rate of the tax date and holds the tax lines to it:"
-  refused 422 ledger.output_tax_mismatch postJournalEntry \
-    -body "$(sale "Billing: invoice 1043" "$(line "$cash" 1060.00), $(line "$sales" -1000.00 GO5), $(line "$gst" -60.00 GO5)")"
   say "A daily summary of four invoices of CAD 100.10, each taxed 5.01 by the billing system, carries a base line"
   say "per invoice: its 20.04 is within one cent per base line of 5% of 400.40 (20.02), so it posts (product owner,"
-  say "2026-10-22); one base line of 400.40 with 20.04 would be refused."
+  say "2026-10-22); its debits, CAD 420.44, are within the company's service posting limit of CAD 1,000.00."
   api 201 "$entry" postJournalEntry -body "$(sale "Billing: summary of invoices 1044-1047" "$(line "$cash" 420.44), $(line "$sales" -100.10 GO5), $(line "$sales" -100.10 GO5), $(line "$sales" -100.10 GO5), $(line "$sales" -100.10 GO5), $(line "$gst" -20.04 GO5)")"
+  say "One base line of 400.40 with 20.04 would be refused, and the ledger calculates 5% of a base itself at"
+  say "the rate of the tax date and holds the tax lines to it:"
   refused 422 ledger.output_tax_mismatch postJournalEntry \
     -body "$(sale "Billing: one base line" "$(line "$cash" 420.44), $(line "$sales" -400.40 GO5), $(line "$gst" -20.04 GO5)")"
+  refused 422 ledger.output_tax_mismatch postJournalEntry \
+    -body "$(sale "Billing: invoice 1043" "$(line "$cash" 1060.00), $(line "$sales" -1000.00 GO5), $(line "$gst" -60.00 GO5)")"
+  say "Invoice 1042, CAD 1,000.00 of sales and its CAD 50.00 of GST, has debits of CAD 1,050.00, above the"
+  say "service posting limit: a billing system cannot answer a refusal, so the ERP parks the entry for a person"
+  say "instead of posting it (ADR-0049 §7, product owner 2026-10-22, T61n), saying why:"
+  api 200 '"parked entry, \(.status), by a \(.created_by_kind) principal: \(.limit_exceeded.detail)"' postJournalEntry \
+    -body "$(sale "Billing: invoice 1042" "$(line "$cash" 1050.00), $(line "$sales" -1000.00 GO5), $(line "$gst" -50.00 GO5)")"
+  expect "the billing entry's status" "$(field .status)" parked
+  expect "the limit it exceeded" "$(field '"\(.limit_exceeded.kind) \(.limit_exceeded.limit.amount) \(.limit_exceeded.limit.currency)"')" "service_posting_limit 1000.00 CAD"
+  expect "its debits" "$(field '"\(.limit_exceeded.debits.amount) \(.limit_exceeded.debits.currency)"')" "1050.00 CAD"
+  expect "its journal entry" "$(field '.journal_entry_id // "none"')" none
+  local parked
+  parked=$(field .id)
+  say "Carla finds the entries integrations parked and posts this one; at CAD 1,050.00 it is within her company's"
+  say "manual entry approval limit, so it posts at once, in her name:"
+  as carla
+  api 200 '.items[] | "parked by \(.created_by_kind): \(.header_text), \(.limit_exceeded.debits.amount) \(.limit_exceeded.debits.currency) (limit \(.limit_exceeded.limit.amount) \(.limit_exceeded.limit.currency))"' \
+    listParkedJournalEntries -p "legal_entity_id=$LE" -p status=parked -p created_by_kind=service
+  expect "the billing system's parked entries" "$(field '[.items[].id] | join(" ")')" "$parked"
+  QUIET=1 api 200 '' getParkedJournalEntry -p "id=$parked"
+  api 200 '"parked entry \(.status) as journal entry \(.journal_entry_id)"' postParkedJournalEntry -p "id=$parked" -if-match "$ETAG"
+  expect "the billing entry after Carla posted it" "$(field .status)" posted
+  api 200 "$entry" getJournalEntry -p "id=$(field .journal_entry_id)"
   say "The tax this posts is filed under the company's GST/HST registration with the CRA, configured in step 2"
   say "(T61g): the number is sealed and shown by its last four characters. The number and the quarterly"
   say "frequency here are illustrative; the pilot's own registration and filing frequency come from the pilot."
@@ -1292,11 +1439,51 @@ step_tax() {
   say "one under way on the company's date in its time zone; the returns (T61h-T61i) are prepared for them."
   api 200 '"periods starting by \(.start_date_to) (the company'"'"'s date in \(.time_zone)):", (.items[] | "  \(.start_date) to \(.end_date)")' \
     listTaxPeriods -p "id=$registration"
-  expect "the first period" "$(field '.items[0] | "\(.start_date) \(.end_date)"')" "$YEAR-01-01 $YEAR-03-31"
+  expect "the first period" "$(field '.items[0] | "\(.start_date) \(.end_date)"')" "$PREV-01-01 $PREV-03-31"
   expect "the time zone" "$(field .time_zone)" America/Toronto
+  local start end before running
+  start=$(field '.items[-2].start_date')
+  end=$(field '.items[-2].end_date')
+  before=$(field '.items[-3].end_date')
+  running=$(field '.items[-1].start_date')
   say "A registration nobody may see, or none, is not found:"
   refused 404 request.not_found listTaxPeriods -p "id=00000000-0000-7000-8000-000000000000"
+  tax_return "$cash" "$sales" "$gst" "$registration" "$start" "$end" "$before" "$running"
   passed
+}
+
+# tax_return CASH SALES GST REGISTRATION START END BEFORE RUNNING is step
+# 11's draft return (T61h) of the latest ended period, START to END: two
+# late sales, one dated END and one BEFORE, an earlier period's end; the
+# draft computed twice; the output tax box drilled down to its items;
+# SAP's down payment left out; the period under way, RUNNING, refused.
+tax_return() {
+  local cash=$1 sales=$2 gst=$3 registration=$4 start=$5 end=$6 before=$7 running=$8
+  say "Two of the billing system's invoices arrive late, and Carla posts them today with their own tax date (P6):"
+  say "1039 of $end, the last day of the latest ended period, and 1031 of $before, in the period before it."
+  api 201 "$entry" postJournalEntry -body "$(sale "Billing: invoice 1039, sent late" "$(line "$cash" 1050.00), $(line "$sales" -1000.00 GO5), $(line "$gst" -50.00 GO5)" "$end")"
+  api 201 "$entry" postJournalEntry -body "$(sale "Billing: invoice 1031, sent late" "$(line "$cash" 210.00), $(line "$sales" -200.00 GO5), $(line "$gst" -10.00 GO5)" "$before")"
+  say "Carla computes the draft return of $start to $end (T61h): the boxes sum the tax items no return has reported,"
+  say "dated by the period's end; those of earlier periods are shown apart (P7). The pack defines the boxes; these are"
+  say "illustrative, not the GST34's lines (T61j). Nothing is stored or claimed: computed again, the draft is the same."
+  api 200 '"draft \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end), \(.currency), pack \(.pack.country) \(.pack.version): \(.item_count) items, \(.prior_period.item_count) of earlier periods", (.boxes[] | "  \(.code) \(.amount.amount)\(if .prior_period_amount.amount != "0.00" then ", of which earlier periods \(.prior_period_amount.amount)" else "" end): \(.label)")' \
+    getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
+  expect "the output tax, and its earlier period's part" "$(field '.boxes[] | select(.code == "output_tax") | "\(.amount.amount) \(.prior_period_amount.amount)"')" "60.00 10.00"
+  local draft
+  draft=$(jq -cS . "$WORK/last.json")
+  QUIET=1 api 200 '' getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
+  expect "the draft computed again" "$(jq -cS . "$WORK/last.json")" "$draft"
+  say "The output tax box drills down to the items it sums and the entries that wrote them:"
+  api 200 '.items[] | "  \(.tax_date) \(.tax_code)/\(.component): tax \(.tax.amount), adds \(.box_amount.amount)\(if .prior_period then " (an earlier period'"'"'s)" else "" end), entry \(.document_number) of \(.posting_date): \(.header_text // "")"' \
+    listTaxReturnDraftItems -p "id=$registration" -p "period_start=$start" -p box=output_tax
+  expect "the output tax box's items" "$(field '[.items[].box_amount.amount] | join(" ")')" "10.00 50.00"
+  expect "the items' invoices" "$(field '[.items[].header_text] | join(" / ")')" "Billing: invoice 1031, sent late / Billing: invoice 1039, sent late"
+  QUIET=1 api 200 '' listTaxReturnDraftItems -p "id=$registration" -p "period_start=$start" -p box=input_tax -p page_size=500
+  expect "the input tax of SAP's down payment (step 3) in the draft" "$(jq -r --arg e "$DP_ENTRY" '[.items[] | select(.journal_entry_id == $e)] | length' "$WORK/last.json")" 0
+  say "SAP's open down payment of step 3 carries input tax dated SAP's posting date, which SAP's own return reported:"
+  say "the draft leaves the items of migrated entries out (ADR-0037); its clearing's reversal, posted here, is reported."
+  say "The period under way has not ended, so its return cannot be drafted yet:"
+  refused 409 tax.period_not_ended getTaxReturnDraft -p "id=$registration" -p "period_start=$running"
 }
 
 # center_approved REQUESTER has the controller approve the center change

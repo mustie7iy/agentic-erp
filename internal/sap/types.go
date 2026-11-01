@@ -161,11 +161,12 @@ type ACDOCA struct {
 	// https://userapps.support.sap.com/sap/support/knowledge/en/3788925);
 	// that RWCUR is its currency key, the original transaction currency, is
 	// from the ABAP dictionary as published mirrors show it, still to be
-	// confirmed by an SAP specialist on the pilot's release. The load posts
-	// HSL only, so the quality gate refuses an open item whose RWCUR is not
-	// the company's currency, or is absent (the OData mapping does not
-	// carry it yet), rather than load it in local currency. WSL is carried
-	// for the migration of such items and is not read yet.
+	// confirmed by an SAP specialist on the pilot's release. A document
+	// whose lines are all in one RWCUR other than the company's posts in
+	// it, WSL as each line's amount and HSL kept as its local amount
+	// (internal/integration foreignDocuments, ADR-0005 As built); the
+	// quality gate refuses an open item without RWCUR (the OData mapping
+	// does not carry it yet) rather than assume the company's currency.
 	RWCUR string `json:"RWCUR,omitempty"`
 	WSL   string `json:"WSL,omitempty"`
 	BUDAT string `json:"BUDAT"`

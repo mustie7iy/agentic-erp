@@ -56,6 +56,7 @@ type ParkedEntry struct {
 	JournalEntryID    *uuid.UUID
 	Lines             []Line
 	Debits            money.Minor // the debit total of Lines
+	Limit             *ParkLimit  // why the ERP parked it instead of posting it; nil: a principal parked it
 	Version           int32
 	CreatedAt         time.Time
 	CreatedBy         uuid.UUID
@@ -74,14 +75,26 @@ const parkedSelect = `SELECT p.id, p.legal_entity_id, p.ledger_id, p.document_ty
 			ORDER BY l.line_no)
 		 FROM ledger.parked_entry_line l` + centerJoins + ` WHERE l.tenant_id = p.tenant_id AND l.parked_entry_id = p.id AND NOT l.is_removed), '[]'),
 		(SELECT coalesce(sum(l.amount) FILTER (WHERE l.amount > 0), 0)::bigint
-		 FROM ledger.parked_entry_line l WHERE l.tenant_id = p.tenant_id AND l.parked_entry_id = p.id AND NOT l.is_removed)
+		 FROM ledger.parked_entry_line l WHERE l.tenant_id = p.tenant_id AND l.parked_entry_id = p.id AND NOT l.is_removed),
+		p.limit_kind, p.limit_debits, p.limit_debits_currency, (SELECT x.exponent FROM ref.currency x WHERE x.code = p.limit_debits_currency),
+		p.limit_amount, p.limit_currency, (SELECT x.exponent FROM ref.currency x WHERE x.code = p.limit_currency)
 	FROM ledger.parked_entry p JOIN ref.currency c ON c.code = p.currency`
 
 func scanParked(row pgx.Row) (ParkedEntry, error) {
 	var pe ParkedEntry
+	var kind, debitsCurrency, limitCurrency *string
+	var debits, limit *money.Minor
+	var debitsExp, limitExp *int
 	err := row.Scan(&pe.ID, &pe.LegalEntityID, &pe.LedgerID, &pe.DocumentType, &pe.DocumentDate, &pe.PostingDate, &pe.TaxDate, &pe.Currency, &pe.Exp,
 		&pe.Reference, &pe.HeaderText, &pe.Status, &pe.CreatedByKind, &pe.OwnerID, &pe.ApprovalRequestID, &pe.JournalFiscalYear, &pe.JournalEntryID,
-		&pe.Version, &pe.CreatedAt, &pe.CreatedBy, &pe.UpdatedAt, &pe.UpdatedBy, &pe.LedgerSpecific, &pe.LedgerGroup, &pe.Lines, &pe.Debits)
+		&pe.Version, &pe.CreatedAt, &pe.CreatedBy, &pe.UpdatedAt, &pe.UpdatedBy, &pe.LedgerSpecific, &pe.LedgerGroup, &pe.Lines, &pe.Debits,
+		&kind, &debits, &debitsCurrency, &debitsExp, &limit, &limitCurrency, &limitExp)
+	// The database holds the five together (parked_entry_limit_figures),
+	// and a currency it keeps has its exponent.
+	if err == nil && kind != nil {
+		pe.Limit = &ParkLimit{Kind: *kind, Debits: *debits, DebitsCurrency: *debitsCurrency, DebitsExp: *debitsExp,
+			Limit: *limit, LimitCurrency: *limitCurrency, LimitExp: *limitExp}
+	}
 	return pe, errs.Wrapf(err, "scan parked entry")
 }
 
@@ -120,6 +133,13 @@ func (e *Endpoints) parkEntry(ctx context.Context, in NewEntry) (ParkedEntry, er
 	if err != nil {
 		return ParkedEntry{}, err
 	}
+	return parkPrepared(ctx, tx, p, v, in, nil)
+}
+
+// parkPrepared parks a prepared entry; limit, when set, is the limit the
+// ERP parks it by instead of posting it (a service principal's entry,
+// T61n), recorded with it and in its audit record.
+func parkPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v prepared, in NewEntry, limit *ParkLimit) (ParkedEntry, error) {
 	if err := parkable(ctx, tx, v, in.PostingDate); err != nil {
 		return ParkedEntry{}, err
 	}
@@ -128,11 +148,22 @@ func (e *Endpoints) parkEntry(ctx context.Context, in NewEntry) (ParkedEntry, er
 	if p.Kind == reqctx.KindHuman {
 		owner = &p.ID
 	}
+	var (
+		kind, debitsCurrency, limitCurrency *string
+		debits, amount                      *money.Minor
+		extra                               map[string]any
+	)
+	if limit != nil {
+		kind, debits, debitsCurrency, amount, limitCurrency = &limit.Kind, &limit.Debits, &limit.DebitsCurrency, &limit.Limit, &limit.LimitCurrency
+		extra = map[string]any{"limit_exceeded": limit.Kind, "debits": money.EventAmount(limit.Debits, limit.DebitsCurrency, limit.DebitsExp),
+			"limit": money.EventAmount(limit.Limit, limit.LimitCurrency, limit.LimitExp)}
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.parked_entry (tenant_id, id, legal_entity_id, ledger_id, document_type, document_date, posting_date,
-			currency, reference, header_text, created_by_kind, owner_id, created_by, updated_by, ledger_specific, ledger_group_id, tax_date)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, $14, $15, $16)`,
+			currency, reference, header_text, created_by_kind, owner_id, created_by, updated_by, ledger_specific, ledger_group_id, tax_date,
+			limit_kind, limit_debits, limit_debits_currency, limit_amount, limit_currency)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
 		p.TenantID, id, v.le.ID, v.choice.ledger, in.DocumentType, in.DocumentDate, in.PostingDate, in.Currency, in.Reference, in.HeaderText,
-		p.Kind, owner, p.ID, v.choice.specific, v.choice.group, in.TaxDate); err != nil {
+		p.Kind, owner, p.ID, v.choice.specific, v.choice.group, in.TaxDate, kind, debits, debitsCurrency, amount, limitCurrency); err != nil {
 		return ParkedEntry{}, fmt.Errorf("ledger: park entry %s: %w", id, err)
 	}
 	if err := putParkedLines(ctx, tx, p.TenantID, id, v.lines); err != nil {
@@ -142,7 +173,7 @@ func (e *Endpoints) parkEntry(ctx context.Context, in NewEntry) (ParkedEntry, er
 	if err != nil {
 		return ParkedEntry{}, err
 	}
-	return pe, parkedChanged(ctx, pe, nil, "park", nil)
+	return pe, parkedChanged(ctx, pe, nil, "park", extra)
 }
 
 // parkable refuses, before anything is written, a prepared entry that

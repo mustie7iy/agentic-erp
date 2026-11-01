@@ -390,7 +390,9 @@ func orderSteps(ctx context.Context, rates Rates, doc *config.Config, in NewRequ
 // manual_entry_approval_limit, and the controller's approval otherwise. A
 // company the configuration lacks, or one without a limit (a document
 // older than T35), has a limit of 0: its manual entries are approved
-// first, never posted unchecked.
+// first, never posted unchecked. The ledger measures a service
+// principal's entries against its service posting limit the same way
+// (ledger.overServiceLimit, T61n); keep the two in step.
 func manualEntrySteps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) ([]policyStep, error) {
 	amount, err := rates.ExactToCompany(ctx, in.LegalEntityID, *in.Currency, in.Date, *in.Amount)
 	if err != nil {

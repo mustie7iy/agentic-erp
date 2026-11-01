@@ -314,3 +314,62 @@ func TestParkedEntryProvenance(t *testing.T) {
 		failsWith(t, f.change(t, f.park(t, "human"), "document_type = 'x'"), "parked_entry_document_type_check")
 	})
 }
+
+// parkByLimit parks an entry of f as a principal of kind with the limit it
+// was parked by, the columns and values given (T61n, 000175).
+func (f fixture) parkByLimit(t *testing.T, kind, columns, values string) error {
+	t.Helper()
+	return asApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `INSERT INTO ledger.parked_entry (tenant_id, id, legal_entity_id, ledger_id, document_type, document_date, posting_date,
+			currency, created_by_kind, created_by, updated_by, `+columns+`) VALUES ($1,$2,$3,$4,'SA','2026-05-04','2026-05-04','USD',$5,$6,$6, `+values+`)`,
+			f.tenant, id(), f.entity, f.ledger, kind, f.actor)
+	})
+}
+
+// TestParkedEntryLimit: an entry the ERP parked by a limit names the kind,
+// its debits and the limit, each with its currency, only for a service
+// principal's entry, and never rewrites them (ADR-0049 §7, T61n).
+func TestParkedEntryLimit(t *testing.T) {
+	need(t)
+	const columns = "limit_kind, limit_debits, limit_debits_currency, limit_amount, limit_currency"
+	for _, c := range []struct {
+		name, kind, values, want string
+	}{
+		{"a service's entry above its limit", "service", "'service_posting_limit', 105000, 'CAD', 100000, 'CAD'", ""},
+		{"in another currency", "service", "'service_posting_limit', 80001, 'USD', 100000, 'EUR'", ""},
+		{"another kind of limit", "service", "'manual_entry_approval_limit', 105000, 'CAD', 100000, 'CAD'", "parked_entry_limit_kind_check"},
+		{"without the debits", "service", "'service_posting_limit', NULL, 'CAD', 100000, 'CAD'", "parked_entry_limit_figures"},
+		{"without the debits' currency", "service", "'service_posting_limit', 105000, NULL, 100000, 'CAD'", "parked_entry_limit_figures"},
+		{"without the limit", "service", "'service_posting_limit', 105000, 'CAD', NULL, 'CAD'", "parked_entry_limit_figures"},
+		{"without the limit's currency", "service", "'service_posting_limit', 105000, 'CAD', 100000, NULL", "parked_entry_limit_figures"},
+		{"figures without a kind", "service", "NULL, 105000, 'CAD', 100000, 'CAD'", "parked_entry_limit_figures"},
+		{"negative debits", "service", "'service_posting_limit', -1, 'CAD', 100000, 'CAD'", "parked_entry_limit_figures"},
+		{"a negative limit", "service", "'service_posting_limit', 105000, 'CAD', -1, 'CAD'", "parked_entry_limit_figures"},
+		{"an unknown currency of the debits", "service", "'service_posting_limit', 105000, 'XXQ', 100000, 'CAD'", "parked_entry_limit_debits_currency_fkey"},
+		{"an unknown currency of the limit", "service", "'service_posting_limit', 105000, 'CAD', 100000, 'XXQ'", "parked_entry_limit_currency_fkey"},
+		{"an agent's entry", "agent", "'service_posting_limit', 105000, 'CAD', 100000, 'CAD'", "parked_entry_limit_by_service"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			expect(t, newFixture(t).parkByLimit(t, c.kind, columns, c.values), c.want)
+		})
+	}
+	for _, set := range []string{"limit_kind = NULL, limit_debits = NULL, limit_debits_currency = NULL, limit_amount = NULL, limit_currency = NULL",
+		"limit_debits = 1", "limit_debits_currency = 'EUR'", "limit_amount = 1", "limit_currency = 'EUR'"} {
+		t.Run("rewritten: "+set, func(t *testing.T) {
+			f := newFixture(t)
+			if err := f.parkByLimit(t, "service", columns, "'service_posting_limit', 105000, 'CAD', 100000, 'CAD'"); err != nil {
+				t.Fatal(err)
+			}
+			err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+				return exec(tx, `UPDATE ledger.parked_entry SET `+set+`, version = version + 1 WHERE created_by_kind = 'service'`)
+			})
+			failsWith(t, err, "was parked does not change")
+		})
+	}
+	t.Run("set later", func(t *testing.T) {
+		f := newFixture(t)
+		pe := f.park(t, "service")
+		failsWith(t, f.change(t, pe, "limit_kind = 'service_posting_limit', limit_debits = 1, limit_debits_currency = 'USD', limit_amount = 0, limit_currency = 'USD'"),
+			"was parked does not change")
+	})
+}

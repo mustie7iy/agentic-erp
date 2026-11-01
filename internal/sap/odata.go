@@ -99,7 +99,9 @@ var DefaultEntities = []EntityMapping{
 	// Nor are ACDOCA-RWCUR and WSL (a line's document currency and its
 	// amount in it): until the API's properties for them are confirmed, the
 	// gate refuses an OData extract's open items, which come without a
-	// document currency, rather than assume the company's.
+	// document currency, rather than assume the company's; once they are
+	// mapped (the pilot system's $metadata), such items load in their
+	// document currency as a file extract's do.
 	{Table: "ACDOCA", Service: "API_JOURNALENTRYITEMBASIC_SRV", Entity: "A_JournalEntryItemBasic", CompanyField: "CompanyCode", YearField: "FiscalYear",
 		Static: map[string]string{"RLDNR": "0L"},
 		Fields: map[string]string{"RBUKRS": "CompanyCode", "GJAHR": "FiscalYear", "BELNR": "AccountingDocument",

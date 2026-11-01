@@ -1,0 +1,23 @@
+# The walkthrough's illustrative return (T61h, ADR-0049 §11): what the return
+# engine computes, shown on the pilot's GST/HST registration. These boxes are
+# NOT the GST34's lines: T61j defines those in the Canada pack from the CRA's
+# instructions, signed off by the tax specialist. No prior-period threshold:
+# a late item always goes into the next return (P7, as for Canada).
+# scripts/walkthrough.sh adds this file to a copy of the latest released
+# Canada pack, served unreleased (ERP_PACKS_DIR, development only).
+returns:
+  - type: GST34
+    name: Illustrative return of the walkthrough, not the GST34's lines
+    boxes:
+      - code: sales
+        label: "Illustrative: taxed sales (the base of output items)"
+        select: {direction: output, measure: base, negate: true}
+      - code: output_tax
+        label: "Illustrative: output tax"
+        select: {direction: output, measure: tax, negate: true}
+      - code: input_tax
+        label: "Illustrative: input tax recovered"
+        select: {direction: input, measure: recoverable}
+      - code: net_tax
+        label: "Illustrative: net tax, output less input"
+        expression: box_output_tax - box_input_tax

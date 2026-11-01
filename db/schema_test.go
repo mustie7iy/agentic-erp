@@ -3343,7 +3343,35 @@ func TestBankStatementSchema(t *testing.T) {
 	mustApp(t, f.tenant, matchOf(match{kind: "manual", status: "excluded"}))
 	statementPostingSchema(t, f, first)
 	statementProposalSchema(t, f, first)
+	statementGapAcceptanceSchema(t, f, first)
 	statementReconciliationSchema(t, f, first, live)
+}
+
+// statementGapAcceptanceSchema: a statement whose gap a person accepted
+// says when, by whom and why, all three, is no longer in gap and has a
+// previous statement (ADR-0047, 000177).
+func statementGapAcceptanceSchema(t *testing.T, f fixture, statement uuid.UUID) {
+	t.Helper()
+	set := func(columns string, args ...any) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE payments.bank_statement SET `+columns+`, version = version + 1 WHERE id = $1`, append([]any{statement}, args...)...)
+		}
+	}
+	for _, c := range []struct {
+		name, columns string
+	}{
+		{"accepted without a reason", `previous_statement_id = id, gap_accepted_at = now(), gap_accepted_by = $2`},
+		{"accepted without whom", `previous_statement_id = id, gap_accepted_at = now(), gap_reason = 'r'`},
+		{"an empty reason", `previous_statement_id = id, gap_accepted_at = now(), gap_accepted_by = $2, gap_reason = ''`},
+		{"accepted and in gap", `previous_statement_id = id, status = 'gap', gap_accepted_at = now(), gap_accepted_by = $2, gap_reason = 'r'`},
+		{"accepted without a previous statement", `gap_accepted_at = now(), gap_accepted_by = $2, gap_reason = 'r'`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			failsOn(t, asApp(t, f.tenant, set(c.columns+`, updated_by = $2`, f.actor)), "bank_statement_gap_accepted")
+		})
+	}
+	mustApp(t, f.tenant, set(`previous_statement_id = id, gap_accepted_at = now(), gap_accepted_by = $2, gap_reason = 'r'`, f.actor))
+	mustApp(t, f.tenant, set(`previous_statement_id = NULL, gap_accepted_at = NULL, gap_accepted_by = NULL, gap_reason = NULL`))
 }
 
 // statementReconciliationSchema: a reconciled statement, and only one,

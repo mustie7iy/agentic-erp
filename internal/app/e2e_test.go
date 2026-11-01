@@ -75,3 +75,12 @@ func TestCountryPacksWithoutSignOffAreLogged(t *testing.T) {
 		t.Errorf("logs: got %q, want nothing of the signed-off US 2026.1 pack", logs)
 	}
 }
+
+// Unreleased packs from a directory join the image's, each logged as not
+// released (ERP_PACKS_DIR: a demonstration's or a test's).
+func TestUnreleasedPacks(t *testing.T) {
+	api := apitest.NewWith(t, func(c *app.Config) { c.UnreleasedPacks = "../taxfiling/testdata/packs" })
+	if logs := api.Logs(); !strings.Contains(logs, "de/2026.1") || !strings.Contains(logs, "not released") {
+		t.Errorf("logs: got %q, want the DE 2026.1 test pack logged as not released", logs)
+	}
+}

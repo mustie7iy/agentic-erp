@@ -29,6 +29,25 @@ func trimTrailingSlashes(u *url.URL) {
 
 // Invoker invokes operations described by OpenAPI v3 specification.
 type Invoker interface {
+	// AcceptBankStatementGap invokes acceptBankStatementGap operation.
+	//
+	// A person accepts the gap of a statement in `gap` (its opening balance is not the closing balance of
+	// the house bank's statement before it) without the missing statement, with a reason (ADR-0047
+	// Continuity): the statement becomes `imported` and records who accepted it, when and why
+	// (`gap_accepted_at`, `gap_accepted_by`, `gap_reason`); once the bank has no other statement in `gap`,
+	// its lines post again, by hand (`POST .../lines/{line_no}:post`) or by the next run of the rules
+	// (`POST /v1/bank-statements/{id}:match`), which posts what the rules matched while the gap stood. The
+	// acceptance posts nothing itself, and the missing statement's bookings stay out of the ledger: the
+	// reconciliation report shows what they leave as `unexplained` until a person posts it. One person
+	// decides; it is not an approval. People only: agents and integrations are refused (403). A statement
+	// not in `gap` (`imported` or `reconciled`) is 409 `payments.statement_not_in_gap`. If the missing
+	// statement arrives later, it becomes the previous statement and the balances are compared again:
+	// where they meet the statement stays `imported`; where they do not, the new gap stands and the
+	// acceptance goes. If-Match is the statement's ETag. Audited, and published as
+	// BankStatementGapAccepted. Returns the statement with its lines; the response's ETag is its new one.
+	//
+	// POST /v1/bank-statements/{id}:acceptGap
+	AcceptBankStatementGap(ctx context.Context, request *ReasonInput, params AcceptBankStatementGapParams) (AcceptBankStatementGapRes, error)
 	// AcceptBankStatementLineProposal invokes acceptBankStatementLineProposal operation.
 	//
 	// A person accepts the line's open proposal by the reconciliation agent (ADR-0047, T49g): the line is
@@ -1139,6 +1158,26 @@ type Invoker interface {
 	//
 	// GET /v1/supplier-invoices/{id}/document
 	GetSupplierInvoiceDocument(ctx context.Context, params GetSupplierInvoiceDocumentParams) (GetSupplierInvoiceDocumentRes, error)
+	// GetTaxReturnDraft invokes getTaxReturnDraft operation.
+	//
+	// A draft of a registration's return for one of its periods (ADR-0049 §11, T61h), computed on demand
+	// from the tax items no return has reported yet, of the companies the registration covers (its
+	// registrant and a tax group's members), dated on or before the period's end; nothing is stored or
+	// claimed, so computing it again gives the same draft until items are posted or a return is prepared
+	// (T61i). Items dated before the period's start are prior-period items, shown apart in each box and
+	// summed against the country pack's threshold (P7). Items of entries migrated from SAP are left out:
+	// SAP's returns reported them (ADR-0037). The boxes are the country pack's definition of the
+	// registration's `return_type` (`returns.yaml`, of the pack version the registrant's company adopted),
+	// in its order, in the registrant's local currency; each selection box drills down to its items
+	// (`listTaxReturnDraftItems`). The period must have ended on the registrant's date in its time zone
+	// (409 `tax.period_not_ended`); a `period_start` that starts none of the registration's periods is 422
+	// `tax.not_a_period`; a pack without the return's definition is 409 `tax.return_undefined`; companies
+	// of different local currencies are 409 `tax.return_currency_mixed`. A registration the caller does
+	// not see (`listTaxRegistrations`) is not found; one covering a company the caller may not act in is
+	// 403 `tax.registration_companies`.
+	//
+	// GET /v1/tax-registrations/{id}/draft-return
+	GetTaxReturnDraft(ctx context.Context, params GetTaxReturnDraftParams) (GetTaxReturnDraftRes, error)
 	// GetUpload invokes getUpload operation.
 	//
 	// Returns one upload: `open` until bytes arrive through this API (`received`) or the upload is
@@ -1734,6 +1773,16 @@ type Invoker interface {
 	//
 	// GET /v1/tax-registrations
 	ListTaxRegistrations(ctx context.Context, params ListTaxRegistrationsParams) (ListTaxRegistrationsRes, error)
+	// ListTaxReturnDraftItems invokes listTaxReturnDraftItems operation.
+	//
+	// The drill-down of a selection box of a draft return (`getTaxReturnDraft`, ADR-0049 §11, T61h): the
+	// unreported tax items of the registration's companies, dated on or before the period's end, that the
+	// box selects, each with what it adds to the box, paged in tax date and entry order; the amounts add
+	// up to the box's. Refused as `getTaxReturnDraft` is; a box the return does not have, or one computed
+	// from other boxes, is 422 `tax.not_a_selection_box`.
+	//
+	// GET /v1/tax-registrations/{id}/draft-return/items
+	ListTaxReturnDraftItems(ctx context.Context, params ListTaxReturnDraftItemsParams) (ListTaxReturnDraftItemsRes, error)
 	// ListWebhookDeliveries invokes listWebhookDeliveries operation.
 	//
 	// The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:
@@ -2002,18 +2051,29 @@ type Invoker interface {
 	// entity's currency at the average rate of its posting date, exceed the company's
 	// `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a
 	// closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks
-	// someone else's approval (T35). A line on the legal entity's GR/IR account (account determination
-	// `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. It posts to
-	// every ledger its company keeps as linked entries of one posting group sharing the document number
-	// (`posting_group_id`), each period checked open in its ledger, and returns the leading ledger's;
-	// `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to those ledgers
-	// only (ADR-0045). Output tax (ADR-0049 §7, T61f): a billing system posts its sales here, one entry
-	// per sales invoice or a summary per code and jurisdiction, idempotent by its `Idempotency-Key`; each
-	// output code's tax lines (in a jurisdiction, where the code levies its lines' subdivision) are the
-	// tax its base lines give at the rates of the tax date, within one minor unit per component, or 422
-	// `ledger.output_tax_mismatch`; a code with tax lines and no base line is an adjustment of tax alone.
-	// Zero-rated and exempt bases carry their codes without tax lines and are recorded as tax items at
-	// rate 0. Human-only: agents propose entries by parking them.
+	// someone else's approval (T35). A service principal (an integration such as the pilot's billing
+	// system) is held to its company's `service_posting_limit` instead, measured the same way (the
+	// `manual_entry_approval_limit` for a company without one; 0 when it has neither), and an entry of its
+	// above that limit is not refused but parked for a person (ADR-0049 §7, product owner 2026-10-22,
+	// T61n): the answer is 200 with the parked entry (`status` `parked`, `created_by_kind` `service`,
+	// `limit_exceeded` naming the limit and the debits, each with its currency), its `Location` the parked
+	// entry, and nothing is posted and no number drawn; a person posts it with `postParkedJournalEntry`,
+	// taking it on, and that is measured against the `manual_entry_approval_limit` as any manual entry is.
+	// At or below the limit the entry posts (201) as a person's does. A closed period refuses a service's
+	// entry before it is measured, as a person's. A line on the legal entity's GR/IR account (account
+	// determination `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it.
+	// It posts to every ledger its company keeps as linked entries of one posting group sharing the
+	// document number (`posting_group_id`), each period checked open in its ledger, and returns the
+	// leading ledger's; `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to
+	// those ledgers only (ADR-0045). Output tax (ADR-0049 §7, T61f): a billing system posts its sales
+	// here, one entry per sales invoice or a summary per code and jurisdiction, idempotent by its
+	// `Idempotency-Key`; each output code's tax lines (in a jurisdiction, where the code levies its lines'
+	// subdivision) are the tax its base lines give at the rates of the tax date, within one minor unit per
+	// component, or 422 `ledger.output_tax_mismatch`; a code with tax lines and no base line is an
+	// adjustment of tax alone. Zero-rated and exempt bases carry their codes without tax lines and are
+	// recorded as tax items at rate 0. People and service principals post here; an agent never does,
+	// whatever its level or permissions (403 `identity.agent_not_allowed`; below autonomy level 2 it is
+	// refused for its autonomy first), and proposes entries by parking them.
 	//
 	// POST /v1/journal-entries
 	PostJournalEntry(ctx context.Context, request *JournalEntryCreate, params PostJournalEntryParams) (PostJournalEntryRes, error)
@@ -2834,6 +2894,179 @@ func (c *Client) requestURL(ctx context.Context) *url.URL {
 		return c.serverURL
 	}
 	return u
+}
+
+// AcceptBankStatementGap invokes acceptBankStatementGap operation.
+//
+// A person accepts the gap of a statement in `gap` (its opening balance is not the closing balance of
+// the house bank's statement before it) without the missing statement, with a reason (ADR-0047
+// Continuity): the statement becomes `imported` and records who accepted it, when and why
+// (`gap_accepted_at`, `gap_accepted_by`, `gap_reason`); once the bank has no other statement in `gap`,
+// its lines post again, by hand (`POST .../lines/{line_no}:post`) or by the next run of the rules
+// (`POST /v1/bank-statements/{id}:match`), which posts what the rules matched while the gap stood. The
+// acceptance posts nothing itself, and the missing statement's bookings stay out of the ledger: the
+// reconciliation report shows what they leave as `unexplained` until a person posts it. One person
+// decides; it is not an approval. People only: agents and integrations are refused (403). A statement
+// not in `gap` (`imported` or `reconciled`) is 409 `payments.statement_not_in_gap`. If the missing
+// statement arrives later, it becomes the previous statement and the balances are compared again:
+// where they meet the statement stays `imported`; where they do not, the new gap stands and the
+// acceptance goes. If-Match is the statement's ETag. Audited, and published as
+// BankStatementGapAccepted. Returns the statement with its lines; the response's ETag is its new one.
+//
+// POST /v1/bank-statements/{id}:acceptGap
+func (c *Client) AcceptBankStatementGap(ctx context.Context, request *ReasonInput, params AcceptBankStatementGapParams) (AcceptBankStatementGapRes, error) {
+	res, err := c.sendAcceptBankStatementGap(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendAcceptBankStatementGap(ctx context.Context, request *ReasonInput, params AcceptBankStatementGapParams) (res AcceptBankStatementGapRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("acceptBankStatementGap"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/bank-statements/{id}:acceptGap"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, AcceptBankStatementGapOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/bank-statements/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":acceptGap"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeAcceptBankStatementGapRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, AcceptBankStatementGapOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeAcceptBankStatementGapResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
 }
 
 // AcceptBankStatementLineProposal invokes acceptBankStatementLineProposal operation.
@@ -21740,6 +21973,170 @@ func (c *Client) sendGetSupplierInvoiceDocument(ctx context.Context, params GetS
 	return result, nil
 }
 
+// GetTaxReturnDraft invokes getTaxReturnDraft operation.
+//
+// A draft of a registration's return for one of its periods (ADR-0049 §11, T61h), computed on demand
+// from the tax items no return has reported yet, of the companies the registration covers (its
+// registrant and a tax group's members), dated on or before the period's end; nothing is stored or
+// claimed, so computing it again gives the same draft until items are posted or a return is prepared
+// (T61i). Items dated before the period's start are prior-period items, shown apart in each box and
+// summed against the country pack's threshold (P7). Items of entries migrated from SAP are left out:
+// SAP's returns reported them (ADR-0037). The boxes are the country pack's definition of the
+// registration's `return_type` (`returns.yaml`, of the pack version the registrant's company adopted),
+// in its order, in the registrant's local currency; each selection box drills down to its items
+// (`listTaxReturnDraftItems`). The period must have ended on the registrant's date in its time zone
+// (409 `tax.period_not_ended`); a `period_start` that starts none of the registration's periods is 422
+// `tax.not_a_period`; a pack without the return's definition is 409 `tax.return_undefined`; companies
+// of different local currencies are 409 `tax.return_currency_mixed`. A registration the caller does
+// not see (`listTaxRegistrations`) is not found; one covering a company the caller may not act in is
+// 403 `tax.registration_companies`.
+//
+// GET /v1/tax-registrations/{id}/draft-return
+func (c *Client) GetTaxReturnDraft(ctx context.Context, params GetTaxReturnDraftParams) (GetTaxReturnDraftRes, error) {
+	res, err := c.sendGetTaxReturnDraft(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetTaxReturnDraft(ctx context.Context, params GetTaxReturnDraftParams) (res GetTaxReturnDraftRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getTaxReturnDraft"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/tax-registrations/{id}/draft-return"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetTaxReturnDraftOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/tax-registrations/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/draft-return"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "period_start" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "period_start",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.PeriodStart))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetTaxReturnDraftOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetTaxReturnDraftResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetUpload invokes getUpload operation.
 //
 // Returns one upload: `open` until bytes arrive through this API (`received`) or the upload is
@@ -39174,6 +39571,208 @@ func (c *Client) sendListTaxRegistrations(ctx context.Context, params ListTaxReg
 	return result, nil
 }
 
+// ListTaxReturnDraftItems invokes listTaxReturnDraftItems operation.
+//
+// The drill-down of a selection box of a draft return (`getTaxReturnDraft`, ADR-0049 §11, T61h): the
+// unreported tax items of the registration's companies, dated on or before the period's end, that the
+// box selects, each with what it adds to the box, paged in tax date and entry order; the amounts add
+// up to the box's. Refused as `getTaxReturnDraft` is; a box the return does not have, or one computed
+// from other boxes, is 422 `tax.not_a_selection_box`.
+//
+// GET /v1/tax-registrations/{id}/draft-return/items
+func (c *Client) ListTaxReturnDraftItems(ctx context.Context, params ListTaxReturnDraftItemsParams) (ListTaxReturnDraftItemsRes, error) {
+	res, err := c.sendListTaxReturnDraftItems(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListTaxReturnDraftItems(ctx context.Context, params ListTaxReturnDraftItemsParams) (res ListTaxReturnDraftItemsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listTaxReturnDraftItems"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/tax-registrations/{id}/draft-return/items"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListTaxReturnDraftItemsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/tax-registrations/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/draft-return/items"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "period_start" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "period_start",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.PeriodStart))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "box" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "box",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.Box))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListTaxReturnDraftItemsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListTaxReturnDraftItemsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListWebhookDeliveries invokes listWebhookDeliveries operation.
 //
 // The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:
@@ -42447,18 +43046,29 @@ func (c *Client) sendPostGoodsReceipt(ctx context.Context, request *GoodsReceipt
 // entity's currency at the average rate of its posting date, exceed the company's
 // `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a
 // closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks
-// someone else's approval (T35). A line on the legal entity's GR/IR account (account determination
-// `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. It posts to
-// every ledger its company keeps as linked entries of one posting group sharing the document number
-// (`posting_group_id`), each period checked open in its ledger, and returns the leading ledger's;
-// `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to those ledgers
-// only (ADR-0045). Output tax (ADR-0049 §7, T61f): a billing system posts its sales here, one entry
-// per sales invoice or a summary per code and jurisdiction, idempotent by its `Idempotency-Key`; each
-// output code's tax lines (in a jurisdiction, where the code levies its lines' subdivision) are the
-// tax its base lines give at the rates of the tax date, within one minor unit per component, or 422
-// `ledger.output_tax_mismatch`; a code with tax lines and no base line is an adjustment of tax alone.
-// Zero-rated and exempt bases carry their codes without tax lines and are recorded as tax items at
-// rate 0. Human-only: agents propose entries by parking them.
+// someone else's approval (T35). A service principal (an integration such as the pilot's billing
+// system) is held to its company's `service_posting_limit` instead, measured the same way (the
+// `manual_entry_approval_limit` for a company without one; 0 when it has neither), and an entry of its
+// above that limit is not refused but parked for a person (ADR-0049 §7, product owner 2026-10-22,
+// T61n): the answer is 200 with the parked entry (`status` `parked`, `created_by_kind` `service`,
+// `limit_exceeded` naming the limit and the debits, each with its currency), its `Location` the parked
+// entry, and nothing is posted and no number drawn; a person posts it with `postParkedJournalEntry`,
+// taking it on, and that is measured against the `manual_entry_approval_limit` as any manual entry is.
+// At or below the limit the entry posts (201) as a person's does. A closed period refuses a service's
+// entry before it is measured, as a person's. A line on the legal entity's GR/IR account (account
+// determination `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it.
+// It posts to every ledger its company keeps as linked entries of one posting group sharing the
+// document number (`posting_group_id`), each period checked open in its ledger, and returns the
+// leading ledger's; `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to
+// those ledgers only (ADR-0045). Output tax (ADR-0049 §7, T61f): a billing system posts its sales
+// here, one entry per sales invoice or a summary per code and jurisdiction, idempotent by its
+// `Idempotency-Key`; each output code's tax lines (in a jurisdiction, where the code levies its lines'
+// subdivision) are the tax its base lines give at the rates of the tax date, within one minor unit per
+// component, or 422 `ledger.output_tax_mismatch`; a code with tax lines and no base line is an
+// adjustment of tax alone. Zero-rated and exempt bases carry their codes without tax lines and are
+// recorded as tax items at rate 0. People and service principals post here; an agent never does,
+// whatever its level or permissions (403 `identity.agent_not_allowed`; below autonomy level 2 it is
+// refused for its autonomy first), and proposes entries by parking them.
 //
 // POST /v1/journal-entries
 func (c *Client) PostJournalEntry(ctx context.Context, request *JournalEntryCreate, params PostJournalEntryParams) (PostJournalEntryRes, error) {

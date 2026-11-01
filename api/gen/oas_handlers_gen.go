@@ -33,6 +33,229 @@ func (c *codeRecorder) Unwrap() http.ResponseWriter {
 	return c.ResponseWriter
 }
 
+// handleAcceptBankStatementGapRequest handles acceptBankStatementGap operation.
+//
+// A person accepts the gap of a statement in `gap` (its opening balance is not the closing balance of
+// the house bank's statement before it) without the missing statement, with a reason (ADR-0047
+// Continuity): the statement becomes `imported` and records who accepted it, when and why
+// (`gap_accepted_at`, `gap_accepted_by`, `gap_reason`); once the bank has no other statement in `gap`,
+// its lines post again, by hand (`POST .../lines/{line_no}:post`) or by the next run of the rules
+// (`POST /v1/bank-statements/{id}:match`), which posts what the rules matched while the gap stood. The
+// acceptance posts nothing itself, and the missing statement's bookings stay out of the ledger: the
+// reconciliation report shows what they leave as `unexplained` until a person posts it. One person
+// decides; it is not an approval. People only: agents and integrations are refused (403). A statement
+// not in `gap` (`imported` or `reconciled`) is 409 `payments.statement_not_in_gap`. If the missing
+// statement arrives later, it becomes the previous statement and the balances are compared again:
+// where they meet the statement stays `imported`; where they do not, the new gap stands and the
+// acceptance goes. If-Match is the statement's ETag. Audited, and published as
+// BankStatementGapAccepted. Returns the statement with its lines; the response's ETag is its new one.
+//
+// POST /v1/bank-statements/{id}:acceptGap
+func (s *Server) handleAcceptBankStatementGapRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("acceptBankStatementGap"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/bank-statements/{id}:acceptGap"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), AcceptBankStatementGapOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: AcceptBankStatementGapOperation,
+			ID:   "acceptBankStatementGap",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, AcceptBankStatementGapOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeAcceptBankStatementGapParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeAcceptBankStatementGapRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response AcceptBankStatementGapRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    AcceptBankStatementGapOperation,
+			OperationSummary: "Accept a bank statement's gap",
+			OperationID:      "acceptBankStatementGap",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *ReasonInput
+			Params   = AcceptBankStatementGapParams
+			Response = AcceptBankStatementGapRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackAcceptBankStatementGapParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.AcceptBankStatementGap(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.AcceptBankStatementGap(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeAcceptBankStatementGapResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleAcceptBankStatementLineProposalRequest handles acceptBankStatementLineProposal operation.
 //
 // A person accepts the line's open proposal by the reconciliation agent (ADR-0047, T49g): the line is
@@ -26078,6 +26301,211 @@ func (s *Server) handleGetSupplierInvoiceDocumentRequest(args [1]string, argsEsc
 	}
 }
 
+// handleGetTaxReturnDraftRequest handles getTaxReturnDraft operation.
+//
+// A draft of a registration's return for one of its periods (ADR-0049 §11, T61h), computed on demand
+// from the tax items no return has reported yet, of the companies the registration covers (its
+// registrant and a tax group's members), dated on or before the period's end; nothing is stored or
+// claimed, so computing it again gives the same draft until items are posted or a return is prepared
+// (T61i). Items dated before the period's start are prior-period items, shown apart in each box and
+// summed against the country pack's threshold (P7). Items of entries migrated from SAP are left out:
+// SAP's returns reported them (ADR-0037). The boxes are the country pack's definition of the
+// registration's `return_type` (`returns.yaml`, of the pack version the registrant's company adopted),
+// in its order, in the registrant's local currency; each selection box drills down to its items
+// (`listTaxReturnDraftItems`). The period must have ended on the registrant's date in its time zone
+// (409 `tax.period_not_ended`); a `period_start` that starts none of the registration's periods is 422
+// `tax.not_a_period`; a pack without the return's definition is 409 `tax.return_undefined`; companies
+// of different local currencies are 409 `tax.return_currency_mixed`. A registration the caller does
+// not see (`listTaxRegistrations`) is not found; one covering a company the caller may not act in is
+// 403 `tax.registration_companies`.
+//
+// GET /v1/tax-registrations/{id}/draft-return
+func (s *Server) handleGetTaxReturnDraftRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getTaxReturnDraft"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/tax-registrations/{id}/draft-return"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetTaxReturnDraftOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetTaxReturnDraftOperation,
+			ID:   "getTaxReturnDraft",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetTaxReturnDraftOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetTaxReturnDraftParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetTaxReturnDraftRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetTaxReturnDraftOperation,
+			OperationSummary: "Compute a draft tax return",
+			OperationID:      "getTaxReturnDraft",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "period_start",
+					In:   "query",
+				}: params.PeriodStart,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetTaxReturnDraftParams
+			Response = GetTaxReturnDraftRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetTaxReturnDraftParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetTaxReturnDraft(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetTaxReturnDraft(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetTaxReturnDraftResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleGetUploadRequest handles getUpload operation.
 //
 // Returns one upload: `open` until bytes arrive through this API (`received`) or the upload is
@@ -42303,6 +42731,213 @@ func (s *Server) handleListTaxRegistrationsRequest(args [0]string, argsEscaped b
 	}
 }
 
+// handleListTaxReturnDraftItemsRequest handles listTaxReturnDraftItems operation.
+//
+// The drill-down of a selection box of a draft return (`getTaxReturnDraft`, ADR-0049 §11, T61h): the
+// unreported tax items of the registration's companies, dated on or before the period's end, that the
+// box selects, each with what it adds to the box, paged in tax date and entry order; the amounts add
+// up to the box's. Refused as `getTaxReturnDraft` is; a box the return does not have, or one computed
+// from other boxes, is 422 `tax.not_a_selection_box`.
+//
+// GET /v1/tax-registrations/{id}/draft-return/items
+func (s *Server) handleListTaxReturnDraftItemsRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listTaxReturnDraftItems"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/tax-registrations/{id}/draft-return/items"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListTaxReturnDraftItemsOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListTaxReturnDraftItemsOperation,
+			ID:   "listTaxReturnDraftItems",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListTaxReturnDraftItemsOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListTaxReturnDraftItemsParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListTaxReturnDraftItemsRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListTaxReturnDraftItemsOperation,
+			OperationSummary: "List the tax items a draft return's box sums",
+			OperationID:      "listTaxReturnDraftItems",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "period_start",
+					In:   "query",
+				}: params.PeriodStart,
+				{
+					Name: "box",
+					In:   "query",
+				}: params.Box,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListTaxReturnDraftItemsParams
+			Response = ListTaxReturnDraftItemsRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListTaxReturnDraftItemsParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListTaxReturnDraftItems(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListTaxReturnDraftItems(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListTaxReturnDraftItemsResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleListWebhookDeliveriesRequest handles listWebhookDeliveries operation.
 //
 // The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:
@@ -46328,18 +46963,29 @@ func (s *Server) handlePostGoodsReceiptRequest(args [0]string, argsEscaped bool,
 // entity's currency at the average rate of its posting date, exceed the company's
 // `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a
 // closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks
-// someone else's approval (T35). A line on the legal entity's GR/IR account (account determination
-// `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. It posts to
-// every ledger its company keeps as linked entries of one posting group sharing the document number
-// (`posting_group_id`), each period checked open in its ledger, and returns the leading ledger's;
-// `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to those ledgers
-// only (ADR-0045). Output tax (ADR-0049 §7, T61f): a billing system posts its sales here, one entry
-// per sales invoice or a summary per code and jurisdiction, idempotent by its `Idempotency-Key`; each
-// output code's tax lines (in a jurisdiction, where the code levies its lines' subdivision) are the
-// tax its base lines give at the rates of the tax date, within one minor unit per component, or 422
-// `ledger.output_tax_mismatch`; a code with tax lines and no base line is an adjustment of tax alone.
-// Zero-rated and exempt bases carry their codes without tax lines and are recorded as tax items at
-// rate 0. Human-only: agents propose entries by parking them.
+// someone else's approval (T35). A service principal (an integration such as the pilot's billing
+// system) is held to its company's `service_posting_limit` instead, measured the same way (the
+// `manual_entry_approval_limit` for a company without one; 0 when it has neither), and an entry of its
+// above that limit is not refused but parked for a person (ADR-0049 §7, product owner 2026-10-22,
+// T61n): the answer is 200 with the parked entry (`status` `parked`, `created_by_kind` `service`,
+// `limit_exceeded` naming the limit and the debits, each with its currency), its `Location` the parked
+// entry, and nothing is posted and no number drawn; a person posts it with `postParkedJournalEntry`,
+// taking it on, and that is measured against the `manual_entry_approval_limit` as any manual entry is.
+// At or below the limit the entry posts (201) as a person's does. A closed period refuses a service's
+// entry before it is measured, as a person's. A line on the legal entity's GR/IR account (account
+// determination `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it.
+// It posts to every ledger its company keeps as linked entries of one posting group sharing the
+// document number (`posting_group_id`), each period checked open in its ledger, and returns the
+// leading ledger's; `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to
+// those ledgers only (ADR-0045). Output tax (ADR-0049 §7, T61f): a billing system posts its sales
+// here, one entry per sales invoice or a summary per code and jurisdiction, idempotent by its
+// `Idempotency-Key`; each output code's tax lines (in a jurisdiction, where the code levies its lines'
+// subdivision) are the tax its base lines give at the rates of the tax date, within one minor unit per
+// component, or 422 `ledger.output_tax_mismatch`; a code with tax lines and no base line is an
+// adjustment of tax alone. Zero-rated and exempt bases carry their codes without tax lines and are
+// recorded as tax items at rate 0. People and service principals post here; an agent never does,
+// whatever its level or permissions (403 `identity.agent_not_allowed`; below autonomy level 2 it is
+// refused for its autonomy first), and proposes entries by parking them.
 //
 // POST /v1/journal-entries
 func (s *Server) handlePostJournalEntryRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

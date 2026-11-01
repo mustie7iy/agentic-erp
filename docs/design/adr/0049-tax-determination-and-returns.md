@@ -612,6 +612,46 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   T61n:** service principals get a posting limit of their own per
   company, and an entry above it is parked for a person's approval
   rather than refused.
+- **As built (T61n, migrations 000175-000176):** `companies[].service_posting_limit`,
+  an amount in the company's currency validated with its digits,
+  optional and posting-related (tier 3) like `manual_entry_approval_limit`
+  and `release_dual_limit`. `POST /v1/journal-entries` is open to service
+  principals: `x-agent: false` came off it, since it refuses every kind
+  but people, and the handler refuses agents with 403
+  `identity.agent_not_allowed`, as `importBankStatements` does
+  (ADR-0047); the statement above that integrations were held to the
+  manual limit "today" was not so, they were refused outright, and P2 (a)
+  needs them to post. A service principal's entry is measured as a
+  person's is against the manual limit (T35f): its debits, converted
+  exactly into its company's currency at the average rate of its posting
+  date (the rate it posts at), unrounded, so an entry in USD of a CAD
+  company is compared in CAD and 1000.004 does not pass 1000.00 (F13); a
+  closed period refuses it first (409 `ledger.period_not_open`), as
+  nothing a person could not post is parked. At or below the limit it
+  posts (201) as before. Above it nothing is posted and no number drawn:
+  the entry is parked (200 with the parked entry, `Location` naming it),
+  `created_by_kind` `service`, no owner, and `limit_exceeded` (`kind`
+  `service_posting_limit`, `debits` and `limit` each with its currency,
+  and `detail` in words, naming the conversion for a foreign-currency
+  entry); the figures are stored as measured
+  (`parked_entry.limit_*`, never rewritten, trigger
+  `parked_entry_keep_limit`) and are in the park's audit record; the park
+  publishes `ParkedJournalEntryChanged` as any park does. A person finds
+  them with `GET /v1/parked-journal-entries?created_by_kind=service&status=parked`
+  and posts one with `:post`, taking it on as an agent's proposal
+  (T35d), which measures it against the manual entry approval limit and
+  asks the controller's approval above it; `:post` stays people's, so
+  the service cannot post what it parked. **Decided by default:** a
+  company without a `service_posting_limit` holds its services to its
+  `manual_entry_approval_limit`, as integrations would have been held
+  before, parking above it instead of refusing; a company the
+  configuration lacks has a limit of 0 (every entry parked), as a
+  missing manual limit does. People are unaffected. A retry with the same
+  `Idempotency-Key` answers the parked entry again. **Rolling upgrade
+  (06 §6.4):** 000175 adds nullable columns and NOT VALID checks, 000176
+  validates them; an instance of the previous release refuses a service
+  principal's entry outright (403, `x-agent: false`) and never writes the
+  columns, so the key fails closed in a mixed cell and needs no ordering.
 
 ### 8. Calculation and rounding
 - Base × rate is exact (`big.Rat`, as `money.Convert`), rounded **once per
@@ -746,8 +786,8 @@ companies (all in the tenant, under RLS). A registration change is financial
   `companies[].tax_registrations[]` has a `code` (unique in the tenant,
   `^[A-Z0-9_]{1,20}$`), `authority` (a code such as `CRA`, `RQ`, `FTA`;
   no list of authorities is held), `number`, `return_type` (the pack's code
-  of the return; T61h checks it against the pack's `returns.yaml`, which
-  does not exist yet), `frequency` (`monthly`, `quarterly`, `annual`),
+  of the return; T61h checks it against the pack's `returns.yaml` when a
+  draft is computed, §11 As built), `frequency` (`monthly`, `quarterly`, `annual`),
   `first_period_start` (day 1-28 of a month, so every period starts on the
   same day; a start on the 29th-31st is refused for want of a rule for the
   shorter months) and optional `last_period_end` (the last day of one of
@@ -825,6 +865,90 @@ companies (all in the tenant, under RLS). A registration change is financial
   rebates, ITC restrictions for the year) are entered as manual entries with a
   tax code of kind `adjustment` mapped to their box (104, 107, 110, 111; UAE
   Box 1 and 9 adjustment columns), so they too are items with a document.
+- **As built (T61h, migration 000174):** decided by default from this
+  section, ADR-0048, ADR-0046 and the API rules, each listed for the
+  product owner to overrule.
+  - **The definition.** A pack's optional `returns.yaml` (ADR-0048) lists
+    return types (`type`, the code a registration's `return_type` names;
+    `name`; `prior_period_threshold`, a whole amount of up to 13 digits)
+    and their boxes in order: a `code` (`^[a-z0-9][a-z0-9_]{0,19}$`, unique
+    in its return), a `label`, and either `select` (a `direction`; when
+    listed, `kinds`, `components`, `jurisdictions` and `account_keys`; a
+    `measure` of `base`, `tax`, `recoverable` or `non_recoverable`, in
+    local currency; `negate` to show credits, output tax and its base,
+    positive) or an `expression` over earlier boxes, read as
+    `box_<code>`. The account key is a selector beside the ones listed
+    above, as a reverse charge's two items differ by it alone
+    (`self_output`, `self_input`). "Adjustment" is not a measure: the
+    adjustments of the last bullet will be items of a kind, which `kinds`
+    selects once the kind exists (`ledger.tax_item.kind` has none yet).
+    Expressions are compiled by the CEL engine of ADR-0046
+    (`rules.CompileFormula`: the same environment, no time, no floats,
+    its cost and time limits) over integer minor units, refused when they
+    read a later box or are not integers; an overflow fails the
+    computation rather than wrapping. Validated and hashed with the pack.
+  - **The draft** of a registration's period is computed on read and
+    never stored (as above): it reads the unreported items
+    (`reported_in` null) of the registrant and a tax group's members dated
+    on or before the period's end, through the ledger's port
+    (`ledger.TaxItems.Unreported`, grouped by direction, kind, component,
+    jurisdiction, account key and whether dated before the period's start;
+    `UnreportedItems` for a box's items, paged in tax date and entry
+    order), which holds the caller to every company it reads. A draft
+    claims no item, so computing it twice, or twice at once, gives the same
+    draft and neither can take an item from the other; T61i's prepare
+    claims items once under the registration's lock. A partial index
+    (`tax_item_unreported`) serves the selection. Reads write no audit
+    record and publish nothing (ADR-0011 audits changes, ADR-0007 external
+    effects).
+  - **Entries migrated from SAP** (`journal_entry.source_context`
+    `integration`, the migration runs' alone) are left out: an open down
+    payment's input tax, dated SAP's posting date, was reported by SAP's
+    returns (ADR-0037 As built, T72c, its tracker leaf). Its clearing's
+    reversal, posted on the platform by payables, is reported.
+  - **Prior-period items** (dated before the period's start, unreported)
+    are part of each box and shown apart (`prior_period_amount`; an
+    expression box's is its expression over the earlier boxes' parts);
+    their signed tax is summed for information. **The threshold's measure
+    is open** (product owner and tax specialist: net or gross, per earlier
+    period or pooled, per error); until it is settled `above_threshold` is
+    raised, conservatively, when the input or the output tax of the items
+    of any one earlier period (by the registration's periods; one bucket
+    before its first) exceeds the pack's threshold in magnitude, so
+    directions and periods never cancel and the flag errs towards a
+    person's review. No threshold means always the next return (P7,
+    Canada's case). No released pack sets one yet (T61k's UAE pack will).
+  - **Refusals** (problem values): a `period_start` that starts none of
+    the registration's periods (422 `tax.not_a_period`); a period not yet
+    ended on the registrant's date in its time zone (409
+    `tax.period_not_ended`: items still arrive in it, and T61i prepares
+    ended periods only); no definition of the return type in the pack
+    version the registrant's company adopted (`packs` in the document), or
+    no pack adopted (409 `tax.return_undefined`); companies of different
+    local currencies (409 `tax.return_currency_mixed`; amounts are the
+    registrant's local currency); a registration covering a company the
+    caller may not act in (403 `tax.registration_companies`), one they do
+    not see 404. The return type is checked here, not in the
+    configuration (T61g's As built said T61h would): a pilot registers
+    before T61j and T61k define its return, and a configuration finding
+    would refuse the registration until then.
+  - **API.** The steps' `GET /v1/tax-returns:compute` is against the API
+    rules (custom methods are POST; collection custom methods start work,
+    202): a draft computed on read is a resource read with GET, as the
+    cash position is. `GET /v1/tax-registrations/{id}/draft-return?period_start=`
+    (`getTaxReturnDraft`) and its drill-down `GET
+    /v1/tax-registrations/{id}/draft-return/items?period_start=&box=`
+    (`listTaxReturnDraftItems`: each item's entry with its document number,
+    posting date, reference and header text, its code, component, amounts
+    and what it adds to the box; the amounts add up to the box's), both
+    `tax.return.read` (migration 000174). Drill-down stops at the entry
+    (`getJournalEntry`); the documents are T59's, the export T63's.
+  - **Walkthrough.** No released pack defines a return until T61j, so the
+    walkthrough serves a copy of the latest Canada pack with an
+    illustrative return (`scripts/walkthrough/returns.yaml`, boxes that
+    are not the GST34's lines) as an unreleased pack (`ERP_PACKS_DIR`,
+    refused in production; ADR-0048), and step 11 computes the draft of
+    the latest ended period with a late sale and an earlier period's.
 
 ### 12. Audit
 Every change of a registration, code or rate is a configuration change request
@@ -893,7 +1017,7 @@ coverage 100%, reviewer) like every step.
 | T61e | **Reverse charge, self-assessment and import tax** | `reverse_charge` and `import` codes post output and input lines and two items, the supplier owed the base; import tax from a customs declaration entry; UAE domestic RCM codes with the declaration as evidence; Canada line-405 codes; tests that a fully recoverable reverse charge nets to zero and a partly recoverable one leaves the blocked share on expense |
 | T61f | **Output tax from the pilot's sales** | Output codes accepted on manual and integration journal entries; the ledger calculates and checks the tax lines within tolerance; jurisdiction required where a component needs it; zero-rated and exempt bases recorded as items; idempotent by the integration's reference; the shape decided in P2 |
 | T61g | **Registrations and tax periods** | `companies[].tax_registrations` (authority, number encrypted as tax ids are, return type, frequency, first period; UAE tax group across companies); tier 3; tax periods generated; API to list registrations and periods |
-| T61h | **The return engine** | `returns.yaml` in the pack schema (boxes as item selections or CEL expressions over boxes), validated and hashed with the pack; a draft return for a registration and period computed from unreported items, with prior-period items shown apart; every box drills to items; `GET /v1/tax-returns:compute` (contract first, `tax.return.read`) |
+| T61h (done) | **The return engine** | `returns.yaml` in the pack schema (boxes as item selections or CEL expressions over boxes), validated and hashed with the pack; a draft return for a registration and period computed from unreported items, with prior-period items shown apart; every box drills to items; `GET /v1/tax-returns:compute` (contract first, `tax.return.read`; built as `GET /v1/tax-registrations/{id}/draft-return`, §11 As built) |
 | T61i | **Return lifecycle** | `tax.tax_return` with snapshot (box values, item ids, hash, pack version); prepare (needs closed periods; sets `reported_in` under a registration lock, once), approve (another person, approvals context), file (a person records the confirmation; locks the periods via T32), withdraw, amendment; human-only transitions; audit and outbox events; run-twice tests for any worker; immutability trigger on filed snapshots |
 | T61j | **GST/HST return for Canada** | The GST34 lines in the Canada pack's `returns.yaml` (101-115 incl. 205 and 405), golden tests from a worked set of invoices, entries and adjustments, signed off by the tax specialist; the FPZ-500 (GST/HST + QST) if P4 includes it |
 | T61k | **VAT 201 for the UAE** | Boxes 1a-14 in the UAE pack (with T62f), emirate by the registration's fixed establishment, Box 6/7 from import entries, golden tests, specialist sign-off; checked against the EmaraTax form labels |
