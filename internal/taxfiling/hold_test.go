@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -194,6 +195,10 @@ func TestTaxDateHoldSerializes(t *testing.T) {
 func TestTaxDateHoldLockOrder(t *testing.T) {
 	e := returnsEnv(t)
 	held, release, firstDone := make(chan int32), make(chan struct{}), make(chan error, 1)
+	// Deferred too, so a failed wait does not leave the range locked.
+	letGo := sync.OnceFunc(func() { close(release) })
+	defer letGo()
+	body := saleBody(t, e, "2026-05-05", "2026-04-10")
 	go func() {
 		firstDone <- apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 			tx, _, err := reqctx.Request(ctx)
@@ -218,7 +223,7 @@ func TestTaxDateHoldLockOrder(t *testing.T) {
 	}
 	posted := make(chan int, 1)
 	go func() {
-		code, _, _ := e.Do("POST", "/v1/journal-entries", saleBody(t, e, "2026-05-05", "2026-04-10"), "")
+		code, _, _ := e.Do("POST", "/v1/journal-entries", body, "")
 		posted <- code
 	}()
 	pgtest.Eventually(t, 10*time.Second, func() bool {
@@ -236,7 +241,7 @@ func TestTaxDateHoldLockOrder(t *testing.T) {
 	if err := tx.Rollback(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	close(release)
+	letGo()
 	if err := <-firstDone; err != nil {
 		t.Fatalf("number range transaction: %v", err)
 	}

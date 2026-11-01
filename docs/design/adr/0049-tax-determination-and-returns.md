@@ -1179,7 +1179,10 @@ companies (all in the tenant, under RLS). A registration change is financial
     ranges first and the registrations after (taxfiling's `Setup`, by
     code), so the posting takes the two in the same order and cannot
     deadlock with it (`TestTaxDateHoldLockOrder`, which fails with the
-    hold taken before the number).
+    hold taken before the number). The price: a held posting waiting for
+    a prepare under way holds its company's number range meanwhile, so
+    the company's other postings of that document type and year queue
+    behind it until the prepare commits.
   - **The port.** `ledger.TaxReturns` (`Holding`) is in the ledger's
     published API and implemented by `taxfiling.Holds`, wired in
     `internal/app` into the API's ledger endpoints, the manual entries'
