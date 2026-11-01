@@ -316,7 +316,9 @@ func (g *gen) houseBanks(p string, co *config.Company) (config.HouseBank, []conf
 		}
 		hb := config.HouseBank{Name: b.HBKID, IBAN: b.IBAN, BIC: b.SWIFT, GLAccount: sap.Alpha(b.HKONT)}
 		g.canadianAccount(p+".house_banks["+b.HBKID+"]", b, &hb)
-		g.houseBankCurrency(p+".house_banks["+b.HBKID+"]", b, co.Currency, &hb)
+		if !seen[b.HBKID] { // a dropped account's currency is not the bank's
+			g.houseBankCurrency(p+".house_banks["+b.HBKID+"]", b, co.Currency, &hb)
+		}
 		switch {
 		case seen[b.HBKID]:
 			g.note(p+".house_banks["+b.HBKID+"]", "house bank "+b.HBKID+" has several accounts in T012K; only the first is taken")
@@ -350,14 +352,16 @@ const unknownCurrency = "UNKNOWN"
 // one keeps; another as it is, which validation refuses unless the
 // reference data knows it and the bank's ledger accounts are revalued at
 // period end (ADR-0042), which the extract cannot tell, so it is noted for
-// the reviewers; and unknownCurrency, noted, when WAERS is empty.
+// the reviewers; and unknownCurrency, noted, when WAERS is empty, even
+// for a company without a currency of its own, which must not make an
+// account without one look like the company's.
 func (g *gen) houseBankCurrency(path string, b sap.T012K, companyCurrency string, hb *config.HouseBank) {
 	switch waers := strings.TrimSpace(b.WAERS); waers {
-	case companyCurrency:
 	case "":
 		hb.Currency = unknownCurrency
 		g.note(path+".currency", "T012K gives the account no currency (WAERS); set it (left at "+unknownCurrency+
 			", which fails validation): a bank's currency never changes once it is created")
+	case strings.TrimSpace(companyCurrency):
 	default:
 		hb.Currency = waers
 		g.note(path+".currency", fmt.Sprintf("the account is in %s (T012K WAERS), not the company's %s: flag the bank's ledger accounts "+

@@ -1,6 +1,7 @@
 package sapconfig
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -83,16 +84,26 @@ func TestHouseBankCurrencyFromT012K(t *testing.T) {
 // the bank's code; it is drafted with a value validation refuses, noted,
 // as an account in a currency the reference data does not know is.
 func TestHouseBankCurrencyRefused(t *testing.T) {
-	for name, c := range map[string]struct{ waers, currency, note string }{
-		"missing":          {"", unknownCurrency, "companies[3000].house_banks[MUSD].currency: T012K gives the account no currency (WAERS); set it"},
-		"blank":            {"   ", unknownCurrency, "companies[3000].house_banks[MUSD].currency: T012K gives the account no currency (WAERS); set it"},
-		"unknown currency": {"XYZ", "XYZ", "companies[3000].house_banks[MUSD].currency: the account is in XYZ (T012K WAERS)"},
+	missing := "companies[3000].house_banks[MUSD].currency: T012K gives the account no currency (WAERS); set it"
+	for name, c := range map[string]struct {
+		waers, companyWaers, currency, note, errors string
+	}{
+		"missing":          {"", "CAD", unknownCurrency, missing, "companies[3000].house_banks[MUSD].currency"},
+		"blank":            {"   ", "CAD", unknownCurrency, missing, "companies[3000].house_banks[MUSD].currency"},
+		"unknown currency": {"XYZ", "CAD", "XYZ", "companies[3000].house_banks[MUSD].currency: the account is in XYZ (T012K WAERS)", "companies[3000].house_banks[MUSD].currency"},
+		"missing, and the company's too": {"", "", unknownCurrency, missing,
+			"companies[3000].currency companies[3000].house_banks[MUSD].currency"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := sap.GenerateMock(42, "2026")
 			for i := range e.T012K {
 				if e.T012K[i].HBKID == "MUSD" {
 					e.T012K[i].WAERS = c.waers
+				}
+			}
+			for i := range e.T001 {
+				if e.T001[i].BUKRS == "3000" {
+					e.T001[i].WAERS = c.companyWaers
 				}
 			}
 			cfg, notes := Generate(e, zoned())
@@ -102,9 +113,29 @@ func TestHouseBankCurrencyRefused(t *testing.T) {
 			if all := notesText(notes); !strings.Contains(all, c.note) {
 				t.Errorf("notes: got\n%s\nwant one beginning %q", all, c.note)
 			}
-			if got := strings.Join(errorPaths(reviewed(cfg)), " "); got != "companies[3000].house_banks[MUSD].currency" {
-				t.Errorf("errors of the reviewed draft: got %q, want MUSD's currency", got)
+			got := errorPaths(reviewed(cfg))
+			for _, want := range strings.Fields(c.errors) {
+				if !slices.Contains(got, want) {
+					t.Errorf("errors of the reviewed draft: got %v, want %s among them", got, want)
+				}
 			}
 		})
+	}
+}
+
+// TestHouseBankCurrencyOfTheFirstAccount: of a house bank's several
+// accounts only the first is taken, in its currency; the dropped
+// account's currency is neither the bank's nor noted.
+func TestHouseBankCurrencyOfTheFirstAccount(t *testing.T) {
+	e := sap.GenerateMock(42, "2026")
+	e.SKB1 = append(e.SKB1, sap.SKB1{BUKRS: "1000", SAKNR: "0000101000", TXT50: "Bank clearing - DB"})
+	e.T012K = append(e.T012K, sap.T012K{BUKRS: "1000", HBKID: "DB", HKONT: "0000101000", IBAN: "DE02120300000000202051", SWIFT: "DEUTDEFFXXX", WAERS: "USD"},
+		sap.T012K{BUKRS: "1000", HBKID: "DB", HKONT: "0000102000", IBAN: "DE89370400440532013000", SWIFT: "DEUTDEFFXXX", WAERS: "EUR"})
+	c, notes := Generate(e, zoned())
+	if got := c.Company("1000").HouseBanks[0].Currency; got != "" {
+		t.Errorf("DB's currency, its first account's USD, the company's: got %q, want none", got)
+	}
+	if all := notesText(notes); strings.Contains(all, "house_banks[DB].currency") {
+		t.Errorf("notes: got one on DB's currency, want none for its dropped EUR account:\n%s", all)
 	}
 }
