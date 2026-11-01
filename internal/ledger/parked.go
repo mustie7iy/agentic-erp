@@ -57,6 +57,8 @@ type ParkedEntry struct {
 	Lines             []Line
 	Debits            money.Minor // the debit total of Lines
 	Limit             *ParkLimit  // why the ERP parked it instead of posting it; nil: a principal parked it
+	TemplateID        *uuid.UUID  // the entry template it was parked from (ADR-0056)
+	OccurrenceDate    *time.Time  // the template's due date the ERP parked it for; nil: a principal parked it
 	Version           int32
 	CreatedAt         time.Time
 	CreatedBy         uuid.UUID
@@ -64,20 +66,45 @@ type ParkedEntry struct {
 	UpdatedBy         uuid.UUID
 }
 
-const parkedSelect = `SELECT p.id, p.legal_entity_id, p.ledger_id, p.document_type, p.document_date, p.posting_date, p.tax_date, p.currency, c.exponent,
-		p.reference, p.header_text, p.status, p.created_by_kind, p.owner_id, p.approval_request_id, p.journal_fiscal_year, p.journal_entry_id,
-		p.version, p.created_at, p.created_by, p.updated_at, p.updated_by, p.ledger_specific,
-		(SELECT g.code FROM ledger.ledger_group g WHERE g.tenant_id = p.tenant_id AND g.id = p.ledger_group_id),
-		coalesce((SELECT json_agg(json_build_object('line_no', l.line_no, 'account_id', l.account_id, 'tc', l.amount, 'lc', 0, 'gc', 0,
+// lineTable is a table of lines in transaction currency kept as a parked
+// entry's are: ledger.parked_entry_line and ledger.entry_template_line.
+type lineTable struct {
+	table  string // in schema ledger
+	parent string // the column naming the entry or template
+	what   string // what the lines are of, for errors
+}
+
+var (
+	parkedLines   = lineTable{table: "parked_entry_line", parent: "parked_entry_id", what: "parked entry"}
+	templateLines = lineTable{table: "entry_template_line", parent: "template_id", what: "entry template"}
+)
+
+// name is the table's sanitized name.
+func (t lineTable) name() string { return pgx.Identifier{"ledger", t.table}.Sanitize() }
+
+// column is the parent column's sanitized name.
+func (t lineTable) column() string { return pgx.Identifier{t.parent}.Sanitize() }
+
+// read is a select list's expressions reading the live lines of the row
+// alias names (as JSON, scanned into []Line) and their debit total.
+func (t lineTable) read(alias string) string {
+	where := ` WHERE l.tenant_id = ` + alias + `.tenant_id AND l.` + t.column() + ` = ` + alias + `.id AND NOT l.is_removed`
+	return `coalesce((SELECT json_agg(json_build_object('line_no', l.line_no, 'account_id', l.account_id, 'tc', l.amount, 'lc', 0, 'gc', 0,
 			'partner_id', l.partner_id, 'tax_code', l.tax_code, 'quantity', trim_scale(l.quantity)::text, 'unit', l.uom_code, 'text', l.line_text,
 			'tax_base_tc', l.tax_base, 'tax_jurisdiction', l.tax_jurisdiction, 'cost_center_id', l.cost_center_id, 'profit_center_id', l.profit_center_id,
 			'segment_id', l.segment_id, 'cost_center_code', cc.code, 'profit_center_code', pc.code, 'segment_code', sg.code)
 			ORDER BY l.line_no)
-		 FROM ledger.parked_entry_line l` + centerJoins + ` WHERE l.tenant_id = p.tenant_id AND l.parked_entry_id = p.id AND NOT l.is_removed), '[]'),
-		(SELECT coalesce(sum(l.amount) FILTER (WHERE l.amount > 0), 0)::bigint
-		 FROM ledger.parked_entry_line l WHERE l.tenant_id = p.tenant_id AND l.parked_entry_id = p.id AND NOT l.is_removed),
+		 FROM ` + t.name() + ` l` + centerJoins + where + `), '[]'),
+		(SELECT coalesce(sum(l.amount) FILTER (WHERE l.amount > 0), 0)::bigint FROM ` + t.name() + ` l` + where + `)`
+}
+
+var parkedSelect = `SELECT p.id, p.legal_entity_id, p.ledger_id, p.document_type, p.document_date, p.posting_date, p.tax_date, p.currency, c.exponent,
+		p.reference, p.header_text, p.status, p.created_by_kind, p.owner_id, p.approval_request_id, p.journal_fiscal_year, p.journal_entry_id,
+		p.version, p.created_at, p.created_by, p.updated_at, p.updated_by, p.ledger_specific,
+		(SELECT g.code FROM ledger.ledger_group g WHERE g.tenant_id = p.tenant_id AND g.id = p.ledger_group_id),
+		` + parkedLines.read("p") + `,
 		p.limit_kind, p.limit_debits, p.limit_debits_currency, (SELECT x.exponent FROM ref.currency x WHERE x.code = p.limit_debits_currency),
-		p.limit_amount, p.limit_currency, (SELECT x.exponent FROM ref.currency x WHERE x.code = p.limit_currency)
+		p.limit_amount, p.limit_currency, (SELECT x.exponent FROM ref.currency x WHERE x.code = p.limit_currency), p.template_id, p.occurrence_date
 	FROM ledger.parked_entry p JOIN ref.currency c ON c.code = p.currency`
 
 func scanParked(row pgx.Row) (ParkedEntry, error) {
@@ -88,7 +115,7 @@ func scanParked(row pgx.Row) (ParkedEntry, error) {
 	err := row.Scan(&pe.ID, &pe.LegalEntityID, &pe.LedgerID, &pe.DocumentType, &pe.DocumentDate, &pe.PostingDate, &pe.TaxDate, &pe.Currency, &pe.Exp,
 		&pe.Reference, &pe.HeaderText, &pe.Status, &pe.CreatedByKind, &pe.OwnerID, &pe.ApprovalRequestID, &pe.JournalFiscalYear, &pe.JournalEntryID,
 		&pe.Version, &pe.CreatedAt, &pe.CreatedBy, &pe.UpdatedAt, &pe.UpdatedBy, &pe.LedgerSpecific, &pe.LedgerGroup, &pe.Lines, &pe.Debits,
-		&kind, &debits, &debitsCurrency, &debitsExp, &limit, &limitCurrency, &limitExp)
+		&kind, &debits, &debitsCurrency, &debitsExp, &limit, &limitCurrency, &limitExp, &pe.TemplateID, &pe.OccurrenceDate)
 	// The database holds the five together (parked_entry_limit_figures),
 	// and a currency it keeps has its exponent.
 	if err == nil && kind != nil {
@@ -133,45 +160,66 @@ func (e *Endpoints) parkEntry(ctx context.Context, in NewEntry) (ParkedEntry, er
 	if err != nil {
 		return ParkedEntry{}, err
 	}
-	return parkPrepared(ctx, tx, p, v, in, nil)
+	return parkPrepared(ctx, tx, p, v, in, parking{})
 }
 
-// parkPrepared parks a prepared entry; limit, when set, is the limit the
-// ERP parks it by instead of posting it (a service principal's entry,
-// T61n), recorded with it and in its audit record.
-func parkPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v prepared, in NewEntry, limit *ParkLimit) (ParkedEntry, error) {
+// parking is how an entry is parked, besides what it holds.
+type parking struct {
+	// limit, when set, is the limit the ERP parks it by instead of posting
+	// it (a service principal's entry, T61n), recorded with it and in its
+	// audit record.
+	limit *ParkLimit
+	// template is the entry template it is parked from (ADR-0056), and
+	// occurrence the template's due date when the ERP parks it, for owner,
+	// the template's owner.
+	template   *uuid.UUID
+	occurrence *time.Time
+	owner      *uuid.UUID
+}
+
+// ownerOf is who owns the entry the principal parks: a person what they
+// park; the template's owner what the ERP parks for a due date; no one an
+// agent's or a service's entry, until a person takes it on (T35d).
+func (how parking) ownerOf(p reqctx.Principal) *uuid.UUID {
+	if p.Kind == reqctx.KindHuman {
+		return &p.ID
+	}
+	return how.owner
+}
+
+// parkPrepared parks a prepared entry as how says.
+func parkPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v prepared, in NewEntry, how parking) (ParkedEntry, error) {
 	if err := parkable(ctx, tx, v, in.PostingDate); err != nil {
 		return ParkedEntry{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
-	var owner *uuid.UUID
-	if p.Kind == reqctx.KindHuman {
-		owner = &p.ID
-	}
 	var (
 		kind, debitsCurrency, limitCurrency *string
 		debits, amount                      *money.Minor
-		extra                               map[string]any
+		extra                               = map[string]any{}
 	)
-	if limit != nil {
+	if limit := how.limit; limit != nil {
 		kind, debits, debitsCurrency, amount, limitCurrency = &limit.Kind, &limit.Debits, &limit.DebitsCurrency, &limit.Limit, &limit.LimitCurrency
 		extra = map[string]any{"limit_exceeded": limit.Kind, "debits": money.EventAmount(limit.Debits, limit.DebitsCurrency, limit.DebitsExp),
 			"limit": money.EventAmount(limit.Limit, limit.LimitCurrency, limit.LimitExp)}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.parked_entry (tenant_id, id, legal_entity_id, ledger_id, document_type, document_date, posting_date,
 			currency, reference, header_text, created_by_kind, owner_id, created_by, updated_by, ledger_specific, ledger_group_id, tax_date,
-			limit_kind, limit_debits, limit_debits_currency, limit_amount, limit_currency)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
+			limit_kind, limit_debits, limit_debits_currency, limit_amount, limit_currency, template_id, occurrence_date)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
 		p.TenantID, id, v.le.ID, v.choice.ledger, in.DocumentType, in.DocumentDate, in.PostingDate, in.Currency, in.Reference, in.HeaderText,
-		p.Kind, owner, p.ID, v.choice.specific, v.choice.group, in.TaxDate, kind, debits, debitsCurrency, amount, limitCurrency); err != nil {
+		p.Kind, how.ownerOf(p), p.ID, v.choice.specific, v.choice.group, in.TaxDate, kind, debits, debitsCurrency, amount, limitCurrency,
+		how.template, how.occurrence); err != nil {
 		return ParkedEntry{}, fmt.Errorf("ledger: park entry %s: %w", id, err)
 	}
 	if err := putParkedLines(ctx, tx, p.TenantID, id, v.lines); err != nil {
 		return ParkedEntry{}, err
 	}
-	pe, err := getParked(ctx, tx, id)
+	// Read as written: the caller may act in its company (prepare), or is
+	// the ERP parking a template's due date.
+	pe, err := scanParked(tx.QueryRow(ctx, parkedSelect+` WHERE p.id = $1`, id))
 	if err != nil {
-		return ParkedEntry{}, err
+		return ParkedEntry{}, fmt.Errorf("ledger: read parked entry %s: %w", id, err)
 	}
 	return pe, parkedChanged(ctx, pe, nil, "park", extra)
 }
@@ -216,10 +264,42 @@ func refuseAutomatic(ctx context.Context, le uuid.UUID, lines []Line) error {
 	return nil
 }
 
-// putParkedLines makes the entry's live lines the given ones, numbered
-// 1..n: existing numbers are updated, new ones inserted and the rest marked
-// removed, as the application deletes nothing (000015).
+// The statements writing a parked entry's or a template's lines, as
+// constants: the problem codes of their tables' constraints are traced to
+// the functions that run them (api TestProblemCodes).
+const (
+	lineValues = `line_no, account_id, amount, partner_id,
+			tax_code, quantity, uom_code, line_text, tax_base, tax_jurisdiction, cost_center_id, profit_center_id, segment_id)
+		SELECT $1, $2, n, a, m, pa, tx, q::numeric, u, t, b, j, cc, pc, sg
+		FROM unnest($3::int[], $4::uuid[], $5::bigint[], $6::uuid[], $7::text[], $8::text[], $9::text[], $10::text[], $11::bigint[], $12::text[],
+			$13::uuid[], $14::uuid[], $15::uuid[]) AS x(n, a, m, pa, tx, q, u, t, b, j, cc, pc, sg)`
+	lineUpdate = ` DO UPDATE SET account_id = EXCLUDED.account_id, amount = EXCLUDED.amount,
+			partner_id = EXCLUDED.partner_id, tax_code = EXCLUDED.tax_code, quantity = EXCLUDED.quantity, uom_code = EXCLUDED.uom_code,
+			line_text = EXCLUDED.line_text, tax_base = EXCLUDED.tax_base, tax_jurisdiction = EXCLUDED.tax_jurisdiction,
+			cost_center_id = EXCLUDED.cost_center_id, profit_center_id = EXCLUDED.profit_center_id, segment_id = EXCLUDED.segment_id, is_removed = false`
+	writeParkedLines = `INSERT INTO ledger.parked_entry_line (tenant_id, parked_entry_id, ` + lineValues +
+		` ON CONFLICT (tenant_id, parked_entry_id, line_no)` + lineUpdate
+	removeParkedLines  = `UPDATE ledger.parked_entry_line SET is_removed = true WHERE parked_entry_id = $1 AND line_no > $2 AND NOT is_removed`
+	writeTemplateLines = `INSERT INTO ledger.entry_template_line (tenant_id, template_id, ` + lineValues +
+		` ON CONFLICT (tenant_id, template_id, line_no)` + lineUpdate
+	removeTemplateLines = `UPDATE ledger.entry_template_line SET is_removed = true WHERE template_id = $1 AND line_no > $2 AND NOT is_removed`
+)
+
+// putParkedLines makes the parked entry's live lines the given ones.
 func putParkedLines(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, lines []Line) error {
+	return putLines(ctx, tx, [2]string{writeParkedLines, removeParkedLines}, parkedLines.what, tenant, id, lines)
+}
+
+// putTemplateLines makes the template's live lines the given ones.
+func putTemplateLines(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, lines []Line) error {
+	return putLines(ctx, tx, [2]string{writeTemplateLines, removeTemplateLines}, templateLines.what, tenant, id, lines)
+}
+
+// putLines makes the live lines of the entry or template id the given
+// ones, numbered 1..n, with the statements sql (write, remove): existing
+// numbers are updated, new ones inserted and the rest marked removed, as
+// the application deletes nothing (000015).
+func putLines(ctx context.Context, tx pgx.Tx, sql [2]string, what string, tenant, id uuid.UUID, lines []Line) error {
 	n := len(lines)
 	nos, accounts, partners, amounts := make([]int32, n), make([]uuid.UUID, n), make([]*uuid.UUID, n), make([]money.Minor, n)
 	taxes, quantities, units, texts := make([]*string, n), make([]*string, n), make([]*string, n), make([]*string, n)
@@ -230,21 +310,12 @@ func putParkedLines(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, lines 
 		taxes[i], quantities[i], units[i], texts[i], bases[i], jurisdictions[i] = l.TaxCode, l.Quantity, l.Unit, l.Text, l.TaxBase, l.TaxJurisdiction
 		ccs[i], pcs[i], segs[i] = l.CostCenterID, l.ProfitCenterID, l.SegmentID
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO ledger.parked_entry_line (tenant_id, parked_entry_id, line_no, account_id, amount, partner_id,
-			tax_code, quantity, uom_code, line_text, tax_base, tax_jurisdiction, cost_center_id, profit_center_id, segment_id)
-		SELECT $1, $2, n, a, m, pa, tx, q::numeric, u, t, b, j, cc, pc, sg
-		FROM unnest($3::int[], $4::uuid[], $5::bigint[], $6::uuid[], $7::text[], $8::text[], $9::text[], $10::text[], $11::bigint[], $12::text[],
-			$13::uuid[], $14::uuid[], $15::uuid[]) AS x(n, a, m, pa, tx, q, u, t, b, j, cc, pc, sg)
-		ON CONFLICT (tenant_id, parked_entry_id, line_no) DO UPDATE SET account_id = EXCLUDED.account_id, amount = EXCLUDED.amount,
-			partner_id = EXCLUDED.partner_id, tax_code = EXCLUDED.tax_code, quantity = EXCLUDED.quantity, uom_code = EXCLUDED.uom_code,
-			line_text = EXCLUDED.line_text, tax_base = EXCLUDED.tax_base, tax_jurisdiction = EXCLUDED.tax_jurisdiction,
-			cost_center_id = EXCLUDED.cost_center_id, profit_center_id = EXCLUDED.profit_center_id, segment_id = EXCLUDED.segment_id, is_removed = false`,
-		tenant, id, nos, accounts, amounts, partners, taxes, quantities, units, texts, bases, jurisdictions, ccs, pcs, segs); err != nil {
-		return fmt.Errorf("ledger: write lines of parked entry %s: %w", id, err)
+	if _, err := tx.Exec(ctx, sql[0], tenant, id, nos, accounts, amounts, partners, taxes, quantities, units, texts, bases, jurisdictions,
+		ccs, pcs, segs); err != nil {
+		return fmt.Errorf("ledger: write lines of %s %s: %w", what, id, err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE ledger.parked_entry_line SET is_removed = true WHERE parked_entry_id = $1 AND line_no > $2 AND NOT is_removed`,
-		id, n); err != nil {
-		return fmt.Errorf("ledger: remove lines of parked entry %s: %w", id, err)
+	if _, err := tx.Exec(ctx, sql[1], id, n); err != nil {
+		return fmt.Errorf("ledger: remove lines of %s %s: %w", what, id, err)
 	}
 	return nil
 }
@@ -276,7 +347,7 @@ func parkedChanged(ctx context.Context, pe ParkedEntry, previous *string, action
 			Payload: map[string]any{"parked_entry_id": pe.ID, "legal_entity_id": pe.LegalEntityID, "posting_date": pe.PostingDate.Format(time.DateOnly),
 				"amount": money.EventAmount(pe.Debits, pe.Currency, pe.Exp), "status": pe.Status, "previous_status": previous,
 				"created_by_kind": pe.CreatedByKind, "owner_id": pe.OwnerID, "approval_request_id": pe.ApprovalRequestID,
-				"journal_entry_id": pe.JournalEntryID}})
+				"journal_entry_id": pe.JournalEntryID, "template_id": pe.TemplateID, "occurrence_date": outbox.Date(pe.OccurrenceDate)}})
 }
 
 // EntryChange is a merge patch of a parked entry: nil fields are
@@ -326,15 +397,24 @@ func editable(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, 
 // parked an entry no person owns, which stays unowned. So the requester an
 // approval excludes is the one person who wrote the entry (T35).
 func ownerAfter(pe ParkedEntry, p reqctx.Principal) (*uuid.UUID, error) {
-	switch {
-	case pe.OwnerID != nil && *pe.OwnerID == p.ID:
-		return pe.OwnerID, nil
-	case pe.OwnerID == nil && p.Kind == reqctx.KindHuman:
-		return &p.ID, nil
-	case pe.OwnerID == nil && pe.CreatedBy == p.ID:
-		return nil, nil
+	if owner, ok := takenOn(pe.OwnerID, pe.CreatedBy, p); ok {
+		return owner, nil
 	}
 	return nil, problem.Forbidden("ledger.not_entry_owner", "Only the owner of a parked entry changes, posts or cancels it: the person who parked it or took it on.")
+}
+
+// takenOn is the owner of what owner owns and createdBy made once p acts
+// on it, as ownerAfter tells it; ok is false when p may not act on it.
+func takenOn(owner *uuid.UUID, createdBy uuid.UUID, p reqctx.Principal) (after *uuid.UUID, ok bool) {
+	switch {
+	case owner != nil && *owner == p.ID:
+		return owner, true
+	case owner == nil && p.Kind == reqctx.KindHuman:
+		return &p.ID, true
+	case owner == nil && createdBy == p.ID:
+		return nil, true
+	}
+	return nil, false
 }
 
 // changed is the parked entry as a manual entry with the change applied.
@@ -345,16 +425,7 @@ func changed(pe ParkedEntry, ch EntryChange) NewEntry {
 		in.LedgerID = &pe.LedgerID
 	}
 	if in.Lines == nil {
-		in.Lines = make([]NewLine, len(pe.Lines))
-		for i, l := range pe.Lines {
-			in.Lines[i] = NewLine{AccountID: l.AccountID, Amount: l.TC.Plain(pe.Exp), Currency: pe.Currency, PartnerID: l.PartnerID, TaxCode: l.TaxCode,
-				Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, TaxBaseCurrency: pe.Currency, TaxJurisdiction: l.TaxJurisdiction,
-				CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID, SegmentID: l.SegmentID}
-			if l.TaxBase != nil {
-				b := l.TaxBase.Plain(pe.Exp)
-				in.Lines[i].TaxBase = &b
-			}
-		}
+		in.Lines = asNewLines(pe.Lines, pe.Currency, pe.Exp)
 	}
 	in.DocumentType = deref(ch.DocumentType, in.DocumentType)
 	in.DocumentDate, in.PostingDate = deref(ch.DocumentDate, in.DocumentDate), deref(ch.PostingDate, in.PostingDate)
@@ -362,6 +433,22 @@ func changed(pe ParkedEntry, ch EntryChange) NewEntry {
 	in.Currency = deref(ch.Currency, in.Currency)
 	in.Reference, in.HeaderText = deref(ch.Reference, in.Reference), deref(ch.HeaderText, in.HeaderText)
 	return in
+}
+
+// asNewLines are kept lines, in minor units of currency with exp digits,
+// as the lines of a manual entry to check again.
+func asNewLines(lines []Line, currency string, exp int) []NewLine {
+	out := make([]NewLine, len(lines))
+	for i, l := range lines {
+		out[i] = NewLine{AccountID: l.AccountID, Amount: l.TC.Plain(exp), Currency: currency, PartnerID: l.PartnerID, TaxCode: l.TaxCode,
+			Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, TaxBaseCurrency: currency, TaxJurisdiction: l.TaxJurisdiction,
+			CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID, SegmentID: l.SegmentID}
+		if l.TaxBase != nil {
+			b := l.TaxBase.Plain(exp)
+			out[i].TaxBase = &b
+		}
+	}
+	return out
 }
 
 // deref is *v, or otherwise when v is nil.

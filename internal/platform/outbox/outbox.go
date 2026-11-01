@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -46,6 +47,15 @@ func (e Event) Type() string {
 		v = 1
 	}
 	return fmt.Sprintf("com.example.erp.%s.%s.v%d", PublicContext(e.Context), e.Name, v)
+}
+
+// Date is an optional date as event payloads carry it: YYYY-MM-DD, or
+// null when there is none.
+func Date(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return t.Format(time.DateOnly)
 }
 
 // ErrOutsideRequest means Add was called without a request transaction.

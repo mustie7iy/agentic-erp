@@ -46,8 +46,11 @@ type Dispatcher struct {
 	// Statements is the period of each house bank's statement fetch
 	// (ERP_STATEMENT_FETCH_INTERVAL, ADR-0047); 0 fetches none.
 	Statements time.Duration
-	Now        func() time.Time // the fetch periods' clock; nil: time.Now
-	Log        *slog.Logger
+	// Recurring finds the entry templates' due dates (ADR-0056); nil
+	// parks none.
+	Recurring *Recurrences
+	Now       func() time.Time // the fetch periods' and due dates' clock; nil: time.Now
+	Log       *slog.Logger
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
 	Begin database.BeginFunc
 
@@ -145,6 +148,13 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (int, error) {
 	if err := tx.Commit(ctx); err != nil {
 		return n, fmt.Errorf("dispatcher: committing the started workflows: %w", err)
 	}
+	if d.Recurring != nil {
+		k, err := d.recur(ctx)
+		n += k
+		if err != nil {
+			failures = append(failures, err)
+		}
+	}
 	return n, errors.Join(failures...)
 }
 
@@ -238,6 +248,31 @@ func (d *Dispatcher) fetch(ctx context.Context, tx pgx.Tx) (int, error) {
 	return n, errors.Join(failures...)
 }
 
+// recur starts a workflow for every due date of the entry templates'
+// schedules, oldest first per template (ADR-0056). The workflow id names
+// the template and the date, so a date is started once however many
+// replicas and rounds dispatch it; the template moves past it only once
+// its entry is parked or refused, so a round lists it until then.
+func (d *Dispatcher) recur(ctx context.Context) (int, error) {
+	due, err := d.Recurring.Due(ctx, clock.Now(d.Now))
+	failures := []error{err}
+	n := 0
+	for _, in := range due {
+		started, err := d.Client.Start(ctx, workflow.Start{ID: RecurWorkflowID(in), Queue: d.Queue, Name: RecurWorkflow, Args: []any{in}})
+		if err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		if started {
+			n++
+		}
+	}
+	if err := errors.Join(failures...); err != nil {
+		return n, fmt.Errorf("dispatcher: %w", err)
+	}
+	return n, nil
+}
+
 // Run dispatches until ctx ends, logging failures and work done.
 func (d *Dispatcher) Run(ctx context.Context) {
 	worker.Loop(ctx, d.Interval, time.Second, func(ctx context.Context) (bool, error) {
@@ -250,7 +285,7 @@ func (d *Dispatcher) Run(ctx context.Context) {
 }
 
 // Register registers the workflows and activities a cell's worker hosts.
-func Register(r workflow.Registry, p *Payments, s *Simulations, m *Migrations, a *Approvals, st *Statements) {
+func Register(r workflow.Registry, p *Payments, s *Simulations, m *Migrations, a *Approvals, st *Statements, rc *Recurrences) {
 	r.RegisterWorkflowWithOptions(ProposePaymentRun, sdkworkflow.RegisterOptions{Name: ProposeWorkflow})
 	r.RegisterWorkflowWithOptions(ReleasePaymentRun, sdkworkflow.RegisterOptions{Name: ReleaseWorkflow})
 	r.RegisterWorkflowWithOptions(SimulateChange, sdkworkflow.RegisterOptions{Name: SimulateWorkflow})
@@ -262,4 +297,6 @@ func Register(r workflow.Registry, p *Payments, s *Simulations, m *Migrations, a
 	r.RegisterActivity(a)
 	r.RegisterWorkflowWithOptions(FetchBankStatements, sdkworkflow.RegisterOptions{Name: FetchWorkflow})
 	r.RegisterActivity(st)
+	r.RegisterWorkflowWithOptions(ParkRecurringEntry, sdkworkflow.RegisterOptions{Name: RecurWorkflow})
+	r.RegisterActivity(rc)
 }

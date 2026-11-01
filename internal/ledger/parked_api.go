@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -24,7 +25,7 @@ func parkedToAPI(pe ParkedEntry) gen.ParkedJournalEntry {
 		HeaderText: apitypes.OptString(pe.HeaderText), Status: pe.Status, CreatedByKind: pe.CreatedByKind, OwnerID: apitypes.OptUUID(pe.OwnerID),
 		ApprovalRequestID: apitypes.OptUUID(pe.ApprovalRequestID), JournalEntryID: apitypes.OptUUID(pe.JournalEntryID),
 		LedgerSpecific: gen.NewOptBool(pe.LedgerSpecific), LedgerGroup: apitypes.OptString(pe.LedgerGroup),
-		Lines: make([]gen.ParkedJournalLine, len(pe.Lines))}
+		TemplateID: apitypes.OptUUID(pe.TemplateID), OccurrenceDate: apitypes.OptDate(pe.OccurrenceDate), Lines: linesToAPI(pe.Lines, pe.Currency, pe.Exp)}
 	if pe.JournalFiscalYear != nil {
 		out.JournalFiscalYear.SetTo(int32(*pe.JournalFiscalYear))
 	}
@@ -32,8 +33,15 @@ func parkedToAPI(pe ParkedEntry) gen.ParkedJournalEntry {
 		out.LimitExceeded.SetTo(gen.ParkedEntryLimit{Kind: l.Kind, Debits: apitypes.Money(l.Debits, l.DebitsCurrency, l.DebitsExp),
 			Limit: apitypes.Money(l.Limit, l.LimitCurrency, l.LimitExp), Detail: l.Detail()})
 	}
-	for i, l := range pe.Lines {
-		line := gen.ParkedJournalLine{LineNo: l.LineNo, AccountID: l.AccountID, Amount: apitypes.Money(l.TC, pe.Currency, pe.Exp),
+	return out
+}
+
+// linesToAPI are kept lines, in minor units of currency with exp digits,
+// as the API gives a parked entry's or a template's.
+func linesToAPI(lines []Line, currency string, exp int) []gen.ParkedJournalLine {
+	out := make([]gen.ParkedJournalLine, len(lines))
+	for i, l := range lines {
+		line := gen.ParkedJournalLine{LineNo: l.LineNo, AccountID: l.AccountID, Amount: apitypes.Money(l.TC, currency, exp),
 			PartnerID: apitypes.OptUUID(l.PartnerID), TaxCode: apitypes.OptString(l.TaxCode), LineText: apitypes.OptString(l.Text),
 			TaxJurisdiction: apitypes.OptString(l.TaxJurisdiction), CostCenterID: apitypes.OptUUID(l.CostCenterID),
 			CostCenterCode: apitypes.OptString(l.CostCenterCode), ProfitCenterID: apitypes.OptUUID(l.ProfitCenterID),
@@ -42,9 +50,9 @@ func parkedToAPI(pe ParkedEntry) gen.ParkedJournalEntry {
 			line.Quantity.SetTo(gen.Quantity{Value: *l.Quantity, Unit: *l.Unit})
 		}
 		if l.TaxBase != nil {
-			line.TaxBase.SetTo(apitypes.Money(*l.TaxBase, pe.Currency, pe.Exp))
+			line.TaxBase.SetTo(apitypes.Money(*l.TaxBase, currency, exp))
 		}
-		out.Lines[i] = line
+		out[i] = line
 	}
 	return out
 }
@@ -83,13 +91,20 @@ var parkedSort = pagination.Sort{Default: "created_at", DefaultDesc: true, Field
 }}
 
 // ListParkedJournalEntries implements GET /v1/parked-journal-entries.
+// owned_by=me is the caller's own entries (ADR-0056): with status=parked,
+// what waits for the caller to post it, those the caller's templates'
+// schedules parked among them.
 func (e *Endpoints) ListParkedJournalEntries(ctx context.Context, params gen.ListParkedJournalEntriesParams) (gen.ListParkedJournalEntriesRes, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
-	le := apitypes.Ptr[uuid.UUID](params.LegalEntityID)
-	scope := fmt.Sprintf("listParkedJournalEntries|%v|%s|%s", le, params.Status.Value, params.CreatedByKind.Value)
+	owner, err := ownedBy(p, params.OwnedBy.Value)
+	if err != nil {
+		return nil, err
+	}
+	le, template := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.TemplateID)
+	scope := fmt.Sprintf("listParkedJournalEntries|%v|%s|%s|%v|%s", le, params.Status.Value, params.CreatedByKind.Value, template, params.OwnedBy.Value)
 	ks, err := e.Pages.Keyset(parkedSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
@@ -99,8 +114,9 @@ func (e *Endpoints) ListParkedJournalEntries(ctx context.Context, params gen.Lis
 		return nil, err
 	}
 	q, args := ks.SQL(parkedSelect+` WHERE ($1 OR p.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR p.legal_entity_id = $3)
-		AND ($4 = '' OR p.status = $4) AND ($5 = '' OR p.created_by_kind = $5)`,
-		[]any{access.All, access.IDs, le, params.Status.Value, params.CreatedByKind.Value})
+		AND ($4 = '' OR p.status = $4) AND ($5 = '' OR p.created_by_kind = $5) AND ($6::uuid IS NULL OR p.template_id = $6)
+		AND ($7::uuid IS NULL OR p.owner_id = $7)`,
+		[]any{access.All, access.IDs, le, params.Status.Value, params.CreatedByKind.Value, template, owner})
 	rows, _ := tx.Query(ctx, q, args...)
 	entries, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (ParkedEntry, error) { return scanParked(r) })
 	if err != nil {
@@ -110,6 +126,22 @@ func (e *Endpoints) ListParkedJournalEntries(ctx context.Context, params gen.Lis
 		return pe.CreatedAt.UTC().Format(time.RFC3339Nano), pe.ID
 	}, parkedToAPI)
 	return &gen.ParkedJournalEntryPage{Items: items, NextPageToken: next}, nil
+}
+
+// ownedBy is the owner owned_by asks for: none for "", the caller for
+// "me". Only a person owns entries, so an agent's or a service's "me" is
+// an owner no entry has (uuid.Nil) and its list is empty.
+func ownedBy(p reqctx.Principal, by string) (*uuid.UUID, error) {
+	switch {
+	case by == "":
+		return nil, nil
+	case by != "me":
+		return nil, problem.BadRequest("request.invalid_parameter", "Parameter owned_by is me or absent.",
+			problem.FieldError{Field: "owned_by", Code: "invalid", Message: "me"})
+	case p.Kind != reqctx.KindHuman:
+		return &uuid.Nil, nil
+	}
+	return &p.ID, nil
 }
 
 // UpdateParkedJournalEntry implements PATCH /v1/parked-journal-entries/{id}.

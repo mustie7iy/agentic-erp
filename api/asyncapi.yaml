@@ -221,6 +221,7 @@ channels:
       SegmentChanged: {$ref: '#/components/messages/SegmentChanged'}
       HierarchyChanged: {$ref: '#/components/messages/HierarchyChanged'}
       ParkedJournalEntryChanged: {$ref: '#/components/messages/ParkedJournalEntryChanged'}
+      EntryTemplateChanged: {$ref: '#/components/messages/EntryTemplateChanged'}
       ExchangeRateMaintained: {$ref: '#/components/messages/ExchangeRateMaintained'}
       RevaluationRunPosted: {$ref: '#/components/messages/RevaluationRunPosted'}
       RevaluationRunCancelled: {$ref: '#/components/messages/RevaluationRunCancelled'}
@@ -446,6 +447,7 @@ operations:
       - $ref: '#/channels/ledger/messages/SegmentChanged'
       - $ref: '#/channels/ledger/messages/HierarchyChanged'
       - $ref: '#/channels/ledger/messages/ParkedJournalEntryChanged'
+      - $ref: '#/channels/ledger/messages/EntryTemplateChanged'
       - $ref: '#/channels/ledger/messages/ExchangeRateMaintained'
       - $ref: '#/channels/ledger/messages/RevaluationRunPosted'
       - $ref: '#/channels/ledger/messages/RevaluationRunCancelled'
@@ -1066,8 +1068,12 @@ components:
         `created_by_kind` `agent` marks an agent's proposal, which only a
         person can post. `amount` is the entry's debit total in its
         transaction currency. Posting also publishes `JournalEntryPosted`,
-        whose `source_document_id` is the parked entry. Subject is the parked
-        entry id.
+        whose `source_document_id` is the parked entry. An entry parked from
+        an entry template names it (`template_id`); one the ERP parked for a
+        due date of the template's schedule names the date too
+        (`occurrence_date`, `created_by_kind` `system`) and is owned by the
+        template's owner, whose notice it is (ADR-0056). Subject is the
+        parked entry id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -1078,7 +1084,33 @@ components:
       examples:
         - name: agent-proposal
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000084, source: /erp/eu-1/ledger, type: com.example.erp.ledger.parked_journal_entry_changed.v1, subject: 0192a000-0000-7000-8000-000000000207, time: '2026-10-09T14:03:11Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000103}
-          payload: {parked_entry_id: 0192a000-0000-7000-8000-000000000207, legal_entity_id: 0192a000-0000-7000-8000-000000000201, posting_date: '2026-10-09', amount: {amount: '1200.00', currency: EUR}, status: parked, previous_status: null, created_by_kind: agent, owner_id: null, approval_request_id: null, journal_entry_id: null}
+          payload: {parked_entry_id: 0192a000-0000-7000-8000-000000000207, legal_entity_id: 0192a000-0000-7000-8000-000000000201, posting_date: '2026-10-09', amount: {amount: '1200.00', currency: EUR}, status: parked, previous_status: null, created_by_kind: agent, owner_id: null, approval_request_id: null, journal_entry_id: null, template_id: null, occurrence_date: null}
+    EntryTemplateChanged:
+      name: EntryTemplateChanged
+      x-webhook: true
+      title: Entry template changed
+      summary: An entry template was saved, changed or retired, or a due date of its schedule could not be parked.
+      description: |
+        Emitted when an entry template is saved (`entry-templates`, POST:
+        `previous_status` null), changed (PATCH) or retired
+        (`entry-templates/{id}:retire`, `previous_status` `active`), and when
+        the ERP could not park the entry of a due date of its schedule
+        (`refused_on`, `refusal_code`: the date is passed over, for the owner
+        to correct the template and park it by hand). An entry parked for a
+        due date publishes `ParkedJournalEntryChanged` instead (ADR-0056).
+        `amount` is the template's debit total in its transaction currency.
+        Subject is the entry template id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.ledger.entry_template_changed.v1}
+      payload: {$ref: '#/components/schemas/EntryTemplateChangedV1'}
+      examples:
+        - name: saved
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000095, source: /erp/eu-1/ledger, type: com.example.erp.ledger.entry_template_changed.v1, subject: 0192a000-0000-7000-8000-000000000208, time: '2026-11-01T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000103}
+          payload: {entry_template_id: 0192a000-0000-7000-8000-000000000208, legal_entity_id: 0192a000-0000-7000-8000-000000000201, name: Office rent, status: active, previous_status: null, owner_id: 0192a000-0000-7000-8000-000000000103, amount: {amount: '4500.00', currency: CAD}, next_due_on: '2026-12-01', last_occurrence_on: null, refused_on: null, refusal_code: null}
 
     # ------------------------------------------------------------ procurement
     RequisitionSubmitted:
@@ -3500,6 +3532,23 @@ components:
         owner_id: {$ref: '#/components/schemas/NullableUuid', description: The person who owns the entry; null for an agent's entry no person has taken on.}
         approval_request_id: {$ref: '#/components/schemas/NullableUuid', description: The manual_entry approval request the entry waits for or was decided on.}
         journal_entry_id: {$ref: '#/components/schemas/NullableUuid', description: The journal entry it was posted as.}
+        template_id: {$ref: '#/components/schemas/NullableUuid', description: 'The entry template it was parked from (ADR-0056).'}
+        occurrence_date: {$ref: '#/components/schemas/NullableDate', description: "The due date of the template's schedule the ERP parked it for; null when a principal parked it."}
+    EntryTemplateChangedV1:
+      type: object
+      required: [entry_template_id, legal_entity_id, name, status, previous_status, owner_id, amount, next_due_on, last_occurrence_on, refused_on, refusal_code]
+      properties:
+        entry_template_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.entry_template.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        name: {type: string}
+        status: {type: string, description: 'Open enum: active, retired.'}
+        previous_status: {type: [string, 'null'], description: The status before a retirement; null otherwise.}
+        owner_id: {$ref: '#/components/schemas/NullableUuid', description: "The person who owns the template and the entries its schedule parks; null for an agent's or service's template no person has taken on."}
+        amount: {$ref: '#/components/schemas/Money', description: Debit total in transaction currency.}
+        next_due_on: {$ref: '#/components/schemas/NullableDate', description: "The schedule's next date; null without a schedule, once it has ended or the template is retired."}
+        last_occurrence_on: {$ref: '#/components/schemas/NullableDate', description: The latest due date an entry was parked for.}
+        refused_on: {$ref: '#/components/schemas/NullableDate', description: The latest due date whose entry could not be parked.}
+        refusal_code: {type: [string, 'null'], description: "The problem code that refused it, as parkJournalEntry would answer it."}
 
     # ---------------------------------------------------------- procurement
     RequisitionSubmittedV1:

@@ -84,6 +84,16 @@ func inRequest(t *testing.T, pool *database.Pool, ten pgtest.Tenant, fn func(ctx
 	}
 }
 
+func TestDate(t *testing.T) {
+	day := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	if got := outbox.Date(&day); got != "2026-11-01" {
+		t.Errorf("a date: got %v, want 2026-11-01", got)
+	}
+	if got := outbox.Date(nil); got != nil {
+		t.Errorf("no date: got %v, want nil", got)
+	}
+}
+
 func TestEventTypes(t *testing.T) {
 	e := outbox.Event{Context: "config", Name: "configuration_activated"}
 	if e.Type() != "com.example.erp.configuration.configuration_activated.v1" {

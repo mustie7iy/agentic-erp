@@ -1232,6 +1232,51 @@ empty_statement() {
   } >"$WORK/camt053-empty.xml"
 }
 
+# recurring_rent is step 8's recurring entry (ADR-0056): Tom saves the
+# monthly rent as an entry template whose schedule starts on Maple's date
+# in Toronto; the ERP parks that date's entry for him, once however often
+# its worker runs, and he finds it among his entries and posts it.
+recurring_rent() {
+  say "Tom books Maple's office rent, CAD 4,500.00, every month. He saves it as an entry template with a monthly"
+  say "schedule from today, Maple's date in Toronto. The ERP parks each month's entry for him and never posts it:"
+  say "Tom posts it, within the CAD 10,000.00 limit, or someone else approves it (product owner 2026-11-01)."
+  local toronto rent sap_bank tpl entry i n
+  toronto=$(TZ=America/Toronto date +%F)
+  rent=$(account 6000)
+  sap_bank=$(account 100000)
+  api 201 '"template \(.name): \(.status), \(.schedule.frequency) on day \(.schedule.day_of_month) from \(.schedule.starts_on), next due \(.next_due_on)"' \
+    createEntryTemplate -body "{\"legal_entity_id\": \"$LE\", \"name\": \"Office rent\", \"currency\": \"CAD\", \"header_text\": \"Monthly office rent\", \"schedule\": {\"frequency\": \"monthly\", \"day_of_month\": $((10#${toronto:8:2})), \"starts_on\": \"$toronto\"}, \"lines\": [{\"account_id\": \"$rent\", \"amount\": {\"amount\": \"4500.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$sap_bank\", \"amount\": {\"amount\": \"-4500.00\", \"currency\": \"CAD\"}}]}"
+  tpl=$(field .id)
+  expect "the template's first due date, Maple's today" "$(field .next_due_on)" "$toronto"
+  say "Without a workflow engine the server's recurring entries worker parks due dates every second (with one,"
+  say "the dispatcher starts a workflow per template and date). Today's entry appears, parked for Tom:"
+  n=0
+  for i in $(seq 1 120); do
+    QUIET=1 api 200 '' listParkedJournalEntries -p "template_id=$tpl"
+    n=$(field '.items | length')
+    [ "$n" = 0 ] || break
+    sleep 0.25
+  done
+  expect "entries parked from the template (attempt $i)" "$n" 1
+  sleep 3 # three more of the worker's rounds: they find the date parked and park nothing
+  api 200 '.items[] | "parked entry \(.id[0:8])…: \(.status), \(.created_by_kind) for the \(.occurrence_date) date, owner \(.owner_id[0:8])…, \(.lines[0].amount.amount) \(.lines[0].amount.currency)"' \
+    listParkedJournalEntries -p "template_id=$tpl"
+  expect "entries parked from the template after more rounds" "$(field '.items | length')" 1
+  expect "the entry's date" "$(field '.items[0].occurrence_date')" "$toronto"
+  expect "who parked it" "$(field '.items[0].created_by_kind')" system
+  entry=$(field '.items[0].id')
+  api 200 '"template \(.name): last parked \(.last_occurrence_on), next due \(.next_due_on)"' getEntryTemplate -p "id=$tpl"
+  expect "the template's last date" "$(field .last_occurrence_on)" "$toronto"
+  say "Tom's inbox: his entries waiting for him to post them, the rent among them, besides the event"
+  say "ParkedJournalEntryChanged that names the template and the date:"
+  api 200 '.items[] | "parked entry \(.id[0:8])…: \(.header_text // "") \(.posting_date)\(if .template_id then ", from a template" else "" end)"' \
+    listParkedJournalEntries -p owned_by=me -p status=parked
+  expect "the rent in Tom's inbox" "$(jq -r --arg e "$entry" '[.items[] | select(.id == $e)] | length' "$WORK/last.json")" 1
+  QUIET=1 api 200 '' getParkedJournalEntry -p "id=$entry"
+  api 200 '"parked entry: \(.status), journal entry \(.journal_entry_id)"' postParkedJournalEntry -p "id=$entry" -if-match "$ETAG" -body '{}'
+  expect "the rent entry's status" "$(field .status)" posted
+}
+
 step_statement() {
   heading "Step 8 — The bank statement: imported, a gap accepted, matched by rules, posted with approval, reconciled"
   as tom
@@ -1250,6 +1295,7 @@ step_statement() {
   as tom
   api 200 '"parked entry: \(.status), journal entry \(.journal_entry_id)"' getParkedJournalEntry -p "id=$parked"
   expect "parked entry status" "$(field .status)" posted
+  recurring_rent
   local yesterday
   yesterday=$(date_add "$TODAY" -1)
   say "RBC's statement of $yesterday, before the funding, closes the empty account at 0.00. Tom imports it:"

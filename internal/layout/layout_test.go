@@ -113,7 +113,7 @@ var allowed = map[string][]string{
 	// ledger.TaxItems and the country packs' returns.yaml (§11, T61h);
 	// their approval by another person through approvals (T61i).
 	"taxfiling": {"approvals", "config", "countrypack", "ledger", "tenancy"},
-	"workflows": {"approvals", "configuration", "integration", "operations", "payments"},
+	"workflows": {"approvals", "configuration", "integration", "ledger", "operations", "payments"}, // ledger: the recurring entries' activity (ADR-0056)
 }
 
 // leaves are contexts no other context may import, whatever allowed says:
