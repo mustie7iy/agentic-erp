@@ -260,6 +260,17 @@ or the period under way on the registrant's date in its time zone, which
 the answer names (`start_date_to`, `time_zone`); a registration the caller
 does not see is 404.
 
+A draft return (ADR-0049 §11, T61h) is computed on read, like the cash
+position: `GET /v1/tax-registrations/{id}/draft-return?period_start=`
+(`tax.return.read`) sums the unreported tax items of the registration's
+companies into the boxes the country pack defines for its return type, in
+the registrant's local currency, prior-period items shown apart, and `GET
+/v1/tax-registrations/{id}/draft-return/items?period_start=&box=` lists a
+selection box's items with what each adds, paged in tax date order.
+Nothing is stored or claimed. A period not ended is 409
+`tax.period_not_ended`, a date that starts no period 422 `tax.not_a_period`,
+a return the adopted pack does not define 409 `tax.return_undefined`.
+
 ## 4.7 Concurrency and idempotency
 
 Per ADR-0008:
@@ -537,7 +548,7 @@ with the month's total against the tenant's cap.
 | payments | `payment-runs`, `bank-files` | `:propose` (202), `:submit`, `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
 | cash | `cash-position` (computed on read, ADR-0051), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
 | controlling | `plan-categories`, `plan-batches` (by batch key), `plan-lines`, `cost-center-plan-actual`, `profit-center-plan-actual` (computed on read, ADR-0050 §8) | `:lock`, `:unlock` |
-| tax | `tax-registrations` (from the configuration), `tax-registrations/{id}/periods` (computed on read, ADR-0049 §10) | |
+| tax | `tax-registrations` (from the configuration), `tax-registrations/{id}/periods`, `tax-registrations/{id}/draft-return` and its `items` (computed on read, ADR-0049 §10-§11) | |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |
 | audit | `audit-events` | `:verify` |
 | integration | `migration-runs`, `connectors` | `:start`, `:reconcile`, `:enable`, `:disable` |

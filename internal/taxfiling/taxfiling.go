@@ -18,6 +18,13 @@
 // adds no event of its own until returns move (T61i). Every read runs in
 // the request's transaction under row-level security (ADR-0003), and a
 // caller sees the registrations covering a company they may act in.
+//
+// A draft return (§11, T61h) is computed on read and never stored: the
+// boxes of the country pack's returns.yaml (ADR-0048), for the return type
+// of the registration, summed from the tax items no return has reported,
+// read through the ledger's port (ledger.TaxItems); it claims no item, so
+// it writes no audit record and publishes nothing. T61i prepares a return
+// from it and claims its items.
 package taxfiling
 
 import (
@@ -27,6 +34,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/countrypack"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -56,6 +64,10 @@ type Endpoints struct {
 	// Settings reads the active configuration, for a company's time zone.
 	Settings config.Documents
 	Now      func() time.Time
+	// Items reads the tax items returns report (ledger.TaxItems), and
+	// Packs are the country packs whose returns.yaml defines the boxes.
+	Items TaxItems
+	Packs *countrypack.Library
 }
 
 // registrationFixed is the refusal of a configuration that changes what a

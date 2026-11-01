@@ -95,6 +95,28 @@ var (
 	taxCategories = []string{"S", "Z", "E", "AE", "K", "G", "O", "L", "M", "B"}
 )
 
+// IsTaxKind reports whether kind is a tax code's kind, and so a tax
+// item's.
+func IsTaxKind(kind string) bool { return slices.Contains(taxKinds, kind) }
+
+// IsTaxAccountKey reports whether key is a tax component's account key, and
+// so a tax item's.
+func IsTaxAccountKey(key string) bool {
+	return slices.Contains([]string{KeyInput, KeyOutput, KeyNonDeductible, KeySelfOutput, KeySelfInput}, key)
+}
+
+// IsTaxReturnType reports whether t has the form of a return type, as a
+// registration and a country pack's returns name it.
+func IsTaxReturnType(t string) bool { return taxReturnTypeRe.MatchString(t) }
+
+// IsTaxComponentKey reports whether key has the form of a tax component's
+// key.
+func IsTaxComponentKey(key string) bool { return componentRe.MatchString(key) }
+
+// IsTaxJurisdiction reports whether j has the form of a tax jurisdiction: a
+// country, or a country and its subdivision (ISO 3166-2).
+func IsTaxJurisdiction(j string) bool { return jurisdictionRe.MatchString(j) }
+
 // DirectionOrInput is the code's direction, input when none is given.
 func (t TaxCode) DirectionOrInput() string {
 	if t.Direction == "" {

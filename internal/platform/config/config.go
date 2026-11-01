@@ -41,21 +41,25 @@ type Config struct {
 	// called over mTLS as spiffe://<trust domain>/<cell>/erp-analytics
 	// (ADR-0044); empty: analytics queries are answered from the database.
 	AnalyticsURL    string
-	Environment     string          // ERP_ENV (required, no default): development, or production, where insecure settings refuse to start
-	AppRole         string          // ERP_DB_APP_ROLE (default erp_app)
-	RelayRole       string          // ERP_DB_RELAY_ROLE (default erp_relay)
-	ProjectorRole   string          // ERP_DB_PROJECTOR_ROLE (default erp_projector)
-	WorkerRole      string          // ERP_DB_WORKER_ROLE, finds queued payment proposals (default erp_worker)
-	ControlRole     string          // ERP_DB_CONTROL_ROLE, lists tenants for the control plane (default erp_control)
-	Cell            string          // ERP_CELL, part of event subjects (default local)
-	NATSURL         string          // ERP_NATS_URL; empty disables the event relay
-	OTLPEndpoint    string          // OTEL_EXPORTER_OTLP_TRACES_ENDPOINT; empty keeps traces local
-	Issuers         []authn.Issuer  // ERP_OIDC_ISSUERS, JSON list of {issuer, audience, tenant_claim}: issuers trusted for every tenant (optional; tenants register their own, ADR-0031)
-	OperatorIssuers []authn.Issuer  // ERP_OPERATOR_ISSUERS, the same for the operators' tokens; empty leaves the control plane off (unless ERP_DEV_ISSUER)
-	PageTokenKey    []byte          // ERP_PAGE_TOKEN_KEY, base64, at least 32 bytes (required)
-	Model           Model           // ERP_MODEL_*: the model provider behind the cell's model gateway (ADR-0036); no key: no gateway, and invoice capture is off
-	BankOutboxDir   string          // ERP_BANK_OUTBOX_DIR, where transmitted bank files are dropped; empty disables transmission
-	ExtractDir      string          // ERP_EXTRACT_DIR, where sap_file connectors find SAP extracts; empty disables them
+	Environment     string         // ERP_ENV (required, no default): development, or production, where insecure settings refuse to start
+	AppRole         string         // ERP_DB_APP_ROLE (default erp_app)
+	RelayRole       string         // ERP_DB_RELAY_ROLE (default erp_relay)
+	ProjectorRole   string         // ERP_DB_PROJECTOR_ROLE (default erp_projector)
+	WorkerRole      string         // ERP_DB_WORKER_ROLE, finds queued payment proposals (default erp_worker)
+	ControlRole     string         // ERP_DB_CONTROL_ROLE, lists tenants for the control plane (default erp_control)
+	Cell            string         // ERP_CELL, part of event subjects (default local)
+	NATSURL         string         // ERP_NATS_URL; empty disables the event relay
+	OTLPEndpoint    string         // OTEL_EXPORTER_OTLP_TRACES_ENDPOINT; empty keeps traces local
+	Issuers         []authn.Issuer // ERP_OIDC_ISSUERS, JSON list of {issuer, audience, tenant_claim}: issuers trusted for every tenant (optional; tenants register their own, ADR-0031)
+	OperatorIssuers []authn.Issuer // ERP_OPERATOR_ISSUERS, the same for the operators' tokens; empty leaves the control plane off (unless ERP_DEV_ISSUER)
+	PageTokenKey    []byte         // ERP_PAGE_TOKEN_KEY, base64, at least 32 bytes (required)
+	Model           Model          // ERP_MODEL_*: the model provider behind the cell's model gateway (ADR-0036); no key: no gateway, and invoice capture is off
+	BankOutboxDir   string         // ERP_BANK_OUTBOX_DIR, where transmitted bank files are dropped; empty disables transmission
+	ExtractDir      string         // ERP_EXTRACT_DIR, where sap_file connectors find SAP extracts; empty disables them
+	// PacksDir is ERP_PACKS_DIR: further country packs (cc/version
+	// directories) beside the image's, taken as they are, not released;
+	// for demonstrations and tests, refused in production (ADR-0048).
+	PacksDir        string
 	FieldKey        []byte          // ERP_FIELD_KEY, base64, at least 32 bytes: the legacy field encryption key (values sealed before tenant keys); required unless ERP_FIELD_KEYS is set
 	FieldKeys       []MasterKey     // ERP_FIELD_KEYS, "id=base64,id=base64,...": the master keys that wrap tenant keys, the first for new ones; default one master "v1" from ERP_FIELD_KEY
 	KMS             KMS             // ERP_FIELD_KMS_*: a KMS key in front of the ring, the master that wraps new tenant keys (ADR-0019)
@@ -366,6 +370,7 @@ func (l *loader) basics() Config {
 		Model:              Model{APIKey: getenv("ERP_MODEL_API_KEY"), Endpoint: get("ERP_MODEL_ENDPOINT", "https://api.anthropic.com")},
 		BankOutboxDir:      getenv("ERP_BANK_OUTBOX_DIR"),
 		ExtractDir:         getenv("ERP_EXTRACT_DIR"),
+		PacksDir:           getenv("ERP_PACKS_DIR"),
 	}
 	if c.DatabaseURL == "" {
 		l.errs = append(l.errs, errors.New("DATABASE_URL is required"))
@@ -604,7 +609,8 @@ func (l *loader) directory(c *Config) {
 			l.errs = append(l.errs, errors.New("ERP_DIRECTORY_URL needs ERP_CELL_REGION, the cell's region such as eu-west"))
 		}
 	}
-	for _, s := range []setting{{"ERP_BANK_OUTBOX_DIR", c.BankOutboxDir}, {"ERP_EXTRACT_DIR", c.ExtractDir}, {"ERP_OBJECT_DIR", c.Objects.Dir}} {
+	for _, s := range []setting{{"ERP_BANK_OUTBOX_DIR", c.BankOutboxDir}, {"ERP_EXTRACT_DIR", c.ExtractDir}, {"ERP_OBJECT_DIR", c.Objects.Dir},
+		{"ERP_PACKS_DIR", c.PacksDir}} {
 		if fi, err := os.Stat(s.value); s.value != "" && (err != nil || !fi.IsDir()) {
 			l.errs = append(l.errs, fmt.Errorf("%s %q must be an existing directory", s.name, s.value))
 		}
@@ -680,6 +686,9 @@ func checkEnvironment(c Config) []error {
 	var errs []error
 	if c.DevIssuer {
 		errs = append(errs, errors.New("ERP_DEV_ISSUER must not be set with ERP_ENV=production: it mints tokens for any subject of any tenant"))
+	}
+	if c.PacksDir != "" {
+		errs = append(errs, errors.New("ERP_PACKS_DIR must not be set with ERP_ENV=production: its packs are not released, and production applies only released, signed-off packs (ADR-0048)"))
 	}
 	if c.EvalCell {
 		errs = append(errs, errors.New("ERP_EVAL_CELL must not be set with ERP_ENV=production: it lets agents act above the level their type is certified for (ADR-0039)"))

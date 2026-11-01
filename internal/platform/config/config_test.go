@@ -105,7 +105,7 @@ func TestDefaults(t *testing.T) {
 func TestOverrides(t *testing.T) {
 	m := valid()
 	m["ERP_CELL"], m["ERP_MIGRATE_ON_START"], m["ERP_LOG_LEVEL"], m["ERP_SHUTDOWN_TIMEOUT"], m["ERP_NATS_URL"] = "eu1", "true", "debug", "5s", "nats://n"
-	m["ERP_MODEL_API_KEY"], m["ERP_BANK_OUTBOX_DIR"], m["ERP_EXTRACT_DIR"] = "key", t.TempDir(), t.TempDir()
+	m["ERP_MODEL_API_KEY"], m["ERP_BANK_OUTBOX_DIR"], m["ERP_EXTRACT_DIR"], m["ERP_PACKS_DIR"] = "key", t.TempDir(), t.TempDir(), t.TempDir()
 	m["ERP_MODEL_ENDPOINT"] = "https://models.example.com"
 	m["ERP_REQUEST_TIMEOUT"], m["ERP_DB_MAX_CONNS"], m["ERP_RATE_LIMIT_TENANT"], m["ERP_RATE_LIMIT_PRINCIPAL"] = "10s", "40", "off", "5"
 	c := mustLoad(t, m)
@@ -114,6 +114,7 @@ func TestOverrides(t *testing.T) {
 		{"Model.Enabled", c.Model.Enabled(), true},
 		{"BankOutboxDir", c.BankOutboxDir, m["ERP_BANK_OUTBOX_DIR"]},
 		{"ExtractDir", c.ExtractDir, m["ERP_EXTRACT_DIR"]},
+		{"PacksDir", c.PacksDir, m["ERP_PACKS_DIR"]},
 		{"Cell", c.Cell, "eu1"},
 		{"MigrateOnStart", c.MigrateOnStart, true},
 		{"LogLevel", c.LogLevel, slog.LevelDebug},
@@ -220,11 +221,11 @@ func TestOverrides(t *testing.T) {
 func TestEveryProblemIsReported(t *testing.T) {
 	_, err := Load(env(map[string]string{
 		"ERP_CELL": "EU-1", "ERP_OIDC_ISSUERS": "[]", "ERP_PAGE_TOKEN_KEY": "c2hvcnQ=", "ERP_FIELD_KEY": "c2hvcnQ=",
-		"ERP_MIGRATE_ON_START": "maybe", "ERP_LOG_LEVEL": "loud", "ERP_SHUTDOWN_TIMEOUT": "-1s", "ERP_BANK_OUTBOX_DIR": "/no/such/dir", "ERP_EXTRACT_DIR": "/no/such/dir",
+		"ERP_MIGRATE_ON_START": "maybe", "ERP_LOG_LEVEL": "loud", "ERP_SHUTDOWN_TIMEOUT": "-1s", "ERP_BANK_OUTBOX_DIR": "/no/such/dir", "ERP_EXTRACT_DIR": "/no/such/dir", "ERP_PACKS_DIR": "/no/such/dir",
 		"ERP_REQUEST_TIMEOUT": "0", "ERP_DB_MAX_CONNS": "-1", "ERP_RATE_LIMIT_TENANT": "fast", "ERP_RATE_LIMIT_PRINCIPAL": "1/0", "ERP_DEV_ISSUER": "maybe",
 		"ERP_EVAL_CELL": "maybe",
 	}))
-	for _, want := range []string{"DATABASE_URL", "ERP_CELL", "ERP_OIDC_ISSUERS", "ERP_PAGE_TOKEN_KEY", "ERP_FIELD_KEY", "ERP_BANK_OUTBOX_DIR", "ERP_EXTRACT_DIR", "ERP_MIGRATE_ON_START", "ERP_LOG_LEVEL", "ERP_SHUTDOWN_TIMEOUT",
+	for _, want := range []string{"DATABASE_URL", "ERP_CELL", "ERP_OIDC_ISSUERS", "ERP_PAGE_TOKEN_KEY", "ERP_FIELD_KEY", "ERP_BANK_OUTBOX_DIR", "ERP_EXTRACT_DIR", "ERP_PACKS_DIR", "ERP_MIGRATE_ON_START", "ERP_LOG_LEVEL", "ERP_SHUTDOWN_TIMEOUT",
 		"ERP_REQUEST_TIMEOUT", "ERP_DB_MAX_CONNS", "ERP_RATE_LIMIT_TENANT", "ERP_RATE_LIMIT_PRINCIPAL", "ERP_DEV_ISSUER", "ERP_EVAL_CELL"} {
 		pgtest.CheckErr(t, err, want)
 	}
@@ -656,6 +657,8 @@ func TestProductionFailsClosed(t *testing.T) {
 		{"production dev issuer", prod(map[string]string{"ERP_DEV_ISSUER": "true"}), []string{devRefused}},
 		{"development evaluation cell", map[string]string{"ERP_ENV": "development", "ERP_EVAL_CELL": "true"}, nil},
 		{"production evaluation cell", prod(map[string]string{"ERP_EVAL_CELL": "true"}), []string{"ERP_EVAL_CELL must not be set with ERP_ENV=production"}},
+		{"development packs", map[string]string{"ERP_ENV": "development", "ERP_PACKS_DIR": t.TempDir()}, nil},
+		{"production packs", prod(map[string]string{"ERP_PACKS_DIR": t.TempDir()}), []string{"ERP_PACKS_DIR must not be set with ERP_ENV=production"}},
 		{"production engine without codec", prod(map[string]string{"ERP_TEMPORAL_ADDRESS": "localhost:7233"}), []string{codecRefused}},
 		{"production both", prod(map[string]string{"ERP_DEV_ISSUER": "true", "ERP_TEMPORAL_ADDRESS": "localhost:7233"}), []string{devRefused, codecRefused}},
 		{"production without object storage", prod(map[string]string{"ERP_OBJECT_S3_ENDPOINT": "", "ERP_OBJECT_S3_BUCKET": ""}), []string{storeRefused}},

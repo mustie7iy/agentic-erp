@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -236,6 +237,79 @@ func TestOrder(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := Order(tt.a, tt.b); got != tt.want {
 				t.Errorf("Order: got %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+// unreadable is a file system whose files cannot be read.
+type unreadable struct{ fstest.MapFS }
+
+func (u unreadable) ReadFile(string) ([]byte, error) { return nil, fs.ErrPermission }
+
+func (u unreadable) Open(name string) (fs.File, error) {
+	if strings.HasSuffix(name, ".yaml") {
+		return nil, fs.ErrPermission
+	}
+	return u.MapFS.Open(name)
+}
+
+// TestAddUnreleased: packs from a directory join the library as they are,
+// each warned of as not released; a released pack's directory, an invalid
+// pack or an unreadable one is refused.
+func TestAddUnreleased(t *testing.T) {
+	next := func() fstest.MapFS {
+		m := fstest.MapFS{}
+		src := testFS(t)
+		for name, f := range src {
+			if rest, ok := strings.CutPrefix(name, "zz/2026.2/"); ok {
+				m["zz/2026.3/"+rest] = &fstest.MapFile{Data: f.Data}
+			}
+		}
+		manifest, _, _ := strings.Cut(strings.Replace(string(m["zz/2026.3/pack.yaml"].Data), `version: "2026.2"`, `version: "2026.3"`, 1), "sign_off:")
+		m["zz/2026.3/pack.yaml"].Data = []byte(manifest) // not signed off: a warning
+		m["zz/2026.3/returns.yaml"] = &fstest.MapFile{Data: []byte(testReturns)}
+		return m
+	}
+	lib, err := LoadAll(testFS(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.AddUnreleased(next()); err != nil {
+		t.Fatal(err)
+	}
+	p := lib.Get("ZZ", "2026.3")
+	if p == nil || p.Return("TEST-1") == nil || lib.Hash(p) == "" || lib.Latest("ZZ") != p {
+		t.Fatalf("the unreleased pack: got %v, want it with its return, hashed, the latest", p)
+	}
+	var warned []string
+	for _, w := range lib.Warnings {
+		warned = append(warned, w.Path)
+	}
+	if got, want := strings.Join(warned, " "), "zz/2026.3 zz/2026.3/pack.yaml: sign_off"; got != want {
+		t.Errorf("warnings: got %s, want %s", got, want)
+	}
+	invalid := next()
+	invalid["zz/2026.3/pack.yaml"].Data = []byte("country: zz\n")
+	unsigned := next()
+	unsigned["zz/2026.3/pack.yaml"].Data = append(unsigned["zz/2026.3/pack.yaml"].Data, "signed: nobody\n"...)
+	for name, c := range map[string]struct {
+		fsys fs.FS
+		want string
+	}{
+		"a released one":    {testFS(t), "is released"},
+		"an invalid one":    {invalid, "2026.3"},
+		"an unreadable one": {unreadable{next()}, "permission"},
+		"no directory":      {os.DirFS(filepath.Join(t.TempDir(), "none")), "no such file"},
+		"unknown sign-off":  {unsigned, "signed"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			lib, err := LoadAll(testFS(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := lib.AddUnreleased(c.fsys); err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("got %v, want an error naming %q", err, c.want)
 			}
 		})
 	}

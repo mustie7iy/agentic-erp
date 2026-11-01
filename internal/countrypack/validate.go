@@ -31,6 +31,7 @@ func Validate(p *Pack) []config.Finding {
 	v.numberRanges(p.Numbering.NumberRanges)
 	v.paymentTerms(p.Payments.PaymentTerms)
 	v.out = append(v.out, config.CheckLiquidityItems("cash.yaml: liquidity_items", p.Cash.LiquidityItems)...)
+	v.returns(p.Returns.Returns)
 	return v.out
 }
 

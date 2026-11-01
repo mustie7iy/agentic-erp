@@ -58,10 +58,15 @@ const taxItemSelect = `SELECT i.fiscal_year, i.journal_entry_id, i.item_no, i.le
 
 func scanTaxItem(row pgx.CollectableRow) (TaxItem, error) {
 	var t TaxItem
-	err := row.Scan(&t.FiscalYear, &t.EntryID, &t.ItemNo, &t.LegalEntityID, &t.Code, &t.Component, &t.Jurisdiction, &t.Direction, &t.Kind,
-		&t.AccountKey, &t.AccountID, &t.TaxDate, &t.TaxRateID, &t.RatePct, &t.RecoverablePct, &t.Base, &t.Tax, &t.Recoverable, &t.BaseLC, &t.TaxLC,
-		&t.RecoverableLC, &t.ReportedIn)
+	err := row.Scan(t.dest()...)
 	return t, errs.Wrapf(err, "scan tax item")
+}
+
+// dest are the item's fields in taxItemSelect's order.
+func (t *TaxItem) dest() []any {
+	return []any{&t.FiscalYear, &t.EntryID, &t.ItemNo, &t.LegalEntityID, &t.Code, &t.Component, &t.Jurisdiction, &t.Direction, &t.Kind,
+		&t.AccountKey, &t.AccountID, &t.TaxDate, &t.TaxRateID, &t.RatePct, &t.RecoverablePct, &t.Base, &t.Tax, &t.Recoverable, &t.BaseLC, &t.TaxLC,
+		&t.RecoverableLC, &t.ReportedIn}
 }
 
 // TaxItems is the ledger's tax items port: what returns (T61g) and the

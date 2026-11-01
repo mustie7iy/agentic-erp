@@ -1118,6 +1118,26 @@ type Handler interface {
 	//
 	// GET /v1/supplier-invoices/{id}/document
 	GetSupplierInvoiceDocument(ctx context.Context, params GetSupplierInvoiceDocumentParams) (GetSupplierInvoiceDocumentRes, error)
+	// GetTaxReturnDraft implements getTaxReturnDraft operation.
+	//
+	// A draft of a registration's return for one of its periods (ADR-0049 §11, T61h), computed on demand
+	// from the tax items no return has reported yet, of the companies the registration covers (its
+	// registrant and a tax group's members), dated on or before the period's end; nothing is stored or
+	// claimed, so computing it again gives the same draft until items are posted or a return is prepared
+	// (T61i). Items dated before the period's start are prior-period items, shown apart in each box and
+	// summed against the country pack's threshold (P7). Items of entries migrated from SAP are left out:
+	// SAP's returns reported them (ADR-0037). The boxes are the country pack's definition of the
+	// registration's `return_type` (`returns.yaml`, of the pack version the registrant's company adopted),
+	// in its order, in the registrant's local currency; each selection box drills down to its items
+	// (`listTaxReturnDraftItems`). The period must have ended on the registrant's date in its time zone
+	// (409 `tax.period_not_ended`); a `period_start` that starts none of the registration's periods is 422
+	// `tax.not_a_period`; a pack without the return's definition is 409 `tax.return_undefined`; companies
+	// of different local currencies are 409 `tax.return_currency_mixed`. A registration the caller does
+	// not see (`listTaxRegistrations`) is not found; one covering a company the caller may not act in is
+	// 403 `tax.registration_companies`.
+	//
+	// GET /v1/tax-registrations/{id}/draft-return
+	GetTaxReturnDraft(ctx context.Context, params GetTaxReturnDraftParams) (GetTaxReturnDraftRes, error)
 	// GetUpload implements getUpload operation.
 	//
 	// Returns one upload: `open` until bytes arrive through this API (`received`) or the upload is
@@ -1713,6 +1733,16 @@ type Handler interface {
 	//
 	// GET /v1/tax-registrations
 	ListTaxRegistrations(ctx context.Context, params ListTaxRegistrationsParams) (ListTaxRegistrationsRes, error)
+	// ListTaxReturnDraftItems implements listTaxReturnDraftItems operation.
+	//
+	// The drill-down of a selection box of a draft return (`getTaxReturnDraft`, ADR-0049 §11, T61h): the
+	// unreported tax items of the registration's companies, dated on or before the period's end, that the
+	// box selects, each with what it adds to the box, paged in tax date and entry order; the amounts add
+	// up to the box's. Refused as `getTaxReturnDraft` is; a box the return does not have, or one computed
+	// from other boxes, is 422 `tax.not_a_selection_box`.
+	//
+	// GET /v1/tax-registrations/{id}/draft-return/items
+	ListTaxReturnDraftItems(ctx context.Context, params ListTaxReturnDraftItemsParams) (ListTaxReturnDraftItemsRes, error)
 	// ListWebhookDeliveries implements listWebhookDeliveries operation.
 	//
 	// The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:

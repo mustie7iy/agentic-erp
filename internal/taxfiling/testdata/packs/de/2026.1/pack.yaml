@@ -1,0 +1,11 @@
+# A test pack for the return engine's tests (T61h): not Germany's pack,
+# and its return is not any authority's. Only returns.yaml matters here;
+# the other files are empty.
+country: DE
+version: "2026.1"
+name: Return engine test pack (not Germany's)
+valid_from: 2026-01-01
+sources:
+  - title: Test source, not a law
+    url: https://example.org/test-return
+    retrieved: 2026-11-01

@@ -108,8 +108,11 @@ var allowed = map[string][]string{
 	"provisioning":            {"config", "configuration", "identity", "tenancy"},
 	"reconagent":              {"apitools", "llm"},
 	"router":                  {"directory"},
-	"taxfiling":               {"config", "tenancy"}, // registrations from the configuration, companies from the directory (ADR-0049 §10)
-	"workflows":               {"approvals", "configuration", "integration", "operations", "payments"},
+	// Registrations from the configuration, companies from the directory
+	// (ADR-0049 §10); returns from the ledger's tax items through
+	// ledger.TaxItems and the country packs' returns.yaml (§11, T61h).
+	"taxfiling": {"config", "countrypack", "ledger", "tenancy"},
+	"workflows": {"approvals", "configuration", "integration", "operations", "payments"},
 }
 
 // leaves are contexts no other context may import, whatever allowed says:

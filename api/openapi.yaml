@@ -62,7 +62,7 @@ tags:
   - name: controlling
     description: "Controlling (ADR-0050): plan categories, plan lines by batch and plan against actual by cost center."
   - name: tax
-    description: "Tax filing (ADR-0049): the companies' registrations with tax authorities and their filing periods."
+    description: "Tax filing (ADR-0049): the companies' registrations with tax authorities, their filing periods and their draft returns."
   - name: workflow
     description: Approval requests and decisions. Decisions are human-only.
   - name: audit
@@ -13903,6 +13903,96 @@ paths:
           $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/tax-registrations/{id}/draft-return":
+    get:
+      operationId: getTaxReturnDraft
+      tags:
+        - tax
+      summary: Compute a draft tax return
+      description: "A draft of a registration's return for one of its periods (ADR-0049 §11, T61h), computed on demand from the tax items no return has reported yet, of the companies the registration covers (its registrant and a tax group's members), dated on or before the period's end; nothing is stored or claimed, so computing it again gives the same draft until items are posted or a return is prepared (T61i). Items dated before the period's start are prior-period items, shown apart in each box and summed against the country pack's threshold (P7). Items of entries migrated from SAP are left out: SAP's returns reported them (ADR-0037). The boxes are the country pack's definition of the registration's `return_type` (`returns.yaml`, of the pack version the registrant's company adopted), in its order, in the registrant's local currency; each selection box drills down to its items (`listTaxReturnDraftItems`). The period must have ended on the registrant's date in its time zone (409 `tax.period_not_ended`); a `period_start` that starts none of the registration's periods is 422 `tax.not_a_period`; a pack without the return's definition is 409 `tax.return_undefined`; companies of different local currencies are 409 `tax.return_currency_mixed`. A registration the caller does not see (`listTaxRegistrations`) is not found; one covering a company the caller may not act in is 403 `tax.registration_companies`."
+      x-permission: tax.return.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - tax.not_a_period
+        - tax.period_not_ended
+        - tax.registration_companies
+        - tax.return_currency_mixed
+        - tax.return_undefined
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/TaxPeriodStart"
+      responses:
+        "200":
+          description: "The draft return."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaxReturnDraft"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/tax-registrations/{id}/draft-return/items":
+    get:
+      operationId: listTaxReturnDraftItems
+      tags:
+        - tax
+      summary: List the tax items a draft return's box sums
+      description: "The drill-down of a selection box of a draft return (`getTaxReturnDraft`, ADR-0049 §11, T61h): the unreported tax items of the registration's companies, dated on or before the period's end, that the box selects, each with what it adds to the box, paged in tax date and entry order; the amounts add up to the box's. Refused as `getTaxReturnDraft` is; a box the return does not have, or one computed from other boxes, is 422 `tax.not_a_selection_box`."
+      x-permission: tax.return.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_page_size
+        - request.invalid_page_token
+        - tax.not_a_period
+        - tax.not_a_selection_box
+        - tax.period_not_ended
+        - tax.registration_companies
+        - tax.return_currency_mixed
+        - tax.return_undefined
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/TaxPeriodStart"
+        - name: box
+          in: query
+          required: true
+          description: "The box's code in the return's definition."
+          schema:
+            type: string
+            maxLength: 20
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: "One page of the box's tax items."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaxReturnItemPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/approval-requests:
     get:
       operationId: listApprovalRequests
@@ -16732,6 +16822,14 @@ components:
         minLength: 8
         maxLength: 255
       example: "4f1c2a7e-8d55-4c3b-9a0e-6b2d1e3f4a5b"
+    TaxPeriodStart:
+      name: period_start
+      in: query
+      required: true
+      description: "The first day of one of the registration's periods (`listTaxPeriods`)."
+      schema:
+        type: string
+        format: date
     PageSize:
       name: page_size
       in: query
@@ -29634,6 +29732,116 @@ components:
           maxLength: 2048
       examples:
         - {registration_id: 0192a000-0000-7000-8000-000000000e01, registration_code: GSTHST, start_date_to: "2026-10-31", time_zone: America/Toronto, items: [{start_date: "2026-01-01", end_date: "2026-03-31"}, {start_date: "2026-04-01", end_date: "2026-06-30"}]}
+    TaxReturnDraft:
+      type: object
+      description: "A draft tax return (ADR-0049 §11, T61h): the boxes of the country pack's definition of the registration's return type, computed from the unreported tax items of its companies dated on or before the period's end. Amounts are in the registrant's local currency; a selection box sums one measure of the items it selects, an expression box is computed from earlier boxes. Not stored: computed again, it changes only as items are posted or reported."
+      required: [registration_id, registration_code, return_type, return_name, period_start, period_end, pack, currency, item_count, prior_period, boxes]
+      properties:
+        registration_id: {type: string, format: uuid, description: "The registration.", readOnly: true}
+        registration_code: {type: string, description: "The registration's code.", readOnly: true}
+        return_type: {type: string, description: "The return type, as the registration and the country pack name it.", readOnly: true}
+        return_name: {type: string, description: "The return's name in the country pack.", readOnly: true}
+        period_start: {type: string, format: date, description: "The period's first day.", readOnly: true}
+        period_end: {type: string, format: date, description: "The period's last day.", readOnly: true}
+        pack:
+          type: object
+          description: "The country pack whose definition the boxes follow: the version the registrant's company adopted."
+          readOnly: true
+          required: [country, version]
+          properties:
+            country: {type: string, description: "The pack's country (ISO 3166-1 alpha-2)."}
+            version: {type: string, description: "The pack's version (YYYY.N)."}
+        currency: {type: string, description: "The registrant's local currency, which every amount is in (ISO 4217).", readOnly: true}
+        item_count: {type: integer, format: int64, description: "The tax items some selection box selects, prior-period ones included.", readOnly: true}
+        prior_period:
+          type: object
+          description: "The items dated before the period's start that no return has reported (P7): reported in this return as a prior-period adjustment up to the country pack's threshold; above it a person chooses an amendment or a voluntary disclosure."
+          readOnly: true
+          required: [item_count, tax, above_threshold]
+          properties:
+            item_count: {type: integer, format: int64, description: "The prior-period items some selection box selects."}
+            tax: {$ref: "#/components/schemas/Money", description: "Their tax, signed like the journal (debit positive: input tax positive, output tax negative)."}
+            threshold: {$ref: "#/components/schemas/Money", description: "The country pack's threshold; absent when the pack sets none (always the next return)."}
+            above_threshold: {type: boolean, description: "Whether, of any one earlier period, the input or the output tax of its items exceeds the threshold in magnitude: provisional and conservative, so that a person reviews; which measure the threshold applies to (net or gross, per period or pooled, per error) is open (ADR-0049 §11)."}
+        boxes:
+          type: array
+          description: "The return's boxes in the definition's order."
+          readOnly: true
+          items: {$ref: "#/components/schemas/TaxReturnBox"}
+      examples:
+        - {registration_id: 0192a000-0000-7000-8000-000000000e01, registration_code: GSTHST, return_type: GST34, return_name: "Illustrative return", period_start: "2026-07-01", period_end: "2026-09-30", pack: {country: CA, version: "2026.3"}, currency: CAD, item_count: 2, prior_period: {item_count: 0, tax: {amount: "0.00", currency: CAD}, above_threshold: false}, boxes: [{code: output_tax, label: "Output tax", kind: selection, amount: {amount: "50.00", currency: CAD}, prior_period_amount: {amount: "0.00", currency: CAD}, item_count: 1}]}
+    TaxReturnBox:
+      type: object
+      description: "A box of a draft tax return."
+      required: [code, label, kind, amount, prior_period_amount]
+      properties:
+        code: {type: string, description: "The box's code in the return's definition.", readOnly: true}
+        label: {type: string, description: "The box's label in the return's definition.", readOnly: true}
+        kind:
+          type: string
+          description: "`selection`: a sum of one measure of the tax items the box selects, which `listTaxReturnDraftItems` lists; `expression`: computed from earlier boxes. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [selection, expression]
+          readOnly: true
+        amount: {$ref: "#/components/schemas/Money", description: "The box's value, prior-period items included."}
+        prior_period_amount: {$ref: "#/components/schemas/Money", description: "The part of `amount` from prior-period items; of an expression box, its expression over the earlier boxes' prior-period parts."}
+        item_count: {type: integer, format: int64, description: "The items a selection box sums; absent for an expression box.", readOnly: true}
+    TaxReturnItem:
+      type: object
+      description: "A tax item a draft return's box sums (ADR-0049 §5): the entry and item it is, what it taxed, and what it adds to the box. Amounts are in local currency, signed like the journal (debit positive)."
+      required: [fiscal_year, journal_entry_id, document_number, posting_date, item_no, legal_entity_id, company_code, tax_date, tax_code, component, direction, kind, account_key, base, tax, recoverable, box_amount, prior_period]
+      properties:
+        fiscal_year: {type: integer, format: int32, description: "The entry's fiscal year.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry that wrote the item (`getJournalEntry`).", readOnly: true}
+        document_number: {type: string, description: "The entry's document number.", readOnly: true}
+        posting_date: {type: string, format: date, description: "The entry's posting date.", readOnly: true}
+        reference: {type: string, description: "The entry's reference (a supplier's invoice number, say); absent when it has none.", readOnly: true}
+        header_text: {type: string, description: "The entry's header text (the billing system's invoice, say); absent when it has none.", readOnly: true}
+        item_no: {type: integer, format: int32, description: "The item's number in its entry.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The entry's legal entity.", readOnly: true}
+        company_code: {type: string, description: "Its company code.", readOnly: true}
+        tax_date: {type: string, format: date, description: "The item's tax date.", readOnly: true}
+        tax_code: {type: string, description: "The tax code.", readOnly: true}
+        component: {type: string, description: "The tax code's component.", readOnly: true}
+        jurisdiction: {type: string, description: "The component's or the line's jurisdiction; absent when it has none.", readOnly: true}
+        direction:
+          type: string
+          description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [input, output]
+          readOnly: true
+        kind:
+          type: string
+          description: "The tax code's kind. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [standard, zero, exempt, out_of_scope, reverse_charge, import]
+          readOnly: true
+        account_key:
+          type: string
+          description: "The component's account key. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [input, output, non_deductible, self_output, self_input]
+          readOnly: true
+        base: {$ref: "#/components/schemas/Money", description: "The base taxed."}
+        tax: {$ref: "#/components/schemas/Money", description: "The tax."}
+        recoverable: {$ref: "#/components/schemas/Money", description: "The part of the tax recovered (none of output tax)."}
+        box_amount: {$ref: "#/components/schemas/Money", description: "What the item adds to the box: the box's measure of it, negated where the box shows credits positive."}
+        prior_period: {type: boolean, description: "Whether the item is dated before the period's start.", readOnly: true}
+      examples:
+        - {fiscal_year: 2026, journal_entry_id: 0192a000-0000-7000-8000-000000000e21, document_number: "100028", posting_date: "2026-11-01", header_text: "Billing: invoice 1039", item_no: 1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: "3000", tax_date: "2026-09-30", tax_code: GO5, component: gst, jurisdiction: CA, direction: output, kind: standard, account_key: output, base: {amount: "-1000.00", currency: CAD}, tax: {amount: "-50.00", currency: CAD}, recoverable: {amount: "0.00", currency: CAD}, box_amount: {amount: "50.00", currency: CAD}, prior_period: false}
+    TaxReturnItemPage:
+      type: object
+      description: "One page of the tax items a draft return's box sums."
+      required: [box, currency, items]
+      properties:
+        box: {type: string, description: "The box's code.", readOnly: true}
+        currency: {type: string, description: "The registrant's local currency (ISO 4217).", readOnly: true}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/TaxReturnItem"}
+          description: The items on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - {box: output_tax, currency: CAD, items: [{fiscal_year: 2026, journal_entry_id: 0192a000-0000-7000-8000-000000000e21, document_number: "100028", posting_date: "2026-11-01", header_text: "Billing: invoice 1039", item_no: 1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, company_code: "3000", tax_date: "2026-09-30", tax_code: GO5, component: gst, jurisdiction: CA, direction: output, kind: standard, account_key: output, base: {amount: "-1000.00", currency: CAD}, tax: {amount: "-50.00", currency: CAD}, recoverable: {amount: "0.00", currency: CAD}, box_amount: {amount: "50.00", currency: CAD}, prior_period: false}]}
     BankReconciliation:
       type: object
       description: "One page of a house bank's reconciliation report (ADR-0047, T49h): the period's figures, and its statements on this page with their figures and lines. Amounts are signed: a credit to the account is positive, as on the statements; a ledger balance is debit positive, so the two agree when equal."

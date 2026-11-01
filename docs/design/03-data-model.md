@@ -2684,3 +2684,12 @@ A registration's periods are not stored: they follow from its fixed
 settings (`config.TaxPeriods`: the first starts on `first_period_start`,
 each lasts one, three or twelve months, none after `last_period_end`) and
 are computed on read by `GET /v1/tax-registrations/{id}/periods`.
+
+A draft return (ADR-0049 §11, T61h) is not stored either: `GET
+/v1/tax-registrations/{id}/draft-return` computes it from
+`ledger.tax_item`, the items no return has reported (`reported_in` null)
+of the registration's companies dated on or before the period's end, by
+the boxes of the country pack's `returns.yaml`. Migration 000173 adds the
+partial index `ledger.tax_item_unreported` (`tenant_id`, `legal_entity_id`,
+`tax_date` where `reported_in` is null) the selection reads, and the
+permission `tax.return.read`. T61i stores the prepared return.
