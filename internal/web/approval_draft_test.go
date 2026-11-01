@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -53,15 +54,24 @@ func TestDraftAcrossStepUp(t *testing.T) {
 		w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_user_authentication", acr_values="urn:erp:mfa"`)
 		answer(401, problemJSON(401, "identity.mfa_required"))(w, r)
 	}
+	closing, closed := uuid.New(), &atomic.Bool{} // a request someone else decides while the person signs in again
+	closingAnswer := func(w http.ResponseWriter, r *http.Request) {
+		if closed.Load() {
+			answer(200, requestJSON(closing))(w, r)
+			return
+		}
+		answer(200, pendingJSON(closing, uuid.New()))(w, r)
+	}
 	st := &stubbed{routes: map[string]http.HandlerFunc{
-		"GET /v1/me":                                answer(200, meAs(meID, permReadApprovals, permDecide, permCancelRequests, "partner.change.approve")),
-		"GET /v1/principal-names":                   answer(200, `{"items":[]}`),
-		"GET /v1/approval-requests/":                answer(200, pendingJSON(id, uuid.New())),
-		"GET /v1/approval-requests/" + own.String(): answer(200, pendingJSON(own, meID)),
-		"POST /v1/approval-requests/":               challenge,
+		"GET /v1/me":                                    answer(200, meAs(meID, permReadApprovals, permDecide, permCancelRequests, "partner.change.approve")),
+		"GET /v1/principal-names":                       answer(200, `{"items":[]}`),
+		"GET /v1/approval-requests/":                    answer(200, pendingJSON(id, uuid.New())),
+		"GET /v1/approval-requests/" + own.String():     answer(200, pendingJSON(own, meID)),
+		"GET /v1/approval-requests/" + closing.String(): closingAnswer,
+		"POST /v1/approval-requests/":                   challenge,
 	}}
 	s, b, token := stubStack(t, st)
-	long := strings.Repeat("é𝄞あ", 666) + "ab" // 2,000 characters, most of them several bytes
+	long := strings.Repeat("𝄞", 2000) // 2,000 characters of four bytes each: the most three cookies hold
 	for _, tc := range []struct {
 		verb, action, text string
 	}{{ui.VerbApprove, "/approve", "Checked <b>twice</b>\nagainst the budget"}, {ui.VerbReject, "/reject", long}, {ui.VerbWithdraw, "/cancel", "Raised twice"}} {
@@ -87,6 +97,20 @@ func TestDraftAcrossStepUp(t *testing.T) {
 			token = field(b.get(requestPath(id)).page(t).form("/logout"), "csrf_token")
 		})
 	}
+	// The request decided by someone else while the person signed in
+	// again: the text is shown as it was written, not lost, with no form.
+	form := url.Values{"csrf_token": {token}, "if_match": {`"3"`}, "idempotency_key": {uuid.NewString()}, "comment": {"Duplicate <i>order</i>"}}
+	if r := b.do(http.MethodPost, requestPath(closing)+"/reject", form); r.status != http.StatusSeeOther {
+		t.Fatalf("step-up: got %d", r.status)
+	}
+	closed.Store(true)
+	b.signIn()
+	gone := b.get(requestPath(closing)).page(t)
+	holds(t, "closed meanwhile", gone.mainText(), "it no longer takes this decision", "Duplicate <i>order</i>")
+	if strings.Contains(gone.mainText(), "What you wrote is kept below") || len(gone.all("form", "decide")) != 0 {
+		t.Errorf("closed meanwhile: got %q, want no form and no promise of one", gone.mainText())
+	}
+	token = field(b.get(requestPath(id)).page(t).form("/logout"), "csrf_token")
 	keep := func() {
 		t.Helper()
 		form := url.Values{"csrf_token": {token}, "if_match": {`"3"`}, "idempotency_key": {uuid.NewString()}, "comment": {"Mine"}}

@@ -258,6 +258,9 @@ templ requestContent(rp RequestPage) {
 	if rp.Kept {
 		@Notice("request-kept", i18n.KeptTitle, Paragraph(i18n.KeptBody))
 	}
+	if rp.Unsent != "" {
+		@Notice("request-unsent", i18n.UnsentTitle, unsentText(rp.Unsent))
+	}
 	if rp.Refusal != nil {
 		@RefusalNotice(*rp.Refusal)
 	}
@@ -298,6 +301,15 @@ templ requestContent(rp RequestPage) {
 		</h2>
 		@WithdrawForm(*rp.Withdraw)
 	}
+}
+
+// unsentText says a kept text can no longer be sent, and shows it as the
+// person wrote it: data, inside hx-disable.
+templ unsentText(text string) {
+	@Paragraph(i18n.UnsentBody)
+	<p class="untrusted decision__comment" translate="no" hx-disable>
+		@Value(text)
+	</p>
 }
 
 // ObjectSection is the request's object as it says itself: its summary

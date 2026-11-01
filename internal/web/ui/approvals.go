@@ -212,6 +212,7 @@ type RequestPage struct {
 	Why           i18n.Key     // why Decide is nil: DecideOwn, DecideNotYours or DecideClosed
 	Withdraw      *DecideForms // the requester's own pending request; nil otherwise
 	Kept          bool         // what the person typed came back after a step-up sign-in, not sent yet
+	Unsent        string       // what came back after a step-up sign-in for a decision the request no longer takes
 	Refusal       *Refusal
 }
 

@@ -90,6 +90,8 @@ func components() map[string]templ.Component {
 		"inbox mine":     inboxContent(InboxPage{View: ViewMine, Approvals: []Approval{approval(false)}}),
 		"inbox all":      inboxContent(InboxPage{View: ViewAll}),
 		"inboxList":      inboxList(inboxFull()),
+		"request unsent": requestContent(RequestPage{Approval: approval(false), Why: i18n.DecideClosed, Unsent: "x"}),
+		"unsentText":     unsentText("x"),
 		"request closed": requestContent(requestPage(false)),
 		"StepItem":       StepItem(Step{No: 1, Required: 2, Approvals: 1, Current: true}),
 		"step done":      StepItem(Step{No: 1, Required: 1, Approvals: 1}),

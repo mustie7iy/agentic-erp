@@ -1180,4 +1180,7 @@ const (
 	SummaryOrder             Key = "summary.order"
 	SummaryRunDate           Key = "summary.rundate"
 	SummaryDueBy             Key = "summary.dueby"
+	SummaryEntryReference    Key = "summary.entry.reference"
+	UnsentTitle              Key = "request.unsent.title"
+	UnsentBody               Key = "request.unsent.body"
 )

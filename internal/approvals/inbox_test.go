@@ -301,6 +301,8 @@ func TestRequestedBy(t *testing.T) {
 		})
 	}
 	f.As(f.Tenant.Human).Problem(400, "request.invalid_parameter", "GET", "/v1/approval-requests?requested_by=you", "", "")
+	// Refused before the inbox: an agent's is empty by definition.
+	f.As(f.Tenant.Agent).Problem(400, "request.invalid_parameter", "GET", "/v1/approval-requests?decidable_by=me&requested_by=you", "", "")
 	pgtest.Exec(t, `INSERT INTO workflow.approval_request (tenant_id, id, object_type, object_id, title, requester_id, status, completed_at, created_by)
 		SELECT $1, gen_random_uuid(), 'requisition', gen_random_uuid(), 'old', $2, 'approved', now(), $2 FROM generate_series(1, 2000)`,
 		f.Tenant.ID, f.Approver2.ID)

@@ -177,7 +177,7 @@ func entrySummary(pe gen.ParkedJournalEntry) *ui.ObjectSummary {
 	rows := []ui.Row{{Key: i18n.SummaryDocType, Value: ui.Code(pe.DocumentType)}, {Key: i18n.SummaryPosting, Value: ui.Day(pe.PostingDate)},
 		{Key: i18n.SummaryCurrency, Value: ui.Code(pe.Currency)}}
 	if ref, ok := pe.Reference.Get(); ok && ref != "" {
-		rows = append(rows, ui.Row{Key: i18n.SummaryReference, Value: ui.Data(ref)})
+		rows = append(rows, ui.Row{Key: i18n.SummaryEntryReference, Value: ui.Data(ref)})
 	}
 	if h, ok := pe.HeaderText.Get(); ok && h != "" {
 		rows = append(rows, ui.Row{Key: i18n.SummaryHeader, Value: ui.Data(h)})

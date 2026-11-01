@@ -229,11 +229,12 @@ func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {
 
 // showRequest reads the request and renders its page with status: its
 // object's summary, the decision forms fresh (the request's current ETag,
-// new idempotency keys) holding what the person typed (typed, kept when
-// it came back after a step-up sign-in), and the API's refusal of their
-// decision, if any.
+// new idempotency keys) holding what the person typed (typed), and the
+// API's refusal of their decision, if any. kept is the decision whose text
+// came back after a step-up sign-in ("" none): in its form when the page
+// still offers it, else shown as text that can no longer be sent.
 func (s *Server) showRequest(w http.ResponseWriter, r *http.Request, p *person, m me, id uuid.UUID, status int, typed ui.DecideForms, refused *ui.Refusal,
-	kept bool) {
+	kept string) {
 	res, err := s.API.GetApprovalRequest(r.Context(), gen.GetApprovalRequestParams{ID: id})
 	got, ok := res.(*gen.ApprovalRequestHeaders)
 	if !ok {
@@ -254,7 +255,7 @@ func (s *Server) showRequest(w http.ResponseWriter, r *http.Request, p *person, 
 		ids = append(ids, d.ActorID)
 	}
 	names := s.names(r.Context(), p, ids)
-	rp := ui.RequestPage{Approval: approvalOf(a, names), Refusal: refused, Kept: kept}
+	rp := ui.RequestPage{Approval: approvalOf(a, names), Refusal: refused}
 	if !s.object(w, r, p, m, a, &rp) {
 		return
 	}
@@ -272,7 +273,30 @@ func (s *Server) showRequest(w http.ResponseWriter, r *http.Request, p *person, 
 	if a.Status == "pending" && a.RequesterID == m.ID && m.may(permCancelRequests) {
 		rp.Withdraw = &typed
 	}
+	keptIn(&rp, kept, typed)
 	s.render(w, r, status, ui.Request(s.page(i18n.RequestTitle, ui.ApprovalsPath, p, m), rp))
+}
+
+// keptIn says on the page what became of a decision's text kept across a
+// step-up sign-in (verb, "" none): in its form, not sent, when the page
+// still offers that decision; otherwise (the request decided or withdrawn
+// meanwhile) as text that can no longer be sent, so it is not lost unseen.
+func keptIn(rp *ui.RequestPage, verb string, typed ui.DecideForms) {
+	offered := rp.Decide != nil
+	text := typed.Comment
+	switch verb {
+	case "":
+		return
+	case ui.VerbReject:
+		text = typed.Reason
+	case ui.VerbWithdraw:
+		offered, text = rp.Withdraw != nil, typed.Withdrawal
+	}
+	if offered {
+		rp.Kept = true
+		return
+	}
+	rp.Unsent = text
 }
 
 // why says why the person is offered no decision (advisory, ADR-0052 §7:
@@ -326,7 +350,7 @@ func (s *Server) decide(verb string) func(http.ResponseWriter, *http.Request, *p
 		}
 		typed, bad := typedOf(verb, text)
 		if bad != "" {
-			s.showRequest(w, r, p, m, id, http.StatusUnprocessableEntity, typed, nil, false)
+			s.showRequest(w, r, p, m, id, http.StatusUnprocessableEntity, typed, nil, "")
 			return
 		}
 		res, err := s.send(r, verb, id, ifMatch, key, text)
@@ -339,7 +363,7 @@ func (s *Server) decide(verb string) func(http.ResponseWriter, *http.Request, *p
 		}
 		prob, show := s.refusal(w, r, p, decideOps[verb].ID, res, err)
 		if show {
-			s.showRequest(w, r, p, m, id, int(prob.Status), typed, explain(i18n.RefusalTitle, prob, m), false)
+			s.showRequest(w, r, p, m, id, int(prob.Status), typed, explain(i18n.RefusalTitle, prob, m), "")
 		}
 	}
 }

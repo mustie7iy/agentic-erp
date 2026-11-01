@@ -138,6 +138,10 @@ func (e *Endpoints) ListApprovalRequests(ctx context.Context, params gen.ListApp
 	if err != nil {
 		return nil, err
 	}
+	mine, err := requestedBy(p, params.RequestedBy.Value)
+	if err != nil {
+		return nil, err
+	}
 	in, err := e.inboxOf(ctx, p, params.DecidableBy.Value)
 	if err != nil {
 		return nil, err
@@ -147,8 +151,9 @@ func (e *Endpoints) ListApprovalRequests(ctx context.Context, params gen.ListApp
 	}
 	where, args := `WHERE ($1 = '' OR r.status = $1) AND ($2 = '' OR r.object_type = $2) AND ($3::uuid IS NULL OR r.object_id = $3)`+in.where,
 		append([]any{params.Status.Value, params.ObjectType.Value, object}, in.args...)
-	if where, args, err = requestedBy(p, params.RequestedBy.Value, where, args); err != nil {
-		return nil, err
+	if mine != nil {
+		args = append(args, *mine)
+		where += ` AND r.requester_id = $` + strconv.Itoa(len(args))
 	}
 	q, args := ks.SQL(requestSelect+` `+where, args)
 	rows, _ := tx.Query(ctx, q, args...)
@@ -204,17 +209,16 @@ func (e *Endpoints) CancelApprovalRequest(ctx context.Context, req *gen.CommentR
 	return e.ok(ctx, r)
 }
 
-// requestedBy adds requested_by=me to the list's filter: the requests the
-// caller asked for, read by approval_request_by_requester (04 §4.5). by is
-// the parameter's value; "" filters nothing, anything but "me" is refused.
-func requestedBy(p reqctx.Principal, by, where string, args []any) (string, []any, error) {
+// requestedBy is requested_by=me's requester: the caller, whose requests
+// approval_request_by_requester reads (04 §4.5); nil when the parameter is
+// absent. Any value but "me" is refused, checked before anything else.
+func requestedBy(p reqctx.Principal, by string) (*uuid.UUID, error) {
 	switch by {
 	case "":
-		return where, args, nil
+		return nil, nil
 	case "me":
-		args = append(args, p.ID)
-		return where + ` AND r.requester_id = $` + strconv.Itoa(len(args)), args, nil
+		return &p.ID, nil
 	}
-	return "", nil, problem.BadRequest("request.invalid_parameter", "Parameter requested_by is me or absent.",
+	return nil, problem.BadRequest("request.invalid_parameter", "Parameter requested_by is me or absent.",
 		problem.FieldError{Field: "requested_by", Code: "invalid", Message: "me"})
 }

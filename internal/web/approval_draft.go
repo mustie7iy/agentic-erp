@@ -66,10 +66,11 @@ func (s *Server) keepDraft(w http.ResponseWriter, r *http.Request, p *person, d 
 }
 
 // keptDraft is what the person wrote on the request before a step-up
-// sign-in, in its form's field, and true; used once. A draft for another
+// sign-in, in its form's field, and its decision's verb ("" none); used
+// once. A draft for another
 // request is left for its own page; one that does not open as this
 // person's, or is past its ten minutes, is deleted.
-func (s *Server) keptDraft(w http.ResponseWriter, r *http.Request, p *person, id uuid.UUID) (ui.DecideForms, bool) {
+func (s *Server) keptDraft(w http.ResponseWriter, r *http.Request, p *person, id uuid.UUID) (ui.DecideForms, string) {
 	var value strings.Builder
 	for i := range draftChunks {
 		c, err := r.Cookie(draftCookie + strconv.Itoa(i))
@@ -79,25 +80,25 @@ func (s *Server) keptDraft(w http.ResponseWriter, r *http.Request, p *person, id
 		value.WriteString(c.Value)
 	}
 	if value.Len() == 0 {
-		return ui.DecideForms{}, false
+		return ui.DecideForms{}, ""
 	}
 	d, ok := s.openDraft(p, value.String())
 	if ok && d.Request != id {
-		return ui.DecideForms{}, false
+		return ui.DecideForms{}, ""
 	}
 	for i := range draftChunks {
 		http.SetCookie(w, cookie(draftCookie+strconv.Itoa(i), "", -1, http.SameSiteStrictMode))
 	}
 	if !ok {
-		return ui.DecideForms{}, false
+		return ui.DecideForms{}, ""
 	}
 	switch d.Verb {
 	case ui.VerbReject:
-		return ui.DecideForms{Reason: d.Text}, true
+		return ui.DecideForms{Reason: d.Text}, d.Verb
 	case ui.VerbWithdraw:
-		return ui.DecideForms{Withdrawal: d.Text}, true
+		return ui.DecideForms{Withdrawal: d.Text}, d.Verb
 	}
-	return ui.DecideForms{Comment: d.Text}, true
+	return ui.DecideForms{Comment: d.Text}, ui.VerbApprove
 }
 
 // openDraft opens a kept draft: ok is false for one that is not this

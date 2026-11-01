@@ -1148,5 +1148,8 @@
   "summary.lines": "Lignes",
   "summary.order": "Bon de commande",
   "summary.rundate": "Date du cycle",
-  "summary.dueby": "Paie ce qui est échu au"
+  "summary.dueby": "Paie ce qui est échu au",
+  "summary.entry.reference": "Référence",
+  "request.unsent.title": "Votre décision n'a pas été envoyée",
+  "request.unsent.body": "Pendant que vous vous connectiez de nouveau, la demande a changé et elle n'accepte plus cette décision. Ce que vous aviez écrit :"
 }

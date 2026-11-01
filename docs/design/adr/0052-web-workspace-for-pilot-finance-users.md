@@ -2271,7 +2271,8 @@ the step as first written:
   any status, combined with the other filters; any other value 400
   `request.invalid_parameter`), backed by the index
   `approval_request_by_requester (tenant_id, requester_id, created_at, id)`
-  (migration 000179, 04 §4.5); `TestRequestedBy` checks it reads the
+  (migration 000179, built concurrently in a migration of its own, 06
+  §6.4), validated before anything else; `TestRequestedBy` checks it reads the
   caller's rows only. The walkthrough's step 4 has Ben list his own
   pending requests.
 - **Lists.** `GET /approvals` serves three lists by `view`: the inbox
@@ -2325,7 +2326,10 @@ the step as first written:
   2,000-character comment may be 8,000 bytes. The request's page reads it
   once after the sign-in, puts it in its form with a notice that it was
   not sent, and deletes it; it is never sent for the person (§7: one
-  decision, one click). Another person signing in on the browser, a
+  decision, one click). When the request no longer offers that decision
+  (decided or withdrawn while the person signed in again), the page shows
+  the text as data and says it can no longer be sent, rather than lose it
+  unseen. Another person signing in on the browser, a
   draft past its ten minutes or one tampered with shows nothing.
 - **Accessibility.** The tabs are a labelled `nav` with `aria-current`;
   the filters' selects and the withdrawal's reason have labels, hints and
