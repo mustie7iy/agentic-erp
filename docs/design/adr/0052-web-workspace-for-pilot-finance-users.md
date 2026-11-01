@@ -2263,6 +2263,56 @@ written:
   history at a desktop's width, and the reconciliation to the entry behind
   its difference at a phone's.
 
+## Built in webdates: forms dated on the company's day (2026-11-01)
+Found in batch 27's review (Pilot readiness "Company time zone", ADR-0051
+as built): the workspace pre-filled dates from its own clock in UTC, so at
+22:00 in Toronto (UTC already on the next day) a form offered tomorrow,
+and posted in the next day's period, or the next year's.
+- **The rule.** Every date or year the workspace defaults is its
+  company's date today as the API tells it (`getLegalEntityToday`,
+  ADR-0051 as built: the company's date in its `time_zone`, the day the
+  API defaults a posting date left out to), never the workspace's clock:
+  a new manual entry's document and posting dates, a payment run
+  proposal's run date and due date, the supplier open items' key date,
+  and the fiscal year of the periods' list, the trial balance (and its
+  download), the ledger reconciliation and its entries. The workspace
+  computes no date itself (§4: no business logic), so form and API
+  agree. A sweep of `internal/web` for its clock found no other business
+  date: the rest (sessions, sign-in, the step-up grace, the names'
+  cache) are instants, not a company's day.
+- **Which company a form is dated for** (review round 1 of webdates).
+  A form's company can be changed in the browser without asking the
+  workspace again, and two companies' days differ (Toronto's evening is
+  already the next day in Dubai). So a new entry is dated for the
+  company its address names (`legal_entity_id`), and a run proposal for
+  the company the runs' list is filtered by; with neither, only when one
+  company is offered. Among several, the dates are left for the person
+  to type, never one company's day sent for another
+  (`datedCompany`). A person who opens a form for one company and
+  switches it has chosen the other company beside dates they can see.
+- **When the API cannot tell it** (no company, a person who may not read
+  companies, a refusal or failure, logged): a form's dates are left
+  empty for the person to type, never UTC's day, since a wrong date
+  posts in a wrong period. A report's year, a filter shown on the page,
+  is then the clock's year, which differs from the company's only around
+  the new year; an empty one would answer the page with a filter error
+  and hide the API's own answer to the report (a 403, a 503).
+- **Calls.** One more read on the pages that default a date
+  (`getLegalEntityToday`, hidden by `tenancy.org.read` like the company
+  list): the payment runs, the periods, the trial balance, the open items
+  and the reconciliation now read six, the budget of §10.
+- **Tests.** The API: the date and zone at 22:00 in Toronto and 01:00 in
+  Dubai by an injected clock, a company the caller cannot act in, an
+  unconfigured tenant, every statement failing (`internal/tenancy`). The
+  workspace, from the stub at 22:00 on 31 December in Toronto (07:00 on
+  1 January in Dubai): each form's dates and each report's year are the
+  API's day for the company (2025-12-31 and the year 2025 for Toronto, 1
+  January for Dubai), a form of either of the two companies, none named,
+  is undated, and without the API's day the dates are empty and the year
+  the clock's; against the real API, an entry of the Toronto and of the
+  Dubai company dated that company's day. The walkthrough reads Maple's
+  date and zone (step 13).
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF

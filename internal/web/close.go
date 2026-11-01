@@ -54,10 +54,10 @@ func (s *Server) periods(w http.ResponseWriter, r *http.Request, p *person) {
 	companies, ledgers := s.companies(r.Context(), m), s.ledgers(r.Context(), m)
 	f := ui.PeriodFilters{Companies: companyOptions(companies, q.Get(ui.FieldCompany)), Ledgers: ledgerOptions(ledgers, q.Get(ui.FieldLedger)),
 		Year: q.Get(ui.FieldYear)}
-	if f.Year == "" {
-		f.Year = strconv.Itoa(s.now().Year())
-	}
 	company, ledger := askedOrFirst(q.Get(ui.FieldCompany), f.Companies), askedOrFirst(q.Get(ui.FieldLedger), f.Ledgers)
+	if f.Year == "" {
+		f.Year = s.year(r.Context(), m, company)
+	}
 	l := ui.PeriodList{Filters: f}
 	if m.may(permReadEntries) {
 		l.Revalue = ui.RevaluationFor(url.Values{ui.FieldCompany: {company}, ui.FieldLedger: {ledger}})

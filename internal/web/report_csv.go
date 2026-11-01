@@ -143,7 +143,7 @@ func (s *Server) trialBalanceCSV(w http.ResponseWriter, r *http.Request, p *pers
 		return
 	}
 	var f ui.LedgerFilters
-	lq, valid := parseLedgerQuery(r.URL.Query(), &f, s.year)
+	lq, valid := parseLedgerQuery(r.URL.Query(), &f, s.yearOfCompany(r.Context(), m))
 	back := ui.ReportFor(ui.TrialBalancePath, r.URL.Query())
 	if !valid || f.YearError != "" || f.PeriodError != "" {
 		s.downloadInvalid(w, r, p, m, i18n.TrialBalanceTitle, back)

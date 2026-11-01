@@ -15542,6 +15542,30 @@ func (s *GetLegalEntityOKHeaders) Validate() error {
 	return nil
 }
 
+func (s *GetLegalEntityTodayBadRequest) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *GetLegalEntityTodayForbidden) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *GetLegalEntityTodayNotFound) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *GetMatchResultBadRequest) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {

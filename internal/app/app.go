@@ -188,7 +188,7 @@ func New(cfg Config) (http.Handler, error) {
 	sessions := &identity.Sessions{Pool: cfg.Pool, AppRole: cfg.AppRole, Now: cfg.Now}
 	h := handler{
 		operationsAPI: &operations.Endpoints{Pages: cfg.Pages, Workflows: cfg.Workflows, Log: cfg.Log},
-		tenancyAPI:    &tenancy.Endpoints{Pages: cfg.Pages},
+		tenancyAPI:    &tenancy.Endpoints{Pages: cfg.Pages, Days: configuration.Settings{}, Now: cfg.Now},
 		identityAPI:   &identity.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Certifications: certifications(cfg), Sessions: sessions},
 		configAPI: &configuration.Endpoints{Pages: cfg.Pages, Packs: library, RefuseUnsignedPacks: cfg.RefuseUnsignedPacks,
 			Dependencies: Configuration(cfg)},

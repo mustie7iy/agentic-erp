@@ -44962,6 +44962,120 @@ func (s *GetLegalEntityNotFound) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes GetLegalEntityTodayBadRequest as json.
+func (s *GetLegalEntityTodayBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetLegalEntityTodayBadRequest from json.
+func (s *GetLegalEntityTodayBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetLegalEntityTodayBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetLegalEntityTodayBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetLegalEntityTodayBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetLegalEntityTodayBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GetLegalEntityTodayForbidden as json.
+func (s *GetLegalEntityTodayForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetLegalEntityTodayForbidden from json.
+func (s *GetLegalEntityTodayForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetLegalEntityTodayForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetLegalEntityTodayForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetLegalEntityTodayForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetLegalEntityTodayForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GetLegalEntityTodayNotFound as json.
+func (s *GetLegalEntityTodayNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetLegalEntityTodayNotFound from json.
+func (s *GetLegalEntityTodayNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetLegalEntityTodayNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetLegalEntityTodayNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetLegalEntityTodayNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetLegalEntityTodayNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes GetMatchResultBadRequest as json.
 func (s *GetMatchResultBadRequest) Encode(e *jx.Encoder) {
 	unwrapped := (*Problem)(s)
@@ -58267,6 +58381,136 @@ func (s *LegalEntityPage) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *LegalEntityPage) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *LegalEntityToday) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *LegalEntityToday) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("legal_entity_id")
+		json.EncodeUUID(e, s.LegalEntityID)
+	}
+	{
+		e.FieldStart("date")
+		json.EncodeDate(e, s.Date)
+	}
+	{
+		e.FieldStart("time_zone")
+		e.Str(s.TimeZone)
+	}
+}
+
+var jsonFieldsNameOfLegalEntityToday = [3]string{
+	0: "legal_entity_id",
+	1: "date",
+	2: "time_zone",
+}
+
+// Decode decodes LegalEntityToday from json.
+func (s *LegalEntityToday) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode LegalEntityToday to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "legal_entity_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.LegalEntityID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"legal_entity_id\"")
+			}
+		case "date":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.Date = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"date\"")
+			}
+		case "time_zone":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.TimeZone = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"time_zone\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode LegalEntityToday")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfLegalEntityToday) {
+					name = jsonFieldsNameOfLegalEntityToday[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *LegalEntityToday) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *LegalEntityToday) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

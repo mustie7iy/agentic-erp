@@ -138,8 +138,8 @@ func (s *Server) itemQuery(ctx context.Context, m me, q url.Values, op *ui.OpenI
 		iq.account, err = uuid.Parse(account)
 		valid = valid && err == nil
 	}
-	if f.KeyDate == "" {
-		f.KeyDate = s.today()
+	if f.KeyDate == "" && valid {
+		f.KeyDate = s.today(ctx, m, iq.company.String())
 	}
 	var key gen.OptDate
 	key, f.KeyDateError = dateParam(f.KeyDate)

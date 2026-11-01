@@ -47,6 +47,7 @@ func runPath(id uuid.UUID) string { return ui.PaymentsPath + "/" + id.String() }
 // wrong with it; the form is rendered again with it.
 type proposal struct {
 	company, bank, currency, runDate, dueBy string
+	fresh                                   bool // not sent yet: dated its company's today (datedCompany)
 	companyErr, currencyErr                 i18n.Key
 	runDateErr, dueByErr                    i18n.Key
 	refusal                                 *ui.Refusal
@@ -58,8 +59,7 @@ func (s *Server) runs(w http.ResponseWriter, r *http.Request, p *person) {
 	if !ok {
 		return
 	}
-	today := s.now().Format(time.DateOnly)
-	s.showRuns(w, r, p, m, http.StatusOK, proposal{runDate: today, dueBy: today})
+	s.showRuns(w, r, p, m, http.StatusOK, proposal{fresh: true})
 }
 
 // showRuns renders the list as the query asks, with the propose form
@@ -71,6 +71,13 @@ func (s *Server) showRuns(w http.ResponseWriter, r *http.Request, p *person, m m
 	l := ui.RunList{Tabs: runStatusTabs(q), ProposeRefusal: pr.refusal,
 		Filters: ui.RunFilters{Status: q.Get("status"), Number: strings.TrimSpace(q.Get("document_number")), Companies: companyOptions(companies, q.Get("legal_entity_id"))}}
 	if m.may(permProposeRuns) && len(companies) > 0 {
+		if pr.fresh {
+			// Of the company the list is filtered by, or the only one;
+			// among several, the person chooses and types the dates.
+			pr.company = datedCompany(q.Get("legal_entity_id"), companyOptions(companies, ""))
+			pr.runDate = s.today(r.Context(), m, pr.company)
+			pr.dueBy = pr.runDate
+		}
 		l.Propose = proposeForm(p, companies, banks, pr)
 	}
 	params, valid := runParams(q, l.Filters)

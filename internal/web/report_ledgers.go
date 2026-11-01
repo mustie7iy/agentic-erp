@@ -58,10 +58,10 @@ func (lq ledgerQuery) values() url.Values {
 // parseLedgerQuery reads a ledger report's query into its filters (whose
 // options are the companies and ledgers to choose from, the first company
 // and the leading ledger chosen until the query names others, this year
-// until it names one): valid is false when the company, the ledgers or
-// the page are not what an address of the report holds; a year or period
-// that is none is its filter's error.
-func parseLedgerQuery(q url.Values, f *ui.LedgerFilters, now func() int) (ledgerQuery, bool) {
+// by the company's date (year) until it names one): valid is false when
+// the company, the ledgers or the page are not what an address of the
+// report holds; a year or period that is none is its filter's error.
+func parseLedgerQuery(q url.Values, f *ui.LedgerFilters, year func(company string) string) (ledgerQuery, bool) {
 	company, ledger := askedOrFirst(q.Get(ui.FieldCompany), f.Companies), askedOrFirst(q.Get(ui.FieldLedger), f.Ledgers)
 	var lq ledgerQuery
 	id, err := uuid.Parse(company)
@@ -79,7 +79,7 @@ func parseLedgerQuery(q url.Values, f *ui.LedgerFilters, now func() int) (ledger
 	}
 	typed := q.Get(ui.FieldYear)
 	if typed == "" {
-		typed = strconv.Itoa(now())
+		typed = year(company)
 	}
 	f.Year, lq.year, f.YearError = yearOf(typed)
 	f.Period = q.Get(ui.FieldPeriod)
@@ -98,7 +98,7 @@ func (s *Server) trialBalance(w http.ResponseWriter, r *http.Request, p *person)
 	ctx, q := r.Context(), r.URL.Query()
 	tp := ui.TrialBalancePage{Filters: ui.LedgerFilters{Action: ui.TrialBalancePath, Companies: companyOptions(s.companies(ctx, m), q.Get(ui.FieldCompany)),
 		Ledgers: ledgerOptions(s.ledgers(ctx, m), q.Get(ui.FieldLedger))}}
-	lq, valid := parseLedgerQuery(q, &tp.Filters, s.year)
+	lq, valid := parseLedgerQuery(q, &tp.Filters, s.yearOfCompany(ctx, m))
 	status := http.StatusOK
 	switch {
 	case !valid:
@@ -124,9 +124,6 @@ func (s *Server) trialBalance(w http.ResponseWriter, r *http.Request, p *person)
 	}
 	s.render(w, r, status, ui.TrialBalance(s.page(i18n.TrialBalanceTitle, ui.ReportsPath, p, m), tp))
 }
-
-// year is this year by the server's clock, a report's default.
-func (s *Server) year() int { return s.now().Year() }
 
 // balanceParams are the API's parameters of a trial balance's page.
 func balanceParams(lq ledgerQuery, size int32, token string) gen.ListBalancesParams {
@@ -172,7 +169,7 @@ func (s *Server) ledgerRecon(w http.ResponseWriter, r *http.Request, p *person) 
 	case ledgers == nil:
 		lp.Unknown = true
 	}
-	lq, valid := parseLedgerQuery(q, &lp.Filters, s.year)
+	lq, valid := parseLedgerQuery(q, &lp.Filters, s.yearOfCompany(ctx, m))
 	status := http.StatusOK
 	switch {
 	case !valid:
@@ -289,7 +286,7 @@ func (s *Server) reconEntries(w http.ResponseWriter, r *http.Request, p *person)
 	}
 	ctx, q := r.Context(), r.URL.Query()
 	var f ui.LedgerFilters
-	lq, valid := parseLedgerQuery(q, &f, s.year)
+	lq, valid := parseLedgerQuery(q, &f, s.yearOfCompany(ctx, m))
 	account, err := uuid.Parse(q.Get(ui.FieldAccount))
 	ep := ui.ReconEntriesPage{Currency: q.Get(ui.FieldCurrency), Back: ui.ReportFor(ui.LedgerReconPath, without(without(q, ui.FieldAccount), ui.FieldCurrency))}
 	if !valid || err != nil || lq.compare == uuid.Nil || f.YearError != "" || f.PeriodError != "" || !currencyCode.MatchString(ep.Currency) {

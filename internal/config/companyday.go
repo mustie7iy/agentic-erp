@@ -79,6 +79,14 @@ func EntityDay(ctx context.Context, docs Documents, codeOf EntityCode, le uuid.U
 	if err != nil {
 		return CompanyDay{}, fmt.Errorf("legal entity %s: %w", le, err)
 	}
+	return DocumentDay(ctx, docs, code, now)
+}
+
+// DocumentDay is company code's date at instant now in the active
+// configuration (docs), CompanyDay: for a caller that knows the company's
+// code, such as the tenancy context's date of a legal entity
+// (getLegalEntityToday).
+func DocumentDay(ctx context.Context, docs Documents, code string, now time.Time) (CompanyDay, error) {
 	doc, _, err := docs.Document(ctx)
 	if err != nil {
 		return CompanyDay{}, fmt.Errorf("time zone of company %s: %w", code, err)

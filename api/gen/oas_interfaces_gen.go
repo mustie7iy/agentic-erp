@@ -425,6 +425,10 @@ type GetLegalEntityRes interface {
 	getLegalEntityRes()
 }
 
+type GetLegalEntityTodayRes interface {
+	getLegalEntityTodayRes()
+}
+
 type GetMatchResultRes interface {
 	getMatchResultRes()
 }

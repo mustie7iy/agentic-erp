@@ -1622,6 +1622,13 @@ step_cash() {
   expect "the zone the position is read in" "$(field .time_zone)" America/Toronto
   [ "$(field .read_date)" = "$before" ] || expect "the read date, Toronto's" "$(field .read_date)" "$after"
   expect "the first day, the read date" "$(field .from)" "$(field .read_date)"
+  say "A client dates its forms on the same day: Maple's date today, in its zone (getLegalEntityToday), which the web"
+  say "workspace pre-fills a manual entry's dates, a payment run's and the open items' key date with, not UTC's day:"
+  before=$(TZ=America/Toronto date +%F)
+  api 200 '"today is \(.date) in \(.time_zone)"' getLegalEntityToday -p "id=$LE"
+  after=$(TZ=America/Toronto date +%F)
+  expect "the zone Maple's today is in" "$(field .time_zone)" America/Toronto
+  [ "$(field .date)" = "$before" ] || expect "Maple's today, Toronto's" "$(field .date)" "$after"
   local toronto judged status listed counted
   toronto=$(TZ=America/Toronto date +%F)
   say "A receipt promised for today ($toronto in Toronto), its last day today, is active until Toronto's day ends:"

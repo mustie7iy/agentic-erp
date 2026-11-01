@@ -9467,6 +9467,7 @@ func (*ConflictHeaders) excludeBankStatementLineRes()         {}
 func (*ConflictHeaders) fileTaxReturnRes()                    {}
 func (*ConflictHeaders) getAnalyticsModelRes()                {}
 func (*ConflictHeaders) getBankFileContentRes()               {}
+func (*ConflictHeaders) getLegalEntityTodayRes()              {}
 func (*ConflictHeaders) getPurchaseOrderDocumentRes()         {}
 func (*ConflictHeaders) getTaxReturnDraftRes()                {}
 func (*ConflictHeaders) grantRolePermissionRes()              {}
@@ -15595,6 +15596,18 @@ func (s *GetLegalEntityOKHeaders) SetResponse(val LegalEntity) {
 
 func (*GetLegalEntityOKHeaders) getLegalEntityRes() {}
 
+type GetLegalEntityTodayBadRequest Problem
+
+func (*GetLegalEntityTodayBadRequest) getLegalEntityTodayRes() {}
+
+type GetLegalEntityTodayForbidden Problem
+
+func (*GetLegalEntityTodayForbidden) getLegalEntityTodayRes() {}
+
+type GetLegalEntityTodayNotFound Problem
+
+func (*GetLegalEntityTodayNotFound) getLegalEntityTodayRes() {}
+
 type GetMatchResultBadRequest Problem
 
 func (*GetMatchResultBadRequest) getMatchResultRes() {}
@@ -21064,6 +21077,51 @@ func (s *LegalEntityPage) SetTotalEstimate(val OptInt64) {
 }
 
 func (*LegalEntityPage) listLegalEntitiesRes() {}
+
+// A legal entity's date today (getLegalEntityToday): its company's date in its time zone.
+// Ref: #/components/schemas/LegalEntityToday
+type LegalEntityToday struct {
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's date at the read, in `time_zone`: at 22:00 in America/Toronto it is still that day.
+	Date time.Time `json:"date"`
+	// The IANA time zone `date` is in: the company's configured `time_zone`, or `UTC` when the active
+	// configuration has no company of the legal entity's code, or one activated before the zone was
+	// required (2026-10-31) that sets none.
+	TimeZone string `json:"time_zone"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *LegalEntityToday) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetDate returns the value of Date.
+func (s *LegalEntityToday) GetDate() time.Time {
+	return s.Date
+}
+
+// GetTimeZone returns the value of TimeZone.
+func (s *LegalEntityToday) GetTimeZone() string {
+	return s.TimeZone
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *LegalEntityToday) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetDate sets the value of Date.
+func (s *LegalEntityToday) SetDate(val time.Time) {
+	s.Date = val
+}
+
+// SetTimeZone sets the value of TimeZone.
+func (s *LegalEntityToday) SetTimeZone(val string) {
+	s.TimeZone = val
+}
+
+func (*LegalEntityToday) getLegalEntityTodayRes() {}
 
 // Merge patch of a legal entity. Code, country and currency are immutable.
 // Ref: #/components/schemas/LegalEntityUpdate
@@ -43342,6 +43400,7 @@ func (*TooManyRequestsHeaders) getHierarchyNodeRes()                 {}
 func (*TooManyRequestsHeaders) getHierarchyRes()                     {}
 func (*TooManyRequestsHeaders) getJournalEntryRes()                  {}
 func (*TooManyRequestsHeaders) getLegalEntityRes()                   {}
+func (*TooManyRequestsHeaders) getLegalEntityTodayRes()              {}
 func (*TooManyRequestsHeaders) getMatchResultRes()                   {}
 func (*TooManyRequestsHeaders) getMemoRecordRes()                    {}
 func (*TooManyRequestsHeaders) getMigrationRunRes()                  {}
@@ -43698,6 +43757,7 @@ func (*UnauthorizedHeaders) getHierarchyNodeRes()                 {}
 func (*UnauthorizedHeaders) getHierarchyRes()                     {}
 func (*UnauthorizedHeaders) getJournalEntryRes()                  {}
 func (*UnauthorizedHeaders) getLegalEntityRes()                   {}
+func (*UnauthorizedHeaders) getLegalEntityTodayRes()              {}
 func (*UnauthorizedHeaders) getMatchResultRes()                   {}
 func (*UnauthorizedHeaders) getMemoRecordRes()                    {}
 func (*UnauthorizedHeaders) getMigrationRunRes()                  {}
