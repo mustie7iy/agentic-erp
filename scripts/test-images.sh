@@ -355,6 +355,8 @@ for name in names:
         assert names.index(name) > names.index(scan), "%r pushes, copies or signs before %r" % (name, scan)
 assert not re.search(r"\bLIST=", text), "release.yml gives the mirror another list than the scan's"
 PY
+# GRYPE_CONFIG is the tests' alone: no workflow replaces .grype.yaml.
+! grep -l "GRYPE_CONFIG" "$root"/.github/workflows/*.yml || fail release-scan "a workflow sets GRYPE_CONFIG, replacing .grype.yaml's exceptions"
 echo "test-images: the release scans the platform's images and the upstream pins before it pushes, copies or signs anything"
 
 if [ "$failed" -ne 0 ]; then

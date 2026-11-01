@@ -353,9 +353,10 @@ exceptions.
   finding the configuration lists passes (a configuration of the test's
   own, `GRYPE_CONFIG`, so the case does not hang on the real file's
   expiring entries; the fake matches the CVE alone, so this proves the
-  configuration is read, not grype's package matching); and `release.yml` runs `make
-  image-scan`, without `continue-on-error`, in a step before every step
-  that pushes, copies or signs, giving the mirror no other list.
+  configuration is read, not grype's package matching); and `release.yml`
+  runs `make image-scan`, without `continue-on-error`, in a step before
+  every step that pushes, copies or signs, giving the mirror no other list
+  and the scan no other configuration (no workflow sets `GRYPE_CONFIG`).
   `scripts/test-mirror-images.sh` checks the shared reader's refusals
   through `mirror-images.sh`. Not checked by the tests: real grype against
   the real pins, which pulls them; `make image-scan` in `make ci-local` and
