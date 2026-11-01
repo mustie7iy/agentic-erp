@@ -8333,7 +8333,7 @@
      },
      {
       "s": "T",
-      "t": "An open vendor line with HSL 0 and WSL ≠ 0 in a document that does not post in a foreign currency is neither refused nor loaded, so a small foreign-currency item silently disappears (internal/integration/quality.go:398 openItem; journalPosting and openingLines skip HSL-0 lines)",
+      "t": "An open vendor line with HSL 0 and WSL ≠ 0 in a document that does not post in a foreign currency is neither refused nor loaded, so a small foreign-currency item silently disappears (internal/integration/quality.go:404 openItem; journalPosting and openingLines skip HSL-0 lines)",
       "r": "found in fxopen's review (batch 31, pre-existing) · internal/integration/quality.go openItem · load.go journalPosting, openingLines · currency.go foreignDocuments",
       "src": "review:batch31",
       "pilot": "po:2026-10-31 · review:batch31",
