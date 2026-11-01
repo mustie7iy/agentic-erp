@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 	// The zone database is built in so that the standard IANA names load
 	// on any host, an image without zoneinfo included; host-only names
@@ -203,6 +204,13 @@ type Company struct {
 	// debits in the company's currency, that people post without approval
 	// (T35); above it the controller approves the entry first.
 	ManualEntryApprovalLimit string `yaml:"manual_entry_approval_limit" json:"manual_entry_approval_limit"`
+	// ServicePostingLimit is the largest journal entry, by its debits in
+	// the company's currency, that a service principal (an integration such
+	// as a billing system) posts through the API; above it the entry is
+	// parked for a person instead of posted (ADR-0049 §7, product owner
+	// 2026-10-22, T61n). Empty: ManualEntryApprovalLimit, which held
+	// services before the limit existed (ServiceLimit).
+	ServicePostingLimit string `yaml:"service_posting_limit,omitempty" json:"service_posting_limit,omitempty"`
 	// ReleaseDualLimit is the largest payment run, by its total in the
 	// company's currency at the run date's rate, that one releaser
 	// releases (ADR-0038, product owner 2026-10-22); above it a second
@@ -641,6 +649,19 @@ func (c *Config) Marshal() ([]byte, error) {
 	_ = enc.Encode(c)
 	_ = enc.Close()
 	return buf.Bytes(), nil
+}
+
+// ServiceLimit is the limit a service principal's journal entries are
+// measured against (T61n): ServicePostingLimit, or, for a company without
+// one, ManualEntryApprovalLimit, so integrations post what they posted
+// before the limit existed. "" when the company has neither, which the
+// ledger reads as 0, as approvals reads a missing manual limit: every
+// entry is then parked, never posted unchecked.
+func (co *Company) ServiceLimit() string {
+	if co.ServicePostingLimit != "" { // validated as given: no space around it
+		return co.ServicePostingLimit
+	}
+	return strings.TrimSpace(co.ManualEntryApprovalLimit)
 }
 
 func (c *Config) Company(code string) *Company {

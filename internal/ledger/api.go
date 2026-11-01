@@ -243,10 +243,16 @@ func newEntry(req *gen.JournalEntryCreate) NewEntry {
 }
 
 // PostJournalEntry implements POST /v1/journal-entries.
+// A service principal's entry above its company's service posting limit
+// is parked instead and answered 200 with the parked entry (T61n). Agents
+// propose entries by parking them (postDirect refuses them).
 func (e *Endpoints) PostJournalEntry(ctx context.Context, req *gen.JournalEntryCreate, _ gen.PostJournalEntryParams) (gen.PostJournalEntryRes, error) {
-	je, err := e.postDirect(ctx, newEntry(req))
+	je, parked, err := e.postDirect(ctx, newEntry(req))
 	if err != nil {
 		return nil, err
+	}
+	if parked != nil {
+		return parkedHeaders(*parked), nil
 	}
 	rep := entryToAPI(je)
 	return &gen.JournalEntryHeaders{ETag: apitypes.ETagOf(rep), Location: gen.NewOptString("/v1/journal-entries/" + je.ID.String()), Response: rep}, nil

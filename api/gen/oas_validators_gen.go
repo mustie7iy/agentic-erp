@@ -26350,6 +26350,40 @@ func (s *ParkJournalEntryUnprocessableEntity) Validate() error {
 	return nil
 }
 
+func (s *ParkedEntryLimit) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if err := s.Debits.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "debits",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Limit.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "limit",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
 func (s *ParkedJournalEntry) Validate() error {
 	if s == nil {
 		return validate.ErrNilPointer
@@ -26402,6 +26436,24 @@ func (s *ParkedJournalEntry) Validate() error {
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
 			Name:  "lines",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if value, ok := s.LimitExceeded.Get(); ok {
+			if err := func() error {
+				if err := value.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "limit_exceeded",
 			Error: err,
 		})
 	}

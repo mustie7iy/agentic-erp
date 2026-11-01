@@ -27381,6 +27381,52 @@ func (o OptOperationResult) Or(d OperationResult) OperationResult {
 	return d
 }
 
+// NewOptParkedEntryLimit returns new OptParkedEntryLimit with value set to v.
+func NewOptParkedEntryLimit(v ParkedEntryLimit) OptParkedEntryLimit {
+	return OptParkedEntryLimit{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptParkedEntryLimit is optional ParkedEntryLimit.
+type OptParkedEntryLimit struct {
+	Value ParkedEntryLimit
+	Set   bool
+}
+
+// IsSet returns true if OptParkedEntryLimit was set.
+func (o OptParkedEntryLimit) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptParkedEntryLimit) Reset() {
+	var v ParkedEntryLimit
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptParkedEntryLimit) SetTo(v ParkedEntryLimit) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptParkedEntryLimit) Get() (v ParkedEntryLimit, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptParkedEntryLimit) Or(d ParkedEntryLimit) ParkedEntryLimit {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptPartnerSummary returns new OptPartnerSummary with value set to v.
 func NewOptPartnerSummary(v PartnerSummary) OptPartnerSummary {
 	return OptPartnerSummary{
@@ -28198,6 +28244,63 @@ type ParkJournalEntryUnprocessableEntity Problem
 
 func (*ParkJournalEntryUnprocessableEntity) parkJournalEntryRes() {}
 
+// Why the ERP parked an entry instead of posting it (ADR-0049 §7, T61n): a service principal (an
+// integration such as a billing system) posted it with `postJournalEntry`, and its debits, converted
+// exactly into its company's currency at the average rate of its posting date, exceeded the company's
+// `service_posting_limit` (its `manual_entry_approval_limit` when it has none). The figures are the
+// ones measured when it was parked and never change, also when a person changes the entry afterwards.
+// Ref: #/components/schemas/ParkedEntryLimit
+type ParkedEntryLimit struct {
+	// The limit the entry exceeded. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Kind   string `json:"kind"`
+	Debits Money  `json:"debits"`
+	Limit  Money  `json:"limit"`
+	// The reason in words: the debits and the limit, each with its currency, and, for an entry in another
+	// currency than its company's, that the debits were converted at the average rate of its posting date.
+	Detail string `json:"detail"`
+}
+
+// GetKind returns the value of Kind.
+func (s *ParkedEntryLimit) GetKind() string {
+	return s.Kind
+}
+
+// GetDebits returns the value of Debits.
+func (s *ParkedEntryLimit) GetDebits() Money {
+	return s.Debits
+}
+
+// GetLimit returns the value of Limit.
+func (s *ParkedEntryLimit) GetLimit() Money {
+	return s.Limit
+}
+
+// GetDetail returns the value of Detail.
+func (s *ParkedEntryLimit) GetDetail() string {
+	return s.Detail
+}
+
+// SetKind sets the value of Kind.
+func (s *ParkedEntryLimit) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetDebits sets the value of Debits.
+func (s *ParkedEntryLimit) SetDebits(val Money) {
+	s.Debits = val
+}
+
+// SetLimit sets the value of Limit.
+func (s *ParkedEntryLimit) SetLimit(val Money) {
+	s.Limit = val
+}
+
+// SetDetail sets the value of Detail.
+func (s *ParkedEntryLimit) SetDetail(val string) {
+	s.Detail = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/ParkedJournalEntry
 type ParkedJournalEntry struct {
@@ -28253,7 +28356,8 @@ type ParkedJournalEntry struct {
 	// Fiscal year of the journal entry, set with `journal_entry_id`.
 	JournalFiscalYear OptInt32 `json:"journal_fiscal_year"`
 	// The lines, balancing to zero.
-	Lines []ParkedJournalLine `json:"lines"`
+	Lines         []ParkedJournalLine `json:"lines"`
+	LimitExceeded OptParkedEntryLimit `json:"limit_exceeded"`
 }
 
 // GetID returns the value of ID.
@@ -28376,6 +28480,11 @@ func (s *ParkedJournalEntry) GetLines() []ParkedJournalLine {
 	return s.Lines
 }
 
+// GetLimitExceeded returns the value of LimitExceeded.
+func (s *ParkedJournalEntry) GetLimitExceeded() OptParkedEntryLimit {
+	return s.LimitExceeded
+}
+
 // SetID sets the value of ID.
 func (s *ParkedJournalEntry) SetID(val uuid.UUID) {
 	s.ID = val
@@ -28496,6 +28605,11 @@ func (s *ParkedJournalEntry) SetLines(val []ParkedJournalLine) {
 	s.Lines = val
 }
 
+// SetLimitExceeded sets the value of LimitExceeded.
+func (s *ParkedJournalEntry) SetLimitExceeded(val OptParkedEntryLimit) {
+	s.LimitExceeded = val
+}
+
 // ParkedJournalEntryHeaders wraps ParkedJournalEntry with response headers.
 type ParkedJournalEntryHeaders struct {
 	ETag               OptString
@@ -28545,6 +28659,7 @@ func (s *ParkedJournalEntryHeaders) SetResponse(val ParkedJournalEntry) {
 }
 
 func (*ParkedJournalEntryHeaders) parkJournalEntryRes() {}
+func (*ParkedJournalEntryHeaders) postJournalEntryRes() {}
 
 // One page of parked journal entries.
 // Ref: #/components/schemas/ParkedJournalEntryPage

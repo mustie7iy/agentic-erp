@@ -272,6 +272,9 @@ func (v *validator) company(p string, co *Company) {
 		if co.ReleaseDualLimit != "" { // optional: no run then needs a second person
 			v.amount(p+".release_dual_limit", co.ReleaseDualLimit, exp)
 		}
+		if co.ServicePostingLimit != "" { // optional: the manual entry approval limit then (ServiceLimit)
+			v.amount(p+".service_posting_limit", co.ServicePostingLimit, exp)
+		}
 	}
 	if co.OverDeliveryPercent < 0 || co.OverDeliveryPercent > 100 {
 		v.err(p+".gr_over_delivery_percent", "must be 0-100")

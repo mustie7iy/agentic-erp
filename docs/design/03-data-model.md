@@ -461,7 +461,10 @@ its debits, that people post without approval; posting-relevant, so a
 change is approved as one) and the release dual limit
 (`release_dual_limit`, optional, ADR-0038: the largest payment run, by its
 total at the run date's rate, that one releaser releases; above it a second
-person approves the release first; posting-relevant too). The amounts are read with the digits of the
+person approves the release first; posting-relevant too) and the service
+posting limit (`service_posting_limit`, optional, T61n: the largest journal
+entry, by its debits, a service principal posts; above it the entry is
+parked for a person; without it the manual entry approval limit; posting-relevant). The amounts are read with the digits of the
 document's `companies[].currency`, and documents are converted into the
 legal entity's `local_currency`; the two are one currency because a
 configuration whose company currency differs from its legal entity's local
@@ -753,8 +756,19 @@ Rules enforced in the database:
   to parked. A manual entry posted at once (`POST /v1/journal-entries`) is
   measured the same way after it is converted and refused above the limit
   (409 `ledger.approval_required`, T35f); entries other contexts post
-  through `Postings` are not manual and no limit applies. Only people post
-  or reverse manual entries (`x-agent: false`). Agents may hold `ledger.entry.park`;
+  through `Postings` are not manual and no limit applies. A service
+  principal's entry posted at once (an integration's, T61n, ADR-0049 §7)
+  is measured the same way against its company's `service_posting_limit`
+  (the manual limit when it has none) and, above it, parked for a person
+  instead of refused: `created_by_kind` `service`, no owner, and the limit
+  it exceeded with the debits as measured, each in its currency
+  (`limit_kind`, `limit_debits`, `limit_debits_currency`, `limit_amount`,
+  `limit_currency`; all or none, `service_posting_limit` only, a service's
+  entry only, never rewritten: `parked_entry_limit_figures`,
+  `parked_entry_limit_by_service`, trigger `parked_entry_keep_limit`,
+  000174-000175). Only people post parked entries or reverse manual
+  entries (`x-agent: false`); people and service principals post them at
+  once, agents never. Agents may hold `ledger.entry.park`;
   `ledger.entry.approve` is an approval permission (agents never hold it).
 - A clearing's entry is one of the clearing's legal entity, and its date
   falls in an open period of that legal entity and the entry's ledger

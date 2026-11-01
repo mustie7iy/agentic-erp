@@ -812,6 +812,7 @@ PILOT_SETTINGS='
     | .tax_registrations = [{"code": "GSTHST", "authority": "CRA", "number": "123456789 RT 0001", "return_type": "GST34",
         "frequency": "quarterly", "first_period_start": "@PREV@-01-01"}]
     | .release_dual_limit = "4000.00"
+    | .service_posting_limit = "1000.00"
     | .fx_valuation.accounts += (["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"}))
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
         "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})'
@@ -838,7 +839,8 @@ step_pack() {
   say "Ada adds the pilot's own settings to the proposal: RBC house banks in CAD and USD, USD accounts revalued"
   say "at month end, bank statement rules (match by end-to-end id, approval above CAD 10,000), payment runs"
   say "above CAD 4,000 released only after a second person approves, a 2/10 net 30 cash discount term,"
-  say "cost center categories, liquidity items, an output tax code for GST and the GST/HST registration (step 11). The company keeps SAP's"
+  say "cost center categories, liquidity items, an output tax code for GST, the GST/HST registration and, for the"
+  say "billing system's entries, a service posting limit of CAD 1,000 (step 11). The company keeps SAP's"
   say "down payment account (T074), so the pack's own, 1400, is left out: a company has one (ADR-0037)."
   local settings=${PILOT_SETTINGS//@YEAR@/$YEAR}
   settings=${settings//@PREV@/$PREV}
@@ -1276,14 +1278,33 @@ step_ledgers() {
   passed
 }
 
+# billing creates the pilot's billing system as a service principal that
+# posts journal entries in every company, and mints its token.
+billing() {
+  as ada
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "billing_integration", "name": "Billing integration"}'
+  local role id
+  role=$(field .id)
+  grant "$role" ledger.entry.post
+  api 201 '"principal \(.display_name): \(.kind)"' createPrincipal \
+    -body '{"kind": "service", "external_subject": "billing", "display_name": "Maple billing system", "all_companies": true}'
+  id=$(field .id)
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$id\", \"role_id\": \"$role\"}"
+  token billing "Maple billing system"
+  printf '%s\tMaple billing system\n' "$id" >>"$WORK/names"
+}
+
 step_tax() {
-  heading "Step 11 — Tax: the tax on a sales entry, calculated and checked by the ledger, and the registration it is filed under"
+  heading "Step 11 — Tax: the billing system's sales entries, their tax checked by the ledger, large ones parked for a person, and the draft return"
   as carla
   api 200 '.items[] | select(.country == "CA") | "pack CA \(.version): \(.contents.tax_codes) tax codes"' listCountryPacks
   say "The released Canada packs carry no tax codes yet: GST/HST, QST and PST come with Canada pack 2026.3 (T62g)."
   say "Step 2 configured one output code for the pilot instead: GO5, GST at 5% from 1 January, to the pack's 2300 GST/HST payable."
   say "The ERP issues no sales invoices before phase 3, so the pilot's billing system posts its sales as journal"
-  say "entries (T61f): CAD 1,000.00 of sales with GO5 and its CAD 50.00 of GST."
+  say "entries (T61f), as a service principal of its own that holds only ledger.entry.post:"
+  billing
+  accounts
+  as billing
   local cash sales gst
   cash=$(account 100000)
   sales=$(account 4000)
@@ -1298,16 +1319,37 @@ step_tax() {
     printf '{"account_id": "%s", "amount": {"amount": "%s", "currency": "CAD"}%s}' "$1" "$2" "${3:+, \"tax_code\": \"$3\"}"
   }
   local entry='"journal entry \(.document_number): \([.lines[] | "\(.amount.amount)\(if .tax_code then " \(.tax_code)" else "" end)"] | join(" / "))"'
-  api 201 "$entry" postJournalEntry -body "$(sale "Billing: invoice 1042" "$(line "$cash" 1050.00), $(line "$sales" -1000.00 GO5), $(line "$gst" -50.00 GO5)")"
-  say "The ledger calculates 5% of the base itself at the rate of the tax date and holds the tax lines to it:"
-  refused 422 ledger.output_tax_mismatch postJournalEntry \
-    -body "$(sale "Billing: invoice 1043" "$(line "$cash" 1060.00), $(line "$sales" -1000.00 GO5), $(line "$gst" -60.00 GO5)")"
   say "A daily summary of four invoices of CAD 100.10, each taxed 5.01 by the billing system, carries a base line"
   say "per invoice: its 20.04 is within one cent per base line of 5% of 400.40 (20.02), so it posts (product owner,"
-  say "2026-10-22); one base line of 400.40 with 20.04 would be refused."
+  say "2026-10-22); its debits, CAD 420.44, are within the company's service posting limit of CAD 1,000.00."
   api 201 "$entry" postJournalEntry -body "$(sale "Billing: summary of invoices 1044-1047" "$(line "$cash" 420.44), $(line "$sales" -100.10 GO5), $(line "$sales" -100.10 GO5), $(line "$sales" -100.10 GO5), $(line "$sales" -100.10 GO5), $(line "$gst" -20.04 GO5)")"
+  say "One base line of 400.40 with 20.04 would be refused, and the ledger calculates 5% of a base itself at"
+  say "the rate of the tax date and holds the tax lines to it:"
   refused 422 ledger.output_tax_mismatch postJournalEntry \
     -body "$(sale "Billing: one base line" "$(line "$cash" 420.44), $(line "$sales" -400.40 GO5), $(line "$gst" -20.04 GO5)")"
+  refused 422 ledger.output_tax_mismatch postJournalEntry \
+    -body "$(sale "Billing: invoice 1043" "$(line "$cash" 1060.00), $(line "$sales" -1000.00 GO5), $(line "$gst" -60.00 GO5)")"
+  say "Invoice 1042, CAD 1,000.00 of sales and its CAD 50.00 of GST, has debits of CAD 1,050.00, above the"
+  say "service posting limit: a billing system cannot answer a refusal, so the ERP parks the entry for a person"
+  say "instead of posting it (ADR-0049 §7, product owner 2026-10-22, T61n), saying why:"
+  api 200 '"parked entry, \(.status), by a \(.created_by_kind) principal: \(.limit_exceeded.detail)"' postJournalEntry \
+    -body "$(sale "Billing: invoice 1042" "$(line "$cash" 1050.00), $(line "$sales" -1000.00 GO5), $(line "$gst" -50.00 GO5)")"
+  expect "the billing entry's status" "$(field .status)" parked
+  expect "the limit it exceeded" "$(field '"\(.limit_exceeded.kind) \(.limit_exceeded.limit.amount) \(.limit_exceeded.limit.currency)"')" "service_posting_limit 1000.00 CAD"
+  expect "its debits" "$(field '"\(.limit_exceeded.debits.amount) \(.limit_exceeded.debits.currency)"')" "1050.00 CAD"
+  expect "its journal entry" "$(field '.journal_entry_id // "none"')" none
+  local parked
+  parked=$(field .id)
+  say "Carla finds the entries integrations parked and posts this one; at CAD 1,050.00 it is within her company's"
+  say "manual entry approval limit, so it posts at once, in her name:"
+  as carla
+  api 200 '.items[] | "parked by \(.created_by_kind): \(.header_text), \(.limit_exceeded.debits.amount) \(.limit_exceeded.debits.currency) (limit \(.limit_exceeded.limit.amount) \(.limit_exceeded.limit.currency))"' \
+    listParkedJournalEntries -p "legal_entity_id=$LE" -p status=parked -p created_by_kind=service
+  expect "the billing system's parked entries" "$(field '[.items[].id] | join(" ")')" "$parked"
+  QUIET=1 api 200 '' getParkedJournalEntry -p "id=$parked"
+  api 200 '"parked entry \(.status) as journal entry \(.journal_entry_id)"' postParkedJournalEntry -p "id=$parked" -if-match "$ETAG"
+  expect "the billing entry after Carla posted it" "$(field .status)" posted
+  api 200 "$entry" getJournalEntry -p "id=$(field .journal_entry_id)"
   say "The tax this posts is filed under the company's GST/HST registration with the CRA, configured in step 2"
   say "(T61g): the number is sealed and shown by its last four characters. The number and the quarterly"
   say "frequency here are illustrative; the pilot's own registration and filing frequency come from the pilot."
@@ -1340,8 +1382,8 @@ step_tax() {
 # SAP's down payment left out; the period under way, RUNNING, refused.
 tax_return() {
   local cash=$1 sales=$2 gst=$3 registration=$4 start=$5 end=$6 before=$7 running=$8
-  say "Two of the billing system's invoices arrive late and post today with their own tax date (P6): 1039 of $end,"
-  say "the last day of the latest ended period, and 1031 of $before, in the period before it."
+  say "Two of the billing system's invoices arrive late, and Carla posts them today with their own tax date (P6):"
+  say "1039 of $end, the last day of the latest ended period, and 1031 of $before, in the period before it."
   api 201 "$entry" postJournalEntry -body "$(sale "Billing: invoice 1039, sent late" "$(line "$cash" 1050.00), $(line "$sales" -1000.00 GO5), $(line "$gst" -50.00 GO5)" "$end")"
   api 201 "$entry" postJournalEntry -body "$(sale "Billing: invoice 1031, sent late" "$(line "$cash" 210.00), $(line "$sales" -200.00 GO5), $(line "$gst" -10.00 GO5)" "$before")"
   say "Carla computes the draft return of $start to $end (T61h): the boxes sum the tax items no return has reported,"

@@ -5832,9 +5832,8 @@ paths:
       tags:
         - ledger
       summary: Post a journal entry
-      description: "Posts a manual journal entry at once: the request is validated (balance in every currency, open period, postable accounts, partner on reconciliation lines) and either fully posted or rejected. Journal entries are insert-only; an entry that should wait, for a person to post it or for approval, is parked (`parked-journal-entries`). An entry whose debits, converted exactly into the legal entity's currency at the average rate of its posting date, exceed the company's `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks someone else's approval (T35). A line on the legal entity's GR/IR account (account determination `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. It posts to every ledger its company keeps as linked entries of one posting group sharing the document number (`posting_group_id`), each period checked open in its ledger, and returns the leading ledger's; `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to those ledgers only (ADR-0045). Output tax (ADR-0049 §7, T61f): a billing system posts its sales here, one entry per sales invoice or a summary per code and jurisdiction, idempotent by its `Idempotency-Key`; each output code's tax lines (in a jurisdiction, where the code levies its lines' subdivision) are the tax its base lines give at the rates of the tax date, within one minor unit per component, or 422 `ledger.output_tax_mismatch`; a code with tax lines and no base line is an adjustment of tax alone. Zero-rated and exempt bases carry their codes without tax lines and are recorded as tax items at rate 0. Human-only: agents propose entries by parking them."
+      description: "Posts a manual journal entry at once: the request is validated (balance in every currency, open period, postable accounts, partner on reconciliation lines) and either fully posted or rejected. Journal entries are insert-only; an entry that should wait, for a person to post it or for approval, is parked (`parked-journal-entries`). An entry whose debits, converted exactly into the legal entity's currency at the average rate of its posting date, exceed the company's `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks someone else's approval (T35). A service principal (an integration such as the pilot's billing system) is held to its company's `service_posting_limit` instead, measured the same way (the `manual_entry_approval_limit` for a company without one; 0 when it has neither), and an entry of its above that limit is not refused but parked for a person (ADR-0049 §7, product owner 2026-10-22, T61n): the answer is 200 with the parked entry (`status` `parked`, `created_by_kind` `service`, `limit_exceeded` naming the limit and the debits, each with its currency), its `Location` the parked entry, and nothing is posted and no number drawn; a person posts it with `postParkedJournalEntry`, taking it on, and that is measured against the `manual_entry_approval_limit` as any manual entry is. At or below the limit the entry posts (201) as a person's does. A closed period refuses a service's entry before it is measured, as a person's. A line on the legal entity's GR/IR account (account determination `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. It posts to every ledger its company keeps as linked entries of one posting group sharing the document number (`posting_group_id`), each period checked open in its ledger, and returns the leading ledger's; `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to those ledgers only (ADR-0045). Output tax (ADR-0049 §7, T61f): a billing system posts its sales here, one entry per sales invoice or a summary per code and jurisdiction, idempotent by its `Idempotency-Key`; each output code's tax lines (in a jurisdiction, where the code levies its lines' subdivision) are the tax its base lines give at the rates of the tax date, within one minor unit per component, or 422 `ledger.output_tax_mismatch`; a code with tax lines and no base line is an adjustment of tax alone. Zero-rated and exempt bases carry their codes without tax lines and are recorded as tax items at rate 0. People and service principals post here; an agent never does, whatever its level or permissions (403 `identity.agent_not_allowed`; below autonomy level 2 it is refused for its autonomy first), and proposes entries by parking them."
       x-permission: ledger.entry.post
-      x-agent: false
       x-problem-codes:
         - config.no_number_range
         - config.number_range_exhausted
@@ -5910,6 +5909,19 @@ paths:
                         currency: EUR
                       line_text: Accrued liabilities
       responses:
+        "200":
+          description: "Not posted: a service principal's entry above its company's service posting limit, parked for a person (T61n). The parked entry, `status` `parked` with `limit_exceeded`; `Location` names it."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParkedJournalEntry"
         "201":
           description: "Created; the new journal entry."
           headers:
@@ -23595,8 +23607,32 @@ components:
           amount:
             amount: "1200.00"
             currency: EUR
+    ParkedEntryLimit:
+      type: object
+      description: "Why the ERP parked an entry instead of posting it (ADR-0049 §7, T61n): a service principal (an integration such as a billing system) posted it with `postJournalEntry`, and its debits, converted exactly into its company's currency at the average rate of its posting date, exceeded the company's `service_posting_limit` (its `manual_entry_approval_limit` when it has none). The figures are the ones measured when it was parked and never change, also when a person changes the entry afterwards."
+      readOnly: true
+      required:
+        - kind
+        - debits
+        - limit
+        - detail
+      properties:
+        kind:
+          type: string
+          description: "The limit the entry exceeded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - service_posting_limit
+          readOnly: true
+        debits:
+          $ref: "#/components/schemas/Money"
+        limit:
+          $ref: "#/components/schemas/Money"
+        detail:
+          type: string
+          description: "The reason in words: the debits and the limit, each with its currency, and, for an entry in another currency than its company's, that the debits were converted at the average rate of its posting date."
+          readOnly: true
     ParkedJournalEntry:
-      description: "A manual journal entry parked before it is posted (T35). It moves `parked` -> `pending_approval` -> `posted` or `rejected`, back to `parked` when its approval request is withdrawn, straight to `posted` within its company's `manual_entry_approval_limit`, or to `cancelled`; its content and lines change only while it is `parked`."
+      description: "A manual journal entry parked before it is posted (T35). It moves `parked` -> `pending_approval` -> `posted` or `rejected`, back to `parked` when its approval request is withdrawn, straight to `posted` within its company's `manual_entry_approval_limit`, or to `cancelled`; its content and lines change only while it is `parked`. An entry a service principal posted above its company's service posting limit was parked by the ERP instead (`created_by_kind` `service`, `limit_exceeded` saying why; T61n): it has no owner until a person takes it on by changing or posting it."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -23704,6 +23740,8 @@ components:
                 $ref: "#/components/schemas/ParkedJournalLine"
               description: The lines, balancing to zero.
               readOnly: true
+            limit_exceeded:
+              $ref: "#/components/schemas/ParkedEntryLimit"
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
           version: 1
