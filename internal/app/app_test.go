@@ -244,3 +244,13 @@ func TestNamingPortsNeedARequest(t *testing.T) {
 		})
 	}
 }
+
+// TestLedgerHoldsTaxDates: the ledger the API and the recurring entries'
+// worker share (Ledger, ADR-0056) holds chosen tax dates to open returns
+// through taxfiling (ADR-0049 §11, T61o). A ledger wired without the port
+// fails every held posting, so losing it in a merge must fail here.
+func TestLedgerHoldsTaxDates(t *testing.T) {
+	if got := Ledger(Config{}).TaxReturns; got == nil {
+		t.Errorf("Ledger(cfg).TaxReturns = nil, want taxfiling.Holds")
+	}
+}
