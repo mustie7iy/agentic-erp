@@ -2343,8 +2343,11 @@ the step as first written:
   change (`getChangeRequest`), invoice exception (`getSupplierInvoice`),
   period unlock (`getFiscalPeriod`), manual entry
   (`getParkedJournalEntry`), purchase order release (`getPurchaseOrder`),
-  center change (`getCenterChange`), GR/IR clearing (`getGrIrClearing`)
-  and payment run release (`getPaymentRun`). **Not covered:** an order
+  center change (`getCenterChange`), GR/IR clearing (`getGrIrClearing`),
+  payment run release (`getPaymentRun`) and tax return (`getTaxReturn`,
+  hidden by `tax.return.read`: batch 32 added the type, T61i, while T73d2
+  was built; the batch 34 integration added its summary, with no link, as
+  the workspace has no page for a return). **Not covered:** an order
   change (`getPurchaseOrderChange` needs the order's id, which the request
   does not carry) and a bank clearing (its object is a statement line's
   match, which no operation reads by id); their pages say the workspace

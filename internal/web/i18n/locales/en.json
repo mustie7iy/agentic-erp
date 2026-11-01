@@ -1151,6 +1151,8 @@
   "summary.rundate": "Run date",
   "summary.dueby": "Paying what is due by",
   "summary.entry.reference": "Reference",
+  "summary.registration": "Tax registration",
+  "summary.returnkind": "Kind of return",
   "request.unsent.title": "Your decision was not sent",
   "request.unsent.body": "While you signed in again the request changed, and it no longer takes this decision. What you wrote:"
 }

@@ -69,6 +69,10 @@ var objectReads = map[string]objectRead{
 		func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
 			return c.GetPaymentRun(ctx, gen.GetPaymentRunParams{ID: id})
 		}},
+	"tax_return": {Operation{ID: "getTaxReturn", HiddenBy: "tax.return.read", PerObject: true},
+		func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
+			return c.GetTaxReturn(ctx, gen.GetTaxReturnParams{ID: id})
+		}},
 }
 
 // objectOps are the object reads in the inventory: a request's page calls
@@ -146,6 +150,8 @@ func summaryOf(res any) (*ui.ObjectSummary, bool) {
 			{Key: i18n.SummaryStatus, Value: ui.Code(c.Status)}, {Key: i18n.SummaryReason, Value: ui.Data(c.Reason)}}}, true
 	case *gen.PaymentRunHeaders:
 		return runSummary(v.Response), true
+	case *gen.GetTaxReturnOKHeaders:
+		return returnSummary(v.Response), true
 	}
 	return nil, false
 }
@@ -192,4 +198,13 @@ func runSummary(pr gen.PaymentRun) *ui.ObjectSummary {
 	return &ui.ObjectSummary{Rows: []ui.Row{{Key: i18n.SummaryNumber, Value: ui.Code(pr.DocumentNumber)}, {Key: i18n.SummaryRunDate, Value: ui.Day(pr.RunDate)},
 		{Key: i18n.SummaryDueBy, Value: ui.Day(pr.DueBy)}, {Key: i18n.SummaryTotal, Value: ui.Amount(moneyOf(pr.TotalAmount))},
 		{Key: i18n.SummaryStatus, Value: ui.StatusTag(labelOf(runStatuses, pr.Status))}}, Link: runPath(pr.ID), LinkText: i18n.ObjectOpenRun}
+}
+
+// returnSummary is a tax return's summary; the workspace has no page of
+// its own for a return.
+func returnSummary(tr gen.TaxReturn) *ui.ObjectSummary {
+	return &ui.ObjectSummary{Rows: []ui.Row{{Key: i18n.SummaryTitle, Value: ui.Data(tr.ReturnName)},
+		{Key: i18n.SummaryRegistration, Value: ui.Code(tr.RegistrationCode)}, {Key: i18n.SummaryReturnKind, Value: ui.Code(tr.Kind)},
+		{Key: i18n.SummaryFrom, Value: ui.Day(tr.PeriodStart)}, {Key: i18n.SummaryTo, Value: ui.Day(tr.PeriodEnd)},
+		{Key: i18n.SummaryItems, Value: ui.Data(strconv.FormatInt(tr.ItemCount, 10))}, {Key: i18n.SummaryStatus, Value: ui.Code(tr.Status)}}}
 }

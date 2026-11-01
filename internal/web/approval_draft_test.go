@@ -212,6 +212,9 @@ func TestSummaries(t *testing.T) {
 			[]string{"Purchase order 4501", "Reason given Closed"}, ""},
 		"payment run": {&gen.PaymentRunHeaders{Response: gen.PaymentRun{ID: id, DocumentNumber: "PR-9", RunDate: day, DueBy: day, TotalAmount: eur, Status: "proposed"}},
 			[]string{"Number PR-9", "Paying what is due by 2026-10-22"}, runPath(id)},
+		"tax return": {&gen.GetTaxReturnOKHeaders{Response: gen.TaxReturn{ReturnName: "GST/HST return", RegistrationCode: "GST-1", Kind: "original",
+			PeriodStart: day, PeriodEnd: day, ItemCount: 3, Status: "prepared"}},
+			[]string{"Title GST/HST return", "Tax registration GST-1", "Kind of return original", "From 2026-10-22", "Items 3", "Status prepared"}, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			sum, ok := summaryOf(tc.res)
