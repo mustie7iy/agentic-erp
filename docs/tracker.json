@@ -1785,7 +1785,7 @@
        {
         "s": "T",
         "t": "Preparing a tax return does not enforce period order: preparing a later period first claims an earlier unfiled period's unreported items as prior-period items",
-        "r": "internal/taxfiling prepare.go claim (ledger.TaxItems.Claim takes every unreported item dated by the period's end, with no check that earlier periods are filed) · ADR-0049 §11 As built (T61i) · walkthrough step 11 relies on it (its original claims invoice 1031 of an earlier unfiled period, \"60.00 10.00\"): enforcing the order means filing the earlier periods there first, or a cutover · data and tax correctness of the return",
+        "r": "internal/taxfiling prepare.go claim (ledger.TaxItems.Claim takes every unreported item dated by the period's end, with no check that earlier periods are filed) · ADR-0049 §11 As built (T61i) · walkthrough step 11 relies on it (its draft expects \"60.00 10.00\" and its original claims invoice 1031 of an earlier unfiled period): enforcing the order means filing the earlier periods there first, or a cutover · data and tax correctness of the return",
         "src": "review:batch32",
         "pilot": "po:2026-10-31 · review:batch32",
         "c": []
