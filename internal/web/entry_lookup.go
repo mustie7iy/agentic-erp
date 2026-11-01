@@ -33,8 +33,6 @@ var (
 	taxCode      = regexp.MustCompile(`^[A-Z0-9]{1,4}$`)
 	jurisdiction = regexp.MustCompile(`^[A-Z]{2}-[A-Z0-9]{1,3}$`)
 	unitCode     = regexp.MustCompile(`^[A-Z0-9]{1,6}$`)
-	// quantityValue is Quantity.value once the decimal sign is a point.
-	quantityValue = regexp.MustCompile(`^-?(0|[1-9][0-9]{0,13})(\.[0-9]{1,6})?$`)
 )
 
 const (
@@ -138,13 +136,14 @@ func (l *entryLine) checkTax(loc i18n.Locale, currency string) {
 		}
 		l.sent.TaxBase = gen.NewOptMoney(gen.Money{Amount: base, Currency: currency})
 	}
-	value := strings.Replace(strings.TrimSpace(l.quantity), loc.DecimalSign(), ".", 1)
+	value, ok := loc.Quantity(l.quantity)
+	typed := strings.TrimSpace(l.quantity) != ""
 	switch {
-	case value == "" && l.unit == "":
+	case !typed && l.unit == "":
 		return
-	case value == "":
+	case !typed:
 		l.fail(ui.FieldLineQuantity, i18n.EntryQuantityNeeded)
-	case !quantityValue.MatchString(value):
+	case !ok:
 		l.fail(ui.FieldLineQuantity, i18n.EntryQuantityInvalid)
 	}
 	switch {

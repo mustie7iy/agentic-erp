@@ -262,7 +262,7 @@ func (it *itemTyped) change(loc i18n.Locale, item *gen.SupplierInvoiceItem) bool
 	default:
 		item.Description = gen.NewOptString(it.description)
 	}
-	if q, ok := loc.Quantity(it.quantity); ok {
+	if q, ok := loc.Quantity(it.quantity); ok && !strings.HasPrefix(q, "-") { // an invoice item's quantity is positive
 		item.Quantity.Value = q
 	} else if strings.TrimSpace(it.quantity) == "" {
 		it.fail(ui.FieldItemQuantity, i18n.InvoiceEditQuantityNeeded)

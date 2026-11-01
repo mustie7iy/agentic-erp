@@ -163,3 +163,36 @@ func TestTotals(t *testing.T) {
 		})
 	}
 }
+
+// TestLineQuantitySigned: a journal line's quantity may be negative, as the
+// API's Quantity.value is, and is read in the person's locale by the one
+// reader the invoice's change also uses (i18n.Locale.Quantity), which
+// refuses an invoice item's negative quantity itself (batch 36: T73h2 and
+// T73e2 each brought a reader of their own).
+func TestLineQuantitySigned(t *testing.T) {
+	catalog, err := i18n.Load(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fr := catalog.Match("fr-CA")
+	for name, tc := range map[string]struct {
+		typed, want string
+		failed      bool
+	}{
+		"negative":  {" -2,5 ", "-2.5", false},
+		"positive":  {"3", "3", false},
+		"misplaced": {"2-", "", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			l := entryLine{quantity: tc.typed, unit: "KG"}
+			l.checkTax(fr, "CAD")
+			q, _ := l.sent.Quantity.Get() // an unset quantity is the empty one, which want names
+			if q.Value != tc.want {
+				t.Errorf("sent quantity: got %q, want %q", q.Value, tc.want)
+			}
+			if _, failed := l.errs[ui.FieldLineQuantity]; failed != tc.failed {
+				t.Errorf("quantity refused: got %v, want %v", failed, tc.failed)
+			}
+		})
+	}
+}

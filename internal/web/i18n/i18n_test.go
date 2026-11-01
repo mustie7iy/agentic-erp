@@ -363,7 +363,10 @@ func TestQuantity(t *testing.T) {
 		"seven decimals":       {en, "0.0000001", "", false},
 		"fourteen whole":       {en, "99999999999999", "99999999999999", true},
 		"fifteen whole digits": {en, "999999999999999", "", false},
-		"negative":             {en, "-1", "", false},
+		"negative, misplaced":  {en, "1-", "", false},
+		"negative, French":     {fr, "-1,5", "-1.5", true},
+		"negative, English":    {en, " -0.25", "-0.25", true},
+		"minus alone":          {en, "-", "", false},
 		"grouped":              {fr, "1 000", "", false},
 		"empty":                {en, "", "", false},
 	} {
