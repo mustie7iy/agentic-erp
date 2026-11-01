@@ -887,6 +887,16 @@ counterpart for is noted):
   `A_SupplierCompany`'s `PaymentMethodsList` (SAP Cloud SDK,
   https://help.sap.com/doc/505cd8d2cbd340a38eeae8b63b5df753/1.0/en-US/interfaces/_sap_cloud_sdk_vdm_business_partner_service.suppliercompanytype.html);
   the T042 tables, like T012K, come from file extracts.
+- **Lock order (review round 1).** A supplier given methods takes the
+  partner context's method lock, and the load then draws numbers from
+  configuration ranges; an activation locks the ranges first and the method
+  lock after (ADR-0008). So a run holds the active configuration
+  (`configuration.Settings.Hold`: the tenant's active version `FOR SHARE`,
+  the row an activation updates before anything else it locks) before it
+  reads the configuration: an activation waits for the run's transaction,
+  and a run waits for an activation under way, instead of one of them
+  being aborted as a deadlock. A run also loads under the configuration it
+  checked. An activation therefore waits while a run extracts and loads.
 - **No contract change.** The run's report counts the tables a run reads;
   the T042 tables are read only by the draft, so its extract counts are
   unchanged, and the API already returns a supplier's methods

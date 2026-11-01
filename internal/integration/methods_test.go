@@ -68,4 +68,24 @@ func TestSupplierPaymentMethods(t *testing.T) {
 			t.Errorf("the supplier's payment methods: got %q, want %q", got, want)
 		}
 	})
+
+	t.Run("a further company's methods load with it", func(t *testing.T) {
+		x := methodsTiny("S T")
+		x.T001 = append(x.T001, sap.T001{BUKRS: "1000", BUTXT: "Acme Corp US", WAERS: "USD", LAND1: "US"})
+		x.SKB1 = append(x.SKB1, sap.SKB1{BUKRS: "1000", SAKNR: "0000211000", TXT50: "AP", XBILK: "X", MITKZ: "K"})
+		x.LFB1 = append(x.LFB1, sap.LFB1{LIFNR: "0000000001", BUKRS: "1000", AKONT: "0000211000", ZTERM: "NT30", ZWELS: "T"})
+		write(t, e.dir, "further.json", x)
+		if _, got := e.act(t, e.run(t, e.connector(t, "further.json"), "documents", false, e.US.String(), e.DE.String()), "start"); got["status"] != "loaded" {
+			t.Fatalf("run status: got %v, want loaded: %v", got["status"], got["report"])
+		}
+		var methods []string
+		if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT payment_methods FROM partner.supplier_company
+			WHERE tenant_id = $1 AND legal_entity_id = $2 AND partner_id IN (SELECT entity_id FROM integration.external_ref WHERE tenant_id = $1 AND object = 'LFA1')`,
+			e.Tenant.ID, e.US).Scan(&methods); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := strings.Join(methods, " "), "T"; got != want {
+			t.Errorf("the supplier's payment methods in 1000: got %q, want %q", got, want)
+		}
+	})
 }

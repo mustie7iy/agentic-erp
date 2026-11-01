@@ -231,6 +231,14 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 			return t, nil, c, err
 		}
 	}
+	// The load gives suppliers payment methods under the partner context's
+	// method lock and then draws numbers from ranges; an activation locks
+	// the ranges and then the method lock. Holding the configuration first
+	// makes either wait for the other instead of deadlocking (ADR-0008),
+	// and keeps the target the configuration the run loads under.
+	if err := e.Settings.Hold(ctx); err != nil {
+		return t, nil, c, err
+	}
 	doc, _, err := e.Settings.Document(ctx)
 	if err != nil {
 		return t, nil, c, err

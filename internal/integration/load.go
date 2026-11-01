@@ -143,6 +143,10 @@ func (l *loader) plain(minor money.Minor, currency string) string {
 // locks order items takes, and its shared entry bucket locks, which
 // nothing takes exclusively after order items (a goods movement's
 // reversal posts a new entry, an invoice's reversal locks no item).
+// Suppliers given payment methods take the partner context's method lock
+// before the load draws from any configuration range, the reverse of an
+// activation's order; the run holds the active configuration from before
+// either (prepare, Settings.Hold), so an activation waits for the load.
 func (l *loader) load(ctx context.Context) error {
 	if err := l.e.Postings.LockAllEntries(ctx); err != nil {
 		return err

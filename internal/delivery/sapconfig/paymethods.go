@@ -88,8 +88,9 @@ func ranked(mp string, a sap.T042A, note func(path, msg string)) int {
 // row for, and a house bank here pays only in its own currency (ADR-0051
 // §3), so such a bank is ranked for its account's currency unless the
 // method ranks that currency already. A bank the company does not have,
-// or one ranked for another currency than its account's, is kept and
-// noted: validation refuses it until a reviewer corrects the ranking.
+// one ranked for another currency than its account's, or one ranked twice
+// is kept and noted: validation refuses it until a reviewer corrects the
+// ranking.
 func (g *gen) ranking(mp string, co *config.Company, code string) []config.BankRanking {
 	banks := map[string]string{} // house bank -> its currency
 	for _, hb := range co.AllHouseBanks() {
@@ -112,16 +113,17 @@ func (g *gen) ranking(mp string, co *config.Company, code string) []config.BankR
 		return nil
 	}
 	slices.SortStableFunc(rows, func(x, y row) int { return cmp.Compare(x.order, y.order) })
-	byCurrency, anyCurrency := map[string][]string{}, []string{}
+	byCurrency := map[string][]string{} // "": the rows without a currency
 	for _, r := range rows {
-		bank, currency := strings.TrimSpace(r.a.HBKID), strings.TrimSpace(r.a.WAERS)
+		bank, currency := r.a.HBKID, strings.TrimSpace(r.a.WAERS) // HBKID as T012K's, which names the house banks
 		g.rankedBank(mp, bank, currency, banks)
-		if currency == "" {
-			anyCurrency = append(anyCurrency, bank)
-			continue
+		if slices.Contains(byCurrency[currency], bank) {
+			g.note(mp+".ranking", fmt.Sprintf("T042A ranks house bank %s twice for %q; rank it once (validation refuses it)", bank, currency))
 		}
 		byCurrency[currency] = append(byCurrency[currency], bank)
 	}
+	anyCurrency := byCurrency[""]
+	delete(byCurrency, "")
 	g.withoutCurrency(mp, co.Currency, anyCurrency, banks, byCurrency)
 	out := make([]config.BankRanking, 0, len(byCurrency))
 	for _, currency := range sortedKeys(byCurrency) {
