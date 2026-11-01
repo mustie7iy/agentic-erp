@@ -84,8 +84,8 @@ func (Orders) Order(ctx context.Context, id uuid.UUID) (Order, bool, error) {
 // until the caller's transaction ends: a receipt, a return or the reversal
 // of one on them, and another invoice's posting, wait for it, so the
 // received quantities and the postings of other invoices the caller reads
-// after the lock stay as it read them until it commits (an invoice's
-// reversal takes no item lock). The posting
+// after the lock stay as it read them until it commits (a document's
+// reversal takes the lock too). The posting
 // takes the lock after its invoice's row and before the ledger's GR/IR
 // lock, which goods movements take after the items too, so no two wait in
 // a cycle.

@@ -162,10 +162,16 @@ type Postings interface {
 	GRIROrder(ctx context.Context, legalEntity, order uuid.UUID) (ledger.GRIROrder, error)
 }
 
-// Invoices tells whether supplier invoices refer to a purchase order
-// (payables context).
+// Invoices tells whether supplier invoices refer to a purchase order, and
+// what posted documents invoiced of its items (payables context).
 type Invoices interface {
 	HasInvoices(ctx context.Context, purchaseOrder uuid.UUID) (bool, error)
+	// Invoiced is the quantity of each of the order's items that posted
+	// documents invoiced net of credit memos, with what the source system
+	// invoiced before migration, as plain decimals; an item nothing was
+	// invoiced of may be missing. A receipt's reversal reads it under the
+	// order items' locks, which a document's posting and reversal take too.
+	Invoiced(ctx context.Context, purchaseOrder uuid.UUID) (map[int32]string, error)
 }
 
 // Approvals moves requisitions on when their approval requests complete.

@@ -437,6 +437,18 @@ func (Invoices) HasInvoices(ctx context.Context, purchaseOrder uuid.UUID) (bool,
 	return ok, nil
 }
 
+// Invoiced is what documents posted on the purchase order invoiced of
+// each of its items, net of credit memos, with what the source system's
+// documents invoiced before migration (invoicedQuantities): what a goods
+// receipt's reversal may not take the received quantity below (03 §3.9).
+func (Invoices) Invoiced(ctx context.Context, purchaseOrder uuid.UUID) (map[int32]string, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return invoicedQuantities(ctx, tx, purchaseOrder, uuid.Nil)
+}
+
 // Resources is where the API reads each supplier invoice (approvals.Locator).
 func (Approvals) Resources(_ context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
 	return approvals.Paths("/v1/supplier-invoices/%s", ids), nil

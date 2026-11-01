@@ -179,6 +179,16 @@ func TestParseRat(t *testing.T) {
 	}
 }
 
+func TestPlainQuantity(t *testing.T) {
+	for in, want := range map[string]string{"12.500": "12.5", "-3": "-3", "0.000000": "0", "10": "10", "0.000001": "0.000001", "-0.25": "-0.25"} {
+		t.Run(in, func(t *testing.T) {
+			if got := PlainQuantity(ParseRat(in)); got != want {
+				t.Errorf("PlainQuantity(%s): got %q, want %q", in, got, want)
+			}
+		})
+	}
+}
+
 func TestRat(t *testing.T) {
 	cases := map[string]struct {
 		m    Minor

@@ -465,3 +465,31 @@ fiscal year. Tracked as the item that follows this one.
   integration moved the code read into `companyDays`: the lane had read the
   legal entity a second time, apart from the dates, while the helper was
   built in parallel.
+
+## As built (apqty): a receipt's reversal is held to what is invoiced
+
+- **Decision.** A goods receipt's reversal (102) is refused (409
+  `procurement.reversal_below_invoiced`) when it would leave an order item
+  received less than the supplier documents posted on it invoice, net of
+  credit memos and with what SAP invoiced before migration: the match
+  holds an invoice to what was received, so the reversal is held to what
+  was invoiced (03 §3.9). The refusal names the receipt, the order item
+  and both quantities, and says what comes first: the supplier's credit
+  memo, or a return. Settled by the tracker leaf and 03 §3.9; decided by
+  default.
+- **Returns are not held to it.** A return (122) after the invoice is the
+  flow this ADR's returns describe: the goods go back and the supplier's
+  credit memo clears the remaining GR/IR debit. Holding the return to the
+  invoiced quantity would refuse that flow, so only the reversal of a
+  receipt, which says the goods never arrived, is checked. The reversal of
+  a return (123) only adds to what is received.
+- **Where and in which order.** Procurement reads the invoiced quantities
+  through its `Invoices` port (`Invoiced`, implemented by payables'
+  `Invoices`, wired in `internal/app`; procurement already depended on
+  payables through that port for `HasInvoices`, so no dependency direction
+  changes) after it locks the order items, which a document's posting and,
+  since this step, its reversal lock too, in the order 03 §3.9 gives
+  (ADR-0008: state-changing rows are read `FOR UPDATE`). Payables reverses a credit memo or an invoice under the same item
+  locks and holds it to the same quantities
+  (`payables.reversal_exceeds_received`, `payables.reversal_exceeds_invoiced`,
+  `payables.reversal_leaves_revaluation`).

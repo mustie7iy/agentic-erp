@@ -489,7 +489,7 @@ func (rc *reconciler) invoicedQuantities(ctx context.Context, s companyScope) er
 		a, b := orZero(sapQty[key]), orZero(platform[key])
 		if a.Cmp(b) != 0 {
 			n++
-			rc.rec.Diffs = append(rc.rec.Diffs, Diff{CompanyCode: s.cc, Key: key, SAP: plainQuantity(a), Platform: plainQuantity(b)})
+			rc.rec.Diffs = append(rc.rec.Diffs, Diff{CompanyCode: s.cc, Key: key, SAP: money.PlainQuantity(a), Platform: money.PlainQuantity(b)})
 		}
 	}
 	rc.add(s.cc, "Quantities invoiced in SAP: order items with differences", "0", strconv.Itoa(n), n == 0)
@@ -532,12 +532,6 @@ func unionKeys[V any](a, b map[string]V) map[string]bool {
 		out[k] = true
 	}
 	return out
-}
-
-// plainQuantity renders an exact quantity of up to six decimals as the
-// extract and the platform write one: "12.5", "-3".
-func plainQuantity(r *big.Rat) string {
-	return strings.TrimSuffix(strings.TrimRight(r.FloatString(6), "0"), ".")
 }
 
 // extend is an item's net value: quantity times price per price unit,
