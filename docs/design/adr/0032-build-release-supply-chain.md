@@ -247,7 +247,12 @@ no new mechanism:
 The upstream images are not scanned by grype in the release: their pins are
 reviewed as code changes (ADR-0035), and whether a release should also fail
 on a fixable vulnerability in them is left to the product owner (T72i's
-report).
+report). Decided by the product owner on 2026-10-31 (as
+recommended), not built yet: the release scans the upstream images it
+copies with grype and fails on a fixable High or Critical vulnerability, as
+it does for the platform's own images (`scripts/image-scan.sh`,
+`--fail-on high --only-fixed`, exceptions in `.grype.yaml` with a reason
+and an expiry); tracked under T72i's item.
 
 ## Amendment (2026-10-29, batch 21 review): the release's own images in tooling's ECR, and erp-temporal
 
