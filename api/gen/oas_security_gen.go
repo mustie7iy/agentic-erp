@@ -156,6 +156,7 @@ var operationRolesOidc = map[string][]string{
 	GetHierarchyNodeOperation:                 []string{},
 	GetJournalEntryOperation:                  []string{},
 	GetLegalEntityOperation:                   []string{},
+	GetLegalEntityTodayOperation:              []string{},
 	GetMatchResultOperation:                   []string{},
 	GetMemoRecordOperation:                    []string{},
 	GetMigrationRunOperation:                  []string{},

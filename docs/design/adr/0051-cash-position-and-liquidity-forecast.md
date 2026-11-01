@@ -941,10 +941,11 @@ recommended"):
   2026-10-31, above); a contract's number is on the company's date (T72n6's
   section above); master-data validity defaults (role and
   company access grants, partner changes, `valid_from` today) are not
-  posting dates and are not this rule. The web workspace's forms still
-  pre-fill their dates (a manual entry's, a payment run's, a report's key
-  date) from the server's clock, UTC, not the company's date: found in
-  batch 27's review, not this step.
+  posting dates and are not this rule. The web workspace's forms
+  pre-filled their dates (a manual entry's, a payment run's, a report's
+  key date) from its server's clock, UTC, found in batch 27's review;
+  since the step webdates they are the company's date as the API tells
+  it (`getLegalEntityToday`, below).
 - **The helpers.** Payables' `companyDay` (the invoice's legal entity,
   `config.CompanyLocation`, `clock.DayIn` on `Endpoints.Now`, the API's
   clock) and procurement's `todayOf` (the legal entity's code, then
@@ -1164,6 +1165,30 @@ levels (`SKB1-FDLEV`) as derivation hints, and open memo records (classic
 cutover as memo records with origin `migration`. Liquidity item query
 sequences are not migrated: they are rebuilt as §4's rules and reviewed.
 Snapshots and history are not migrated; variance starts at go-live.
+
+As built (a legal entity's date today for clients; review:batch27, step
+webdates; Pilot readiness "Company time zone"):
+- **The operation.** `GET /v1/legal-entities/{id}/today`
+  (`getLegalEntityToday`, `tenancy.org.read`, as reading the legal entity
+  is) gives the company's date at the API's clock in its time zone and
+  the zone (`date`, `time_zone`; UTC in a document activated before the
+  zone was required that sets none), the day the API defaults a posting
+  date left out to. A client that pre-fills a date (the web workspace,
+  ADR-0052) asks it rather than its own clock, so the form and the API
+  agree. A legal entity the caller cannot act in is 404, as every
+  tenancy read; without an active configuration, 409
+  `config.not_bootstrapped`, as the tax periods' read answers.
+- **Where it lives.** The tenancy context serves it (the legal entity's
+  path and access rule); the date comes from the configuration context
+  through a port, `tenancy.Days`, which `configuration.Settings`
+  implements (`CompanyDay`: the active document's
+  `(*config.Config).CompanyDay`). The configuration context already
+  imports tenancy; tenancy imports nothing of it, so no dependency
+  direction changes and no new ADR is needed. The smallest contract
+  addition: the cash position and memo records name a date and zone
+  already, but only for readers of cash; the legal entity's
+  representation would carry a value its `version` and ETag do not
+  cover.
 
 ## Alternatives
 - **Cash position and forecast inside payments.** Fewer packages, but

@@ -110,6 +110,7 @@ const (
 	GetHierarchyNodeOperation                 OperationName = "GetHierarchyNode"
 	GetJournalEntryOperation                  OperationName = "GetJournalEntry"
 	GetLegalEntityOperation                   OperationName = "GetLegalEntity"
+	GetLegalEntityTodayOperation              OperationName = "GetLegalEntityToday"
 	GetMatchResultOperation                   OperationName = "GetMatchResult"
 	GetMemoRecordOperation                    OperationName = "GetMemoRecord"
 	GetMigrationRunOperation                  OperationName = "GetMigrationRun"

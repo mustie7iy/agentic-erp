@@ -958,6 +958,20 @@ type Invoker interface {
 	//
 	// GET /v1/legal-entities/{id}
 	GetLegalEntity(ctx context.Context, params GetLegalEntityParams) (GetLegalEntityRes, error)
+	// GetLegalEntityToday invokes getLegalEntityToday operation.
+	//
+	// The legal entity's date now in its company's time zone (`companies[].time_zone` of the active
+	// configuration; UTC in a document activated before the zone was required (2026-10-31) that sets none;
+	// ADR-0051 as built, T72n1), and that zone: the day the API takes as the company's today, where a
+	// posting date left out defaults to it, so a client pre-fills a form's dates (a posting date, a
+	// payment run's run date, a report's key date) with the company's day rather than UTC's. At 22:00 on
+	// 17 April in America/Toronto (02:00 UTC on the 18th) it is the 17th; at 01:00 on 17 April in
+	// Asia/Dubai (21:00 UTC on the 16th) it is the 17th. A legal entity the caller cannot act in is not
+	// found; without an active configuration to read the time zone from, 409 `config.not_bootstrapped`.
+	// Changes nothing.
+	//
+	// GET /v1/legal-entities/{id}/today
+	GetLegalEntityToday(ctx context.Context, params GetLegalEntityTodayParams) (GetLegalEntityTodayRes, error)
 	// GetMatchResult invokes getMatchResult operation.
 	//
 	// Returns one three-way match evaluation.
@@ -18030,6 +18044,146 @@ func (c *Client) sendGetLegalEntity(ctx context.Context, params GetLegalEntityPa
 
 	stage = "DecodeResponse"
 	result, err := decodeGetLegalEntityResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetLegalEntityToday invokes getLegalEntityToday operation.
+//
+// The legal entity's date now in its company's time zone (`companies[].time_zone` of the active
+// configuration; UTC in a document activated before the zone was required (2026-10-31) that sets none;
+// ADR-0051 as built, T72n1), and that zone: the day the API takes as the company's today, where a
+// posting date left out defaults to it, so a client pre-fills a form's dates (a posting date, a
+// payment run's run date, a report's key date) with the company's day rather than UTC's. At 22:00 on
+// 17 April in America/Toronto (02:00 UTC on the 18th) it is the 17th; at 01:00 on 17 April in
+// Asia/Dubai (21:00 UTC on the 16th) it is the 17th. A legal entity the caller cannot act in is not
+// found; without an active configuration to read the time zone from, 409 `config.not_bootstrapped`.
+// Changes nothing.
+//
+// GET /v1/legal-entities/{id}/today
+func (c *Client) GetLegalEntityToday(ctx context.Context, params GetLegalEntityTodayParams) (GetLegalEntityTodayRes, error) {
+	res, err := c.sendGetLegalEntityToday(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetLegalEntityToday(ctx context.Context, params GetLegalEntityTodayParams) (res GetLegalEntityTodayRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getLegalEntityToday"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/legal-entities/{id}/today"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetLegalEntityTodayOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/legal-entities/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/today"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetLegalEntityTodayOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetLegalEntityTodayResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

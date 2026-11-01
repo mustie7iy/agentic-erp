@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -64,6 +65,20 @@ func (Settings) Document(ctx context.Context) (*config.Config, int32, error) {
 		err = problem.Conflict("config.not_bootstrapped", "The tenant has no configuration yet.")
 	}
 	return c, n, err
+}
+
+// CompanyDay is company code's date at instant now in its time zone by
+// the active configuration ((*config.Config).CompanyDay: UTC when the
+// company sets none), and the zone: the tenancy context's port of a legal
+// entity's date today (getLegalEntityToday). Without an active
+// configuration it is 409 config.not_bootstrapped, as Document is.
+func (s Settings) CompanyDay(ctx context.Context, code string, now time.Time) (time.Time, *time.Location, error) {
+	doc, _, err := s.Document(ctx)
+	if err != nil {
+		return time.Time{}, nil, fmt.Errorf("configuration: time zone of company %s: %w", code, err)
+	}
+	d, err := doc.CompanyDay(code, now)
+	return d.Date, d.Zone, err
 }
 
 // Hold keeps the active configuration from changing until the request's

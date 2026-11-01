@@ -1254,6 +1254,23 @@ func (UnimplementedHandler) GetLegalEntity(ctx context.Context, params GetLegalE
 	return r, ht.ErrNotImplemented
 }
 
+// GetLegalEntityToday implements getLegalEntityToday operation.
+//
+// The legal entity's date now in its company's time zone (`companies[].time_zone` of the active
+// configuration; UTC in a document activated before the zone was required (2026-10-31) that sets none;
+// ADR-0051 as built, T72n1), and that zone: the day the API takes as the company's today, where a
+// posting date left out defaults to it, so a client pre-fills a form's dates (a posting date, a
+// payment run's run date, a report's key date) with the company's day rather than UTC's. At 22:00 on
+// 17 April in America/Toronto (02:00 UTC on the 18th) it is the 17th; at 01:00 on 17 April in
+// Asia/Dubai (21:00 UTC on the 16th) it is the 17th. A legal entity the caller cannot act in is not
+// found; without an active configuration to read the time zone from, 409 `config.not_bootstrapped`.
+// Changes nothing.
+//
+// GET /v1/legal-entities/{id}/today
+func (UnimplementedHandler) GetLegalEntityToday(ctx context.Context, params GetLegalEntityTodayParams) (r GetLegalEntityTodayRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetMatchResult implements getMatchResult operation.
 //
 // Returns one three-way match evaluation.

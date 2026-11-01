@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -11,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -20,6 +22,18 @@ import (
 // Endpoints implements the tenancy part of the generated API.
 type Endpoints struct {
 	Pages *pagination.Codec
+	Days  Days             // a company's date today (getLegalEntityToday)
+	Now   func() time.Time // nil: the wall clock
+}
+
+// Days tells a company's date (the configuration context, which holds
+// each company's time zone; ADR-0051 as built, T72n1): company code's
+// date at instant now in its zone, at midnight UTC as clock.DayIn gives
+// it, and the zone. The configuration knows companies by code, so tenancy
+// asks by its legal entity's code and imports nothing of the
+// configuration context.
+type Days interface {
+	CompanyDay(ctx context.Context, code string, now time.Time) (day time.Time, zone *time.Location, err error)
 }
 
 func leToAPI(e LegalEntity) gen.LegalEntity {
@@ -73,6 +87,26 @@ func (e *Endpoints) GetLegalEntity(ctx context.Context, params gen.GetLegalEntit
 		return nil, err
 	}
 	return &gen.GetLegalEntityOKHeaders{ETag: gen.NewOptString(etag.Format(le.Version)), Response: leToAPI(le)}, nil
+}
+
+// GetLegalEntityToday implements GET /v1/legal-entities/{id}/today: the
+// company's date now in its time zone, so a client pre-fills a form's
+// dates with the day the API defaults a date to, not UTC's (the web
+// workspace's forms, review:batch27).
+func (e *Endpoints) GetLegalEntityToday(ctx context.Context, params gen.GetLegalEntityTodayParams) (gen.GetLegalEntityTodayRes, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	le, err := getLE(ctx, tx, params.ID, false)
+	if err != nil {
+		return nil, err
+	}
+	day, zone, err := e.Days.CompanyDay(ctx, le.Code, clock.Now(e.Now))
+	if err != nil {
+		return nil, fmt.Errorf("tenancy: date of legal entity %s: %w", le.ID, err)
+	}
+	return &gen.LegalEntityToday{LegalEntityID: le.ID, Date: day, TimeZone: zone.String()}, nil
 }
 
 var leSort = pagination.Sort{Default: "code", Fields: []pagination.Field{
