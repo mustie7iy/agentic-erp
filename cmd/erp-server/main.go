@@ -273,7 +273,8 @@ type server struct {
 	running map[string]bool
 	// failed is closed when a critical worker (spawnCritical) fails, which
 	// serve watches to stop the server; failure is that first failure,
-	// joined into the server's exit by stop.
+	// joined into the server's exit by stop. failure is guarded by mu (read
+	// through firstFailure): the replica's record may fail outside wait.
 	failed   chan struct{}
 	failOnce sync.Once
 	failure  error
