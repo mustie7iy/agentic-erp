@@ -100,6 +100,8 @@ type RunList struct {
 // RunHeader is a run's summary.
 type RunHeader struct {
 	Status     Label
+	Company    string // "" when it could not be named
+	Bank       string // the house bank's code; "" for a run whose payments each name the bank that pays them
 	RunDate    time.Time
 	DueBy      time.Time
 	Total      Money
@@ -110,8 +112,16 @@ type RunHeader struct {
 
 // runRows are a run's summary rows.
 func runRows(h RunHeader) []Row {
-	rows := []Row{{Key: i18n.RunStatus, Value: RunStatusTag(h.Status)}, {Key: i18n.RunDate, Value: Day(h.RunDate)},
-		{Key: i18n.RunDueBy, Value: Day(h.DueBy)}, {Key: i18n.RunTotal, Value: Amount(h.Total)}, {Key: i18n.RunProposedBy, Value: Principal(h.ProposedBy)}}
+	rows := []Row{{Key: i18n.RunStatus, Value: RunStatusTag(h.Status)}}
+	if h.Company != "" {
+		rows = append(rows, Row{Key: i18n.InvoiceCompany, Value: Data(h.Company)})
+	}
+	bank := T(i18n.RunBankByMethod)
+	if h.Bank != "" {
+		bank = Code(h.Bank)
+	}
+	rows = append(rows, Row{Key: i18n.RunBank, Value: bank}, Row{Key: i18n.RunDate, Value: Day(h.RunDate)},
+		Row{Key: i18n.RunDueBy, Value: Day(h.DueBy)}, Row{Key: i18n.RunTotal, Value: Amount(h.Total)}, Row{Key: i18n.RunProposedBy, Value: Principal(h.ProposedBy)})
 	if h.DecidedBy != nil {
 		rows = append(rows, Row{Key: i18n.RunDecidedBy, Value: Principal(*h.DecidedBy)})
 	}
@@ -145,11 +155,12 @@ func approvalFacts(a ReleaseApproval) []Row {
 	return rows
 }
 
-// PaymentView is one payment of a run: to whom (the supplier's id: the
-// API names no supplier on a payment), what it pays and how, and whether
-// it is posted.
+// PaymentView is one payment of a run: to whom (the supplier's name),
+// from which house bank (its code), what it pays and how, and whether it
+// is posted.
 type PaymentView struct {
 	Supplier    string
+	Bank        string
 	Amount      Money
 	Discount    *Money // nil: no cash discount taken
 	Withholding *Money // nil: no withholding tax deducted
@@ -178,6 +189,14 @@ type BankFileView struct {
 	Status   Label
 	Created  time.Time
 	Transmit *RunForm
+}
+
+// FilesView is a released run's bank files: the run's page, the files,
+// and the API's refusal to list them.
+type FilesView struct {
+	Run   string
+	Files []BankFileView
+	Error *Refusal
 }
 
 // The decisions on a run, by the verb of their route.
@@ -255,9 +274,7 @@ type RunPage struct {
 	Exclusions      []ExclusionView
 	ExclusionsMore  string
 	ExclusionsError *Refusal
-	FilesShown      bool // the run is released or being released: it has bank files
-	Files           []BankFileView
-	FilesError      *Refusal
+	Files           string // the bank files' section's path; "" before the run is released or being released
 	Actions         []RunForm
 	Why             i18n.Key
 	Done            i18n.Key
@@ -275,6 +292,7 @@ type ProgressView struct {
 	Done    int64
 	Total   *int64 // nil while unknown
 	Running bool   // queued or running: the section asks again every two seconds
+	Shown   string // while it runs, the digest of the status shown, which the poll sends back (ShownParam)
 	Error   *Refusal
 	Cancel  *CancelForm
 	Resume  *RunForm
@@ -298,11 +316,18 @@ func progressBar(v ProgressView) templ.Attributes {
 	return templ.Attributes{"value": strconv.FormatInt(v.Done, 10), "max": strconv.FormatInt(*v.Total, 10), "aria-labelledby": "progress-title"}
 }
 
-// poll has htmx ask for the operation's status every two seconds and put
-// it in place, while it runs; the region is a status, read out as it
-// changes (ADR-0052 §8: htmx only replaces fragments).
-func poll(self string) templ.Attributes {
-	return templ.Attributes{"hx-get": string(templ.URL(self + "?part=status")), "hx-trigger": "every 2s", "hx-swap": "innerHTML"}
+// ShownParam is the poll's parameter holding the digest of the status it
+// shows: the workspace answers 204 while the status is still that one.
+const ShownParam = "shown"
+
+// poll has htmx ask for the operation's status every two seconds, while
+// it runs, with the digest of the status shown, and put a status that
+// changed in its own place: the poller, inside the status region, which
+// stays, so the region is read out as it changes and the next poll sends
+// the new digest (ADR-0052 §8: htmx only replaces fragments; T73f2).
+func poll(self, shown string) templ.Attributes {
+	q := url.Values{"part": {"status"}, ShownParam: {shown}}
+	return templ.Attributes{"hx-get": string(templ.URL(self + "?" + q.Encode())), "hx-trigger": "every 2s", "hx-swap": "outerHTML"}
 }
 
 // runStatusKind colours a run's status; the text says it.

@@ -933,3 +933,84 @@ func TestSignInOverASession(t *testing.T) {
 		})
 	}
 }
+
+// htmxSignIn checks an htmx request's answer sent to sign in: HX-Redirect
+// to target, which htmx loads as the page, never a 303 the request itself
+// would follow and put in the section's place (T73f2).
+func htmxSignIn(t *testing.T, what string, r response, target string) {
+	t.Helper()
+	if r.status != http.StatusNoContent || r.body != "" || r.location() != "" {
+		t.Errorf("%s: got %d to %q with %q, want 204 with nothing to swap", what, r.status, r.location(), r.body)
+	}
+	if got := r.header.Get("HX-Redirect"); got != target {
+		t.Errorf("%s: HX-Redirect %q, want %q", what, got, target)
+	}
+	if v := r.header.Values("Vary"); !slices.Contains(v, "HX-Request") {
+		t.Errorf("%s: Vary %v, want HX-Request", what, v)
+	}
+}
+
+// TestSessionEndsUnderHTMX: an htmx request whose session ended (a
+// progress' poll, a lazy section, a form's lines) goes to sign in with
+// HX-Redirect, back to the page it is part of as htmx names it
+// (HX-Current-URL), "/" when it names none that is the workspace's.
+func TestSessionEndsUnderHTMX(t *testing.T) {
+	s := newStack(t, stackOptions{})
+	run, invoice := uuid.NewString(), uuid.NewString()
+	signIn := func(back string) string { return "/login?" + url.Values{"return": {back}}.Encode() }
+	for name, c := range map[string]struct {
+		method, path, current, back string
+	}{
+		"a progress' poll":        {http.MethodGet, "/payments/" + run + "/progress?part=status&shown=x", s.public + "/payments/" + run + "?done=releasing", "/payments/" + run + "?done=releasing"},
+		"a lazy section":          {http.MethodGet, "/invoices/" + invoice + "/order", s.public + "/invoices/" + invoice, "/invoices/" + invoice},
+		"a run's files":           {http.MethodGet, "/payments/" + run + "/files", s.public + "/payments/" + run, "/payments/" + run},
+		"a form's lines":          {http.MethodPost, "/journal/new", s.public + "/journal/new", "/journal/new"},
+		"no page named":           {http.MethodGet, "/payments/" + run + "/files", "", "/"},
+		"a sign-in step named":    {http.MethodGet, "/payments/" + run + "/files", s.public + "/login/acme", "/"},
+		"an address that is none": {http.MethodGet, "/payments/" + run + "/files", "http://[::1", "/"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			b := s.browser()
+			b.signIn()
+			var body url.Values
+			if c.method == http.MethodPost {
+				body = url.Values{"csrf_token": {b.csrf()}}
+			}
+			s.clock.Advance(session.DefaultIdle)
+			defer s.clock.Advance(-session.DefaultIdle)
+			r := b.do(c.method, c.path, body, "HX-Request", "true", "HX-Current-URL", c.current)
+			htmxSignIn(t, "the session ended", r, signIn(c.back))
+			if b.cookie(sessionCookie) != "" {
+				t.Error("the ended session's cookie: kept")
+			}
+		})
+	}
+	t.Run("no session at all", func(t *testing.T) {
+		r := s.browser().get("/payments/"+run+"/progress?part=status", "HX-Request", "true", "HX-Current-URL", s.public+"/payments/"+run)
+		htmxSignIn(t, "no session", r, signIn("/payments/"+run))
+	})
+	real := s.srv.API
+	defer func() { s.srv.API = real }()
+	use := func(srv *httptest.Server) {
+		api, err := NewAPI(srv.URL, http.DefaultClient)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.srv.API = api
+	}
+	page := s.public + "/payments/" + run
+	t.Run("the API's session ended", func(t *testing.T) {
+		b := s.browser()
+		b.signIn()
+		use(stubAPI(t, http.StatusUnauthorized, "identity.unauthenticated", ""))
+		htmxSignIn(t, "the API's 401", b.get("/payments/"+run+"/progress?part=status", "HX-Request", "true", "HX-Current-URL", page),
+			signIn("/payments/"+run))
+	})
+	t.Run("the API's step-up", func(t *testing.T) {
+		b := s.browser()
+		b.signIn()
+		use(stubAPI(t, http.StatusUnauthorized, "identity.mfa_required", `Bearer error="insufficient_user_authentication", acr_values="urn:erp:mfa"`))
+		htmxSignIn(t, "a step-up", b.get("/payments/"+run+"/files", "HX-Request", "true", "HX-Current-URL", page),
+			signInPath(loginCodeOf, "/payments/"+run, url.Values{"acr": {"urn:erp:mfa"}}))
+	})
+}

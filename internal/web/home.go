@@ -68,11 +68,15 @@ func (s *Server) unauthorized(w http.ResponseWriter, r *http.Request, p *person,
 	}
 	// A read comes back to its page; a write to the page it was sent
 	// from, its path's parent (a decision's, its request's page).
+	// An htmx request comes back to the page it is part of.
 	ret := path.Dir(r.URL.Path)
-	if r.Method == http.MethodGet {
+	switch {
+	case fromHTMX(r):
+		ret = pageOf(r)
+	case r.Method == http.MethodGet:
 		ret = r.URL.RequestURI()
 	}
-	http.Redirect(w, r, signInPath(p.LoginCode, ret, extra), http.StatusSeeOther)
+	redirect(w, r, signInPath(p.LoginCode, ret, extra))
 }
 
 // stepsUp reports whether the API's 401 sends the person to sign in again

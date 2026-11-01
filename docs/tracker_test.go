@@ -42,8 +42,10 @@ const baselineItems = 950
 // leaf of the pilot (79), T73d2's pilot approver's walk-through and the two
 // object summaries no operation reads split from it (T73d3, 80), and the
 // product owner added P6's hold of chosen tax dates to open returns (T61o,
-// po:2026-11-01, 81).
-const pilotItems = 81
+// po:2026-11-01, 81). 82 since batch 35: T73f2's walk-through by a pilot
+// treasurer and AP lead, human acceptance, split into a leaf of its own
+// (T73f3) that inherits the tag.
+const pilotItems = 82
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

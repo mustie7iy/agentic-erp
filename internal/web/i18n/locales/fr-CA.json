@@ -607,6 +607,7 @@
   "exclusion.no_house_bank": "Aucune banque de la société ne paie les modes de paiement du fournisseur dans la devise du cycle",
   "run.files.title": "Fichiers bancaires",
   "run.files.none": "Le cycle n'a pas encore de fichier bancaire : sa libération les écrit.",
+  "run.files.show": "Afficher les fichiers bancaires",
   "file.format": "Format",
   "file.method": "Mode de paiement",
   "file.status": "Statut",

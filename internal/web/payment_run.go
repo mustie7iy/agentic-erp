@@ -13,11 +13,13 @@ import (
 )
 
 // A run's page reads the run, a page of its payments and of its
-// exclusions, its bank files once it is released or being released, and
-// the principals' names: with getCurrentPrincipal six calls (ADR-0052
-// §10). Its operation's progress is a section of its own
-// (payment_progress.go), which htmx loads into the page once it is
-// there, so no page's reads pass six.
+// exclusions, the companies' names and the principals': with
+// getCurrentPrincipal six calls (ADR-0052 §10). The suppliers and the
+// house banks are named by the API on the run and its payments. Its
+// operation's progress and, once it is released or being released, its
+// bank files are sections of their own (payment_progress.go, files),
+// which htmx loads into the page once it is there, so no page's reads
+// pass six (T73f2).
 
 // The run page's lists show runListSize payments and exclusions a page,
 // each paged by its own token; a run writes a bank file per house bank
@@ -95,8 +97,10 @@ func (s *Server) showRun(w http.ResponseWriter, r *http.Request, p *person, m me
 		return
 	}
 	q := r.URL.Query()
-	rp := ui.RunPage{Number: run.DocumentNumber, Done: runDone[q.Get("done")], Refusal: refused, Building: run.Status == "proposing",
-		FilesShown: run.Status == "released" || run.Status == "releasing"}
+	rp := ui.RunPage{Number: run.DocumentNumber, Done: runDone[q.Get("done")], Refusal: refused, Building: run.Status == "proposing"}
+	if run.Status == "released" || run.Status == "releasing" {
+		rp.Files = filesPath(id)
+	}
 	// A failed run's progress says why its proposal stopped.
 	if (run.Status == "proposing" || run.Status == "releasing" || run.Status == "failed") && m.may(permReadOperations) {
 		rp.Progress = runPath(id) + "/progress"
@@ -104,11 +108,8 @@ func (s *Server) showRun(w http.ResponseWriter, r *http.Request, p *person, m me
 	if !rp.Building && !s.runLists(w, r, p, m, id, q, &rp) {
 		return
 	}
-	if rp.FilesShown && !s.runFiles(w, r, p, m, run, &rp) {
-		return
-	}
 	names := s.names(r.Context(), p, runPrincipals(run))
-	rp.Header, rp.Approval = runHeader(run, names), releaseApproval(run, names)
+	rp.Header, rp.Approval = runHeader(run, names, s.companies(r.Context(), m)), releaseApproval(run, names)
 	rp.Actions, rp.Why = runForms(run, m, p, tag, t)
 	s.render(w, r, status, ui.Run(s.page(i18n.RunTitle, ui.PaymentsPath, p, m), rp))
 }
@@ -147,34 +148,63 @@ func (s *Server) runLists(w http.ResponseWriter, r *http.Request, p *person, m m
 	return ok
 }
 
-// runFiles reads the bank files of a run released or being released,
-// each with its transmission's form while it may be sent. ok is false
-// when the answer is already written; a refusal is shown in their place.
-func (s *Server) runFiles(w http.ResponseWriter, r *http.Request, p *person, m me, run gen.PaymentRun, rp *ui.RunPage) bool {
-	res, err := s.API.ListBankFiles(r.Context(), gen.ListBankFilesParams{PaymentRunID: gen.NewOptUUID(run.ID), PageSize: gen.NewOptInt32(runListSize),
-		OrderBy: gen.NewOptString("created_at")})
-	page, ok := res.(*gen.BankFilePage)
+// filesPath is the bank files' section of a run.
+func filesPath(id uuid.UUID) string { return runPath(id) + "/files" }
+
+// files are the bank files of a run released or being released, each
+// with its transmission's form while it may be sent (listBankFiles): the
+// section htmx loads into the run's page (HX-Request), or a page of its
+// own for a browser without htmx. With getCurrentPrincipal, for the
+// transmission's permission and the page's navigation, two calls. A
+// refusal is shown in their place.
+func (s *Server) files(w http.ResponseWriter, r *http.Request, p *person) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		s.notFound(w, r)
+		return
+	}
+	w.Header().Add("Vary", "HX-Request") // its refusals too: a page or a section
+	m, ok := s.whoami(w, r, p)
 	if !ok {
-		rp.FilesError, ok = s.inPlace(w, r, p, m, i18n.PaymentProblems, "listBankFiles", res, err, i18n.PaymentsRefusedTitle, "files-refusal")
-		return ok
+		return
 	}
-	for _, f := range page.Items {
-		v := ui.BankFileView{Format: f.Format, Method: f.PaymentMethod.Or(""), Status: labelOf(fileStatuses, f.Status), Created: f.CreatedAt}
-		if (f.Status == "created" || f.Status == "failed") && m.may(permTransmitFiles) {
-			v.Transmit = &ui.RunForm{Verb: ui.RunTransmit, ID: "file-" + f.ID.String(), Action: runPath(run.ID) + "/" + ui.RunTransmit, CSRF: p.CSRF,
-				ETag: etag.Format(f.Version), Key: uuid.NewString(), File: f.ID.String()}
-		}
-		rp.Files = append(rp.Files, v)
+	v := ui.FilesView{Run: runPath(id)}
+	res, err := s.API.ListBankFiles(r.Context(), gen.ListBankFilesParams{PaymentRunID: gen.NewOptUUID(id), PageSize: gen.NewOptInt32(runListSize),
+		OrderBy: gen.NewOptString("created_at")})
+	if page, listed := res.(*gen.BankFilePage); listed {
+		v.Files = fileViews(page.Items, id, m, p)
+	} else if v.Error, ok = s.inPlace(w, r, p, m, i18n.PaymentProblems, "listBankFiles", res, err, i18n.PaymentsRefusedTitle, "files-refusal"); !ok {
+		return
 	}
-	return true
+	if fromHTMX(r) {
+		s.render(w, r, http.StatusOK, ui.FilesSection(v))
+		return
+	}
+	s.render(w, r, http.StatusOK, ui.FilesPage(s.page(i18n.RunFilesTitle, ui.PaymentsPath, p, m), v))
 }
 
-// paymentViews are a page of a run's payments.
+// fileViews are a run's bank files, each with its transmission's form
+// while it may be sent.
+func fileViews(items []gen.BankFile, run uuid.UUID, m me, p *person) []ui.BankFileView {
+	out := make([]ui.BankFileView, 0, len(items))
+	for _, f := range items {
+		v := ui.BankFileView{Format: f.Format, Method: f.PaymentMethod.Or(""), Status: labelOf(fileStatuses, f.Status), Created: f.CreatedAt}
+		if (f.Status == "created" || f.Status == "failed") && m.may(permTransmitFiles) {
+			v.Transmit = &ui.RunForm{Verb: ui.RunTransmit, ID: "file-" + f.ID.String(), Action: runPath(run) + "/" + ui.RunTransmit, CSRF: p.CSRF,
+				ETag: etag.Format(f.Version), Key: uuid.NewString(), File: f.ID.String()}
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// paymentViews are a page of a run's payments, each to its supplier and
+// from its house bank, as the API names them.
 func paymentViews(items []gen.Payment) []ui.PaymentView {
 	out := make([]ui.PaymentView, 0, len(items))
 	for _, pay := range items {
-		v := ui.PaymentView{Supplier: pay.SupplierID.String(), Amount: moneyOf(pay.Amount), Method: pay.PaymentMethod.Or(""), EndToEnd: pay.EndToEndID,
-			Items: int32(len(pay.Items)), DownPayment: pay.Kind.Or("items") == "down_payment", Posted: pay.JournalEntryID.Set}
+		v := ui.PaymentView{Supplier: pay.SupplierName, Bank: pay.HouseBankCode.Or(""), Amount: moneyOf(pay.Amount), Method: pay.PaymentMethod.Or(""),
+			EndToEnd: pay.EndToEndID, Items: int32(len(pay.Items)), DownPayment: pay.Kind.Or("items") == "down_payment", Posted: pay.JournalEntryID.Set}
 		v.Discount, v.Withholding = nonZero(pay.DiscountAmount), nonZero(pay.WithholdingAmount)
 		out = append(out, v)
 	}
@@ -190,12 +220,14 @@ func nonZero(m gen.OptMoney) *ui.Money {
 	return nil
 }
 
-// exclusionViews are a page of what a run left out.
+// exclusionViews are a page of what a run left out: the supplier and the
+// down payment request by the names and numbers the API gives (a request
+// by its id when the API gives no number).
 func exclusionViews(items []gen.PaymentExclusion) []ui.ExclusionView {
 	out := make([]ui.ExclusionView, 0, len(items))
 	for _, ex := range items {
-		out = append(out, ui.ExclusionView{Supplier: ex.SupplierID.String(), Reason: labelOf(exclusionReasons, ex.ReasonCode), Amount: moneyOf(ex.Amount),
-			DownPayment: idText(ex.DownPaymentRequestID)})
+		out = append(out, ui.ExclusionView{Supplier: ex.SupplierName, Reason: labelOf(exclusionReasons, ex.ReasonCode), Amount: moneyOf(ex.Amount),
+			DownPayment: ex.DownPaymentRequestNumber.Or(idText(ex.DownPaymentRequestID))})
 	}
 	return out
 }
@@ -213,10 +245,12 @@ func runPrincipals(run gen.PaymentRun) []uuid.UUID {
 	return ids
 }
 
-// runHeader is a run's summary.
-func runHeader(run gen.PaymentRun, names map[uuid.UUID]ui.Name) ui.RunHeader {
-	h := ui.RunHeader{Status: labelOf(runStatuses, run.Status), RunDate: run.RunDate, DueBy: run.DueBy, Total: moneyOf(run.TotalAmount),
-		ProposedBy: names[run.ProposedBy]}
+// runHeader is a run's summary: its company by name ("" when the
+// companies could not be named) and its house bank by code, none for a
+// run whose payments each name the bank that pays them.
+func runHeader(run gen.PaymentRun, names map[uuid.UUID]ui.Name, companies map[uuid.UUID]string) ui.RunHeader {
+	h := ui.RunHeader{Status: labelOf(runStatuses, run.Status), Company: companies[run.LegalEntityID], Bank: run.HouseBankCode.Or(""),
+		RunDate: run.RunDate, DueBy: run.DueBy, Total: moneyOf(run.TotalAmount), ProposedBy: names[run.ProposedBy]}
 	if by, ok := run.DecidedBy.Get(); ok {
 		n := names[by]
 		h.DecidedBy = &n

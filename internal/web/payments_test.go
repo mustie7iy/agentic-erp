@@ -144,6 +144,22 @@ func runStatus(t *testing.T, run uuid.UUID) string {
 	return st
 }
 
+// pollOf is the address the progress' status is polled at, with the
+// digest of the status it shows.
+func pollOf(t *testing.T, p page) string {
+	t.Helper()
+	poll := ""
+	walk(p.doc, func(n *html.Node) {
+		if v := attrOf(n, "hx-get"); strings.Contains(v, "part=status") {
+			poll = v
+		}
+	})
+	if !strings.Contains(poll, "shown=") {
+		t.Fatalf("no poll with the status shown in %s", text(p.doc))
+	}
+	return poll
+}
+
 // runIn is the run a proposal's answer goes on to.
 func runIn(t *testing.T, r response) uuid.UUID {
 	t.Helper()
@@ -178,8 +194,17 @@ func TestPropose(t *testing.T) {
 	if v := section.header.Values("Vary"); !strings.Contains(strings.Join(v, " "), "HX-Request") {
 		t.Errorf("the section's Vary: got %v, want HX-Request in it", v)
 	}
-	if got := b.get(progressPath(run)+"?part=status", "HX-Request", "true").header.Get("HX-Redirect"); got != "" {
-		t.Errorf("the status while it runs: HX-Redirect %q, want none", got)
+	poll := pollOf(t, section.page(t))
+	same := b.get(poll, "HX-Request", "true")
+	if same.status != http.StatusNoContent || same.body != "" || same.header.Get("HX-Redirect") != "" {
+		t.Errorf("the status polled unchanged: got %d %q, HX-Redirect %q, want 204 with nothing to read out again", same.status, same.body,
+			same.header.Get("HX-Redirect"))
+	}
+	moved := b.get(progressPath(run)+"?part=status&shown=stale", "HX-Request", "true")
+	status(t, "the status polled after it changed", moved, http.StatusOK)
+	holds(t, "the status polled after it changed", text(moved.page(t).doc), "Waiting to start", "0 done")
+	if got := pollOf(t, moved.page(t)); got != poll {
+		t.Errorf("the poller put in place: asks %q, want %q, the status it shows", got, poll)
 	}
 	holds(t, "the progress page", b.get(progressPath(run)).page(t).mainText(), "Back to the run", "Progress of the payment run",
 		"Waiting to start", "Refresh the progress")
@@ -188,9 +213,9 @@ func TestPropose(t *testing.T) {
 		t.Errorf("the status once it stopped: HX-Redirect %q, want the run's page", got)
 	}
 	built := b.get(runPath(run)).page(t)
-	holds(t, "the run proposed", built.mainText(), "Status Proposed", "Total EUR 119.00", "Proposed by proposer",
-		"You proposed this run, so another person releases or rejects it.", d.f.Supplier.String()+" EUR 119.00 None None None 1",
-		"Not yet", d.f.Vendor.String()+" The supplier has no bank account valid on the payment date EUR 59.50 None")
+	holds(t, "the run proposed", built.mainText(), "Status Proposed", "Company Acme GmbH", "House bank MAIN", "Total EUR 119.00",
+		"Proposed by proposer", "You proposed this run, so another person releases or rejects it.", "BP90000001 MAIN EUR 119.00 None None None 1",
+		"Not yet", "BP90000002 The supplier has no bank account valid on the payment date EUR 59.50 None")
 	if strings.Contains(built.mainText(), "Show the progress") {
 		t.Error("the proposer's built run: offers its progress")
 	}
@@ -331,28 +356,40 @@ func TestReleaseAndTransmit(t *testing.T) {
 		t.Fatalf("release: got %d to %q: %s", r.status, r.location(), r.body)
 	}
 	holds(t, "the run being released", b.get(r.location()).page(t).mainText(), "The release has started.", "Status Being released",
-		"Show the progress", "Bank files", "The run has no bank file yet")
+		"Show the progress", "Bank files", "Show the bank files")
+	holds(t, "its files' section", text(b.get(filesPath(run), "HX-Request", "true").page(t).doc), "Bank files", "The run has no bank file yet")
 	holds(t, "the release's progress", text(b.get(progressPath(run), "HX-Request", "true").page(t).doc), "Releasing the run", "Waiting to start")
 	if n := fixture.RunReleases(t, s.objects); n != 1 {
 		t.Fatalf("releases done: got %d, want 1", n)
 	}
 	released := b.get(runPath(run)).page(t)
 	holds(t, "the run released", released.mainText(), "Status Released", "Released or rejected by approver1", "Released or rejected on",
-		"2000-PR", "Yes", "Status Written, not sent", "Format pain.001", "Send to the bank")
+		"2000-PR", "Yes", "Show the bank files")
+	section := b.get(filesPath(run), "HX-Request", "true")
+	if v := section.header.Values("Vary"); !strings.Contains(strings.Join(v, " "), "HX-Request") {
+		t.Errorf("the files' Vary: got %v, want HX-Request in it", v)
+	}
+	files := section.page(t)
+	holds(t, "the files' section", text(files.doc), "Bank files", "Status Written, not sent", "Format pain.001", "Send to the bank")
+	if strings.Contains(text(files.doc), "Back to the run") {
+		t.Error("the files' section: holds the page's way back")
+	}
+	holds(t, "the files' page", b.get(filesPath(run)).page(t).mainText(), "Back to the run", "Bank files", "Status Written, not sent")
 	if strings.Contains(released.mainText(), "Show the progress") {
 		t.Error("the released run: offers its progress")
 	}
 	offers(t, "the released run", released, run, map[string]bool{"release": false, "reject": false})
-	sent := decideRunAs(b, run, "transmit", nil)
+	sent := postForm(b, runForm(files, run, "transmit"), runPath(run)+"/transmit", nil)
 	if sent.status != http.StatusSeeOther || sent.location() != runPath(run)+"?done=transmitting" {
 		t.Fatalf("transmit: got %d to %q: %s", sent.status, sent.location(), sent.body)
 	}
-	holds(t, "the file queued", b.get(sent.location()).page(t).mainText(), "The bank file is queued for the bank.", "Status Queued for the bank")
+	holds(t, "the file queued", b.get(sent.location()).page(t).mainText(), "The bank file is queued for the bank.")
+	holds(t, "the file queued", text(b.get(filesPath(run), "HX-Request", "true").page(t).doc), "Status Queued for the bank")
 	if n := fixture.RunTransmissions(t, s.objects); n != 1 {
 		t.Fatalf("files sent: got %d, want 1", n)
 	}
-	after := b.get(runPath(run)).page(t)
-	holds(t, "the file sent", after.mainText(), "Status Sent to the bank")
+	after := b.get(filesPath(run), "HX-Request", "true").page(t)
+	holds(t, "the file sent", text(after.doc), "Status Sent to the bank")
 	if runForm(after, run, "transmit") != nil {
 		t.Error("a file sent is offered its transmission again")
 	}
@@ -465,6 +502,7 @@ func TestCancelAndResume(t *testing.T) {
 			"operation": {uuid.NewString()}}), http.StatusNotFound)
 		status(t, "no run id", b.do(http.MethodPost, "/payments/x/cancel", url.Values{"csrf_token": {token}}), http.StatusNotFound)
 		status(t, "no run's progress", b.get("/payments/x/progress"), http.StatusNotFound)
+		status(t, "no run's files", b.get("/payments/x/files"), http.StatusNotFound)
 		status(t, "no such run", b.get(progressPath(uuid.New())), http.StatusNotFound)
 	})
 }
@@ -583,4 +621,7 @@ func TestRunsAsOthers(t *testing.T) {
 		status(t, path, got, http.StatusForbidden)
 		holds(t, path, got.page(t).mainText(), "You do not have the permission this needs.")
 	}
+	files := outsider.get(filesPath(run), "HX-Request", "true")
+	status(t, "the outsider's files", files, http.StatusOK)
+	holds(t, "the outsider's files, refused in their place", text(files.page(t).doc), "Bank files", "You do not have the permission this needs.")
 }

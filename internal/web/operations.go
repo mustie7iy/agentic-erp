@@ -95,12 +95,14 @@ var (
 	opStatement     = []Operation{opMe, {ID: "getBankStatement", HiddenBy: permReadStatements},
 		{ID: "listBankStatementMatches", HiddenBy: permReadStatements}, {ID: "getBankStatementRules", HiddenBy: permReadStatements}, opHouseBanks, opNames}
 	// opRuns are the reads of the payment runs' list (payments.go), opRun
-	// those of a run's page (payment_run.go) and opProgress those of its
-	// operation's progress (payment_progress.go).
+	// those of a run's page (payment_run.go), opFiles those of its bank
+	// files' section and opProgress those of its operation's progress
+	// (payment_progress.go).
 	opRuns   = []Operation{opMe, opCompanies, opToday, opHouseBanks, {ID: "listPaymentRuns", HiddenBy: permReadRuns}, opNames}
 	opGetRun = Operation{ID: "getPaymentRun", HiddenBy: permReadRuns}
 	opRun    = []Operation{opMe, opGetRun, {ID: "listPayments", HiddenBy: permReadRuns}, {ID: "listPaymentExclusions", HiddenBy: permReadRuns},
-		{ID: "listBankFiles", HiddenBy: permReadRuns}, opNames}
+		opCompanies, opNames}
+	opFiles    = []Operation{opMe, {ID: "listBankFiles", HiddenBy: permReadRuns}}
 	opProgress = []Operation{opMe, opGetRun, {ID: "getOperation", HiddenBy: permReadOperations}}
 	// opPeriods are the reads of the periods' list (close.go), opPeriod
 	// those of a period's page (period.go) and opChecks those of the
@@ -244,6 +246,7 @@ var Screens = func() map[string][]Operation {
 		"POST /payments/propose":                    append([]Operation{{ID: "proposePaymentRun", HiddenBy: permProposeRuns}}, opRuns...),
 		"GET /payments/{id}":                        opRun,
 		"GET /payments/{id}/progress":               opProgress,
+		"GET /payments/{id}/files":                  opFiles,
 		"POST /payments/{id}/cancel":                append([]Operation{{ID: "cancelOperation", HiddenBy: permCancelOperations}}, opProgress...),
 		"GET /close":                                opPeriods,
 		"GET /close/periods/{id}":                   opPeriod,

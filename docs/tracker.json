@@ -5561,17 +5561,25 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Payment runs beyond T73f: suppliers named on a run's payments and exclusions (the API names none on them and listBusinessPartners filters by no id: contract change, an ids filter or expand=supplier), the run's company and house bank on its page within the six calls; an htmx request whose session ended answered with HX-Redirect to sign in (today a 303 the fragment follows: the progress' poll and every lazy section alike, found in T73f's review); the progress' poll answering 204 when nothing changed, so a screen reader is not read the same status again; walked through by a pilot treasurer and AP lead",
-        "r": "T73f2 (split from T73f, 2026-10-25)",
+        "s": "D",
+        "t": "Payment runs beyond T73f: suppliers named on a run's payments and exclusions by the API's supplier_name (batch 27/28 gave it: no contract change), each payment's house bank by its code; the run's company and house bank on its page within the six calls, its bank files moved into a section htmx loads (a page of its own without htmx); an htmx request whose session ended (the progress' poll, every lazy section, a form's lines) answered with HX-Redirect to sign in, back to the page it is part of, as is the API's 401 and its step-up challenge; the progress' poll answering 204 when the status it shows has not changed, so a screen reader is not read the same status again; EN and FR; axe at zero at 1280 and 390 px",
+        "r": "internal/web payment_run.go files · payment_progress.go pollAnswer, shown · signin.go redirect, pageOf · home.go unauthorized · operations.go opRun, opFiles · ui/payments.templ FilesSection, FilesLink, FilesPage, ProgressPoll · TestPropose · TestReleaseAndTransmit · TestRunsStubbed · TestRunsRefusedInPlace · TestRunsUnavailable · TestRunsAsOthers · TestSessionEndsUnderHTMX · TestScreensAgainstTheContract · TestPaymentsInTheBrowser · TestRunSectionsInTheBrowser · ADR-0052 Built in T73f2 · T73f2",
         "src": "split:T73f",
         "pilot": "po:2026-10-31 · split:T73f · adr:ADR-0052",
         "c": []
        },
        {
         "s": "T",
+        "t": "Payment runs as built in T73f and T73f2 walked through by a pilot treasurer and AP lead: a run proposed, watched until it is built, its payments and exclusions read by supplier, released (above the company's limit with the second approval in the inbox) and its bank file sent, on the pilot's own suppliers and house banks; what they find becomes tracker items",
+        "r": "T73f3 (split from T73f2, 2026-11-01): human acceptance",
+        "src": "split:T73f2",
+        "pilot": "po:2026-10-31 · split:T73f2 · adr:ADR-0052",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "The workspace's payment run views name the supplier and the down payment request (pre-existing findings on exclnames and paynums): internal/web/payment_run.go:176 and :197 show the supplier as a UUID although the API gives supplier_name for payments and exclusions, and exclusionViews shows an excluded down payment request by id only although the API gives down_payment_request_number; waits for the UI rework (PO 2026-10-28: UI later)",
-        "r": "internal/web/payment_run.go paymentViews · exclusionViews",
+        "r": "internal/web/payment_run.go paymentViews · exclusionViews (built in T73f2: supplier_name, down_payment_request_number) · TestPropose · TestRunsStubbed",
         "src": "review:batch22 · review:batch23",
         "c": []
        },
