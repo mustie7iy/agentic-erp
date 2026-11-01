@@ -81,13 +81,17 @@ func FilterScope(all *Extract, scope Scope) *Extract {
 	out.RSEG = keep(all.RSEG, func(r RSEG) bool { return invs[r.BELNR+"/"+r.GJAHR] })
 	out.ACDOCA = keep(all.ACDOCA, func(r ACDOCA) bool { return r.RLDNR == "0L" && inCC(r.RBUKRS) && r.GJAHR == scope.FiscalYear })
 	// Customizing: company-specific tables by company code; client-wide
-	// tables (payment terms, roles) unchanged.
+	// tables (payment terms, payment methods per country, roles) unchanged.
 	out.T052 = all.T052
 	out.T007A = keep(all.T007A, func(r T007A) bool { return inCC(r.BUKRS) })
 	out.T030 = keep(all.T030, func(r T030) bool { return inCC(r.BUKRS) })
 	out.T169G = keep(all.T169G, func(r T169G) bool { return inCC(r.BUKRS) })
 	out.T012K = keep(all.T012K, func(r T012K) bool { return inCC(r.BUKRS) })
 	out.T074 = keep(all.T074, func(r T074) bool { return inCC(r.BUKRS) })
+	out.T042Z = all.T042Z // per country, client-wide
+	out.T042E = keep(all.T042E, func(r T042E) bool { return inCC(r.ZBUKR) })
+	out.T042A = keep(all.T042A, func(r T042A) bool { return inCC(r.ZBUKR) })
+	out.T042I = keep(all.T042I, func(r T042I) bool { return inCC(r.ZBUKR) })
 	out.AGR_DEFINE, out.AGR_TCODES, out.AGR_USERS = all.AGR_DEFINE, all.AGR_TCODES, all.AGR_USERS
 	return out
 }

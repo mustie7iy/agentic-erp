@@ -43,8 +43,11 @@ type target struct {
 	ranges    map[string]bool // company/document type/fiscal year
 	exponents map[string]int
 	taxes     map[string]map[string]config.TaxCode // by company code, then tax code
-	year      int32
-	balances  bool // balances mode
+	// methods are the payment methods of each company code's configuration
+	// (ADR-0038), which its vendors' LFB1-ZWELS must name.
+	methods  map[string]map[string]bool
+	year     int32
+	balances bool // balances mode
 }
 
 func (t target) hasRange(company, documentType string) bool {
@@ -215,7 +218,37 @@ func (q *qualityCheck) vendorCompanies() {
 		if !q.t.terms[v.ZTERM] {
 			q.add(SevError, "LFB1", v.LIFNR, "payment terms %q are not in the configuration", v.ZTERM)
 		}
+		q.vendorMethods(v)
 	}
+}
+
+// vendorMethods checks a vendor's payment methods (LFB1-ZWELS): each a
+// method of the company's configuration, listed once, as the partner
+// context requires of a supplier's company data (ADR-0038). The gate
+// refuses the run rather than load the vendor without them.
+func (q *qualityCheck) vendorMethods(v sap.LFB1) {
+	seen := map[string]bool{}
+	for _, m := range paymentMethods(v.ZWELS) {
+		switch {
+		case seen[m]:
+			q.add(SevError, "LFB1", v.LIFNR, "payment method %q is listed twice in LFB1-ZWELS %q", m, v.ZWELS)
+		case !q.t.methods[v.BUKRS][m]:
+			q.add(SevError, "LFB1", v.LIFNR, "payment method %q (LFB1-ZWELS) is not a payment method of company %s in the configuration", m, v.BUKRS)
+		}
+		seen[m] = true
+	}
+}
+
+// paymentMethods are the methods LFB1-ZWELS lists, one character each,
+// in its order; blanks separate nothing and are skipped.
+func paymentMethods(zwels string) []string {
+	var out []string
+	for _, r := range zwels {
+		if r != ' ' {
+			out = append(out, string(r))
+		}
+	}
+	return out
 }
 
 // purchaseOrders checks order headers, then their items against the header.

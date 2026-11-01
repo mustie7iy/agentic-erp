@@ -2015,7 +2015,7 @@ twice and a refused or changed file is reported once.
 A company's payment methods (`payments.payment_method`, SAP T042Z) rank,
 per currency, the house banks that pay with them, first preferred
 (`payments.bank_ranking.house_banks`, codes of the company's house banks;
-SAP T042E/T042I). A supplier's company data lists the methods it may be
+SAP T042A, generated with the methods of T042E/T042Z: ADR-0038 As built). A supplier's company data lists the methods it may be
 paid by, in order (`partner.supplier_company.payment_methods`, SAP
 LFB1-ZWELS): active methods of its company, which the configuration cannot
 take away while a supplier, or a pending partner change, has them (T45b).
@@ -2477,7 +2477,9 @@ line or reservation. An agent's budget is identity's
 | Outline agreement validity end and follow-on contract (EKKO-KDATE, reference agreement) | `contract.valid_to`, `contract.renewal_of_id`, `expiry_alerted_on` and `ContractExpiring` (T47g) |
 | RBKP/RSEG | `payables.supplier_invoice` + items; parked documents (RBSTAT A) by kind (T72b): RBKP-XRECH "X" an invoice, blank a credit memo; all items RSEG-TBTKZ "X" a subsequent debit (XRECH "X") or credit (blank), their items of quantity 0. An absent or unknown indicator stops the load; a document mixing subsequent and ordinary items is not migrated (warning). Posted documents (RBSTAT 5): the quantities of their ordinary items, by XRECH, as `payables.migrated_invoice_item` for matching (T72b2); one whose XRECH, an item's TBTKZ or an ordinary item's quantity cannot be read stops the load |
 | REGUH/REGUP (F110) | `payments.payment_run`, `payment`, `payment_item` |
-| T012K | `payments.house_bank`; a Canadian one, without an IBAN, by `institution_number`, `transit_number` (from the bank key, as for LFBK) and `account_number` (BANKN) (T72d) |
+| T012K | `payments.house_bank`; a Canadian one, without an IBAN, by `institution_number`, `transit_number` (from the bank key, as for LFBK) and `account_number` (BANKN) (T72d); `currency` from WAERS, empty for the company's, refused when missing (ADR-0038 As built, T53a review) |
+| T042Z/T042E (payment methods per country and company code), T042A (bank selection) | configuration `companies[].payment_methods` and their `ranking`, `payments.payment_method`, `bank_ranking`; T042E amount limits and T042I bank subaccounts noted for the reviewers (ADR-0038 As built) |
+| LFB1-ZWELS | `supplier_company.payment_methods`, in order; a method the company does not have stops the load (ADR-0038 As built) |
 | T052 | `partner.payment_term` |
 | T007A, KONP/A003 (tax rates per condition), T030K (account keys MWS, VST, NVV, ESA/ESE) | `ledger.tax_code_definition`, `tax_component`, `tax_rate` (T61a) |
 | T030 | `ledger.account_determination` (VST, BNK, WRX, PRD, SKE) |

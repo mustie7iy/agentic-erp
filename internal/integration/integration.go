@@ -50,9 +50,11 @@ type Accounts interface {
 }
 
 // Settings reads the active configuration: payment terms and number
-// ranges (configuration).
+// ranges (configuration). Hold keeps it from changing until the run's
+// transaction ends.
 type Settings interface {
 	Document(ctx context.Context) (*config.Config, int32, error)
+	Hold(ctx context.Context) error
 }
 
 // Partners creates and changes suppliers (partner).

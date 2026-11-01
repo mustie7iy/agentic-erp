@@ -220,7 +220,7 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 		return target{}, nil, c, problem.Conflict("integration.connector_disabled", "The run's connector is disabled.")
 	}
 	t := target{charts: map[string]map[string]ledger.ChartAccount{}, terms: map[string]bool{}, ranges: map[string]bool{},
-		taxes: map[string]map[string]config.TaxCode{}, year: r.Scope.FiscalYear, balances: r.Mode == "balances"}
+		taxes: map[string]map[string]config.TaxCode{}, methods: map[string]map[string]bool{}, year: r.Scope.FiscalYear, balances: r.Mode == "balances"}
 	if t.entities, err = e.entities(ctx, r.Scope); err != nil {
 		return t, nil, c, err
 	}
@@ -230,6 +230,14 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 		if t.charts[code], err = e.Accounts.Chart(ctx, le.ID); err != nil {
 			return t, nil, c, err
 		}
+	}
+	// The load gives suppliers payment methods under the partner context's
+	// method lock and then draws numbers from ranges; an activation locks
+	// the ranges and then the method lock. Holding the configuration first
+	// makes either wait for the other instead of deadlocking (ADR-0008),
+	// and keeps the target the configuration the run loads under.
+	if err := e.Settings.Hold(ctx); err != nil {
+		return t, nil, c, err
 	}
 	doc, _, err := e.Settings.Document(ctx)
 	if err != nil {
@@ -245,6 +253,10 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 		t.taxes[co.Code] = map[string]config.TaxCode{}
 		for _, code := range co.TaxCodes {
 			t.taxes[co.Code][code.Code] = code
+		}
+		t.methods[co.Code] = map[string]bool{}
+		for _, m := range co.PaymentMethods {
+			t.methods[co.Code][m.Code] = true
 		}
 	}
 	if t.exponents, err = currency.Load(ctx, tx); err != nil {
