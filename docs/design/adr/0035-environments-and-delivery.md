@@ -1132,8 +1132,10 @@ it; the cells' policies did not change either.
   private (RFC 1918), shared (100.64.0.0/10) and link-local range it
   touches is excepted. The rendered release does not carry the VPC's range;
   the VPC lies in those ranges, so a VPC-wide block, `0.0.0.0/0` without
-  those exceptions, a rule to every peer, or a pod or namespace selector is
-  refused. Other workloads are not judged by it.
+  those exceptions, a rule to every peer, an IPv6 block, or a pod or
+  namespace selector is refused. A field set to `null` counts as omitted,
+  as Kubernetes reads it (no peers is every peer, no ports every port, no
+  protocol TCP; review round 1). Other workloads are not judged by it.
 - *Checks*: the network module's tests (the endpoint's subnets, their
   ranges, nothing else in them, the other endpoints where they were), the
   cell's and the environment's (the output, in each shape); the policy's
@@ -1154,12 +1156,19 @@ it; the cells' policies did not change either.
   rule admits the whole VPC, so Terraform first, then the release, keeps
   erp-web working throughout. Other IRSA clients admit the VPC on 443 and
   are not affected by the move.
-- *Not confirmed on AWS (to confirm in the staging account)*: that one modification can move
-  the endpoint from one subnet to another in the same zone (the guide
-  allows one subnet per zone; whether the add and the remove in one call
-  pass that rule is not stated), how long STS is unreachable in a zone
-  while its interface is replaced, and that STS's private DNS answers with
-  the new interfaces' addresses alone afterwards.
+- *Not confirmed on AWS (the tracker's staging leaf, beside the RDS IAM
+  points)*: that one modification can move the endpoint from one subnet
+  to another in the same zone (the guide allows one subnet per zone;
+  whether the add and the remove in one call pass that rule is not
+  stated), how long STS is unreachable in a zone while its interface is
+  replaced, and that STS's private DNS answers with the new interfaces'
+  addresses alone afterwards. If AWS refuses the swap, the apply fails
+  and changes nothing (the endpoint stays in the private subnets, the old
+  chart still admits the VPC); then the move takes two applies, the
+  endpoint first replaced (`terraform apply -replace`, STS unreachable
+  through it until the new one is available) or its subnets first
+  removed and then added zone by zone, decided on staging before
+  production.
 - *Decided by default, for the product owner*: a dedicated `/28` per zone
   rather than the shared private subnets (above), in the fourth `/20`; the
   policy's limit as "a /28 or narrower" rather than the exact ranges (the

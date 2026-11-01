@@ -590,10 +590,18 @@ done
 for bad in 'images.router.digest=latest' 'router.proxyFrom={}' 'router.proxyFrom={10.16.0.0}' 'images.web.digest=latest' \
   'web.proxyFrom={}' 'web.proxyFrom={10.16.0.0}' 'web.hostname=App_Workspace' 'web.apiUrl=http://api.dev.erp.example' 'web.apiUrl=https://api.dev.erp.example/v1' \
   'awsEndpoints.stsCidrs={}' 'awsEndpoints.stsCidrs={10.16.0.0/16}' 'awsEndpoints.stsCidrs={0.0.0.0/0}' 'awsEndpoints.stsCidrs={10.16.48.0}'; do
-  if "$HELM" template erp-global "$chart" --namespace erp-global -f "$values" --set "$bad" >/dev/null 2>&1; then
+  if "$HELM" template erp-global "$chart" --namespace erp-global -f "$values" --set "$bad" >/dev/null 2>"$work/err"; then
     echo "helm-checks: erp-global took $bad" >&2
     exit 1
   fi
+  # STS's subnets are refused by their own check, not for another reason.
+  case "$bad" in awsEndpoints.stsCidrs=*)
+    if ! grep -q "awsEndpoints.stsCidrs must list the /28 subnets" "$work/err"; then
+      cat "$work/err" >&2
+      echo "helm-checks: rendering erp-global with $bad failed for another reason" >&2
+      exit 1
+    fi ;;
+  esac
 done
 echo "helm-checks: erp-global refuses to render without each value it requires, with an image not by digest, no load balancer subnets, a web hostname or API address that is not one, or STS's subnets missing or wider than /28s"
 # erp-web on 443 (product owner 2026-11-01): the policy refuses the

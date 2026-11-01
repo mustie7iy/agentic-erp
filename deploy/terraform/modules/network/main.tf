@@ -1,10 +1,10 @@
 # A cell's network (ADR-0035): a VPC across three availability zones with
 # public subnets (the load balancers, one NAT gateway per zone), private
 # subnets (nodes, databases, endpoints) and, for STS's interface endpoint
-# alone, a /28 per zone of egress (sts_endpoint_cidrs). Without zone_redundant (dev and
-# test) one NAT gateway and the interface endpoints sit in the first zone
-# only: a zone's outage takes the cell's egress with it, at a third of the
-# cost.
+# alone, a /28 per zone of egress (sts_endpoint_cidrs). Without
+# zone_redundant (dev and test) one NAT gateway and the interface endpoints
+# sit in the first zone only: a zone's outage takes the cell's egress with
+# it, at a third of the cost.
 #
 # Providers are never proxied (T38b): S3 is reached through a gateway
 # endpoint, KMS, STS, ECR, Secrets Manager, CloudWatch Logs, X-Ray and EC2 through

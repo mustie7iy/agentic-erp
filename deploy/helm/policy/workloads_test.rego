@@ -257,3 +257,20 @@ test_other_workloads_may_reach_the_vpc_on_443 if {
 	vpc := {"to": [{"ipBlock": {"cidr": "10.16.0.0/16"}}], "ports": [{"protocol": "TCP", "port": 443}]}
 	count(deny) == 0 with input as release([deployment({}, container), pdb, deny_all, object.union(web_policy([vpc]), {"spec": {"podSelector": {"matchLabels": {"app": "erp-server"}}}})])
 }
+
+# A null field is an omitted one to Kubernetes, and is judged so.
+test_erp_web_null_fields_are_read_as_omitted if {
+	vpc := {"ipBlock": {"cidr": "10.16.0.0/16"}}
+	what := "10.16.0.0/16, wider than a /28 and with 10.0.0.0/8 not excepted"
+	every_address := "Deployment/erp-web: NetworkPolicy erp-web admits every address on 443; it may reach STS's endpoint's subnets and the internet alone"
+	deny[every_address] with input as web_release(web_policy([{"to": null, "ports": [{"protocol": "TCP", "port": 443}]}]))
+	deny[wide_443("erp-web", what)] with input as web_release(web_policy([{"to": [vpc], "ports": null}]))
+	deny[wide_443("erp-web", what)] with input as web_release(web_policy([{"to": [vpc], "ports": [{"protocol": null, "port": 443}]}]))
+	deny[wide_443("erp-web", what)] with input as web_release(web_policy([{"to": [vpc], "ports": [{"protocol": "TCP", "port": null}]}]))
+	deny[wide_443("erp-web", what)] with input as web_release(web_policy([{"to": [{"ipBlock": {"cidr": "10.16.0.0/16", "except": null}}], "ports": [{"protocol": "TCP", "port": 443}]}]))
+}
+
+test_erp_web_reaching_ipv6_on_443_is_refused if {
+	v6 := {"to": [{"ipBlock": {"cidr": "::/0"}}], "ports": [{"protocol": "TCP", "port": 443}]}
+	deny[wide_443("erp-web", "::/0, an IPv6 block")] with input as web_release(web_policy([sts, v6, internet]))
+}

@@ -8504,8 +8504,8 @@
      },
      {
       "s": "T",
-      "t": "The directory's logins connect with RDS IAM tokens on a real RDS instance in the AWS staging account (the router, a cell and erp-web each as its IRSA role), and the specialist's open points are settled: the token form RDS accepts, rds_iam's rights and membership options on RDS, and the master user's GRANT rds_iam and PASSWORD NULL",
-      "r": "split of the RDS IAM leaf · ADR-0035 As built 2026-11-01, Not confirmed on an RDS instance · T72h",
+      "t": "The directory's logins connect with RDS IAM tokens on a real RDS instance in the AWS staging account (the router, a cell and erp-web each as its IRSA role), and the specialist's open points are settled: the token form RDS accepts, rds_iam's rights and membership options on RDS, and the master user's GRANT rds_iam and PASSWORD NULL; and erp-web reaches STS through the endpoint's own subnets once Terraform moved it there: the move in one apply (one subnet per zone), how long STS is unreachable meanwhile, and that STS's private DNS then answers with those subnets' addresses alone",
+      "r": "split of the RDS IAM leaf · ADR-0035 As built 2026-11-01, Not confirmed on an RDS instance · T72h · ADR-0035 As built 2026-11-01, erp-web reaches STS's endpoint by its own subnets (Not confirmed on AWS) · po:2026-11-01",
       "src": "split:T72h · po:2026-10-28",
       "pilot": "po:2026-10-31 · po:2026-10-28 · adr:ADR-0035",
       "c": []
