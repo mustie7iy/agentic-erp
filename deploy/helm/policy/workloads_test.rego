@@ -270,6 +270,15 @@ test_erp_web_null_fields_are_read_as_omitted if {
 	deny[wide_443("erp-web", what)] with input as web_release(web_policy([{"to": [{"ipBlock": {"cidr": "10.16.0.0/16", "except": null}}], "ports": [{"protocol": "TCP", "port": 443}]}]))
 }
 
+test_a_null_selector_selects_erp_web if {
+	vpc := {"to": [{"ipBlock": {"cidr": "10.16.0.0/16"}}], "ports": [{"protocol": "TCP", "port": 443}]}
+	what := "10.16.0.0/16, wider than a /28 and with 10.0.0.0/8 not excepted"
+	no_selector := json.patch(web_policy([vpc]), [{"op": "replace", "path": "/spec/podSelector", "value": null}])
+	deny[wide_443("erp-web", what)] with input as release([web, web_pdb, deny_all, no_selector])
+	no_labels := json.patch(web_policy([vpc]), [{"op": "replace", "path": "/spec/podSelector", "value": {"matchLabels": null}}])
+	deny[wide_443("erp-web", what)] with input as release([web, web_pdb, deny_all, no_labels])
+}
+
 test_erp_web_reaching_ipv6_on_443_is_refused if {
 	v6 := {"to": [{"ipBlock": {"cidr": "::/0"}}], "ports": [{"protocol": "TCP", "port": 443}]}
 	deny[wide_443("erp-web", "::/0, an IPv6 block")] with input as web_release(web_policy([sts, v6, internet]))

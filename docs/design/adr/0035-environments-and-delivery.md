@@ -1133,7 +1133,8 @@ it; the cells' policies did not change either.
   touches is excepted. The rendered release does not carry the VPC's range;
   the VPC lies in those ranges, so a VPC-wide block, `0.0.0.0/0` without
   those exceptions, a rule to every peer, an IPv6 block, or a pod or
-  namespace selector is refused. A field set to `null` counts as omitted,
+  namespace selector is refused. A field set to `null`, the policy's
+  selector among them (a null selector selects every Pod), counts as omitted,
   as Kubernetes reads it (no peers is every peer, no ports every port, no
   protocol TCP; review round 1). Other workloads are not judged by it.
 - *Checks*: the network module's tests (the endpoint's subnets, their
@@ -1162,9 +1163,9 @@ it; the cells' policies did not change either.
   whether the add and the remove in one call pass that rule is not
   stated), how long STS is unreachable in a zone while its interface is
   replaced, and that STS's private DNS answers with the new interfaces'
-  addresses alone afterwards. If AWS refuses the swap, the apply fails
-  and changes nothing (the endpoint stays in the private subnets, the old
-  chart still admits the VPC); then the move takes two applies, the
+  addresses alone afterwards. If AWS refuses the swap, the endpoint's
+  modification fails and the endpoint stays in the private subnets (the
+  new subnets may already exist; the old chart still admits the VPC); then the move takes two applies, the
   endpoint first replaced (`terraform apply -replace`, STS unreachable
   through it until the new one is available) or its subnets first
   removed and then added zone by zone, decided on staging before

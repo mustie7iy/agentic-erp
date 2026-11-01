@@ -159,11 +159,14 @@ first_install_jobs contains doc if {
 	"pre-install" in hook_events(doc)
 }
 
-# A selector by expressions is not judged: the Job counts as not held.
+# A selector by expressions is not judged: the Job counts as not held. A
+# null selector or matchLabels is an omitted one, which selects every Pod.
+pod_selector(np) := field(np.spec, "podSelector", {})
+
 selects(np, job) if {
-	not np.spec.podSelector.matchExpressions
+	field(pod_selector(np), "matchExpressions", null) == null
 	labels := object.get(object.get(job.spec.template, "metadata", {}), "labels", {})
-	every k, v in object.get(np.spec.podSelector, "matchLabels", {}) {
+	every k, v in field(pod_selector(np), "matchLabels", {}) {
 		labels[k] == v
 	}
 }
@@ -235,7 +238,7 @@ app_name(doc) := object.get(object.get(object.get(doc.spec.template, "metadata",
 # A selector by expressions is taken to select the Pods: refused, not skipped.
 may_select(np, doc) if selects(np, doc)
 
-may_select(np, _) if np.spec.podSelector.matchExpressions
+may_select(np, _) if field(pod_selector(np), "matchExpressions", null) != null
 
 # A field set to null is omitted, as Kubernetes reads it: no ports is
 # every port, no peers every peer, no protocol TCP, no port every port of
