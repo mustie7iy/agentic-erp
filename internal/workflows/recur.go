@@ -88,8 +88,9 @@ func (r *Recurrences) as(ctx context.Context, tenant uuid.UUID, name string, fn 
 
 // ParkOccurrence parks the template's entry for the date (ledger.Endpoints.ParkOccurrence)
 // and says what it did: parked, refused or skipped. Run twice, the second
-// run finds the entry and skips. A date that does not parse is not
-// retried.
+// run finds the date behind the template's next and skips. A date not the
+// template's to park yet is an error the engine retries; one that does
+// not parse is not retried.
 func (r *Recurrences) ParkOccurrence(ctx context.Context, in RecurInput) (string, error) {
 	date, err := time.Parse(time.DateOnly, in.Date)
 	if err != nil {

@@ -22,7 +22,8 @@ import (
 // workflow per template and date, whose one activity parks the entry
 // (ParkOccurrence), as the ERP's recurrer, for the template's owner. The
 // database keeps one entry per template and date
-// (parked_entry_occurrence_once), and the activity looks for it first, so
+// (parked_entry_occurrence_once), and the activity deals with a template's
+// dates in order under its lock, skipping one behind its next date, so
 // running it twice parks nothing twice and publishes nothing twice.
 
 // RecurrerActor is the principal of recurring entries, in every tenant: a
@@ -38,7 +39,7 @@ func Recurrer(tenant uuid.UUID) reqctx.Principal {
 const (
 	OccurrenceParked  = "parked"  // an entry parked for the owner
 	OccurrenceRefused = "refused" // parking it was refused; the template says why
-	OccurrenceSkipped = "skipped" // nothing to do: parked before, not due, not a date of the schedule, or retired
+	OccurrenceSkipped = "skipped" // nothing to do: a date behind the template's next (parked, refused or off its schedule), or a template retired, unscheduled or unowned
 )
 
 // RecurringTenants lists, as the worker role across tenants, the tenants
@@ -175,8 +176,9 @@ func (e *Endpoints) due(ctx context.Context, t EntryTemplate, date time.Time) (b
 	return true, nil
 }
 
-// ParkPermission is parkJournalEntry's x-permission: what a template's
-// owner needs for the recurrer to park for them.
+// ParkPermission is parkJournalEntry's x-permission (TestParkPermission
+// reads it from the contract): what a template's owner needs for the
+// recurrer to park for them.
 const ParkPermission = "ledger.entry.park"
 
 // ownerMayPark refuses an entry for an owner who may no longer park it

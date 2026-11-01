@@ -127,8 +127,11 @@ problem code and detail; the latest one kept), audited, published
 so later dates go on: the template is corrected and that date parked
 with `parkFromEntryTemplate`; earlier refused dates are in the audit trail
 and their events. The template's owner never changes once set, so a
-template whose owner left parks nothing more; transferring templates is
-not built (a gap for the product owner). A failure that is not a business
+template whose owner left parks nothing more, and as only the owner
+retires it, it records a `ledger.owner_not_permitted` refusal (and an
+`EntryTemplateChanged`) on every due date until then; transferring or
+retiring another person's template is not built (a gap listed for the
+product owner). A failure that is not a business
 problem (the database unavailable, a lock timeout) is retried by the
 activity's retry policy, which has no attempt limit.
 

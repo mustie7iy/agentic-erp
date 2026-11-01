@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
@@ -262,16 +263,34 @@ func TestRecurringRefusals(t *testing.T) {
 		defer pgtest.Exec(t, `UPDATE identity.principal SET all_companies = true, version = version + 1 WHERE id = $1`, r.ten.Human.ID)
 		refuse(t, "2026-05-01", "ledger.owner_not_permitted")
 	})
+	t.Run("an owner without ledger.entry.park", func(t *testing.T) {
+		var roles []uuid.UUID
+		pgtest.Scan(t, `SELECT array_agg(rp.role_id) FROM identity.role_permission rp JOIN identity.principal_role pr
+			ON pr.tenant_id = rp.tenant_id AND pr.role_id = rp.role_id WHERE pr.principal_id = $1 AND rp.permission_code = 'ledger.entry.park'`,
+			[]any{r.ten.Human.ID}, &roles)
+		pgtest.Exec(t, `DELETE FROM identity.role_permission WHERE tenant_id = $1 AND role_id = ANY($2) AND permission_code = 'ledger.entry.park'`,
+			r.ten.ID, roles)
+		defer pgtest.Exec(t, `INSERT INTO identity.role_permission (tenant_id, id, role_id, permission_code, valid_from, created_by)
+			SELECT $1, gen_random_uuid(), x, 'ledger.entry.park', '2000-01-01', $3 FROM unnest($2::uuid[]) AS x`, r.ten.ID, roles, r.ten.Human.ID)
+		refuse(t, "2026-06-01", "ledger.owner_not_permitted")
+	})
+	t.Run("an owner barred from ledger.entry.park", func(t *testing.T) {
+		pgtest.Exec(t, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by)
+			VALUES ($1, gen_random_uuid(), 'ledger.entry.park', 'ledger.entry.post', 'Park or post', '2000-01-01', $2)`, r.ten.ID, r.ten.Human.ID)
+		defer pgtest.Exec(t, `DELETE FROM identity.sod_rule WHERE tenant_id = $1 AND description = 'Park or post'`, r.ten.ID)
+		refuse(t, "2026-07-01", "ledger.owner_not_permitted")
+	})
 	if n := len(r.parked(t)); n != 0 {
 		t.Errorf("entries: got %d, want none", n)
 	}
-	if got := r.park(t, r.template, "2026-06-01"); got != ledger.OccurrenceParked {
+	r.now = time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
+	if got := r.park(t, r.template, "2026-08-01"); got != ledger.OccurrenceParked {
 		t.Errorf("the next date, nothing refusing it: got %s, want parked", got)
 	}
 	t.Run("retired or ownerless", func(t *testing.T) {
 		tpl, _ := r.Must(200, "GET", "/v1/entry-templates/"+r.template.String(), "", "")
 		r.Must(200, "POST", "/v1/entry-templates/"+r.template.String()+":retire", "", etagOf(tpl))
-		if got := r.park(t, r.template, "2026-07-01"); got != ledger.OccurrenceSkipped {
+		if got := r.park(t, r.template, "2026-09-01"); got != ledger.OccurrenceSkipped {
 			t.Errorf("retired: got %s, want skipped", got)
 		}
 		bank := r.account(t, "2000", "100000")
@@ -369,4 +388,12 @@ type brokenRelease struct{ pgx.Tx }
 func (b brokenRelease) Commit(ctx context.Context) error {
 	_ = b.Rollback(ctx) // the double fails the release; what rolling back says is beside the point
 	return errors.New("savepoint commit failed")
+}
+
+// TestParkPermission: the permission the recurrer checks the owner for is
+// the one parking an entry takes.
+func TestParkPermission(t *testing.T) {
+	if got := api.MustOperations()["parkJournalEntry"].Permission; got != ledger.ParkPermission {
+		t.Errorf("got %s, want parkJournalEntry's x-permission %s", ledger.ParkPermission, got)
+	}
 }
