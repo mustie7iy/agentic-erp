@@ -2599,7 +2599,7 @@ components:
       examples:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000064", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.contract_expired.v1", "subject": "0192a000-0000-7000-8000-000000000607", "time": "2027-10-01T00:05:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
-          payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_to": "2027-09-30", "consumed_value": {"amount": "212400.00", "currency": "EUR"}, "previous_status": "active", "status": "expired", "expired_on": "2027-10-01", "time_zone": "Europe/Berlin"}
+          payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_to": "2027-09-30", "consumed_value": {"amount": "212400.00", "currency": "EUR"}, "previous_status": "active", "status": "expired", "expired_on": "2027-10-01", "time_zone": "Europe/Berlin", "legal_entity_code": "DE01", "supplier_number": "BP-100231", "supplier_name": "Acme Industrial Supplies Ltd"}
     ContractExpiring:
       name: ContractExpiring
       x-webhook: true
@@ -2616,7 +2616,7 @@ components:
       examples:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000065", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.contract_expiring.v1", "subject": "0192a000-0000-7000-8000-000000000607", "time": "2027-08-31T00:05:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000104"}
-          payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_to": "2027-09-30", "days_left": 30, "consumed_value": {"amount": "212400.00", "currency": "EUR"}, "target_value": {"amount": "250000.00", "currency": "EUR"}, "alerted_on": "2027-08-31", "time_zone": "Europe/Berlin"}
+          payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "valid_to": "2027-09-30", "days_left": 30, "consumed_value": {"amount": "212400.00", "currency": "EUR"}, "target_value": {"amount": "250000.00", "currency": "EUR"}, "alerted_on": "2027-08-31", "time_zone": "Europe/Berlin", "legal_entity_code": "DE01", "supplier_number": "BP-100231", "supplier_name": "Acme Industrial Supplies Ltd"}
     InvoiceHoldReleased:
       name: InvoiceHoldReleased
       x-webhook: true
@@ -4284,6 +4284,9 @@ components:
         status: {"type": "string", "description": "Open enum; expired in v1."}
         expired_on: {"$ref": "#/components/schemas/Date", "description": "The company's date, in `time_zone`, at the round that expired the contract (T72n6): the first day after `valid_to` unless a round was missed."}
         time_zone: {"type": "string", "description": "The IANA time zone `expired_on` is in: the contract's company's configured `time_zone`, or `UTC` when it has none. At 22:00 in America/Toronto a contract whose last day is that day has not expired."}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch27); consumers ignore it if absent."}
+        supplier_number: {"type": "string", "description": "The business partner number of `supplier_id`, as BusinessPartnerCreated gives it. Added within v1 (review:batch27); consumers ignore it if absent."}
+        supplier_name: {"type": "string", "description": "The supplier's name when the event was published. Added within v1 (review:batch27); consumers ignore it if absent."}
     ContractExpiringV1:
       type: object
       required: ["contract_id", "document_number", "legal_entity_id", "supplier_id", "valid_to", "days_left", "consumed_value", "target_value"]
@@ -4298,6 +4301,9 @@ components:
         target_value: {"$ref": "#/components/schemas/Money"}
         alerted_on: {"$ref": "#/components/schemas/Date", "description": "The company's date of the alert in `time_zone`, the contract's `expiry_alerted_on` (T72n6)."}
         time_zone: {"type": "string", "description": "The IANA time zone `alerted_on` and `days_left` are counted in: the contract's company's configured `time_zone`, or `UTC` when it has none."}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch27); consumers ignore it if absent."}
+        supplier_number: {"type": "string", "description": "The business partner number of `supplier_id`, as BusinessPartnerCreated gives it. Added within v1 (review:batch27); consumers ignore it if absent."}
+        supplier_name: {"type": "string", "description": "The supplier's name when the event was published. Added within v1 (review:batch27); consumers ignore it if absent."}
     InvoiceHoldReleasedV1:
       type: object
       required: ["supplier_invoice_id", "supplier_id", "legal_entity_id", "previous_status", "status"]

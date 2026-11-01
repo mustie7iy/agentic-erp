@@ -11677,7 +11677,7 @@ paths:
       tags:
         - payments
       summary: Propose a payment run
-      description: "Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then selects due open items, applies exclusions (blocks, missing or recently changed bank details) and reserves the items; the run becomes `proposed`, or `failed`. Runs can exceed 100,000 items, so this returns an Operation. A run that takes cash discount in a legal entity without a cash discount account fails with 422 `payments.no_cash_discount_account` (T36d). A withholding tax deducted at payment that, rounded after the cash discount, would take all an item owes fails it with 422 `payments.withholding_too_large` (T46f)."
+      description: "Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then selects due open items, applies exclusions (blocks, missing or recently changed bank details) and reserves the items; the run becomes `proposed`, or `failed`. Runs can exceed 100,000 items, so this returns an Operation. A run that takes cash discount in a legal entity without a cash discount account fails with 422 `payments.no_cash_discount_account` (T36d). A withholding tax deducted at payment that, rounded after the cash discount, would take all an item owes fails it with 422 `payments.withholding_too_large` (T46f). Open items that add up to more than an amount can hold fail it with 422 `payments.amount_too_large`, whose `detail` names the supplier by its number and name when one supplier's items do, or the run."
       x-permission: payments.run.propose
       x-problem-codes:
         - config.no_number_range
@@ -13319,7 +13319,7 @@ paths:
       tags:
         - cash
       summary: Get a memo record
-      description: "One memo record, with its status as of the read date: its legal entity's date at the read in its company's configured time zone (`read_date`, `time_zone`; UTC when it has none; T72n2). A memo record of a legal entity the caller cannot act in is not found."
+      description: "One memo record, with its status as of the read date: its legal entity's date at the read in its company's configured time zone (`read_date`, `time_zone`; UTC when it has none; T72n2). A memo record of a legal entity the caller cannot act in is not found. A memo record whose legal entity the directory does not know, broken data, is refused with 422 `request.reference_not_found` naming the legal entity rather than read on UTC's date."
       x-permission: cash.memo.read
       x-problem-codes:
         - config.not_bootstrapped
@@ -13343,6 +13343,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
     patch:

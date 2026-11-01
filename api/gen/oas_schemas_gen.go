@@ -15362,6 +15362,10 @@ func (s *GetMemoRecordOKHeaders) SetResponse(val MemoRecord) {
 
 func (*GetMemoRecordOKHeaders) getMemoRecordRes() {}
 
+type GetMemoRecordUnprocessableEntity Problem
+
+func (*GetMemoRecordUnprocessableEntity) getMemoRecordRes() {}
+
 type GetMigrationRunBadRequest Problem
 
 func (*GetMigrationRunBadRequest) getMigrationRunRes() {}

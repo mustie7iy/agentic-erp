@@ -1016,10 +1016,24 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "payments.amount_too_large names the supplier by its number and name, not only its UUID, as the release's refusals do since batch 27",
-      "r": "internal/payments propose.go:472, :499 errTooLarge(\"supplier \" + c.supplier.String()) · release.go refuse (partner.Named, idref.Resolve) is the pattern · REVIEW.md API-consumer class: an identifier without the name its consumer needs",
+      "r": "internal/payments propose.go:472, :499 errTooLarge(\"supplier \" + c.supplier.String()) · release.go refuse (partner.Named, idref.Resolve) is the pattern · REVIEW.md API-consumer class: an identifier without the name its consumer needs · done in apinames5: propose returns supplierTooLarge, paymentsFor names it through supplierNamed, which refuse shares · ADR-0038 as built (a proposal too large names the supplier)",
       "src": "review:batch27",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Payments' events name the company by its code beside legal_entity_id, and PaymentExcluded its supplier by number and name beside supplier_id: the payment run, bank file and bank statement events give the ids alone",
+      "r": "api/asyncapi.yaml payments channel (PaymentRunProposed/Released/Rejected/Failed, PaymentExcluded, BankStatement* events) · internal/payments runEvent, exclusions, statements · release.go supplierNamed and procurement expiry_names.go are the patterns (optional fields, eventcompat) · REVIEW.md API-consumer class: an identifier without the name its consumer needs",
+      "src": "review:batch28",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "payments.withholding_too_large's detail gives the withholding, the cash discount and the amount owed as raw minor units without currency or scaling, and names the item only by its journal entry's UUID (fiscal year/entry id/line), not by the supplier's number and name and the invoice's document number",
+      "r": "internal/payments propose.go withholdingWithin (fmt %d of money.Minor, it.EntryID) · money.EventAmount / the amount formatting other refusals use, release.go supplierNamed (batch 28's apinames5) are the patterns · REVIEW.md API-consumer classes: an amount without its currency and scale, an identifier without the name its consumer needs · T46f",
+      "src": "review:batch28",
       "c": []
      }
     ]
@@ -2537,10 +2551,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "ContractExpiredV1 and ContractExpiringV1 name the supplier by its number and name and the company by its code, not only supplier_id and legal_entity_id, so a consumer alerting a buyer need not look them up",
-        "r": "api/asyncapi.yaml ContractExpiredV1, ContractExpiringV1 (supplier_id, legal_entity_id only) · internal/procurement expiry.go, expiry_alerts.go (the events' payloads) · REVIEW.md API-consumer class: an identifier without the name its consumer needs · T72n6",
+        "r": "api/asyncapi.yaml ContractExpiredV1, ContractExpiringV1 (supplier_id, legal_entity_id only) · internal/procurement expiry.go, expiry_alerts.go (the events' payloads) · REVIEW.md API-consumer class: an identifier without the name its consumer needs · T72n6 · done in apinames5: both give legal_entity_code, supplier_number and supplier_name (optional, eventcompat), read by expiry_names.go eventNames: the company code the round's companyDays read when dating the legal entity (one read per legal entity, batch 28's integration), the supplier through a new Partners port (partner Payees.Names) · ADR-0034 as built (a contract's expiry events name the company and the supplier)",
         "src": "review:batch27",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Procurement's other events name the supplier by its number and name and the company by its code beside supplier_id and legal_entity_id, as ContractExpired and ContractExpiring do since batch 28: ContractActivated, ContractTerminated, ContractCancelled, RequisitionSubmitted and the purchase order events (Released, Changed, Cancelled, Closed) give both ids alone; the goods movement, requisition decision and GrIrCleared events give legal_entity_id alone",
+        "r": "api/asyncapi.yaml procurement channel · internal/procurement purchase_orders.go (orderEvent), order_change_apply.go, contracts.go, requisitions · expiry_names.go eventNames is the pattern (optional fields, eventcompat) · REVIEW.md API-consumer class: an identifier without the name its consumer needs · ADR-0034 as built (a contract's expiry events name the company and the supplier)",
+        "src": "review:batch28",
         "c": []
        }
       ]
@@ -8527,10 +8548,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The company's date is read by one shared helper with one rule for a legal entity that is not found (refuse), not six lookups that differ on one (cash reads UTC's date, the others refuse, ledger and payments each in their own way)",
-        "r": "procurement common.go todayOf (refuses) · ledger companyday.go companyDays.of (refuses) · payments release.go companyDay via entityOf · cash readday.go readDaysOf (a missing legal entity reads UTC's date) · payables companyday.go companyDay (refuses) · procurement expiry_days.go companyDays (refuses; added in batch 27, T72n6) · each port reads the legal entity differently (Entity, Company, ByCode), so one helper needs a shared port: not done in batch 27's integration · ADR-0051 as built",
+        "r": "found in batch 27's integration review: procurement common.go todayOf · ledger companyday.go companyDays.of · payments release.go companyDay via entityOf · cash readday.go readDaysOf (a missing legal entity read UTC's date) · payables companyday.go companyDay · procurement expiry_days.go companyDays (T72n6) · built: internal/config companyday.go config.EntityDay and (*Config).EntityDay, (*Config).CompanyDay, config.EntityCode, config.ErrNoLegalEntity (422 request.reference_not_found naming the legal entity, a common code) · tenancy.CompanyCode, the one adapter of the tenancy port the four contexts reading tenancy.Entity share; cash adapts its own Company port · cash readday.go recordDay (a memo record read alone refuses), readDaysOf (a list filter naming an unknown legal entity reads no date: it matches no record and answers an empty page, as for one the caller cannot access) · TestEntityDay · TestEntityDayRefusals · TestCompanyCode · TestRecordDay · TestReadDaysOfUnknownFilter · TestCompanyDayUnknownZone · TestCheckSubmittedFailures · TestCompanyDayFailures · TestCompanyDays · TestContractExpiryUnknownZone · ADR-0051 as built (one company-date helper) · no walkthrough step: a refactoring",
         "src": "review:batch27",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "getMemoRecord lists the 422 response it gives since the one company-date helper refuses a memo record whose legal entity the directory does not know (request.reference_not_found); every other operation whose call graph reaches config.EntityDay lists 422 already",
+        "r": "found in batch 28's integration review: api/openapi.yaml getMemoRecord listed no 422 · checked by the operations whose handler reaches config.EntityDay in TestProblemCodes' call graph: acceptMemoRecordProposal, approveApprovalRequest, assignProfitCenter, cancelMemoRecord, createCostCenter, createMemoRecord, getMemoRecord, listMemoRecords, lockCostCenter, lockProfitCenter, moveCostCenter, moveProfitCenter, postSupplierInvoice, proposeMemoRecord, realiseMemoRecord, redateCostCenter, redateProfitCenter, rejectMemoRecordProposal, releasePaymentRun, reverseGoodsReceipt, reverseSupplierInvoice, submitRequisition, updateMemoRecord; listMemoRecords reaches it only through readDaysOf's filter, which answers an empty page rather than refusing, so it gives no 422 · built: getMemoRecord's 422 response (additive, oasdiff) and its description · ADR-0051 as built (one company-date helper) · no walkthrough step: a contract fix",
+        "src": "review:batch28",
         "c": []
        }
       ]
@@ -8954,7 +8982,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "internal/controlplane's bootstrap tests check the errors list's length before reading errs[0], so a response without errors fails the assertion instead of panicking the test",
       "r": "internal/controlplane controlplane_test.go:275, :280 (errs[0] without a length check) and :290 (the time-zone assertion added in batch 27 copies it) · CLAUDE.md tests: one clear assertion message per check",
       "src": "review:batch27",

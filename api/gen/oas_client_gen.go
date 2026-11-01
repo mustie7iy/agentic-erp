@@ -966,7 +966,9 @@ type Invoker interface {
 	//
 	// One memo record, with its status as of the read date: its legal entity's date at the read in its
 	// company's configured time zone (`read_date`, `time_zone`; UTC when it has none; T72n2). A memo
-	// record of a legal entity the caller cannot act in is not found.
+	// record of a legal entity the caller cannot act in is not found. A memo record whose legal entity the
+	// directory does not know, broken data, is refused with 422 `request.reference_not_found` naming the
+	// legal entity rather than read on UTC's date.
 	//
 	// GET /v1/memo-records/{id}
 	GetMemoRecord(ctx context.Context, params GetMemoRecordParams) (GetMemoRecordRes, error)
@@ -2107,7 +2109,9 @@ type Invoker interface {
 	// returns an Operation. A run that takes cash discount in a legal entity without a cash discount
 	// account fails with 422 `payments.no_cash_discount_account` (T36d). A withholding tax deducted at
 	// payment that, rounded after the cash discount, would take all an item owes fails it with 422
-	// `payments.withholding_too_large` (T46f).
+	// `payments.withholding_too_large` (T46f). Open items that add up to more than an amount can hold fail
+	// it with 422 `payments.amount_too_large`, whose `detail` names the supplier by its number and name
+	// when one supplier's items do, or the run.
 	//
 	// POST /v1/payment-runs:propose
 	ProposePaymentRun(ctx context.Context, request *PaymentRunPropose, params ProposePaymentRunParams) (ProposePaymentRunRes, error)
@@ -18136,7 +18140,9 @@ func (c *Client) sendGetMatchResult(ctx context.Context, params GetMatchResultPa
 //
 // One memo record, with its status as of the read date: its legal entity's date at the read in its
 // company's configured time zone (`read_date`, `time_zone`; UTC when it has none; T72n2). A memo
-// record of a legal entity the caller cannot act in is not found.
+// record of a legal entity the caller cannot act in is not found. A memo record whose legal entity the
+// directory does not know, broken data, is refused with 422 `request.reference_not_found` naming the
+// legal entity rather than read on UTC's date.
 //
 // GET /v1/memo-records/{id}
 func (c *Client) GetMemoRecord(ctx context.Context, params GetMemoRecordParams) (GetMemoRecordRes, error) {
@@ -43098,7 +43104,9 @@ func (c *Client) sendProposeMemoRecord(ctx context.Context, request *MemoRecordP
 // returns an Operation. A run that takes cash discount in a legal entity without a cash discount
 // account fails with 422 `payments.no_cash_discount_account` (T36d). A withholding tax deducted at
 // payment that, rounded after the cash discount, would take all an item owes fails it with 422
-// `payments.withholding_too_large` (T46f).
+// `payments.withholding_too_large` (T46f). Open items that add up to more than an amount can hold fail
+// it with 422 `payments.amount_too_large`, whose `detail` names the supplier by its number and name
+// when one supplier's items do, or the run.
 //
 // POST /v1/payment-runs:propose
 func (c *Client) ProposePaymentRun(ctx context.Context, request *PaymentRunPropose, params ProposePaymentRunParams) (ProposePaymentRunRes, error) {

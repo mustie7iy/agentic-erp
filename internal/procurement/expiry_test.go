@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
@@ -27,7 +28,7 @@ func TestContractExpiry(t *testing.T) {
 	logs := &pgtest.SyncBuffer{}
 	at := time.Date(2026, 3, 1, 9, 30, 0, 0, time.UTC)
 	x := &procurement.ContractExpirer{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Log: slog.New(slog.NewTextHandler(logs, nil)),
-		Settings: configuration.Settings{}, LegalEntities: tenancy.Directory{}, Now: func() time.Time { return at }}
+		Settings: configuration.Settings{}, LegalEntities: tenancy.Directory{}, Partners: partner.Payees{}, Now: func() time.Time { return at }}
 	// The round is the cell's, and other tests leave due contracts in
 	// tenants whose round they made fail: a first round expires them, so
 	// the counts below are this tenant's.
@@ -44,6 +45,9 @@ func TestContractExpiry(t *testing.T) {
 	// before it, the draft too.
 	pgtest.Exec(t, `UPDATE procurement.contract SET valid_from = '2025-01-01', valid_to = '2026-02-28', version = version + 1 WHERE id IN ($1, $2)`,
 		uuid.MustParse(id(past)), uuid.MustParse(id(draft)))
+	// The supplier's name differs from its number, so the event is seen to
+	// give each.
+	pgtest.Exec(t, `UPDATE partner.business_partner SET name = 'Supplier GmbH', version = version + 1 WHERE id = $1`, e.Supplier)
 	round, err := x.RunOnce(ctx)
 	if err != nil {
 		t.Fatalf("round: %v", err)
@@ -75,7 +79,8 @@ func TestContractExpiry(t *testing.T) {
 	if got := ev[0]["consumed_value"].(map[string]any)["amount"]; got != "0.00" {
 		t.Errorf("expired event consumed value: got %v, want 0.00", got)
 	}
-	want(t, "expired event", ev[0], map[string]any{"valid_to": "2026-02-28", "expired_on": "2026-03-01", "time_zone": "UTC"})
+	want(t, "expired event", ev[0], map[string]any{"valid_to": "2026-02-28", "expired_on": "2026-03-01", "time_zone": "UTC",
+		"legal_entity_code": "2000", "supplier_number": "BP90000001", "supplier_name": "Supplier GmbH"})
 	var actor uuid.UUID
 	var detail map[string]any
 	var occurred time.Time

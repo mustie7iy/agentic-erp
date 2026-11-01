@@ -64,3 +64,32 @@ func TestAccessible(t *testing.T) {
 		t.Errorf("read failure: got %v, want %v", err, boom)
 	}
 }
+
+// TestCompanyCode: the adapter gives a known legal entity's company code,
+// found false for one the reader does not know, and a read failure.
+func TestCompanyCode(t *testing.T) {
+	known := uuid.New()
+	codeOf := tenancy.CompanyCode(reader{entities: map[uuid.UUID]tenancy.Entity{known: {ID: known, Code: "DE01"}}})
+	for name, tc := range map[string]struct {
+		id    uuid.UUID
+		code  string
+		found bool
+	}{"known": {known, "DE01", true}, "missing": {uuid.New(), "", false}} {
+		t.Run(name, func(t *testing.T) {
+			code, found, err := codeOf(context.Background(), tc.id)
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+			if found != tc.found {
+				t.Errorf("found: got %v, want %v", found, tc.found)
+			}
+			if code != tc.code {
+				t.Errorf("code: got %q, want %q", code, tc.code)
+			}
+		})
+	}
+	boom := errors.New("connection lost")
+	if _, _, err := tenancy.CompanyCode(reader{err: boom})(context.Background(), known); !errors.Is(err, boom) {
+		t.Errorf("read failure: got %v, want %v", err, boom)
+	}
+}

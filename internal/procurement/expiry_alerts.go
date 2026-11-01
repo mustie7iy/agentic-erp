@@ -16,11 +16,12 @@ import (
 )
 
 // alerting is what a round alerts by: the tenant's configuration, if it
-// has one, and the companies' dates.
+// has one, the companies' dates, and the names its events give.
 type alerting struct {
 	doc        *config.Config
 	configured bool
 	days       companyDays
+	names      *eventNames
 }
 
 // alertDue publishes ContractExpiring for the tenant's active contracts
@@ -53,7 +54,7 @@ func (x *ContractExpirer) alertDue(ctx context.Context, tx pgx.Tx, actor reqctx.
 	}
 	n := 0
 	for _, d := range due {
-		alerted, err := alertContract(ctx, tx, actor, now, d, a.days[d.LegalEntityID])
+		alerted, err := alertContract(ctx, tx, actor, now, d, a.days[d.LegalEntityID], a.names)
 		if err != nil {
 			return 0, err
 		}
@@ -72,13 +73,13 @@ type expiring struct {
 }
 
 // alertContract records the alert on the contract on its company's date,
-// publishes ContractExpiring with that date and the zone and audits it,
-// and reports whether it did. The update
+// publishes ContractExpiring with that date and the zone, naming the
+// company and the supplier, and audits it, and reports whether it did. The update
 // checks again that no live renewal continues the contract: a renewal
 // locks the contract it renews without changing it, so one committed
 // while the list of contracts to alert waited for the lock is seen only
 // by this later statement.
-func alertContract(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now time.Time, d expiring, day companyDay) (bool, error) {
+func alertContract(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now time.Time, d expiring, day companyDay, names *eventNames) (bool, error) {
 	tag, err := tx.Exec(ctx, `UPDATE procurement.contract c SET expiry_alerted_on = $3, version = version + 1, updated_by = $2
 		WHERE c.id = $1 AND c.status = 'active' AND c.expiry_alerted_on IS NULL AND NOT EXISTS (SELECT FROM procurement.contract r
 			WHERE r.tenant_id = c.tenant_id AND r.renewal_of_id = c.id AND r.status <> 'cancelled')`, d.ID, actor.ID, day.date)
@@ -95,6 +96,9 @@ func alertContract(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, now t
 	payload := map[string]any{"contract_id": d.ID, "document_number": c.DocumentNumber, "legal_entity_id": c.LegalEntityID, "supplier_id": c.SupplierID,
 		"valid_to": c.ValidTo.Format(time.DateOnly), "days_left": d.DaysLeft, "consumed_value": money.EventAmount(c.ConsumedValue, c.Currency, c.Exponent),
 		"target_value": money.EventAmount(c.TargetValue, c.Currency, c.Exponent), "alerted_on": day.date.Format(time.DateOnly), "time_zone": day.zone}
+	if err := names.name(ctx, c, day, payload); err != nil {
+		return false, err
+	}
 	if _, err := outbox.Write(ctx, tx, actor.TenantID, actor.ID, "", event("contract_expiring", "contract", d.ID, payload)); err != nil {
 		return false, err
 	}

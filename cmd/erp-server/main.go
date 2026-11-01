@@ -41,6 +41,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
 	"github.com/mustie7iy/agentic-erp/internal/platform/awscreds"
@@ -753,7 +754,7 @@ func (s *server) startAudit(runCtx context.Context) {
 	// ending soon alerted (the contract's ContractExpired and
 	// ContractExpiring are the job's), each on its company's date (T72n6).
 	expirer := &procurement.ContractExpirer{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Interval: expiryInterval, Log: log, LegalEntities: tenancy.Directory{},
-		Settings: configuration.Settings{}}
+		Partners: partner.Payees{}, Settings: configuration.Settings{}}
 	s.spawn("expirer", func() { expirer.Run(runCtx) })
 	// People's sessions ended or idle for a week are deleted in rounds
 	// (ADR-0031).
