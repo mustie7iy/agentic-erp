@@ -663,8 +663,11 @@ parallel_run_extract() {
 # with an amount in its document currency and none in company currency
 # (review:batch31): SAP's extract with document 0199999990 added, a USD
 # vendor item of 0.01 beside a line in CAD, so the document posts in CAD,
-# where the load would leave a line of no CAD amount out. The rehearsal
-# fails naming the document and line, and the extract is put back.
+# where the load would leave a line of no CAD amount out; the gate refuses
+# it as an open item of a document not all in its currency (an item in
+# CAD of a document amount alone has a refusal of its own, tested in
+# internal/integration). The rehearsal fails naming the document and line,
+# and the extract is put back.
 small_item_refused() {
   cp "$WORK/data/extract.json" "$WORK/data/extract.good.json"
   jq --arg cc "$CC" '([.ACDOCA[] | select(.RBUKRS == $cc and .LIFNR != "" and .AUGBL == "" and .RWCUR == "CAD"

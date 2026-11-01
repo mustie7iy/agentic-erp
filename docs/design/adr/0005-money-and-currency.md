@@ -154,8 +154,8 @@ opening entry (`balances`) alike, so a small foreign item disappeared.
   either currency, as `openDocuments` already counts them. WSL is read
   without its currency, which may be missing or unknown: not zero, or not
   a number, is an amount. A line that carries no WSL has none when it is in
-  company currency (a file extract that leaves WSL empty for local
-  documents); in another currency or none (an OData extract carries
+  company currency (should an extract leave WSL empty on a line in
+  company currency); in another currency or none (an OData extract carries
   neither yet) it cannot be told, so the line is refused for its missing
   document currency, T72b's never-guess rule, rather than left out. A line
   whose WSL is zero, or a cleared line, is still not an item.

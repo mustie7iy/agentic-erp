@@ -330,7 +330,9 @@ func TestDocumentCurrencyQualityPasses(t *testing.T) {
 // document and line, in both modes, whatever its document posts in: in
 // company currency, in a document not all in its currency or cleared
 // together with one in another, without a document currency (or without
-// either, as an OData extract), and in a foreign currency. One that
+// either, as an OData extract), and in a foreign currency; and so is a
+// line of an open GR/IR position, in company currency for its document
+// amount alone and in a foreign one as any such line. One that
 // carries no document amount in company currency has none, and one with
 // a company code amount alone in company currency loads from it.
 func TestDocumentAmountAlone(t *testing.T) {
@@ -345,6 +347,16 @@ func TestDocumentAmountAlone(t *testing.T) {
 	const item = "2000/2026/0100000011/000002: open item of SAP document 0100000011 "
 	inUSD := []string{"2000/2026/0100000011/000001: line has 0.01 USD in its document currency (WSL) and no amount in company currency (HSL)",
 		"2000/2026/0100000011/000002: line has -0.01 USD in its document currency (WSL) and no amount in company currency (HSL)"}
+	// grir adds to an open GR/IR position (withGRIRPosition, in EUR)
+	// document 0100000011 in the given currency, its GR/IR line on the
+	// position's order item of no company code amount.
+	var tg *target
+	grir := func(e *sap.Extract, currency string) {
+		withGRIRPosition(e, tg, "EUR")
+		withDocument(e, "0100000011", currency, sap.ACDOCA{RACCT: "0000219000", HSL: "0.00", WSL: "-5.00", EBELN: "4500000001", EBELP: "00010"})
+	}
+	const grirItem = "2000/2026/0100000011/000002: open item of SAP document 0100000011 "
+	const grirForeign = "is in document currency USD, not company 2000's currency EUR: open GR/IR positions in a foreign document currency"
 	cases := []struct {
 		name                string
 		change              func(e *sap.Extract)
@@ -374,6 +386,12 @@ func TestDocumentAmountAlone(t *testing.T) {
 		}, []string{item + "is in document currency USD, and SAP cleared its document together with documents in another currency"},
 			// balances mode takes no clearing over: the document posts on its own in USD
 			inUSD[1:]},
+		{"a GR/IR line of an open position in company currency", func(e *sap.Extract) { grir(e, "EUR") },
+			[]string{grirItem + `has no amount in company currency EUR (HSL), but its document amount (WSL) is "-5.00"`},
+			[]string{grirItem + `has no amount in company currency EUR (HSL), but its document amount (WSL) is "-5.00"`}},
+		{"a GR/IR line of an open position in a foreign currency", func(e *sap.Extract) { grir(e, "USD") },
+			[]string{grirItem + grirForeign, "2000/2026/0100000011/000001: line has 5.00 USD", "2000/2026/0100000011/000002: line has -5.00 USD"},
+			[]string{grirItem + grirForeign}},
 		{"carrying no document amount in company currency", func(e *sap.Extract) { alone(e, "EUR", "EUR", ""); last(e).WSL = "" }, nil, nil},
 		{"a company code amount alone in company currency", func(e *sap.Extract) {
 			withDocument(e, "0100000011", "EUR", sap.ACDOCA{RACCT: "0000211000", HSL: "-50.00", WSL: "0.00", LIFNR: "0000000001"})
@@ -386,7 +404,7 @@ func TestDocumentAmountAlone(t *testing.T) {
 			if balances {
 				want, mode = c.balances, "balances"
 			}
-			run = append(run, documentCurrencyCase{mode + ": " + c.name, func(e *sap.Extract, t *target) { t.balances = balances; c.change(e) }, want})
+			run = append(run, documentCurrencyCase{mode + ": " + c.name, func(e *sap.Extract, t *target) { t.balances, tg = balances, t; c.change(e) }, want})
 		}
 		runDocumentCurrencyCases(t, run)
 	}
