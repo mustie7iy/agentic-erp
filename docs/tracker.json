@@ -6880,6 +6880,13 @@
        },
        {
         "s": "D",
+        "t": "How Argo CD is installed decided (agents, as the product owner asked on 2026-10-31): by each cell's bootstrap runbook from its pinned, checksummed archive, then managing itself as an add-on, with Terraform defining what it needs and installing nothing inside a cluster; not Terraform's Helm provider nor the EKS managed Argo CD capability. No build",
+        "r": "ADR-0055 · ADR-0035 runbook step 6 · ADR-0040 runbook step 6 and as built 2026-10-29 · T72j",
+        "src": "adr:ADR-0055 · po:2026-10-31",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "Production approvers (product owner): a production promotion merges only with an approval of its head by someone other than its author listed in .github/approvers, read with the read-only token; no CODEOWNERS. With the owner alone listed, production promotion is blocked until a second approver is. Product owner, 2026-10-19: a rollback to a known-good release (the cell ran it, its drill passed for its commit) and a pull request appending to a drill's record (checked against the release and commit the drill cell ran) need no approver",
         "r": ".github/approvers · scripts/promotion-approvals.sh · scripts/test-promotion-approvals.sh · .github/workflows/promotion.yml · .github/workflows/promotion-review.yml · scripts/merge-pr.sh · ADR-0035 · T40d4",
         "src": "baseline",
