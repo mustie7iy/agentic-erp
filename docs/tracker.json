@@ -602,7 +602,7 @@
      {
       "s": "D",
       "t": "Index payables.supplier_invoice_item (tenant_id, purchase_order_id, po_item_no) for the invoiced quantities read at :match and under the item locks at :post",
-      "r": "follow-up of the overpayment fix · invoicedQuantities · db/migrations/000172 supplier_invoice_item_by_order (concurrently, items on an order) · apqty",
+      "r": "follow-up of the overpayment fix · invoicedQuantities · db/migrations/000173 supplier_invoice_item_by_order (concurrently, items on an order) · apqty",
       "src": "baseline",
       "pilot": "po:2026-10-31 · design:03 §3.9",
       "c": []

@@ -1735,7 +1735,7 @@ movement on one item wait for each other and the second reads what the
 first committed (`TestConcurrentReversalsSerialize`). An order change
 writes the items it changes, so a posting waits for it too and is matched
 against the order as changed. The quantities are read through
-`supplier_invoice_item_by_order` (migration 000172, on `(tenant_id,
+`supplier_invoice_item_by_order` (migration 000173, on `(tenant_id,
 purchase_order_id, po_item_no)` for items on an order, built
 concurrently), as they are at `:match` and under the locks at `:post`.
 
