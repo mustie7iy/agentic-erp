@@ -14,15 +14,22 @@ import (
 )
 
 // pendingCode is a row of packs/ca/TAX-PENDING-T61a.md as the pack must
-// write it: its rates as "rate from..to" (to empty when open) and its
-// recovery as "account_key account".
+// write it: its jurisdiction, its rates as "rate from..to" (to empty when
+// open) and its recovery as "account_key account recoverable_percent".
 type pendingCode struct {
-	rates    []string
-	recovery string
+	jurisdiction string
+	rates        []string
+	recovery     string
 }
 
+// provinces are the ISO 3166-2 codes of the provinces the file's Tax
+// column names; a GST row is the country's.
+var provinces = map[string]string{"Ontario": "CA-ON", "New Brunswick": "CA-NB", "Newfoundland and Labrador": "CA-NL",
+	"Nova Scotia": "CA-NS", "Prince Edward Island": "CA-PE", "Quebec": "CA-QC", "British Columbia": "CA-BC",
+	"Manitoba": "CA-MB", "Saskatchewan": "CA-SK"}
+
 var (
-	pendingRow  = regexp.MustCompile(`^\| ([A-Z0-9]+) \| [^|]+ \| ([^|]+) \| ([^|]+) \| ([^|]+) \| [^|]+ \|$`)
+	pendingRow  = regexp.MustCompile(`^\| ([A-Z0-9]+) \| ([^|]+) \| ([^|]+) \| ([^|]+) \| ([^|]+) \| [^|]+ \|$`)
 	pendingFrom = regexp.MustCompile(`^from (\d{4}-\d{2}-\d{2})(?: \(earlier start not sourced\))?$`)
 	pendingSpan = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$`)
 	pendingAcct = regexp.MustCompile(`^input tax (?:credit|refund), (?:account )?(\d{4})$`)
@@ -50,9 +57,32 @@ func readPending(t *testing.T) (map[string]pendingCode, []string) {
 		if m == nil {
 			t.Fatalf("pending row %q: not a row of code, tax, rate, in force, recovery and source", line)
 		}
-		codes[m[1]] = pendingCode{rates: pendingRates(t, m[1], m[2], m[3]), recovery: pendingRecovery(t, m[1], m[4])}
+		if _, dup := codes[m[1]]; dup {
+			t.Fatalf("pending %s: listed twice", m[1])
+		}
+		codes[m[1]] = pendingCode{jurisdiction: pendingJurisdiction(t, m[1], m[2]), rates: pendingRates(t, m[1], m[3], m[4]),
+			recovery: pendingRecovery(t, m[1], m[5])}
 	}
 	return codes, urls
+}
+
+// pendingJurisdiction is the jurisdiction a row's Tax column names: the
+// country for GST, else the one province it names.
+func pendingJurisdiction(t *testing.T, code, tax string) string {
+	t.Helper()
+	if strings.HasPrefix(tax, "GST (") {
+		return "CA"
+	}
+	var found []string
+	for name, iso := range provinces {
+		if strings.Contains(tax, name) {
+			found = append(found, iso)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("pending %s: tax %q names provinces %v, want one", code, tax, found)
+	}
+	return found[0]
 }
 
 // pendingRates pairs a row's rates ("13% / 15%") with its periods
@@ -87,12 +117,12 @@ func pendingRecovery(t *testing.T, code, s string) string {
 	t.Helper()
 	s = strings.TrimSpace(s)
 	if m := pendingAcct.FindStringSubmatch(s); m != nil {
-		return config.KeyInput + " " + m[1]
+		return config.KeyInput + " " + m[1] + " 100"
 	}
 	if strings.HasPrefix(s, "none (expensed") {
 		// The schema's non-deductible component has no account: its tax
 		// is added to the purchase's own line (ADR-0049 §3, §6).
-		return config.KeyNonDeductible + " "
+		return config.KeyNonDeductible + "  0"
 	}
 	t.Fatalf("pending %s: recovery %q is neither an input tax credit or refund nor none", code, s)
 	return ""
@@ -108,13 +138,15 @@ func packed(c config.TaxCode) pendingCode {
 	for _, r := range p.Rates {
 		out.rates = append(out.rates, r.RatePercent+" "+r.ValidFrom+".."+r.ValidTo)
 	}
-	out.recovery = p.AccountKey + " " + p.Account
+	out.jurisdiction = p.Jurisdiction
+	out.recovery = p.AccountKey + " " + p.Account + " " + p.Recoverable()
 	return out
 }
 
 // Canada 2026.3 writes the tax codes of packs/ca/TAX-PENDING-T61a.md
-// exactly: the same codes, each one component with the file's rates and
-// periods and its proposed recovery, and every source the file cites
+// exactly: the same codes, each one input standard component (category
+// S) of the jurisdiction its Tax column names, with the file's rates and
+// periods and its proposed recovery (account and recoverable share), and every source the file cites
 // (ADR-0048, T62g).
 func TestCanadaPackTaxCodes(t *testing.T) {
 	lib, err := LoadAll(packs.FS)
@@ -142,11 +174,14 @@ func TestCanadaPackTaxCodes(t *testing.T) {
 			if !reflect.DeepEqual(p.rates, want[c.Code].rates) {
 				t.Errorf("rates: got %v, want %v", p.rates, want[c.Code].rates)
 			}
+			if p.jurisdiction != want[c.Code].jurisdiction {
+				t.Errorf("jurisdiction: got %q, want %q", p.jurisdiction, want[c.Code].jurisdiction)
+			}
 			if p.recovery != want[c.Code].recovery {
 				t.Errorf("recovery: got %q, want %q", p.recovery, want[c.Code].recovery)
 			}
-			if c.DirectionOrInput() != config.TaxInput || c.KindOrStandard() != config.TaxStandard {
-				t.Errorf("code: got %s %s, want an input standard code", c.DirectionOrInput(), c.KindOrStandard())
+			if got := c.DirectionOrInput() + " " + c.KindOrStandard() + " " + c.Category; got != "input standard S" {
+				t.Errorf("code: got %s, want input standard S", got)
 			}
 		})
 	}

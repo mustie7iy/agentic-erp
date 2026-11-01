@@ -131,7 +131,8 @@ settings cannot simply overwrite their document.
   earlier starts were not fetched from an authority; no combined GST+PST or
   GST+QST code, as the file has none. `TestCanadaPackTaxCodes` reads the
   file's table and the pack and fails on any difference in codes, rates,
-  dates or recovery, and checks that every source the file cites is in the
+  dates, recovery (account and recoverable share) or jurisdiction (the
+  province the Tax column names), and checks that every source the file cites is in the
   manifest. 2026.1 and 2026.2 stay released as they were.
   **Sign-off is a separate step.** 2026.3 carries no `sign_off`, so
   production refuses to apply it (409 `config.pack_not_signed_off`) and
