@@ -581,16 +581,21 @@ commit-time check, like the balance trigger).
   its `source` and `pending_sign_off` for a tier the tax specialist has not
   confirmed (a pack signed off holds none). The ERP checks what it holds:
   `supplier_tax_id`, met when the supplier's business partner holds a tax
-  identifier (any scheme), and `item_descriptions`, met when every item
+  identifier of the company's country (a scheme named after it, `CA_...`,
+  `AE_...`, as the SAP load names them `<LAND1>_TAX`; a US vendor's EIN is
+  no GST/HST number; which schemes count is listed for the tax specialist),
+  and `item_descriptions`, met when every item
   without an order has a description (an order item is described). When an
   invoice or subsequent debit claiming tax posts, its gross amount,
   converted into the company's currency at the tax date's rate of the tax
-  rate type, is held to each tier; each unmet requirement of a tier it
+  rate type, is held to each tier (when no rate of the type converts it,
+  the check never refuses the posting: every tier is taken as reached and
+  its warnings are marked `unassessed`); each unmet requirement of a tier it
   reaches is a warning, once (the first tier naming it), stored on the
   invoice (`supplier_invoice.documentary_warnings`) and returned as the
   invoice's `documentary_warnings` (code `supplier_tax_id_missing` or
   `item_description_missing`, the tier's threshold as money, whether it is
-  inclusive, the source, the pending flag and a message). Credit memos and
+  inclusive, the source, the pending flag, `unassessed` and a message). Credit memos and
   subsequent credits take tax back and are not checked; an invoice posted
   before has none. Canada 2026.3 states SOR/91-45 s. 3 (b) and (c) as two
   tiers (from CAD 100 the supplier's registration number; from CAD 500 also

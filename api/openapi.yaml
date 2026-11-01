@@ -27772,11 +27772,12 @@ components:
         - threshold_inclusive
         - source
         - pending_sign_off
+        - unassessed
         - message
       properties:
         code:
           type: string
-          description: "What is missing. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. `supplier_tax_id_missing`: the supplier's business partner holds no tax identifier, the registration number the document must show; `item_description_missing`: an item without an order has no description."
+          description: "What is missing. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. `supplier_tax_id_missing`: the supplier's business partner holds no tax identifier of the company's country (a scheme named after it, such as `CA_GST`), the registration number the document must show; `item_description_missing`: an item without an order has no description."
           x-extensible-enum:
             - supplier_tax_id_missing
             - item_description_missing
@@ -27804,6 +27805,10 @@ components:
           type: boolean
           description: "Whether the tier still awaits the tax specialist's confirmation."
           readOnly: true
+        unassessed:
+          type: boolean
+          description: "Whether the invoice's total could not be converted into the company's currency on its tax date (no rate of the company's tax rate type): every tier is then reported, for a person to check whether it applies, rather than the posting refused."
+          readOnly: true
         message:
           type: string
           description: The warning for people.
@@ -27818,7 +27823,8 @@ components:
           threshold_inclusive: true
           source: "SOR/91-45 s. 3(b): $100 or more and less than $500, the supplier's registration number"
           pending_sign_off: false
-          message: "The supplier has no tax identifier; its registration number must be on the document for the input tax of a document of 100.00 CAD or more to be recovered (SOR/91-45 s. 3(b): $100 or more and less than $500, the supplier's registration number)."
+          unassessed: false
+          message: "The supplier has no tax identifier of the company's country; its registration number must be on the document for the input tax of a document of 100.00 CAD or more to be recovered (SOR/91-45 s. 3(b): $100 or more and less than $500, the supplier's registration number)."
     SupplierInvoice:
       description: A supplier invoice (accounts payable).
       allOf:

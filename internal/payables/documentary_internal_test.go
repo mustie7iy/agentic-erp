@@ -12,7 +12,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
-	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -48,17 +47,21 @@ func TestDocumentaryRefusals(t *testing.T) {
 		{AtLeast: "100", Requires: []string{config.RequiresSupplierTaxID}, Source: "s"}}}}}}
 	e := &Endpoints{LegalEntities: oneEntity{}, Settings: oneDocument{doc}, Rates: rates{rate: "x"}}
 	v := Invoice{Kind: KindInvoice, Currency: "USD", Gross: 11900, Tax: 1900}
-	_, err := e.documentaryWarnings(context.Background(), v, partner.Supplier{}, time.Now())
-	if p := problem.From(err); p == nil || p.Code != "payables.amount_too_large" {
-		t.Errorf("an unconvertible total: got %v, want payables.amount_too_large", err)
+	day := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
+	ws, err := e.documentaryWarnings(context.Background(), nil, v, partner.Supplier{}, day)
+	if err != nil || len(ws) != 1 || !ws[0].Unassessed {
+		t.Errorf("a rate that cannot convert: got %+v, %v, want one unassessed warning", ws, err)
 	}
 	tiers := []config.DocumentaryRequirement{{AtLeast: "100.001", Requires: []string{config.RequiresSupplierTaxID}}}
-	if _, err := unmet(tiers, big.NewRat(1, 1), 2, "CAD", v, partner.Supplier{}); err == nil {
+	if _, err := unmet(tiers, big.NewRat(1, 1), 2, "CAD", v, partner.Supplier{}, "CA"); err == nil {
 		t.Error("a threshold with more digits than the currency's: got nil error, want one")
 	}
 	failing := errors.New("no rates")
 	e.Rates = rates{err: failing}
-	if _, err := e.taxConversion(context.Background(), "USD", "CAD", time.Now(), "bank_selling"); !errors.Is(err, failing) {
+	if _, err := e.taxConversion(context.Background(), "USD", "CAD", day, "bank_selling"); !errors.Is(err, failing) {
 		t.Errorf("a failing rate lookup: got %v, want %v", err, failing)
+	}
+	if got := settingsOf(nil); !got.IsZero() {
+		t.Errorf("settings without the company: got %+v, want the defaults", got)
 	}
 }

@@ -12964,8 +12964,9 @@ func (*DisableConnectorUnprocessableEntity) disableConnectorRes() {}
 type DocumentaryWarning struct {
 	// What is missing. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1. `supplier_tax_id_missing`: the supplier's business partner holds no tax
-	// identifier, the registration number the document must show; `item_description_missing`: an item
-	// without an order has no description.
+	// identifier of the company's country (a scheme named after it, such as `CA_GST`), the registration
+	// number the document must show; `item_description_missing`: an item without an order has no
+	// description.
 	Code string `json:"code"`
 	// The tier's requirement: `supplier_tax_id` or `item_descriptions`. Open enumeration: clients must
 	// accept and preserve values not listed here; values may be added within /v1.
@@ -12980,6 +12981,10 @@ type DocumentaryWarning struct {
 	Source string `json:"source"`
 	// Whether the tier still awaits the tax specialist's confirmation.
 	PendingSignOff bool `json:"pending_sign_off"`
+	// Whether the invoice's total could not be converted into the company's currency on its tax date (no
+	// rate of the company's tax rate type): every tier is then reported, for a person to check whether it
+	// applies, rather than the posting refused.
+	Unassessed bool `json:"unassessed"`
 	// The warning for people.
 	Message string `json:"message"`
 }
@@ -13012,6 +13017,11 @@ func (s *DocumentaryWarning) GetSource() string {
 // GetPendingSignOff returns the value of PendingSignOff.
 func (s *DocumentaryWarning) GetPendingSignOff() bool {
 	return s.PendingSignOff
+}
+
+// GetUnassessed returns the value of Unassessed.
+func (s *DocumentaryWarning) GetUnassessed() bool {
+	return s.Unassessed
 }
 
 // GetMessage returns the value of Message.
@@ -13047,6 +13057,11 @@ func (s *DocumentaryWarning) SetSource(val string) {
 // SetPendingSignOff sets the value of PendingSignOff.
 func (s *DocumentaryWarning) SetPendingSignOff(val bool) {
 	s.PendingSignOff = val
+}
+
+// SetUnassessed sets the value of Unassessed.
+func (s *DocumentaryWarning) SetUnassessed(val bool) {
+	s.Unassessed = val
 }
 
 // SetMessage sets the value of Message.

@@ -1545,9 +1545,10 @@ a JSON array, empty by default and before posting) are what its document
 may lack for its input tax to be recovered, recorded when it posts from
 the company's `tax_settings.documentary_requirements` (from the country
 pack): each requirement (`supplier_tax_id`, the supplier's partner holding
-a tax identifier; `item_descriptions`) of a tier its gross amount, in the
+a tax identifier of the company's country; `item_descriptions`) of a tier its gross amount, in the
 company's currency at the tax date's rate of `tax_settings.rate_type`,
-reaches. Warnings, never refusals. The column has a default and the
+reaches (all tiers, marked unassessed, when no rate converts it).
+Warnings, never refusals. The column has a default and the
 previous release names its columns, so the migration runs ahead.
 
 A supplier invoice is of a `kind` (migration 000059, T34a), as SAP's MIRO

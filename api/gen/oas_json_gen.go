@@ -36391,19 +36391,24 @@ func (s *DocumentaryWarning) encodeFields(e *jx.Encoder) {
 		e.Bool(s.PendingSignOff)
 	}
 	{
+		e.FieldStart("unassessed")
+		e.Bool(s.Unassessed)
+	}
+	{
 		e.FieldStart("message")
 		e.Str(s.Message)
 	}
 }
 
-var jsonFieldsNameOfDocumentaryWarning = [7]string{
+var jsonFieldsNameOfDocumentaryWarning = [8]string{
 	0: "code",
 	1: "requirement",
 	2: "threshold",
 	3: "threshold_inclusive",
 	4: "source",
 	5: "pending_sign_off",
-	6: "message",
+	6: "unassessed",
+	7: "message",
 }
 
 // Decode decodes DocumentaryWarning from json.
@@ -36485,8 +36490,20 @@ func (s *DocumentaryWarning) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"pending_sign_off\"")
 			}
-		case "message":
+		case "unassessed":
 			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				v, err := d.Bool()
+				s.Unassessed = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"unassessed\"")
+			}
+		case "message":
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.Message = string(v)
@@ -36507,7 +36524,7 @@ func (s *DocumentaryWarning) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b01111111,
+		0b11111111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

@@ -44,7 +44,8 @@ func toAPI(v Invoice) gen.SupplierInvoice {
 		DocumentaryWarnings: make([]gen.DocumentaryWarning, len(v.DocumentaryWarnings))}
 	for i, w := range v.DocumentaryWarnings {
 		out.DocumentaryWarnings[i] = gen.DocumentaryWarning{Code: w.Code, Requirement: w.Requirement, Threshold: apitypes.Money(w.Threshold, w.Currency, w.Exponent),
-			ThresholdInclusive: w.Inclusive, Source: w.Source, PendingSignOff: w.PendingSignOff, Message: w.Message()}
+			ThresholdInclusive: w.Inclusive, Source: w.Source, PendingSignOff: w.PendingSignOff, Unassessed: w.Unassessed,
+			Message: w.Message()}
 	}
 	if v.PostingDate != nil {
 		out.PostingDate.SetTo(*v.PostingDate)

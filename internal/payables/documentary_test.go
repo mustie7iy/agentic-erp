@@ -30,8 +30,8 @@ func (e env) withTaxSettings(t *testing.T, s config.TaxSettings) {
 	pgtest.Exec(t, `UPDATE config.active_version SET number = number + 1, version = version + 1 WHERE tenant_id = $1`, e.Tenant.ID)
 }
 
-// tiers are Canada's documentary tiers (SOR/91-45 s. 3) and the UAE's
-// (pending sign-off), in the company's currency.
+// tiers are Canada's documentary tiers (SOR/91-45 s. 3), in the company's
+// currency.
 func tiers() []config.DocumentaryRequirement {
 	return []config.DocumentaryRequirement{
 		{AtLeast: "100", Requires: []string{config.RequiresSupplierTaxID}, Source: "SOR/91-45 s. 3(b)"},
@@ -72,12 +72,18 @@ func TestDocumentaryWarnings(t *testing.T) {
 		{"both tiers", "595.00", "95.00", undescribed, false,
 			[]string{"supplier_tax_id_missing 100.00 EUR true false", "item_description_missing 500.00 EUR true false"}},
 		{"with a tax identifier", "595.00", "95.00", undescribed, true, []string{"item_description_missing 500.00 EUR true false"}},
+		{"with another country's tax identifier only", "119.00", "19.00", accountItem(e.expense, "100.00"), false,
+			[]string{"supplier_tax_id_missing 100.00 EUR true false"}},
 		{"described, with a tax identifier", "595.00", "95.00", accountItem(e.expense, "500.00"), true, nil},
 		{"no tax claimed", "500.00", "0.00", untaxedItem(e.expense, "500.00"), false, nil},
 	}
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			supplier := e.Supplier
+			// The supplier holds only a US identifier, no German one (company
+			// 2000 is in DE); the vendor holds a German one.
+			pgtest.Exec(t, `INSERT INTO partner.tax_identifier (tenant_id, partner_id, scheme, value_cipher, value_fingerprint, value_last4, created_by, updated_by)
+				VALUES ($1, $2, 'US_TAX', '\x00', repeat('b', 64), '1234', $3, $3) ON CONFLICT DO NOTHING`, e.Tenant.ID, e.Supplier, e.Tenant.Human.ID)
 			if tc.taxID {
 				supplier = e.Vendor
 				pgtest.Exec(t, `INSERT INTO partner.tax_identifier (tenant_id, partner_id, scheme, value_cipher, value_fingerprint, value_last4, created_by, updated_by)
@@ -116,7 +122,7 @@ func TestDocumentaryWarningAbove(t *testing.T) {
 		t.Fatalf("above the threshold: got %v, want %v", got, want)
 	}
 	msg := posted["documentary_warnings"].([]any)[0].(map[string]any)["message"]
-	if want := "The supplier has no tax identifier; its registration number must be on the document for the input tax of a document above 100.00 EUR " +
+	if want := "The supplier has no tax identifier of the company's country; its registration number must be on the document for the input tax of a document above 100.00 EUR " +
 		"to be recovered (UAE Executive Regulation Art. 59)."; msg != want {
 		t.Errorf("message: got %v, want %s", msg, want)
 	}
@@ -172,4 +178,30 @@ func TestDocumentaryDatabaseFailures(t *testing.T) {
 		_, err := endpoints(nil).PostInvoice(ctx, uuid.MustParse(id(inv)), func(int32) error { return nil }, nil)
 		return err
 	})
+}
+
+// TestDocumentaryWithoutARate: an invoice whose total cannot be converted
+// into the company's currency on its tax date (no rate of the tax rate
+// type; its items uncoded, so its tax needs none) still posts (ADR-0049
+// §6: warnings, never refusals), every tier's unmet requirement reported
+// as unassessed.
+func TestDocumentaryWithoutARate(t *testing.T) {
+	e := setup(t)
+	e.withTaxSettings(t, config.TaxSettings{RateType: "bank_selling", DocumentaryRequirements: tiers()})
+	body := strings.ReplaceAll(e.invoice(e.Supplier, "USD-UNCODED", "105.00", "5.00", untaxedItem(e.expense, "100.00")), `"EUR"`, `"USD"`)
+	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
+		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-01-01', 0.9, 'ECB', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
+	inv, _ := e.Must(201, "POST", "/v1/supplier-invoices", body, "")
+	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "post without a rate", func(ctx context.Context) error {
+		_, err := endpoints(nil).PostInvoice(ctx, uuid.MustParse(id(inv)), func(int32) error { return nil }, nil)
+		return err
+	})
+	posted := e.act(t, 200, id(inv), "post", `{"posting_date": "2026-03-21"}`)
+	if got, want := warnings(posted), []string{"supplier_tax_id_missing 100.00 EUR true false"}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("warnings: got %v, want %v", got, want)
+	}
+	w := posted["documentary_warnings"].([]any)[0].(map[string]any)
+	if w["unassessed"] != true || !strings.Contains(fmt.Sprint(w["message"]), "could not be converted into EUR") {
+		t.Errorf("warning: got %v, want it unassessed, saying the total could not be converted", w)
+	}
 }

@@ -144,7 +144,7 @@ func (e *Endpoints) markPosted(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 	if err := keepTerms(ctx, tx, p, v, in.Terms); err != nil {
 		return err
 	}
-	warnings, err := e.documentaryWarnings(ctx, v, sup, *in.TaxDate)
+	warnings, err := e.documentaryWarnings(ctx, tx, v, sup, *in.TaxDate)
 	if err != nil {
 		return err
 	}
