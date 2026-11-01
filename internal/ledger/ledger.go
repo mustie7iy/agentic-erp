@@ -39,6 +39,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -90,6 +91,14 @@ type Endpoints struct {
 	// the company's date in its time zone on (keepsDefaultCostCenter).
 	// nil: the wall clock.
 	Now func() time.Time
+	// People tells whether a person is still active: the owner of an entry
+	// template, for whom the recurrer parks (ADR-0056).
+	People People
+}
+
+// People is the identity context's directory of principals.
+type People interface {
+	Active(ctx context.Context, tx pgx.Tx, id uuid.UUID) (bool, error)
 }
 
 // days tells the companies' dates by the endpoints' clock.

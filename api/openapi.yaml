@@ -6238,6 +6238,23 @@ paths:
               - human
               - agent
               - service
+              - system
+        - name: template_id
+          in: query
+          required: false
+          description: "Only entries parked from this entry template (`parkFromEntryTemplate` or its schedule)."
+          schema:
+            type: string
+            format: uuid
+        - name: owned_by
+          in: query
+          required: false
+          description: "`me`: only the caller's own entries, the entries waiting for the caller to post them among them (with `status=parked`); among them those the schedules of the caller's entry templates parked (ADR-0056). An agent's or a service's list is empty. Any other value is 400 `request.invalid_parameter`."
+          schema:
+            type: string
+            description: "Whose entries. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - me
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -6608,6 +6625,398 @@ paths:
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParkedJournalEntry"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/entry-templates:
+    get:
+      operationId: listEntryTemplates
+      tags:
+        - ledger
+      summary: List entry templates
+      description: "Entry templates (ADR-0056): saved manual entries, with their schedules, newest first. Sortable by: `created_at`."
+      x-permission: ledger.entry.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: status
+          in: query
+          required: false
+          description: Only templates in this status.
+          schema:
+            type: string
+            description: "Entry template status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - active
+              - retired
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of entry templates.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntryTemplatePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createEntryTemplate
+      tags:
+        - ledger
+      summary: Save an entry template
+      description: "Saves a manual journal entry without its dates as a template (ADR-0056, `EntryTemplateChanged`), for a person to park entries from (`parkFromEntryTemplate`) or, with a `schedule`, for the ERP to park one entry per due date. It is checked as parking checks an entry (`parkJournalEntry`), on its schedule's first date or else its company's date today; every use checks it again, since accounts and centers may be blocked later. Its name is unique in its legal entity (409 `ledger.template_name_taken`). A person owns what they save, and owns the entries the schedule parks; an agent's or a service's template has no owner until a person takes it on by changing it, and its schedule parks nothing until then. Scheduled entries are parked, never posted: the owner posts them with `postParkedJournalEntry`, within the approval limit or with someone else's approval. Amounts are fixed: the parked entry may be changed before it is posted."
+      x-permission: ledger.entry.park
+      x-autonomy: propose
+      x-problem-codes:
+        - config.not_bootstrapped
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.invalid_schedule
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.template_name_taken
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The entry template to save.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EntryTemplateCreate"
+      responses:
+        "201":
+          description: "Created; the entry template."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntryTemplate"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/entry-templates/{id}":
+    get:
+      operationId: getEntryTemplate
+      tags:
+        - ledger
+      summary: Get an entry template
+      description: "Returns one entry template with its lines, its schedule's next due date (`next_due_on`), the last date it parked an entry for and the last it could not (`last_refusal`)."
+      x-permission: ledger.entry.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The entry template.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntryTemplate"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateEntryTemplate
+      tags:
+        - ledger
+      summary: Change an entry template
+      description: "Changes an active entry template (409 `ledger.template_retired` otherwise; `EntryTemplateChanged`). JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears `reference`, `header_text` or `schedule`, and `lines` replaces the lines as a whole. The legal entity and the ledgers do not change. It is checked again as saving checks it, and its schedule goes on after the last date the ERP parked or refused: a changed schedule parks nothing for dates before it. Entries parked from it before do not change. Only its owner changes it (403 `ledger.not_template_owner`): the person who saved it; a person who changes an agent's or service's template no person owns takes it on and becomes its owner; an agent or service changes only a template it saved that no person has taken on."
+      x-permission: ledger.entry.park
+      x-autonomy: propose
+      x-problem-codes:
+        - config.not_bootstrapped
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.invalid_schedule
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.not_template_owner
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.template_name_taken
+        - ledger.template_retired
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the entry template.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/EntryTemplateUpdate"
+      responses:
+        "200":
+          description: The entry template after the change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntryTemplate"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/entry-templates/{id}:retire":
+    post:
+      operationId: retireEntryTemplate
+      tags:
+        - ledger
+      summary: Retire an entry template
+      description: "Retires an active entry template for good (status `retired`, `EntryTemplateChanged`): it changes no more, nothing is parked from it, and its schedule ends. Entries parked from it stay as they are. Only its owner retires it (403 `ledger.not_template_owner`), as for `updateEntryTemplate`."
+      x-permission: ledger.entry.park
+      x-autonomy: propose
+      x-problem-codes:
+        - ledger.not_template_owner
+        - ledger.template_name_taken
+        - ledger.template_retired
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The entry template after retireEntryTemplate.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntryTemplate"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/entry-templates/{id}:park":
+    post:
+      operationId: parkFromEntryTemplate
+      tags:
+        - ledger
+      summary: Park an entry from a template
+      description: "Parks a manual journal entry from an active entry template (409 `ledger.template_retired` otherwise) at the version the caller read (`If-Match`), dated as the request says, for a person to post (`ParkedJournalEntryChanged`): an ordinary parked entry naming the template (`template_id`), checked as `parkJournalEntry` checks one and owned as it would be, by the caller when a person. From there it is changed, posted (`postParkedJournalEntry`, with the open period and the approval limit) or cancelled as any parked entry. Any principal who may park entries in the template's company may use it, not only its owner; the template's schedule does not move."
+      x-permission: ledger.entry.park
+      x-autonomy: propose
+      x-problem-codes:
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.template_retired
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The dates and reference of the entry to park.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EntryTemplateUse"
+      responses:
+        "201":
+          description: "Created; the parked journal entry."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
             Idempotent-Replayed:
               $ref: "#/components/headers/IdempotentReplayed"
           content:
@@ -23997,6 +24406,403 @@ components:
           amount:
             amount: "1200.00"
             currency: EUR
+    EntrySchedule:
+      type: object
+      description: "When a template's entry recurs (ADR-0056): every month, quarter or year on `day_of_month`, the month's last day when it is shorter, from `starts_on` on (the first date in `starts_on`'s month, or the next period's when that date is before it); until `ends_on`, for `occurrences` dates, or without end. Its dates are the company's days in its time zone: a date is due once it is today or past there. Each due date parks one entry, dated that day, for the template's owner; dates missed while nothing ran are parked later, oldest first."
+      required:
+        - frequency
+        - day_of_month
+        - starts_on
+      properties:
+        frequency:
+          type: string
+          description: "How often. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - monthly
+            - quarterly
+            - yearly
+        day_of_month:
+          type: integer
+          format: int32
+          description: "Day of the month, 1 to 31; the month's last day in a shorter month."
+          minimum: 1
+          maximum: 31
+        starts_on:
+          type: string
+          format: date
+          description: No date before this one.
+        ends_on:
+          type: string
+          format: date
+          description: "No date after this one; not with `occurrences`."
+        occurrences:
+          type: integer
+          format: int32
+          description: "The number of dates, counted from the first; not with `ends_on`."
+          minimum: 1
+          maximum: 1200
+      additionalProperties: false
+    EntryTemplateRefusal:
+      type: object
+      description: "The latest due date the ERP could not park an entry for, and the problem that refused it (an account blocked since the template was saved; an owner no longer active, without `ledger.entry.park` or without access to its company: `ledger.owner_not_permitted`). The date is passed over: the template is corrected and that date parked with `parkFromEntryTemplate`. Earlier refused dates are in the audit trail and in their `EntryTemplateChanged` events."
+      required:
+        - occurrence_date
+        - code
+        - detail
+      properties:
+        occurrence_date:
+          type: string
+          format: date
+          description: The due date refused.
+          readOnly: true
+        code:
+          type: string
+          description: "The refusing problem's `code`, as `parkJournalEntry` would answer it."
+          readOnly: true
+        detail:
+          type: string
+          description: "The refusing problem's `detail`."
+          readOnly: true
+    EntryTemplate:
+      description: "A manual journal entry saved without its dates (ADR-0056): entries are parked from it once (`parkFromEntryTemplate`) or by its `schedule`, for its owner. It moves `active` -> `retired`, for good."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - legal_entity_id
+            - ledger_id
+            - name
+            - document_type
+            - currency
+            - status
+            - created_by_kind
+            - lines
+          properties:
+            legal_entity_id:
+              type: string
+              format: uuid
+              description: Legal entity.
+              readOnly: true
+            ledger_id:
+              type: string
+              format: uuid
+              description: "The ledger named (`ledger_specific`), the ledger group's representative, or the leading ledger when its entries post to every ledger their company keeps."
+              readOnly: true
+            ledger_specific:
+              type: boolean
+              description: Its entries post to `ledger_id` alone.
+              readOnly: true
+            ledger_group:
+              type: string
+              description: Code of the ledger group its entries post to, if any.
+              readOnly: true
+            name:
+              type: string
+              description: "Name, unique in the legal entity."
+              readOnly: true
+            document_type:
+              type: string
+              description: Document type of its entries.
+              readOnly: true
+            currency:
+              type: string
+              description: Transaction currency.
+              readOnly: true
+            reference:
+              type: string
+              description: External reference of its entries.
+              readOnly: true
+            header_text:
+              type: string
+              description: Header text of its entries.
+              readOnly: true
+            status:
+              type: string
+              description: "Entry template status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - active
+                - retired
+              readOnly: true
+            created_by_kind:
+              type: string
+              description: "Kind of principal that saved it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - human
+                - agent
+                - service
+              readOnly: true
+            owner_id:
+              type: string
+              format: uuid
+              description: "The person who owns it, alone changes or retires it, and owns the entries its schedule parks: who saved it, or for an agent's or service's template the person who took it on; absent until then, and its schedule parks nothing."
+              readOnly: true
+            schedule:
+              $ref: "#/components/schemas/EntrySchedule"
+            next_due_on:
+              type: string
+              format: date
+              description: "The schedule's next date: the first after the last the ERP parked or refused. Absent without a schedule, once it has ended or the template is retired."
+              readOnly: true
+            last_occurrence_on:
+              type: string
+              format: date
+              description: The latest due date the ERP parked an entry for.
+              readOnly: true
+            last_refusal:
+              $ref: "#/components/schemas/EntryTemplateRefusal"
+            lines:
+              type: array
+              items:
+                $ref: "#/components/schemas/ParkedJournalLine"
+              description: "The lines, balancing to zero, as a parked entry's: amounts fixed for every entry parked from it."
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          version: 1
+          created_at: "2026-11-01T09:00:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-01T09:00:00Z"
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d09"
+          name: Office rent
+          document_type: SA
+          currency: CAD
+          header_text: Monthly office rent
+          status: active
+          created_by_kind: human
+          owner_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          schedule:
+            frequency: monthly
+            day_of_month: 1
+            starts_on: "2026-11-01"
+          next_due_on: "2026-12-01"
+          last_occurrence_on: "2026-11-01"
+          lines:
+            - line_no: 1
+              account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d06"
+              amount:
+                amount: "4500.00"
+                currency: CAD
+            - line_no: 2
+              account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d07"
+              amount:
+                amount: "-4500.00"
+                currency: CAD
+    EntryTemplateCreate:
+      type: object
+      description: "An entry template to save: a manual journal entry without its dates, and optionally its schedule."
+      required:
+        - legal_entity_id
+        - name
+        - currency
+        - lines
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity.
+        ledger_id:
+          type: string
+          format: uuid
+          description: "The one ledger its entries post to, as `JournalEntryCreate` `ledger_id`."
+        ledger_group:
+          type: string
+          description: "Code of the ledger group its entries post to, as `JournalEntryCreate` `ledger_group`."
+          pattern: "^[0-9A-Z]{1,4}$"
+        name:
+          type: string
+          description: "Name, unique in the legal entity."
+          minLength: 1
+          maxLength: 100
+          pattern: "\\S"
+        document_type:
+          type: string
+          description: Document type of its entries.
+          pattern: "^[A-Z0-9]{2}$"
+          default: SA
+        currency:
+          type: string
+          description: "Transaction currency; every line amount must use it."
+          pattern: "^[A-Z]{3}$"
+        reference:
+          type: string
+          description: External reference of its entries.
+          maxLength: 40
+        header_text:
+          type: string
+          description: Header text of its entries.
+          maxLength: 200
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/JournalLineInput"
+          description: "Lines; they must balance to zero."
+          minItems: 2
+          maxItems: 10000
+        schedule:
+          $ref: "#/components/schemas/EntrySchedule"
+      additionalProperties: false
+      examples:
+        - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          name: Office rent
+          currency: CAD
+          header_text: Monthly office rent
+          lines:
+            - account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d06"
+              amount:
+                amount: "4500.00"
+                currency: CAD
+            - account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d07"
+              amount:
+                amount: "-4500.00"
+                currency: CAD
+          schedule:
+            frequency: monthly
+            day_of_month: 1
+            starts_on: "2026-11-01"
+    EntryTemplateUpdate:
+      type: object
+      description: Merge patch of an entry template.
+      properties:
+        name:
+          type: string
+          description: "Name, unique in the legal entity."
+          minLength: 1
+          maxLength: 100
+          pattern: "\\S"
+        document_type:
+          type: string
+          description: Document type.
+          pattern: "^[A-Z0-9]{2}$"
+        currency:
+          type: string
+          description: "Transaction currency; every line amount must use it, so a change of currency comes with the lines."
+          pattern: "^[A-Z]{3}$"
+        reference:
+          type:
+            - string
+            - "null"
+          description: External reference. Send null to clear.
+          maxLength: 40
+        header_text:
+          type:
+            - string
+            - "null"
+          description: Header text. Send null to clear.
+          maxLength: 200
+        schedule:
+          $ref: "#/components/schemas/NullableEntrySchedule"
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/JournalLineInput"
+          description: "Complete list of lines; they must balance to zero."
+          minItems: 2
+          maxItems: 10000
+      additionalProperties: false
+      examples:
+        - header_text: Monthly office rent, new lease
+    EntryTemplateUse:
+      type: object
+      description: The entry to park from a template.
+      required:
+        - posting_date
+      properties:
+        posting_date:
+          type: string
+          format: date
+          description: "Posting date; its period must be open when the entry is posted, not now."
+        document_date:
+          type: string
+          format: date
+          description: Document date; the posting date when absent.
+        reference:
+          type: string
+          description: "External reference; the template's when absent."
+          maxLength: 40
+      additionalProperties: false
+      examples:
+        - posting_date: "2026-11-30"
+    EntryTemplatePage:
+      type: object
+      description: One page of entry templates.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/EntryTemplate"
+          description: The entry templates on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items:
+            - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+              version: 1
+              created_at: "2026-11-01T09:00:00Z"
+              created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+              updated_at: "2026-11-01T09:00:00Z"
+              legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+              ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d09"
+              name: Office rent
+              document_type: SA
+              currency: CAD
+              status: active
+              created_by_kind: human
+              owner_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+              next_due_on: "2026-12-01"
+              lines:
+                - line_no: 1
+                  account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d06"
+                  amount:
+                    amount: "4500.00"
+                    currency: CAD
+                - line_no: 2
+                  account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d07"
+                  amount:
+                    amount: "-4500.00"
+                    currency: CAD
+    NullableEntrySchedule:
+      type:
+        - object
+        - "null"
+      description: "The schedule as a whole (EntrySchedule); send null to remove it, and the template parks nothing by itself."
+      required:
+        - frequency
+        - day_of_month
+        - starts_on
+      properties:
+        frequency:
+          type: string
+          description: "How often. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - monthly
+            - quarterly
+            - yearly
+        day_of_month:
+          type: integer
+          format: int32
+          description: "Day of the month, 1 to 31; the month's last day in a shorter month."
+          minimum: 1
+          maximum: 31
+        starts_on:
+          type: string
+          format: date
+          description: No date before this one.
+        ends_on:
+          type: string
+          format: date
+          description: "No date after this one; not with `occurrences`."
+        occurrences:
+          type: integer
+          format: int32
+          description: "The number of dates, counted from the first; not with `ends_on`."
+          minimum: 1
+          maximum: 1200
+      additionalProperties: false
     ParkedEntryLimit:
       type: object
       description: "Why the ERP parked an entry instead of posting it (ADR-0049 §7, T61n): a service principal (an integration such as a billing system) posted it with `postJournalEntry`, and its debits, converted exactly into its company's currency at the average rate of its posting date, exceeded the company's `service_posting_limit` (its `manual_entry_approval_limit` when it has none). The figures are the ones measured when it was parked and never change, also when a person changes the entry afterwards."
@@ -24098,11 +24904,12 @@ components:
               readOnly: true
             created_by_kind:
               type: string
-              description: "Kind of principal that parked the entry; `agent` marks an agent's proposal. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "Kind of principal that parked the entry; `agent` marks an agent's proposal, `system` an entry the ERP parked for a due date of an entry template's schedule (ADR-0056). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - human
                 - agent
                 - service
+                - system
               readOnly: true
             owner_id:
               type: string
@@ -24132,6 +24939,20 @@ components:
               readOnly: true
             limit_exceeded:
               $ref: "#/components/schemas/ParkedEntryLimit"
+            template_id:
+              type: string
+              format: uuid
+              description: "The entry template it was parked from (ADR-0056), by a person (`parkFromEntryTemplate`) or by its schedule."
+              readOnly: true
+            template_name:
+              type: string
+              description: "Name of the entry template it was parked from, set with `template_id`."
+              readOnly: true
+            occurrence_date:
+              type: string
+              format: date
+              description: "The due date of the template's schedule the ERP parked it for, owned by the template's owner (`created_by_kind` `system`); absent when a principal parked it."
+              readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
           version: 1

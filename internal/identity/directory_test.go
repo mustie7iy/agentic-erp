@@ -9,6 +9,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 func TestDirectory(t *testing.T) {
@@ -59,5 +60,32 @@ func TestDirectory(t *testing.T) {
 			}
 			apitest.EveryFailure(t, ten, ten.Human, name, call)
 		})
+	}
+}
+
+// TestActorsActive: a principal is active until it is blocked; an unknown
+// one is an error.
+func TestActorsActive(t *testing.T) {
+	ten := pgtest.NewTenant(t)
+	pgtest.Exec(t, `UPDATE identity.principal SET status = 'blocked', version = version + 1 WHERE id = $1`, ten.Agent.ID)
+	err := apitest.InRequest(t, ten, ten.Human, func(ctx context.Context) error {
+		tx, _ := reqctx.TxFrom(ctx)
+		for name, c := range map[string]struct {
+			id   uuid.UUID
+			want bool
+		}{"active": {ten.Human.ID, true}, "blocked": {ten.Agent.ID, false}} {
+			t.Run(name, func(t *testing.T) {
+				if got, err := (identity.Actors{}).Active(ctx, tx, c.id); err != nil || got != c.want {
+					t.Errorf("got %v %v, want %v", got, err, c.want)
+				}
+			})
+		}
+		if _, err := (identity.Actors{}).Active(ctx, tx, uuid.New()); err == nil {
+			t.Error("an unknown principal: got no error, want one")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

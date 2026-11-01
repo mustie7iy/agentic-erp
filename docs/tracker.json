@@ -190,10 +190,10 @@
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Recurring and template entries",
-      "r": "",
-      "src": "baseline",
+      "r": "ADR-0056 · migrations 000184, 000185 · /v1/entry-templates (create, change, :retire, :park) · listParkedJournalEntries template_id, owned_by=me · EntryTemplateChanged · ledger.ParkOccurrence · workflows ParkRecurringEntry, Dispatcher recur, Recurrer · TestRecurringEntries · TestParkOccurrenceTwice · TestParkRecurringEntryReplay · walkthrough step 8",
+      "src": "po:2026-11-01",
       "pilot": "po:2026-10-31",
       "c": []
      },

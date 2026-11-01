@@ -194,9 +194,7 @@ func New(cfg Config) (http.Handler, error) {
 			Dependencies: Configuration(cfg)},
 		partnerAPI: &partner.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys, Schemas: configuration.Settings{}, Rules: configuration.Settings{},
 			PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, PlanningGroups: cash.PlanningGroups{}, Approvals: opener()},
-		ledgerAPI: &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
-			Numbers: configuration.Numbers{}, Orders: procurement.Orders{}, Approvals: opener(), Settings: configuration.Settings{}, TaxReturns: taxfiling.Holds{},
-			Now: cfg.Now},
+		ledgerAPI:      Ledger(cfg),
 		workflowAPI:    &approvals.Endpoints{Pages: cfg.Pages, Decider: approvals.Decider{Roles: identity.Directory{}, AgentKind: identity.AgentKind, Metrics: cfg.Metrics, Handlers: approvalHandlers(cfg)}},
 		procurementAPI: procurementEndpoints(cfg),
 		payablesAPI:    payablesEndpoints(cfg, upload),
@@ -292,6 +290,14 @@ func Configuration(cfg Config) configuration.Dependencies {
 		Disclosures: []configuration.Disclosure{payables.Disclosure{}, endpoint.Disclosure{Endpoints: analyticsEndpoints(cfg, nil)},
 			ledger.AssignmentDisclosure{}},
 	}
+}
+
+// Ledger is the ledger context as the API wires it, for the recurring
+// entries' activity to park with the same ports (ADR-0056).
+func Ledger(cfg Config) *ledger.Endpoints {
+	return &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
+		Numbers: configuration.Numbers{}, Orders: procurement.Orders{}, Approvals: opener(), Settings: configuration.Settings{}, TaxReturns: taxfiling.Holds{},
+		Now: cfg.Now, People: identity.Actors{}}
 }
 
 // Payments is the payments context as the API wires it, for the proposal

@@ -406,6 +406,21 @@ type Invoker interface {
 	//
 	// POST /v1/down-payment-requests
 	CreateDownPaymentRequest(ctx context.Context, request *DownPaymentRequestCreate, params CreateDownPaymentRequestParams) (CreateDownPaymentRequestRes, error)
+	// CreateEntryTemplate invokes createEntryTemplate operation.
+	//
+	// Saves a manual journal entry without its dates as a template (ADR-0056, `EntryTemplateChanged`), for
+	// a person to park entries from (`parkFromEntryTemplate`) or, with a `schedule`, for the ERP to park
+	// one entry per due date. It is checked as parking checks an entry (`parkJournalEntry`), on its
+	// schedule's first date or else its company's date today; every use checks it again, since accounts
+	// and centers may be blocked later. Its name is unique in its legal entity (409
+	// `ledger.template_name_taken`). A person owns what they save, and owns the entries the schedule
+	// parks; an agent's or a service's template has no owner until a person takes it on by changing it,
+	// and its schedule parks nothing until then. Scheduled entries are parked, never posted: the owner
+	// posts them with `postParkedJournalEntry`, within the approval limit or with someone else's approval.
+	// Amounts are fixed: the parked entry may be changed before it is posted.
+	//
+	// POST /v1/entry-templates
+	CreateEntryTemplate(ctx context.Context, request *EntryTemplateCreate, params CreateEntryTemplateParams) (CreateEntryTemplateRes, error)
 	// CreateExchangeRate invokes createExchangeRate operation.
 	//
 	// Records a rate. Rates are insert-only; recording the same rate type, currency pair and `valid_from`
@@ -947,6 +962,13 @@ type Invoker interface {
 	//
 	// GET /v1/down-payment-requests/{id}
 	GetDownPaymentRequest(ctx context.Context, params GetDownPaymentRequestParams) (GetDownPaymentRequestRes, error)
+	// GetEntryTemplate invokes getEntryTemplate operation.
+	//
+	// Returns one entry template with its lines, its schedule's next due date (`next_due_on`), the last
+	// date it parked an entry for and the last it could not (`last_refusal`).
+	//
+	// GET /v1/entry-templates/{id}
+	GetEntryTemplate(ctx context.Context, params GetEntryTemplateParams) (GetEntryTemplateRes, error)
 	// GetExchangeRate invokes getExchangeRate operation.
 	//
 	// Returns one exchange rate.
@@ -1454,6 +1476,13 @@ type Invoker interface {
 	//
 	// GET /v1/down-payment-requests
 	ListDownPaymentRequests(ctx context.Context, params ListDownPaymentRequestsParams) (ListDownPaymentRequestsRes, error)
+	// ListEntryTemplates invokes listEntryTemplates operation.
+	//
+	// Entry templates (ADR-0056): saved manual entries, with their schedules, newest first. Sortable by:
+	// `created_at`.
+	//
+	// GET /v1/entry-templates
+	ListEntryTemplates(ctx context.Context, params ListEntryTemplatesParams) (ListEntryTemplatesRes, error)
 	// ListExchangeRates invokes listExchangeRates operation.
 	//
 	// Exchange rates by type and currency pair. Sortable by: `valid_from`.
@@ -2008,6 +2037,18 @@ type Invoker interface {
 	//
 	// POST /v1/fiscal-periods/{id}:open
 	OpenFiscalPeriod(ctx context.Context, params OpenFiscalPeriodParams) (OpenFiscalPeriodRes, error)
+	// ParkFromEntryTemplate invokes parkFromEntryTemplate operation.
+	//
+	// Parks a manual journal entry from an active entry template (409 `ledger.template_retired` otherwise)
+	// at the version the caller read (`If-Match`), dated as the request says, for a person to post
+	// (`ParkedJournalEntryChanged`): an ordinary parked entry naming the template (`template_id`), checked
+	// as `parkJournalEntry` checks one and owned as it would be, by the caller when a person. From there
+	// it is changed, posted (`postParkedJournalEntry`, with the open period and the approval limit) or
+	// cancelled as any parked entry. Any principal who may park entries in the template's company may use
+	// it, not only its owner; the template's schedule does not move.
+	//
+	// POST /v1/entry-templates/{id}:park
+	ParkFromEntryTemplate(ctx context.Context, request *EntryTemplateUse, params ParkFromEntryTemplateParams) (ParkFromEntryTemplateRes, error)
 	// ParkJournalEntry invokes parkJournalEntry operation.
 	//
 	// Parks a manual journal entry for a person to post (`ParkedJournalEntryChanged`). It is checked as a
@@ -2542,6 +2583,14 @@ type Invoker interface {
 	//
 	// POST /v1/webhook-subscriptions/{id}:resume
 	ResumeWebhookSubscription(ctx context.Context, params ResumeWebhookSubscriptionParams) (ResumeWebhookSubscriptionRes, error)
+	// RetireEntryTemplate invokes retireEntryTemplate operation.
+	//
+	// Retires an active entry template for good (status `retired`, `EntryTemplateChanged`): it changes no
+	// more, nothing is parked from it, and its schedule ends. Entries parked from it stay as they are.
+	// Only its owner retires it (403 `ledger.not_template_owner`), as for `updateEntryTemplate`.
+	//
+	// POST /v1/entry-templates/{id}:retire
+	RetireEntryTemplate(ctx context.Context, params RetireEntryTemplateParams) (RetireEntryTemplateRes, error)
 	// ReverseGoodsReceipt invokes reverseGoodsReceipt operation.
 	//
 	// Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
@@ -2789,6 +2838,19 @@ type Invoker interface {
 	//
 	// PATCH /v1/cost-centers/{id}
 	UpdateCostCenter(ctx context.Context, request *CenterTextsUpdate, params UpdateCostCenterParams) (UpdateCostCenterRes, error)
+	// UpdateEntryTemplate invokes updateEntryTemplate operation.
+	//
+	// Changes an active entry template (409 `ledger.template_retired` otherwise; `EntryTemplateChanged`).
+	// JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears `reference`, `header_text`
+	// or `schedule`, and `lines` replaces the lines as a whole. The legal entity and the ledgers do not
+	// change. It is checked again as saving checks it, and its schedule goes on after the last date the
+	// ERP parked or refused: a changed schedule parks nothing for dates before it. Entries parked from it
+	// before do not change. Only its owner changes it (403 `ledger.not_template_owner`): the person who
+	// saved it; a person who changes an agent's or service's template no person owns takes it on and
+	// becomes its owner; an agent or service changes only a template it saved that no person has taken on.
+	//
+	// PATCH /v1/entry-templates/{id}
+	UpdateEntryTemplate(ctx context.Context, request *EntryTemplateUpdate, params UpdateEntryTemplateParams) (UpdateEntryTemplateRes, error)
 	// UpdateLegalEntity invokes updateLegalEntity operation.
 	//
 	// Changes master data of a legal entity. JSON Merge Patch (RFC 7396): absent fields are unchanged,
@@ -8905,6 +8967,145 @@ func (c *Client) sendCreateDownPaymentRequest(ctx context.Context, request *Down
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateDownPaymentRequestResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateEntryTemplate invokes createEntryTemplate operation.
+//
+// Saves a manual journal entry without its dates as a template (ADR-0056, `EntryTemplateChanged`), for
+// a person to park entries from (`parkFromEntryTemplate`) or, with a `schedule`, for the ERP to park
+// one entry per due date. It is checked as parking checks an entry (`parkJournalEntry`), on its
+// schedule's first date or else its company's date today; every use checks it again, since accounts
+// and centers may be blocked later. Its name is unique in its legal entity (409
+// `ledger.template_name_taken`). A person owns what they save, and owns the entries the schedule
+// parks; an agent's or a service's template has no owner until a person takes it on by changing it,
+// and its schedule parks nothing until then. Scheduled entries are parked, never posted: the owner
+// posts them with `postParkedJournalEntry`, within the approval limit or with someone else's approval.
+// Amounts are fixed: the parked entry may be changed before it is posted.
+//
+// POST /v1/entry-templates
+func (c *Client) CreateEntryTemplate(ctx context.Context, request *EntryTemplateCreate, params CreateEntryTemplateParams) (CreateEntryTemplateRes, error) {
+	res, err := c.sendCreateEntryTemplate(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateEntryTemplate(ctx context.Context, request *EntryTemplateCreate, params CreateEntryTemplateParams) (res CreateEntryTemplateRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createEntryTemplate"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/entry-templates"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateEntryTemplateOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/entry-templates"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateEntryTemplateRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateEntryTemplateOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateEntryTemplateResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -17458,6 +17659,138 @@ func (c *Client) sendGetDownPaymentRequest(ctx context.Context, params GetDownPa
 
 	stage = "DecodeResponse"
 	result, err := decodeGetDownPaymentRequestResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetEntryTemplate invokes getEntryTemplate operation.
+//
+// Returns one entry template with its lines, its schedule's next due date (`next_due_on`), the last
+// date it parked an entry for and the last it could not (`last_refusal`).
+//
+// GET /v1/entry-templates/{id}
+func (c *Client) GetEntryTemplate(ctx context.Context, params GetEntryTemplateParams) (GetEntryTemplateRes, error) {
+	res, err := c.sendGetEntryTemplate(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetEntryTemplate(ctx context.Context, params GetEntryTemplateParams) (res GetEntryTemplateRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getEntryTemplate"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/entry-templates/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetEntryTemplateOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/entry-templates/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetEntryTemplateOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetEntryTemplateResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -29060,6 +29393,209 @@ func (c *Client) sendListDownPaymentRequests(ctx context.Context, params ListDow
 	return result, nil
 }
 
+// ListEntryTemplates invokes listEntryTemplates operation.
+//
+// Entry templates (ADR-0056): saved manual entries, with their schedules, newest first. Sortable by:
+// `created_at`.
+//
+// GET /v1/entry-templates
+func (c *Client) ListEntryTemplates(ctx context.Context, params ListEntryTemplatesParams) (ListEntryTemplatesRes, error) {
+	res, err := c.sendListEntryTemplates(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListEntryTemplates(ctx context.Context, params ListEntryTemplatesParams) (res ListEntryTemplatesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listEntryTemplates"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/entry-templates"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListEntryTemplatesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/entry-templates"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListEntryTemplatesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListEntryTemplatesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListExchangeRates invokes listExchangeRates operation.
 //
 // Exchange rates by type and currency pair. Sortable by: `valid_from`.
@@ -33993,6 +34529,40 @@ func (c *Client) sendListParkedJournalEntries(ctx context.Context, params ListPa
 
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.CreatedByKind.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "template_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "template_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.TemplateID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "owned_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "owned_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OwnedBy.Get(); ok {
 				return e.EncodeValue(conv.StringToString(val))
 			}
 			return nil
@@ -42853,6 +43423,172 @@ func (c *Client) sendOpenFiscalPeriod(ctx context.Context, params OpenFiscalPeri
 	return result, nil
 }
 
+// ParkFromEntryTemplate invokes parkFromEntryTemplate operation.
+//
+// Parks a manual journal entry from an active entry template (409 `ledger.template_retired` otherwise)
+// at the version the caller read (`If-Match`), dated as the request says, for a person to post
+// (`ParkedJournalEntryChanged`): an ordinary parked entry naming the template (`template_id`), checked
+// as `parkJournalEntry` checks one and owned as it would be, by the caller when a person. From there
+// it is changed, posted (`postParkedJournalEntry`, with the open period and the approval limit) or
+// cancelled as any parked entry. Any principal who may park entries in the template's company may use
+// it, not only its owner; the template's schedule does not move.
+//
+// POST /v1/entry-templates/{id}:park
+func (c *Client) ParkFromEntryTemplate(ctx context.Context, request *EntryTemplateUse, params ParkFromEntryTemplateParams) (ParkFromEntryTemplateRes, error) {
+	res, err := c.sendParkFromEntryTemplate(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendParkFromEntryTemplate(ctx context.Context, request *EntryTemplateUse, params ParkFromEntryTemplateParams) (res ParkFromEntryTemplateRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("parkFromEntryTemplate"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/entry-templates/{id}:park"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ParkFromEntryTemplateOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/entry-templates/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":park"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeParkFromEntryTemplateRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ParkFromEntryTemplateOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeParkFromEntryTemplateResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ParkJournalEntry invokes parkJournalEntry operation.
 //
 // Parks a manual journal entry for a person to post (`ParkedJournalEntryChanged`). It is checked as a
@@ -48951,6 +49687,165 @@ func (c *Client) sendResumeWebhookSubscription(ctx context.Context, params Resum
 	return result, nil
 }
 
+// RetireEntryTemplate invokes retireEntryTemplate operation.
+//
+// Retires an active entry template for good (status `retired`, `EntryTemplateChanged`): it changes no
+// more, nothing is parked from it, and its schedule ends. Entries parked from it stay as they are.
+// Only its owner retires it (403 `ledger.not_template_owner`), as for `updateEntryTemplate`.
+//
+// POST /v1/entry-templates/{id}:retire
+func (c *Client) RetireEntryTemplate(ctx context.Context, params RetireEntryTemplateParams) (RetireEntryTemplateRes, error) {
+	res, err := c.sendRetireEntryTemplate(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendRetireEntryTemplate(ctx context.Context, params RetireEntryTemplateParams) (res RetireEntryTemplateRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("retireEntryTemplate"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/entry-templates/{id}:retire"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RetireEntryTemplateOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/entry-templates/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":retire"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RetireEntryTemplateOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRetireEntryTemplateResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ReverseGoodsReceipt invokes reverseGoodsReceipt operation.
 //
 // Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
@@ -52790,6 +53685,172 @@ func (c *Client) sendUpdateCostCenter(ctx context.Context, request *CenterTextsU
 
 	stage = "DecodeResponse"
 	result, err := decodeUpdateCostCenterResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UpdateEntryTemplate invokes updateEntryTemplate operation.
+//
+// Changes an active entry template (409 `ledger.template_retired` otherwise; `EntryTemplateChanged`).
+// JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears `reference`, `header_text`
+// or `schedule`, and `lines` replaces the lines as a whole. The legal entity and the ledgers do not
+// change. It is checked again as saving checks it, and its schedule goes on after the last date the
+// ERP parked or refused: a changed schedule parks nothing for dates before it. Entries parked from it
+// before do not change. Only its owner changes it (403 `ledger.not_template_owner`): the person who
+// saved it; a person who changes an agent's or service's template no person owns takes it on and
+// becomes its owner; an agent or service changes only a template it saved that no person has taken on.
+//
+// PATCH /v1/entry-templates/{id}
+func (c *Client) UpdateEntryTemplate(ctx context.Context, request *EntryTemplateUpdate, params UpdateEntryTemplateParams) (UpdateEntryTemplateRes, error) {
+	res, err := c.sendUpdateEntryTemplate(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdateEntryTemplate(ctx context.Context, request *EntryTemplateUpdate, params UpdateEntryTemplateParams) (res UpdateEntryTemplateRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateEntryTemplate"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/entry-templates/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdateEntryTemplateOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/entry-templates/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdateEntryTemplateRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdateEntryTemplateOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdateEntryTemplateResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

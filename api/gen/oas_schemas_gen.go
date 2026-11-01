@@ -9432,6 +9432,7 @@ func (*ConflictHeaders) createConnectorRes()                  {}
 func (*ConflictHeaders) createContractRes()                   {}
 func (*ConflictHeaders) createCostCenterRes()                 {}
 func (*ConflictHeaders) createDownPaymentRequestRes()         {}
+func (*ConflictHeaders) createEntryTemplateRes()              {}
 func (*ConflictHeaders) createExchangeRateRes()               {}
 func (*ConflictHeaders) createGrIrClearingRes()               {}
 func (*ConflictHeaders) createHierarchyRes()                  {}
@@ -9486,6 +9487,7 @@ func (*ConflictHeaders) moveCostCenterRes()                   {}
 func (*ConflictHeaders) moveHierarchyNodeRes()                {}
 func (*ConflictHeaders) moveProfitCenterRes()                 {}
 func (*ConflictHeaders) openFiscalPeriodRes()                 {}
+func (*ConflictHeaders) parkFromEntryTemplateRes()            {}
 func (*ConflictHeaders) parkJournalEntryRes()                 {}
 func (*ConflictHeaders) pauseWebhookSubscriptionRes()         {}
 func (*ConflictHeaders) pingWebhookSubscriptionRes()          {}
@@ -9523,6 +9525,7 @@ func (*ConflictHeaders) reportBankFileStatusRes()             {}
 func (*ConflictHeaders) requestBankAccountChangeRes()         {}
 func (*ConflictHeaders) requestBankAccountEndRes()            {}
 func (*ConflictHeaders) resumeWebhookSubscriptionRes()        {}
+func (*ConflictHeaders) retireEntryTemplateRes()              {}
 func (*ConflictHeaders) reverseGoodsReceiptRes()              {}
 func (*ConflictHeaders) reverseJournalEntryRes()              {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()           {}
@@ -9547,6 +9550,7 @@ func (*ConflictHeaders) updateChangeRequestRes()              {}
 func (*ConflictHeaders) updateConnectorRes()                  {}
 func (*ConflictHeaders) updateContractRes()                   {}
 func (*ConflictHeaders) updateCostCenterRes()                 {}
+func (*ConflictHeaders) updateEntryTemplateRes()              {}
 func (*ConflictHeaders) updateLegalEntityRes()                {}
 func (*ConflictHeaders) updateMemoRecordRes()                 {}
 func (*ConflictHeaders) updateOrgUnitRes()                    {}
@@ -12140,6 +12144,22 @@ type CreateDownPaymentRequestUnprocessableEntity Problem
 
 func (*CreateDownPaymentRequestUnprocessableEntity) createDownPaymentRequestRes() {}
 
+type CreateEntryTemplateBadRequest Problem
+
+func (*CreateEntryTemplateBadRequest) createEntryTemplateRes() {}
+
+type CreateEntryTemplateForbidden Problem
+
+func (*CreateEntryTemplateForbidden) createEntryTemplateRes() {}
+
+type CreateEntryTemplatePreconditionRequired Problem
+
+func (*CreateEntryTemplatePreconditionRequired) createEntryTemplateRes() {}
+
+type CreateEntryTemplateUnprocessableEntity Problem
+
+func (*CreateEntryTemplateUnprocessableEntity) createEntryTemplateRes() {}
+
 type CreateExchangeRateBadRequest Problem
 
 func (*CreateExchangeRateBadRequest) createExchangeRateRes() {}
@@ -14002,6 +14022,741 @@ type EndSodRuleUnprocessableEntity Problem
 
 func (*EndSodRuleUnprocessableEntity) endSodRuleRes() {}
 
+// When a template's entry recurs (ADR-0056): every month, quarter or year on `day_of_month`, the
+// month's last day when it is shorter, from `starts_on` on (the first date in `starts_on`'s month, or
+// the next period's when that date is before it); until `ends_on`, for `occurrences` dates, or without
+// end. Its dates are the company's days in its time zone: a date is due once it is today or past
+// there. Each due date parks one entry, dated that day, for the template's owner; dates missed while
+// nothing ran are parked later, oldest first.
+// Ref: #/components/schemas/EntrySchedule
+type EntrySchedule struct {
+	// How often. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	Frequency string `json:"frequency"`
+	// Day of the month, 1 to 31; the month's last day in a shorter month.
+	DayOfMonth int32 `json:"day_of_month"`
+	// No date before this one.
+	StartsOn time.Time `json:"starts_on"`
+	// No date after this one; not with `occurrences`.
+	EndsOn OptDate `json:"ends_on"`
+	// The number of dates, counted from the first; not with `ends_on`.
+	Occurrences OptInt32 `json:"occurrences"`
+}
+
+// GetFrequency returns the value of Frequency.
+func (s *EntrySchedule) GetFrequency() string {
+	return s.Frequency
+}
+
+// GetDayOfMonth returns the value of DayOfMonth.
+func (s *EntrySchedule) GetDayOfMonth() int32 {
+	return s.DayOfMonth
+}
+
+// GetStartsOn returns the value of StartsOn.
+func (s *EntrySchedule) GetStartsOn() time.Time {
+	return s.StartsOn
+}
+
+// GetEndsOn returns the value of EndsOn.
+func (s *EntrySchedule) GetEndsOn() OptDate {
+	return s.EndsOn
+}
+
+// GetOccurrences returns the value of Occurrences.
+func (s *EntrySchedule) GetOccurrences() OptInt32 {
+	return s.Occurrences
+}
+
+// SetFrequency sets the value of Frequency.
+func (s *EntrySchedule) SetFrequency(val string) {
+	s.Frequency = val
+}
+
+// SetDayOfMonth sets the value of DayOfMonth.
+func (s *EntrySchedule) SetDayOfMonth(val int32) {
+	s.DayOfMonth = val
+}
+
+// SetStartsOn sets the value of StartsOn.
+func (s *EntrySchedule) SetStartsOn(val time.Time) {
+	s.StartsOn = val
+}
+
+// SetEndsOn sets the value of EndsOn.
+func (s *EntrySchedule) SetEndsOn(val OptDate) {
+	s.EndsOn = val
+}
+
+// SetOccurrences sets the value of Occurrences.
+func (s *EntrySchedule) SetOccurrences(val OptInt32) {
+	s.Occurrences = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/EntryTemplate
+type EntryTemplate struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The ledger named (`ledger_specific`), the ledger group's representative, or the leading ledger when
+	// its entries post to every ledger their company keeps.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// Its entries post to `ledger_id` alone.
+	LedgerSpecific OptBool `json:"ledger_specific"`
+	// Code of the ledger group its entries post to, if any.
+	LedgerGroup OptString `json:"ledger_group"`
+	// Name, unique in the legal entity.
+	Name string `json:"name"`
+	// Document type of its entries.
+	DocumentType string `json:"document_type"`
+	// Transaction currency.
+	Currency string `json:"currency"`
+	// External reference of its entries.
+	Reference OptString `json:"reference"`
+	// Header text of its entries.
+	HeaderText OptString `json:"header_text"`
+	// Entry template status. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Status string `json:"status"`
+	// Kind of principal that saved it. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	CreatedByKind string `json:"created_by_kind"`
+	// The person who owns it, alone changes or retires it, and owns the entries its schedule parks: who
+	// saved it, or for an agent's or service's template the person who took it on; absent until then, and
+	// its schedule parks nothing.
+	OwnerID  OptUUID          `json:"owner_id"`
+	Schedule OptEntrySchedule `json:"schedule"`
+	// The schedule's next date: the first after the last the ERP parked or refused. Absent without a
+	// schedule, once it has ended or the template is retired.
+	NextDueOn OptDate `json:"next_due_on"`
+	// The latest due date the ERP parked an entry for.
+	LastOccurrenceOn OptDate                 `json:"last_occurrence_on"`
+	LastRefusal      OptEntryTemplateRefusal `json:"last_refusal"`
+	// The lines, balancing to zero, as a parked entry's: amounts fixed for every entry parked from it.
+	Lines []ParkedJournalLine `json:"lines"`
+}
+
+// GetID returns the value of ID.
+func (s *EntryTemplate) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *EntryTemplate) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *EntryTemplate) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *EntryTemplate) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *EntryTemplate) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *EntryTemplate) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *EntryTemplate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *EntryTemplate) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerSpecific returns the value of LedgerSpecific.
+func (s *EntryTemplate) GetLedgerSpecific() OptBool {
+	return s.LedgerSpecific
+}
+
+// GetLedgerGroup returns the value of LedgerGroup.
+func (s *EntryTemplate) GetLedgerGroup() OptString {
+	return s.LedgerGroup
+}
+
+// GetName returns the value of Name.
+func (s *EntryTemplate) GetName() string {
+	return s.Name
+}
+
+// GetDocumentType returns the value of DocumentType.
+func (s *EntryTemplate) GetDocumentType() string {
+	return s.DocumentType
+}
+
+// GetCurrency returns the value of Currency.
+func (s *EntryTemplate) GetCurrency() string {
+	return s.Currency
+}
+
+// GetReference returns the value of Reference.
+func (s *EntryTemplate) GetReference() OptString {
+	return s.Reference
+}
+
+// GetHeaderText returns the value of HeaderText.
+func (s *EntryTemplate) GetHeaderText() OptString {
+	return s.HeaderText
+}
+
+// GetStatus returns the value of Status.
+func (s *EntryTemplate) GetStatus() string {
+	return s.Status
+}
+
+// GetCreatedByKind returns the value of CreatedByKind.
+func (s *EntryTemplate) GetCreatedByKind() string {
+	return s.CreatedByKind
+}
+
+// GetOwnerID returns the value of OwnerID.
+func (s *EntryTemplate) GetOwnerID() OptUUID {
+	return s.OwnerID
+}
+
+// GetSchedule returns the value of Schedule.
+func (s *EntryTemplate) GetSchedule() OptEntrySchedule {
+	return s.Schedule
+}
+
+// GetNextDueOn returns the value of NextDueOn.
+func (s *EntryTemplate) GetNextDueOn() OptDate {
+	return s.NextDueOn
+}
+
+// GetLastOccurrenceOn returns the value of LastOccurrenceOn.
+func (s *EntryTemplate) GetLastOccurrenceOn() OptDate {
+	return s.LastOccurrenceOn
+}
+
+// GetLastRefusal returns the value of LastRefusal.
+func (s *EntryTemplate) GetLastRefusal() OptEntryTemplateRefusal {
+	return s.LastRefusal
+}
+
+// GetLines returns the value of Lines.
+func (s *EntryTemplate) GetLines() []ParkedJournalLine {
+	return s.Lines
+}
+
+// SetID sets the value of ID.
+func (s *EntryTemplate) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *EntryTemplate) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *EntryTemplate) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *EntryTemplate) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *EntryTemplate) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *EntryTemplate) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *EntryTemplate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *EntryTemplate) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerSpecific sets the value of LedgerSpecific.
+func (s *EntryTemplate) SetLedgerSpecific(val OptBool) {
+	s.LedgerSpecific = val
+}
+
+// SetLedgerGroup sets the value of LedgerGroup.
+func (s *EntryTemplate) SetLedgerGroup(val OptString) {
+	s.LedgerGroup = val
+}
+
+// SetName sets the value of Name.
+func (s *EntryTemplate) SetName(val string) {
+	s.Name = val
+}
+
+// SetDocumentType sets the value of DocumentType.
+func (s *EntryTemplate) SetDocumentType(val string) {
+	s.DocumentType = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *EntryTemplate) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetReference sets the value of Reference.
+func (s *EntryTemplate) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetHeaderText sets the value of HeaderText.
+func (s *EntryTemplate) SetHeaderText(val OptString) {
+	s.HeaderText = val
+}
+
+// SetStatus sets the value of Status.
+func (s *EntryTemplate) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetCreatedByKind sets the value of CreatedByKind.
+func (s *EntryTemplate) SetCreatedByKind(val string) {
+	s.CreatedByKind = val
+}
+
+// SetOwnerID sets the value of OwnerID.
+func (s *EntryTemplate) SetOwnerID(val OptUUID) {
+	s.OwnerID = val
+}
+
+// SetSchedule sets the value of Schedule.
+func (s *EntryTemplate) SetSchedule(val OptEntrySchedule) {
+	s.Schedule = val
+}
+
+// SetNextDueOn sets the value of NextDueOn.
+func (s *EntryTemplate) SetNextDueOn(val OptDate) {
+	s.NextDueOn = val
+}
+
+// SetLastOccurrenceOn sets the value of LastOccurrenceOn.
+func (s *EntryTemplate) SetLastOccurrenceOn(val OptDate) {
+	s.LastOccurrenceOn = val
+}
+
+// SetLastRefusal sets the value of LastRefusal.
+func (s *EntryTemplate) SetLastRefusal(val OptEntryTemplateRefusal) {
+	s.LastRefusal = val
+}
+
+// SetLines sets the value of Lines.
+func (s *EntryTemplate) SetLines(val []ParkedJournalLine) {
+	s.Lines = val
+}
+
+// An entry template to save: a manual journal entry without its dates, and optionally its schedule.
+// Ref: #/components/schemas/EntryTemplateCreate
+type EntryTemplateCreate struct {
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The one ledger its entries post to, as `JournalEntryCreate` `ledger_id`.
+	LedgerID OptUUID `json:"ledger_id"`
+	// Code of the ledger group its entries post to, as `JournalEntryCreate` `ledger_group`.
+	LedgerGroup OptString `json:"ledger_group"`
+	// Name, unique in the legal entity.
+	Name string `json:"name"`
+	// Document type of its entries.
+	DocumentType OptString `json:"document_type"`
+	// Transaction currency; every line amount must use it.
+	Currency string `json:"currency"`
+	// External reference of its entries.
+	Reference OptString `json:"reference"`
+	// Header text of its entries.
+	HeaderText OptString `json:"header_text"`
+	// Lines; they must balance to zero.
+	Lines    []JournalLineInput `json:"lines"`
+	Schedule OptEntrySchedule   `json:"schedule"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *EntryTemplateCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *EntryTemplateCreate) GetLedgerID() OptUUID {
+	return s.LedgerID
+}
+
+// GetLedgerGroup returns the value of LedgerGroup.
+func (s *EntryTemplateCreate) GetLedgerGroup() OptString {
+	return s.LedgerGroup
+}
+
+// GetName returns the value of Name.
+func (s *EntryTemplateCreate) GetName() string {
+	return s.Name
+}
+
+// GetDocumentType returns the value of DocumentType.
+func (s *EntryTemplateCreate) GetDocumentType() OptString {
+	return s.DocumentType
+}
+
+// GetCurrency returns the value of Currency.
+func (s *EntryTemplateCreate) GetCurrency() string {
+	return s.Currency
+}
+
+// GetReference returns the value of Reference.
+func (s *EntryTemplateCreate) GetReference() OptString {
+	return s.Reference
+}
+
+// GetHeaderText returns the value of HeaderText.
+func (s *EntryTemplateCreate) GetHeaderText() OptString {
+	return s.HeaderText
+}
+
+// GetLines returns the value of Lines.
+func (s *EntryTemplateCreate) GetLines() []JournalLineInput {
+	return s.Lines
+}
+
+// GetSchedule returns the value of Schedule.
+func (s *EntryTemplateCreate) GetSchedule() OptEntrySchedule {
+	return s.Schedule
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *EntryTemplateCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *EntryTemplateCreate) SetLedgerID(val OptUUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerGroup sets the value of LedgerGroup.
+func (s *EntryTemplateCreate) SetLedgerGroup(val OptString) {
+	s.LedgerGroup = val
+}
+
+// SetName sets the value of Name.
+func (s *EntryTemplateCreate) SetName(val string) {
+	s.Name = val
+}
+
+// SetDocumentType sets the value of DocumentType.
+func (s *EntryTemplateCreate) SetDocumentType(val OptString) {
+	s.DocumentType = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *EntryTemplateCreate) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetReference sets the value of Reference.
+func (s *EntryTemplateCreate) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetHeaderText sets the value of HeaderText.
+func (s *EntryTemplateCreate) SetHeaderText(val OptString) {
+	s.HeaderText = val
+}
+
+// SetLines sets the value of Lines.
+func (s *EntryTemplateCreate) SetLines(val []JournalLineInput) {
+	s.Lines = val
+}
+
+// SetSchedule sets the value of Schedule.
+func (s *EntryTemplateCreate) SetSchedule(val OptEntrySchedule) {
+	s.Schedule = val
+}
+
+// EntryTemplateHeaders wraps EntryTemplate with response headers.
+type EntryTemplateHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           EntryTemplate
+}
+
+// GetETag returns the value of ETag.
+func (s *EntryTemplateHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *EntryTemplateHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *EntryTemplateHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *EntryTemplateHeaders) GetResponse() EntryTemplate {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *EntryTemplateHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *EntryTemplateHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *EntryTemplateHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *EntryTemplateHeaders) SetResponse(val EntryTemplate) {
+	s.Response = val
+}
+
+func (*EntryTemplateHeaders) createEntryTemplateRes() {}
+
+// One page of entry templates.
+// Ref: #/components/schemas/EntryTemplatePage
+type EntryTemplatePage struct {
+	// The entry templates on this page.
+	Items []EntryTemplate `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *EntryTemplatePage) GetItems() []EntryTemplate {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *EntryTemplatePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *EntryTemplatePage) SetItems(val []EntryTemplate) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *EntryTemplatePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*EntryTemplatePage) listEntryTemplatesRes() {}
+
+// The latest due date the ERP could not park an entry for, and the problem that refused it (an account
+// blocked since the template was saved; an owner no longer active, without `ledger.entry.park` or
+// without access to its company: `ledger.owner_not_permitted`). The date is passed over: the template
+// is corrected and that date parked with `parkFromEntryTemplate`. Earlier refused dates are in the
+// audit trail and in their `EntryTemplateChanged` events.
+// Ref: #/components/schemas/EntryTemplateRefusal
+type EntryTemplateRefusal struct {
+	// The due date refused.
+	OccurrenceDate time.Time `json:"occurrence_date"`
+	// The refusing problem's `code`, as `parkJournalEntry` would answer it.
+	Code string `json:"code"`
+	// The refusing problem's `detail`.
+	Detail string `json:"detail"`
+}
+
+// GetOccurrenceDate returns the value of OccurrenceDate.
+func (s *EntryTemplateRefusal) GetOccurrenceDate() time.Time {
+	return s.OccurrenceDate
+}
+
+// GetCode returns the value of Code.
+func (s *EntryTemplateRefusal) GetCode() string {
+	return s.Code
+}
+
+// GetDetail returns the value of Detail.
+func (s *EntryTemplateRefusal) GetDetail() string {
+	return s.Detail
+}
+
+// SetOccurrenceDate sets the value of OccurrenceDate.
+func (s *EntryTemplateRefusal) SetOccurrenceDate(val time.Time) {
+	s.OccurrenceDate = val
+}
+
+// SetCode sets the value of Code.
+func (s *EntryTemplateRefusal) SetCode(val string) {
+	s.Code = val
+}
+
+// SetDetail sets the value of Detail.
+func (s *EntryTemplateRefusal) SetDetail(val string) {
+	s.Detail = val
+}
+
+// Merge patch of an entry template.
+// Ref: #/components/schemas/EntryTemplateUpdate
+type EntryTemplateUpdate struct {
+	// Name, unique in the legal entity.
+	Name OptString `json:"name"`
+	// Document type.
+	DocumentType OptString `json:"document_type"`
+	// Transaction currency; every line amount must use it, so a change of currency comes with the lines.
+	Currency OptString `json:"currency"`
+	// External reference. Send null to clear.
+	Reference OptNilString `json:"reference"`
+	// Header text. Send null to clear.
+	HeaderText OptNilString                `json:"header_text"`
+	Schedule   OptNilNullableEntrySchedule `json:"schedule"`
+	// Complete list of lines; they must balance to zero.
+	Lines []JournalLineInput `json:"lines"`
+}
+
+// GetName returns the value of Name.
+func (s *EntryTemplateUpdate) GetName() OptString {
+	return s.Name
+}
+
+// GetDocumentType returns the value of DocumentType.
+func (s *EntryTemplateUpdate) GetDocumentType() OptString {
+	return s.DocumentType
+}
+
+// GetCurrency returns the value of Currency.
+func (s *EntryTemplateUpdate) GetCurrency() OptString {
+	return s.Currency
+}
+
+// GetReference returns the value of Reference.
+func (s *EntryTemplateUpdate) GetReference() OptNilString {
+	return s.Reference
+}
+
+// GetHeaderText returns the value of HeaderText.
+func (s *EntryTemplateUpdate) GetHeaderText() OptNilString {
+	return s.HeaderText
+}
+
+// GetSchedule returns the value of Schedule.
+func (s *EntryTemplateUpdate) GetSchedule() OptNilNullableEntrySchedule {
+	return s.Schedule
+}
+
+// GetLines returns the value of Lines.
+func (s *EntryTemplateUpdate) GetLines() []JournalLineInput {
+	return s.Lines
+}
+
+// SetName sets the value of Name.
+func (s *EntryTemplateUpdate) SetName(val OptString) {
+	s.Name = val
+}
+
+// SetDocumentType sets the value of DocumentType.
+func (s *EntryTemplateUpdate) SetDocumentType(val OptString) {
+	s.DocumentType = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *EntryTemplateUpdate) SetCurrency(val OptString) {
+	s.Currency = val
+}
+
+// SetReference sets the value of Reference.
+func (s *EntryTemplateUpdate) SetReference(val OptNilString) {
+	s.Reference = val
+}
+
+// SetHeaderText sets the value of HeaderText.
+func (s *EntryTemplateUpdate) SetHeaderText(val OptNilString) {
+	s.HeaderText = val
+}
+
+// SetSchedule sets the value of Schedule.
+func (s *EntryTemplateUpdate) SetSchedule(val OptNilNullableEntrySchedule) {
+	s.Schedule = val
+}
+
+// SetLines sets the value of Lines.
+func (s *EntryTemplateUpdate) SetLines(val []JournalLineInput) {
+	s.Lines = val
+}
+
+// The entry to park from a template.
+// Ref: #/components/schemas/EntryTemplateUse
+type EntryTemplateUse struct {
+	// Posting date; its period must be open when the entry is posted, not now.
+	PostingDate time.Time `json:"posting_date"`
+	// Document date; the posting date when absent.
+	DocumentDate OptDate `json:"document_date"`
+	// External reference; the template's when absent.
+	Reference OptString `json:"reference"`
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *EntryTemplateUse) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetDocumentDate returns the value of DocumentDate.
+func (s *EntryTemplateUse) GetDocumentDate() OptDate {
+	return s.DocumentDate
+}
+
+// GetReference returns the value of Reference.
+func (s *EntryTemplateUse) GetReference() OptString {
+	return s.Reference
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *EntryTemplateUse) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetDocumentDate sets the value of DocumentDate.
+func (s *EntryTemplateUse) SetDocumentDate(val OptDate) {
+	s.DocumentDate = val
+}
+
+// SetReference sets the value of Reference.
+func (s *EntryTemplateUse) SetReference(val OptString) {
+	s.Reference = val
+}
+
 // Evidence supporting a change request; the latest per kind applies.
 // Ref: #/components/schemas/Evidence
 type Evidence struct {
@@ -15387,6 +16142,46 @@ func (s *GetDownPaymentRequestOKHeaders) SetResponse(val DownPaymentRequest) {
 }
 
 func (*GetDownPaymentRequestOKHeaders) getDownPaymentRequestRes() {}
+
+type GetEntryTemplateBadRequest Problem
+
+func (*GetEntryTemplateBadRequest) getEntryTemplateRes() {}
+
+type GetEntryTemplateForbidden Problem
+
+func (*GetEntryTemplateForbidden) getEntryTemplateRes() {}
+
+type GetEntryTemplateNotFound Problem
+
+func (*GetEntryTemplateNotFound) getEntryTemplateRes() {}
+
+// GetEntryTemplateOKHeaders wraps EntryTemplate with response headers.
+type GetEntryTemplateOKHeaders struct {
+	ETag     OptString
+	Response EntryTemplate
+}
+
+// GetETag returns the value of ETag.
+func (s *GetEntryTemplateOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetEntryTemplateOKHeaders) GetResponse() EntryTemplate {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetEntryTemplateOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetEntryTemplateOKHeaders) SetResponse(val EntryTemplate) {
+	s.Response = val
+}
+
+func (*GetEntryTemplateOKHeaders) getEntryTemplateRes() {}
 
 type GetExchangeRateBadRequest Problem
 
@@ -21363,6 +22158,14 @@ type ListDownPaymentRequestsForbidden Problem
 
 func (*ListDownPaymentRequestsForbidden) listDownPaymentRequestsRes() {}
 
+type ListEntryTemplatesBadRequest Problem
+
+func (*ListEntryTemplatesBadRequest) listEntryTemplatesRes() {}
+
+type ListEntryTemplatesForbidden Problem
+
+func (*ListEntryTemplatesForbidden) listEntryTemplatesRes() {}
+
 type ListExchangeRatesBadRequest Problem
 
 func (*ListExchangeRatesBadRequest) listExchangeRatesRes() {}
@@ -24932,6 +25735,73 @@ func (o NilUUID) Or(d uuid.UUID) uuid.UUID {
 	return d
 }
 
+// The schedule as a whole (EntrySchedule); send null to remove it, and the template parks nothing by
+// itself.
+// Ref: #/components/schemas/NullableEntrySchedule
+type NullableEntrySchedule struct {
+	// How often. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	Frequency string `json:"frequency"`
+	// Day of the month, 1 to 31; the month's last day in a shorter month.
+	DayOfMonth int32 `json:"day_of_month"`
+	// No date before this one.
+	StartsOn time.Time `json:"starts_on"`
+	// No date after this one; not with `occurrences`.
+	EndsOn OptDate `json:"ends_on"`
+	// The number of dates, counted from the first; not with `ends_on`.
+	Occurrences OptInt32 `json:"occurrences"`
+}
+
+// GetFrequency returns the value of Frequency.
+func (s *NullableEntrySchedule) GetFrequency() string {
+	return s.Frequency
+}
+
+// GetDayOfMonth returns the value of DayOfMonth.
+func (s *NullableEntrySchedule) GetDayOfMonth() int32 {
+	return s.DayOfMonth
+}
+
+// GetStartsOn returns the value of StartsOn.
+func (s *NullableEntrySchedule) GetStartsOn() time.Time {
+	return s.StartsOn
+}
+
+// GetEndsOn returns the value of EndsOn.
+func (s *NullableEntrySchedule) GetEndsOn() OptDate {
+	return s.EndsOn
+}
+
+// GetOccurrences returns the value of Occurrences.
+func (s *NullableEntrySchedule) GetOccurrences() OptInt32 {
+	return s.Occurrences
+}
+
+// SetFrequency sets the value of Frequency.
+func (s *NullableEntrySchedule) SetFrequency(val string) {
+	s.Frequency = val
+}
+
+// SetDayOfMonth sets the value of DayOfMonth.
+func (s *NullableEntrySchedule) SetDayOfMonth(val int32) {
+	s.DayOfMonth = val
+}
+
+// SetStartsOn sets the value of StartsOn.
+func (s *NullableEntrySchedule) SetStartsOn(val time.Time) {
+	s.StartsOn = val
+}
+
+// SetEndsOn sets the value of EndsOn.
+func (s *NullableEntrySchedule) SetEndsOn(val OptDate) {
+	s.EndsOn = val
+}
+
+// SetOccurrences sets the value of Occurrences.
+func (s *NullableEntrySchedule) SetOccurrences(val OptInt32) {
+	s.Occurrences = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/NumberRange
 type NumberRange struct {
@@ -26456,6 +27326,98 @@ func (o OptDecisionInput) Or(d DecisionInput) DecisionInput {
 	return d
 }
 
+// NewOptEntrySchedule returns new OptEntrySchedule with value set to v.
+func NewOptEntrySchedule(v EntrySchedule) OptEntrySchedule {
+	return OptEntrySchedule{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptEntrySchedule is optional EntrySchedule.
+type OptEntrySchedule struct {
+	Value EntrySchedule
+	Set   bool
+}
+
+// IsSet returns true if OptEntrySchedule was set.
+func (o OptEntrySchedule) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptEntrySchedule) Reset() {
+	var v EntrySchedule
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptEntrySchedule) SetTo(v EntrySchedule) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptEntrySchedule) Get() (v EntrySchedule, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptEntrySchedule) Or(d EntrySchedule) EntrySchedule {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptEntryTemplateRefusal returns new OptEntryTemplateRefusal with value set to v.
+func NewOptEntryTemplateRefusal(v EntryTemplateRefusal) OptEntryTemplateRefusal {
+	return OptEntryTemplateRefusal{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptEntryTemplateRefusal is optional EntryTemplateRefusal.
+type OptEntryTemplateRefusal struct {
+	Value EntryTemplateRefusal
+	Set   bool
+}
+
+// IsSet returns true if OptEntryTemplateRefusal was set.
+func (o OptEntryTemplateRefusal) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptEntryTemplateRefusal) Reset() {
+	var v EntryTemplateRefusal
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptEntryTemplateRefusal) SetTo(v EntryTemplateRefusal) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptEntryTemplateRefusal) Get() (v EntryTemplateRefusal, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptEntryTemplateRefusal) Or(d EntryTemplateRefusal) EntryTemplateRefusal {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptExpanded returns new OptExpanded with value set to v.
 func NewOptExpanded(v Expanded) OptExpanded {
 	return OptExpanded{
@@ -27550,6 +28512,74 @@ func (o OptNilInt32) Get() (v int32, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptNilInt32) Or(d int32) int32 {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptNilNullableEntrySchedule returns new OptNilNullableEntrySchedule with value set to v.
+func NewOptNilNullableEntrySchedule(v NullableEntrySchedule) OptNilNullableEntrySchedule {
+	return OptNilNullableEntrySchedule{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptNilNullableEntrySchedule is optional nullable NullableEntrySchedule.
+type OptNilNullableEntrySchedule struct {
+	Value NullableEntrySchedule
+	Set   bool
+	Null  bool
+}
+
+// IsSet returns true if OptNilNullableEntrySchedule was set.
+func (o OptNilNullableEntrySchedule) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptNilNullableEntrySchedule) Reset() {
+	var v NullableEntrySchedule
+	o.Value = v
+	o.Set = false
+	o.Null = false
+}
+
+// SetTo sets value to v.
+func (o *OptNilNullableEntrySchedule) SetTo(v NullableEntrySchedule) {
+	o.Set = true
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o OptNilNullableEntrySchedule) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *OptNilNullableEntrySchedule) SetToNull() {
+	o.Set = true
+	o.Null = true
+	var v NullableEntrySchedule
+	o.Value = v
+}
+
+// IsEmpty returns true if the field was omitted from the payload (not Set and not Null).
+func (o OptNilNullableEntrySchedule) IsEmpty() bool {
+	return !o.Set && !o.Null
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptNilNullableEntrySchedule) Get() (v NullableEntrySchedule, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptNilNullableEntrySchedule) Or(d NullableEntrySchedule) NullableEntrySchedule {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -28677,6 +29707,30 @@ func (s *OrgUnitUpdate) SetParentID(val OptNilUUID) {
 	s.ParentID = val
 }
 
+type ParkFromEntryTemplateBadRequest Problem
+
+func (*ParkFromEntryTemplateBadRequest) parkFromEntryTemplateRes() {}
+
+type ParkFromEntryTemplateForbidden Problem
+
+func (*ParkFromEntryTemplateForbidden) parkFromEntryTemplateRes() {}
+
+type ParkFromEntryTemplateNotFound Problem
+
+func (*ParkFromEntryTemplateNotFound) parkFromEntryTemplateRes() {}
+
+type ParkFromEntryTemplatePreconditionFailed Problem
+
+func (*ParkFromEntryTemplatePreconditionFailed) parkFromEntryTemplateRes() {}
+
+type ParkFromEntryTemplatePreconditionRequired Problem
+
+func (*ParkFromEntryTemplatePreconditionRequired) parkFromEntryTemplateRes() {}
+
+type ParkFromEntryTemplateUnprocessableEntity Problem
+
+func (*ParkFromEntryTemplateUnprocessableEntity) parkFromEntryTemplateRes() {}
+
 type ParkJournalEntryBadRequest Problem
 
 func (*ParkJournalEntryBadRequest) parkJournalEntryRes() {}
@@ -28791,8 +29845,9 @@ type ParkedJournalEntry struct {
 	// Parked entry status. Open enumeration: clients must accept and preserve values not listed here;
 	// values may be added within /v1.
 	Status string `json:"status"`
-	// Kind of principal that parked the entry; `agent` marks an agent's proposal. Open enumeration:
-	// clients must accept and preserve values not listed here; values may be added within /v1.
+	// Kind of principal that parked the entry; `agent` marks an agent's proposal, `system` an entry the
+	// ERP parked for a due date of an entry template's schedule (ADR-0056). Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
 	CreatedByKind string `json:"created_by_kind"`
 	// The person who owns the entry, and alone changes, posts or withdraws it: who parked it, or for an
 	// agent's entry the person who took it on; absent until then.
@@ -28807,6 +29862,14 @@ type ParkedJournalEntry struct {
 	// The lines, balancing to zero.
 	Lines         []ParkedJournalLine `json:"lines"`
 	LimitExceeded OptParkedEntryLimit `json:"limit_exceeded"`
+	// The entry template it was parked from (ADR-0056), by a person (`parkFromEntryTemplate`) or by its
+	// schedule.
+	TemplateID OptUUID `json:"template_id"`
+	// Name of the entry template it was parked from, set with `template_id`.
+	TemplateName OptString `json:"template_name"`
+	// The due date of the template's schedule the ERP parked it for, owned by the template's owner
+	// (`created_by_kind` `system`); absent when a principal parked it.
+	OccurrenceDate OptDate `json:"occurrence_date"`
 }
 
 // GetID returns the value of ID.
@@ -28934,6 +29997,21 @@ func (s *ParkedJournalEntry) GetLimitExceeded() OptParkedEntryLimit {
 	return s.LimitExceeded
 }
 
+// GetTemplateID returns the value of TemplateID.
+func (s *ParkedJournalEntry) GetTemplateID() OptUUID {
+	return s.TemplateID
+}
+
+// GetTemplateName returns the value of TemplateName.
+func (s *ParkedJournalEntry) GetTemplateName() OptString {
+	return s.TemplateName
+}
+
+// GetOccurrenceDate returns the value of OccurrenceDate.
+func (s *ParkedJournalEntry) GetOccurrenceDate() OptDate {
+	return s.OccurrenceDate
+}
+
 // SetID sets the value of ID.
 func (s *ParkedJournalEntry) SetID(val uuid.UUID) {
 	s.ID = val
@@ -29059,6 +30137,21 @@ func (s *ParkedJournalEntry) SetLimitExceeded(val OptParkedEntryLimit) {
 	s.LimitExceeded = val
 }
 
+// SetTemplateID sets the value of TemplateID.
+func (s *ParkedJournalEntry) SetTemplateID(val OptUUID) {
+	s.TemplateID = val
+}
+
+// SetTemplateName sets the value of TemplateName.
+func (s *ParkedJournalEntry) SetTemplateName(val OptString) {
+	s.TemplateName = val
+}
+
+// SetOccurrenceDate sets the value of OccurrenceDate.
+func (s *ParkedJournalEntry) SetOccurrenceDate(val OptDate) {
+	s.OccurrenceDate = val
+}
+
 // ParkedJournalEntryHeaders wraps ParkedJournalEntry with response headers.
 type ParkedJournalEntryHeaders struct {
 	ETag               OptString
@@ -29107,8 +30200,9 @@ func (s *ParkedJournalEntryHeaders) SetResponse(val ParkedJournalEntry) {
 	s.Response = val
 }
 
-func (*ParkedJournalEntryHeaders) parkJournalEntryRes() {}
-func (*ParkedJournalEntryHeaders) postJournalEntryRes() {}
+func (*ParkedJournalEntryHeaders) parkFromEntryTemplateRes() {}
+func (*ParkedJournalEntryHeaders) parkJournalEntryRes()      {}
+func (*ParkedJournalEntryHeaders) postJournalEntryRes()      {}
 
 // One page of parked journal entries.
 // Ref: #/components/schemas/ParkedJournalEntryPage
@@ -36958,6 +38052,26 @@ type ResumeWebhookSubscriptionUnprocessableEntity Problem
 
 func (*ResumeWebhookSubscriptionUnprocessableEntity) resumeWebhookSubscriptionRes() {}
 
+type RetireEntryTemplateBadRequest Problem
+
+func (*RetireEntryTemplateBadRequest) retireEntryTemplateRes() {}
+
+type RetireEntryTemplateForbidden Problem
+
+func (*RetireEntryTemplateForbidden) retireEntryTemplateRes() {}
+
+type RetireEntryTemplateNotFound Problem
+
+func (*RetireEntryTemplateNotFound) retireEntryTemplateRes() {}
+
+type RetireEntryTemplatePreconditionFailed Problem
+
+func (*RetireEntryTemplatePreconditionFailed) retireEntryTemplateRes() {}
+
+type RetireEntryTemplatePreconditionRequired Problem
+
+func (*RetireEntryTemplatePreconditionRequired) retireEntryTemplateRes() {}
+
 // One valued item: an open item (a journal line on a reconciliation account) or the balance in one
 // currency of a flagged account.
 // Ref: #/components/schemas/RevaluationItem
@@ -39094,6 +40208,7 @@ func (*ServiceUnavailableHeaders) createConnectorRes()                  {}
 func (*ServiceUnavailableHeaders) createContractRes()                   {}
 func (*ServiceUnavailableHeaders) createCostCenterRes()                 {}
 func (*ServiceUnavailableHeaders) createDownPaymentRequestRes()         {}
+func (*ServiceUnavailableHeaders) createEntryTemplateRes()              {}
 func (*ServiceUnavailableHeaders) createExchangeRateRes()               {}
 func (*ServiceUnavailableHeaders) createGrIrClearingRes()               {}
 func (*ServiceUnavailableHeaders) createHierarchyRes()                  {}
@@ -39144,6 +40259,7 @@ func (*ServiceUnavailableHeaders) moveCostCenterRes()                   {}
 func (*ServiceUnavailableHeaders) moveHierarchyNodeRes()                {}
 func (*ServiceUnavailableHeaders) moveProfitCenterRes()                 {}
 func (*ServiceUnavailableHeaders) openFiscalPeriodRes()                 {}
+func (*ServiceUnavailableHeaders) parkFromEntryTemplateRes()            {}
 func (*ServiceUnavailableHeaders) parkJournalEntryRes()                 {}
 func (*ServiceUnavailableHeaders) pauseWebhookSubscriptionRes()         {}
 func (*ServiceUnavailableHeaders) pingWebhookSubscriptionRes()          {}
@@ -39180,6 +40296,7 @@ func (*ServiceUnavailableHeaders) reportBankFileStatusRes()             {}
 func (*ServiceUnavailableHeaders) requestBankAccountChangeRes()         {}
 func (*ServiceUnavailableHeaders) requestBankAccountEndRes()            {}
 func (*ServiceUnavailableHeaders) resumeWebhookSubscriptionRes()        {}
+func (*ServiceUnavailableHeaders) retireEntryTemplateRes()              {}
 func (*ServiceUnavailableHeaders) reverseGoodsReceiptRes()              {}
 func (*ServiceUnavailableHeaders) reverseJournalEntryRes()              {}
 func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()           {}
@@ -39204,6 +40321,7 @@ func (*ServiceUnavailableHeaders) updateChangeRequestRes()              {}
 func (*ServiceUnavailableHeaders) updateConnectorRes()                  {}
 func (*ServiceUnavailableHeaders) updateContractRes()                   {}
 func (*ServiceUnavailableHeaders) updateCostCenterRes()                 {}
+func (*ServiceUnavailableHeaders) updateEntryTemplateRes()              {}
 func (*ServiceUnavailableHeaders) updateLegalEntityRes()                {}
 func (*ServiceUnavailableHeaders) updateMemoRecordRes()                 {}
 func (*ServiceUnavailableHeaders) updateOrgUnitRes()                    {}
@@ -43342,6 +44460,7 @@ func (*TooManyRequestsHeaders) createConnectorRes()                  {}
 func (*TooManyRequestsHeaders) createContractRes()                   {}
 func (*TooManyRequestsHeaders) createCostCenterRes()                 {}
 func (*TooManyRequestsHeaders) createDownPaymentRequestRes()         {}
+func (*TooManyRequestsHeaders) createEntryTemplateRes()              {}
 func (*TooManyRequestsHeaders) createExchangeRateRes()               {}
 func (*TooManyRequestsHeaders) createGrIrClearingRes()               {}
 func (*TooManyRequestsHeaders) createHierarchyRes()                  {}
@@ -43402,6 +44521,7 @@ func (*TooManyRequestsHeaders) getContractRes()                      {}
 func (*TooManyRequestsHeaders) getCostCenterRes()                    {}
 func (*TooManyRequestsHeaders) getCurrentPrincipalRes()              {}
 func (*TooManyRequestsHeaders) getDownPaymentRequestRes()            {}
+func (*TooManyRequestsHeaders) getEntryTemplateRes()                 {}
 func (*TooManyRequestsHeaders) getExchangeRateRes()                  {}
 func (*TooManyRequestsHeaders) getFiscalPeriodRes()                  {}
 func (*TooManyRequestsHeaders) getGoodsReceiptRes()                  {}
@@ -43470,6 +44590,7 @@ func (*TooManyRequestsHeaders) listCostCenterPlanActualRes()         {}
 func (*TooManyRequestsHeaders) listCostCentersRes()                  {}
 func (*TooManyRequestsHeaders) listCountryPacksRes()                 {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()          {}
+func (*TooManyRequestsHeaders) listEntryTemplatesRes()               {}
 func (*TooManyRequestsHeaders) listExchangeRatesRes()                {}
 func (*TooManyRequestsHeaders) listFiscalPeriodsRes()                {}
 func (*TooManyRequestsHeaders) listGoodsReceiptsRes()                {}
@@ -43532,6 +44653,7 @@ func (*TooManyRequestsHeaders) moveCostCenterRes()                   {}
 func (*TooManyRequestsHeaders) moveHierarchyNodeRes()                {}
 func (*TooManyRequestsHeaders) moveProfitCenterRes()                 {}
 func (*TooManyRequestsHeaders) openFiscalPeriodRes()                 {}
+func (*TooManyRequestsHeaders) parkFromEntryTemplateRes()            {}
 func (*TooManyRequestsHeaders) parkJournalEntryRes()                 {}
 func (*TooManyRequestsHeaders) pauseWebhookSubscriptionRes()         {}
 func (*TooManyRequestsHeaders) pingWebhookSubscriptionRes()          {}
@@ -43569,6 +44691,7 @@ func (*TooManyRequestsHeaders) reportBankFileStatusRes()             {}
 func (*TooManyRequestsHeaders) requestBankAccountChangeRes()         {}
 func (*TooManyRequestsHeaders) requestBankAccountEndRes()            {}
 func (*TooManyRequestsHeaders) resumeWebhookSubscriptionRes()        {}
+func (*TooManyRequestsHeaders) retireEntryTemplateRes()              {}
 func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()              {}
 func (*TooManyRequestsHeaders) reverseJournalEntryRes()              {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()           {}
@@ -43593,6 +44716,7 @@ func (*TooManyRequestsHeaders) updateChangeRequestRes()              {}
 func (*TooManyRequestsHeaders) updateConnectorRes()                  {}
 func (*TooManyRequestsHeaders) updateContractRes()                   {}
 func (*TooManyRequestsHeaders) updateCostCenterRes()                 {}
+func (*TooManyRequestsHeaders) updateEntryTemplateRes()              {}
 func (*TooManyRequestsHeaders) updateLegalEntityRes()                {}
 func (*TooManyRequestsHeaders) updateMemoRecordRes()                 {}
 func (*TooManyRequestsHeaders) updateOrgUnitRes()                    {}
@@ -43699,6 +44823,7 @@ func (*UnauthorizedHeaders) createConnectorRes()                  {}
 func (*UnauthorizedHeaders) createContractRes()                   {}
 func (*UnauthorizedHeaders) createCostCenterRes()                 {}
 func (*UnauthorizedHeaders) createDownPaymentRequestRes()         {}
+func (*UnauthorizedHeaders) createEntryTemplateRes()              {}
 func (*UnauthorizedHeaders) createExchangeRateRes()               {}
 func (*UnauthorizedHeaders) createGrIrClearingRes()               {}
 func (*UnauthorizedHeaders) createHierarchyRes()                  {}
@@ -43759,6 +44884,7 @@ func (*UnauthorizedHeaders) getContractRes()                      {}
 func (*UnauthorizedHeaders) getCostCenterRes()                    {}
 func (*UnauthorizedHeaders) getCurrentPrincipalRes()              {}
 func (*UnauthorizedHeaders) getDownPaymentRequestRes()            {}
+func (*UnauthorizedHeaders) getEntryTemplateRes()                 {}
 func (*UnauthorizedHeaders) getExchangeRateRes()                  {}
 func (*UnauthorizedHeaders) getFiscalPeriodRes()                  {}
 func (*UnauthorizedHeaders) getGoodsReceiptRes()                  {}
@@ -43827,6 +44953,7 @@ func (*UnauthorizedHeaders) listCostCenterPlanActualRes()         {}
 func (*UnauthorizedHeaders) listCostCentersRes()                  {}
 func (*UnauthorizedHeaders) listCountryPacksRes()                 {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()          {}
+func (*UnauthorizedHeaders) listEntryTemplatesRes()               {}
 func (*UnauthorizedHeaders) listExchangeRatesRes()                {}
 func (*UnauthorizedHeaders) listFiscalPeriodsRes()                {}
 func (*UnauthorizedHeaders) listGoodsReceiptsRes()                {}
@@ -43889,6 +45016,7 @@ func (*UnauthorizedHeaders) moveCostCenterRes()                   {}
 func (*UnauthorizedHeaders) moveHierarchyNodeRes()                {}
 func (*UnauthorizedHeaders) moveProfitCenterRes()                 {}
 func (*UnauthorizedHeaders) openFiscalPeriodRes()                 {}
+func (*UnauthorizedHeaders) parkFromEntryTemplateRes()            {}
 func (*UnauthorizedHeaders) parkJournalEntryRes()                 {}
 func (*UnauthorizedHeaders) pauseWebhookSubscriptionRes()         {}
 func (*UnauthorizedHeaders) pingWebhookSubscriptionRes()          {}
@@ -43926,6 +45054,7 @@ func (*UnauthorizedHeaders) reportBankFileStatusRes()             {}
 func (*UnauthorizedHeaders) requestBankAccountChangeRes()         {}
 func (*UnauthorizedHeaders) requestBankAccountEndRes()            {}
 func (*UnauthorizedHeaders) resumeWebhookSubscriptionRes()        {}
+func (*UnauthorizedHeaders) retireEntryTemplateRes()              {}
 func (*UnauthorizedHeaders) reverseGoodsReceiptRes()              {}
 func (*UnauthorizedHeaders) reverseJournalEntryRes()              {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()           {}
@@ -43950,6 +45079,7 @@ func (*UnauthorizedHeaders) updateChangeRequestRes()              {}
 func (*UnauthorizedHeaders) updateConnectorRes()                  {}
 func (*UnauthorizedHeaders) updateContractRes()                   {}
 func (*UnauthorizedHeaders) updateCostCenterRes()                 {}
+func (*UnauthorizedHeaders) updateEntryTemplateRes()              {}
 func (*UnauthorizedHeaders) updateLegalEntityRes()                {}
 func (*UnauthorizedHeaders) updateMemoRecordRes()                 {}
 func (*UnauthorizedHeaders) updateOrgUnitRes()                    {}
@@ -44402,6 +45532,70 @@ func (*UpdateCostCenterPreconditionRequired) updateCostCenterRes() {}
 type UpdateCostCenterUnprocessableEntity Problem
 
 func (*UpdateCostCenterUnprocessableEntity) updateCostCenterRes() {}
+
+type UpdateEntryTemplateBadRequest Problem
+
+func (*UpdateEntryTemplateBadRequest) updateEntryTemplateRes() {}
+
+type UpdateEntryTemplateForbidden Problem
+
+func (*UpdateEntryTemplateForbidden) updateEntryTemplateRes() {}
+
+type UpdateEntryTemplateNotFound Problem
+
+func (*UpdateEntryTemplateNotFound) updateEntryTemplateRes() {}
+
+// UpdateEntryTemplateOKHeaders wraps EntryTemplate with response headers.
+type UpdateEntryTemplateOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           EntryTemplate
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateEntryTemplateOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateEntryTemplateOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateEntryTemplateOKHeaders) GetResponse() EntryTemplate {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateEntryTemplateOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateEntryTemplateOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateEntryTemplateOKHeaders) SetResponse(val EntryTemplate) {
+	s.Response = val
+}
+
+func (*UpdateEntryTemplateOKHeaders) retireEntryTemplateRes() {}
+func (*UpdateEntryTemplateOKHeaders) updateEntryTemplateRes() {}
+
+type UpdateEntryTemplatePreconditionFailed Problem
+
+func (*UpdateEntryTemplatePreconditionFailed) updateEntryTemplateRes() {}
+
+type UpdateEntryTemplatePreconditionRequired Problem
+
+func (*UpdateEntryTemplatePreconditionRequired) updateEntryTemplateRes() {}
+
+type UpdateEntryTemplateUnprocessableEntity Problem
+
+func (*UpdateEntryTemplateUnprocessableEntity) updateEntryTemplateRes() {}
 
 type UpdateLegalEntityBadRequest Problem
 
