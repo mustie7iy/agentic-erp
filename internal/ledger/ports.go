@@ -338,7 +338,7 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 	if len(in.GRIR) > 0 {
 		return p.postGRIR(ctx, in)
 	}
-	tx, _, err := reqctx.Request(ctx)
+	tx, principal, err := reqctx.Request(ctx)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -354,7 +354,7 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 			PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, SpecialGL: l.SpecialGL, lc: l.LC,
 			CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID, SegmentID: l.SegmentID}
 	}
-	posted, err := p.endpoints().postJournalEntry(ctx, entry)
+	posted, err := p.endpoints().postJournalEntry(ctx, tx, principal, entry)
 	if err != nil {
 		return Entry{}, err
 	}

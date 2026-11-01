@@ -1027,17 +1027,15 @@ func (e *Endpoints) prepareFor(ctx context.Context, tx pgx.Tx, le tenancy.Entity
 
 // postJournalEntry validates and posts an entry another context posts
 // through Postings: no approval limit applies to its documents' postings.
-func (e *Endpoints) postJournalEntry(ctx context.Context, in NewEntry) (Entry, error) {
-	return e.postEntry(ctx, in, nil)
+func (e *Endpoints) postJournalEntry(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in NewEntry) (Entry, error) {
+	return e.postEntry(ctx, tx, p, in, nil)
 }
 
-// postEntry validates and posts an entry; check, when set, may refuse it
+// postEntry validates and posts an entry in the request's transaction tx,
+// which its callers have already taken; check, when set, may refuse it
 // once it is converted, before anything is written.
-func (e *Endpoints) postEntry(ctx context.Context, in NewEntry, check func(context.Context, pgx.Tx, prepared, NewEntry) error) (Entry, error) {
-	tx, p, err := reqctx.Request(ctx)
-	if err != nil {
-		return Entry{}, err
-	}
+func (e *Endpoints) postEntry(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in NewEntry,
+	check func(context.Context, pgx.Tx, prepared, NewEntry) error) (Entry, error) {
 	v, err := e.prepare(ctx, tx, in)
 	if err != nil {
 		return Entry{}, err

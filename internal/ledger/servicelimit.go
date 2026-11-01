@@ -58,7 +58,7 @@ func (e *Endpoints) postDirect(ctx context.Context, in NewEntry) (je Entry, park
 			"Journal entries are posted by people and integrations; an agent parks its proposal (POST /v1/parked-journal-entries).")
 	case reqctx.KindService: // measured against the service posting limit below
 	default:
-		je, err = e.postEntry(ctx, in, e.withinLimit)
+		je, err = e.postEntry(ctx, tx, p, in, e.withinLimit)
 		return je, nil, err
 	}
 	v, err := e.prepare(ctx, tx, in)
