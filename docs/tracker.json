@@ -1763,6 +1763,7 @@
         "t": "Tax registration number formats: the check digits and form of a Canadian BN with its GST/HST program account (RT) and QST number, and of a UAE TRN, from the authorities' primary sources, stated by the tax specialist; T61g checks only that a number is given",
         "r": "config.TaxRegistration · ADR-0049 §10 · after T61g",
         "src": "split:T61g",
+        "pilot": "po:2026-10-31 · split:T61g",
         "c": []
        },
        {
@@ -8328,6 +8329,14 @@
       "r": "internal/integration/grir.go grirPosting · grirPosition (order currency) · currency.go foreignItem · ledger GRIRItem.TakesOver · ADR-0034 As built (T72f) · ADR-0005 As built",
       "src": "review:batch20 · po:2026-10-31",
       "pilot": "po:2026-10-31",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "An open vendor line with HSL 0 and WSL ≠ 0 in a document that does not post in a foreign currency is neither refused nor loaded, so a small foreign-currency item silently disappears (internal/integration/quality.go:398 openItem; journalPosting and openingLines skip HSL-0 lines)",
+      "r": "found in fxopen's review (batch 31, pre-existing) · internal/integration/quality.go openItem · load.go journalPosting, openingLines · currency.go foreignDocuments",
+      "src": "review:batch31",
+      "pilot": "po:2026-10-31 · review:batch31",
       "c": []
      }
     ]
