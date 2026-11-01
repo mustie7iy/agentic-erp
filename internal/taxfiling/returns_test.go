@@ -64,6 +64,13 @@ func returnsEnv(t *testing.T, perms ...string) fixture.Env {
 // "account amount [code]", with the tax date when given.
 func post(t *testing.T, e fixture.Env, day, taxDate string, lines ...string) string {
 	t.Helper()
+	je, _ := e.Must(201, "POST", "/v1/journal-entries", entryBody(t, e, day, taxDate, lines...), "")
+	return apitest.String(t, je, "id")
+}
+
+// entryBody is post's journal entry.
+func entryBody(t *testing.T, e fixture.Env, day, taxDate string, lines ...string) string {
+	t.Helper()
 	out := make([]string, len(lines))
 	for i, l := range lines {
 		f := strings.Fields(l)
@@ -77,9 +84,8 @@ func post(t *testing.T, e fixture.Env, day, taxDate string, lines ...string) str
 	if taxDate != "" {
 		td = fmt.Sprintf(`"tax_date": %q, `, taxDate)
 	}
-	je, _ := e.Must(201, "POST", "/v1/journal-entries", fmt.Sprintf(`{"legal_entity_id": %q, "document_date": %q, "posting_date": %q, %s"currency": "EUR", "lines": [%s]}`,
-		e.DE, day, day, td, strings.Join(out, ", ")), "")
-	return apitest.String(t, je, "id")
+	return fmt.Sprintf(`{"legal_entity_id": %q, "document_date": %q, "posting_date": %q, %s"currency": "EUR", "lines": [%s]}`,
+		e.DE, day, day, td, strings.Join(out, ", "))
 }
 
 // sale posts a sale of 100.00 with 5.00 of S5; purchase a purchase of

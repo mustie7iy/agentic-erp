@@ -82,6 +82,9 @@ type Endpoints struct {
 	Approvals     Opener // opens the unlock requests of locked periods
 	// Settings gives each company's time zone (T72n4).
 	Settings Settings
+	// TaxReturns holds a manual entry's tax date to the periods no tax
+	// return reports yet (ADR-0049 P6).
+	TaxReturns TaxReturns
 	// Now is the clock center changes read today by, as the controlling
 	// rules' setup does (Setup.Now): a default center stays usable from
 	// the company's date in its time zone on (keepsDefaultCostCenter).

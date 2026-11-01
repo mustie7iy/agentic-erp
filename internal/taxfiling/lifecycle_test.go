@@ -113,10 +113,10 @@ func taxEvents(t *testing.T, e fixture.Env, name string) []map[string]any {
 // draft reads; it waits for another person's approval; recorded as filed
 // with the authority's confirmation it locks the fiscal periods, and
 // a retry is refused without a second event; the period's items that
-// arrive later are its amendment's.
+// arrive later (a reversal) are its amendment's.
 func TestTaxReturnLifecycle(t *testing.T) {
 	e := lifecycleEnv(t)
-	sale(t, e, "2026-02-10", "")
+	feb := sale(t, e, "2026-02-10", "")
 	purchase(t, e, "2026-03-10")
 	sale(t, e, "2026-04-15", "2026-03-30") // posted late, dated in Q1, posted in an open period
 	testID := id(t, e, "TEST")
@@ -202,11 +202,13 @@ func TestTaxReturnLifecycle(t *testing.T) {
 
 	t.Run("amended", func(t *testing.T) {
 		e := in(t, e)
-		sale(t, e, "2026-05-05", "2026-03-15") // arrived after the filing, dated in Q1
+		// A reversal arrives after the filing, dated in Q1 as its original
+		// is; a manual entry may not be (P6, TestTaxDateHold).
+		e.Must(200, "POST", "/v1/journal-entries/"+feb+":reverse", `{"posting_date": "2026-05-05"}`, "*")
 		sale(t, e, "2026-05-06", "2026-04-10") // after the period: not the amendment's
 		amendment, _ := e.Must(201, "POST", returnsOf(testID), `{"period_start": "2026-01-01", "kind": "amendment"}`, "")
 		want(t, "amendment", fmt.Sprintf("%v %v %v", amendment["kind"], amendment["amends_id"], amendment["item_count"]), "amendment "+ret["id"].(string)+" 1")
-		want(t, "its boxes", snapshot(amendment), "sales=100.00/0.00/300.00#1 out=5.00/0.00/15.00#1 in=0.00/0.00/19.00#0 cost=0.00/0.00/0.00#0 net=5.00/0.00/-4.00")
+		want(t, "its boxes", snapshot(amendment), "sales=-100.00/0.00/100.00#1 out=-5.00/0.00/5.00#1 in=0.00/0.00/19.00#0 cost=0.00/0.00/0.00#0 net=-5.00/0.00/-14.00")
 		e.Problem(409, "tax.return_in_progress", "POST", returnsOf(testID), `{"period_start": "2026-01-01", "kind": "amendment"}`, "")
 		q2, _ := e.Must(200, "GET", compute(testID, "2026-04-01"), "", "")
 		want(t, "the next draft's items, of earlier periods", fmt.Sprintf("%v %v", q2["item_count"], q2["prior_period"].(map[string]any)["item_count"]), "1 0")

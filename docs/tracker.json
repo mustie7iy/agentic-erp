@@ -1783,6 +1783,14 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A chosen tax date is held to periods whose tax return is not prepared, approved or filed (P6): a manual entry with tax, and a supplier invoice whose tax date a person set, dated in such a period is refused with 409 ledger.tax_date_in_return naming the period, return and status; a post racing a prepare serializes on the registration",
+        "r": "ledger.TaxReturns (Holding) · taxfiling.Holds · ledger.Posting.TaxDateChosen · ADR-0049 §11 As built (T61o) · walkthrough step 11 · T61o",
+        "src": "po:2026-11-01 · adr:ADR-0049",
+        "pilot": "po:2026-11-01 · adr:ADR-0049",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "Preparing a tax return does not enforce period order: preparing a later period first claims an earlier unfiled period's unreported items as prior-period items",
         "r": "internal/taxfiling prepare.go claim (ledger.TaxItems.Claim takes every unreported item dated by the period's end, with no check that earlier periods are filed) · ADR-0049 §11 As built (T61i) · walkthrough step 11 relies on it (its draft expects \"60.00 10.00\" and its original claims invoice 1031 of an earlier unfiled period): enforcing the order means filing the earlier periods there first, or a cutover · data and tax correctness of the return",

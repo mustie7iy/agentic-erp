@@ -19359,7 +19359,10 @@ type JournalEntryCreate struct {
 	// Posting date; must fall in an open period.
 	PostingDate time.Time `json:"posting_date"`
 	// Tax date: the date the lines' tax codes must be valid on, whose rates apply and whose return reports
-	// their tax (ADR-0049 §4); defaults to the posting date.
+	// their tax (ADR-0049 §4); defaults to the posting date. With a tax code on a line, a tax date in a
+	// period whose tax return is prepared, approved or filed, for a registration covering the company, is
+	// refused at posting with 409 `ledger.tax_date_in_return`, naming the period, the return and its
+	// status (decision P6): such a period's late items go to its amendment or the next return.
 	TaxDate OptDate `json:"tax_date"`
 	// Transaction currency; every line amount must use it.
 	Currency string `json:"currency"`
@@ -29148,7 +29151,10 @@ type ParkedJournalEntryUpdate struct {
 	// Posting date.
 	PostingDate OptDate `json:"posting_date"`
 	// Tax date: the date the lines' tax codes' rates apply on and their tax is reported in (ADR-0049 §4).
-	// Send null to clear: the posting date then.
+	// Send null to clear: the posting date then. With a tax code on a line, a tax date in a period whose
+	// tax return is prepared, approved or filed, for a registration covering the company, is refused at
+	// posting with 409 `ledger.tax_date_in_return`, naming the period, the return and its status (decision
+	// P6): such a period's late items go to its amendment or the next return.
 	TaxDate OptNilDate `json:"tax_date"`
 	// Transaction currency; every line amount must use it, so a change of currency comes with the lines.
 	Currency OptString `json:"currency"`
@@ -40932,7 +40938,10 @@ type SupplierInvoiceCreate struct {
 	PostingDate OptDate `json:"posting_date"`
 	// Tax date: the date the items' tax codes' rates apply on and the tax is reported in (ADR-0049 §4,
 	// decision P6); defaults to the invoice date, or for a correction to the corrected invoice's tax date.
-	// Set by a person only: an agent's is 403 `payables.tax_date_human_only`.
+	// Set by a person only: an agent's is 403 `payables.tax_date_human_only`. A tax date set here is held
+	// to the open returns: posting is refused with 409 `ledger.tax_date_in_return` when a tax return of
+	// its period is prepared, approved or filed for a registration covering the company (decision P6); the
+	// invoice date is not held, so a late invoice reaches the period's amendment or the next return.
 	TaxDate OptDate `json:"tax_date"`
 	// Gross amount; all amounts must share one currency.
 	GrossAmount Money `json:"gross_amount"`
@@ -41392,7 +41401,8 @@ type SupplierInvoiceUpdate struct {
 	// Posting date. Send null to clear.
 	PostingDate OptNilDate `json:"posting_date"`
 	// Tax date: the date the items' tax codes' rates apply on and the tax is reported in (ADR-0049 §4,
-	// decision P6). Set by a person only: an agent's is 403 `payables.tax_date_human_only`. Send null to
+	// decision P6). Set by a person only: an agent's is 403 `payables.tax_date_human_only`. A tax date set
+	// is held to the open returns at posting (409 `ledger.tax_date_in_return`, decision P6). Send null to
 	// clear: the invoice date, or for a correction the corrected invoice's tax date.
 	TaxDate OptNilDate `json:"tax_date"`
 	// Gross amount.
