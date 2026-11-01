@@ -591,7 +591,7 @@
      {
       "s": "D",
       "t": "Quantities checked on reversal: goods receipt and credit memo reversals past the invoiced quantity, invoice reversals under credit memos or subsequent debits naming none",
-      "r": "follow-up of the overpayment fix · 03 §3.9 · ADR-0034 as built (apqty) · procurement receipts.go keepsInvoiced, Invoices.Invoiced · payables reversequantity.go reversible · 409 procurement.reversal_below_invoiced, payables.reversal_exceeds_received, payables.reversal_exceeds_invoiced, payables.reversal_leaves_revaluation · returns (122) not held to it · TestReversalsKeepQuantities · walkthrough step 6 · apqty",
+      "r": "follow-up of the overpayment fix · 03 §3.9 · ADR-0034 as built (apqty) · procurement receipts.go keepsInvoiced, Invoices.Invoiced · payables reversequantity.go reversible · 409 procurement.reversal_below_invoiced, payables.reversal_exceeds_received, payables.reversal_exceeds_invoiced, payables.reversal_leaves_revaluation · returns (122) not held to it · a subsequent debit or credit naming another invoice is held too (review round 1) · TestReversalsKeepQuantities · walkthrough step 6 · apqty",
       "src": "baseline",
       "c": []
      },

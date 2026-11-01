@@ -90,8 +90,8 @@ func refusedWith(t *testing.T, err error, code string, names ...string) {
 // what the match holds a posting to (03 §3.9). A goods receipt's reversal
 // is refused below what is invoiced, a credit memo's above what is
 // received, an invoice's under credit memos crediting more than the other
-// documents invoice or under a subsequent debit naming no invoice once
-// nothing remains invoiced; each is allowed once the documents agree. A
+// documents invoice or under a subsequent debit, whichever other invoice
+// it names, once nothing remains invoiced; each is allowed once the documents agree. A
 // return is not held to what is invoiced: the supplier's credit memo
 // follows it.
 func TestReversalsKeepQuantities(t *testing.T) {
@@ -160,6 +160,17 @@ func TestReversalsKeepQuantities(t *testing.T) {
 		if err := commit(e, reverseIn(invoice)); err != nil {
 			t.Errorf("reversal of the invoice once nothing revalues it: got %v, want it reversed", err)
 		}
+	})
+	t.Run("invoice reversal under a subsequent debit naming another invoice", func(t *testing.T) {
+		e := e.in(t)
+		po := e.order(t, e.Supplier, "PO-G7")
+		e.receipt(t, po, "10")
+		z := e.posted(t, e.matched(t, e.onItem1("invoice", "G7-Z", po, 5)))
+		y := e.posted(t, e.matched(t, e.onItem1("invoice", "G7-Y", po, 5)))
+		e.posted(t, e.matched(t, e.onItem1("credit_memo", "G7-C", po, 5)))
+		debit := e.posted(t, e.matched(t, e.document("subsequent_debit", "G7-D", "5.95", "0.95",
+			fmt.Sprintf(`, "purchase_order_id": %q, "reference_invoice_id": %q`, po, id(z)), poItem(po, 1, "0", "EA", "5.00"))))
+		refusedWith(t, commit(e, reverseIn(y)), "payables.reversal_leaves_revaluation", y["document_number"].(string), debit["document_number"].(string))
 	})
 	t.Run("credit memo on an item no longer on the order", func(t *testing.T) {
 		e := e.in(t)

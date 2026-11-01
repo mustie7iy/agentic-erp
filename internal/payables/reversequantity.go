@@ -22,9 +22,10 @@ import (
 //     (409 payables.reversal_exceeds_received);
 //   - an invoice's reversal leaving credit memos crediting more than
 //     remains invoiced (409 payables.reversal_exceeds_invoiced), or a
-//     subsequent debit or credit naming no invoice revaluing an item
-//     nothing remains invoiced of (409 payables.reversal_leaves_revaluation);
-//     those naming the invoice are refused before (requireNoCorrections).
+//     subsequent debit or credit revaluing an item nothing remains
+//     invoiced of (409 payables.reversal_leaves_revaluation), whatever
+//     invoice it names, as the match holds it (nothing_invoiced); those
+//     naming this invoice are refused before (requireNoCorrections).
 //
 // A subsequent debit's or credit's reversal moves no quantity and is not
 // checked. The order items are locked first (Orders.LockItems), after the
@@ -74,10 +75,10 @@ func creditReversible(v Invoice, o procurement.Order, nos []int32, left map[int3
 
 // invoiceReversible refuses an invoice's reversal that would leave an
 // order item credited past what remains invoiced (left is what the other
-// documents invoice), or revalued by a subsequent debit or credit naming
-// no invoice once nothing remains invoiced of it.
+// documents invoice), or revalued by a posted subsequent debit or credit
+// once nothing remains invoiced of it.
 func invoiceReversible(ctx context.Context, tx pgx.Tx, v Invoice, o procurement.Order, nos []int32, left map[int32]string) error {
-	revaluations, err := unnamedRevaluations(ctx, tx, v, nos)
+	revaluations, err := postedRevaluations(ctx, tx, v, nos)
 	if err != nil {
 		return err
 	}
@@ -90,25 +91,26 @@ func invoiceReversible(ctx context.Context, tx pgx.Tx, v Invoice, o procurement.
 				v.DocumentNumber, no, o.DocumentNumber, left[no]))
 		case invoiced.Sign() == 0 && len(revaluations[no]) > 0:
 			return problem.Conflict("payables.reversal_leaves_revaluation", fmt.Sprintf(
-				"Reversing invoice %s would leave nothing invoiced of item %d of purchase order %s, which %s, naming no invoice, revalues; reverse it first.",
+				"Reversing invoice %s would leave nothing invoiced of item %d of purchase order %s, which %s revalues; reverse it first.",
 				v.DocumentNumber, no, o.DocumentNumber, strings.Join(revaluations[no], ", ")))
 		}
 	}
 	return nil
 }
 
-// unnamedRevaluations are the posted subsequent debits and credits naming
-// no invoice on each of the invoice's order items, by document number.
-func unnamedRevaluations(ctx context.Context, tx pgx.Tx, v Invoice, nos []int32) (map[int32][]string, error) {
+// postedRevaluations are the posted subsequent debits and credits on each
+// of the invoice's order items, by document number, whatever invoice they
+// name: the match holds each to something invoiced of its item.
+func postedRevaluations(ctx context.Context, tx pgx.Tx, v Invoice, nos []int32) (map[int32][]string, error) {
 	rows, _ := tx.Query(ctx, `SELECT DISTINCT t.po_item_no, i.document_number FROM payables.supplier_invoice_item t
 		JOIN payables.supplier_invoice i ON i.tenant_id = t.tenant_id AND i.id = t.supplier_invoice_id
 		WHERE t.purchase_order_id = $1 AND t.po_item_no = ANY($2) AND NOT t.is_removed AND i.status = 'posted'
-			AND i.kind IN ('subsequent_debit', 'subsequent_credit') AND i.reference_invoice_id IS NULL ORDER BY 1, 2`, *v.PurchaseOrderID, nos)
+			AND i.kind IN ('subsequent_debit', 'subsequent_credit') ORDER BY 1, 2`, *v.PurchaseOrderID, nos)
 	out := map[int32][]string{}
 	var no int32
 	var number string
 	if _, err := pgx.ForEachRow(rows, []any{&no, &number}, func() error { out[no] = append(out[no], number); return nil }); err != nil {
-		return nil, fmt.Errorf("payables: read the revaluations on order %s that name no invoice: %w", *v.PurchaseOrderID, err)
+		return nil, fmt.Errorf("payables: read the revaluations posted on order %s: %w", *v.PurchaseOrderID, err)
 	}
 	return out, nil
 }

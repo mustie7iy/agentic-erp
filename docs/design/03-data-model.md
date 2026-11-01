@@ -1700,8 +1700,11 @@ matches.
 
 Reversals are held to the same quantities, under the same item locks
 (apqty): a reversal is refused when the documents left standing would not
-pass the match, and its refusal names the document, the order item and the
-quantities.
+pass the match's quantity checks, and its refusal names the document, the
+order item and the quantities. It is held to the plain quantities: there is
+no exception to approve for a reversal, so on an item invoiced past what was
+received on an approved exception, a receipt's or credit memo's reversal is
+refused until the documents agree again.
 
 - A goods receipt's reversal (102) may not leave an order item received
   less than the documents posted on it invoice, net of credit memos and
@@ -1717,9 +1720,10 @@ quantities.
   reversal since the memo may have left it.
 - An invoice's reversal may not leave credit memos crediting more than
   remains invoiced (409 `payables.reversal_exceeds_invoiced`), nor a
-  subsequent debit or credit naming no invoice revaluing an item nothing
-  remains invoiced of (409 `payables.reversal_leaves_revaluation`); one
-  naming the invoice is refused before (`payables.invoice_has_corrections`).
+  subsequent debit or credit revaluing an item nothing remains invoiced of
+  (409 `payables.reversal_leaves_revaluation`), whichever other invoice it
+  names, as the match holds it (`nothing_invoiced`); one naming the
+  invoice is refused before (`payables.invoice_has_corrections`).
 - A subsequent debit's or credit's reversal moves no quantity and is not
   checked.
 

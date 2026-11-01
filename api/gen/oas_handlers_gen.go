@@ -52765,8 +52765,8 @@ func (s *Server) handleReverseJournalEntryRequest(args [1]string, argsEscaped bo
 // the quantities) if the documents posted on the order would no longer pass the three-way match
 // without it: a credit memo's reversal invoicing an order item past what was received
 // (`payables.reversal_exceeds_received`), an invoice's reversal leaving credit memos crediting more
-// than remains invoiced (`payables.reversal_exceeds_invoiced`) or a subsequent debit or credit naming
-// no invoice on an item nothing remains invoiced of (`payables.reversal_leaves_revaluation`).
+// than remains invoiced (`payables.reversal_exceeds_invoiced`) or a posted subsequent debit or credit
+// on an item nothing remains invoiced of (`payables.reversal_leaves_revaluation`).
 //
 // POST /v1/supplier-invoices/{id}:reverse
 func (s *Server) handleReverseSupplierInvoiceRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

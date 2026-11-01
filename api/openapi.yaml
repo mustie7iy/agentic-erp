@@ -11266,7 +11266,7 @@ paths:
       tags:
         - payables
       summary: Reverse a posted supplier invoice
-      description: "Posts a reversal of the invoice's journal entry; the status becomes `reversed` and `reversal_entry_id` is set. Refused (409) if the invoice is in a live payment run or cleared. Requires status `posted`. On a purchase order, refused (409, naming the document, the order item and the quantities) if the documents posted on the order would no longer pass the three-way match without it: a credit memo's reversal invoicing an order item past what was received (`payables.reversal_exceeds_received`), an invoice's reversal leaving credit memos crediting more than remains invoiced (`payables.reversal_exceeds_invoiced`) or a subsequent debit or credit naming no invoice on an item nothing remains invoiced of (`payables.reversal_leaves_revaluation`)."
+      description: "Posts a reversal of the invoice's journal entry; the status becomes `reversed` and `reversal_entry_id` is set. Refused (409) if the invoice is in a live payment run or cleared. Requires status `posted`. On a purchase order, refused (409, naming the document, the order item and the quantities) if the documents posted on the order would no longer pass the three-way match without it: a credit memo's reversal invoicing an order item past what was received (`payables.reversal_exceeds_received`), an invoice's reversal leaving credit memos crediting more than remains invoiced (`payables.reversal_exceeds_invoiced`) or a posted subsequent debit or credit on an item nothing remains invoiced of (`payables.reversal_leaves_revaluation`)."
       x-permission: payables.invoice.post
       x-problem-codes:
         - config.no_number_range
