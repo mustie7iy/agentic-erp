@@ -666,6 +666,7 @@ func (e *Endpoints) MatchBankStatement(ctx context.Context, params gen.MatchBank
 	if err != nil {
 		return nil, err
 	}
+	// ogen names the response both operations share after the first.
 	return &gen.AcceptBankStatementGapOKHeaders{ETag: gen.NewOptString(etag.Format(s.Version)), Response: out}, nil
 }
 

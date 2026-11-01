@@ -47,7 +47,7 @@ func AcceptGap(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, rea
 		FROM payments.bank_statement pr WHERE s.id = $1 AND s.status = 'gap' AND pr.tenant_id = s.tenant_id AND pr.id = s.previous_statement_id
 		RETURNING pr.id, pr.closing_balance`, id, p.ID, reason).Scan(&previous, &previousClosing)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Statement{}, problem.Conflict("payments.statement_not_in_gap", "The statement is not in gap: its opening balance is its previous statement's closing balance, or it has none.")
+		return Statement{}, problem.Conflict("payments.statement_not_in_gap", "The statement is not in gap: it is imported or reconciled.")
 	}
 	if err != nil {
 		return Statement{}, fmt.Errorf("payments: accept the gap of statement %s: %w", id, err)

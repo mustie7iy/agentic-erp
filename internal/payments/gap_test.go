@@ -124,6 +124,26 @@ func TestGapFoundAgainAfterAcceptance(t *testing.T) {
 	}
 }
 
+// TestGapClosedAfterAcceptance: the missing statement arriving after the
+// acceptance and leading to the accepted statement leaves it imported,
+// its acceptance kept, and publishes no gap event.
+func TestGapClosedAfterAcceptance(t *testing.T) {
+	sc := gapScenario(t)
+	e := sc.e
+	e.Must(200, "POST", "/v1/bank-statements/"+sc.statement+":acceptGap", `{"reason": "Missing for now."}`, sc.tag(t))
+	missing := e.imported(t, "mt940", mtStatement("MX", "9", "900,00", "260415", "1000,00", "260415", ":61:2604150415C100,00NTRFNONREF//X1\n"))[0].(map[string]any)
+	s, _ := e.Must(200, "GET", "/v1/bank-statements/"+sc.statement, "", "")
+	if s["status"] != "imported" || s["previous_statement_id"] != missing["id"] {
+		t.Errorf("accepted statement after the missing one: got %v after %v, want imported after %v", s["status"], s["previous_statement_id"], missing["id"])
+	}
+	if s["gap_reason"] != "Missing for now." || s["gap_accepted_at"] == nil || s["gap_accepted_by"] == nil {
+		t.Errorf("the acceptance after the gap closed: got %v, %v, %v, want it kept", s["gap_accepted_at"], s["gap_accepted_by"], s["gap_reason"])
+	}
+	if n := len(events(t, e.Tenant, "bank_statement_gap_closed")) + len(events(t, e.Tenant, "bank_statement_gap_found")); n != 0 {
+		t.Errorf("gap events: got %d, want none: the statement was imported already", n)
+	}
+}
+
 // TestAcceptGapDatabaseFailures: every statement of an acceptance fails in
 // turn, and none runs outside a unit of work.
 func TestAcceptGapDatabaseFailures(t *testing.T) {
