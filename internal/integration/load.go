@@ -65,6 +65,9 @@ type loader struct {
 	// positions it takes over (T72f, takeOverGRIR).
 	grir    map[string]*grirPosition
 	viaGRIR map[string]bool
+	// foreign are the documents posted in their foreign document currency,
+	// with that currency (foreignDocuments).
+	foreign map[string]string
 }
 
 type loadedEntry struct {
@@ -151,7 +154,7 @@ func (l *loader) load(ctx context.Context) error {
 	if err := l.e.Postings.LockAllEntries(ctx); err != nil {
 		return err
 	}
-	l.downPayments = downPaymentDocs(l.ext)
+	l.downPayments, l.foreign = downPaymentDocs(l.ext), foreignDocuments(l.ext, l.t)
 	l.grir, l.viaGRIR = grirPositions(l.ext, l.t), map[string]bool{}
 	for _, fn := range []func(context.Context) error{l.partners, l.orders, l.lockOrderItems, l.invoiced, l.receipts, l.takeOverGRIR, l.invoices, l.journal, l.clearings,
 		l.blocked} {
@@ -488,11 +491,17 @@ func (l *loader) reconciliation(company, account string) bool {
 
 func documentKey(l sap.ACDOCA) string { return l.RBUKRS + "/" + l.GJAHR + "/" + l.BELNR }
 
+// ownEntry reports whether a document posts as an entry of its own in
+// balances mode, beside the opening entry: one holding an open down
+// payment, or an open item in a foreign document currency.
+func (l *loader) ownEntry(key string) bool { return l.downPayments[key] != nil || l.foreign[key] != "" }
+
 // journal posts the extract's documents, each as a journal entry, or in
-// balances mode one opening entry per company and the documents holding an
-// open down payment, which the opening entry leaves out: each is posted as
-// the platform posts a down payment, an entry of its own whose tax the
-// final invoice's clearing reverses (T72c).
+// balances mode one opening entry per company and the documents that post
+// on their own (ownEntry), which the opening entry leaves out: a down
+// payment's as the platform posts a down payment, an entry of its own
+// whose tax the final invoice's clearing reverses (T72c), and one holding
+// an open item in a foreign currency in that currency (foreignDocuments).
 func (l *loader) journal(ctx context.Context) error {
 	if l.t.balances {
 		if err := l.openingEntries(ctx); err != nil {
@@ -501,7 +510,7 @@ func (l *loader) journal(ctx context.Context) error {
 	}
 	docs := map[string][]sap.ACDOCA{}
 	for _, line := range l.ext.ACDOCA {
-		if key := documentKey(line); !l.t.balances || l.downPayments[key] != nil {
+		if key := documentKey(line); !l.t.balances || l.ownEntry(key) {
 			docs[key] = append(docs[key], line)
 		}
 	}
@@ -558,15 +567,23 @@ func (l *loader) journalDocument(ctx context.Context, key string, lines []sap.AC
 }
 
 // journalPosting is the posting of one SAP document's lines, in SAP line
-// order; zero lines are left out, so it also maps each SAP line to its
-// platform line number.
+// order, in company code currency or in its foreign document currency
+// (foreignDocuments) at the rate SAP's amounts imply; lines of no company
+// code amount are left out (in a foreign currency they have no document
+// amount either, which the quality gate checks), so it also maps each SAP
+// line to its platform line number, the same in every run.
 func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) (ledger.Posting, loadedEntry) {
 	slices.SortFunc(lines, func(a, b sap.ACDOCA) int { return cmp.Compare(a.DOCLN, b.DOCLN) })
 	first := lines[0]
 	date, _ := sapDate(first.BUDAT) // checked by the quality gate
 	text := "SAP document " + first.BELNR
+	local := currency[first.RBUKRS]
 	in := ledger.Posting{LegalEntityID: l.t.entities[first.RBUKRS].ID, DocumentType: first.BLART, DocumentDate: date, PostingDate: date,
-		Currency: currency[first.RBUKRS], HeaderText: &text, SourceContext: "integration", SourceDocumentID: l.run.ID}
+		Currency: local, HeaderText: &text, SourceContext: "integration", SourceDocumentID: l.run.ID}
+	if foreign := l.foreign[documentKey(first)]; foreign != "" {
+		in.Currency = foreign
+		in.Rate, _ = sourceRate(lines, foreign, local, l.t) // the quality gate refuses a document without one
+	}
 	if first.XBLNR != "" {
 		in.Reference = &first.XBLNR
 	}
@@ -576,11 +593,11 @@ func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) 
 		dp = &open[0]
 	}
 	for _, line := range lines {
-		amt, _ := l.t.amount(line.HSL, in.Currency) // checked by the quality gate (journal)
-		if amt == 0 {
+		amt, lc := l.lineAmounts(line, local) // checked by the quality gate (journal, foreignDocument)
+		if lc == nil && amt == 0 || lc != nil && *lc == 0 {
 			continue
 		}
-		pl := ledger.PostingLine{AccountID: l.t.charts[line.RBUKRS][sap.Alpha(line.RACCT)].ID, Amount: amt}
+		pl := ledger.PostingLine{AccountID: l.t.charts[line.RBUKRS][sap.Alpha(line.RACCT)].ID, Amount: amt, LC: lc}
 		if l.reconciliation(line.RBUKRS, line.RACCT) {
 			partnerID := l.vendors[line.LIFNR]
 			pl.PartnerID = &partnerID
@@ -649,7 +666,7 @@ func (l *loader) openingLines(c sap.T001) ([]ledger.PostingLine, string, money.M
 	var cleared money.Minor
 	var last string
 	for _, line := range l.ext.ACDOCA {
-		if line.RBUKRS != c.BUKRS || l.downPayments[documentKey(line)] != nil {
+		if line.RBUKRS != c.BUKRS || l.ownEntry(documentKey(line)) {
 			continue
 		}
 		// Parsed and in range: the quality gate refuses an extract whose

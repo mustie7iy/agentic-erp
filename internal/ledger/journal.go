@@ -550,6 +550,9 @@ type NewEntry struct {
 	SourceDocumentID *uuid.UUID
 	// taxItems are the context's calculated items (Posting.TaxItems).
 	taxItems []PostingTaxItem
+	// rate is the source system's rate into local currency (Posting.Rate),
+	// or nil.
+	rate *big.Rat
 }
 
 // taxDay is the entry's tax date: the one it names, else its posting date.
@@ -868,12 +871,24 @@ func rateOfType(ctx context.Context, tx pgx.Tx, rateType, from, to string, date 
 }
 
 // postingRates are the rates a posting converts at, from its transaction
-// currency to the local one and from that to the group's. A rate whose
-// 12-decimal form is zero, the reciprocal of a recorded rate above 2e12,
-// cannot be recorded on the entry, so the posting is refused (F19).
-func postingRates(ctx context.Context, tx pgx.Tx, tc, lc, gc string, date time.Time) (toLC, toGC exchange, err error) {
-	if toLC, err = rate(ctx, tx, tc, lc, date); err != nil {
-		return exchange{}, exchange{}, err
+// currency to the local one and from that to the group's: the average
+// rates valid on the date, or into local currency the source system's
+// (given, Posting.Rate). A rate whose 12-decimal form is zero, the
+// reciprocal of a recorded rate above 2e12, or not above zero, a given
+// one below 5e-13, cannot be recorded on the entry, so the posting is
+// refused (F19).
+func postingRates(ctx context.Context, tx pgx.Tx, tc, lc, gc string, date time.Time, given *big.Rat) (toLC, toGC exchange, err error) {
+	switch {
+	case given != nil && money.ParseRat(given.FloatString(12)).Sign() <= 0:
+		return exchange{}, exchange{}, problem.Unprocessable("ledger.rate_not_recordable",
+			fmt.Sprintf("The source system's rate from %s to %s, %s, is not above zero to the 12 decimals a journal entry records.", tc, lc, given.FloatString(15)),
+			problem.FieldError{Field: "currency", Code: "rate_not_recordable", Message: "a rate above zero"})
+	case given != nil:
+		toLC = exchange{exact: given, shown: given.FloatString(12)}
+	default:
+		if toLC, err = rate(ctx, tx, tc, lc, date); err != nil {
+			return exchange{}, exchange{}, err
+		}
 	}
 	if toGC, err = rate(ctx, tx, lc, gc, date); err != nil {
 		return exchange{}, exchange{}, err
@@ -1028,7 +1043,7 @@ func (e *Endpoints) postEntry(ctx context.Context, in NewEntry, check func(conte
 // differences go to the largest line.
 func (e *Endpoints) postPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v prepared, in NewEntry,
 	check func(context.Context, pgx.Tx, prepared, NewEntry) error) (Entry, error) {
-	rateLC, rateGC, err := postingRates(ctx, tx, in.Currency, v.le.LocalCurrency, v.group, in.PostingDate)
+	rateLC, rateGC, err := postingRates(ctx, tx, in.Currency, v.le.LocalCurrency, v.group, in.PostingDate, in.rate)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -1074,7 +1089,7 @@ func entryLines(in NewEntry, expTC int) ([]Line, error) {
 			return nil, problem.BadRequest("request.invalid_amount", fmt.Sprintf("Amounts in %s have exactly %d decimals.", in.Currency, expTC),
 				problem.FieldError{Field: field + ".amount", Code: "invalid", Message: err.Error()})
 		}
-		if tc == 0 {
+		if tc == 0 && (l.lc == nil || *l.lc == 0) {
 			return nil, problem.Unprocessable("ledger.zero_amount", "Line amounts are never zero.",
 				problem.FieldError{Field: field + ".amount", Code: "zero", Message: "debit positive, credit negative"})
 		}

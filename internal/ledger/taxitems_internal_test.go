@@ -14,8 +14,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
-// TestKeepLocalOutOfRange: a kept local amount whose group amount, or the
-// lines' local or group total, is out of range is refused with 422
+// TestKeepLocalOutOfRange: a kept local amount whose group amount, of
+// lines that all keep theirs or of one that does, or the lines' local or
+// group total, is out of range is refused with 422
 // ledger.amount_too_large, before any account is read.
 func TestKeepLocalOutOfRange(t *testing.T) {
 	huge := money.Minor(math.MaxInt64 / 2)
@@ -23,9 +24,10 @@ func TestKeepLocalOutOfRange(t *testing.T) {
 		lines  []Line
 		rateGC exchange
 	}{
-		"group amount": {[]Line{{keptLC: &huge}}, exchange{exact: big.NewRat(3, 1), shown: "3"}},
-		"local total":  {[]Line{{keptLC: &huge}, {keptLC: &huge}, {LC: huge}}, one},
-		"group total":  {[]Line{{keptLC: &huge}, {LC: -huge, GC: huge}, {GC: huge}}, one},
+		"group amount":                {[]Line{{keptLC: &huge}}, exchange{exact: big.NewRat(3, 1), shown: "3"}},
+		"group amount of a kept line": {[]Line{{keptLC: &huge}, {}}, exchange{exact: big.NewRat(3, 1), shown: "3"}},
+		"local total":                 {[]Line{{keptLC: &huge}, {keptLC: &huge}, {LC: huge}}, one},
+		"group total":                 {[]Line{{keptLC: &huge}, {LC: -huge, GC: huge}, {GC: huge}}, one},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := keepLocal(context.Background(), uuid.Nil, c.lines, c.rateGC, 2, 2, nil)

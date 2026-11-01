@@ -435,14 +435,20 @@ step_tenant() {
   grep -q "\[error\] companies\[$CC\]\.house_banks\[MUSD\]\.gl_account: house bank MUSD is in USD: account 102000 must be revalue_foreign_currency" "$WORK/generate.out" ||
     { sed 's/^/     /' "$WORK/generate.out"; fail "the draft did not ask for the USD bank's account to be revalued"; }
   expect "the draft's validation errors" "$(grep -c '\[error\]' "$WORK/generate.out")" 1
-  awk '{ print } /^      - number: "102000"$/ { usd = 1 } usd && /^        type: asset$/ { print "        revalue_foreign_currency: true"; usd = 0 }
-    /^    fiscal_year_start_month: 1$/ { print "    fx_valuation:\n      accounts:\n        - {account: \"102000\", unrealised_gain: \"480000\", unrealised_loss: \"680000\"}" }' \
+  say "SAP also holds an open supplier invoice in USD (ACDOCA RWCUR), which loads in USD: the reviewer has the payables"
+  say "account 211000 revalued too, its differences on a payables valuation account 211099 (ADR-0042)."
+  jq -r --arg cc "$CC" '.ACDOCA[] | select(.RBUKRS == $cc and .RWCUR != null and .RWCUR != "CAD" and .LIFNR != "" and .AUGBL == "")
+    | "     ACDOCA \(.BELNR)/\(.DOCLN): account \(.RACCT), vendor \(.LIFNR), \(.WSL) \(.RWCUR) (\(.HSL) CAD)"' "$WORK/data/extract.json"
+  awk '{ print } /^      - number: "102000"$/ { usd = 1 } usd && /^        type: asset$/ { print "        revalue_foreign_currency: true"; usd = 0
+      print "      - number: \"211099\"\n        name: Payables valuation\n        type: liability" }
+    /^    fiscal_year_start_month: 1$/ { print "    fx_valuation:\n      accounts:\n        - {account: \"102000\", unrealised_gain: \"480000\", unrealised_loss: \"680000\"}"
+      print "        - {account: \"211000\", adjustment: \"211099\", unrealised_gain: \"480000\", unrealised_loss: \"680000\"}" }' \
     "$WORK/config.yaml" >"$WORK/config.tmp"
   mv "$WORK/config.tmp" "$WORK/config.yaml"
   show erp config validate -file config.yaml
   "$ERP" config validate -file "$WORK/config.yaml" >"$WORK/validate.out" 2>&1 || { sed 's/^/     /' "$WORK/validate.out"; fail "the reviewed configuration does not validate"; }
   grep -q 'Validation: no findings' "$WORK/validate.out" || { sed 's/^/     /' "$WORK/validate.out"; fail "the reviewed configuration has findings"; }
-  say "  with account 102000 revalued into 480000 and 680000, the configuration validates with no findings."
+  say "  with accounts 102000 and 211000 revalued into 480000 and 680000, the configuration validates with no findings."
   say "A second ledger, 2L for local GAAP (ASPE), is added beside the leading IFRS ledger 0L before"
   say "provisioning: parallel ledgers are set up while the company has no postings (ADR-0045)."
   awk '{ print } /^    fiscal_year_start_month: 1$/ { print "    ledgers: [\"0L\", \"2L\"]" }' "$WORK/config.yaml" >"$WORK/config.tmp"
@@ -511,7 +517,8 @@ step_migrate() {
   for check in 'Trial balance: accounts with differences' 'Open payables total' 'Open payables: vendors with differences' \
     'Open payable items' 'Open payable items: vendors with differences' 'Parked supplier invoices' 'Parked supplier credit memos' 'Parked subsequent debits' 'Parked subsequent credits' \
     'Vendor bank accounts: vendors with differences' 'Quantities invoiced in SAP: order items with differences' \
-    'Open down payments total' 'Open down payments: vendors with differences' 'Open GR/IR total' 'Open GR/IR: order items with differences'; do
+    'Open down payments total' 'Open down payments: vendors with differences' 'Open items in USD total' 'Open items in USD: vendors with differences' \
+    'Open GR/IR total' 'Open GR/IR: order items with differences'; do
     grep "$check" "$WORK/migrate.out" | grep -q 'PASS$' || fail "the reconciliation check '$check' did not pass"
   done
   delta_migration "$connector"
@@ -557,8 +564,37 @@ step_migrate() {
     expect "the migrated $kind's status" "$(field .status)" posted
   done
   migrated_down_payment
+  migrated_foreign_item
   migrated_grir
   passed
+}
+
+# migrated_foreign_item shows SAP's open invoice in USD of the CAD company
+# (the mock's foreignInvoice) as it loaded, in its document currency
+# (ADR-0005 As built, product owner 2026-10-31): an open item of USD
+# 1,000.00 worth CAD 1,350.00 as SAP booked it, its entry in USD at the
+# rate SAP's amounts imply, and the reconciliation's USD controls. Step 9
+# revalues it. It keeps the item's entry in FX_ENTRY.
+migrated_foreign_item() {
+  local lifnr name supplier
+  lifnr=$(jq -r --arg cc "$CC" '[.ACDOCA[] | select(.RBUKRS == $cc and .RWCUR == "USD" and .LIFNR != "" and .AUGBL == "")] | first | .LIFNR' "$WORK/data/extract.json")
+  name=$(jq -r --arg v "$lifnr" '.LFA1[] | select(.LIFNR == $v) | .NAME1' "$WORK/data/extract.json")
+  say "SAP's open invoice from $name is in USD, the company's currency being CAD: each line carries its document"
+  say "currency and amount (RWCUR, WSL) beside its company code amount (HSL), and the document loaded in USD,"
+  say "as the platform posts an invoice in USD: an open item that a USD payment clears and month end revalues."
+  QUIET=1 api 200 '' listBusinessPartners -p "name_prefix=$name"
+  supplier=$(field '.items[0].id')
+  api 200 '.items[] | select(.amount.currency != "CAD") | "open item \(.document_number): \(.amount.amount) \(.amount.currency), worth \(.amount_lc.amount) \(.amount_lc.currency)"' \
+    listOpenItems -p "partner_id=$supplier" -p page_size=100
+  expect "the open USD item of $name" \
+    "$(field '[.items[] | select(.amount.currency != "CAD") | "\(.amount.amount) \(.amount.currency) \(.amount_lc.amount) \(.amount_lc.currency)"] | join(", ")')" \
+    "-1000.00 USD -1350.00 CAD"
+  FX_ENTRY=$(field '.items[] | select(.amount.currency == "USD") | .journal_entry_id')
+  api 200 '"journal entry \(.document_number): \(.currency), \(.rate_tc_lc) \(.local_currency) per \(.currency), \([.lines[] | "\(.amount.amount) \(.amount.currency) = \(.amount_lc.amount) \(.amount_lc.currency)"] | join(" / "))"' \
+    getJournalEntry -p "id=$FX_ENTRY"
+  expect "the USD invoice's entry rate, SAP's" "$(field .rate_tc_lc)" 1.350000000000
+  say "The reconciliation agreed in CAD and compared the USD items in USD:"
+  grep -E 'Open items in USD' "$WORK/migrate.out" | sed 's/^/     /'
 }
 
 # parallel_run_extract splits SAP's receipt of the eight shelving units
@@ -1217,6 +1253,11 @@ step_fx() {
     -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$eom\"}"
   expect "the bank account's revaluation" \
     "$(jq -r --arg a "$usd_bank" '.items[] | select(.account_id == $a) | "\(.direction) \(.difference_lc.amount)"' "$WORK/last.json")" "gain 250.00"
+  say "SAP's USD invoice that the migration loaded in USD (step 3) is valued as one the platform posted: USD 1,000.00"
+  say "booked at CAD 1,350.00 is owed at 1.40, CAD 1,400.00, a loss of CAD 50.00 on the payables account."
+  expect "the migrated USD invoice's revaluation" \
+    "$(jq -r --arg e "$FX_ENTRY" '.items[] | select(.journal_entry_id == $e) | "\(.amount.amount) \(.amount_lc.amount) \(.direction) \(.difference_lc.amount)"' "$WORK/last.json")" \
+    "-1000.00 -1350.00 loss -50.00"
   passed
 }
 

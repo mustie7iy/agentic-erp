@@ -249,22 +249,25 @@ func writeGivenItems(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, year int1
 // posting date's rate, and books what that leaves unbalanced in local and
 // group currency as an exchange difference (fxLines): a tax line converted
 // at the tax date's rate (ADR-0049 §8). Lines without kept amounts are
-// returned as they are.
+// returned as they are. When every line keeps its local amount, a source
+// system's document migrated in its document currency (Posting.Rate), the
+// group amounts are converted together, the rounding difference on the
+// largest line as convertLines does, so local amounts that balance leave
+// no exchange difference.
 func keepLocal(ctx context.Context, le uuid.UUID, lines []Line, rateGC exchange, expLC, expGC int, text *string) ([]Line, error) {
-	kept := false
-	lcs, gcs := make([]money.Minor, len(lines)), make([]money.Minor, len(lines))
-	for i := range lines {
-		if k := lines[i].keptLC; k != nil {
-			g, err := convert(*k, rateGC, expLC, expGC)
-			if err != nil {
-				return nil, err
-			}
-			lines[i].LC, lines[i].GC, kept = *k, g, true
-		}
-		lcs[i], gcs[i] = lines[i].LC, lines[i].GC
+	var kept bool
+	var err error
+	if allKept(lines) {
+		kept, err = true, keepAll(lines, rateGC, expLC, expGC)
+	} else {
+		kept, err = keepSome(lines, rateGC, expLC, expGC)
 	}
-	if !kept {
-		return lines, nil
+	if err != nil || !kept {
+		return lines, err
+	}
+	lcs, gcs := make([]money.Minor, len(lines)), make([]money.Minor, len(lines))
+	for i, l := range lines {
+		lcs[i], gcs[i] = l.LC, l.GC
 	}
 	lc, err := money.Sum(lcs...)
 	if err != nil {
@@ -276,4 +279,47 @@ func keepLocal(ctx context.Context, le uuid.UUID, lines []Line, rateGC exchange,
 	}
 	fx, err := fxLines(ctx, le, -lc, -gc, text)
 	return append(lines, fx...), err
+}
+
+// keepSome sets the local amounts the lines keep, each with its group
+// amount converted from it, and reports whether any line keeps one.
+func keepSome(lines []Line, rateGC exchange, expLC, expGC int) (bool, error) {
+	kept := false
+	for i := range lines {
+		if k := lines[i].keptLC; k != nil {
+			g, err := convert(*k, rateGC, expLC, expGC)
+			if err != nil {
+				return false, err
+			}
+			lines[i].LC, lines[i].GC, kept = *k, g, true
+		}
+	}
+	return kept, nil
+}
+
+// allKept reports whether there are lines and each keeps its local amount.
+func allKept(lines []Line) bool {
+	for _, l := range lines {
+		if l.keptLC == nil {
+			return false
+		}
+	}
+	return len(lines) > 0
+}
+
+// keepAll sets every line's kept local amount and the group amounts
+// converted from them together (keepLocal).
+func keepAll(lines []Line, rateGC exchange, expLC, expGC int) error {
+	lcs := make([]money.Minor, len(lines))
+	for i, l := range lines {
+		lcs[i] = *l.keptLC
+	}
+	gcs, err := money.ConvertAllAt(lcs, rateGC.exact, expLC, expGC)
+	if err != nil {
+		return convertErr(err)
+	}
+	for i := range lines {
+		lines[i].LC, lines[i].GC = lcs[i], gcs[i]
+	}
+	return nil
 }

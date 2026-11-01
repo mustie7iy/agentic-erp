@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,6 +46,9 @@ type PostingLine struct {
 	// (ADR-0049 §8). Its group amount is the local one converted at the
 	// posting date's rate, and what kept amounts leave unbalanced is an
 	// exchange difference (fx_gain or fx_loss). nil: converted as usual.
+	// A line with an Amount of 0 posts only when it keeps a local amount
+	// other than 0: an exchange difference a source system posted in local
+	// currency alone (Posting.Rate).
 	LC *money.Minor
 	// The assignment the document gives the line (ADR-0050 §5): an order
 	// or invoice item's cost center, a profit center for a P&L line
@@ -91,6 +95,14 @@ type Posting struct {
 	// item (T46f), kept with it (ledger.open_item_withholding): what was
 	// withheld at invoice is among Lines already, on the code's account.
 	Withholding []Withholding
+	// Rate is the rate from the entry's currency into the local one that a
+	// source system converted the lines at, recorded on the entry instead
+	// of the average rate valid on the posting date: a document migrated
+	// in its document currency, each line keeping the local amount the
+	// source system posted (PostingLine.LC; ADR-0005 As built). A line
+	// that keeps none is converted at it. nil: the average rate. An entry
+	// with GR/IR items takes none.
+	Rate *big.Rat
 }
 
 // ItemTerms are the payment terms an open item was posted with, as SAP
@@ -320,6 +332,9 @@ func (Postings) GRIROrder(ctx context.Context, legalEntity, order uuid.UUID) (GR
 // Post posts the entry in the leading ledger; one with GR/IR items books
 // their lines too (postGRIR).
 func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
+	if in.Rate != nil && len(in.GRIR) > 0 {
+		return Entry{}, errors.New("ledger: post: a given rate is not taken with GR/IR items")
+	}
 	if len(in.GRIR) > 0 {
 		return p.postGRIR(ctx, in)
 	}
@@ -333,7 +348,7 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 	}
 	entry := NewEntry{LegalEntityID: in.LegalEntityID, DocumentType: in.DocumentType, DocumentDate: in.DocumentDate, PostingDate: in.PostingDate,
 		TaxDate: in.TaxDate, Currency: in.Currency, Reference: in.Reference, HeaderText: in.HeaderText, SourceContext: in.SourceContext,
-		SourceDocumentID: &in.SourceDocumentID, Lines: make([]NewLine, len(in.Lines)), taxItems: in.TaxItems}
+		SourceDocumentID: &in.SourceDocumentID, Lines: make([]NewLine, len(in.Lines)), taxItems: in.TaxItems, rate: in.Rate}
 	for i, l := range in.Lines {
 		entry.Lines[i] = NewLine{AccountID: l.AccountID, Amount: l.Amount.Plain(exps[in.Currency]), Currency: in.Currency,
 			PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, SpecialGL: l.SpecialGL, lc: l.LC,

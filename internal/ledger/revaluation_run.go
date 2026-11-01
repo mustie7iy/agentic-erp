@@ -239,7 +239,7 @@ func negated(lines []Line) []Line {
 // the lines' group amounts are valued on their own.
 func (e *Endpoints) postRevaluationEntry(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le tenancy.Entity, r Revaluation, run uuid.UUID,
 	day time.Time, header string, lines []Line) (Entry, error) {
-	_, toGC, err := postingRates(ctx, tx, r.CurrencyLC, r.CurrencyLC, r.CurrencyGC, day)
+	_, toGC, err := postingRates(ctx, tx, r.CurrencyLC, r.CurrencyLC, r.CurrencyGC, day, nil)
 	if err != nil {
 		return Entry{}, err
 	}

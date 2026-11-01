@@ -390,7 +390,7 @@ func (e *Endpoints) bankAmounts(ctx context.Context, tx pgx.Tx, currency string,
 	if err != nil {
 		return settlementBank{}, err
 	}
-	if b.rateLC, b.rateGC, err = postingRates(ctx, tx, currency, le.LocalCurrency, b.group, date); err != nil {
+	if b.rateLC, b.rateGC, err = postingRates(ctx, tx, currency, le.LocalCurrency, b.group, date, nil); err != nil {
 		return settlementBank{}, err
 	}
 	b.expTC, b.expLC, b.expGC = exps[currency], exps[le.LocalCurrency], exps[b.group]

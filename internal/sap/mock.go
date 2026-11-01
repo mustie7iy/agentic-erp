@@ -40,8 +40,10 @@ import (
 // pay (special G/L A on its down payment account 0000159000, T074, with
 // input tax V1 in SAP's net display; T72c), and an order SAP valued
 // through GR/IR, received and not yet invoiced: an open credit on its GR/IR
-// account 0000219100 (T030 WRX) naming the order item (T72f). Its other
-// orders' receipts post nothing to SAP's journal, as 1000's and 2000's do.
+// account 0000219100 (T030 WRX) naming the order item (T72f), and an
+// invoice in USD it has not paid, an open item in a foreign document
+// currency (foreignInvoice). Its other orders' receipts post nothing to
+// SAP's journal, as 1000's and 2000's do.
 //
 // Revenue follows a monthly trend that grows about 7% a year, so extracts
 // for consecutive years support year-over-year analytics.
@@ -66,6 +68,7 @@ func GenerateMockThrough(seed uint64, fiscalYear string, throughMonth int) *Extr
 	g.company("3000", 5, g.vendorsFor("3000"), true)
 	g.downPayment("3000", 5)
 	g.receivedNotInvoiced("3000")
+	g.foreignInvoice("3000")
 	g.customizing()
 	return g.e
 }
@@ -236,24 +239,37 @@ type fiLine struct {
 	mwskz  string // tax code
 	ebeln  string // purchase order and item of a line on an order's account or GR/IR
 	ebelp  string
+	// document is the line's amount in a foreign document currency
+	// (fiDocIn); a document in its company's currency has amount there.
+	document money.Minor
 }
 
-// fiDoc appends a balanced FI document to ACDOCA and returns its number.
+// fiDoc appends a balanced FI document in the company's currency to
+// ACDOCA and returns its number.
 func (g *mockGen) fiDoc(cc, budat, blart, xblnr string, lines []fiLine) string {
+	for i := range lines {
+		lines[i].document = lines[i].amount
+	}
+	return g.fiDocIn(cc, mockCurrency(cc), budat, blart, xblnr, lines)
+}
+
+// fiDocIn appends an FI document in a document currency (RWCUR), each
+// line's amount its company code amount (HSL) and document its amount in
+// that currency (WSL), balanced in both, and returns its number.
+func (g *mockGen) fiDocIn(cc, currency, budat, blart, xblnr string, lines []fiLine) string {
 	belnr := g.nextFI(cc)
-	var total money.Minor
+	var total, totalDocument money.Minor
 	for i, l := range lines {
-		total += l.amount
+		total, totalDocument = total+l.amount, totalDocument+l.document
 		g.e.ACDOCA = append(g.e.ACDOCA, ACDOCA{
 			RLDNR: "0L", RBUKRS: cc, GJAHR: g.gj, BELNR: belnr, DOCLN: fmt.Sprintf("%06d", i+1),
 			RACCT: l.acct, HSL: l.amount.Plain(mockDecimals), BUDAT: budat, BLART: blart, LIFNR: l.vendor, XBLNR: xblnr,
-			UMSKZ: l.umskz, MWSKZ: l.mwskz, EBELN: l.ebeln, EBELP: l.ebelp,
-			RWCUR: mockCurrency(cc), WSL: l.amount.Plain(mockDecimals), // every mock document is in its company's currency
+			UMSKZ: l.umskz, MWSKZ: l.mwskz, EBELN: l.ebeln, EBELP: l.ebelp, RWCUR: currency, WSL: l.document.Plain(mockDecimals),
 		})
 	}
-	if total != 0 {
+	if total != 0 || totalDocument != 0 {
 		//nolint:forbidigo // an invariant of this generator: its callers build every document's lines from the same amounts, so an unbalanced one is a bug in this file, not something a seed or year can cause
-		panic(fmt.Sprintf("mock FI doc %s/%s unbalanced by %s", cc, belnr, total))
+		panic(fmt.Sprintf("mock FI doc %s/%s unbalanced by %s and %s in %s", cc, belnr, total, totalDocument, currency))
 	}
 	return belnr
 }
@@ -568,6 +584,21 @@ func (g *mockGen) receivedNotInvoiced(cc string) {
 		{acct: grirAccount, amount: -120000, ebeln: ebeln, ebelp: item},
 	})
 	g.e.T030 = append(g.e.T030, T030{BUKRS: cc, KTOSL: "WRX", KONTS: grirAccount}, T030{BUKRS: cc, KTOSL: "PRD", KONTS: priceDifferenceAccount})
+}
+
+// foreignInvoice adds an invoice in USD to the company that SAP posted on
+// 15 June and did not pay: USD 1,000.00 of office supplies from Tyrell
+// Office Products (0000100011, one of 1000's vendors that 3000 buys from
+// too), worth CAD 1,350.00 at 1.35, an open item in its document currency
+// (ACDOCA RWCUR and WSL beside HSL, ADR-0005 As built). It draws nothing
+// from the generator and comes after the company's documents, so the rest
+// of the extract is the same as without it.
+func (g *mockGen) foreignInvoice(cc string) {
+	const vendor, account = "0000100011", "0000520000"
+	g.fiDocIn(cc, "USD", g.date(6, 15), "RE", "TY-USD-1", []fiLine{
+		{acct: account, amount: 135000, document: 100000},
+		{acct: "0000211000", amount: -135000, document: -100000, vendor: vendor},
+	})
 }
 
 // mockHouseBanks are a company's house bank MAIN in its currency: by
