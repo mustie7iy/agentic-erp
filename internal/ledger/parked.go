@@ -58,6 +58,7 @@ type ParkedEntry struct {
 	Debits            money.Minor // the debit total of Lines
 	Limit             *ParkLimit  // why the ERP parked it instead of posting it; nil: a principal parked it
 	TemplateID        *uuid.UUID  // the entry template it was parked from (ADR-0056)
+	TemplateName      *string     // its name, as read
 	OccurrenceDate    *time.Time  // the template's due date the ERP parked it for; nil: a principal parked it
 	Version           int32
 	CreatedAt         time.Time
@@ -104,7 +105,8 @@ var parkedSelect = `SELECT p.id, p.legal_entity_id, p.ledger_id, p.document_type
 		(SELECT g.code FROM ledger.ledger_group g WHERE g.tenant_id = p.tenant_id AND g.id = p.ledger_group_id),
 		` + parkedLines.read("p") + `,
 		p.limit_kind, p.limit_debits, p.limit_debits_currency, (SELECT x.exponent FROM ref.currency x WHERE x.code = p.limit_debits_currency),
-		p.limit_amount, p.limit_currency, (SELECT x.exponent FROM ref.currency x WHERE x.code = p.limit_currency), p.template_id, p.occurrence_date
+		p.limit_amount, p.limit_currency, (SELECT x.exponent FROM ref.currency x WHERE x.code = p.limit_currency), p.template_id, p.occurrence_date,
+		(SELECT t.name FROM ledger.entry_template t WHERE t.tenant_id = p.tenant_id AND t.id = p.template_id)
 	FROM ledger.parked_entry p JOIN ref.currency c ON c.code = p.currency`
 
 func scanParked(row pgx.Row) (ParkedEntry, error) {
@@ -115,7 +117,7 @@ func scanParked(row pgx.Row) (ParkedEntry, error) {
 	err := row.Scan(&pe.ID, &pe.LegalEntityID, &pe.LedgerID, &pe.DocumentType, &pe.DocumentDate, &pe.PostingDate, &pe.TaxDate, &pe.Currency, &pe.Exp,
 		&pe.Reference, &pe.HeaderText, &pe.Status, &pe.CreatedByKind, &pe.OwnerID, &pe.ApprovalRequestID, &pe.JournalFiscalYear, &pe.JournalEntryID,
 		&pe.Version, &pe.CreatedAt, &pe.CreatedBy, &pe.UpdatedAt, &pe.UpdatedBy, &pe.LedgerSpecific, &pe.LedgerGroup, &pe.Lines, &pe.Debits,
-		&kind, &debits, &debitsCurrency, &debitsExp, &limit, &limitCurrency, &limitExp, &pe.TemplateID, &pe.OccurrenceDate)
+		&kind, &debits, &debitsCurrency, &debitsExp, &limit, &limitCurrency, &limitExp, &pe.TemplateID, &pe.OccurrenceDate, &pe.TemplateName)
 	// The database holds the five together (parked_entry_limit_figures),
 	// and a currency it keeps has its exponent.
 	if err == nil && kind != nil {
@@ -347,7 +349,7 @@ func parkedChanged(ctx context.Context, pe ParkedEntry, previous *string, action
 			Payload: map[string]any{"parked_entry_id": pe.ID, "legal_entity_id": pe.LegalEntityID, "posting_date": pe.PostingDate.Format(time.DateOnly),
 				"amount": money.EventAmount(pe.Debits, pe.Currency, pe.Exp), "status": pe.Status, "previous_status": previous,
 				"created_by_kind": pe.CreatedByKind, "owner_id": pe.OwnerID, "approval_request_id": pe.ApprovalRequestID,
-				"journal_entry_id": pe.JournalEntryID, "template_id": pe.TemplateID, "occurrence_date": outbox.Date(pe.OccurrenceDate)}})
+				"journal_entry_id": pe.JournalEntryID, "template_id": pe.TemplateID, "template_name": pe.TemplateName, "occurrence_date": outbox.Date(pe.OccurrenceDate)}})
 }
 
 // EntryChange is a merge patch of a parked entry: nil fields are

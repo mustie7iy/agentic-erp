@@ -3,6 +3,7 @@ package ledger_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -41,6 +43,7 @@ func recurringSetup(t *testing.T) *recurring {
 		line{rent, "4500.00", ""}, line{bank, "-4500.00", ""}), "")
 	r := &recurring{env: e, h: endpoints(), now: time.Date(2026, 2, 15, 12, 0, 0, 0, time.UTC), template: uuid.MustParse(tpl["id"].(string))}
 	r.h.Now = func() time.Time { return r.now }
+	r.h.People = identity.Actors{}
 	return r
 }
 
@@ -62,14 +65,23 @@ func (r *recurring) due(t *testing.T) []string {
 
 func (r *recurring) park(t *testing.T, template uuid.UUID, day string) string {
 	t.Helper()
-	var outcome string
-	if err := apitest.Committed(t, r.ten, recurrer, func(ctx context.Context) (err error) {
-		outcome, err = r.h.ParkOccurrence(ctx, template, date(day))
-		return err
-	}); err != nil {
+	outcome, err := r.tryPark(t, template, day)
+	if err != nil {
 		t.Fatal(err)
 	}
 	return outcome
+}
+
+// tryPark runs the activity's work for the template's date as the
+// recurrer and returns what it did.
+func (r *recurring) tryPark(t *testing.T, template uuid.UUID, day string) (string, error) {
+	t.Helper()
+	var outcome string
+	err := apitest.Committed(t, r.ten, recurrer, func(ctx context.Context) (err error) {
+		outcome, err = r.h.ParkOccurrence(ctx, template, date(day))
+		return err
+	})
+	return outcome, err
 }
 
 func (r *recurring) parked(t *testing.T) []map[string]any {
@@ -88,8 +100,8 @@ func TestRecurringEntries(t *testing.T) {
 		t.Errorf("the recurrer: got %+v, want the system actor in the tenant", p)
 	}
 	short := r.template.String()[:4]
-	if got := r.due(t); len(got) != 2 || got[0] != short+" 2026-01-01" || got[1] != short+" 2026-02-01" {
-		t.Fatalf("due: got %v, want January and February", got)
+	if got := r.due(t); len(got) != 1 || got[0] != short+" 2026-01-01" {
+		t.Fatalf("due: got %v, want January, the next date, alone", got)
 	}
 	tx, err := pgtest.Pool(t).Begin(context.Background(), database.Scope{Role: "erp_worker", ReadOnly: true})
 	if err != nil {
@@ -97,9 +109,24 @@ func TestRecurringEntries(t *testing.T) {
 	}
 	tenants, err := ledger.RecurringTenants(context.Background(), tx, r.now)
 	_ = tx.Rollback(context.Background()) // a read-only transaction: nothing to keep or lose
-	if err != nil || !containsTenant(tenants, r.ten.ID) {
+	if err != nil || !slices.Contains(tenants, r.ten.ID) {
 		t.Fatalf("tenants with templates due: got %v %v, want %s among them", tenants, err, r.ten.ID)
 	}
+	t.Run("dates in order", func(t *testing.T) {
+		for name, c := range map[string]struct {
+			day  string
+			want error
+		}{
+			"a later date while January waits": {"2026-02-01", ledger.ErrEarlierDatePending},
+			"a date off the schedule":          {"2026-02-02", ledger.ErrEarlierDatePending},
+		} {
+			t.Run(name, func(t *testing.T) {
+				if _, err := r.tryPark(t, r.template, c.day); !errors.Is(err, c.want) {
+					t.Errorf("got %v, want %v", err, c.want)
+				}
+			})
+		}
+	})
 	t.Run("parked once however often it runs", func(t *testing.T) {
 		if got := r.park(t, r.template, "2026-01-01"); got != ledger.OccurrenceParked {
 			t.Fatalf("first run: got %s, want parked", got)
@@ -113,18 +140,21 @@ func TestRecurringEntries(t *testing.T) {
 		}
 		want(t, "recurring entry", entries[0], map[string]any{"created_by_kind": "system", "owner_id": r.ten.Human.ID.String(),
 			"created_by": ledger.RecurrerActor.String(), "occurrence_date": "2026-01-01", "posting_date": "2026-01-01", "status": "parked",
-			"template_id": r.template.String()})
+			"template_id": r.template.String(), "template_name": "Office rent"})
 		published := events(t, r.ten, "parked_journal_entry_changed")
 		if len(published) != 1 {
 			t.Fatalf("parked events: got %d, want 1", len(published))
 		}
-		want(t, "parked event", published[0], map[string]any{"template_id": r.template.String(), "occurrence_date": "2026-01-01",
-			"owner_id": r.ten.Human.ID.String(), "created_by_kind": "system"})
+		want(t, "parked event", published[0], map[string]any{"template_id": r.template.String(), "template_name": "Office rent",
+			"occurrence_date": "2026-01-01", "owner_id": r.ten.Human.ID.String(), "created_by_kind": "system"})
 		tpl, _ := r.Must(200, "GET", "/v1/entry-templates/"+r.template.String(), "", "")
 		want(t, "template", tpl, map[string]any{"last_occurrence_on": "2026-01-01", "next_due_on": "2026-02-01"})
 		mine, _ := r.Must(200, "GET", "/v1/parked-journal-entries?owned_by=me&status=parked", "", "")
 		if n := len(mine["items"].([]any)); n != 1 {
 			t.Errorf("the owner's entries: got %d, want 1", n)
+		}
+		if got := r.due(t); len(got) != 1 || got[0] != short+" 2026-02-01" {
+			t.Errorf("due: got %v, want February", got)
 		}
 	})
 	t.Run("skipped", func(t *testing.T) {
@@ -132,13 +162,24 @@ func TestRecurringEntries(t *testing.T) {
 			template uuid.UUID
 			date     string
 		}{
-			"not due yet":         {r.template, "2026-03-01"},
-			"not a date of it":    {r.template, "2026-02-02"},
-			"an unknown template": {uuid.New(), "2026-02-01"},
+			"a date before the next": {r.template, "2025-12-01"},
+			"an unknown template":    {uuid.New(), "2026-02-01"},
 		} {
-			if got := r.park(t, c.template, c.date); got != ledger.OccurrenceSkipped {
-				t.Errorf("%s: got %s, want skipped", name, got)
-			}
+			t.Run(name, func(t *testing.T) {
+				if got := r.park(t, c.template, c.date); got != ledger.OccurrenceSkipped {
+					t.Errorf("got %s, want skipped", got)
+				}
+			})
+		}
+	})
+	t.Run("not due yet on the company's day", func(t *testing.T) {
+		r.now = time.Date(2026, 1, 31, 23, 0, 0, 0, time.UTC)
+		defer func() { r.now = time.Date(2026, 2, 15, 12, 0, 0, 0, time.UTC) }()
+		if _, err := r.tryPark(t, r.template, "2026-02-01"); !errors.Is(err, ledger.ErrNotDueYet) {
+			t.Errorf("got %v, want %v", err, ledger.ErrNotDueYet)
+		}
+		if got := r.due(t); len(got) != 0 {
+			t.Errorf("due: got %v, want none", got)
 		}
 	})
 	t.Run("posted by the owner in an open period, refused in a closed one", func(t *testing.T) {
@@ -159,66 +200,81 @@ func TestRecurringEntries(t *testing.T) {
 	})
 }
 
-func containsTenant(ids []uuid.UUID, id uuid.UUID) bool {
-	for _, x := range ids {
-		if x == id {
-			return true
-		}
-	}
-	return false
-}
-
-// TestRecurringRefusals: a date whose entry parking refuses is recorded on
-// the template and passed over; the template keeps its latest refused
-// date. A retired template, or one no person owns, parks nothing.
+// TestRecurringRefusals: a date whose entry is refused is recorded on the
+// template, published once however often the activity runs, and passed
+// over; the next date goes on. A retired template, or one no person owns,
+// parks nothing.
 func TestRecurringRefusals(t *testing.T) {
 	r := recurringSetup(t)
-	r.now = time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC)
+	r.now = time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
 	rent := r.account(t, "2000", "400000")
-	pgtest.Exec(t, `UPDATE ledger.gl_account SET status = 'inactive', version = version + 1 WHERE id = $1`, rent)
-	if got := r.park(t, r.template, "2026-03-01"); got != ledger.OccurrenceRefused {
-		t.Fatalf("an inactive account: got %s, want refused", got)
+	refuse := func(t *testing.T, day, code string) {
+		t.Helper()
+		if got := r.park(t, r.template, day); got != ledger.OccurrenceRefused {
+			t.Fatalf("%s: got %s, want refused", day, got)
+		}
+		var on, got string
+		pgtest.Scan(t, `SELECT refused_on::text, refusal_code FROM ledger.entry_template WHERE id = $1`, []any{r.template}, &on, &got)
+		if on != day || got != code {
+			t.Errorf("refusal: got %s %s, want %s %s", on, got, day, code)
+		}
 	}
-	if got := r.park(t, r.template, "2026-02-01"); got != ledger.OccurrenceRefused {
-		t.Fatalf("an earlier date: got %s, want refused", got)
-	}
-	tpl, _ := r.Must(200, "GET", "/v1/entry-templates/"+r.template.String(), "", "")
-	want(t, "template", tpl, map[string]any{"next_due_on": "2026-04-01", "last_occurrence_on": nil})
-	want(t, "refusal", tpl["last_refusal"].(map[string]any), map[string]any{"occurrence_date": "2026-03-01", "code": "ledger.account_not_postable"})
-	refusals := events(t, r.ten, "entry_template_changed")
-	want(t, "refusal event", refusals[len(refusals)-1], map[string]any{"refused_on": "2026-03-01", "refusal_code": "ledger.account_not_postable"})
-	if n := len(r.parked(t)); n != 0 {
-		t.Errorf("entries: got %d, want none", n)
-	}
-	if got := r.due(t); len(got) != 1 || got[0][5:] != "2026-04-01" {
-		t.Errorf("due after the refusals: got %v, want April only", got)
-	}
-	t.Run("a company no longer active", func(t *testing.T) {
+	t.Run("an inactive account, run twice", func(t *testing.T) {
+		pgtest.Exec(t, `UPDATE ledger.gl_account SET status = 'inactive', version = version + 1 WHERE id = $1`, rent)
+		refuse(t, "2026-01-01", "ledger.account_not_postable")
+		if got := r.park(t, r.template, "2026-01-01"); got != ledger.OccurrenceSkipped {
+			t.Errorf("second run: got %s, want skipped", got)
+		}
+		refusals := events(t, r.ten, "entry_template_changed")
+		want(t, "refusal event", refusals[len(refusals)-1], map[string]any{"refused_on": "2026-01-01", "refusal_code": "ledger.account_not_postable"})
+		var audited int
+		pgtest.Scan(t, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'ledger.entry_template.refuse'`, []any{r.ten.ID}, &audited)
+		if n := len(refusals); n != 2 || audited != 1 {
+			t.Errorf("template events and refusal records: got %d and %d, want 2 (saved, refused) and 1", n, audited)
+		}
 		pgtest.Exec(t, `UPDATE ledger.gl_account SET status = 'active', version = version + 1 WHERE id = $1`, rent)
+		if got := r.park(t, r.template, "2026-01-01"); got != ledger.OccurrenceSkipped {
+			t.Errorf("after the account is active again: got %s, want skipped, the date passed over", got)
+		}
+		tpl, _ := r.Must(200, "GET", "/v1/entry-templates/"+r.template.String(), "", "")
+		want(t, "template", tpl, map[string]any{"next_due_on": "2026-02-01", "last_occurrence_on": nil})
+		tpl, _ = r.Must(200, "PATCH", "/v1/entry-templates/"+r.template.String(), `{"header_text": "Rent, lease 2"}`, etagOf(tpl))
+		want(t, "changed after a refusal", tpl, map[string]any{"next_due_on": "2026-02-01"})
+	})
+	t.Run("a company no longer active", func(t *testing.T) {
 		pgtest.Exec(t, `UPDATE tenancy.legal_entity SET status = 'blocked', version = version + 1 WHERE id = $1`, r.de)
 		defer pgtest.Exec(t, `UPDATE tenancy.legal_entity SET status = 'active', version = version + 1 WHERE id = $1`, r.de)
-		if got := r.park(t, r.template, "2026-04-01"); got != ledger.OccurrenceRefused {
-			t.Errorf("got %s, want refused", got)
-		}
+		refuse(t, "2026-02-01", "ledger.legal_entity_not_active")
 	})
 	t.Run("an account only goods receipts post", func(t *testing.T) {
-		r.now = time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
 		pgtest.Exec(t, `INSERT INTO ledger.account_determination (tenant_id, legal_entity_id, key, account_id, updated_by) VALUES ($1, $2, 'gr_ir', $3, $4)`,
 			r.ten.ID, r.de, rent, r.ten.Human.ID)
 		defer pgtest.Exec(t, `DELETE FROM ledger.account_determination WHERE tenant_id = $1 AND key = 'gr_ir'`, r.ten.ID)
-		if got := r.park(t, r.template, "2026-05-01"); got != ledger.OccurrenceRefused {
-			t.Fatalf("got %s, want refused", got)
-		}
-		tpl, _ := r.Must(200, "GET", "/v1/entry-templates/"+r.template.String(), "", "")
-		want(t, "refusal", tpl["last_refusal"].(map[string]any), map[string]any{"occurrence_date": "2026-05-01", "code": "ledger.automatic_account"})
+		refuse(t, "2026-03-01", "ledger.automatic_account")
 	})
+	t.Run("an owner no longer active", func(t *testing.T) {
+		pgtest.Exec(t, `UPDATE identity.principal SET status = 'blocked', version = version + 1 WHERE id = $1`, r.ten.Human.ID)
+		defer pgtest.Exec(t, `UPDATE identity.principal SET status = 'active', version = version + 1 WHERE id = $1`, r.ten.Human.ID)
+		refuse(t, "2026-04-01", "ledger.owner_not_permitted")
+	})
+	t.Run("an owner without access to the company", func(t *testing.T) {
+		pgtest.Exec(t, `UPDATE identity.principal SET all_companies = false, version = version + 1 WHERE id = $1`, r.ten.Human.ID)
+		defer pgtest.Exec(t, `UPDATE identity.principal SET all_companies = true, version = version + 1 WHERE id = $1`, r.ten.Human.ID)
+		refuse(t, "2026-05-01", "ledger.owner_not_permitted")
+	})
+	if n := len(r.parked(t)); n != 0 {
+		t.Errorf("entries: got %d, want none", n)
+	}
+	if got := r.park(t, r.template, "2026-06-01"); got != ledger.OccurrenceParked {
+		t.Errorf("the next date, nothing refusing it: got %s, want parked", got)
+	}
 	t.Run("retired or ownerless", func(t *testing.T) {
 		tpl, _ := r.Must(200, "GET", "/v1/entry-templates/"+r.template.String(), "", "")
 		r.Must(200, "POST", "/v1/entry-templates/"+r.template.String()+":retire", "", etagOf(tpl))
-		if got := r.park(t, r.template, "2026-06-01"); got != ledger.OccurrenceSkipped {
+		if got := r.park(t, r.template, "2026-07-01"); got != ledger.OccurrenceSkipped {
 			t.Errorf("retired: got %s, want skipped", got)
 		}
-		bank, rent := r.account(t, "2000", "100000"), r.account(t, "2000", "400000")
+		bank := r.account(t, "2000", "100000")
 		agent := r.asAgent(t)
 		agent.Must(201, "POST", "/v1/entry-templates", templateBody(r.de, "Proposed", `{"frequency": "monthly", "day_of_month": 1, "starts_on": "2026-01-01"}`,
 			line{rent, "1.00", ""}, line{bank, "-1.00", ""}), "")
@@ -243,6 +299,15 @@ func TestParkOccurrenceFailures(t *testing.T) {
 	if _, err := r.h.DueOccurrences(context.Background()); err == nil {
 		t.Error("due outside a unit of work: got no error, want one")
 	}
+	t.Run("without a directory of people", func(t *testing.T) {
+		h := *r.h
+		h.People = nil
+		err := apitest.Committed(t, r.ten, recurrer, func(ctx context.Context) error {
+			_, err := h.ParkOccurrence(ctx, r.template, date("2026-01-01"))
+			return err
+		})
+		pgtest.CheckErr(t, err, "no directory of people")
+	})
 	for _, mode := range []string{"begin", "commit"} {
 		t.Run("savepoint "+mode+" failing", func(t *testing.T) {
 			ctx := context.Background()
@@ -264,7 +329,7 @@ func TestParkOccurrenceFailures(t *testing.T) {
 	t.Run("recording a refusal", func(t *testing.T) {
 		pgtest.Exec(t, `UPDATE ledger.gl_account SET status = 'inactive', version = version + 1 WHERE id = $1`, r.account(t, "2000", "400000"))
 		apitest.EveryFailure(t, r.ten, recurrer, "refuse occurrence", func(ctx context.Context) error {
-			_, err := r.h.ParkOccurrence(ctx, r.template, date("2026-02-01"))
+			_, err := r.h.ParkOccurrence(ctx, r.template, date("2026-01-01"))
 			return err
 		})
 	})

@@ -14584,8 +14584,10 @@ func (s *EntryTemplatePage) SetNextPageToken(val OptString) {
 func (*EntryTemplatePage) listEntryTemplatesRes() {}
 
 // The latest due date the ERP could not park an entry for, and the problem that refused it (an account
-// blocked since the template was saved, say). The date is passed over: the owner corrects the template
-// and parks that date with `parkFromEntryTemplate`.
+// blocked since the template was saved; an owner no longer active, without `ledger.entry.park` or
+// without access to its company: `ledger.owner_not_permitted`). The date is passed over: the template
+// is corrected and that date parked with `parkFromEntryTemplate`. Earlier refused dates are in the
+// audit trail and in their `EntryTemplateChanged` events.
 // Ref: #/components/schemas/EntryTemplateRefusal
 type EntryTemplateRefusal struct {
 	// The due date refused.
@@ -29860,6 +29862,8 @@ type ParkedJournalEntry struct {
 	// The entry template it was parked from (ADR-0056), by a person (`parkFromEntryTemplate`) or by its
 	// schedule.
 	TemplateID OptUUID `json:"template_id"`
+	// Name of the entry template it was parked from, set with `template_id`.
+	TemplateName OptString `json:"template_name"`
 	// The due date of the template's schedule the ERP parked it for, owned by the template's owner
 	// (`created_by_kind` `system`); absent when a principal parked it.
 	OccurrenceDate OptDate `json:"occurrence_date"`
@@ -29995,6 +29999,11 @@ func (s *ParkedJournalEntry) GetTemplateID() OptUUID {
 	return s.TemplateID
 }
 
+// GetTemplateName returns the value of TemplateName.
+func (s *ParkedJournalEntry) GetTemplateName() OptString {
+	return s.TemplateName
+}
+
 // GetOccurrenceDate returns the value of OccurrenceDate.
 func (s *ParkedJournalEntry) GetOccurrenceDate() OptDate {
 	return s.OccurrenceDate
@@ -30128,6 +30137,11 @@ func (s *ParkedJournalEntry) SetLimitExceeded(val OptParkedEntryLimit) {
 // SetTemplateID sets the value of TemplateID.
 func (s *ParkedJournalEntry) SetTemplateID(val OptUUID) {
 	s.TemplateID = val
+}
+
+// SetTemplateName sets the value of TemplateName.
+func (s *ParkedJournalEntry) SetTemplateName(val OptString) {
+	s.TemplateName = val
 }
 
 // SetOccurrenceDate sets the value of OccurrenceDate.

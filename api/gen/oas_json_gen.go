@@ -79560,6 +79560,12 @@ func (s *ParkedJournalEntry) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.TemplateName.Set {
+			e.FieldStart("template_name")
+			s.TemplateName.Encode(e)
+		}
+	}
+	{
 		if s.OccurrenceDate.Set {
 			e.FieldStart("occurrence_date")
 			s.OccurrenceDate.Encode(e, json.EncodeDate)
@@ -79567,7 +79573,7 @@ func (s *ParkedJournalEntry) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfParkedJournalEntry = [27]string{
+var jsonFieldsNameOfParkedJournalEntry = [28]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -79594,7 +79600,8 @@ var jsonFieldsNameOfParkedJournalEntry = [27]string{
 	23: "lines",
 	24: "limit_exceeded",
 	25: "template_id",
-	26: "occurrence_date",
+	26: "template_name",
+	27: "occurrence_date",
 }
 
 // Decode decodes ParkedJournalEntry from json.
@@ -79899,6 +79906,16 @@ func (s *ParkedJournalEntry) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"template_id\"")
+			}
+		case "template_name":
+			if err := func() error {
+				s.TemplateName.Reset()
+				if err := s.TemplateName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"template_name\"")
 			}
 		case "occurrence_date":
 			if err := func() error {

@@ -24427,7 +24427,7 @@ components:
       additionalProperties: false
     EntryTemplateRefusal:
       type: object
-      description: "The latest due date the ERP could not park an entry for, and the problem that refused it (an account blocked since the template was saved, say). The date is passed over: the owner corrects the template and parks that date with `parkFromEntryTemplate`."
+      description: "The latest due date the ERP could not park an entry for, and the problem that refused it (an account blocked since the template was saved; an owner no longer active, without `ledger.entry.park` or without access to its company: `ledger.owner_not_permitted`). The date is passed over: the template is corrected and that date parked with `parkFromEntryTemplate`. Earlier refused dates are in the audit trail and in their `EntryTemplateChanged` events."
       required:
         - occurrence_date
         - code
@@ -24721,6 +24721,33 @@ components:
           type: string
           description: "Opaque cursor for the next page; absent on the last page."
           maxLength: 2048
+      examples:
+        - items:
+            - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+              version: 1
+              created_at: "2026-11-01T09:00:00Z"
+              created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+              updated_at: "2026-11-01T09:00:00Z"
+              legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+              ledger_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d09"
+              name: Office rent
+              document_type: SA
+              currency: CAD
+              status: active
+              created_by_kind: human
+              owner_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+              next_due_on: "2026-12-01"
+              lines:
+                - line_no: 1
+                  account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d06"
+                  amount:
+                    amount: "4500.00"
+                    currency: CAD
+                - line_no: 2
+                  account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d07"
+                  amount:
+                    amount: "-4500.00"
+                    currency: CAD
     NullableEntrySchedule:
       type:
         - object
@@ -24899,6 +24926,10 @@ components:
               type: string
               format: uuid
               description: "The entry template it was parked from (ADR-0056), by a person (`parkFromEntryTemplate`) or by its schedule."
+              readOnly: true
+            template_name:
+              type: string
+              description: "Name of the entry template it was parked from, set with `template_id`."
               readOnly: true
             occurrence_date:
               type: string

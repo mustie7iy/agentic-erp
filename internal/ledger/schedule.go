@@ -29,11 +29,6 @@ const (
 // frequencyMonths is the months between two dates of each frequency.
 var frequencyMonths = map[string]int{Monthly: 1, Quarterly: 3, Yearly: 12}
 
-// maxCatchUp bounds the dates one round lists for a template: a schedule
-// started long ago catches up over several rounds, oldest first, instead of
-// in one round of unbounded size.
-const maxCatchUp = 24
-
 // check refuses a schedule its fields cannot describe.
 func (s Schedule) check() error {
 	var bad []problem.FieldError
@@ -117,25 +112,4 @@ func (s Schedule) Next(day *time.Time) *time.Time {
 		return nil
 	}
 	return &t
-}
-
-// Due lists the schedule's dates after day (all from its first when day is
-// nil) up to and including through, oldest first, at most maxCatchUp.
-func (s Schedule) Due(day *time.Time, through time.Time) []time.Time {
-	var out []time.Time
-	for n := s.after(day); len(out) < maxCatchUp; n++ {
-		t := s.date(n)
-		if t.After(through) || !s.within(n, t) {
-			break
-		}
-		out = append(out, t)
-	}
-	return out
-}
-
-// Keeps tells whether t is one of the schedule's dates.
-func (s Schedule) Keeps(t time.Time) bool {
-	before := t.AddDate(0, 0, -1)
-	n := s.after(&before)
-	return s.date(n).Equal(t) && s.within(n, t)
 }

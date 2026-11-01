@@ -1249,7 +1249,7 @@ recurring_rent() {
   tpl=$(field .id)
   expect "the template's first due date, Maple's today" "$(field .next_due_on)" "$toronto"
   say "Without a workflow engine the server's recurring entries worker parks due dates every second (with one,"
-  say "the dispatcher starts a workflow per template and date). Today's entry appears, parked for Tom:"
+  say "the dispatcher starts a workflow per template and date, in date order). Today's entry appears, parked for Tom:"
   n=0
   for i in $(seq 1 120); do
     QUIET=1 api 200 '' listParkedJournalEntries -p "template_id=$tpl"
@@ -1264,12 +1264,13 @@ recurring_rent() {
   expect "entries parked from the template after more rounds" "$(field '.items | length')" 1
   expect "the entry's date" "$(field '.items[0].occurrence_date')" "$toronto"
   expect "who parked it" "$(field '.items[0].created_by_kind')" system
+  expect "the template it names" "$(field '.items[0].template_name')" "Office rent"
   entry=$(field '.items[0].id')
   api 200 '"template \(.name): last parked \(.last_occurrence_on), next due \(.next_due_on)"' getEntryTemplate -p "id=$tpl"
   expect "the template's last date" "$(field .last_occurrence_on)" "$toronto"
   say "Tom's inbox: his entries waiting for him to post them, the rent among them, besides the event"
   say "ParkedJournalEntryChanged that names the template and the date:"
-  api 200 '.items[] | "parked entry \(.id[0:8])…: \(.header_text // "") \(.posting_date)\(if .template_id then ", from a template" else "" end)"' \
+  api 200 '.items[] | "parked entry \(.id[0:8])…: \(.header_text // "") \(.posting_date)\(if .template_id then ", from template \(.template_name)" else "" end)"' \
     listParkedJournalEntries -p owned_by=me -p status=parked
   expect "the rent in Tom's inbox" "$(jq -r --arg e "$entry" '[.items[] | select(.id == $e)] | length' "$WORK/last.json")" 1
   QUIET=1 api 200 '' getParkedJournalEntry -p "id=$entry"

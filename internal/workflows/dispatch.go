@@ -248,11 +248,11 @@ func (d *Dispatcher) fetch(ctx context.Context, tx pgx.Tx) (int, error) {
 	return n, errors.Join(failures...)
 }
 
-// recur starts a workflow for every due date of the entry templates'
-// schedules, oldest first per template (ADR-0056). The workflow id names
-// the template and the date, so a date is started once however many
-// replicas and rounds dispatch it; the template moves past it only once
-// its entry is parked or refused, so a round lists it until then.
+// recur starts a workflow for each entry template's next due date
+// (ADR-0056). The workflow id names the template, the date and the
+// template's version, so a date is started once however many replicas and
+// rounds dispatch it; the template moves on only once the date's entry is
+// parked or refused, so a round lists it until then.
 func (d *Dispatcher) recur(ctx context.Context) (int, error) {
 	due, err := d.Recurring.Due(ctx, clock.Now(d.Now))
 	failures := []error{err}

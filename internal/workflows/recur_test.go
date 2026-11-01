@@ -56,7 +56,7 @@ func recurSetup(t *testing.T) *recurScenario {
 }
 
 func (s *recurScenario) in(date string) workflows.RecurInput {
-	return workflows.RecurInput{TenantID: s.e.Tenant.ID, TemplateID: s.template, Date: date}
+	return workflows.RecurInput{TenantID: s.e.Tenant.ID, TemplateID: s.template, Date: date, Version: 1}
 }
 
 // entries counts the entries parked from the template for the date.
@@ -105,13 +105,16 @@ func TestParkOccurrenceTwice(t *testing.T) {
 	s := recurSetup(t)
 	ctx := context.Background()
 	for i, want := range []string{ledger.OccurrenceParked, ledger.OccurrenceSkipped} {
-		got, err := s.rc.ParkOccurrence(ctx, s.in("2026-02-01"))
+		got, err := s.rc.ParkOccurrence(ctx, s.in("2026-01-01"))
 		if err != nil || got != want {
 			t.Fatalf("run %d: got %s %v, want %s", i+1, got, err, want)
 		}
 	}
-	if n := s.entries(t, "2026-02-01"); n != 1 {
+	if n := s.entries(t, "2026-01-01"); n != 1 {
 		t.Errorf("entries: got %d, want 1", n)
+	}
+	if _, err := s.rc.ParkOccurrence(ctx, s.in("2026-03-01")); !errors.Is(err, ledger.ErrEarlierDatePending) {
+		t.Errorf("a date while February waits: got %v, want %v, retried", err, ledger.ErrEarlierDatePending)
 	}
 	if n := len(apitest.Published(t, s.e.Tenant, outbox.Event{Context: "ledger", Name: "parked_journal_entry_changed"})); n != 1 {
 		t.Errorf("events: got %d, want 1", n)
@@ -132,8 +135,10 @@ func TestDispatchRecurring(t *testing.T) {
 	d := &workflows.Dispatcher{Pool: pgtest.Pool(t), WorkerRole: "erp_worker", Client: engine, Queue: "erp-test", Recurring: s.rc,
 		Now: func() time.Time { return s.now }}
 	ctx := context.Background()
-	jan, feb := workflows.RecurWorkflowID(s.in("2026-01-01")), workflows.RecurWorkflowID(s.in("2026-02-01"))
-	if want := fmt.Sprintf("%s-entry_template-%s-2026-01-01", s.e.Tenant.ID, s.template); jan != want {
+	feb := s.in("2026-02-01")
+	feb.Version = 2 // the template moved past January
+	jan, febID := workflows.RecurWorkflowID(s.in("2026-01-01")), workflows.RecurWorkflowID(feb)
+	if want := fmt.Sprintf("%s-entry_template-%s-2026-01-01-v1", s.e.Tenant.ID, s.template); jan != want {
 		t.Errorf("workflow id: got %s, want %s", jan, want)
 	}
 	ours := func() []string {
@@ -145,19 +150,28 @@ func TestDispatchRecurring(t *testing.T) {
 		}
 		return ids
 	}
-	engine.fail = feb
-	if _, err := d.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), feb) {
+	engine.fail = jan
+	if _, err := d.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), jan) {
 		t.Fatalf("refused start: got %v, want it reported", err)
 	}
 	engine.fail = ""
 	if _, err := d.RunOnce(ctx); err != nil {
 		t.Fatalf("round: %v", err)
 	}
-	if got := ours(); len(got) != 2 || got[0] != jan || got[1] != feb {
-		t.Fatalf("started: got %v, want January then February", got)
+	if _, err := d.RunOnce(ctx); err != nil {
+		t.Fatalf("another round: %v", err)
 	}
-	if _, err := d.RunOnce(ctx); err != nil || len(ours()) != 2 {
-		t.Errorf("another round: got %v %v, want nothing more", ours(), err)
+	if got := ours(); len(got) != 1 || got[0] != jan {
+		t.Fatalf("started: got %v, want January once, February waiting for it", got)
+	}
+	if _, err := s.rc.ParkOccurrence(ctx, s.in("2026-01-01")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.RunOnce(ctx); err != nil {
+		t.Fatalf("round after January: %v", err)
+	}
+	if got := ours(); len(got) != 2 || got[1] != febID {
+		t.Errorf("started: got %v, want February next", got)
 	}
 	t.Run("database failures", func(t *testing.T) {
 		pool := pgtest.Pool(t)
@@ -193,18 +207,21 @@ func TestRecurrer(t *testing.T) {
 	logs := &pgtest.SyncBuffer{}
 	w := &workflows.Recurrer{Recurrences: s.rc, Now: func() time.Time { return s.now }, Log: slog.New(slog.NewTextHandler(logs, nil))}
 	ctx := context.Background()
-	// Every tenant's due dates are parked, those of the package's other
-	// tests among them.
-	if n, err := w.RunOnce(ctx); err != nil || n < 2 {
-		t.Fatalf("first round: got %d %v, want at least this tenant's two parked", n, err)
-	}
-	if n, err := w.RunOnce(ctx); err != nil || n != 0 {
-		t.Errorf("second round: got %d %v, want none", n, err)
-	}
-	for _, date := range []string{"2026-01-01", "2026-02-01"} {
+	// Every tenant's next dates are parked, those of the package's other
+	// tests among them: January this round, February the next.
+	for round, date := range []string{"2026-01-01", "2026-02-01"} {
+		if n, err := w.RunOnce(ctx); err != nil || n < 1 {
+			t.Fatalf("round %d: got %d %v, want at least this tenant's date parked", round+1, n, err)
+		}
 		if n := s.entries(t, date); n != 1 {
 			t.Errorf("entries of %s: got %d, want 1", date, n)
 		}
+	}
+	if _, err := w.RunOnce(ctx); err != nil {
+		t.Errorf("a round with nothing due: %v", err)
+	}
+	if n := s.entries(t, "2026-03-01"); n != 0 {
+		t.Errorf("entries of March before it is due: got %d, want none", n)
 	}
 	t.Run("a failing round", func(t *testing.T) {
 		s.now = time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC)

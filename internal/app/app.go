@@ -296,7 +296,8 @@ func Configuration(cfg Config) configuration.Dependencies {
 // entries' activity to park with the same ports (ADR-0056).
 func Ledger(cfg Config) *ledger.Endpoints {
 	return &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
-		Numbers: configuration.Numbers{}, Orders: procurement.Orders{}, Approvals: opener(), Settings: configuration.Settings{}, Now: cfg.Now}
+		Numbers: configuration.Numbers{}, Orders: procurement.Orders{}, Approvals: opener(), Settings: configuration.Settings{}, Now: cfg.Now,
+		People: identity.Actors{}}
 }
 
 // Payments is the payments context as the API wires it, for the proposal

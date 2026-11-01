@@ -54,29 +54,24 @@ func TestScheduleDates(t *testing.T) {
 		{"nothing due yet", Schedule{Frequency: Monthly, Day: 1, StartsOn: ymd("2026-12-01")}, nil, "2026-11-30", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			if got := dateList(c.s.Due(c.after, ymd(c.through))); got != c.want {
+			if got := dateList(datesThrough(c.s, c.after, ymd(c.through))); got != c.want {
 				t.Errorf("got %s, want %s", got, c.want)
 			}
 		})
 	}
 }
 
-// TestScheduleCatchUp: one round lists at most maxCatchUp dates.
-func TestScheduleCatchUp(t *testing.T) {
-	s := Schedule{Frequency: Monthly, Day: 1, StartsOn: ymd("2020-01-01")}
-	due := s.Due(nil, ymd("2026-11-01"))
-	if len(due) != maxCatchUp {
-		t.Fatalf("got %d dates, want %d", len(due), maxCatchUp)
+// datesThrough are the schedule's dates after day up to through, each the
+// Next of the one before.
+func datesThrough(s Schedule, day *time.Time, through time.Time) []time.Time {
+	var out []time.Time
+	for next := s.Next(day); next != nil && !next.After(through); next = s.Next(next) {
+		out = append(out, *next)
 	}
-	if got := due[len(due)-1].Format(time.DateOnly); got != "2021-12-01" {
-		t.Errorf("last date: got %s, want 2021-12-01", got)
-	}
-	if got := dateList(s.Due(&due[len(due)-1], ymd("2022-02-01"))); got != "2022-01-01 2022-02-01" {
-		t.Errorf("next round: got %s, want 2022-01-01 2022-02-01", got)
-	}
+	return out
 }
 
-func TestScheduleNextAndKeeps(t *testing.T) {
+func TestScheduleNext(t *testing.T) {
 	s := Schedule{Frequency: Monthly, Day: 31, StartsOn: ymd("2026-01-15"), Count: ref(int32(3))}
 	if got := s.Next(nil); got == nil || !got.Equal(ymd("2026-01-31")) {
 		t.Errorf("first date: got %v, want 2026-01-31", got)
@@ -86,11 +81,6 @@ func TestScheduleNextAndKeeps(t *testing.T) {
 	}
 	if got := s.Next(ref(ymd("2026-03-31"))); got != nil {
 		t.Errorf("after the last: got %v, want none", got)
-	}
-	for d, want := range map[string]bool{"2026-02-28": true, "2026-02-27": false, "2026-03-31": true, "2026-04-30": false, "2025-12-31": false} {
-		if got := s.Keeps(ymd(d)); got != want {
-			t.Errorf("keeps %s: got %v, want %v", d, got, want)
-		}
 	}
 }
 

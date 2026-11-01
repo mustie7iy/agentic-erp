@@ -1084,7 +1084,7 @@ components:
       examples:
         - name: agent-proposal
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000084, source: /erp/eu-1/ledger, type: com.example.erp.ledger.parked_journal_entry_changed.v1, subject: 0192a000-0000-7000-8000-000000000207, time: '2026-10-09T14:03:11Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000103}
-          payload: {parked_entry_id: 0192a000-0000-7000-8000-000000000207, legal_entity_id: 0192a000-0000-7000-8000-000000000201, posting_date: '2026-10-09', amount: {amount: '1200.00', currency: EUR}, status: parked, previous_status: null, created_by_kind: agent, owner_id: null, approval_request_id: null, journal_entry_id: null, template_id: null, occurrence_date: null}
+          payload: {parked_entry_id: 0192a000-0000-7000-8000-000000000207, legal_entity_id: 0192a000-0000-7000-8000-000000000201, posting_date: '2026-10-09', amount: {amount: '1200.00', currency: EUR}, status: parked, previous_status: null, created_by_kind: agent, owner_id: null, approval_request_id: null, journal_entry_id: null, template_id: null, template_name: null, occurrence_date: null}
     EntryTemplateChanged:
       name: EntryTemplateChanged
       x-webhook: true
@@ -3533,6 +3533,7 @@ components:
         approval_request_id: {$ref: '#/components/schemas/NullableUuid', description: The manual_entry approval request the entry waits for or was decided on.}
         journal_entry_id: {$ref: '#/components/schemas/NullableUuid', description: The journal entry it was posted as.}
         template_id: {$ref: '#/components/schemas/NullableUuid', description: 'The entry template it was parked from (ADR-0056).'}
+        template_name: {type: [string, 'null'], description: "The entry template's name, with template_id."}
         occurrence_date: {$ref: '#/components/schemas/NullableDate', description: "The due date of the template's schedule the ERP parked it for; null when a principal parked it."}
     EntryTemplateChangedV1:
       type: object

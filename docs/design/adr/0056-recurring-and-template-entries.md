@@ -74,27 +74,42 @@ date after the last it parked or refused) and `last_occurrence_on`; a
 changed schedule goes on after the last date dealt with, so it parks
 nothing for dates before it.
 
-**Parking per due date.** The workflows dispatcher has a `recur` step on
-the statement fetch's pattern (ADR-0047): it asks, as the worker role
-across tenants, which tenants have active owned templates whose
-`next_due_on` is at most UTC's date plus one (a superset: no zone is more
-than a day ahead of UTC), then in each tenant, as the system principal
-`ledger.Recurrer` (`urn:agentic-erp:entry-recurrer`), which dates are due
-on the companies' days, oldest first per template, at most 24 per
-template and round (`maxCatchUp`; a missed run catches up over several
-rounds). Per date it starts `ParkRecurringEntry` with id
-`{tenant}-entry_template-{template}-{date}`, so the engine starts one per
-date however many replicas and rounds dispatch it. The workflow's one
-activity, `ParkOccurrence`, locks the template FOR UPDATE, skips a date
-that is not due, not one of the schedule's, of a retired or unowned
-template, or already parked, and otherwise parks the entry dated that day
-(document and posting date) as the recurrer, owned by the template's
-owner, naming the template and the date (`created_by_kind` `system`),
-then moves the template past it. `parked_entry(tenant_id, template_id,
-occurrence_date)` is unique: a second run, or one whose completion the
-engine lost, finds the entry and does nothing, publishing nothing twice.
-A cell without a workflow engine runs the same activity in process
-(`workflows.Recurrer`), as the payment release does.
+**Parking per due date, in order.** The workflows dispatcher has a
+`recur` step on the statement fetch's pattern (ADR-0047): it asks, as the
+worker role across tenants, which tenants have active owned templates
+whose `next_due_on` is at most UTC's date plus one (a superset: no zone is
+more than a day ahead of UTC), then in each tenant, as the system
+principal `ledger.Recurrer` (`urn:agentic-erp:entry-recurrer`), which
+templates' next date is today or past on their company's day. Per
+template it starts `ParkRecurringEntry` for that one date, with id
+`{tenant}-entry_template-{template}-{date}-v{version}`: the engine starts
+one per date however many replicas and rounds dispatch it, and a template
+changed meanwhile (a new version) gets a fresh start instead of an id the
+engine refuses for good. Dates are dealt with strictly in order: the
+template moves to its next date only once this one is parked or refused,
+so a missed run catches up one date per template and round, oldest first.
+The workflow's one activity, `ParkOccurrence`, locks the template FOR
+UPDATE and skips a date before its `next_due_on` (parked, refused, or no
+longer one of the schedule's) and a date of a template retired, without a
+schedule or without an owner; a date after `next_due_on` (an earlier one
+still pending) or not yet due on the company's day is an error the
+activity's retry policy retries, so no date is passed over unseen. A due
+date is checked for the owner (below) and parked dated that day (document
+and posting date) as the recurrer, owned by the template's owner, naming
+the template and the date (`created_by_kind` `system`); the template then
+moves past it. A second run, or one whose completion the engine lost,
+finds the date behind `next_due_on` and does nothing, publishing nothing
+twice, and `parked_entry(tenant_id, template_id, occurrence_date)` is
+unique besides. A cell without a workflow engine runs the same activity
+in process (`workflows.Recurrer`), as the payment release does.
+
+**The owner's standing.** The recurrer acts for the owner, so each date
+checks the owner's standing that day: an active principal (identity's
+`Actors.Active`, a port), holding `ledger.entry.park` unbarred, with
+access to the template's company. Otherwise the date is refused with
+`ledger.owner_not_permitted` (below). Tenancy needs no such check: the
+recurrer's transaction is scoped to the tenant the worker role read, and
+a template's company never changes.
 
 **Never posted automatically.** The generated entry is an ordinary parked
 entry: its owner changes it (amounts included), posts it with
@@ -105,12 +120,15 @@ is refused with `ledger.period_not_open` until the period opens, so no
 date is skipped silently.
 
 **A refused date** (an account blocked or a company inactive since the
-template was saved, the GR/IR account named on a line) is parked in a
-savepoint; the refusal is recorded on the template (`last_refusal`: date,
+template was saved, the GR/IR account named on a line, an owner who may no
+longer park there) is parked in a savepoint; the refusal is recorded on the template (`last_refusal`: date,
 problem code and detail; the latest one kept), audited, published
 (`EntryTemplateChanged`, `refused_on`, `refusal_code`) and passed over,
-so later dates go on: the owner corrects the template and parks that
-date with `parkFromEntryTemplate`. A failure that is not a business
+so later dates go on: the template is corrected and that date parked
+with `parkFromEntryTemplate`; earlier refused dates are in the audit trail
+and their events. The template's owner never changes once set, so a
+template whose owner left parks nothing more; transferring templates is
+not built (a gap for the product owner). A failure that is not a business
 problem (the database unavailable, a lock timeout) is retried by the
 activity's retry policy, which has no attempt limit.
 
@@ -121,8 +139,9 @@ kind of server-computed filter on the resource that waits for the person:
 `listParkedJournalEntries?owned_by=me` (with `status=parked`: what waits
 for the caller to post it), plus `template_id`. The parked entry, owned by
 the template's owner, is the inbox item; it leaves the inbox when it is
-posted or cancelled. `ParkedJournalEntryChanged` carries `template_id`
-and `occurrence_date`, and is the event. An agent's or a service's
+posted or cancelled. The parked entry and `ParkedJournalEntryChanged` carry
+`template_id`, `template_name` and `occurrence_date`; the event is the
+owner's notice. An agent's or a service's
 `owned_by=me` is empty, as their approval inbox is.
 
 ## Alternatives
@@ -151,9 +170,11 @@ and `occurrence_date`, and is the event. An agent's or a service's
   (`workflows` → `ledger`), in the direction `workflows` → `payments` →
   `ledger` already ran.
 - A failed `ParkRecurringEntry` (a non-retryable error other than a
-  business refusal) leaves its date due, and the engine refuses its id
-  again until its retention passes: it shows as a failed workflow for
-  operators (ADR-0012 exception queue), not a silent gap.
+  business refusal, which only an unreadable date input is) leaves its date
+  as the template's next: no later date parks before it, and the next
+  change of the template starts it again under its new version; operators
+  see the failed workflow (ADR-0012 exception queue). No date is passed
+  over without a parked entry or a recorded refusal.
 - Variable amounts, formulas, allocation templates (ADR-0050 cost
   allocation), automatic reversal of accruals, weekly schedules and
   screens in the web workspace are not built; each would be a new leaf.
@@ -166,7 +187,7 @@ and `occurrence_date`, and is the event. An agent's or a service's
   renumbers them in the batch.
 - `internal/ledger`: `schedule.go` (dates), `templates.go`,
   `templates_api.go`, `recur.go` (`RecurringTenants`, `DueOccurrences`,
-  `ParkOccurrence`); line writes shared with parked entries
+  `ParkOccurrence`, `ownerMayPark`); `identity.Actors.Active`; line writes shared with parked entries
   (`putLines`); `internal/workflows/recur.go` (`ParkRecurringEntry`,
   `Recurrences`, the dispatcher's `recur`, `Recurrer`); `app.Ledger`;
   erp-server wires the activity, the dispatcher step and, without an
@@ -175,9 +196,13 @@ and `occurrence_date`, and is the event. An agent's or a service's
   (no new permission); `parkFromEntryTemplate` needs `If-Match`, as every
   custom method does (06 §6.3); the template's version moves when the ERP
   parks or refuses a date (its representation changes); the first date is
-  in `starts_on`'s month unless before it; a missed run catches up at most
-  24 dates per template and round; a refused date is recorded and passed
-  over rather than retried (it would block the template's later dates).
+  in `starts_on`'s month unless before it; a refused date is recorded and passed
+  over rather than retried (it would block the template's later dates);
+  one date per template per round, in order, rather than all due dates at
+  once (go-reviewer round 1: a later date must never move the template
+  past an earlier one not dealt with); the workflow id carries the
+  template's version; the recurrer checks the owner's standing each date
+  (go-reviewer round 1, ADR-0010: a system principal acting for a person).
 - Workflow determinism: `ParkRecurringEntry` issues one activity and
   reads no clock; its first version needs no `GetVersion` marker, and
   `TestParkRecurringEntryReplay` replays a recorded version 1 history
