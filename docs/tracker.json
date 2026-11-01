@@ -8395,11 +8395,18 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "An open vendor line with HSL 0 and WSL ≠ 0 in a document that does not post in a foreign currency is neither refused nor loaded, so a small foreign-currency item silently disappears (internal/integration/quality.go:404 openItem; journalPosting and openingLines skip HSL-0 lines)",
-      "r": "found in fxopen's review (batch 31, pre-existing) · internal/integration/quality.go openItem · load.go journalPosting, openingLines · currency.go foreignDocuments",
+      "r": "found in fxopen's review (batch 31, pre-existing) · refused by the quality gate in both modes, naming document and line: an open item counts by an amount in either currency (internal/integration/quality.go openItem, currency.go documentCurrencies, hasDocumentAmount) · ADR-0005 As built · docs/migration.md",
       "src": "review:batch31",
       "pilot": "po:2026-10-31 · review:batch31",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "A line that is not an open item, with HSL 0 and WSL ≠ 0, in a document that posts in company currency (a G/L line of a document whose lines mix currencies, a cleared vendor line) is left out of the journal posting without a word, losing its document amount; and a cleared vendor line the posting leaves out is named as line 0 in the clearing the load takes over, which the ledger refuses, failing the whole run",
+      "r": "found in hsl0's review (batch 31 finding class, review:batch31) · refused by the quality gate, naming document and line, in a document that posts as an entry of its own in company currency (documents mode; a down payment's document in balances mode, whose other documents form the opening entry of company code balances): internal/integration/currency.go leftOutLines · a cleared vendor line of no amount in either currency is no item of the clearing (load.go clearingItems) · ADR-0005 As built · docs/migration.md · walkthrough step 3 small_item_refused",
+      "src": "review:batch31",
       "c": []
      }
     ]

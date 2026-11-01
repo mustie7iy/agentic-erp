@@ -544,6 +544,7 @@ step_migrate() {
   local connector
   connector=$(field .id)
   parallel_run_extract
+  small_item_refused "$connector"
   say "A rehearsal first: load, reconcile and roll back."
   show erp migrate -connector "$connector" -legal-entities "$LE" -year "$YEAR" -rehearsal
   "$ERP" migrate -connector "$connector" -legal-entities "$LE" -year "$YEAR" -rehearsal >"$WORK/rehearsal.out" 2>&1 ||
@@ -674,6 +675,46 @@ parallel_run_extract() {
     | .ACDOCA = [.ACDOCA[] | select(.BELNR != "0199999999" and .BELNR != "0199999997" and (.RBUKRS != $cc or .BELNR != $p))
       | if .RBUKRS == $cc and .AUGBL == $p then .AUGBL = "" else . end]' \
     "$WORK/data/delta.json" >"$WORK/data/extract.json" || fail "the parallel run's extract could not be made"
+}
+
+# small_item_refused shows the quality gate refusing an open vendor item
+# with an amount in its document currency and none in company currency
+# (review:batch31): SAP's extract with document 0199999990 added, a USD
+# vendor item of 0.01 beside a line in CAD, so the document posts in CAD,
+# where the load would leave a line of no CAD amount out; the gate refuses
+# it as an open item of a document not all in its currency (an item in
+# CAD of a document amount alone has a refusal of its own, tested in
+# internal/integration). Its third line, a G/L line of USD 0.01 and no CAD
+# amount, is no item, and the load would leave it out too: the gate refuses
+# it as a line of a document amount alone (review:batch31, hsl0b). The
+# rehearsal fails naming the document and both lines, and the extract is
+# put back.
+small_item_refused() {
+  cp "$WORK/data/extract.json" "$WORK/data/extract.good.json"
+  jq --arg cc "$CC" '([.ACDOCA[] | select(.RBUKRS == $cc and .LIFNR != "" and .AUGBL == "" and .RWCUR == "CAD"
+      and (.UMSKZ // "") == "" and (.EBELN // "") == "")] | first) as $v
+    | ([.ACDOCA[] | select(.RBUKRS == $cc and .GJAHR == $v.GJAHR and .BELNR == $v.BELNR and .LIFNR == "" and (.EBELN // "") == "")] | first) as $o
+    | .ACDOCA += [($o | .BELNR = "0199999990" | .DOCLN = "000001" | .HSL = "0.00" | .WSL = "0.00" | .RWCUR = "CAD"),
+      ($v | .BELNR = "0199999990" | .DOCLN = "000002" | .HSL = "0.00" | .WSL = "-0.01" | .RWCUR = "USD" | .XBLNR = "SMALL-USD"),
+      ($o | .BELNR = "0199999990" | .DOCLN = "000003" | .HSL = "0.00" | .WSL = "0.01" | .RWCUR = "USD")]' \
+    "$WORK/data/extract.good.json" >"$WORK/data/extract.json" || fail "the extract with a small USD item could not be made"
+  say "Suppose SAP's extract held a USD vendor item of 0.01 that is 0.00 in CAD, and its USD offset on a G/L account,"
+  say "in a document with a line in CAD, so the document posts in CAD. The load posts no line of no CAD amount, so"
+  say "both would vanish; the quality gate refuses the run instead, naming the document and each line:"
+  jq -r --arg cc "$CC" '.ACDOCA[] | select(.RBUKRS == $cc and .BELNR == "0199999990")
+    | "     ACDOCA \(.BELNR)/\(.DOCLN): account \(.RACCT)\(if .LIFNR != "" then ", vendor \(.LIFNR)" else "" end), \(.WSL) \(.RWCUR) (\(.HSL) CAD)"' \
+    "$WORK/data/extract.json"
+  show erp migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" -rehearsal
+  if "$ERP" migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" -rehearsal >"$WORK/small.out" 2>&1; then
+    sed 's/^/     /' "$WORK/small.out"
+    fail "the run with a USD item of no CAD amount was not refused"
+  fi
+  grep -E '^Migration run|0199999990' "$WORK/small.out" | sed 's/^/     /'
+  grep -q '\[error\] ACDOCA [^ ]*/0199999990/000002: open item of SAP document 0199999990 is in document currency USD, and not every line' "$WORK/small.out" ||
+    { sed 's/^/     /' "$WORK/small.out"; fail "the quality gate did not name the USD item of no CAD amount"; }
+  grep -q '\[error\] ACDOCA [^ ]*/0199999990/000003: line of SAP document 0199999990 has a document amount (WSL "0.01", RWCUR "USD")' "$WORK/small.out" ||
+    { sed 's/^/     /' "$WORK/small.out"; fail "the quality gate did not name the USD G/L line of no CAD amount"; }
+  mv "$WORK/data/extract.good.json" "$WORK/data/extract.json"
 }
 
 # closed_order_extract makes an order of the pilot's that SAP received and

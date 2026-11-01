@@ -223,3 +223,186 @@ func TestForeignItemAcrossRuns(t *testing.T) {
 		})
 	}
 }
+
+// TestDocumentAmountAloneRun (review:batch31): in either mode, a run whose
+// extract holds an open vendor item with an amount in its document
+// currency and none in company currency, in a document that posts in
+// company currency, fails at the quality gate naming its document and
+// line and posts nothing, where the journal posting (documents) or the
+// opening entry (balances) would have left it out; an open item in
+// company currency of a company code amount alone loads from it.
+func TestDocumentAmountAloneRun(t *testing.T) {
+	small := func(x *sap.Extract, belnr, debit, credit, hsl, wsl string) {
+		line := fxLine(belnr, "000001", "0000520000", strings.TrimPrefix(hsl, "-"), strings.TrimPrefix(wsl, "-"), "20260310", "RE")
+		line.RWCUR = debit
+		vendor := vendorLine(belnr, "000002", hsl, wsl, "20260310", "RE", "")
+		vendor.RWCUR = credit
+		x.ACDOCA = append(x.ACDOCA, line, vendor)
+	}
+	for _, mode := range []string{"documents", "balances"} {
+		t.Run(mode, func(t *testing.T) {
+			e := dpSetup(t)
+			x := fxTiny()
+			small(x, "0100000024", "EUR", "USD", "0.00", "-0.01")
+			small(x, "0100000025", "EUR", "EUR", "0.00", "-0.01")
+			write(t, e.dir, "alone.json", x)
+			before := e.entries(t)
+			_, got := e.act(t, e.run(t, e.connector(t, "alone.json"), mode, false, e.DE.String()), "start")
+			if got["status"] != "failed" {
+				t.Fatalf("status: got %v, want failed: %v", got["status"], got["report"])
+			}
+			var refused []string
+			for _, i := range got["report"].(map[string]any)["quality"].([]any) {
+				if m := i.(map[string]any); m["severity"] == "error" {
+					refused = append(refused, fmt.Sprint(m["key"]))
+				}
+			}
+			want := "2000/2026/0100000024/000002, 2000/2026/0100000025/000002"
+			if mode == "documents" { // and the line beside each item, which the posting would leave out too (leftOutLines)
+				want += ", 2000/2026/0100000024/000001, 2000/2026/0100000025/000001"
+			}
+			if got := strings.Join(refused, ", "); got != want {
+				t.Errorf("lines refused: got %s, want %s", got, want)
+			}
+			if n := e.entries(t); n != before {
+				t.Errorf("journal entries: got %d, want %d, nothing posted", n, before)
+			}
+
+			x = fxTiny()
+			small(x, "0100000025", "EUR", "EUR", "-50.00", "0.00")
+			write(t, e.dir, "local.json", x)
+			if _, got := e.act(t, e.run(t, e.connector(t, "local.json"), mode, false, e.DE.String()), "start"); got["status"] != "loaded" {
+				t.Fatalf("company code amount alone: got %v, want loaded: %v", got["status"], got["report"])
+			}
+			items, _ := e.Must(200, "GET", "/v1/open-items?partner_id="+supplierOf(t, e, "0000000001").String(), "", "")
+			var eur []string
+			for _, it := range items["items"].([]any) {
+				if a := it.(map[string]any)["amount"].(map[string]any); a["currency"] == "EUR" && a["amount"] == "-50.00" {
+					eur = append(eur, fmt.Sprint(a["amount"]))
+				}
+			}
+			if len(eur) != 1 {
+				t.Errorf("the open EUR item of a company code amount alone: got %v, want one of -50.00", eur)
+			}
+		})
+	}
+}
+
+// clearedMixed is fxTiny with a USD invoice of 50.00, EUR 40.00, that SAP
+// cleared by a payment whose bank line is in EUR, so the two documents
+// mix currencies and post in company currency, with extra lines added to
+// the payment, from line 3 on.
+func clearedMixed(extra ...sap.ACDOCA) *sap.Extract {
+	x := fxTiny()
+	bank := fxLine("0100000031", "000002", "0000100000", "-40.00", "-40.00", "20260320", "KZ")
+	bank.RWCUR = "EUR"
+	x.ACDOCA = append(x.ACDOCA,
+		fxLine("0100000030", "000001", "0000520000", "40.00", "50.00", "20260303", "RE"),
+		vendorLine("0100000030", "000002", "-40.00", "-50.00", "20260303", "RE", "0100000031"),
+		vendorLine("0100000031", "000001", "40.00", "50.00", "20260320", "KZ", "0100000031"), bank)
+	for i := range extra {
+		extra[i].DOCLN = fmt.Sprintf("%06d", i+3)
+	}
+	x.ACDOCA = append(x.ACDOCA, extra...)
+	return x
+}
+
+// TestLeftOutLinesRun (review:batch31): through the load, a line that is
+// no open item with a document amount and none in company currency, in a
+// document that posts as an entry of its own in company currency, fails
+// the run at the quality gate naming its document and line and posts
+// nothing, where the journal posting left it out without a word (a G/L
+// line) or the clearing named it as line 0, which the ledger refused,
+// failing the load as "not a line on a reconciliation account" (a cleared
+// vendor line). In balances mode such a document is part of the opening
+// entry, in company currency, and loads, but a down payment's document
+// posts on its own and is refused alike.
+func TestLeftOutLinesRun(t *testing.T) {
+	gl := fxLine("0100000031", "", "0000610000", "0.00", "0.01", "20260320", "KZ")
+	vendor := vendorLine("0100000031", "", "0.00", "0.01", "20260320", "KZ", "0100000031")
+	offset := fxLine("0100000031", "", "0000610000", "0.00", "-0.01", "20260320", "KZ")
+	downPayment := func() *sap.Extract {
+		x := clearedMixed()
+		x.ACDOCA = append(x.ACDOCA, sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", RWCUR: "USD", GJAHR: "2026", BELNR: "0100000009", DOCLN: "000004",
+			RACCT: "0000610000", HSL: "0.00", WSL: "0.01", BUDAT: "20260310", BLART: "KZ"})
+		return x
+	}
+	cases := []struct {
+		name                string
+		extract             *sap.Extract
+		documents, balances string
+	}{
+		{"a G/L line", clearedMixed(gl), "2000/2026/0100000031/000003", ""},
+		{"a cleared vendor line", clearedMixed(vendor, offset), "2000/2026/0100000031/000003, 2000/2026/0100000031/000004", ""},
+		{"a line of a down payment's document", downPayment(), "2000/2026/0100000009/000004", "2000/2026/0100000009/000004"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e := dpSetup(t)
+			write(t, e.dir, "alone.json", c.extract)
+			before, connector := e.entries(t), e.connector(t, "alone.json")
+			// documents first: a failed run posts nothing, so the balances run after it starts from the same platform
+			for _, run := range [][2]string{{"documents", c.documents}, {"balances", c.balances}} {
+				mode, want := run[0], run[1]
+				_, got := e.act(t, e.run(t, connector, mode, false, e.DE.String()), "start")
+				if want == "" {
+					if got["status"] != "loaded" {
+						t.Errorf("%s: got %v, want loaded: %v", mode, got["status"], got["report"])
+					}
+					continue
+				}
+				if got["status"] != "failed" {
+					t.Fatalf("%s: got %v, want failed: %v", mode, got["status"], got["report"])
+				}
+				if got := strings.Join(qualityErrors(got), ", "); got != want {
+					t.Errorf("%s: lines refused: got %s, want %s", mode, got, want)
+				}
+				if n := e.entries(t); n != before {
+					t.Errorf("%s: journal entries: got %d, want %d, nothing posted", mode, n, before)
+				}
+			}
+		})
+	}
+}
+
+// qualityErrors are the keys of a run's quality errors, in report order.
+func qualityErrors(run map[string]any) []string {
+	var keys []string
+	for _, i := range run["report"].(map[string]any)["quality"].([]any) {
+		if m := i.(map[string]any); m["severity"] == "error" {
+			keys = append(keys, fmt.Sprint(m["key"]))
+		}
+	}
+	return keys
+}
+
+// TestClearingOfNoAmountLine (review:batch31): a cleared vendor line of no
+// amount in either currency, which the journal posting leaves out, is no
+// item of the clearing the load takes over, where it was named as line 0
+// and the ledger refused the clearing, failing the run: SAP's clearing of
+// the invoice by the payment is taken over with the line beside it, and a
+// clearing all of whose vendor lines are of no amount clears nothing.
+func TestClearingOfNoAmountLine(t *testing.T) {
+	e := dpSetup(t)
+	x := clearedMixed(vendorLine("0100000031", "", "0.00", "0.00", "20260320", "KZ", "0100000031"))
+	bank := fxLine("0100000032", "000002", "0000100000", "-1.00", "-1.00", "20260321", "KZ")
+	bank.RWCUR = "EUR"
+	nothing := vendorLine("0100000032", "000003", "0.00", "0.00", "20260321", "KZ", "0100000032")
+	nothing.RWCUR = "EUR"
+	x.ACDOCA = append(x.ACDOCA, fxLine("0100000032", "000001", "0000610000", "1.00", "0.00", "20260321", "KZ"), bank, nothing)
+	write(t, e.dir, "nothing.json", x)
+	_, got := e.act(t, e.run(t, e.connector(t, "nothing.json"), "documents", false, e.DE.String()), "start")
+	if got["status"] != "loaded" {
+		t.Fatalf("status: got %v, want loaded: %v", got["status"], got["report"])
+	}
+	loaded := got["report"].(map[string]any)["loaded"].(map[string]any)
+	if loaded["clearings"] != float64(3) {
+		t.Errorf("clearings: got %v, want 3, fxTiny's two and the invoice's", loaded["clearings"])
+	}
+	items, _ := e.Must(200, "GET", "/v1/open-items?partner_id="+supplierOf(t, e, "0000000001").String(), "", "")
+	for _, it := range items["items"].([]any) {
+		if a := it.(map[string]any)["amount"].(map[string]any); a["amount"] == "-40.00" || a["amount"] == "40.00" {
+			t.Errorf("open items: got %v, want the invoice and its payment cleared", a)
+		}
+	}
+}

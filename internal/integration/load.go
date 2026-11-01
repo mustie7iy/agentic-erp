@@ -570,9 +570,10 @@ func (l *loader) journalDocument(ctx context.Context, key string, lines []sap.AC
 // journalPosting is the posting of one SAP document's lines, in SAP line
 // order, in company code currency or in its foreign document currency
 // (foreignDocuments) at the rate SAP's amounts imply; lines of no company
-// code amount are left out (in a foreign currency they have no document
-// amount either, which the quality gate checks), so it also maps each SAP
-// line to its platform line number, the same in every run.
+// code amount are left out (they have no document amount either, which
+// the quality gate checks: foreignLine, documentCurrencies, leftOutLines),
+// so it also maps each SAP line to its platform line number, the same in
+// every run.
 func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) (ledger.Posting, loadedEntry) {
 	slices.SortFunc(lines, func(a, b sap.ACDOCA) int { return cmp.Compare(a.DOCLN, b.DOCLN) })
 	first := lines[0]
@@ -680,7 +681,7 @@ func (l *loader) openingLines(c sap.T001) ([]ledger.PostingLine, string, money.M
 			balances[account] += amt
 		case line.AUGBL != "":
 			cleared += amt
-		case amt != 0:
+		case amt != 0: // an open item of a document amount alone is refused by the quality gate (documentCurrencies)
 			partnerID := l.vendors[line.LIFNR]
 			text := "Open item " + cmp.Or(line.XBLNR, line.BELNR) + " (SAP " + line.BELNR + ")"
 			open = append(open, ledger.PostingLine{AccountID: l.t.charts[c.BUKRS][account].ID, Amount: amt, PartnerID: &partnerID, Text: &text})
@@ -718,7 +719,7 @@ func (l *loader) clearings(ctx context.Context) error {
 	}
 	for _, key := range sortedKeys(groups) {
 		items, by, ours, complete := l.clearingItems(groups[key], earlier)
-		if !complete {
+		if !complete || len(items) == 0 { // none: every line of the clearing is of no amount
 			continue
 		}
 		if !ours {
@@ -799,7 +800,10 @@ func (l *loader) earlierEntries(ctx context.Context, groups map[string][]sap.ACD
 // clearing document is not in the scope. It reports whether this run
 // posted any of the clearing's documents, and false for complete when a
 // document of the clearing is on the platform from neither this run nor
-// an earlier one (refused).
+// an earlier one (refused). A line the posting left out, being of no
+// amount in either currency, is no item (the quality gate refuses one
+// with an amount: leftOutLines, documentCurrencies, foreignLine), where it
+// was named as line 0, which the ledger refused, failing the run.
 func (l *loader) clearingItems(group []sap.ACDOCA, earlier map[string]loadedEntry) (items []ledger.ItemRef, by *loadedEntry, ours, complete bool) {
 	var latest *loadedEntry
 	for _, line := range group {
@@ -817,8 +821,12 @@ func (l *loader) clearingItems(group []sap.ACDOCA, earlier map[string]loadedEntr
 		if latest == nil || e.date.After(latest.date) {
 			latest = &e
 		}
+		no, posted := e.lines[line.DOCLN]
+		if !posted {
+			continue // a line of no amount in either currency, which journalPosting leaves out: nothing to clear
+		}
 		ref := e.ref
-		ref.LineNo = e.lines[line.DOCLN]
+		ref.LineNo = no
 		items = append(items, ref)
 	}
 	if by == nil { // the clearing document is not in the scope: the latest one clears
