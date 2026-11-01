@@ -216,25 +216,38 @@ func TestJournalHelpers(t *testing.T) {
 	if got := LineFieldLabel("cost_center_id"); got != i18n.EntryLineCostCenter {
 		t.Errorf("LineFieldLabel: got %q", got)
 	}
-	if got := LineFieldLabel("quantity"); got != "" {
+	if got := LineFieldLabel("cost_center_code"); got != "" {
 		t.Errorf("LineFieldLabel of a field the form has not: got %q", got)
 	}
-	l := LineInput{No: 2, Account: "a", Amount: "b", CostCenter: "c", ProfitCenter: "d", Segment: "e", Partner: "f", TaxCode: "g", Text: "h", Focus: true}
+	l := LineInput{No: 2, Account: "a", Amount: "b", CostCenter: "c", ProfitCenter: "d", Segment: "e", Partner: "f", TaxCode: "g", TaxArea: "h",
+		TaxBase: "i", Quantity: "j", Unit: "k", Text: "l", Focus: true}
 	var got []string
 	for _, fd := range lineFields {
 		got = append(got, lineValue(l, fd.Name))
 	}
-	if strings.Join(got, "") != "abcdefgh" {
+	if strings.Join(got, "") != "abcdefghijkl" {
 		t.Errorf("lineValue: got %v", got)
 	}
-	if a := lineInput(l, FieldLineAccount, "a"); a["list"] != "entry-accounts" || a["autofocus"] != true || a["id"] != "line-2-line_account" {
+	if a := lineInput("/journal/new", l, FieldLineAccount, "a"); a["list"] != "entry-accounts" || a["autofocus"] != true || a["id"] != "line-2-line_account" {
 		t.Errorf("the account's input: got %v", a)
 	}
-	if a := lineInput(LineInput{No: 2}, FieldLineAccount, ""); a["autofocus"] != nil {
+	if a := lineInput("/journal/new", LineInput{No: 2}, FieldLineAccount, ""); a["autofocus"] != nil {
 		t.Errorf("an account not just added: got %v", a)
 	}
-	if a := lineInput(l, FieldLineAmount, "b"); a["inputmode"] != "decimal" {
-		t.Errorf("the amount's input: got %v", a)
+	if a := lineInput("/journal/new", l, FieldLineAmount, "b"); a["inputmode"] != "decimal" || a["hx-target"] != "#entry-totals" ||
+		a["hx-vals"] != `{"op":"totals"}` {
+		t.Errorf("the amount's input: got %v, want decimal, its change asking the totals again", a)
+	}
+	for _, name := range []string{FieldLineTaxBase, FieldLineQuantity} {
+		if a := lineInput("/journal/new", l, name, ""); a["inputmode"] != "decimal" || a["hx-post"] != nil {
+			t.Errorf("%s's input: got %v, want decimal, asking nothing", name, a)
+		}
+	}
+	for value, want := range map[string]string{"": "Every ledger the company keeps", PostToLedger + "x": "Ledger 0L Leading", PostToGroup + "G1": "Ledger group 0L Leading"} {
+		var b strings.Builder
+		if err := postToText(Option{Value: value, Text: "0L Leading"}).Render(locale(t), &b); err != nil || b.String() != want {
+			t.Errorf("the ledgers' choice %q: got %q (%v), want %q", value, b.String(), err, want)
+		}
 	}
 	if !anyChosen([]Option{{Value: "a"}}) || anyChosen([]Option{{Value: "a", Selected: true}}) {
 		t.Error("anyChosen: none chosen is any")

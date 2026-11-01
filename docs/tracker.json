@@ -5538,7 +5538,7 @@
        },
        {
         "s": "T",
-        "t": "Payment runs beyond T73f: suppliers named on a run's payments and exclusions (the API names none on them and listBusinessPartners filters by no id: contract change, an ids filter or expand=supplier), the run's company and house bank on its page within the six calls; an htmx request whose session ended answered with HX-Redirect to sign in (today a 303 the fragment follows: the progress' poll and every lazy section alike, found in T73f's review); the progress' poll answering 204 when nothing changed, so a screen reader is not read the same status again; walked through by a pilot treasurer and AP lead",
+        "t": "Payment runs beyond T73f: suppliers named on a run's payments and exclusions (the API names none on them; listBusinessPartners takes ids since T73h2, within the six calls or by an expansion), the run's company and house bank on its page within the six calls; an htmx request whose session ended answered with HX-Redirect to sign in (today a 303 the fragment follows: the progress' poll and every lazy section alike, found in T73f's review); the progress' poll answering 204 when nothing changed, so a screen reader is not read the same status again; walked through by a pilot treasurer and AP lead",
         "r": "T73f2 (split from T73f, 2026-10-25)",
         "src": "split:T73f",
         "pilot": "po:2026-10-31 · split:T73f · adr:ADR-0052",
@@ -5574,17 +5574,25 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Manual journal entries beyond T73h: posting an entry at once from the form (postJournalEntry within the limit, ledger.approval_required turned into a park), not in T73h's criteria; parking a new entry straight from a CSV file (today parked with two lines, then its lines replaced by the file's); ledger-specific entries and ledger groups (ledger_id, ledger_group); tax jurisdictions, declared tax bases and quantities on a line; partners named on lines and in the form (by id now: the contract change of T73f2, an ids filter or an expansion); the form's running debits, credits and difference; amounts typed in Arabic-Indic digits (T73l reads digits per locale); walked through by a pilot GL accountant and controller",
-        "r": "T73h2 (split from T73h, 2026-10-25)",
+        "s": "D",
+        "t": "Manual journal entries beyond T73h: posting a new entry at once from the form (postJournalEntry within the company's limit; ledger.approval_required turned into a park of the same entry, once per form, said on its page); parking a new entry straight from a CSV file under the form's header (the upload's columns, checks and row errors); ledger-specific entries and ledger groups (ledger_id, ledger_group, offered when the company keeps more than one ledger); a line's tax jurisdiction, declared tax base and quantity with its unit, in the form and the file; a parked line's partner named by number in the change's form (contract first: listBusinessPartners ids); the form's running debits, credits and difference (money.Minor, no float; htmx asks them again as an amount changes); the currency and dates filled in for the chosen company only (review:batch32's item); EN and FR; axe at zero at 1280 and 390 px",
+        "r": "internal/web entry_form.go · entry_send.go · entry_totals.go · entry_lookup.go · entry_csv.go · ui/journal.templ · operations.go Operation.Write · api/openapi.yaml listBusinessPartners ids · internal/partner ListBusinessPartners · TestPostAtOnce · TestCompanyChosenOnTheForm · TestRunningTotals · TestLineTaxAndQuantity · TestParkFromFile · TestPostToLedgers · TestCurrencyFollowsTheCompany · TestPostToStubbed · TestChangeFormPartners · TestTotals · TestEntryFormJobsInTheBrowser · walkthrough step 3 (partners by id) · ADR-0052 Built in T73h2 · T73h2",
         "src": "split:T73h",
         "pilot": "po:2026-10-31 · split:T73h · adr:ADR-0052",
         "c": []
        },
        {
         "s": "T",
+        "t": "Manual journal entries beyond T73h2: amounts typed in Arabic-Indic digits (T73l reads digits per locale; not built, so amounts stay ASCII); partners named on a parked or posted entry's lines (listBusinessPartners ids exists since T73h2, but those pages read six already: an expansion, or names in place of another read); walked through by a pilot GL accountant and controller",
+        "r": "T73h3 (split from T73h2, 2026-11-01)",
+        "src": "split:T73h2",
+        "pilot": "po:2026-10-31 · split:T73h2 · adr:ADR-0052",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "The workspace's new manual entry form keeps the first company's currency after the company select is switched",
-        "r": "internal/web entry_form.go showNewEntry (the company's local currency set only when the form is fresh) · T73h · money risk: an entry offered in another company's currency",
+        "r": "internal/web entry_form.go fill · switched (filled_for) · company select hx-post op=company · TestCurrencyFollowsTheCompany (Toronto CAD to Dubai AED) · TestCompanyChosenOnTheForm · ADR-0052 Built in T73h2 · T73h2",
         "src": "review:batch32",
         "c": []
        },
@@ -5612,7 +5620,7 @@
        },
        {
         "s": "T",
-        "t": "Reports beyond T73j: a trial balance account's entries (listJournalEntries filters by no account: a contract change, an account_id filter, which also serves the cost and profit center balance reports' drill-down by account, PO 2026-10-25, ADR-0050 As built in T56f); the aging's buckets chosen on the page (the API takes aging_days, the page asks 30, 60, 90); downloads of the ledger reconciliation and the audit history; an address naming one ledger as both ledger_id and compare_ledger_id refused on the page rather than sent to the API (T73j review); suppliers named on open items (by id now: T73f2's contract change); the page budgets measured at the pilot's volumes once the pilot gives them (neither the tracker nor ADR-0052 names them); OWASP's CSV injection guidance and the byte order mark's need verified from primary sources (ADR-0052, from memory); walked through by a pilot GL accountant, AP clerk and controller",
+        "t": "Reports beyond T73j: a trial balance account's entries (listJournalEntries filters by no account: a contract change, an account_id filter, which also serves the cost and profit center balance reports' drill-down by account, PO 2026-10-25, ADR-0050 As built in T56f); the aging's buckets chosen on the page (the API takes aging_days, the page asks 30, 60, 90); downloads of the ledger reconciliation and the audit history; an address naming one ledger as both ledger_id and compare_ledger_id refused on the page rather than sent to the API (T73j review); suppliers named on open items (by id now; listBusinessPartners takes ids since T73h2); the page budgets measured at the pilot's volumes once the pilot gives them (neither the tracker nor ADR-0052 names them); OWASP's CSV injection guidance and the byte order mark's need verified from primary sources (ADR-0052, from memory); walked through by a pilot GL accountant, AP clerk and controller",
         "r": "T73j2 (split from T73j, 2026-10-25)",
         "src": "split:T73j · review:T73j · po:2026-10-25",
         "pilot": "po:2026-10-31 · split:T73j · adr:ADR-0052 · po:2026-10-25",

@@ -18,13 +18,15 @@ import (
 // a header row naming its columns in any order: account (a number of the
 // company's chart) and amount (signed, debit positive, in the person's
 // locale as typed in the form) required, cost_center, profit_center,
-// segment, partner, tax_code and line_text optional; another column is
+// segment, partner, tax_code, tax_jurisdiction, tax_base, quantity, unit
+// and line_text optional; another column is
 // refused. A row whose fields are all empty is left out. Every row is
 // checked as a typed line is, and none is sent while any is wrong.
 
 // The file's columns, by the line's field each fills.
 var csvColumns = map[string]string{"account": ui.FieldLineAccount, "amount": ui.FieldLineAmount, "cost_center": ui.FieldLineCostCenter,
 	"profit_center": ui.FieldLineProfit, "segment": ui.FieldLineSegment, "partner": ui.FieldLinePartner, "tax_code": ui.FieldLineTaxCode,
+	"tax_jurisdiction": ui.FieldLineTaxArea, "tax_base": ui.FieldLineTaxBase, "quantity": ui.FieldLineQuantity, "unit": ui.FieldLineUnit,
 	"line_text": ui.FieldLineText}
 
 // maxFileLines is the most lines a file holds: an entry's most
@@ -130,6 +132,14 @@ func setField(l *entryLine, field, v string) {
 		l.partner = v
 	case ui.FieldLineTaxCode:
 		l.taxCode = v
+	case ui.FieldLineTaxArea:
+		l.taxArea = v
+	case ui.FieldLineTaxBase:
+		l.taxBase = v
+	case ui.FieldLineQuantity:
+		l.quantity = v
+	case ui.FieldLineUnit:
+		l.unit = v
 	default: // ui.FieldLineText: the columns are csvColumns'
 		l.text = v
 	}
@@ -162,11 +172,13 @@ func rowErrors(lines []entryLine) ([]ui.RowError, int) {
 // apiColumns are the file's columns by the API's names of the line's
 // fields, which its field errors name.
 var apiColumns = map[string]string{"account_id": "account", "amount": "amount", "cost_center_id": "cost_center", "profit_center_id": "profit_center",
-	"segment_id": "segment", "partner_id": "partner", "tax_code": "tax_code", "line_text": "line_text"}
+	"segment_id": "segment", "partner_id": "partner", "tax_code": "tax_code", "tax_jurisdiction": "tax_jurisdiction", "tax_base": "tax_base",
+	"quantity": "quantity", "line_text": "line_text"}
 
 // csvOrder are the file's columns in the order a row's errors are said.
 var csvOrder = []struct{ field, column string }{
 	{ui.FieldLineAccount, "account"}, {ui.FieldLineAmount, "amount"}, {ui.FieldLineCostCenter, "cost_center"},
 	{ui.FieldLineProfit, "profit_center"}, {ui.FieldLineSegment, "segment"}, {ui.FieldLinePartner, "partner"},
-	{ui.FieldLineTaxCode, "tax_code"}, {ui.FieldLineText, "line_text"},
+	{ui.FieldLineTaxCode, "tax_code"}, {ui.FieldLineTaxArea, "tax_jurisdiction"}, {ui.FieldLineTaxBase, "tax_base"},
+	{ui.FieldLineQuantity, "quantity"}, {ui.FieldLineUnit, "unit"}, {ui.FieldLineText, "line_text"},
 }

@@ -234,6 +234,7 @@ func (s *Server) journalRoutes(route func(string, http.HandlerFunc)) {
 	route("GET "+ui.JournalPath, s.signedIn(s.parkedEntries))
 	route("GET "+ui.NewEntryPath, s.signedIn(s.newEntry))
 	route("POST "+ui.NewEntryPath, s.signedIn(s.csrf(s.parkEntry)))
+	route("POST "+ui.NewEntryFile, s.signedIn(s.csrfUpload(s.parkFile)))
 	route("GET "+ui.ParkedBase+"/{id}", s.signedIn(s.parkedEntry))
 	route("GET "+ui.ParkedBase+"/{id}/edit", s.signedIn(s.editEntry))
 	route("POST "+ui.ParkedBase+"/{id}/edit", s.signedIn(s.csrf(s.saveEntry)))

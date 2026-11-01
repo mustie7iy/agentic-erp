@@ -102,7 +102,8 @@ func withLines(v url.Values, lines ...typedLine) url.Values {
 	}
 	for _, l := range lines {
 		for name, value := range map[string]string{"line_account": l.account, "line_amount": l.amount, "line_cost_center": l.cost,
-			"line_profit_center": l.profit, "line_segment": l.segment, "line_partner": l.partner, "line_tax_code": l.tax, "line_text": l.text} {
+			"line_profit_center": l.profit, "line_segment": l.segment, "line_partner": l.partner, "line_tax_code": l.tax, "line_text": l.text,
+			"line_tax_jurisdiction": "", "line_tax_base": "", "line_quantity": "", "line_unit": ""} {
 			out.Add(name, value)
 		}
 	}
@@ -230,14 +231,14 @@ func TestEntryForm(t *testing.T) {
 	b := s.as(d.accountant)
 	p := b.get("/journal/new").page(t)
 	form := p.form("/journal/new")
-	if got := field(form, "currency"); got != "USD" {
-		t.Errorf("the first company's currency: got %q, want USD (Acme Corp US)", got)
-	}
 	// Two companies offered and none named: the form can change its
-	// company, so its dates are typed (datedCompany); company 1000's, in
-	// UTC, is today.
-	if got := field(form, "posting_date"); got != "" {
-		t.Errorf("the posting date among two companies: got %q, want none", got)
+	// company, so its currency and dates are typed, or filled in once a
+	// company is chosen (datedCompany); company 1000's day, in UTC, is
+	// today.
+	for _, name := range []string{"currency", "posting_date", "filled_for"} {
+		if got := field(form, name); got != "" {
+			t.Errorf("%s among two companies: got %q, want none", name, got)
+		}
 	}
 	us := b.get("/journal/new?legal_entity_id=" + d.f.US.String()).page(t).form("/journal/new")
 	if got := field(us, "posting_date"); got != s.clock.Now().UTC().Format("2006-01-02") {

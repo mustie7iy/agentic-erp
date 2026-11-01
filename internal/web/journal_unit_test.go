@@ -94,3 +94,43 @@ func TestLookupsBounded(t *testing.T) {
 		t.Errorf("a whole book: %d calls, got %+v", calls, got)
 	}
 }
+
+// TestTotals: the running totals sum the amounts typed exactly, in the
+// locale, with as many decimals as the most an amount has; an amount
+// that cannot be read, or whose sum is out of range, is not counted, and
+// a currency that is none is not shown.
+func TestTotals(t *testing.T) {
+	catalog, err := i18n.Load(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	en, fr := catalog.Match("en"), catalog.Match("fr-CA")
+	lines := func(amounts ...string) []entryLine {
+		out := make([]entryLine, len(amounts))
+		for i, a := range amounts {
+			out[i] = entryLine{amount: a}
+		}
+		return out
+	}
+	for name, tc := range map[string]struct {
+		loc      i18n.Locale
+		amounts  []string
+		currency string
+		want     ui.EntryTotals
+	}{
+		"balanced":      {en, []string{"1200.50", "-1200.5", ""}, "EUR", ui.EntryTotals{Debits: "1200.50", Credits: "1200.50", Difference: "0.00", Currency: "EUR"}},
+		"in French":     {fr, []string{"12,5", "-2,25"}, "CAD", ui.EntryTotals{Debits: "12.50", Credits: "2.25", Difference: "10.25", Currency: "CAD"}},
+		"whole amounts": {en, []string{"100", "-40"}, "JPY", ui.EntryTotals{Debits: "100", Credits: "40", Difference: "60", Currency: "JPY"}},
+		"four decimals": {en, []string{"0.0001", "-1"}, "BHD", ui.EntryTotals{Debits: "0.0001", Credits: "1.0000", Difference: "-0.9999", Currency: "BHD"}},
+		"none":          {en, nil, "", ui.EntryTotals{Debits: "0", Credits: "0", Difference: "0"}},
+		"not read":      {en, []string{"1,5", "x", "5"}, "eur", ui.EntryTotals{Debits: "5", Credits: "0", Difference: "5", Uncounted: 2}},
+		"out of range": {en, []string{"900000000000000", "900000000000000", "999999999999999999"}, "EUR",
+			ui.EntryTotals{Debits: "900000000000000", Credits: "0", Difference: "900000000000000", Currency: "EUR", Uncounted: 2}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := totalsOf(tc.loc, lines(tc.amounts...), tc.currency); got != tc.want {
+				t.Errorf("got %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
