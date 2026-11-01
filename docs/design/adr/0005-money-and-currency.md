@@ -189,7 +189,9 @@ had passed it; so did a cleared vendor line of no amount at all.
   (a line of no local value) this ADR does not give. The quality gate
   refuses it (`leftOutLines`), naming document and line: "line of SAP
   document … has a document amount (WSL …, RWCUR …) and no amount in
-  company currency … (HSL)". So no SAP line with an amount in either
+  company currency … (HSL)", with the way out: have SAP's line corrected,
+  or, in `documents` mode for a document that is not a down payment's,
+  load the year in `balances` mode. So no SAP line with an amount in either
   currency is left out unreported in a document the load posts: an open
   item has its refusal above, a line of a foreign-currency document
   `foreignLine`'s, and every other line this one.

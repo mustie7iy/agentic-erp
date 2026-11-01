@@ -442,13 +442,19 @@ func TestLeftOutLines(t *testing.T) {
 		l.WSL, l.RWCUR = "0.01", "USD"
 		e.ACDOCA = append(e.ACDOCA, l)
 	}
+	// dpAlone is the refusal of dpLineAlone's line, in either mode: the
+	// document posts on its own in both, so balances mode is no way out.
+	const dpAlone = "2000/2026/0100000009/000004: line of SAP document 0100000009 has a document amount (WSL \"0.01\", RWCUR \"USD\") and no " +
+		"amount in company currency EUR (HSL): its document posts in company currency from HSL, so the load would leave the line out; " +
+		"have SAP's line corrected"
 	cases := []struct {
 		name                string
 		change              func(e *sap.Extract, t *target)
 		documents, balances []string
 	}{
 		{"a G/L line of a document whose lines mix currencies", func(e *sap.Extract, _ *target) { mixed(e, "0.01") },
-			[]string{gl + `"0.01", RWCUR "USD") and no amount in company currency EUR (HSL): its document posts in company currency from HSL`}, nil},
+			[]string{gl + `"0.01", RWCUR "USD") and no amount in company currency EUR (HSL): its document posts in company currency from HSL, ` +
+				"so the load would leave the line out; have SAP's line corrected, or load the year in balances mode"}, nil},
 		{"a document amount that does not parse", func(e *sap.Extract, _ *target) { mixed(e, "x") },
 			[]string{gl + `"x", RWCUR "USD")`}, nil},
 		{"a cleared vendor line", func(e *sap.Extract, _ *target) {
@@ -458,8 +464,7 @@ func TestLeftOutLines(t *testing.T) {
 		{"a line that carries no document amount", func(e *sap.Extract, _ *target) { mixed(e, ""); e.ACDOCA[len(e.ACDOCA)-3].RWCUR = "" }, nil, nil},
 		{"a line of a document amount of zero", func(e *sap.Extract, _ *target) { mixed(e, "0.00") }, nil, nil},
 		{"a line of a down payment's document in company currency", func(e *sap.Extract, _ *target) { dpLineAlone(e) },
-			[]string{"2000/2026/0100000009/000004: line of SAP document 0100000009 has a document amount (WSL \"0.01\", RWCUR \"USD\")"},
-			[]string{"2000/2026/0100000009/000004: line of SAP document 0100000009 has a document amount (WSL \"0.01\", RWCUR \"USD\")"}},
+			[]string{dpAlone}, []string{dpAlone}},
 		{"a document an earlier run posted", func(e *sap.Extract, t *target) {
 			mixed(e, "0.01")
 			t.posted = map[string]string{"2000/2026/0100000011": "EUR"}
