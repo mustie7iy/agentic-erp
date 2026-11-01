@@ -111,8 +111,12 @@ being cleared twice. A clearing whose counter-item is
 another fiscal year's (a prior-year invoice paid this year) is not in the
 extract, which holds the scope's fiscal year only and not SAP's clearing
 date (AUGDT): its clearing does not net to zero and fails the run, as the
-cleared items of such a year do in `balances` mode. How such items migrate
-waits for a decision (tracker).
+cleared items of such a year do in `balances` mode. Decided (product owner,
+2026-10-31) and not built yet: such an item is loaded open at its fiscal
+year's end, as SAP's key-date reading by the clearing date does, and the
+later year's run clears it; this needs SAP's clearing date and the clearing
+document's fiscal year (AUGDT, AUGGJ, for an SAP specialist to confirm) in
+the extract (ADR-0034 As built, tracker).
 
 In either mode every migrated line posts in company code currency (ACDOCA HSL),
 so the quality gate refuses an open item whose document currency (ACDOCA RWCUR,

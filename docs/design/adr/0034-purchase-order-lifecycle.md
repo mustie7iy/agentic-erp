@@ -419,4 +419,16 @@ the cleared items of the year do not net to zero either. Which items a
 fiscal year's migration holds open (open at the extract's date, as the
 load reads AUGBL now, or at the year's end, SAP's key-date reading of
 BSIK/BSAK by the clearing date AUGDT) is an accounting rule nothing here
-settles; the options are in the tracker item that follows this one.
+settled; the options are in the tracker item that follows this one.
+
+Decided by the product owner on 2026-10-31 (as recommended in batch 25,
+sapclear case 2), not built yet: a fiscal year's migration holds open, at
+the year's end, every vendor item SAP cleared in a later fiscal year, as
+SAP's key-date reading of BSIK/BSAK by the clearing date does, so a
+prior-year invoice paid this year is loaded open in its year's run and the
+later year's run clears it with the payment it loads. This needs SAP's
+clearing date and the clearing document's fiscal year in the extract
+(AUGDT and AUGGJ, the field names stated from memory, for an SAP
+specialist to confirm in the extract, which the build waits on); the load
+then reads a line as cleared only when its clearing falls in the run's
+fiscal year. Tracked as the item that follows this one.

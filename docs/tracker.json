@@ -8173,9 +8173,9 @@
      },
      {
       "s": "T",
-      "t": "A vendor item SAP cleared against an item of another fiscal year fails the migration run (split from the item before, waits for the product owner): the extract holds the scope's fiscal year only and AUGBL without SAP's clearing date and year (AUGDT, AUGGJ), so a prior-year invoice paid this year fails documents mode (ledger.clearing_not_balanced) in either year's run and balances mode (cleared vendor items do not net to zero). Decide which items a year's migration holds open: open at the extract's date (today) or at the fiscal year's end (SAP's key-date reading by AUGDT), and with it how the later year's run clears the earlier year's item. Recommended (batch 25, sapclear case 2): open at the fiscal year's end, which needs SAP's clearing date and year (AUGDT, AUGGJ) in the extract",
-      "r": "internal/sap FilterScope, ACDOCA · internal/integration/load.go clearings, openingLines · reconcile.go journal",
-      "src": "review:batch22 · review:batch25",
+      "t": "A vendor item SAP cleared against an item of another fiscal year fails the migration run (split from the item before): the extract holds the scope's fiscal year only and AUGBL without SAP's clearing date and year, so a prior-year invoice paid this year fails documents mode (ledger.clearing_not_balanced) in either year's run and balances mode (cleared vendor items do not net to zero). Decided (product owner 2026-10-31, as recommended in batch 25, sapclear case 2): a fiscal year's migration holds open at the year's end every vendor item SAP cleared in a later fiscal year (SAP's key-date reading by the clearing date), and the later year's run clears it with the payment it loads; the extract carries SAP's clearing date and the clearing document's fiscal year (AUGDT, AUGGJ, stated from memory). Waits only on an SAP specialist confirming the extract's field names",
+      "r": "internal/sap FilterScope, ACDOCA · internal/integration/load.go clearings, openingLines · reconcile.go journal · ADR-0034 As built (decided 2026-10-31) · docs/migration.md (waits on: an SAP specialist confirming AUGDT and AUGGJ in the extract)",
+      "src": "review:batch22 · review:batch25 · po:2026-10-31",
       "c": []
      },
      {
