@@ -64,6 +64,17 @@ func journalComponents() map[string]templ.Component {
 		"entry line plain":    EntryLineView("/x", lineInput2(false)),
 		"RefusedItem":         RefusedItem(FieldRefusal{Field: i18n.EntryLineCostCenter, Reason: "not_allowed"}),
 		"refused item whole":  RefusedItem(FieldRefusal{Reason: "unbalanced"}),
+		"entry form full":     EntryFormView(fullEntryForm()),
+		"currencyField":       currencyField(fullEntryForm()),
+		"currency plain":      currencyField(EntryForm{}),
+		"postToField":         postToField(fullEntryForm()),
+		"entryFileView":       entryFileView(*fullEntryForm().File),
+		"entry file plain":    entryFileView(LinesUpload{}),
+		"EntryTotalsView":     EntryTotalsView(fullEntryForm().Totals),
+		"EntryTotalsBody":     EntryTotalsBody(EntryTotals{Debits: "1", Credits: "1", Difference: "0"}),
+		"EntryLinesSwap":      EntryLinesSwap(fullEntryForm()),
+		"entryButtons":        entryButtons(fullEntryForm()),
+		"entryButtonsBody":    entryButtonsBody(entryForm(true)),
 	}
 }
 
@@ -180,6 +191,19 @@ func entryForm(edit bool) EntryForm {
 		f.Errors = map[string]i18n.Key{FieldDocType: i18n.EntryDocTypeInvalid}
 		f.Lines[0] = lineInput2(true)
 	}
+	return f
+}
+
+// fullEntryForm is a new entry's form with everything T73h2 added: its
+// company changed, its currency's company and errors, its ledgers, its
+// totals with lines not counted, the post and a file with wrong rows.
+func fullEntryForm() EntryForm {
+	f := entryForm(false)
+	f.FilledFor, f.FilledOn, f.Changed, f.Local, f.CanPost = "c1", "2026-01-01", true, "CAD", true
+	f.Errors = map[string]i18n.Key{FieldCurrency: i18n.ProposeCurrencyInvalid, FieldPostTo: i18n.EntryPostToInvalid}
+	f.PostTo = []Option{{}, {Value: PostToLedger + "l1", Text: "0L Leading", Selected: true}, {Value: PostToGroup + "ALL", Text: "ALL Every"}}
+	f.Totals = EntryTotals{Debits: "10.00", Credits: "9.00", Difference: "1.00", Currency: "CAD", Uncounted: 2}
+	f.File = &LinesUpload{FileError: i18n.CSVFileNeeded, Rows: []RowError{{Row: 2, Column: "amount", Error: i18n.EntryAmountInvalid}}, More: 3, Again: true}
 	return f
 }
 
