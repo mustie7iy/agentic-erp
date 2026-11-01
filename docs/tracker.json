@@ -8698,6 +8698,13 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "The workflow worker stops without waiting for in-flight activities (worker.Options{} leaves WorkerStopTimeout 0): a stopping replica's release activity that read the configuration may still commit after the replica's record is deleted, so an activation it lacks a key for can pass in that window; set WorkerStopTimeout within the termination grace so activities finish before the record goes",
+      "r": "internal/platform/workflow workflow.go Worker · cmd/erp-server launch stopRecord · ADR-0038 As built (activation refused while a replica lacks a key) · T72m",
+      "src": "review:T72m",
+      "c": []
+     },
+     {
       "s": "D",
       "t": "The mock SAP extract has a Canadian company (CAD, LAND1 CA, Canadian vendors and house banks), so the walkthrough migrates the Canadian pilot company from SAP instead of the mock's US and German companies",
       "r": "walkthrough 2026-10-22 · internal/sap mock.go company 3000 (CAD, CA) · scripts/walkthrough.sh migrates it · T72d",

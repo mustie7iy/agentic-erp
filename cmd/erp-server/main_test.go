@@ -2516,7 +2516,9 @@ func TestRecordOutlivesShutdown(t *testing.T) {
 	if got := replicaRows(t); got != before+1 {
 		t.Errorf("rows while shutting down: got %d, want %d", got, before+1)
 	}
-	stop()
+	if err := stop(); err != nil {
+		t.Errorf("stop: got %v, want nil", err)
+	}
 	if got := replicaRows(t); got != before {
 		t.Errorf("rows once stopped: got %d, want %d", got, before)
 	}
@@ -2549,6 +2551,33 @@ func TestRecordFailureStopsTheServer(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("the server did not fail")
 	}
-	stop()
-	pgtest.WantErr(t, s.failure, "erp-server: replica record: configuration: the replica has not been recorded since")
+	pgtest.WantErr(t, stop(), "erp-server: replica record: configuration: the replica has not been recorded since")
+	pgtest.WantErr(t, s.firstFailure(), "erp-server: replica record")
+}
+
+// TestWithRecord: the record's failure reaches the exit once, whether stop
+// joined it already or it came after.
+func TestWithRecord(t *testing.T) {
+	failed, other := errors.New("record failed"), errors.New("listener failed")
+	for name, c := range map[string]struct {
+		err, failed error
+		want        []error
+	}{
+		"no failure":           {other, nil, []error{other}},
+		"joined by stop":       {errors.Join(other, failed), failed, []error{other, failed}},
+		"failed after stop":    {nil, failed, []error{failed}},
+		"after another's exit": {other, failed, []error{other, failed}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := withRecord(c.err, c.failed)
+			for _, w := range c.want {
+				if !errors.Is(got, w) {
+					t.Errorf("got %v, want it to hold %v", got, w)
+				}
+			}
+			if n := strings.Count(fmt.Sprint(got), "record failed"); c.failed != nil && n != 1 {
+				t.Errorf("got %q, want the record's failure once", got)
+			}
+		})
+	}
 }
