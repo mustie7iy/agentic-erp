@@ -25,7 +25,8 @@ const baselineItems = 951
 // pilotItems is the number of leaves carrying "pilot": the pilot-ready list the
 // product owner approved on 2026-10-31, the finish line of the first pilot. It
 // must match exactly, so a leaf joining or leaving the pilot scope shows in the
-// diff; changing it needs a product owner source in the leaf's pilot value.
+// diff; a leaf's pilot value starts with the product owner's decision (po:),
+// which TestTrackerPilotScope refuses a value without.
 const pilotItems = 72
 
 // accepted lists the sources an item may name, several joined by " · ":
@@ -233,6 +234,9 @@ func TestTrackerPilotScope(t *testing.T) {
 		}
 		tagged++
 		checkSources(t, l.path, "pilot", l.pilot, steps)
+		if !strings.HasPrefix(l.pilot, "po:") {
+			t.Errorf("%s: pilot %q does not start with a product owner decision; want po:YYYY-MM-DD first", l.path, l.pilot)
+		}
 		if strings.Contains(l.text, "post-pilot") {
 			t.Errorf("%s: carries pilot but says post-pilot; want one or the other", l.path)
 		}
