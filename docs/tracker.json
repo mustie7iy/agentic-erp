@@ -1751,11 +1751,18 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Tax registrations and periods: companies[].tax_registrations (authority, number encrypted, return type, frequency, first period, UAE tax group), tier 3, tax periods generated, API",
-        "r": "T61g",
+        "r": "db/migrations/000172 · internal/taxfiling · tax.registration · taxfiling.Setup · config.TaxPeriods · GET /v1/tax-registrations · GET /v1/tax-registrations/{id}/periods · ADR-0049 §10 · T61g",
         "src": "baseline",
         "pilot": "po:2026-10-31 · adr:ADR-0049",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Tax registration number formats: the check digits and form of a Canadian BN with its GST/HST program account (RT) and QST number, and of a UAE TRN, from the authorities' primary sources, stated by the tax specialist; T61g checks only that a number is given",
+        "r": "config.TaxRegistration · ADR-0049 §10 · after T61g",
+        "src": "split:T61g",
         "c": []
        },
        {

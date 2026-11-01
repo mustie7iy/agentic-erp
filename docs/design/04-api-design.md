@@ -249,6 +249,17 @@ profit center or a node of a profit center hierarchy), its actual as `GET
 /v1/profit-center-balances` reads it: profit and loss accounts only, the
 segments summed, paged by profit center and account.
 
+Tax registrations (ADR-0049 §10, T61g) are the tax filing context's,
+read-only: the configuration sets them up. `GET /v1/tax-registrations`
+(`tax.registration.read`) lists those covering a company the caller may
+act in, as registrant or tax group member, each company named by its code
+and the number by its last four characters, filtered by legal entity and
+authority. `GET /v1/tax-registrations/{id}/periods` computes the
+registration's filing periods, paged by start date, up to `start_date_to`
+or the period under way on the registrant's date in its time zone, which
+the answer names (`start_date_to`, `time_zone`); a registration the caller
+does not see is 404.
+
 ## 4.7 Concurrency and idempotency
 
 Per ADR-0008:
@@ -526,6 +537,7 @@ with the month's total against the tenant's cap.
 | payments | `payment-runs`, `bank-files` | `:propose` (202), `:submit`, `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
 | cash | `cash-position` (computed on read, ADR-0051), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
 | controlling | `plan-categories`, `plan-batches` (by batch key), `plan-lines`, `cost-center-plan-actual`, `profit-center-plan-actual` (computed on read, ADR-0050 §8) | `:lock`, `:unlock` |
+| tax | `tax-registrations` (from the configuration), `tax-registrations/{id}/periods` (computed on read, ADR-0049 §10) | |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |
 | audit | `audit-events` | `:verify` |
 | integration | `migration-runs`, `connectors` | `:start`, `:reconcile`, `:enable`, `:disable` |

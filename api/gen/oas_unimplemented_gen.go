@@ -50,6 +50,8 @@ func (UnimplementedHandler) AcceptMemoRecordProposal(ctx context.Context, req Op
 // controlling rules again against its data, which may have changed since submission (a default cost or
 // profit center no longer usable, postings in the year a center accounting switch turns on, a removed
 // cost center category in use): 409 `ledger.controlling_invalid`, naming each finding (ADR-0050 §4).
+// A tax registration whose company, group, authority, number, return type, frequency or first period
+// changed under its code since submission is refused: 409 `tax.registration_fixed` (ADR-0049 §10).
 //
 // POST /v1/change-requests/{id}:activate
 func (UnimplementedHandler) ActivateChangeRequest(ctx context.Context, params ActivateChangeRequestParams) (r ActivateChangeRequestRes, _ error) {
@@ -2311,6 +2313,32 @@ func (UnimplementedHandler) ListSodRules(ctx context.Context, params ListSodRule
 //
 // GET /v1/supplier-invoices
 func (UnimplementedHandler) ListSupplierInvoices(ctx context.Context, params ListSupplierInvoicesParams) (r ListSupplierInvoicesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListTaxPeriods implements listTaxPeriods operation.
+//
+// The registration's filing periods (ADR-0049 §10, T61g), by start date: the first starts on its
+// `first_period_start`, each lasts a month, a quarter or a year by its `frequency`, independent of
+// fiscal periods, and none follows its `last_period_end`. Without `start_date_to`, up to the period
+// under way on its company's date in its time zone (`companies[].time_zone`), which the answer names.
+// A registration the caller does not see (`listTaxRegistrations`) is not found; without an active
+// configuration to read the time zone from, 409 `config.not_bootstrapped`. Sortable by: `start_date`.
+//
+// GET /v1/tax-registrations/{id}/periods
+func (UnimplementedHandler) ListTaxPeriods(ctx context.Context, params ListTaxPeriodsParams) (r ListTaxPeriodsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListTaxRegistrations implements listTaxRegistrations operation.
+//
+// The companies' registrations with tax authorities (ADR-0049 §10, T61g), as the configuration names
+// them (`companies[].tax_registrations`), active and inactive: a registration covers its company and,
+// for a tax group, the group's other members. A caller sees the registrations covering a company they
+// may act in. The registration number is shown by its last four characters only. Sortable by: `code`.
+//
+// GET /v1/tax-registrations
+func (UnimplementedHandler) ListTaxRegistrations(ctx context.Context, params ListTaxRegistrationsParams) (r ListTaxRegistrationsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

@@ -212,6 +212,8 @@ const (
 	ListSegmentsOperation                     OperationName = "ListSegments"
 	ListSodRulesOperation                     OperationName = "ListSodRules"
 	ListSupplierInvoicesOperation             OperationName = "ListSupplierInvoices"
+	ListTaxPeriodsOperation                   OperationName = "ListTaxPeriods"
+	ListTaxRegistrationsOperation             OperationName = "ListTaxRegistrations"
 	ListWebhookDeliveriesOperation            OperationName = "ListWebhookDeliveries"
 	ListWebhookSubscriptionsOperation         OperationName = "ListWebhookSubscriptions"
 	LockCostCenterOperation                   OperationName = "LockCostCenter"

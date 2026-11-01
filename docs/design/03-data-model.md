@@ -9,7 +9,8 @@ types. Both are reviewed together.
 ### Schemas and ownership
 - One PostgreSQL schema per bounded context (`tenancy`, `identity`, `config`,
   `partner`, `ledger`, `procurement`, `payables`, `payments`, `workflow`,
-  `audit`, `integration`, `agents`, `analytics`, `cash`), plus:
+  `audit`, `integration`, `agents`, `analytics`, `cash`, `controlling`,
+  `tax`), plus:
   - `ref`: global reference data (currencies, countries, units, permissions),
     identical in every cell, read-only to the application;
   - `platform`: per-cell infrastructure (idempotency keys, operations).
@@ -2618,3 +2619,38 @@ over the periods asked for and merged with the leading ledger's actuals,
 which the ledger reads as its cost center (or profit center) report does
 (§3.7, exact at the read; by profit center on profit and loss accounts
 only, the segments summed).
+
+## 3.20 Tax filing (`tax`)
+
+The companies' registrations with tax authorities and their filing periods
+(ADR-0049 §10, T61g), owned by the tax filing context
+(`internal/taxfiling`); the returns of T61h-T61i join them. Migration
+000172 creates the schema and the permission `tax.registration.read`. The
+registrant and a tax group's members are the tenancy context's legal
+entities, by id, with no foreign key across the schema.
+
+```mermaid
+erDiagram
+  registration { uuid id PK
+    text code "unique in the tenant"
+    uuid legal_entity_id "tenancy context: the registrant"
+    uuid_array group_member_ids "tenancy context: a tax group's other members"
+    text authority "CRA, RQ, FTA"
+    bytea number_cipher "sealed with the tenant's key"
+    text number_fingerprint
+    text number_last4
+    text return_type
+    text frequency "monthly | quarterly | annual"
+    date first_period_start "day 1-28"
+    date last_period_end "null while it runs"
+    bool is_active }
+```
+
+| Table | Purpose |
+|---|---|
+| `tax.registration` | A registration from the configuration's `companies[].tax_registrations`, kept by `taxfiling.Setup`: its code once in the tenant (`registration_code_once`), the authority, return type and frequency of their forms, a first period starting on day 1-28 of a month and an end after it, the registrant not among the group's members (`registration_members`). The number is sealed (fieldcrypt, re-sealed on key rotation), fingerprinted and shown by its last four characters. Company, members, authority, return type, frequency and first period never change under the code (`registration_fixed`, a trigger; the number is compared by the application, which opens it); the end and the active flag change by versions; one the configuration no longer lists becomes inactive, never deleted |
+
+A registration's periods are not stored: they follow from its fixed
+settings (`config.TaxPeriods`: the first starts on `first_period_start`,
+each lasts one, three or twelve months, none after `last_period_end`) and
+are computed on read by `GET /v1/tax-registrations/{id}/periods`.

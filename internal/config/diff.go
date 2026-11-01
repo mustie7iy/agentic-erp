@@ -83,6 +83,9 @@ var tierRules = []struct {
 	{rx(`^companies\[\*\]\.payment_methods\[\*\]\.description$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.bank_statements\.posting_rules\[\*\]\.description$`), TierCosmetic},
 	{rx(`^companies\[\*\]\.withholding_tax_codes`), TierPostingRelated},
+	// A registration decides which returns a company files and for which
+	// periods: financial, tier 3 (ADR-0049 §10).
+	{rx(`^companies\[\*\]\.tax_registrations`), TierPostingRelated},
 	// Every other tax code setting, a dated rate included, decides what
 	// postings and returns carry: tier 3 (ADR-0049 §3), as rates were.
 	{rx(`^companies\[\*\]\.(account_determination|tax_codes|auto_post_limit|manual_entry_approval_limit|release_dual_limit|house_bank)`), TierPostingRelated},
@@ -153,6 +156,7 @@ func classify(path string) Tier {
 // two lists of one name anywhere in the document share their key.
 var listKeys = map[string]string{
 	"companies": "code", "chart_of_accounts": "number", "tax_codes": "code", "withholding_tax_codes": "code",
+	"tax_registrations": "code",
 	// A tax code's components and each component's dated rates (T61a).
 	"components": "key", "rates": "valid_from",
 	"house_banks": "name", "payment_methods": "code", "ranking": "currency",

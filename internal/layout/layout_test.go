@@ -108,6 +108,7 @@ var allowed = map[string][]string{
 	"provisioning":            {"config", "configuration", "identity", "tenancy"},
 	"reconagent":              {"apitools", "llm"},
 	"router":                  {"directory"},
+	"taxfiling":               {"config", "tenancy"}, // registrations from the configuration, companies from the directory (ADR-0049 §10)
 	"workflows":               {"approvals", "configuration", "integration", "operations", "payments"},
 }
 
