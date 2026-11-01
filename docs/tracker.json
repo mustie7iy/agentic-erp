@@ -1784,6 +1784,14 @@
        },
        {
         "s": "T",
+        "t": "Preparing a tax return does not enforce period order: preparing a later period first claims an earlier unfiled period's unreported items as prior-period items",
+        "r": "internal/taxfiling prepare.go claim (ledger.TaxItems.Claim takes every unreported item dated by the period's end, with no check that earlier periods are filed) · ADR-0049 §11 As built (T61i) · data and tax correctness of the return",
+        "src": "review:batch32",
+        "pilot": "po:2026-10-31 · review:batch32",
+        "c": []
+       },
+       {
+        "s": "T",
         "t": "GST/HST return for Canada: the GST34 lines in the Canada pack, plus the FPZ-500 (GST/HST and QST) for a Quebec registrant (P4); golden tests, tax specialist sign-off",
         "r": "T61j",
         "src": "baseline",
@@ -5571,6 +5579,13 @@
         "r": "T73h2 (split from T73h, 2026-10-25)",
         "src": "split:T73h",
         "pilot": "po:2026-10-31 · split:T73h · adr:ADR-0052",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The workspace's new manual entry form keeps the first company's currency after the company select is switched",
+        "r": "internal/web entry_form.go showNewEntry (the company's local currency set only when the form is fresh) · T73h · money risk: an entry offered in another company's currency",
+        "src": "review:batch32",
         "c": []
        },
        {
