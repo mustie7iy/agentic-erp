@@ -297,6 +297,16 @@ templ statementContent(sp StatementPage) {
 			@T(i18n.StatementReport)
 		</a>
 	</p>
+	if sp.File != "" {
+		<p>
+			<a download { link(sp.File, "")... }>
+				@T(i18n.StatementFile)
+			</a>
+		</p>
+	}
+	if sp.Rules != nil {
+		@RulesFormView(*sp.Rules)
+	}
 	<h2>
 		@T(i18n.StatementLines)
 	</h2>
@@ -480,13 +490,41 @@ templ LineFormView(f LineForm) {
 	</details>
 }
 
+// RulesFormView runs the company's matching rules on the statement
+// again: one button, with the statement's ETag and its own key.
+templ RulesFormView(f LineForm) {
+	<form class="decide" { post(f.Action)... }>
+		@decideHidden(f.CSRF, f.ETag, f.Key)
+		@Paragraph(i18n.StatementRulesHint)
+		<button class="button button--secondary" type="submit">
+			@T(i18n.StatementRules)
+		</button>
+	</form>
+}
+
 // MatchFormView is a line's manual match: one choice of what it clears,
-// and the reason.
+// and the reason; the line's search finds a payment the rules did not.
+// A line with nothing to choose offers the search alone.
 templ MatchFormView(f MatchForm) {
 	<details { disclosure(f.Open)... }>
 		<summary class="disclosure__summary">
 			@T(lineSpecs[LineMatch].Button)
 		</summary>
+		if f.Search != "" {
+			<p>
+				<a { link(f.Search, "")... }>
+					@T(i18n.LineSearchPayments)
+				</a>
+			</p>
+		}
+		if len(f.Choices) > 0 {
+			@lineMatchForm(f)
+		}
+	</details>
+}
+
+// matchForm is the form of a line's manual match.
+templ lineMatchForm(f MatchForm) {
 		<form class="decide" { post(f.Action)... }>
 			@decideHidden(f.CSRF, f.ETag, f.Key)
 			<input { hidden(FieldLine, strconv.Itoa(int(f.Line)))... }/>
@@ -511,7 +549,6 @@ templ MatchFormView(f MatchForm) {
 				@T(lineSpecs[LineMatch].Button)
 			</button>
 		</form>
-	</details>
 }
 
 // ChoiceItem is one thing to match a line to.
@@ -532,6 +569,8 @@ templ ChoiceItem(id string, c Choice, chosen string) {
 					@Code(c.Rule)
 					@space()
 					@Data(c.RuleText)
+				case ChoiceFound:
+					@foundText(c)
 				default:
 					@T(i18n.TargetIncoming)
 			}
@@ -763,4 +802,123 @@ templ ReconLineRow(l ReconLine) {
 			}
 		</td>
 	</tr>
+}
+
+// foundText is a payment found by searching: by its payee, account and
+// amount, or by its id when only that is known.
+templ foundText(c Choice) {
+	if c.Found == nil {
+		@T(i18n.ChoiceFound)
+		for _, p := range c.Payments {
+			@space()
+			@Code(p)
+		}
+	} else {
+		@Code(c.Found.EndToEnd)
+		@space()
+		@Data(c.Found.Supplier)
+		@space()
+		@Amount(c.Found.Amount)
+		if c.Found.Account != "" {
+			@space()
+			@T(i18n.FoundAccount, c.Found.Account)
+		}
+		if c.Found.Entry != "" {
+			@space()
+			@T(i18n.FoundEntry, c.Found.Entry)
+		}
+	}
+}
+
+// LinePayments is a line's search for the payments it may be matched to
+// by hand (T73g2): the line, the filter and what it found as the
+// choices of the match.
+templ LinePayments(s Shell, v PaymentSearch) {
+	@Layout(s, linePaymentsContent(v))
+}
+
+templ linePaymentsContent(v PaymentSearch) {
+	<p>
+		<a { link(v.Back, "")... }>
+			@T(i18n.SearchBack)
+		</a>
+	</p>
+	<p class="caption" translate="no" hx-disable>
+		@Value(v.Ref)
+	</p>
+	<h1>
+		@T(i18n.SearchTitle, v.Line.No)
+	</h1>
+	@Paragraph(i18n.SearchLead)
+	<div hx-disable>
+		<dl class="facts">
+			for _, r := range lineRows(v.Line) {
+				@Fact(r.Key, r.Value)
+			}
+		</dl>
+	</div>
+	@PaymentSearchBody(v)
+}
+
+// PaymentSearchBody is the search's filter and what it found: htmx's
+// answer to the filter.
+templ PaymentSearchBody(v PaymentSearch) {
+	<div id="payment-search">
+		@PaymentFilterForm(v.Filter)
+		@PaymentResultsView(v.Results)
+	</div>
+}
+
+// PaymentFilterForm narrows the search by the amount paid and the run's
+// date: a plain GET form that htmx sends for the results alone.
+templ PaymentFilterForm(f PaymentFilter) {
+	<form class="filters" { searchForm(f.Action)... }>
+		<div class="filters__fields">
+			@InputField("search-min", FieldAmountMin, "text", i18n.SearchAmountMin, i18n.SearchAmountHint, f.Min, f.MinError)
+			@InputField("search-max", FieldAmountMax, "text", i18n.SearchAmountMax, i18n.SearchAmountHint, f.Max, f.MaxError)
+			@InputField("search-from", FieldRunFrom, "date", i18n.SearchRunFrom, i18n.FilterDateHint, f.From, f.FromError)
+			@InputField("search-to", FieldRunTo, "date", i18n.SearchRunTo, i18n.FilterDateHint, f.To, f.ToError)
+		</div>
+		<div class="filters__buttons">
+			<button class="button" type="submit">
+				@T(i18n.FilterApply)
+			</button>
+		</div>
+	</form>
+}
+
+// PaymentResultsView is what the search found.
+templ PaymentResultsView(r PaymentResults) {
+	<section { label(ctx, i18n.SearchResults)... }>
+		<h2>
+			@T(i18n.SearchResults)
+		</h2>
+		if r.Invalid != "" {
+			@Notice("search-invalid", i18n.SearchInvalidTitle, Paragraph(r.Invalid))
+		} else if r.Refusal != nil {
+			@RefusalNotice(*r.Refusal)
+		} else if r.Match == nil && len(r.Found) == 0 {
+			@Paragraph(i18n.SearchEmpty)
+		} else {
+			if r.Why != "" {
+				@Paragraph(r.Why)
+			}
+			if r.Match != nil {
+				<div hx-disable>
+					@lineMatchForm(*r.Match)
+				</div>
+			} else {
+				<ul class="list" hx-disable>
+					for _, c := range r.Found {
+						<li class="list__item">
+							@foundText(c)
+						</li>
+					}
+				</ul>
+			}
+			if r.More != "" {
+				@ButtonLink(r.More, i18n.SearchMore)
+			}
+		}
+	</section>
 }

@@ -488,6 +488,26 @@ Canadian bank may only offer BAI2.
   another previous statement (kept in the audit trail). A new permission
   reaches existing tenants' administrators only when granted, as every
   permission added since provisioning.
+- Searching what a line may clear (T73g2, 2026-11-01, 000191): `GET
+  /v1/bank-statements/{id}/payments` lists the payments `:match` by hand
+  accepts as `payment_ids` (posted, from the statement's house bank, in
+  its currency, held by no line's `matched` match), so a person can choose
+  one the rules did not find; it reuses the matching's definition rather
+  than adding a target. Decided by default: the statement scopes it
+  (bank, currency and company access come from the statement; a house
+  bank's search would need them as parameters); the payments' clearing
+  lines are the open items a line clears, so "a payment or open item"
+  is a payment here, and customers' open items wait for accounts
+  receivable as above; it filters by the amount paid (bounds with exactly
+  the currency's digits) and the run's date, latest first by end-to-end
+  id (run document number, then sequence); it requires
+  `payments.statement.match`, the permission of the decision it serves,
+  and is `x-agent: false`, so the agent's reach is unchanged (it proposes
+  from the rules' candidates). The page is chosen on the ids before the
+  rows are read whole, over two branches (a payment naming its bank, read
+  by `payment_posted_by_bank`; one leaving it to its run): 60 ms for a
+  first page and 20 ms for a search finding nothing at 20,000 posted
+  payments (`TestSearchPaymentsBudget`, 01's list budget 150 ms).
 - Steps: a ADR, configuration and the house bank's columns · b parsers ·
   c tables, upload, idempotency and continuity · d SFTP fetch · e rule
   matching · f posting, clearing, approval and period locks · g agent

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"maps"
 	"net/url"
 	"strconv"
 	"strings"
@@ -224,27 +225,46 @@ type LineForm struct {
 // payments clearing account.
 type Choice struct {
 	Value    string // the field's value: payments:<ids>, rule:<code> or incoming
-	Kind     string // ChoicePayments, ChoiceRule or ChoiceIncoming
+	Kind     string // ChoicePayments, ChoiceRule, ChoiceIncoming or ChoiceFound
 	Number   int32  // a candidate's number
 	Payments []string
 	Rule     string
 	RuleText string
+	Found    *FoundPayment // a payment a person found by searching (T73g2), nil for the others
 }
 
-// The kinds of a manual match's choice.
+// The kinds of a manual match's choice. A payment found by searching is
+// sent as a candidate's payments are (payments:<id>); ChoiceFound only
+// shows it as found, by its payee and amount when the search shows it,
+// by its id when a refused match brings it back to the statement.
 const (
 	ChoicePayments = "payments"
 	ChoiceRule     = "rule"
 	ChoiceIncoming = "incoming"
+	ChoiceFound    = "found"
 )
 
+// FoundPayment is a payment a line may be matched to, as the search
+// shows it: its end-to-end id, payee, the account it was paid to by its
+// last characters, its amount and the journal entry that posted it.
+type FoundPayment struct {
+	EndToEnd string
+	Supplier string
+	Account  string
+	Amount   Money
+	Entry    string
+}
+
 // MatchForm is a line's manual match: its choices, the one chosen and
-// what is wrong with the choice, besides the reason.
+// what is wrong with the choice, besides the reason; Search is the
+// line's search for a payment the rules did not find, "" when it has
+// none (T73g2).
 type MatchForm struct {
 	LineForm
 	Choices     []Choice
 	Choice      string
 	ChoiceError i18n.Key
+	Search      string
 }
 
 // The decisions on a line, by the verb of their route.
@@ -381,6 +401,64 @@ type StatementPage struct {
 	// DoneLine is the line just decided, linked from the notice (0: none).
 	DoneLine int32
 	Refusal  *Refusal
+	// Rules runs the company's matching rules again (matchBankStatement),
+	// nil when the person may not or the statement is reconciled; File
+	// downloads the bank's file the statement was imported from (T73g2).
+	Rules *LineForm
+	File  string
+}
+
+// PaymentSearch is a line's search for the payments it may be matched to
+// by hand (T73g2): the statement's page, its reference, the line, the
+// filter and what it found.
+type PaymentSearch struct {
+	Back    string
+	Ref     string
+	Line    LineView
+	Filter  PaymentFilter
+	Results PaymentResults
+}
+
+// PaymentFilter is the search's GET form: the amount paid's bounds as
+// typed, in the statement's currency, and the runs' dates, with their
+// errors.
+type PaymentFilter struct {
+	Action                                 string
+	Currency                               string
+	Min, Max, From, To                     string
+	MinError, MaxError, FromError, ToError i18n.Key
+}
+
+// PaymentResults is what the search found: the payments as the choices
+// of the line's match by hand, or why there are none to choose.
+type PaymentResults struct {
+	Invalid i18n.Key // what is wrong with the filter, "" when nothing is
+	Refusal *Refusal
+	Why     i18n.Key   // why the line takes no match now, "" when it does
+	Match   *MatchForm // nil when nothing was found or the line takes no match
+	Found   []Choice   // what was found, shown without a form when the line takes no match
+	More    string
+}
+
+// PaymentSearchID is the search's filter and results, which htmx swaps
+// when the filter is sent, so its errors show on their fields.
+const PaymentSearchID = "payment-search"
+
+// Fields of the payment search's filter.
+const (
+	FieldAmountMin = "amount_min"
+	FieldAmountMax = "amount_max"
+	FieldRunFrom   = "run_date_from"
+	FieldRunTo     = "run_date_to"
+)
+
+// searchForm is the filter's attributes: a plain GET form, which htmx
+// sends for the results alone and puts in the address bar.
+func searchForm(path string) templ.Attributes {
+	a := get(path)
+	maps.Copy(a, templ.Attributes{"hx-get": string(templ.URL(path)), "hx-target": "#" + PaymentSearchID, "hx-swap": "outerHTML",
+		"hx-push-url": "true"})
+	return a
 }
 
 // Figures are a statement's figures on a date (ADR-0047, T49h): the

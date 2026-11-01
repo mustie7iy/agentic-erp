@@ -600,6 +600,12 @@ p,
   background: #f3f2f1;
 }
 
+/* An error said in a filter, on its grey: the error red darkened to keep
+   4.5:1 against #f3f2f1 (6.3:1), as axe holds it (T73g2). */
+.filters .field__error {
+  color: #a8280f;
+}
+
 .filters__title {
   margin-block: 0 1rem;
   font-size: 1.25rem;

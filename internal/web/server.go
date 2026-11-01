@@ -189,6 +189,9 @@ func (s *Server) mux() *http.ServeMux {
 	for verb := range lineOps {
 		route("POST "+ui.UploadPath+"/{id}/"+verb, s.signedIn(s.csrf(s.decideLine(verb))))
 	}
+	route("POST "+ui.UploadPath+"/{id}/"+rulesVerb, s.signedIn(s.csrf(s.rerunRules)))
+	route("GET "+ui.UploadPath+"/{id}/lines/{line}/payments", s.signedIn(s.linePayments))
+	route("GET "+ui.UploadPath+"/{id}/file", s.signedIn(s.statementFile))
 	route("GET "+ui.BankPath+"/house-banks/{id}/reconciliation", s.signedIn(s.reconciliation))
 	s.paymentRoutes(route)
 	s.closeRoutes(route)

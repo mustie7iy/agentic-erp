@@ -2678,6 +2678,75 @@ contract or T73i's behaviour settled it:
   and both pseudo-locales at 1280 and 390 px, and walks the run cancelled
   with a reason at a desktop's width.
 
+## Built in T73g2: a payment the rules did not find, the rules again, the file (2026-11-01)
+T73g's departures (above): what it settled.
+- **Search, contract first.** A line matched by hand may now clear a
+  payment the rules did not find. The API had no search of a house bank's
+  payments (`listPayments` is per run), so `listBankStatementPayments`
+  (`GET /v1/bank-statements/{id}/payments`, ADR-0047 as built) lists those
+  `matchBankStatementLine` accepts: posted, from the statement's house
+  bank, in its currency, held by no line. "A payment or open item" is a
+  payment: its line on the bank's clearing account is the open item a
+  statement line clears, and customers' open items wait for accounts
+  receivable (ADR-0047). No new money flow: the payment chosen is sent
+  as the existing match by hand (`payment_ids`), human-only, with the
+  statement's ETag and the form's own idempotency key; segregation of
+  duties stays the API's (whoever matched does not approve the posting).
+- **The search's page.** `GET /bank/statements/{id}/lines/{line}/payments`,
+  linked from a debit's or a reversal's "Match by hand" (payments are paid
+  out; a credit's choices stay the rules' candidates, the posting rules
+  and the incoming account). Three calls (`getCurrentPrincipal`,
+  `getBankStatement` for the line and its ETag, the search). The line as
+  data, a GET filter (amount from and up to, typed in the person's locale,
+  no sign, at most the currency's digits and padded to them, taken from
+  the line's amount; the runs' dates), and what was found as the radios of
+  one match form, each payment by its end-to-end id, payee (inert, inside
+  `hx-disable`), account's last characters, amount and journal entry, 25 a
+  page with a link to the next. With htmx the filter is sent for the
+  filter and results alone (`hx-get`, `hx-target`, `hx-push-url`; Vary:
+  HX-Request) and always answered 200, as htmx swaps nothing else: an
+  error shows on its field and in the results; without htmx it is the
+  same page, 400 when the filter is wrong. A line whose statement is
+  reconciled, or on its way to the ledger, lists what was found without a
+  form and says why. One payment per match: a line paying several that
+  the rules did not batch is a backlog question, not built.
+- **Refused, kept.** The match posts to the statement's match route
+  (`statement_actions.go`), so a refusal is shown on the statement's page
+  as any decision's is; the payment chosen, not among the line's choices
+  there, is added as "the payment you found" with its id and stays
+  checked with the reason typed.
+- **The rules again.** `POST /bank/statements/{id}/rules`
+  (`matchBankStatement`, `payments.statement.match`, an agent may call it
+  too, but the workspace signs people in): one button under the report's
+  link while the statement is not reconciled, with the statement's ETag
+  and its own key; done, the page says so; refused (a stale ETag, a
+  closed period), the page is shown again with the refusal. The
+  statement's page still makes six calls.
+- **The file.** `GET /bank/statements/{id}/file` relays
+  `getBankStatementFile` (`x-agent: false`, a human-only route): always a
+  download (§7 serves only PDFs and images inline; the API answers
+  octet-stream and the file is camt.053 XML or MT940 text),
+  `application/octet-stream`, `Content-Disposition: attachment` named
+  `statement-<id>.xml` when the bytes sniff as XML, `.txt` otherwise,
+  `no-store`, the documents' sandboxing CSP and the workspace's `nosniff`.
+  One call: a refusal is a page of its own without the person's name.
+- **Accessibility.** The error red on the filters' grey (`#f3f2f1`) was
+  4.1:1, below axe's 4.5:1, the first time a filter's field error was
+  checked in a browser; inside `.filters` it is `#a8280f` (6.3:1).
+- **Tests.** Handlers against the real API and PostgreSQL: the rules run
+  again (replayed, stale, not offered to a reader), the file (bytes,
+  headers, a reader, an outsider), the search (a debit's link, a credit's
+  none, filters refused before the API, the API's 403 in the results'
+  place, lines and statements not found, French); from the stub, the
+  payments found (inert payees, the next page, htmx's answer, the payment
+  sent and its refusal kept) and a reconciled statement's line, as the web
+  suite releases no payment runs. The browser suite adds the search to
+  the bank pages (English, French and the pseudo-locales, 1280 and 390
+  px, axe at zero) and walks the rules run and a refused filter swapped
+  in place. The walkthrough's step 8 matches by hand a line whose
+  end-to-end id the bank lost, found by the search, and posts it with its
+  approval.
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF
