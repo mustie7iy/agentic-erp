@@ -496,7 +496,8 @@ As built in T56c (migration 000140):
   assignments for them or sets them to `none`; 2026.3 (T62g) should decide
   whether the pack sets `none` for FX gains and losses (4900, 6900), which
   many controllers keep out of cost centers. **As built (T62g):** it does
-  not; 2026.3 keeps 2026.2's accounts as they are. Whether FX results are
+  not; T62g's version, 2026.4 (2026.3 went to another step's tax
+  settings), keeps the accounts as they are. Whether FX results are
   controlled is the company's controlling policy, not a country's law or
   practice a pack cites a source for, and a pack value would be merged into
   every adopting company that has not changed the account; a company

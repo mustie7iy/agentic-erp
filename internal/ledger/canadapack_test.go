@@ -14,7 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/packs"
 )
 
-// TestCanadaPackTaxCodes activates Canada pack 2026.3's tax codes (T62g)
+// TestCanadaPackTaxCodes activates Canada pack 2026.4's tax codes (T62g)
 // in company 2000, with the pack's GST/HST and QST receivable accounts:
 // the ledger sets up every dated rate, past and future, and a purchase of
 // 1,000.00 with HON and one with QST on 2026-06-01 are taxed 130.00 HST
@@ -25,9 +25,9 @@ func TestCanadaPackTaxCodes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadAll(packs.FS): %v", err)
 	}
-	ca := lib.Get("CA", "2026.3")
+	ca := lib.Get("CA", "2026.4")
 	if ca == nil {
-		t.Fatal("Get(CA, 2026.3): got nil, want the Canada pack with tax codes")
+		t.Fatal("Get(CA, 2026.4): got nil, want the Canada pack with tax codes")
 	}
 	e := setup(t)
 	doc := document(t)

@@ -143,7 +143,7 @@ func packed(c config.TaxCode) pendingCode {
 	return out
 }
 
-// Canada 2026.3 writes the tax codes of packs/ca/TAX-PENDING-T61a.md
+// Canada 2026.4 writes the tax codes of packs/ca/TAX-PENDING-T61a.md
 // exactly: the same codes, each one input standard component (category
 // S) of the jurisdiction its Tax column names, with the file's rates and
 // periods and its proposed recovery (account and recoverable share), and every source the file cites
@@ -153,9 +153,9 @@ func TestCanadaPackTaxCodes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadAll(packs.FS): %v", err)
 	}
-	ca := lib.Get("CA", "2026.3")
+	ca := lib.Get("CA", "2026.4")
 	if ca == nil {
-		t.Fatal("Get(CA, 2026.3): got nil, want the Canada pack with tax codes")
+		t.Fatal("Get(CA, 2026.4): got nil, want the Canada pack with tax codes")
 	}
 	want, urls := readPending(t)
 	var got []string
@@ -195,15 +195,22 @@ func TestCanadaPackTaxCodes(t *testing.T) {
 	}
 }
 
-// Canada 2026.3 is 2026.2 plus the tax codes: the cash.yaml liquidity
-// items stay (a version without them would drop them from tenants that
-// adopted 2026.2), the sources are 2026.2's, and it is not signed off.
-func TestCanadaPack2026_3(t *testing.T) {
+// Canada 2026.4 is the version before it plus the tax codes: the cash.yaml
+// liquidity items stay (a version without them would drop them from
+// tenants that adopted 2026.2), the sources are the previous version's,
+// and it is not signed off.
+func TestCanadaPack2026_4(t *testing.T) {
 	lib, err := LoadAll(packs.FS)
 	if err != nil {
 		t.Fatalf("LoadAll(packs.FS): %v", err)
 	}
-	prev, ca := lib.Get("CA", "2026.2"), lib.Get("CA", "2026.3")
+	ca := lib.Get("CA", "2026.4")
+	var prev *Pack
+	for _, p := range lib.All() {
+		if p.Manifest.Country == "CA" && CompareVersions(p.Manifest.Version, "2026.4") < 0 {
+			prev = p // All is in country and version order: the last one before 2026.4
+		}
+	}
 	for name, same := range map[string]bool{
 		"accounts":  reflect.DeepEqual(prev.Accounts, ca.Accounts),
 		"calendar":  reflect.DeepEqual(prev.Calendar, ca.Calendar),
@@ -213,13 +220,13 @@ func TestCanadaPack2026_3(t *testing.T) {
 		"sources":   reflect.DeepEqual(prev.Manifest.Sources, ca.Manifest.Sources),
 	} {
 		if !same {
-			t.Errorf("%s: got other than 2026.2's, want them unchanged", name)
+			t.Errorf("%s: got other than %s's, want them unchanged", name, prev.Manifest.Version)
 		}
 	}
 	if ca.SignedOff() {
 		t.Error("SignedOff: got true, want false until the tax specialist signs a version off")
 	}
 	if lib.Latest("CA") != ca {
-		t.Errorf("Latest(CA): got %s, want 2026.3", lib.Latest("CA").Dir())
+		t.Errorf("Latest(CA): got %s, want 2026.4", lib.Latest("CA").Dir())
 	}
 }

@@ -354,7 +354,7 @@ tax_codes:
 - Country packs (ADR-0048, amended) write all their rates; the "later rates
   noted" note and the re-application after a change are gone. T62f (the UAE
   pack) and T62e's tax codes are written in this schema.
-- **As built (T62g):** Canada pack 2026.3 writes T62e's sourced codes in this
+- **As built (T62g):** Canada pack 2026.4 writes T62e's sourced codes in this
   schema: one component per code (`gst`, `hst` with the province as its
   jurisdiction, `qst`, and `pst_bc`, `rst_mb`, `pst_sk` as `non_deductible`
   components without an account), every dated rate written ahead and

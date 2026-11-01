@@ -115,8 +115,8 @@ settings cannot simply overwrite their document.
   company observes is open (the pack, per country, has the federal ones). A payment term with a cash discount is left out: the
   document's payment terms are shared by its companies, and a discount
   term would require a cash discount account in each of them.
-- **As built (T62g): Canada 2026.3** is 2026.2 (accounts, holidays, number
-  ranges, payment terms, `cash.yaml`, sources) plus the ten purchase codes
+- **As built (T62g): Canada 2026.4** is the version before it (accounts,
+  holidays, number ranges, payment terms, `cash.yaml`, sources) plus the ten purchase codes
   of `packs/ca/TAX-PENDING-T61a.md` in `tax.yaml`: G5 (GST), HON, HNB,
   HNL, HNS, HPE (HST), QST and PBC, PMB, PSK (provincial sales taxes), each
   input, standard, category S, one component (`gst`, `hst`, `qst`,
@@ -133,11 +133,11 @@ settings cannot simply overwrite their document.
   file's table and the pack and fails on any difference in codes, rates,
   dates, recovery (account and recoverable share) or jurisdiction (the
   province the Tax column names), and checks that every source the file cites is in the
-  manifest. 2026.1 and 2026.2 stay released as they were.
-  **Sign-off is a separate step.** 2026.3 carries no `sign_off`, so
+  manifest. The earlier versions stay released as they were.
+  **Sign-off is a separate step.** 2026.4 carries no `sign_off`, so
   production refuses to apply it (409 `config.pack_not_signed_off`) and
   elsewhere it applies with a note. A released version never changes, so
-  the specialist's sign-off is a later version (2026.3 plus `sign_off`, or
+  the specialist's sign-off is a later version (2026.4 plus `sign_off`, or
   with what the specialist corrects), its own tracker leaf split from T62g.
   For the specialist: the recovery accounts above (proposals); PST expensed
   on the item rather than 6400; the QST and PST start dates (reported

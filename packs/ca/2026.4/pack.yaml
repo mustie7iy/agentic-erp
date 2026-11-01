@@ -1,12 +1,12 @@
-# Canada (ADR-0048, T62e). 2026.3 adds the tax codes (tax.yaml, T62g):
+# Canada (ADR-0048, T62e). 2026.4 adds the tax codes (tax.yaml, T62g):
 # the GST/HST, QST and PST codes and dated rates of ../TAX-PENDING-T61a.md
 # in ADR-0049's component schema, each rate backed by a source below;
-# everything else is 2026.2's. It carries no sign_off: the tax specialist
+# everything else is the previous version's. It carries no sign_off: the tax specialist
 # confirms the codes, their recovery accounts (proposals) and the items
 # listed in ADR-0048 (Canada pack) first, and a signed-off version is a new
 # version, since a released one never changes.
 country: CA
-version: "2026.3"
+version: "2026.4"
 name: Canada
 valid_from: 2026-01-01
 sources:

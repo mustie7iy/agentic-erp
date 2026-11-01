@@ -1252,9 +1252,9 @@ step_tax() {
   heading "Step 11 — Tax: the tax on a sales entry, calculated and checked by the ledger, and the registration it is filed under"
   as carla
   api 200 '.items[] | select(.country == "CA") | "pack CA \(.version): \(.contents.tax_codes) tax codes"' listCountryPacks
-  expect "Canada 2026.3's tax codes" "$(field '.items[] | select(.country == "CA" and .version == "2026.3") | .contents.tax_codes')" 10
+  expect "Canada 2026.4's tax codes" "$(field '.items[] | select(.country == "CA" and .version == "2026.4") | .contents.tax_codes')" 10
   # The tax specialist's signed-off version (T62h) is a later one: this step names the version step 2 applies.
-  say "Canada pack 2026.3, which step 2 applied, brought the purchase codes for GST/HST, QST and PST (T62g), each with"
+  say "Canada pack 2026.4, which step 2 applied, brought the purchase codes for GST/HST, QST and PST (T62g), each with"
   say "all its dated rates, backed by the pack's sources; the tax specialist has not signed them off yet. Nova Scotia's HST:"
   api 200 '.items[0].document.companies[] | select(.code == "'"$CC"'") | .tax_codes[] | select(.code == "HNS") |
     "tax code \(.code) \(.description): \([.components[] | .key as $k | .account as $a | .rates[] | "\($k) \(.rate_percent)% from \(.valid_from)\(if .valid_to then " to \(.valid_to)" else "" end) to \($a)"] | join("; "))"' \
