@@ -2,6 +2,7 @@ package taxfiling_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -126,39 +127,47 @@ func TestReturnDatabaseFailures(t *testing.T) {
 	}
 }
 
-// lifecycleScene is a tenant whose registration TEST has Q1 filed, with an
-// item of Q1 that arrived after it, Q2 approved and Q3 prepared, every
-// fiscal period of 2026 closed or locked and a sale in Q4; and endpoints
-// whose today is in 2027, so Q4 has ended.
+// lifecycleScene is a tenant whose registration TEST has Q1 to Q3 filed,
+// in period order, each with an item that arrived after its filing (a
+// reversal): Q1's claimed by its approved amendment, Q2's by its prepared
+// one, Q3's unclaimed; every fiscal period of 2026 closed or locked (January
+// closed again) and a sale in Q4; and endpoints whose today is in 2027, so Q4 has ended and
+// its original may be prepared.
 type lifecycleScene struct {
-	e         fixture.Env
-	h         *taxfiling.Endpoints
-	testID    uuid.UUID
-	q2, q3    uuid.UUID
-	q3Request uuid.UUID
+	e                  fixture.Env
+	h                  *taxfiling.Endpoints
+	testID             uuid.UUID
+	approved, prepared uuid.UUID
+	preparedRequest    uuid.UUID
 }
 
 func newLifecycleScene(t *testing.T) lifecycleScene {
 	t.Helper()
 	e := lifecycleEnv(t)
-	var feb string
+	var sales []string
 	for _, day := range []string{"2026-02-10", "2026-05-10", "2026-08-10", "2026-10-10"} {
-		if id := sale(t, e, day, ""); feb == "" {
-			feb = id
-		}
+		sales = append(sales, sale(t, e, day, ""))
 	}
 	s := lifecycleScene{e: e, testID: uuid.MustParse(id(t, e, "TEST"))}
-	closePeriods(t, e, 1, 3)
-	q1 := s.prepared(t, "2026-01-01", true)
-	e.Must(200, "POST", "/v1/tax-returns/"+q1.String()+":file", `{"confirmation_number": "CRA-1", "filed_on": "2026-04-20"}`, `"2"`)
-	closePeriods(t, e, 4, 9)
-	s.q2 = s.prepared(t, "2026-04-01", true)
-	s.q3 = s.prepared(t, "2026-07-01", false)
-	// After Q1's filing and the later returns, dated in Q1 as its original.
-	e.Must(200, "POST", "/v1/journal-entries/"+feb+":reverse", `{"posting_date": "2026-10-20"}`, "*")
+	for i, q := range []struct{ start, filedOn string }{{"2026-01-01", "2026-04-20"}, {"2026-04-01", "2026-07-20"}, {"2026-07-01", "2026-10-20"}} {
+		closePeriods(t, e, 3*i+1, 3*i+3)
+		ret := s.prepare(t, `{"period_start": "`+q.start+`"}`, true)
+		e.Must(200, "POST", "/v1/tax-returns/"+ret.String()+":file", `{"confirmation_number": "CRA-`+q.start+`", "filed_on": "`+q.filedOn+`"}`, `"2"`)
+	}
+	// After the filings, dated in their quarters as their originals.
+	for _, sale := range sales[:3] {
+		e.Must(200, "POST", "/v1/journal-entries/"+sale+":reverse", `{"posting_date": "2026-10-20"}`, "*")
+	}
+	s.approved = s.prepare(t, `{"period_start": "2026-01-01", "kind": "amendment"}`, true)
+	s.prepared = s.prepare(t, `{"period_start": "2026-04-01", "kind": "amendment"}`, false)
 	closePeriods(t, e, 10, 12)
-	r, _ := e.Must(200, "GET", "/v1/tax-returns/"+s.q3.String(), "", "")
-	s.q3Request = uuid.MustParse(r["approval_request_id"].(string))
+	// Closed rather than locked, as before Q1's filing, so filing Q1's
+	// amendment locks it (the transition trigger allows no unlock here).
+	pgtest.Exec(t, fmt.Sprintf(`DO $$ BEGIN SET LOCAL session_replication_role = replica;
+		UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE tenant_id = '%s' AND legal_entity_id = '%s'
+			AND fiscal_year = 2026 AND period = 1; END $$`, e.Tenant.ID, e.DE))
+	r, _ := e.Must(200, "GET", "/v1/tax-returns/"+s.prepared.String(), "", "")
+	s.preparedRequest = uuid.MustParse(r["approval_request_id"].(string))
 	lib, err := countrypack.LoadAll(apitest.Packs(t, "testdata/packs"))
 	if err != nil {
 		t.Fatal(err)
@@ -169,11 +178,11 @@ func newLifecycleScene(t *testing.T) lifecycleScene {
 	return s
 }
 
-// prepared prepares the period's return through the API, approved when
-// approve is set, and returns its id.
-func (s lifecycleScene) prepared(t *testing.T, start string, approve bool) uuid.UUID {
+// prepare prepares the return the body asks for through the API,
+// approved when approve is set, and returns its id.
+func (s lifecycleScene) prepare(t *testing.T, body string, approve bool) uuid.UUID {
 	t.Helper()
-	r, _ := s.e.Must(201, "POST", returnsOf(s.testID.String()), `{"period_start": "`+start+`"}`, "")
+	r, _ := s.e.Must(201, "POST", returnsOf(s.testID.String()), body, "")
 	if approve {
 		s.e.Approve(t, r["id"].(string))
 	}
@@ -196,35 +205,35 @@ func TestLifecycleDatabaseFailures(t *testing.T) {
 			return err
 		}},
 		"amend": {s.e.Tenant.Human, func(ctx context.Context) error {
-			_, err := h.PrepareTaxReturn(ctx, &gen.TaxReturnPrepare{PeriodStart: date("2026-01-01"), Kind: gen.NewOptString(taxfiling.Amendment)},
+			_, err := h.PrepareTaxReturn(ctx, &gen.TaxReturnPrepare{PeriodStart: date("2026-07-01"), Kind: gen.NewOptString(taxfiling.Amendment)},
 				gen.PrepareTaxReturnParams{ID: s.testID})
 			return err
 		}},
 		"file": {s.e.Tenant.Human, func(ctx context.Context) error {
 			_, err := h.FileTaxReturn(ctx, &gen.TaxReturnFile{ConfirmationNumber: "CRA-2", FiledOn: date("2026-07-20")},
-				gen.FileTaxReturnParams{ID: s.q2, IfMatch: `"2"`})
+				gen.FileTaxReturnParams{ID: s.approved, IfMatch: `"2"`})
 			return err
 		}},
 		"withdraw approved": {s.e.Tenant.Human, func(ctx context.Context) error {
-			_, err := h.WithdrawTaxReturn(ctx, &gen.ReasonInput{Reason: "Wrong"}, gen.WithdrawTaxReturnParams{ID: s.q2, IfMatch: `"2"`})
+			_, err := h.WithdrawTaxReturn(ctx, &gen.ReasonInput{Reason: "Wrong"}, gen.WithdrawTaxReturnParams{ID: s.approved, IfMatch: `"2"`})
 			return err
 		}},
 		"withdraw prepared": {s.e.Tenant.Human, func(ctx context.Context) error {
-			_, err := h.WithdrawTaxReturn(ctx, &gen.ReasonInput{Reason: "Wrong"}, gen.WithdrawTaxReturnParams{ID: s.q3, IfMatch: `"1"`})
+			_, err := h.WithdrawTaxReturn(ctx, &gen.ReasonInput{Reason: "Wrong"}, gen.WithdrawTaxReturnParams{ID: s.prepared, IfMatch: `"1"`})
 			return err
 		}},
 		"get": {s.e.Tenant.Human, func(ctx context.Context) error {
-			_, err := h.GetTaxReturn(ctx, gen.GetTaxReturnParams{ID: s.q3})
+			_, err := h.GetTaxReturn(ctx, gen.GetTaxReturnParams{ID: s.prepared})
 			return err
 		}},
 		"list": {s.e.Tenant.Human, func(ctx context.Context) error {
 			_, err := h.ListTaxReturns(ctx, gen.ListTaxReturnsParams{ID: s.testID})
 			return err
 		}},
-		"approved": {s.e.Approver, func(ctx context.Context) error { return tr.Approved(ctx, s.q3, s.q3Request) }},
-		"rejected": {s.e.Approver, func(ctx context.Context) error { return tr.Rejected(ctx, s.q3, s.q3Request, "No") }},
+		"approved": {s.e.Approver, func(ctx context.Context) error { return tr.Approved(ctx, s.prepared, s.preparedRequest) }},
+		"rejected": {s.e.Approver, func(ctx context.Context) error { return tr.Rejected(ctx, s.prepared, s.preparedRequest, "No") }},
 		"cancelled": {s.e.Tenant.Human, func(ctx context.Context) error {
-			return tr.Cancelled(ctx, s.q3, s.q3Request, "")
+			return tr.Cancelled(ctx, s.prepared, s.preparedRequest, "")
 		}},
 	}
 	for name, c := range calls {
@@ -237,8 +246,8 @@ func TestLifecycleDatabaseFailures(t *testing.T) {
 	}
 	t.Run("a decision on another request", func(t *testing.T) {
 		for name, call := range map[string]func(ctx context.Context) error{
-			"approved":  func(ctx context.Context) error { return tr.Approved(ctx, s.q3, uuid.New()) },
-			"not found": func(ctx context.Context) error { return tr.Rejected(ctx, uuid.New(), s.q3Request, "") },
+			"approved":  func(ctx context.Context) error { return tr.Approved(ctx, s.prepared, uuid.New()) },
+			"not found": func(ctx context.Context) error { return tr.Rejected(ctx, uuid.New(), s.preparedRequest, "") },
 		} {
 			t.Run(name, func(t *testing.T) {
 				if err := apitest.InRequest(t, s.e.Tenant, s.e.Approver, call); err == nil {

@@ -1791,9 +1791,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Preparing a tax return does not enforce period order: preparing a later period first claims an earlier unfiled period's unreported items as prior-period items",
-        "r": "internal/taxfiling prepare.go claim (ledger.TaxItems.Claim takes every unreported item dated by the period's end, with no check that earlier periods are filed) · ADR-0049 §11 As built (T61i) · walkthrough step 11 relies on it (its draft expects \"60.00 10.00\" and its original claims invoice 1031 of an earlier unfiled period): enforcing the order means filing the earlier periods there first, or a cutover · data and tax correctness of the return",
+        "s": "D",
+        "t": "Preparing a tax return enforces period order: an original is refused while an earlier period of the registration, from its first period (the cutover), has no filed return (409 tax.earlier_period_unfiled), so a period's items are claimed by its own return and, once it is filed, by the next return or its amendment",
+        "r": "internal/taxfiling prepare.go inOrder (after the registration's FOR UPDATE lock; filed is final) · TestTaxReturnPeriodOrder · TestPrepareInOrderConcurrently · ADR-0049 §11 As built (period order) · walkthrough step 11: the registration starts with the quarter before the latest ended one, whose return is filed first (1031, 10.00), then the latest's (1039, 50.00); preparing out of order refused",
         "src": "review:batch32",
         "pilot": "po:2026-10-31 · review:batch32",
         "c": []

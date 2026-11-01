@@ -2178,8 +2178,13 @@ type Handler interface {
 	// gives each box its correction (`amount`) and the period's corrected figure (`corrected_amount`), by
 	// the amended return's pack version; without a filed return of the period, or with nothing to correct,
 	// 409 `tax.nothing_to_amend`. One original stands per period (409 `tax.return_exists`) and one return
-	// of a period is in progress at a time (409 `tax.return_in_progress`). Refused as `getTaxReturnDraft`
-	// is otherwise. Human-only.
+	// of a period is in progress at a time (409 `tax.return_in_progress`). Returns are prepared in period
+	// order: an original is refused while an earlier period of the registration, from its first period,
+	// has no filed return (409 `tax.earlier_period_unfiled`, naming the earliest), so each period's items
+	// are claimed by its own return, and once it is filed those arriving later by the next return or its
+	// amendment; items dated before the registration's first period (its cutover: earlier periods were
+	// filed outside the ERP) are the first return's prior-period items. Refused as `getTaxReturnDraft` is
+	// otherwise. Human-only.
 	//
 	// POST /v1/tax-registrations/{id}/returns
 	PrepareTaxReturn(ctx context.Context, req *TaxReturnPrepare, params PrepareTaxReturnParams) (PrepareTaxReturnRes, error)
