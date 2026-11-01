@@ -157,7 +157,14 @@ up to more than an amount holds, and a rate an entry cannot record (zero at
 its 12 decimals, or 10^16 and above). An open item with a document amount and
 no company code amount is refused whatever its document posts in, in both
 modes: the load would leave it out, posting no line of no company code amount
-(review:batch31; ADR-0005 As built). A line with a company code amount and no
+(review:batch31; ADR-0005 As built). So is any other line with a document
+amount and no company code amount, in a document that posts as an entry of its
+own in company currency (in `documents` mode every document not in a foreign
+currency; in `balances` mode a down payment's): a G/L line of a document whose
+lines mix currencies, or a cleared vendor line, would be left out and its
+document amount lost; the opening entry of `balances` mode carries company
+code balances alone. A cleared vendor line of no amount in either currency is
+not an item of the clearing the load takes over. A line with a company code amount and no
 document amount (an exchange difference SAP posted in local currency) is
 loaded as one (ADR-0005, As built). A company whose payables hold such items
 values its payables account at period end (`fx_valuation.accounts`, with an

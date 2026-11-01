@@ -404,6 +404,35 @@ func (q *qualityCheck) documentCurrencies() {
 	}
 }
 
+// leftOutLines refuses a line that is not an open item, with a document
+// amount (WSL) and no company code amount (HSL), in a document the load
+// posts as an entry of its own in company currency: in documents mode any
+// not in a foreign currency, in balances mode the down payments' documents
+// not in one. The posting takes a line's amount from HSL there and leaves
+// a line of none out, so its document amount would be lost without a word
+// (review:batch31). No money rule gives it a value, so it is refused, as
+// documentCurrencies refuses such an open item and foreignLine such a line
+// of a foreign-currency document. A line that carries no WSL has none to
+// lose; a document an earlier run posted is not posted again; a conflict
+// is refused whole; and the other documents of balances mode are part of
+// the opening entry, which carries company code amounts alone.
+func (q *qualityCheck) leftOutLines() {
+	downPayments := downPaymentDocs(q.e)
+	for _, l := range q.e.ACDOCA {
+		key := documentKey(l)
+		_, earlier := q.t.posted[key]
+		_, own := downPayments[key]
+		switch {
+		case l.WSL == "", q.foreign[key] != "", q.conflicts[key] != "", earlier, q.t.balances && !own:
+		case !q.t.zero(l.HSL, q.currency[l.RBUKRS]), !q.hasDocumentAmount(l), q.openItem(l):
+		default:
+			q.add(SevError, "ACDOCA", key+"/"+l.DOCLN, "line of SAP document %s has a document amount (WSL %q, RWCUR %q) and no amount "+
+				"in company currency %s (HSL): its document posts in company currency from HSL, so the load would leave the line out",
+				l.BELNR, l.WSL, l.RWCUR, q.currency[l.RBUKRS])
+		}
+	}
+}
+
 // foreignItem refuses an open item not in its company's currency that
 // cannot load in its document currency, saying why.
 func (q *qualityCheck) foreignItem(l sap.ACDOCA, lines []sap.ACDOCA) {
