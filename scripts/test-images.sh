@@ -100,7 +100,9 @@ digest) if [ "$2" = "${FAKE_MOVED:-}" ]; then echo "sha256:$(printf "%064d" 9)";
 esac'
 # grype: FAKE_FINDING="WHAT CVE" reports CVE, fixable and high, in each
 # image whose reference contains WHAT, and fails as grype's --fail-on does
-# unless the --config given ignores CVE (.grype.yaml's exceptions).
+# unless the --config given ignores CVE (.grype.yaml's exceptions). It
+# matches the CVE alone, not the package, so it proves the scan reads the
+# configuration it is given, not grype's own matching of an exception.
 fake grype 'config=""
 while [ $# -gt 0 ]; do case "$1" in --config) config="$2"; shift ;; esac; shift; done
 read -r what cve <<<"${FAKE_FINDING:-}"
@@ -222,12 +224,18 @@ if FAKE_FINDING="cloudnative-pg/pgbouncer CVE-2099-00001" "$root/scripts/image-s
 fi
 grep -q "CVE-2099-00001 High (fixed) in cloudnative-pg/pgbouncer" "$work/log" || { cat "$work/log" >&2; fail upstream-scan "the scan failed without the finding"; }
 : >"$CALLS"
-excepted="$(sed -n 's/^ *- vulnerability: //p' "$root/.grype.yaml" | head -1)"
-[ -n "$excepted" ] || fail upstream-scan ".grype.yaml lists no exception to test with"
-FAKE_FINDING="library/nats $excepted" "$root/scripts/image-scan.sh" "$work/out" >"$work/log" 2>&1 ||
-  { cat "$work/log" >&2; fail upstream-scan "$excepted, which .grype.yaml accepts, failed NATS's scan"; }
-[ "$(calls "^grype registry:[^ ]*/library/nats:")" -eq 1 ] || fail upstream-scan "NATS not scanned with the exception"
-echo "test-images: every upstream pin scanned on linux/arm64; a fixable high fails the scan, an exception in .grype.yaml does not"
+# A configuration of the test's own, so the case holds whatever the real
+# .grype.yaml accepts today (its entries expire and are removed).
+excepted=CVE-2099-00002
+printf 'ignore:\n  - vulnerability: %s\n    package:\n      name: nats-server\n' "$excepted" >"$work/grype.yaml"
+GRYPE_CONFIG="$work/grype.yaml" FAKE_FINDING="library/nats $excepted" "$root/scripts/image-scan.sh" "$work/out" >"$work/log" 2>&1 ||
+  { cat "$work/log" >&2; fail upstream-scan "$excepted, which the configuration accepts, failed NATS's scan"; }
+: >"$CALLS"
+if FAKE_FINDING="library/nats $excepted" "$root/scripts/image-scan.sh" "$work/out" >"$work/log" 2>&1; then
+  fail upstream-scan "$excepted passed with .grype.yaml, which does not accept it"
+fi
+[ "$(calls "^grype registry:[^ ]*/library/nats:")" -eq 1 ] || fail upstream-scan "NATS not scanned without the exception"
+echo "test-images: every upstream pin scanned on linux/arm64; a fixable high fails the scan, one the configuration accepts does not"
 
 KO_PLATFORMS=linux/amd64 images "$work/one" || { cat "$work/log" >&2; fail one-platform "images.sh failed"; }
 [ "$(calls "^docker buildx build .*--platform linux/amd64 ")" -eq 1 ] && [ "$(calls "^docker buildx build")" -eq 1 ] ||

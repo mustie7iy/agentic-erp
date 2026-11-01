@@ -18,11 +18,12 @@
 # so a copy is never of an image the scan refused (ADR-0032 amendment of
 # 2026-10-31). The copy keeps the digest: the source must serve exactly
 # the pinned manifest, and a tag already in the registry must name it,
-# since release repositories' tags are immutable. REGISTRY is the release registry's host
-# (tooling's ECR, the release workflow's ERP_RELEASE_REGISTRY). CRANE and
-# SYFT name the binaries; INSECURE=true allows a plain-HTTP registry (the
-# tests' only). DRY_RUN=true checks LIST and prints each copy it would
-# make, contacting no registry and writing nothing.
+# since release repositories' tags are immutable. REGISTRY is the release
+# registry's host (tooling's ECR, the release workflow's
+# ERP_RELEASE_REGISTRY). CRANE and SYFT name the binaries; INSECURE=true
+# allows a plain-HTTP registry (the tests' only). DRY_RUN=true checks
+# LIST and prints each copy it would make, contacting no registry and
+# writing nothing.
 set -euo pipefail
 OUT="${1:-dist/images}"
 LIST="${LIST:-$(dirname "$0")/../deploy/images/upstream.txt}"

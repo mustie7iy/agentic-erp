@@ -350,10 +350,15 @@ exceptions.
 - **Checked by** `scripts/test-images.sh` with a fake grype: every pin,
   PgBouncer's and NATS's, scanned once by digest on `linux/arm64` with the
   threshold and `.grype.yaml`; a fixable high in a pin fails the scan; a
-  finding `.grype.yaml` lists passes; and `release.yml` runs `make
+  finding the configuration lists passes (a configuration of the test's
+  own, `GRYPE_CONFIG`, so the case does not hang on the real file's
+  expiring entries; the fake matches the CVE alone, so this proves the
+  configuration is read, not grype's package matching); and `release.yml` runs `make
   image-scan`, without `continue-on-error`, in a step before every step
   that pushes, copies or signs, giving the mirror no other list.
   `scripts/test-mirror-images.sh` checks the shared reader's refusals
   through `mirror-images.sh`. Not checked by the tests: real grype against
   the real pins, which pulls them; `make image-scan` in `make ci-local` and
-  CI's image job do that.
+  CI's image job do that. Not yet known: whether pulling NATS from
+  Docker Hub anonymously on every image job meets its pull limits on
+  shared runners; if it does, an authenticated pull is the remedy.

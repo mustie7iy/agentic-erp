@@ -25,7 +25,9 @@ upstream="$(upstream_images deploy/images/upstream.txt)"
 # grype comes from scripts/ci-tools.sh, which pins its version, caches the
 # binary and retries a failed build, rather than from `go run` on every scan.
 GRYPE="${GRYPE:-$(./scripts/ci-tools.sh)/grype}"
-args=(--fail-on high --only-fixed --config .grype.yaml)
+# GRYPE_CONFIG is the tests' stand-in for .grype.yaml, so their exception
+# case does not depend on what the real file accepts today.
+args=(--fail-on high --only-fixed --config "${GRYPE_CONFIG:-.grype.yaml}")
 shopt -s nullglob
 sboms=("$OUT"/sbom/*-linux-*.spdx.json)
 if [ ${#sboms[@]} -eq 0 ]; then
