@@ -77,6 +77,7 @@ type Endpoints struct {
 	Pages         *pagination.Codec
 	LegalEntities LegalEntities
 	Partners      Partners
+	PartnerNames  PartnerNames // names a revaluation's partners (T73i2)
 	Numbers       Numbers
 	Orders        OrderNumbers
 	Approvals     Opener // opens the unlock requests of locked periods

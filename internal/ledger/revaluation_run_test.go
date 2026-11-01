@@ -100,6 +100,17 @@ func TestRevaluationRun(t *testing.T) {
 		if fmt.Sprint(got["items"]) != fmt.Sprint(run["items"]) || fmt.Sprint(got["totals"]) != fmt.Sprint(run["totals"]) {
 			t.Errorf("read back:\ngot  %v %v\nwant %v %v", got["items"], got["totals"], run["items"], run["totals"])
 		}
+		// The open item's partner and entry named, as the preview names them
+		// (T73i2), on the post's answer and read back.
+		var invoice string
+		pgtest.Scan(t, `SELECT document_number FROM ledger.journal_entry WHERE tenant_id = $1 AND id = $2`,
+			[]any{e.ten.ID, apitest.List(t, got, "items")[1].(map[string]any)["journal_entry_id"]}, &invoice)
+		for name, rep := range map[string]map[string]any{"posted": run, "read back": got} {
+			it := apitest.List(t, rep, "items")[1].(map[string]any)
+			if g, w := fmt.Sprint(it["partner_number"], " ", it["partner_name"], " ", it["document_number"]), "BP00000001 BP00000001 "+invoice; g != w {
+				t.Errorf("%s: the open item named %s, want %s", name, g, w)
+			}
+		}
 		page, _ := e.in(t).Must(200, "GET", "/v1/revaluation-runs?legal_entity_id="+e.de.String(), "", "")
 		listed := apitest.List(t, page, "items")
 		if len(listed) != 1 || listed[0].(map[string]any)["id"] != id || listed[0].(map[string]any)["items"] != nil {

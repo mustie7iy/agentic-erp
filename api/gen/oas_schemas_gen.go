@@ -20142,6 +20142,10 @@ func (s *Ledger) SetCreatedBy(val uuid.UUID) {
 type LedgerDifference struct {
 	// G/L account.
 	AccountID uuid.UUID `json:"account_id"`
+	// The account's number in the chart of accounts.
+	AccountNumber string `json:"account_number"`
+	// The account's name.
+	AccountName string `json:"account_name"`
 	// Transaction currency.
 	Currency string `json:"currency"`
 	// Balance in the ledger, in transaction currency.
@@ -20159,6 +20163,16 @@ type LedgerDifference struct {
 // GetAccountID returns the value of AccountID.
 func (s *LedgerDifference) GetAccountID() uuid.UUID {
 	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *LedgerDifference) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *LedgerDifference) GetAccountName() string {
+	return s.AccountName
 }
 
 // GetCurrency returns the value of Currency.
@@ -20194,6 +20208,16 @@ func (s *LedgerDifference) GetDifferenceGc() Money {
 // SetAccountID sets the value of AccountID.
 func (s *LedgerDifference) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *LedgerDifference) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *LedgerDifference) SetAccountName(val string) {
+	s.AccountName = val
 }
 
 // SetCurrency sets the value of Currency.
@@ -36960,10 +36984,16 @@ type RevaluationItem struct {
 	AccountID uuid.UUID `json:"account_id"`
 	// The open item's supplier or customer; absent for a balance.
 	PartnerID OptUUID `json:"partner_id"`
+	// The partner's number (its business partner's `number`), as it is now; absent for a balance.
+	PartnerNumber OptString `json:"partner_number"`
+	// The partner's name (its business partner's `name`), as it is now; absent for a balance.
+	PartnerName OptString `json:"partner_name"`
 	// The open item's entry's fiscal year; absent for a balance.
 	FiscalYear OptInt32 `json:"fiscal_year"`
 	// The open item's entry; absent for a balance.
 	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The open item's entry's document number; absent for a balance.
+	DocumentNumber OptString `json:"document_number"`
 	// The open item's line; absent for a balance.
 	LineNo OptInt32 `json:"line_no"`
 	// Amount in transaction currency, signed: debit positive.
@@ -37007,6 +37037,16 @@ func (s *RevaluationItem) GetPartnerID() OptUUID {
 	return s.PartnerID
 }
 
+// GetPartnerNumber returns the value of PartnerNumber.
+func (s *RevaluationItem) GetPartnerNumber() OptString {
+	return s.PartnerNumber
+}
+
+// GetPartnerName returns the value of PartnerName.
+func (s *RevaluationItem) GetPartnerName() OptString {
+	return s.PartnerName
+}
+
 // GetFiscalYear returns the value of FiscalYear.
 func (s *RevaluationItem) GetFiscalYear() OptInt32 {
 	return s.FiscalYear
@@ -37015,6 +37055,11 @@ func (s *RevaluationItem) GetFiscalYear() OptInt32 {
 // GetJournalEntryID returns the value of JournalEntryID.
 func (s *RevaluationItem) GetJournalEntryID() OptUUID {
 	return s.JournalEntryID
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *RevaluationItem) GetDocumentNumber() OptString {
+	return s.DocumentNumber
 }
 
 // GetLineNo returns the value of LineNo.
@@ -37092,6 +37137,16 @@ func (s *RevaluationItem) SetPartnerID(val OptUUID) {
 	s.PartnerID = val
 }
 
+// SetPartnerNumber sets the value of PartnerNumber.
+func (s *RevaluationItem) SetPartnerNumber(val OptString) {
+	s.PartnerNumber = val
+}
+
+// SetPartnerName sets the value of PartnerName.
+func (s *RevaluationItem) SetPartnerName(val OptString) {
+	s.PartnerName = val
+}
+
 // SetFiscalYear sets the value of FiscalYear.
 func (s *RevaluationItem) SetFiscalYear(val OptInt32) {
 	s.FiscalYear = val
@@ -37100,6 +37155,11 @@ func (s *RevaluationItem) SetFiscalYear(val OptInt32) {
 // SetJournalEntryID sets the value of JournalEntryID.
 func (s *RevaluationItem) SetJournalEntryID(val OptUUID) {
 	s.JournalEntryID = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *RevaluationItem) SetDocumentNumber(val OptString) {
+	s.DocumentNumber = val
 }
 
 // SetLineNo sets the value of LineNo.

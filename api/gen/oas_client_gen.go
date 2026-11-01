@@ -1480,9 +1480,11 @@ type Invoker interface {
 	// a closed order's residual position is cleared by a GR/IR clearing (createGrIrClearing). Only orders
 	// valued through GR/IR have positions; a migration run takes over the open positions SAP holds for the
 	// order items it loads (`migrated_quantity`), and an invoice posted after cutover clears them as it
-	// clears the platform's own. With `posting_date_to` the call reports one order's positions on that key
-	// date. Each position names its order by number and its account by number and name, and `totals` sums
-	// every position the filters select, on every page. Sortable by: `purchase_order_id`,
+	// clears the platform's own. With `posting_date_to` the call reports the positions as they stood on
+	// that key date: one order's, summed from its postings, or, without `purchase_order_id`, every
+	// order's, the current positions less what was posted after the key date (a period's close checks them
+	// as at its end). Each position names its order by number and its account by number and name, and
+	// `totals` sums every position the filters select, on every page. Sortable by: `purchase_order_id`,
 	// `last_posting_date`.
 	//
 	// GET /v1/gr-ir-balances
@@ -29826,9 +29828,11 @@ func (c *Client) sendListGoodsReceipts(ctx context.Context, params ListGoodsRece
 // a closed order's residual position is cleared by a GR/IR clearing (createGrIrClearing). Only orders
 // valued through GR/IR have positions; a migration run takes over the open positions SAP holds for the
 // order items it loads (`migrated_quantity`), and an invoice posted after cutover clears them as it
-// clears the platform's own. With `posting_date_to` the call reports one order's positions on that key
-// date. Each position names its order by number and its account by number and name, and `totals` sums
-// every position the filters select, on every page. Sortable by: `purchase_order_id`,
+// clears the platform's own. With `posting_date_to` the call reports the positions as they stood on
+// that key date: one order's, summed from its postings, or, without `purchase_order_id`, every
+// order's, the current positions less what was posted after the key date (a period's close checks them
+// as at its end). Each position names its order by number and its account by number and name, and
+// `totals` sums every position the filters select, on every page. Sortable by: `purchase_order_id`,
 // `last_posting_date`.
 //
 // GET /v1/gr-ir-balances

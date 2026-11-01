@@ -29099,11 +29099,12 @@ func decodeListGoodsReceiptsParams(args [0]string, argsEscaped bool, r *http.Req
 type ListGrIrBalancesParams struct {
 	// Legal entity (required).
 	LegalEntityID uuid.UUID
-	// Only the items of this purchase order; required with `posting_date_to`.
+	// Only the items of this purchase order.
 	PurchaseOrderID OptUUID `json:",omitempty,omitzero"`
-	// Key date: the positions of the order named by `purchase_order_id` as they stood on this date, summed
-	// from its postings (a report, not a page of current positions). Without `purchase_order_id`: 400
-	// `request.invalid_parameter`.
+	// Key date: the positions as they stood on this date (a report, not a page of current positions). With
+	// `purchase_order_id`, that order's positions summed from its postings; without it, every order's: the
+	// current positions less the postings dated after the key date, so its cost follows what was posted
+	// since rather than the company's history. `open_only` and `last_posting_date` are as on the key date.
 	PostingDateTo OptDate `json:",omitempty,omitzero"`
 	// Only positions with a quantity or a balance in any currency that is not zero (default true).
 	OpenOnly OptBool `json:",omitempty,omitzero"`

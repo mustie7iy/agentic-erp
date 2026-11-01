@@ -1325,6 +1325,14 @@ step_fx() {
   expect "the migrated USD invoice's revaluation" \
     "$(jq -r --arg e "$FX_ENTRY" '.items[] | select(.journal_entry_id == $e) | "\(.amount.amount) \(.amount_lc.amount) \(.direction) \(.difference_lc.amount)"' "$WORK/last.json")" \
     "-1000.00 -1350.00 loss -50.00"
+  local fx_item
+  fx_item=$(jq -c --arg e "$FX_ENTRY" '.items[] | select(.journal_entry_id == $e)' "$WORK/last.json")
+  say "The item names its entry by document number and its supplier by number and name (T73i2):"
+  jq -r '"     entry \(.document_number) line \(.line_no), supplier \(.partner_number) \(.partner_name)"' <<<"$fx_item"
+  QUIET=1 api 200 '' getJournalEntry -p "id=$FX_ENTRY"
+  expect "the item's document number" "$(jq -r .document_number <<<"$fx_item")" "$(field .document_number)"
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$(jq -r .partner_id <<<"$fx_item")"
+  expect "the item's supplier" "$(jq -r '"\(.partner_number) \(.partner_name)"' <<<"$fx_item")" "$(field '"\(.number) \(.name)"')"
   passed
 }
 
@@ -1350,9 +1358,10 @@ step_ledgers() {
   say "A local-GAAP adjustment posts to 2L alone, and the ledger reconciliation shows the difference:"
   api 201 '"2L only: entry \(.document_number), \(.header_text)"' postJournalEntry \
     -body "{\"legal_entity_id\": \"$LE\", \"ledger_id\": \"$l2\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"ASPE: expense the implementation fees\", \"lines\": [{\"account_id\": \"$fees\", \"amount\": {\"amount\": \"1200.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$retained\", \"amount\": {\"amount\": \"-1200.00\", \"currency\": \"CAD\"}}]}"
-  api 200 '.items[] | "account \(.account_id | acct): 0L \(.balance.amount), 2L \(.compare_balance.amount), difference \(.difference.amount) \(.currency)"' listLedgerReconciliation \
+  api 200 '.items[] | "account \(.account_number) \(.account_name): 0L \(.balance.amount), 2L \(.compare_balance.amount), difference \(.difference.amount) \(.currency)"' listLedgerReconciliation \
     -p "legal_entity_id=$LE" -p "compare_ledger_id=$l2" -p "fiscal_year=$YEAR"
   expect "accounts that differ" "$(field '.items | length')" 2
+  expect "the fees account, named by the reconciliation (T73i2)" "$(field "[.items[] | select(.account_id == \"$fees\") | .account_number] | join(\" \")")" 6100
   passed
 }
 
@@ -1715,6 +1724,13 @@ step_grir() {
   say "Every open position of the company, totalled by the report (no adding up):"
   api 200 '"\(.totals.positions) open position(s), \(.totals.balance_lc.amount) \(.totals.balance_lc.currency) (group \(.totals.balance_gc.amount) \(.totals.balance_gc.currency))\(if .totals.balance then ", \(.totals.balance.amount) \(.totals.balance.currency) in the orders'"'"' currency" else "" end)"' \
     listGrIrBalances -p "legal_entity_id=$LE" -p page_size=1
+  local yesterday
+  yesterday=$(date_add "$TODAY" -1)
+  say "The period's close checks them as at its end (T73i2). As at yesterday, before today's invoices, the shelving"
+  say "units SAP received were not yet invoiced, so their migrated credit was still open, and Tyrell's order had no position:"
+  api 200 "$GRIR_POSITION" listGrIrBalances -p "legal_entity_id=$LE" -p "posting_date_to=$yesterday"
+  expect "the shelving units' position as at yesterday" "$(field "[.items[] | select(.purchase_order_id == \"$GRIR_PO\") | .balance.amount] | join(\" \")")" "$GRIR_BALANCE"
+  expect "Tyrell's order as at yesterday" "$(field "[.items[] | select(.purchase_order_id == \"$PO\")] | length")" 0
   say "She proposes clearing it to the price difference account; the controller decides."
   api 201 '"GR/IR clearing of \(.purchase_order_number): \(.status), \(.total.amount) \(.total.currency) against \(.offset_account.number) \(.offset_account.name)\([.items[] | "\n  item \(.po_item_no) \(.description): \(.quantity.value) \(.quantity.unit), \(.amount.amount) \(.amount.currency)"] | join(""))"' \
     createGrIrClearing -p "id=$PO" -body "{\"reason\": \"Damaged chair credited by Tyrell and kept; no further delivery or invoice\", \"posting_date\": \"$TODAY\"}"

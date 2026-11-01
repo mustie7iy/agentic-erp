@@ -194,7 +194,7 @@ func New(cfg Config) (http.Handler, error) {
 			Dependencies: Configuration(cfg)},
 		partnerAPI: &partner.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys, Schemas: configuration.Settings{}, Rules: configuration.Settings{},
 			PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, PlanningGroups: cash.PlanningGroups{}, Approvals: opener()},
-		ledgerAPI: &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
+		ledgerAPI: &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, PartnerNames: LedgerPartners{},
 			Numbers: configuration.Numbers{}, Orders: procurement.Orders{}, Approvals: opener(), Settings: configuration.Settings{}, Now: cfg.Now},
 		workflowAPI:    &approvals.Endpoints{Pages: cfg.Pages, Decider: approvals.Decider{Roles: identity.Directory{}, AgentKind: identity.AgentKind, Metrics: cfg.Metrics, Handlers: approvalHandlers(cfg)}},
 		procurementAPI: procurementEndpoints(cfg),
@@ -365,6 +365,21 @@ func opener() approvals.Approvals {
 
 // rates converts document amounts into their company's currency for the
 // contexts that compare them with configured amounts.
+// LedgerPartners names a revaluation's partners for the ledger from the
+// partner context's published names (T73i2): the ledger does not import
+// the partner context. Exported for the ledger's tests, which wire their
+// endpoints as the API does.
+type LedgerPartners struct{}
+
+func (LedgerPartners) PartnerNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]ledger.PartnerName, error) {
+	named, err := partner.Payees{}.Names(ctx, ids)
+	out := make(map[uuid.UUID]ledger.PartnerName, len(named))
+	for id, n := range named {
+		out[id] = ledger.PartnerName{Number: n.Number, Name: n.Name}
+	}
+	return out, err
+}
+
 func rates() ledger.Rates { return ledger.Rates{LegalEntities: tenancy.Directory{}} }
 
 // postings posts journal entries for the contexts that post.
