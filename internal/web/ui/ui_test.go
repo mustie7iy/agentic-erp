@@ -74,16 +74,34 @@ func components() map[string]templ.Component {
 		"RefusalNotice":   RefusalNotice(refusal()),
 		"refusal other":   RefusalNotice(Refusal{Title: i18n.RefusalTitle, Fallback: "Gone", Code: "x.y"}),
 		"Request":         Request(signedIn(), requestPage(true)),
-		"request closed":  requestContent(requestPage(false)),
-		"StepItem":        StepItem(Step{No: 1, Required: 2, Approvals: 1, Current: true}),
-		"step done":       StepItem(Step{No: 1, Required: 1, Approvals: 1}),
-		"DecisionItem":    DecisionItem(Decision{Label: Label{Key: i18n.StatusRejected}, By: Name{Text: "B"}, At: day, Comment: "No"}),
-		"decision bare":   DecisionItem(Decision{Label: Label{Key: i18n.StatusApproved}, By: Name{Text: "B"}, At: day}),
-		"DecideForm":      DecideForm(forms(), true),
-		"decide reject":   DecideForm(forms(), false),
-		"decideHidden":    decideHidden("c", `"1"`, "k"),
-		"CommentField":    CommentField("f", i18n.DecideComment, i18n.DecideCommentHint, "text", i18n.DecideTooLong),
-		"comment plain":   CommentField("f", i18n.DecideComment, i18n.DecideCommentHint, "", ""),
+		"request own":     requestContent(ownRequest()),
+		"ApprovalTabs":    ApprovalTabs([]StatusTab{{Label: i18n.TabDecide, Path: "/approvals", Current: true}, {Label: i18n.TabMine, Path: "/approvals?view=mine"}}),
+		"ApprovalFilterForm": ApprovalFilterForm(ApprovalFilters{View: ViewAll, Clear: "/approvals?view=all",
+			Statuses: []LabelOption{{Value: "pending", Label: Label{Key: i18n.StatusPending}, Selected: true}},
+			Kinds:    []LabelOption{{Value: "new_kind", Label: Label{Raw: "new_kind"}}}}),
+		"inbox filters": ApprovalFilterForm(ApprovalFilters{Clear: "/approvals"}),
+		"labelSelect":   labelSelect("s", "status", i18n.ApprovalsFilterStatus, i18n.ApprovalsFilterAnyStatus, []LabelOption{{Value: "a", Label: Label{Raw: "a"}}}),
+		"ObjectSection": ObjectSection(RequestPage{Approval: approval(false), Object: &ObjectSummary{Rows: []Row{{Key: i18n.SummaryNumber, Value: Value("1")}},
+			Link: "/invoices/1", LinkText: i18n.ObjectOpenInvoice}}),
+		"object no link": ObjectSection(RequestPage{Approval: approval(false), Object: &ObjectSummary{}}),
+		"object refused": ObjectSection(RequestPage{Approval: approval(false), ObjectRefusal: new(refusal())}),
+		"object note":    ObjectSection(RequestPage{Approval: approval(false), ObjectNote: i18n.ObjectHidden}),
+		"WithdrawForm":   WithdrawForm(DecideForms{Action: "/approvals/1", CSRF: "c", ETag: `"1"`, WithdrawKey: "k3", Withdrawal: "x", WithdrawError: i18n.WithdrawReasonNeeded}),
+		"inbox mine":     inboxContent(InboxPage{View: ViewMine, Approvals: []Approval{approval(false)}}),
+		"inbox all":      inboxContent(InboxPage{View: ViewAll}),
+		"inboxList":      inboxList(inboxFull()),
+		"request unsent": requestContent(RequestPage{Approval: approval(false), Why: i18n.DecideClosed, Unsent: "x"}),
+		"unsentText":     unsentText("x"),
+		"request closed": requestContent(requestPage(false)),
+		"StepItem":       StepItem(Step{No: 1, Required: 2, Approvals: 1, Current: true}),
+		"step done":      StepItem(Step{No: 1, Required: 1, Approvals: 1}),
+		"DecisionItem":   DecisionItem(Decision{Label: Label{Key: i18n.StatusRejected}, By: Name{Text: "B"}, At: day, Comment: "No"}),
+		"decision bare":  DecisionItem(Decision{Label: Label{Key: i18n.StatusApproved}, By: Name{Text: "B"}, At: day}),
+		"DecideForm":     DecideForm(forms(), true),
+		"decide reject":  DecideForm(forms(), false),
+		"decideHidden":   decideHidden("c", `"1"`, "k"),
+		"CommentField":   CommentField("f", i18n.DecideComment, i18n.DecideCommentHint, "text", i18n.DecideTooLong),
+		"comment plain":  CommentField("f", i18n.DecideComment, i18n.DecideCommentHint, "", ""),
 		// The supplier invoices (T73e).
 		"Invoices":           Invoices(signedIn(), invoiceList()),
 		"queue invalid":      invoicesContent(InvoiceList{Invalid: true}),
@@ -625,6 +643,12 @@ func requestPage(open bool) RequestPage {
 	r := refusal()
 	return RequestPage{Approval: approval(true), Steps: []Step{{No: 1, Required: 1, Approvals: 0, Current: true}},
 		Decisions: []Decision{{Label: Label{Key: i18n.StatusApproved}, By: Name{Text: "B"}, At: day}}, Decide: new(forms()), Refusal: &r}
+}
+
+// ownRequest is the requester's own pending request, kept after a step-up.
+func ownRequest() RequestPage {
+	f := forms()
+	return RequestPage{Approval: approval(false), Why: i18n.DecideOwn, Withdraw: &f, Kept: true, ObjectNote: i18n.ObjectNoSummary}
 }
 
 func locale(t *testing.T) context.Context {

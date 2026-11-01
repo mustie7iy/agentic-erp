@@ -13,6 +13,7 @@ var Problems = map[string]Key{
 	"workflow.role_missing":          ProblemRoleMissing,
 	"workflow.segregation_of_duties": ProblemSoDObject,
 	"workflow.request_pending":       ProblemRequestPending,
+	"workflow.not_requester":         ProblemNotRequester,
 	"request.version_mismatch":       ProblemVersion,
 	"identity.permission_missing":    ProblemPermission,
 	"identity.sod_conflict":          ProblemSoD,
@@ -165,4 +166,11 @@ var EntryProblems = map[string]Key{
 	"ledger.entry_cleared":           ProblemEntryCleared,
 	"ledger.legal_entity_not_active": ProblemEntryCompany,
 	"config.no_number_range":         ProblemNoNumberRange,
+}
+
+// ObjectProblems are the codes a request's page explains in the object's
+// words when it reads the request's object (T73d2), looked up before
+// Problems.
+var ObjectProblems = map[string]Key{
+	"request.not_found": ProblemObjectNotFound,
 }

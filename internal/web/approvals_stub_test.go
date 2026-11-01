@@ -267,7 +267,7 @@ func TestCommentError(t *testing.T) {
 		"2,001 characters":      {strings.Repeat("x", 2001), true, i18n.DecideTooLong},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := commentError(tc.text, tc.required); got != tc.want {
+			if got := commentError(tc.text, tc.required, i18n.DecideReasonNeeded); got != tc.want {
 				t.Errorf("got %q, want %q", got, tc.want)
 			}
 		})

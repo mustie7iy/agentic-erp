@@ -72,6 +72,11 @@ output "aws_endpoints" {
   }
 }
 
+output "sts_endpoint_cidrs" {
+  description = "The subnets STS's interface endpoint alone sits in (a /28 per zone of egress): the erp-global chart's awsEndpoints.stsCidrs, erp-web's only reach in the VPC on 443 (ADR-0035 As built 2026-11-01)."
+  value       = module.network.sts_endpoint_cidrs
+}
+
 output "container_log_group" {
   description = "The log group Fluent Bit ships the cell's container logs to (the fluent-bit add-on's erp.logGroup, T54g)."
   value       = aws_cloudwatch_log_group.containers.name

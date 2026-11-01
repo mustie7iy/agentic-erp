@@ -136,7 +136,7 @@ func (s *Server) revaluationForm(w http.ResponseWriter, r *http.Request) (revalu
 	rv := revalued{company: f.Get(ui.FieldCompany), ledger: f.Get(ui.FieldLedger), keyDate: strings.TrimSpace(f.Get(ui.FieldKeyDate))}
 	key := f.Get(ui.FieldIdempotency)
 	if _, err := uuid.Parse(key); err != nil || (rv.ledger != "" && uuid.Validate(rv.ledger) != nil) {
-		s.render(w, r, http.StatusBadRequest, ui.Problem(s.shell(i18n.RefusedTitle, ""), i18n.RefusedTitle, i18n.ProblemInvoiceBody,
+		s.render(w, r, http.StatusBadRequest, ui.Problem(s.chrome(r, i18n.RefusedTitle), i18n.RefusedTitle, i18n.ProblemInvoiceBody,
 			ui.RevaluationPath, i18n.RevaluationRunBack))
 		return revalued{}, "", false
 	}

@@ -120,6 +120,10 @@ run "the_cluster_is_private_and_encrypted" {
     condition     = aws_ebs_encryption_by_default.cell[0].enabled
     error_message = "every new EBS volume of the account is encrypted"
   }
+  assert {
+    condition     = output.sts_endpoint_cidrs == ["10.10.48.0/28", "10.10.48.16/28", "10.10.48.32/28"] && toset(aws_eks_cluster.cell.vpc_config[0].subnet_ids) == toset(module.network.private_subnet_ids)
+    error_message = "STS's endpoint has subnets of its own, an output for erp-web's network policy, and the cluster's interfaces stay in the private subnets"
+  }
 }
 
 run "each_workload_role_trusts_its_service_account_only" {
@@ -409,12 +413,58 @@ run "the_home_cell_reads_the_global_tiers_secrets_too" {
   }
 }
 
+run "the_home_cells_router_web_and_server_connect_as_their_own_directory_logins" {
+  command = apply
+
+  variables {
+    directory_users = {
+      router = "arn:aws:rds-db:eu-central-1:222222222222:dbuser:db-ABCDEFGHIJKL01234/erp_router_login"
+      cell   = "arn:aws:rds-db:eu-central-1:222222222222:dbuser:db-ABCDEFGHIJKL01234/erp_cell_login"
+      web    = "arn:aws:rds-db:eu-central-1:222222222222:dbuser:db-ABCDEFGHIJKL01234/erp_web_login"
+    }
+  }
+
+  assert {
+    condition     = jsondecode(aws_iam_role.workload["router"].assume_role_policy).Statement[0].Condition.StringEquals["oidc.eks.eu-central-1.amazonaws.com/id/ABC:sub"] == "system:serviceaccount:erp-global:erp-router"
+    error_message = "the router's role trusts the erp-global chart's erp-router service account alone"
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role.workload["web"].assume_role_policy).Statement[0].Condition.StringEquals["oidc.eks.eu-central-1.amazonaws.com/id/ABC:sub"] == "system:serviceaccount:erp-global:erp-web"
+    error_message = "erp-web's role trusts the erp-global chart's erp-web service account alone"
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.workload["router"].policy).Statement == [{ Sid = "DirectoryLogin", Effect = "Allow", Action = "rds-db:connect", Resource = "arn:aws:rds-db:eu-central-1:222222222222:dbuser:db-ABCDEFGHIJKL01234/erp_router_login" }]
+    error_message = "the router may connect as its own login and do nothing else"
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.workload["web"].policy).Statement == [{ Sid = "DirectoryLogin", Effect = "Allow", Action = "rds-db:connect", Resource = "arn:aws:rds-db:eu-central-1:222222222222:dbuser:db-ABCDEFGHIJKL01234/erp_web_login" }]
+    error_message = "erp-web may connect as its own login and do nothing else"
+  }
+  assert {
+    condition     = [for st in jsondecode(aws_iam_role_policy.workload["server"].policy).Statement : st.Resource if st.Action == "rds-db:connect"] == ["arn:aws:rds-db:eu-central-1:222222222222:dbuser:db-ABCDEFGHIJKL01234/erp_cell_login"]
+    error_message = "the server connects as the cells' login alone"
+  }
+}
+
+run "a_directory_login_set_without_one_of_its_clients_is_refused" {
+  command = plan
+
+  variables {
+    directory_users = { router = "arn:aws:rds-db:eu-central-1:222222222222:dbuser:db-ABCDEFGHIJKL01234/erp_router_login" }
+  }
+  expect_failures = [var.directory_users]
+}
+
 run "another_cell_reads_its_own_secrets_alone" {
   command = apply
 
   assert {
     condition     = length(jsondecode(aws_iam_role_policy.workload["external_secrets"].policy).Statement[1].Resource) == 1
     error_message = "a cell given no global secrets decrypts with its data key alone"
+  }
+  assert {
+    condition     = !contains(keys(aws_iam_role.workload), "router") && !contains(keys(aws_iam_role.workload), "web") && !strcontains(aws_iam_role_policy.workload["server"].policy, "rds-db")
+    error_message = "a cell other than the home cell has no directory roles and connects to no directory with IAM"
   }
 }
 

@@ -951,6 +951,10 @@ step_procure() {
   req=$(field .id)
   api 200 '"\(.status): approval request \(.workflow_request_id)"' submitRequisition -p "id=$req" -if-match "$ETAG"
   request=$(field .workflow_request_id)
+  say "Ben follows what he asked for: his own requests still waiting (requested_by=me, T73d2)."
+  api 200 '.items[] | "approval request \(.object_type): \(.title), \(.status), step \(.current_step) of \(.steps | length)"' listApprovalRequests \
+    -p requested_by=me -p status=pending
+  expect "Ben's pending request" "$(field '[.items[] | select(.id == "'"$request"'")] | length')" 1
   say "Ben cannot decide his own request; Priya, the purchasing manager, approves it."
   QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
   refused 403 identity.permission_missing approveApprovalRequest -p "id=$request" -if-match "$ETAG" -body '{}'
@@ -1504,7 +1508,7 @@ tax_return() {
 # (T61i): prepared once its fiscal periods are closed, claiming the
 # draft's items; approved by Fiona, the tax manager, not Carla who
 # prepared it; recorded as filed, which locks the periods; the period's
-# draft then empty.
+# draft then empty, and a manual entry's tax date in it refused (P6).
 file_return() {
   local registration=$1 start=$2 end=$3 leading ret request p
   local body="{\"period_start\": \"$start\"}"
@@ -1550,6 +1554,12 @@ file_return() {
   api 200 '"draft of \(.period_start) to \(.period_end): \(.item_count) items, output tax \((.boxes[] | select(.code == "output_tax")).amount.amount)"' \
     getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
   expect "the period's draft after filing" "$(field .item_count)" 0
+  say "A tax date is chosen only in a period no return reports yet (P6): invoice 1038, of $end too, arrives after the"
+  say "filing, and Carla may not date its tax in the filed period; she would date it in the period under way, whose"
+  say "return reports it."
+  refused 409 ledger.tax_date_in_return postJournalEntry \
+    -body "$(sale "Billing: invoice 1038, sent after the filing" "$(line "$cash" 105.00), $(line "$sales" -100.00 GO5), $(line "$gst" -5.00 GO5)" "$end")"
+  expect "the refusal names the filed return" "$(jq -r --arg r "$ret" '.detail | contains("whose original return \($r) is filed")' "$WORK/last.json")" true
 }
 
 # center_approved REQUESTER has the controller approve the center change

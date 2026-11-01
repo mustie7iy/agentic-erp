@@ -16,12 +16,13 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/taxfiling"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // manualEntries is the approvals handler the API wires.
 func manualEntries() ledger.ManualEntries {
-	return ledger.ManualEntries{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}}
+	return ledger.ManualEntries{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}, TaxReturns: taxfiling.Holds{}}
 }
 
 // submitted parks an entry and posts it as its owner through an approval

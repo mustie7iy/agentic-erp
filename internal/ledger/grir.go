@@ -497,7 +497,7 @@ func (p Postings) postGRIR(ctx context.Context, in Posting) (Entry, error) {
 		return Entry{}, err
 	}
 	posted, err := e.post(ctx, tx, actor, draft{entity: g.le, documentType: in.DocumentType, documentDate: in.DocumentDate,
-		postingDate: in.PostingDate, taxDate: taxDate, currencyTC: in.Currency, currencyLC: g.le.LocalCurrency, currencyGC: g.group, rateTCLC: g.rates.toLC.shown,
+		postingDate: in.PostingDate, taxDate: taxDate, hold: e.holding(g.le.ID, in.TaxDateChosen, taxDate, lines), currencyTC: in.Currency, currencyLC: g.le.LocalCurrency, currencyGC: g.group, rateTCLC: g.rates.toLC.shown,
 		rateLCGC: g.rates.toGC.shown, reference: in.Reference, headerText: in.HeaderText, sourceContext: in.SourceContext,
 		sourceDocumentID: &in.SourceDocumentID, lines: lines, givenItems: in.TaxItems})
 	if err != nil {

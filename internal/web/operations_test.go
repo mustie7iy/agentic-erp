@@ -101,6 +101,11 @@ func TestScreensAgainstTheContract(t *testing.T) {
 				}
 				reads = slices.DeleteFunc(slices.Clone(reads), func(op Operation) bool { return op.Export })
 			}
+			// A request's page reads its object by the operation of its
+			// type (T73d2): one read, whichever type.
+			if objects := slices.DeleteFunc(slices.Clone(reads), func(op Operation) bool { return !op.PerObject }); len(objects) > 0 {
+				reads = append(slices.DeleteFunc(slices.Clone(reads), func(op Operation) bool { return op.PerObject }), objects[0])
+			}
 			if len(reads) > 6 {
 				t.Errorf("%d calls to render the page, want at most six", len(reads))
 			}
@@ -127,7 +132,7 @@ func TestScreensAgainstTheContract(t *testing.T) {
 			t.Errorf("%s: x-object-permissions %v, want the workspace's %v", id, got, objectApprovers)
 		}
 	}
-	for _, explained := range []map[string]i18n.Key{i18n.Problems, i18n.InvoiceProblems, i18n.BankProblems, i18n.PaymentProblems,
+	for _, explained := range []map[string]i18n.Key{i18n.Problems, i18n.ObjectProblems, i18n.InvoiceProblems, i18n.BankProblems, i18n.PaymentProblems,
 		i18n.PeriodProblems, i18n.RevaluationProblems, i18n.EntryProblems} {
 		for _, code := range slices.Sorted(maps.Keys(explained)) {
 			if !answerable[code] {
@@ -138,6 +143,13 @@ func TestScreensAgainstTheContract(t *testing.T) {
 	for kind := range objectApprovers {
 		if _, ok := objectKinds[kind]; !ok {
 			t.Errorf("object type %s: no name in the catalog", kind)
+		}
+	}
+	// Every object type has its summary but the two no operation reads by
+	// the request's object id alone (approval_object.go).
+	for kind := range objectApprovers {
+		if _, ok := objectReads[kind]; !ok && kind != "order_change" && kind != "bank_clearing" {
+			t.Errorf("object type %s: no summary read", kind)
 		}
 	}
 }

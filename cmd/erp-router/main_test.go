@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -24,6 +25,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/proxyproto"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf"
 	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf/tlstest"
+	"github.com/mustie7iy/agentic-erp/internal/router"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -249,7 +251,28 @@ func production(t *testing.T, env map[string]string) *tlstest.CA {
 	public := ca.Issue(t, tlstest.Options{})
 	env["ERP_ENV"] = "production"
 	delete(env, "ERP_OIDC_ISSUERS") // production trusts tenants' registered providers only (ADR-0031)
-	env["ERP_DIRECTORY_URL"] = pgtest.TLS(t, env["ERP_DIRECTORY_URL"])
+	// Production's login authenticates with RDS IAM tokens, minted for
+	// the URL's login as the router's IRSA role; the test's server takes
+	// the login's password in their place (loadConfig).
+	u, err := url.Parse(pgtest.TLS(t, env["ERP_DIRECTORY_URL"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	password, _ := u.User.Password()
+	u.User = url.User(u.User.Username())
+	env["ERP_DIRECTORY_URL"] = u.String()
+	env["ERP_DIRECTORY_REGION"], env["AWS_ROLE_ARN"] = "eu-central-1", "arn:aws:iam::222222222222:role/erp-test-router"
+	env["AWS_WEB_IDENTITY_TOKEN_FILE"] = tlstest.WriteFile(t, dir, "web-identity-token", []byte("eyJ.test"))
+	was := loadConfig
+	t.Cleanup(func() { loadConfig = was })
+	loadConfig = func(getenv func(string) string) (router.Config, error) {
+		c, err := was(getenv)
+		if err == nil && c.Environment == "production" && c.DirectoryPassword == nil {
+			t.Error("production: got no IAM token source")
+		}
+		c.DirectoryPassword = func(context.Context) (string, error) { return password, nil }
+		return c, err
+	}
 	env["ERP_TLS_CA"] = "file:" + tlstest.WriteFile(t, dir, "ca.crt", ca.PEM)
 	env["ERP_TLS_CERT"] = "file:" + tlstest.WriteFile(t, dir, "tls.crt", id.CertPEM)
 	env["ERP_TLS_KEY"] = "file:" + tlstest.WriteFile(t, dir, "tls.key", id.KeyPEM)

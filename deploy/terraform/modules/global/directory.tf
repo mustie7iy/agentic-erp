@@ -54,30 +54,57 @@ resource "aws_db_instance" "directory" {
   multi_az       = var.directory_multi_az
   # In one zone, the first of the home cell's private subnets, where its
   # NAT gateway and endpoints are; AWS refuses a zone with Multi-AZ.
-  availability_zone               = var.directory_multi_az ? null : var.directory_zone
-  storage_type                    = "gp3"
-  allocated_storage               = 20
-  max_allocated_storage           = 200
-  db_name                         = "directory"
-  username                        = "erp_admin"
-  manage_master_user_password     = true
-  master_user_secret_kms_key_id   = aws_kms_key.directory.arn
-  db_subnet_group_name            = aws_db_subnet_group.directory.name
-  vpc_security_group_ids          = [aws_security_group.directory.id]
-  parameter_group_name            = aws_db_parameter_group.directory.name
-  storage_encrypted               = true
-  kms_key_id                      = aws_kms_key.directory.arn
-  backup_retention_period         = 14
-  copy_tags_to_snapshot           = true
-  deletion_protection             = true
-  final_snapshot_identifier       = "${local.prefix}-directory-final"
-  enabled_cloudwatch_logs_exports = ["postgresql"]
-  performance_insights_enabled    = true
-  performance_insights_kms_key_id = aws_kms_key.directory.arn
-  auto_minor_version_upgrade      = true
-  apply_immediately               = false
-  depends_on                      = [aws_cloudwatch_log_group.directory]
+  availability_zone     = var.directory_multi_az ? null : var.directory_zone
+  storage_type          = "gp3"
+  allocated_storage     = 20
+  max_allocated_storage = 200
+  db_name               = "directory"
+  username              = "erp_admin"
+  # The router's, the cells' and erp-web's logins authenticate with IAM
+  # tokens as their IRSA roles (rdsiam, ADR-0035 As built 2026-11-01);
+  # the master user keeps its RDS-managed password.
+  iam_database_authentication_enabled = true
+  manage_master_user_password         = true
+  master_user_secret_kms_key_id       = aws_kms_key.directory.arn
+  db_subnet_group_name                = aws_db_subnet_group.directory.name
+  vpc_security_group_ids              = [aws_security_group.directory.id]
+  parameter_group_name                = aws_db_parameter_group.directory.name
+  storage_encrypted                   = true
+  kms_key_id                          = aws_kms_key.directory.arn
+  backup_retention_period             = 14
+  copy_tags_to_snapshot               = true
+  deletion_protection                 = true
+  final_snapshot_identifier           = "${local.prefix}-directory-final"
+  enabled_cloudwatch_logs_exports     = ["postgresql"]
+  performance_insights_enabled        = true
+  performance_insights_kms_key_id     = aws_kms_key.directory.arn
+  auto_minor_version_upgrade          = true
+  apply_immediately                   = false
+  depends_on                          = [aws_cloudwatch_log_group.directory]
   lifecycle {
     prevent_destroy = true
+  }
+}
+
+variable "directory_logins" {
+  description = "The directory's clients' logins (the erp-global chart's directory.logins), which their IRSA roles may connect as."
+  type = object({
+    router = string
+    cell   = string
+    web    = string
+  })
+  default = { router = "erp_router_login", cell = "erp_cell_login", web = "erp_web_login" }
+  validation {
+    condition     = alltrue([for name in values(var.directory_logins) : can(regex("^[a-z_][a-z0-9_]{0,62}$", name))])
+    error_message = "lower-case PostgreSQL role names, as the IAM resource names them case for case"
+  }
+}
+
+locals {
+  # One rds-db:connect resource per login (RDS user guide, "Creating and
+  # using an IAM policy for IAM database access":
+  # arn:aws:rds-db:region:account-id:dbuser:DbiResourceId/db-user-name).
+  directory_users = { for client, login in var.directory_logins :
+    client => "arn:${data.aws_partition.current.partition}:rds-db:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:dbuser:${aws_db_instance.directory.resource_id}/${login}"
   }
 }

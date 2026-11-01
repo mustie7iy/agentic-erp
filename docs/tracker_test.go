@@ -36,8 +36,14 @@ const baselineItems = 951
 // preparing a later tax period's return first claims an earlier unfiled
 // period's items (review:batch32), a gap in the pilot's return chain. 77
 // since batch 33: T62g's sign-off part, in the approved scope, became its
-// own leaf (T62h).
-const pilotItems = 77
+// own leaf (T62h). 81 since batch 34: the staging half of RDS IAM logins
+// split from T72h's leaf (78), the product owner had erp-web's egress to STS
+// narrowed to the endpoint's subnets (po:2026-11-01), a security-posture
+// leaf of the pilot (79), T73d2's pilot approver's walk-through and the two
+// object summaries no operation reads split from it (T73d3, 80), and the
+// product owner added P6's hold of chosen tax dates to open returns (T61o,
+// po:2026-11-01, 81).
+const pilotItems = 81
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

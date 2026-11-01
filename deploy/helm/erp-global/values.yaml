@@ -35,9 +35,24 @@ certificates:
   duration: 24h
   renewBefore: 8h
 
+# The regional STS endpoint, which the home cell's VPC endpoint answers
+# (cell.aws_endpoints.sts): where the router and erp-web exchange their
+# service accounts' tokens for their IRSA roles, whose credentials sign
+# their directory logins' IAM tokens (ERP_AWS_STS_ENDPOINT).
+awsEndpoints:
+  sts: ""
+  # The subnets STS's VPC endpoint alone sits in, a /28 per zone
+  # (cell.sts_endpoint_cidrs): erp-web's only reach in the VPC on 443
+  # (ADR-0035 As built 2026-11-01). Required; the chart renders nothing
+  # wider in its place.
+  stsCidrs: []
+
 router:
   # Spread over the zones, as the load balancer is.
   replicas: 3
+  # The router's IRSA role (cell.workload_role_arns.router), which may
+  # connect to the directory as the router's login alone.
+  roleArn: ""
   # The target group the load balancer forwards to (global.router_target_group_arn).
   targetGroupArn: ""
   # The load balancer's subnets (global.router_proxy_sources): the only
@@ -60,6 +75,9 @@ router:
 # balancer, calling the API through the router.
 web:
   replicas: 3
+  # erp-web's IRSA role (cell.workload_role_arns.web), which may connect
+  # to the directory as erp-web's login alone.
+  roleArn: ""
   # The workspace's own hostname, app.<domain>: its address
   # (ERP_WEB_PUBLIC_URL, https), whose record points at global.web_dns_name
   # and whose public certificate operators load (<prefix>/web-public-*).
@@ -93,12 +111,15 @@ directory:
   # The directory database, host:port (global.directory_endpoint).
   endpoint: ""
   name: directory
+  # The directory's region (global.directory_region), which the logins'
+  # IAM tokens are signed for (ERP_DIRECTORY_REGION).
+  region: ""
   # The clients' logins (T72h), each a member of its privilege role alone
   # (internal/directory: erp_router, erp_cell, erp_web), which the setup
-  # hook makes and gives the passwords operators set in
-  # <prefix>/directory-router-password, directory-cell-password and
-  # directory-web-password. The router and erp-web connect as theirs; the
-  # cells' is erp-cell's directory.user.
+  # hook makes, with no password, and grants rds_iam: they authenticate
+  # with RDS IAM tokens their IRSA roles sign (ADR-0035 As built
+  # 2026-11-01). The router and erp-web connect as theirs; the cells' is
+  # erp-cell's directory.user. Terraform's directory_logins name the same.
   logins:
     router: erp_router_login
     cell: erp_cell_login
@@ -117,10 +138,7 @@ directory:
 
 secrets:
   # The global tier's entries in Secrets Manager (modules/global):
-  # <prefix>/page-token-key (base64 of at least 32 random bytes), the
-  # directory logins' passwords (directory-router-password,
-  # directory-cell-password, directory-web-password: e.g. `openssl rand
-  # -hex 32`),
+  # <prefix>/page-token-key (base64 of at least 32 random bytes),
   # router-public-certificate (the public listener's chain, PEM, from a
   # public CA) and router-public-key (its key, PEM), and the same pair for
   # the web workspace (web-public-certificate, web-public-key), which

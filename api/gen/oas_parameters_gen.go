@@ -17867,6 +17867,9 @@ type ListApprovalRequestsParams struct {
 	// `me`: only the pending requests the caller may approve now (ADR-0052 G1); with a `status` other than
 	// `pending` the page is empty. Any other value is 400 `request.invalid_parameter`.
 	DecidableBy OptString `json:",omitempty,omitzero"`
+	// `me`: only the requests the caller asked approval for, in any status unless `status` says one
+	// (ADR-0052, T73d2). Any other value is 400 `request.invalid_parameter`.
+	RequestedBy OptString `json:",omitempty,omitzero"`
 	// Maximum number of items to return. Defaults to 50, maximum 500.
 	PageSize OptInt32 `json:",omitempty,omitzero"`
 	// Opaque cursor from `next_page_token` of the previous page. Tokens are signed and encode the sort
@@ -17915,6 +17918,15 @@ func unpackListApprovalRequestsParams(packed middleware.Parameters) (params List
 		}
 		if v, ok := packed[key]; ok {
 			params.DecidableBy = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "requested_by",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.RequestedBy = v.(OptString)
 		}
 	}
 	{
@@ -18118,6 +18130,47 @@ func decodeListApprovalRequestsParams(args [0]string, argsEscaped bool, r *http.
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "decidable_by",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: requested_by.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "requested_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotRequestedByVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotRequestedByVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.RequestedBy.SetTo(paramsDotRequestedByVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "requested_by",
 			In:   "query",
 			Err:  err,
 		}

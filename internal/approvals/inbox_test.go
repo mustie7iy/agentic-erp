@@ -251,3 +251,79 @@ func TestInboxReadsPendingRequestsOnly(t *testing.T) {
 		t.Fatalf("inbox: %v", err)
 	}
 }
+
+// TestRequestedBy: requested_by=me lists the requests the caller asked
+// for, in any status unless status says one, newest first and in pages;
+// it takes me alone; and it reads the caller's requests through its index
+// (approval_request_by_requester), not the tenant's (04 §4.5).
+func TestRequestedBy(t *testing.T) {
+	f := setup(t)
+	s := inboxEnv{f: f}
+	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
+	var calls []string
+	s.e = &approvals.Endpoints{Pages: pages, Decider: approvals.Decider{Roles: identity.Directory{},
+		Handlers: map[string]approvals.Handler{approvals.Requisition: recorder{&calls}}}}
+	first, _ := s.open(t, f.Tenant.Human, 500000)
+	rejected, _ := s.open(t, f.Tenant.Human, 800)
+	if err := apitest.Committed(t, f.Tenant, f.Approver, func(ctx context.Context) error {
+		_, err := s.e.Reject(ctx, rejected, func(int32) error { return nil }, "no")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	theirs, _ := s.open(t, f.Approver, 900)
+	list := func(a pgtest.Actor, query string) []uuid.UUID {
+		t.Helper()
+		page, _ := f.As(a).Must(200, "GET", "/v1/approval-requests?"+query, "", "")
+		var ids []uuid.UUID
+		for _, it := range apitest.List(t, page, "items") {
+			ids = append(ids, uuid.MustParse(it.(map[string]any)["id"].(string)))
+		}
+		return ids
+	}
+	for name, tc := range map[string]struct {
+		who   pgtest.Actor
+		query string
+		want  []uuid.UUID
+	}{
+		"the requester's":             {f.Tenant.Human, "requested_by=me", []uuid.UUID{rejected, first}},
+		"the requester's pending":     {f.Tenant.Human, "requested_by=me&status=pending", []uuid.UUID{first}},
+		"the requester's, page of 1":  {f.Tenant.Human, "requested_by=me&page_size=1", []uuid.UUID{rejected}},
+		"the approver's":              {f.Approver, "requested_by=me", []uuid.UUID{theirs}},
+		"the approver's, to decide":   {f.Approver, "requested_by=me&decidable_by=me", nil},
+		"another approver's":          {f.Approver2, "requested_by=me", nil},
+		"everyone's, as the approver": {f.Approver, "", []uuid.UUID{theirs, rejected, first}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := list(tc.who, tc.query); !slices.Equal(got, tc.want) {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+	f.As(f.Tenant.Human).Problem(400, "request.invalid_parameter", "GET", "/v1/approval-requests?requested_by=you", "", "")
+	// Refused before the inbox: an agent's is empty by definition.
+	f.As(f.Tenant.Agent).Problem(400, "request.invalid_parameter", "GET", "/v1/approval-requests?decidable_by=me&requested_by=you", "", "")
+	pgtest.Exec(t, `INSERT INTO workflow.approval_request (tenant_id, id, object_type, object_id, title, requester_id, status, completed_at, created_by)
+		SELECT $1, gen_random_uuid(), 'requisition', gen_random_uuid(), 'old', $2, 'approved', now(), $2 FROM generate_series(1, 2000)`,
+		f.Tenant.ID, f.Approver2.ID)
+	pgtest.Exec(t, `ANALYZE workflow.approval_request`)
+	params := gen.ListApprovalRequestsParams{RequestedBy: gen.NewOptString("me")}
+	if err := apitest.InRequest(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error {
+		for range 6 {
+			if _, err := s.e.ListApprovalRequests(ctx, params); err != nil {
+				return err
+			}
+		}
+		tx, _ := reqctx.TxFrom(ctx) // InRequest always puts its transaction in the context
+		before := pgtest.RowsRead(t, ctx, tx, "workflow", `approval\_request`)
+		if _, err := s.e.ListApprovalRequests(ctx, params); err != nil {
+			return err
+		}
+		if got := pgtest.RowsRead(t, ctx, tx, "workflow", `approval\_request`) - before; got > 2 {
+			t.Errorf("requests read for 2 of the requester's among 2003: got %d, want at most 2", got)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("requested_by=me: %v", err)
+	}
+}

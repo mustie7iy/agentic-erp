@@ -195,7 +195,8 @@ func New(cfg Config) (http.Handler, error) {
 		partnerAPI: &partner.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys, Schemas: configuration.Settings{}, Rules: configuration.Settings{},
 			PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, PlanningGroups: cash.PlanningGroups{}, Approvals: opener()},
 		ledgerAPI: &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
-			Numbers: configuration.Numbers{}, Orders: procurement.Orders{}, Approvals: opener(), Settings: configuration.Settings{}, Now: cfg.Now},
+			Numbers: configuration.Numbers{}, Orders: procurement.Orders{}, Approvals: opener(), Settings: configuration.Settings{}, TaxReturns: taxfiling.Holds{},
+			Now: cfg.Now},
 		workflowAPI:    &approvals.Endpoints{Pages: cfg.Pages, Decider: approvals.Decider{Roles: identity.Directory{}, AgentKind: identity.AgentKind, Metrics: cfg.Metrics, Handlers: approvalHandlers(cfg)}},
 		procurementAPI: procurementEndpoints(cfg),
 		payablesAPI:    payablesEndpoints(cfg, upload),
@@ -314,7 +315,7 @@ func approvalHandlers(cfg Config) map[string]approvals.Handler {
 		approvals.ConfigChange:      configuration.Approvals{},
 		approvals.InvoiceException:  payables.Approvals{},
 		approvals.PeriodUnlock:      ledger.PeriodUnlocks{},
-		approvals.ManualEntry:       ledger.ManualEntries{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}},
+		approvals.ManualEntry:       ledger.ManualEntries{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}, TaxReturns: taxfiling.Holds{}},
 		approvals.PurchaseOrder:     procurement.OrderReleases{Endpoints: procurementEndpoints(cfg)},
 		approvals.OrderChange:       procurement.OrderChanges{Endpoints: procurementEndpoints(cfg)},
 		approvals.BankClearing:      payments.BankClearings{Endpoints: Payments(cfg)},
@@ -369,7 +370,7 @@ func rates() ledger.Rates { return ledger.Rates{LegalEntities: tenancy.Directory
 
 // postings posts journal entries for the contexts that post.
 func postings() ledger.Postings {
-	return ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}}
+	return ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}, TaxReturns: taxfiling.Holds{}}
 }
 
 // calendar resolves fiscal periods.

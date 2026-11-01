@@ -6,30 +6,41 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/web/i18n"
 )
 
-// Inbox is the person's approvals inbox (ADR-0052 §2, T73d): each request
-// they may decide now with its object's kind, amount, requester and step,
-// linked to its page, where the decision is made; usable at 390 px (P8).
+// Inbox is one of the person's lists of approval requests (ADR-0052 §2,
+// T73d, T73d2): those they may decide now, those they asked for, or all
+// they may see, filtered by the API's own filters; each request with its
+// object's kind, status, amount, requester and step, linked to its page,
+// where it is decided; usable at 390 px (P8).
 templ Inbox(s Shell, in InboxPage) {
 	@Layout(s, inboxContent(in))
 }
 
 templ inboxContent(in InboxPage) {
 	<h1>
-		@T(i18n.InboxTitle)
+		@T(ViewTitle(in.View))
 	</h1>
+	@ApprovalTabs(in.Tabs)
 	if in.Done != "" {
 		@Notice("inbox-done", i18n.InboxDoneTitle, Paragraph(in.Done))
 	}
 	if len(in.Barred) > 0 {
 		@Notice("inbox-barred", i18n.InboxBarredTitle, Barred(i18n.InboxBarredBody, in.Barred))
 	}
+	@ApprovalFilterForm(in.Filters)
 	if in.Refusal != nil {
 		@RefusalNotice(*in.Refusal)
-	} else if len(in.Approvals) == 0 {
-		@Paragraph(i18n.InboxEmpty)
 	} else {
-		@Paragraph(i18n.InboxLead)
-		<ul class="cards" { label(ctx, i18n.InboxListLabel)... }>
+		@inboxList(in)
+	}
+}
+
+// inboxList is a list's requests, or what an empty list says.
+templ inboxList(in InboxPage) {
+	if len(in.Approvals) == 0 {
+		@Paragraph(emptyText(in.View))
+	} else {
+		@Paragraph(leadText(in.View))
+		<ul class="cards" { label(ctx, listText(in.View))... }>
 			for _, a := range in.Approvals {
 				@Card(a)
 			}
@@ -38,6 +49,68 @@ templ inboxContent(in InboxPage) {
 			@ButtonLink(in.More, i18n.InboxMore)
 		}
 	}
+}
+
+// ApprovalTabs are the approvals' lists, the current one marked.
+templ ApprovalTabs(tabs []StatusTab) {
+	<nav class="tabs" { label(ctx, i18n.ApprovalsViewsNav)... }>
+		<ul class="tabs__list">
+			for _, t := range tabs {
+				<li class="tabs__item">
+					<a { tab(t)... }>
+						@T(t.Label)
+					</a>
+				</li>
+			}
+		</ul>
+	</nav>
+}
+
+// ApprovalFilterForm is a list's filters: a plain GET form, so a filtered
+// list is an address to keep or share; the list travels as it is.
+templ ApprovalFilterForm(f ApprovalFilters) {
+	<form class="filters" { get(ApprovalsPath)... }>
+		<h2 class="filters__title">
+			@T(i18n.ApprovalsFilters)
+		</h2>
+		if f.View != "" {
+			<input { hidden(FieldView, f.View)... }/>
+		}
+		<div class="filters__fields">
+			if f.Statuses != nil {
+				@labelSelect("filter-status", FieldStatus, i18n.ApprovalsFilterStatus, i18n.ApprovalsFilterAnyStatus, f.Statuses)
+			}
+			@labelSelect("filter-kind", FieldObjectKind, i18n.ApprovalsFilterKind, i18n.ApprovalsFilterAnyKind, f.Kinds)
+		</div>
+		<div class="filters__buttons">
+			<button class="button" type="submit">
+				@T(i18n.FilterApply)
+			</button>
+			<a class="button button--secondary" draggable="false" { link(f.Clear, "")... }>
+				@T(i18n.FilterClear)
+			</a>
+		</div>
+	</form>
+}
+
+// labelSelect is a labelled select of catalog texts, its first choice
+// none (any).
+templ labelSelect(id, name string, labelKey, none i18n.Key, options []LabelOption) {
+	<div class="field">
+		<label class="field__label" { forAttr(id)... }>
+			@T(labelKey)
+		</label>
+		<select class="select" { selectAttrs(id, name)... }>
+			<option value="">
+				@T(none)
+			</option>
+			for _, o := range options {
+				<option { labelOption(o)... }>
+					@labelText(o.Label)
+				</option>
+			}
+		</select>
+	</div>
 }
 
 // Card is one request of the inbox. Its title is the API's, which an
@@ -57,6 +130,7 @@ templ Card(a Approval) {
 		}
 		<dl class="facts">
 			@Fact(i18n.ApprovalKind, labelText(a.Kind))
+			@Fact(i18n.ApprovalStatus, StatusTag(a.Status))
 			if a.Amount != nil {
 				@Fact(i18n.ApprovalAmount, Amount(*a.Amount))
 			}
@@ -181,10 +255,17 @@ templ requestContent(rp RequestPage) {
 			@T(i18n.AgentText)
 		</p>
 	}
+	if rp.Kept {
+		@Notice("request-kept", i18n.KeptTitle, Paragraph(i18n.KeptBody))
+	}
+	if rp.Unsent != "" {
+		@Notice("request-unsent", i18n.UnsentTitle, unsentText(rp.Unsent))
+	}
 	if rp.Refusal != nil {
 		@RefusalNotice(*rp.Refusal)
 	}
 	@SummaryList(approvalRows(rp.Approval))
+	@ObjectSection(rp)
 	<h2>
 		@T(i18n.RequestSteps)
 	</h2>
@@ -214,6 +295,49 @@ templ requestContent(rp RequestPage) {
 	} else {
 		@Paragraph(rp.Why)
 	}
+	if rp.Withdraw != nil {
+		<h2>
+			@T(i18n.WithdrawTitle)
+		</h2>
+		@WithdrawForm(*rp.Withdraw)
+	}
+}
+
+// unsentText says a kept text can no longer be sent, and shows it as the
+// person wrote it: data, inside hx-disable.
+templ unsentText(text string) {
+	@Paragraph(i18n.UnsentBody)
+	<p class="untrusted decision__comment" translate="no" hx-disable>
+		@Value(text)
+	</p>
+}
+
+// ObjectSection is the request's object as it says itself: its summary
+// from its own operation, with its page in the workspace where there is
+// one; the API's refusal to read it; or why there is none. Its texts are
+// data, inside hx-disable.
+templ ObjectSection(rp RequestPage) {
+	<section class="object" { labelledBy("object-title")... }>
+		<h2 id="object-title">
+			@labelText(rp.Kind)
+		</h2>
+		if rp.Object != nil {
+			<div hx-disable>
+				@SummaryList(rp.Object.Rows)
+			</div>
+			if rp.Object.Link != "" {
+				<p>
+					<a { link(rp.Object.Link, "")... }>
+						@T(rp.Object.LinkText)
+					</a>
+				</p>
+			}
+		} else if rp.ObjectRefusal != nil {
+			@RefusalNotice(*rp.ObjectRefusal)
+		} else {
+			@Paragraph(rp.ObjectNote)
+		}
+	</section>
 }
 
 // StepItem is one step and its approvals.
@@ -269,6 +393,20 @@ templ DecideForm(f DecideForms, approve bool) {
 			</button>
 		</form>
 	}
+}
+
+// WithdrawForm is the requester's withdrawal of their own pending request
+// (cancelApprovalRequest), with the reason it needs: a real form posting
+// the CSRF token, the request's ETag as If-Match and its own idempotency
+// key.
+templ WithdrawForm(f DecideForms) {
+	<form class="decide" { action(f.Action, VerbWithdraw)... }>
+		@decideHidden(f.CSRF, f.ETag, f.WithdrawKey)
+		@CommentField("withdraw-reason", i18n.WithdrawReason, i18n.WithdrawReasonHint, f.Withdrawal, f.WithdrawError)
+		<button class="button button--warning" type="submit">
+			@T(i18n.WithdrawSubmit)
+		</button>
+	</form>
 }
 
 // decideHidden are a decision form's hidden fields.

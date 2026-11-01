@@ -215,7 +215,7 @@ func (s *Server) propose(w http.ResponseWriter, r *http.Request, p *person) {
 	if _, err := uuid.Parse(key); err != nil || (bank != "" && uuid.Validate(bank) != nil) {
 		// Not the page's form (its bank is one the form offers, or none):
 		// nothing to keep or explain.
-		s.render(w, r, http.StatusBadRequest, ui.Problem(s.shell(i18n.RefusedTitle, ""), i18n.RefusedTitle, i18n.ProblemInvoiceBody, ui.PaymentsPath, i18n.RunBack))
+		s.render(w, r, http.StatusBadRequest, ui.Problem(s.chrome(r, i18n.RefusedTitle), i18n.RefusedTitle, i18n.ProblemInvoiceBody, ui.PaymentsPath, i18n.RunBack))
 		return
 	}
 	m, ok := s.whoami(w, r, p)

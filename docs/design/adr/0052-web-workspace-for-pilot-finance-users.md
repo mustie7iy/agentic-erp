@@ -1129,7 +1129,11 @@ Decisions for the product owner (T73b):
   and no service holds the master credentials (ADR-0035, amendment of
   2026-10-28). erp-web still works as `erp_web` (`SET LOCAL ROLE`, its
   own role now), so the question of the master's `SET ROLE` no longer
-  arises for the directory.
+  arises for the directory. Since 2026-11-01 the three logins have no
+  passwords in production: they authenticate with RDS IAM tokens their
+  IRSA roles sign (ADR-0035, As built 2026-11-01); `TestImportRules`
+  lets the workspace import `platform/rdsiam` for this, which signs the
+  token and holds no connection.
 - **D2:** whether the API's audit trail should record people's client
   addresses (for erp-web's users, the router would have to trust erp-web
   to forward them, which it cannot authenticate today). Decided
@@ -2312,6 +2316,89 @@ and posted in the next day's period, or the next year's.
   the clock's; against the real API, an entry of the Toronto and of the
   Dubai company dated that company's day. The walkthrough reads Maple's
   date and zone (step 13).
+
+## Built in T73d2 (2026-11-01)
+Approvals beyond the inbox. What it settled, and where it departs from
+the step as first written:
+- **Contract (smallest change).** "My requests" had no filter:
+  `listApprovalRequests` gains `requested_by=me` (the caller's requests in
+  any status, combined with the other filters; any other value 400
+  `request.invalid_parameter`), backed by the index
+  `approval_request_by_requester (tenant_id, requester_id, created_at, id)`
+  (migration 000183, built concurrently in a migration of its own, 06
+  §6.4), validated before anything else; `TestRequestedBy` checks it reads the
+  caller's rows only. The walkthrough's step 4 has Ben list his own
+  pending requests.
+- **Lists.** `GET /approvals` serves three lists by `view`: the inbox
+  (none, `decidable_by=me`), `mine` (`requested_by=me`) and `all`, as
+  tabs (`aria-current` on the current), with a plain GET filter form of
+  the API's own filters: status on `mine` and `all` (the inbox holds
+  pending requests alone, so a status there is ignored) and object type
+  on all three, an unknown value kept as it is. The next page's link
+  carries the view and filters with the API's token, whose scope holds
+  them. A card now shows its request's status.
+- **The object's own summary.** A request's page reads its object with
+  the operation of its type and shows a few of its fields as data
+  (inside `hx-disable`), linked to its own page where the workspace has
+  one (invoice, parked entry, period, payment run). Covered: requisition
+  (`getRequisition`), partner change (`getPartnerChange`), configuration
+  change (`getChangeRequest`), invoice exception (`getSupplierInvoice`),
+  period unlock (`getFiscalPeriod`), manual entry
+  (`getParkedJournalEntry`), purchase order release (`getPurchaseOrder`),
+  center change (`getCenterChange`), GR/IR clearing (`getGrIrClearing`),
+  payment run release (`getPaymentRun`) and tax return (`getTaxReturn`,
+  hidden by `tax.return.read`: batch 32 added the type, T61i, while T73d2
+  was built; the batch 34 integration added its summary, with no link, as
+  the workspace has no page for a return). **Not covered:** an order
+  change (`getPurchaseOrderChange` needs the order's id, which the request
+  does not carry) and a bank clearing (its object is a statement line's
+  match, which no operation reads by id); their pages say the workspace
+  does not show that kind yet (T73d3). The read is skipped when the person
+  lacks its `x-permission` (advisory, the page says so); the API's refusal
+  is shown in its place in the object's words (`i18n.ObjectProblems`). The
+  inventory marks these reads `PerObject`: a page calls one of them, so
+  `TestScreensAgainstTheContract` counts them as one read (four in all).
+- **Withdrawal.** The requester's own pending request offers "Withdraw
+  the request" (`POST /approvals/{id}/cancel`, `cancelApprovalRequest`,
+  hidden by `workflow.request.cancel`, not human-only as the operation is
+  not `x-agent: false`) with the reason `CommentRequiredInput` needs,
+  checked before the call; done, the person lands on their own list with
+  a notice. Anyone else is not offered it, and the API's
+  `workflow.not_requester` is explained if they send it anyway.
+- **404 and refused forms keep the navigation.** `notFound`, the CSRF
+  refusal and every "not the page's form" page build their shell with
+  `chrome`: a signed-in person's navigation and sign-out (one
+  `getCurrentPrincipal`), the plain shell for anyone else or when that
+  call fails. The catch-all route loads the session without renewing it
+  or sending anyone to sign in (`anyone`). A cross-origin refusal
+  (`CrossOriginProtection`) stays without it: it comes from another site.
+- **A decision's text across a step-up (decided by default, for the
+  product owner to overrule).** When the API answers a decision with the
+  RFC 9470 challenge, what the person wrote is kept in their own browser,
+  not in the web store: §6 keeps no business data there, and the
+  directory is global, not the tenant's region. It is sealed with the
+  sessions' key (AES-256-GCM, bound to the tenant and the person's
+  subject), in up to three `__Host-erp-draft-N` cookies (Secure,
+  HttpOnly, SameSite=Strict, ten minutes, as the sign-in's), since a
+  2,000-character comment may be 8,000 bytes. The request's page reads it
+  once after the sign-in, puts it in its form with a notice that it was
+  not sent, and deletes it; it is never sent for the person (§7: one
+  decision, one click). When the request no longer offers that decision
+  (decided or withdrawn while the person signed in again), the page shows
+  the text as data and says it can no longer be sent, rather than lose it
+  unseen. Another person signing in on the browser, a
+  draft past its ten minutes or one tampered with shows nothing.
+- **Accessibility.** The tabs are a labelled `nav` with `aria-current`;
+  the filters' selects and the withdrawal's reason have labels, hints and
+  errors tied by `aria-describedby`/`aria-invalid`, as the decision forms
+  do; the object's section is a `section` named by its heading; the kept
+  text's notice is a labelled region. axe runs at zero on the list of
+  all requests filtered and on a signed-in 404 in English, French and
+  both pseudo-locales at 1280 and 390 px, and on each state of the
+  requester's withdrawal at 390 px (`TestWithdrawInTheBrowser`). The
+  pseudo-locale check no longer reads an `option`'s `value`, which the
+  form sends and nobody sees. The screen-reader review of §10 and the
+  pilot approver's walk-through are the human acceptance left in T73d3.
 
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August

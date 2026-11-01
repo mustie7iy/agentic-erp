@@ -1783,6 +1783,14 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A chosen tax date is held to periods whose tax return is not prepared, approved or filed (P6): a manual entry with tax, and a supplier invoice whose tax date a person set, dated in such a period is refused with 409 ledger.tax_date_in_return naming the period, return and status; a post racing a prepare serializes on the registration",
+        "r": "ledger.TaxReturns (Holding) · taxfiling.Holds · ledger.Posting.TaxDateChosen · ADR-0049 §11 As built (T61o) · walkthrough step 11 · T61o",
+        "src": "po:2026-11-01 · adr:ADR-0049",
+        "pilot": "po:2026-11-01 · adr:ADR-0049",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "Preparing a tax return does not enforce period order: preparing a later period first claims an earlier unfiled period's unreported items as prior-period items",
         "r": "internal/taxfiling prepare.go claim (ledger.TaxItems.Claim takes every unreported item dated by the period's end, with no check that earlier periods are filed) · ADR-0049 §11 As built (T61i) · walkthrough step 11 relies on it (its draft expects \"60.00 10.00\" and its original claims invoice 1031 of an earlier unfiled period): enforcing the order means filing the earlier periods there first, or a cutover · data and tax correctness of the return",
@@ -5515,11 +5523,19 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Approvals beyond the inbox: my requests and all I can see (listApprovalRequests by status and object type), the object's own summary per type (getRequisition, getPartnerChange, getSupplierInvoice, …) on the request's page, cancel own with a comment; a signed-in person's 404 and refused-form pages with their navigation; a decision's text kept across a step-up sign-in; walked through by a pilot approver",
-        "r": "T73d2 (split from T73d, 2026-10-22)",
+        "s": "D",
+        "t": "Approvals beyond the inbox: my requests (listApprovalRequests requested_by=me, a contract change with its index) and all I can see, by status and object type; the object's own summary per type on the request's page (getRequisition, getPartnerChange, getChangeRequest, getSupplierInvoice, getFiscalPeriod, getParkedJournalEntry, getPurchaseOrder, getCenterChange, getGrIrClearing, getPaymentRun, getTaxReturn; refused in place, hidden without the read permission); the requester's withdrawal with a reason (cancelApprovalRequest; anyone else refused by workflow.not_requester); a signed-in person's 404 and refused-form pages with their navigation; a decision's text kept across a step-up sign-in (sealed in the person's browser, never the web store)",
+        "r": "internal/approvals api.go requestedBy · migration 000183 approval_request_by_requester · internal/web approvals.go · approval_object.go returnSummary · approval_draft.go · me.go chrome · signin.go anyone · operations.go PerObject, decideOps · ui/approvals.templ · i18n en, fr-CA · TestRequestedBy · TestApprovalLists · TestObjectSummaries · TestEveryObjectRead · TestSummaries · TestWithdraw · TestPagesKeepNavigation · TestDraftAcrossStepUp · TestObjectHiddenOrUnknown · TestWithdrawInTheBrowser · TestApprovalsInTheBrowser · walkthrough step_procure · ADR-0052 Built in T73d2 · T73d2",
         "src": "split:T73d",
         "pilot": "po:2026-10-31 · split:T73d · adr:ADR-0052",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Approvals beyond T73d2: the object's summary of an order change (getPurchaseOrderChange needs the order's id, which the request does not carry: a contract change, the order on the request or a read of the change by its own id) and of a bank clearing (its object is a statement line's match, which no operation reads by id: a contract change); walked through by a pilot approver",
+        "r": "T73d3 (split from T73d2, 2026-11-01)",
+        "src": "split:T73d2 · adr:ADR-0052",
+        "pilot": "po:2026-10-31 · split:T73d2 · adr:ADR-0052",
         "c": []
        },
        {
@@ -8518,11 +8534,27 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The router's, the cells' and erp-web's directory logins authenticate with RDS IAM database authentication in place of their operator-set passwords, before production",
-      "r": "T72h · ADR-0035 amendment 2026-10-28 · internal/directory setup.go · deploy/helm/erp-global · deploy/helm/erp-cell · modules/global",
+      "r": "T72h · ADR-0035 amendment 2026-10-28, As built 2026-11-01 · internal/platform/rdsiam (tokens per new connection from the IRSA role) · internal/directory setup.go (IAM logins: no password, rds_iam) · router, cell and erp-web configuration (ERP_DIRECTORY_REGION, ERP_WEB_DIRECTORY_REGION; a password refused in production) · deploy/helm/erp-global · deploy/helm/erp-cell · modules/global (iam_database_authentication_enabled, directory_users) · modules/cell irsa.tf (router, web and server roles, rds-db:connect on their own login) · no walkthrough step: infrastructure authentication, the walkthrough runs on plain PostgreSQL",
       "src": "po:2026-10-28",
       "pilot": "po:2026-10-31 · po:2026-10-28 · adr:ADR-0035",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "The directory's logins connect with RDS IAM tokens on a real RDS instance in the AWS staging account (the router, a cell and erp-web each as its IRSA role), and the specialist's open points are settled: the token form RDS accepts, rds_iam's rights and membership options on RDS, and the master user's GRANT rds_iam and PASSWORD NULL; and erp-web reaches STS through the endpoint's own subnets once Terraform moved it there: the move in one apply (one subnet per zone), how long STS is unreachable meanwhile, and that STS's private DNS then answers with those subnets' addresses alone",
+      "r": "split of the RDS IAM leaf · ADR-0035 As built 2026-11-01, Not confirmed on an RDS instance · T72h · ADR-0035 As built 2026-11-01, erp-web reaches STS's endpoint by its own subnets (Not confirmed on AWS) · po:2026-11-01",
+      "src": "split:T72h · po:2026-10-28",
+      "pilot": "po:2026-10-31 · po:2026-10-28 · adr:ADR-0035",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "erp-web's egress to STS narrowed to the endpoint's subnets (PO 2026-11-01)",
+      "r": "ADR-0035 As built 2026-11-01 (erp-web reaches STS's endpoint by its own subnets) · modules/network aws_subnet.sts_endpoint (a /28 per zone of egress in the VPC's fourth /20, STS's endpoint alone) · sts_endpoint_cidrs (network, cell, environment outputs) · deploy/helm/erp-global awsEndpoints.stsCidrs (required, /28s only) · deploy/helm/policy/workloads.rego (erp-web on 443: /28s or the internet with the private ranges excepted) · scripts/helm-checks.sh (exact egress, render refusals, three tampered renders) · no walkthrough step: network policy, no API of its own",
+      "src": "po:2026-11-01",
+      "pilot": "po:2026-11-01 · adr:ADR-0035",
       "c": []
      },
      {

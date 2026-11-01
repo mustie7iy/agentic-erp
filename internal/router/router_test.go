@@ -155,7 +155,8 @@ func TestLoadConfig(t *testing.T) {
 	// Production reaches the directory over verified TLS only (ADR-0033).
 	_, err = router.LoadConfig(env(prodEnv))
 	pgtest.WantErr(t, err, "ERP_DIRECTORY_URL: sslmode must be verify-full")
-	prodEnv["ERP_DIRECTORY_URL"] = "postgres://u:p@dir.example.com/erp?sslmode=verify-full"
+	prodEnv["ERP_DIRECTORY_URL"] = "postgres://erp_router_login@dir.example.com/erp?sslmode=verify-full"
+	maps.Copy(prodEnv, iam)
 	// Its own TLS material is the rest of what production requires
 	// (TestLoadConfigTLS).
 	_, err = router.LoadConfig(env(prodEnv))
@@ -364,7 +365,8 @@ func TestLoadConfigTLS(t *testing.T) {
 		"ERP_ROUTER_PUBLIC_KEY":  "file:" + tlstest.WriteFile(t, dir, "public.key", public.KeyPEM),
 		"ERP_TRUST_DOMAIN":       "erp.example",
 	}
-	base := map[string]string{"ERP_DIRECTORY_URL": "postgres://u:p@dir.example.com/erp?sslmode=verify-full", "ERP_ENV": "production"}
+	base := map[string]string{"ERP_DIRECTORY_URL": "postgres://erp_router_login@dir.example.com/erp?sslmode=verify-full", "ERP_ENV": "production"}
+	maps.Copy(base, iam)
 	env := func(set ...map[string]string) func(string) string {
 		m := maps.Clone(base)
 		for _, s := range set {
@@ -577,6 +579,52 @@ func TestModelCallsMayTakeTheirTime(t *testing.T) {
 			if !w.deadline.Equal(c.want) {
 				t.Errorf("write deadline: got %v, want %v", w.deadline, c.want)
 			}
+		})
+	}
+}
+
+// iam are production's settings of the router's directory login: RDS IAM
+// tokens for the directory's region as the router's IRSA role.
+var iam = map[string]string{"ERP_DIRECTORY_REGION": "eu-central-1", "AWS_ROLE_ARN": "arn:aws:iam::222222222222:role/erp-dev1-router",
+	"AWS_WEB_IDENTITY_TOKEN_FILE": "/var/run/secrets/eks.amazonaws.com/serviceaccount/token"}
+
+// TestLoadConfigDirectoryIAM: in production the router's login presents
+// RDS IAM tokens, minted for the URL's endpoint and login; a password, a
+// missing region or a missing IRSA role fails startup (ADR-0035 As built
+// 2026-11-01).
+func TestLoadConfigDirectoryIAM(t *testing.T) {
+	ca, dir := tlstest.NewCA(t), t.TempDir()
+	leaf, public := ca.Issue(t, tlstest.Options{URIs: []string{"spiffe://erp.example/global/erp-router"}}), ca.Issue(t, tlstest.Options{DNS: []string{"api.example.com"}})
+	base := map[string]string{"ERP_DIRECTORY_URL": "postgres://erp_router_login@dir.example.com/erp?sslmode=verify-full", "ERP_ENV": "production",
+		"ERP_TLS_CA": "file:" + tlstest.WriteFile(t, dir, "ca.crt", ca.PEM), "ERP_TLS_CERT": "file:" + tlstest.WriteFile(t, dir, "tls.crt", leaf.CertPEM),
+		"ERP_TLS_KEY": "file:" + tlstest.WriteFile(t, dir, "tls.key", leaf.KeyPEM), "ERP_TRUST_DOMAIN": "erp.example",
+		"ERP_ROUTER_PUBLIC_CERT": "file:" + tlstest.WriteFile(t, dir, "public.crt", public.CertPEM),
+		"ERP_ROUTER_PUBLIC_KEY":  "file:" + tlstest.WriteFile(t, dir, "public.key", public.KeyPEM)}
+	maps.Copy(base, iam)
+	env := func(set map[string]string) func(string) string {
+		m := maps.Clone(base)
+		maps.Copy(m, set)
+		return func(k string) string { return m[k] }
+	}
+	c, err := router.LoadConfig(env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.DirectoryPassword == nil {
+		t.Fatal("production: got no token source, want RDS IAM tokens")
+	}
+	for name, c := range map[string]struct {
+		set  map[string]string
+		want string
+	}{
+		"a password":     {map[string]string{"ERP_DIRECTORY_PASSWORD": "file:/etc/erp/secrets/directory-password"}, "ERP_DIRECTORY_PASSWORD must not be set with ERP_ENV=production"},
+		"no region":      {map[string]string{"ERP_DIRECTORY_REGION": ""}, "ERP_DIRECTORY_REGION is required with ERP_ENV=production"},
+		"no IRSA role":   {map[string]string{"AWS_WEB_IDENTITY_TOKEN_FILE": ""}, "AWS_ROLE_ARN and AWS_WEB_IDENTITY_TOKEN_FILE are required"},
+		"a URL password": {map[string]string{"ERP_DIRECTORY_URL": "postgres://erp_router_login:p@dir.example.com/erp?sslmode=verify-full"}, "ERP_DIRECTORY_URL: rdsiam: settings"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := router.LoadConfig(env(c.set))
+			pgtest.WantErr(t, err, c.want)
 		})
 	}
 }
