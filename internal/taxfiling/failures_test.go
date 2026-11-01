@@ -44,6 +44,10 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"apply": func(ctx context.Context) error { return setup().Apply(ctx, doc) },
+		"the return holding a tax date": func(ctx context.Context) error {
+			_, _, err := taxfiling.Holds{}.Holding(ctx, e.DE, time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC))
+			return err
+		},
 	}
 	for name, call := range calls {
 		t.Run(name, func(t *testing.T) {
@@ -137,8 +141,11 @@ type lifecycleScene struct {
 func newLifecycleScene(t *testing.T) lifecycleScene {
 	t.Helper()
 	e := lifecycleEnv(t)
+	var feb string
 	for _, day := range []string{"2026-02-10", "2026-05-10", "2026-08-10", "2026-10-10"} {
-		sale(t, e, day, "")
+		if id := sale(t, e, day, ""); feb == "" {
+			feb = id
+		}
 	}
 	s := lifecycleScene{e: e, testID: uuid.MustParse(id(t, e, "TEST"))}
 	closePeriods(t, e, 1, 3)
@@ -147,7 +154,8 @@ func newLifecycleScene(t *testing.T) lifecycleScene {
 	closePeriods(t, e, 4, 9)
 	s.q2 = s.prepared(t, "2026-04-01", true)
 	s.q3 = s.prepared(t, "2026-07-01", false)
-	sale(t, e, "2026-10-20", "2026-03-15") // after Q1's filing and the later returns
+	// After Q1's filing and the later returns, dated in Q1 as its original.
+	e.Must(200, "POST", "/v1/journal-entries/"+feb+":reverse", `{"posting_date": "2026-10-20"}`, "*")
 	closePeriods(t, e, 10, 12)
 	r, _ := e.Must(200, "GET", "/v1/tax-returns/"+s.q3.String(), "", "")
 	s.q3Request = uuid.MustParse(r["approval_request_id"].(string))

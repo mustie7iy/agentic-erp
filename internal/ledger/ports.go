@@ -25,10 +25,13 @@ type Postings struct {
 	LegalEntities LegalEntities
 	Partners      Partners
 	Numbers       Numbers
+	// TaxReturns holds a tax date a person chose (Posting.TaxDateChosen)
+	// to the periods no tax return reports yet (ADR-0049 P6).
+	TaxReturns TaxReturns
 }
 
 func (p Postings) endpoints() *Endpoints {
-	return &Endpoints{LegalEntities: p.LegalEntities, Partners: p.Partners, Numbers: p.Numbers}
+	return &Endpoints{LegalEntities: p.LegalEntities, Partners: p.Partners, Numbers: p.Numbers, TaxReturns: p.TaxReturns}
 }
 
 // PostingLine is a line to post, in minor units of the entry's currency,
@@ -76,6 +79,10 @@ type Posting struct {
 	// tax is reported in (ADR-0049 §4): a supplier invoice's invoice date;
 	// nil: the posting date.
 	TaxDate *time.Time
+	// TaxDateChosen says a person chose TaxDate (a supplier invoice's
+	// tax date set by hand, P6): an entry with tax is then refused when
+	// a tax return already reports the date's period (holdTaxDate).
+	TaxDateChosen bool
 	// TaxItems are the entry's tax items as the context calculated them
 	// (T61d); nil: the ledger derives them from the lines (T61c).
 	TaxItems         []PostingTaxItem
@@ -348,7 +355,8 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 	}
 	entry := NewEntry{LegalEntityID: in.LegalEntityID, DocumentType: in.DocumentType, DocumentDate: in.DocumentDate, PostingDate: in.PostingDate,
 		TaxDate: in.TaxDate, Currency: in.Currency, Reference: in.Reference, HeaderText: in.HeaderText, SourceContext: in.SourceContext,
-		SourceDocumentID: &in.SourceDocumentID, Lines: make([]NewLine, len(in.Lines)), taxItems: in.TaxItems, rate: in.Rate}
+		SourceDocumentID: &in.SourceDocumentID, Lines: make([]NewLine, len(in.Lines)), taxItems: in.TaxItems, rate: in.Rate,
+		taxDateChosen: in.TaxDateChosen}
 	for i, l := range in.Lines {
 		entry.Lines[i] = NewLine{AccountID: l.AccountID, Amount: l.Amount.Plain(exps[in.Currency]), Currency: in.Currency,
 			PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, SpecialGL: l.SpecialGL, lc: l.LC,

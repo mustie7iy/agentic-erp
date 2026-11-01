@@ -494,9 +494,7 @@ commit-time check, like the balance trigger).
   original's negated. **Not yet:** a derived item set (a manual entry's)
   has no item for a non-deductible component, which has no line of its
   own (a supplier invoice gives one, T61d); the partner's tax id
-  fingerprint is added with the returns that read it (T61g); a manual
-  entry's tax date is not yet held to the open return periods (P6; with the
-  return periods, T61g/T61i); local amounts are the lines', converted at the
+  fingerprint is added with the returns that read it (T61g); local amounts are the lines', converted at the
   posting date's average rate as every posting is, not yet at the
   authority's rate type on the tax date (§8: T61d's calculation converts at
   it).
@@ -570,8 +568,9 @@ commit-time check, like the balance trigger).
   (a step for the release notes). **Not yet:** down payment requests' tax checked at the run
   date's rate, the documentary-requirement warnings for Canada and the UAE
   (tracker, T61d follow-up), and the tax date held to the open return
-  periods (P6; with the return periods, T61g/T61i). The first two were
-  built in the T61d follow-up (below and §4).
+  periods (P6). The first two were built in the T61d follow-up (below
+  and §4), the third with the hold of chosen tax dates (T61o, §11 As
+  built).
 - **As built (T61d follow-up, migration 000182):** the documentary
   requirements are the company's `tax_settings.documentary_requirements`
   (config.TaxSettings), which the country pack's `tax.yaml` brings under
@@ -1126,9 +1125,64 @@ companies (all in the tenant, under RLS). A registration change is financial
     covers (403 `tax.registration_companies`).
   - **Not built:** the drill-down of a stored return's boxes to their
     items (the working papers, T59/T63; `tax.tax_return_item` holds
-    them), the hold of a manual entry's tax date to open returns (P6,
-    §5 As built), T64's checklist task, due dates, and a configured
-    approver role.
+    them), T64's checklist task, due dates, and a configured approver
+    role. The hold of a chosen tax date to open returns (P6) is T61o's,
+    below.
+- **As built (T61o, product owner 2026-11-01: P6's hold).** A tax date
+  chosen for an entry is held to the periods no return reports yet;
+  decided by default from P6, §4, §11 and the T61i lifecycle, each listed
+  for the product owner to overrule. No migration.
+  - **What holds a period.** A return of kind original or amendment that
+    is `prepared`, `approved` or `filed`, of a registration covering the
+    entry's company as registrant or tax group member, whose period
+    holds the tax date. Prepared and approved hold as filed does: P6
+    allows a person's date "while its return is open", and a prepared
+    return has claimed its period's items; a withdrawn or rejected one
+    has released them and holds nothing. Any registration covering the
+    company holds, whatever its authority and the codes the entry
+    carries: a company registered with the CRA and Revenu Québec whose
+    GST/HST return is filed cannot date QST into that period either
+    (which boxes would select an item is the pack's, not known at
+    posting; conservative, for the product owner to narrow).
+  - **What is held.** A manual entry with a tax code on a line, whatever
+    its tax date (given, or its posting date), posted at once, parked and
+    posted, posted by its approval, or posted by a service principal such
+    as the pilot's billing system; and a supplier invoice whose tax date
+    a person set (§4: "editable by a person within the open return
+    periods"), on an account or on an order (`Posting.TaxDateChosen`).
+    Not held: a tax date the document or the ledger decides, which is
+    how a late item reaches the filed period's amendment or the next
+    return (P7, the period lock above): an invoice's invoice date, a
+    credit memo's named invoice's, a reversal's original's, a down
+    payment's payment date, a cash discount's payment date, a goods
+    movement's posting date, and the entries of migration runs. A manual
+    adjustment for a filed period (the adjustments above) is dated in an
+    open period and reported in the next return. Entries without tax are
+    not held. A parked entry is checked when it is posted, not when
+    parked, as its period is.
+  - **The refusal.** 409 `ledger.tax_date_in_return` naming the tax
+    date, the period, the registration's code and the return's kind, id
+    and status. The call graph lists it for `postJournalEntry`,
+    `postParkedJournalEntry`, `approveApprovalRequest` (an approved
+    manual entry), `postSupplierInvoice`, and for the goods receipts and
+    `startMigrationRun`, whose postings reach the same code but never
+    choose a date.
+  - **Concurrency.** The tax filing context's `Holds` locks the
+    registrations covering the company FOR SHARE in a statement of its
+    own and then reads their returns; prepare locks its registration FOR
+    UPDATE before it claims items. A posting under way is claimed by the
+    prepare that waited for it; a posting that waited for a prepare sees
+    its return and is refused; postings share the lock
+    (`TestTaxDateHoldSerializes`, which fails without the lock).
+  - **The port.** `ledger.TaxReturns` (`Holding`) is in the ledger's
+    published API and implemented by `taxfiling.Holds`, wired in
+    `internal/app` into the API's ledger endpoints, the manual entries'
+    approval handler and the posting port. `taxfiling` already imports
+    the ledger and the ledger imports nothing of it, so the dependency
+    direction is unchanged (the ledger calls its own interface, as it
+    calls the partner and configuration contexts); no new ADR. A ledger
+    wired without the port fails a held posting (500) rather than post
+    it unheld.
 
 ### 12. Audit
 Every change of a registration, code or rate is a configuration change request
@@ -1201,6 +1255,7 @@ coverage 100%, reviewer) like every step.
 | T61g | **Registrations and tax periods** | `companies[].tax_registrations` (authority, number encrypted as tax ids are, return type, frequency, first period; UAE tax group across companies); tier 3; tax periods generated; API to list registrations and periods |
 | T61h (done) | **The return engine** | `returns.yaml` in the pack schema (boxes as item selections or CEL expressions over boxes), validated and hashed with the pack; a draft return for a registration and period computed from unreported items, with prior-period items shown apart; every box drills to items; `GET /v1/tax-returns:compute` (contract first, `tax.return.read`; built as `GET /v1/tax-registrations/{id}/draft-return`, §11 As built) |
 | T61i (done) | **Return lifecycle** | `tax.tax_return` with snapshot (box values, item ids, hash, pack version); prepare (needs closed periods; sets `reported_in` under a registration lock, once), approve (another person, approvals context), file (a person records the confirmation; locks the periods via T32), withdraw, amendment; human-only transitions; audit and outbox events; run-twice tests for any worker; immutability trigger on filed snapshots |
+| T61o (done) | **Chosen tax dates held to open returns** (P6; product owner 2026-11-01) | A manual entry with tax, and a supplier invoice whose tax date a person set, dated in a period whose return is prepared, approved or filed is refused with 409 `ledger.tax_date_in_return` naming the period, return and status; dates the document decides are not held, so late items reach the amendment; a post racing a prepare serializes on the registration; walkthrough step 11 |
 | T61j | **GST/HST return for Canada** | The GST34 lines in the Canada pack's `returns.yaml` (101-115 incl. 205 and 405), golden tests from a worked set of invoices, entries and adjustments, signed off by the tax specialist; the FPZ-500 (GST/HST + QST) if P4 includes it |
 | T61k | **VAT 201 for the UAE** | Boxes 1a-14 in the UAE pack (with T62f), emirate by the registration's fixed establishment, Box 6/7 from import entries, golden tests, specialist sign-off; checked against the EmaraTax form labels |
 | T61l | **Tax agent** | Prepares draft returns, explains variances against the last period and the tax accounts, proposes adjustment entries (parked) and code corrections; evaluation suite (ADR-0039); never transitions a return |

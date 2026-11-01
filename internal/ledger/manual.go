@@ -107,10 +107,11 @@ type ManualEntries struct {
 	LegalEntities LegalEntities
 	Partners      Partners
 	Numbers       Numbers
+	TaxReturns    TaxReturns // holds the entry's tax date to open returns (P6)
 }
 
 func (m ManualEntries) endpoints() *Endpoints {
-	return &Endpoints{LegalEntities: m.LegalEntities, Partners: m.Partners, Numbers: m.Numbers}
+	return &Endpoints{LegalEntities: m.LegalEntities, Partners: m.Partners, Numbers: m.Numbers, TaxReturns: m.TaxReturns}
 }
 
 // Approved posts the entry as approved, checked again: a period closed or

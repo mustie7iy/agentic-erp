@@ -553,6 +553,9 @@ type NewEntry struct {
 	// rate is the source system's rate into local currency (Posting.Rate),
 	// or nil.
 	rate *big.Rat
+	// taxDateChosen: a person chose TaxDate (Posting.TaxDateChosen), so
+	// it is held to the open returns as a manual entry's is.
+	taxDateChosen bool
 }
 
 // taxDay is the entry's tax date: the one it names, else its posting date.
@@ -1062,6 +1065,9 @@ func (e *Endpoints) postPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 		if err := check(ctx, tx, v, in); err != nil {
 			return Entry{}, err
 		}
+	}
+	if err := holdTaxDate(ctx, e.TaxReturns, v.le.ID, in.heldTaxDate(), in.taxDay(), v.lines); err != nil {
+		return Entry{}, err
 	}
 	if items := importItems(v.lines, rateLC, v.expTC, v.exps[v.le.LocalCurrency]); items != nil {
 		in.taxItems = items
