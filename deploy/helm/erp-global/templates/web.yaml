@@ -34,6 +34,19 @@
 {{- fail (printf "web.proxyFrom must list the web load balancer's subnets as IPv4 CIDRs, not %q" .) }}
 {{- end }}
 {{- end }}
+{{- /* STS's endpoint's own subnets, erp-web's only reach in the VPC on 443
+       (ADR-0035 As built 2026-11-01): no list, an empty one or anything but
+       /28s (the subnets modules/network makes for the endpoint alone) fails
+       the render rather than open more of the VPC. */}}
+{{- $stsCidrs := required "awsEndpoints.stsCidrs is required: cell.sts_endpoint_cidrs" .Values.awsEndpoints.stsCidrs }}
+{{- if not $stsCidrs }}
+{{- fail "awsEndpoints.stsCidrs is required: cell.sts_endpoint_cidrs, the subnets of STS's VPC endpoint" }}
+{{- end }}
+{{- range $stsCidrs }}
+{{- if not (regexMatch "^[0-9]{1,3}(\\.[0-9]{1,3}){3}/28$" (toString .)) }}
+{{- fail (printf "awsEndpoints.stsCidrs must list the /28 subnets of STS's VPC endpoint (cell.sts_endpoint_cidrs), not %q" (toString .)) }}
+{{- end }}
+{{- end }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -330,12 +343,12 @@ spec:
 # balancer's subnets alone; the admin listener none (kubelet's probes are
 # not subject to policies); erp-web reaches the router's public listener,
 # the directory database in the VPC on 5432 (its sessions; the rule
-# admits the VPC's 5432, as the router's does), the VPC on 443 for STS's
-# interface endpoint (its IRSA role; the rule admits every address of the
-# VPC on 443, the cluster's private API endpoint and the other interface
-# endpoints too, which erp-web's role and token may use for nothing), and
-# the tenants' identity providers on 443 (discovery, keys, token
-# endpoint), anywhere outside the VPC.
+# admits the VPC's 5432, as the router's does), STS's interface endpoint on
+# 443 (its IRSA role) by the endpoint's own subnets alone, and the tenants'
+# identity providers on 443 (discovery, keys, token endpoint), anywhere
+# outside the VPC: nothing else in the VPC on 443, neither the cluster's
+# private API endpoint nor the other interface endpoints (product owner
+# 2026-11-01, ADR-0035 As built).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -366,11 +379,13 @@ spec:
       ports:
         - {protocol: TCP, port: 5432}
     # STS, whose regional name the VPC's interface endpoint answers with
-    # addresses in the VPC: erp-web exchanges its service account's token
-    # there for its IRSA role, which signs its directory login's tokens
-    # (ADR-0035 As built 2026-11-01).
+    # its addresses in the subnets it alone sits in: erp-web exchanges its
+    # service account's token there for its IRSA role, which signs its
+    # directory login's tokens (ADR-0035 As built 2026-11-01).
     - to:
-        - ipBlock: {cidr: {{ $vpc | quote }}}
+        {{- range $stsCidrs }}
+        - ipBlock: {cidr: {{ toString . | quote }}}
+        {{- end }}
       ports:
         - {protocol: TCP, port: 443}
     # The providers are on the internet (in production erp-web refuses

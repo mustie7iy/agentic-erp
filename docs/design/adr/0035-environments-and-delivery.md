@@ -1041,11 +1041,10 @@ unchanged.
 - *Decided by default*: production refuses a password setting rather than
   preferring IAM over it (no silent fallback, CLAUDE.md); the IRSA role is
   the only credential source for the tokens; erp-web's network policy
-  admits the VPC on 443, for STS's interface endpoint, whose regional name
+  admitted the VPC on 443, for STS's interface endpoint, whose regional name
   resolves to addresses in the VPC (it admitted nothing in the VPC on 443
-  before; the rule admits every address of the VPC on 443, the cluster's
-  private API endpoint and the other interface endpoints among them, since
-  a network policy cannot name the endpoint's security group); the router's and erp-web's roles are made on the home cell
+  before); the product owner had it narrowed to the endpoint's own
+  subnets on 2026-11-01 (the next section); the router's and erp-web's roles are made on the home cell
   alone and have no counterparts in the pilot light, since the router, erp-web
   and the directory stay in the home region (ADR-0040); `rds_iam` is
   granted as the guide shows, with PostgreSQL 17's default options
@@ -1080,3 +1079,89 @@ unchanged.
   of its own, and the walkthrough runs in development on plain PostgreSQL,
   which has no IAM; the evidence is the tests above and, on AWS, the
   staging leaf.
+
+**As built (2026-11-01, product owner 2026-11-01): erp-web reaches STS's
+endpoint on 443 by the endpoint's own subnets, nothing else in the VPC.**
+The section above let erp-web reach the whole VPC on 443 for STS; the
+product owner asked for it narrowed (security posture). The router's
+policy is unchanged: it admitted 443 to every address before the IRSA
+change, for the tenants' identity providers, and that change did not widen
+it; the cells' policies did not change either.
+
+- *Why STS needs subnets of its own*: a network policy admits addresses
+  (`ipBlock`), not a security group or a DNS name, and the endpoint's
+  interfaces get their addresses only when it is created. STS's endpoint
+  sat in the private subnets with the nodes, the pods, the databases, the
+  cluster's own interfaces ("Amazon EKS creates 2–4 elastic network
+  interfaces in the subnets that you specify",
+  https://docs.aws.amazon.com/eks/latest/userguide/network-reqs.html; the
+  cell gives the private subnets) and every other interface endpoint:
+  those subnets are three quarters of the VPC, so admitting them would
+  have narrowed nothing. The tightest block Terraform knows at plan time is
+  a subnet that holds the endpoint and nothing else.
+- *Network layout* (`modules/network`): a `/28` per zone of egress, the
+  smallest subnet AWS allows ("between a /28 netmask and /16 netmask",
+  https://docs.aws.amazon.com/vpc/latest/userguide/subnet-sizing.html),
+  `aws_subnet.sts_endpoint`, carved from the VPC's fourth `/20`
+  (`cidrsubnet(cidrsubnet(cidr, 4, 3), 8, i)`), which no subnet used: the
+  public subnets are the first three `/20`s, the private ones the upper
+  three `/18`s. With `zone_redundant` that is three (`10.x.48.0/28`,
+  `.48.16/28`, `.48.32/28`), without it one, in the first zone, where the
+  interface endpoints sit. STS's endpoint takes those subnets alone ("for
+  each subnet that you specify … we create an endpoint network interface
+  in the subnet", one subnet per zone,
+  https://docs.aws.amazon.com/vpc/latest/privatelink/create-interface-endpoint.html);
+  KMS and the other interface endpoints stay in the private subnets. The
+  subnets have no route table of their own: the endpoint only answers, and
+  the VPC's main table routes the VPC alone. The ranges come from the
+  VPC's range alone, so they are known at plan time: `sts_endpoint_cidrs`
+  of `modules/network`, `modules/cell` and the environment's `cell` output.
+  The pilot light's network gets the same subnets (one module); nothing
+  there uses them yet, since erp-web runs in the home region alone
+  (ADR-0040).
+- *Helm*: `erp-global`'s `awsEndpoints.stsCidrs` (`cell.sts_endpoint_cidrs`)
+  is erp-web's only reach in the VPC on 443; the chart refuses to render
+  without it, with an empty list or with anything but IPv4 `/28`s, so no
+  wider block stands in. 5432 to the VPC (the directory) and 443 to the
+  internet outside the private, shared and link-local ranges are as before.
+- *Policy* (`deploy/helm/policy/workloads.rego`): any egress rule of a
+  NetworkPolicy that may select erp-web's Pods (by labels, every Pod, or by
+  expressions, which is not judged and counts as selecting) and admits TCP
+  443 (named, in a range, every port of TCP, or every port) must name IPv4
+  blocks alone, each a `/28` or narrower, or a block from which each
+  private (RFC 1918), shared (100.64.0.0/10) and link-local range it
+  touches is excepted. The rendered release does not carry the VPC's range;
+  the VPC lies in those ranges, so a VPC-wide block, `0.0.0.0/0` without
+  those exceptions, a rule to every peer, or a pod or namespace selector is
+  refused. Other workloads are not judged by it.
+- *Checks*: the network module's tests (the endpoint's subnets, their
+  ranges, nothing else in them, the other endpoints where they were), the
+  cell's and the environment's (the output, in each shape); the policy's
+  unit tests; `helm-checks.sh` holds erp-web's egress to exactly the test
+  values' three `/28`s on 443, refuses each missing, empty or wider
+  `stsCidrs` at render, and runs the policy on three tampered renders (the
+  STS rule widened to the VPC, opened to every peer, the internet rule's
+  exceptions dropped), each checked to differ from the render and to be
+  refused for erp-web's 443.
+- *Rollout*: moving an existing endpoint's subnets is an in-place change
+  (`ModifyVpcEndpoint`: "If you add a subnet, we create an endpoint network
+  interface in the subnet … If you remove a subnet, we delete its endpoint
+  network interface",
+  https://docs.aws.amazon.com/vpc/latest/privatelink/interface-endpoints.html).
+  Apply Terraform before the chart release that narrows the policy: a
+  release first would admit the new subnets while the endpoint still
+  answers from the private ones, and erp-web could not reach STS; the old
+  rule admits the whole VPC, so Terraform first, then the release, keeps
+  erp-web working throughout. Other IRSA clients admit the VPC on 443 and
+  are not affected by the move.
+- *Not confirmed on AWS (to confirm in the staging account)*: that one modification can move
+  the endpoint from one subnet to another in the same zone (the guide
+  allows one subnet per zone; whether the add and the remove in one call
+  pass that rule is not stated), how long STS is unreachable in a zone
+  while its interface is replaced, and that STS's private DNS answers with
+  the new interfaces' addresses alone afterwards.
+- *Decided by default, for the product owner*: a dedicated `/28` per zone
+  rather than the shared private subnets (above), in the fourth `/20`; the
+  policy's limit as "a /28 or narrower" rather than the exact ranges (the
+  rendered release cannot know them; the chart and `helm-checks.sh` hold
+  the exact ones); other workloads' 443 egress left as it was.

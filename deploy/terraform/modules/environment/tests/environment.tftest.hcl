@@ -126,6 +126,10 @@ run "the_small_shape_plans_and_wires_its_parts" {
     error_message = "the regional STS endpoint, which the VPC endpoint answers, is an output"
   }
   assert {
+    condition     = output.cell.sts_endpoint_cidrs == ["10.16.48.0/28"]
+    error_message = "the subnet of STS's endpoint is an output for erp-web's network policy (ADR-0035 As built 2026-11-01)"
+  }
+  assert {
     condition     = output.global.router_target_group_arn == "arn:aws:elasticloadbalancing:eu-central-1:222222222222:targetgroup/erp-dev-router/0"
     error_message = "the router's target group is an output for the erp-global chart"
   }
@@ -160,6 +164,10 @@ run "the_production_shape_is_zone_redundant" {
   assert {
     condition     = output.cell.cluster_name == "erp-prod1"
     error_message = "the cell is named after the root's cell"
+  }
+  assert {
+    condition     = output.cell.sts_endpoint_cidrs == ["10.64.48.0/28", "10.64.48.16/28", "10.64.48.32/28"]
+    error_message = "STS's endpoint has a subnet of its own in each zone, an output for erp-web's network policy"
   }
 }
 

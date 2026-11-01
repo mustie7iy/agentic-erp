@@ -1,6 +1,7 @@
 # A cell's network (ADR-0035): a VPC across three availability zones with
-# public subnets (the load balancers, one NAT gateway per zone) and private
-# subnets (nodes, databases, endpoints). Without zone_redundant (dev and
+# public subnets (the load balancers, one NAT gateway per zone), private
+# subnets (nodes, databases, endpoints) and, for STS's interface endpoint
+# alone, a /28 per zone of egress (sts_endpoint_cidrs). Without zone_redundant (dev and
 # test) one NAT gateway and the interface endpoints sit in the first zone
 # only: a zone's outage takes the cell's egress with it, at a third of the
 # cost.
@@ -63,6 +64,15 @@ data "aws_region" "current" {
 locals {
   egress_zones        = var.zone_redundant ? var.availability_zones : [var.availability_zones[0]]
   endpoint_subnet_ids = [for az in local.egress_zones : aws_subnet.private[az].id]
+  # STS's endpoint has subnets of its own, so that a network policy can
+  # admit it and nothing else (erp-web's, ADR-0035 As built 2026-11-01:
+  # the private subnets hold the nodes, the pods, the databases, the
+  # cluster's own interfaces and every other endpoint). Each is a /28, the
+  # smallest subnet AWS allows, in the VPC's fourth /20, which no other
+  # subnet uses (the public subnets are the first three, the private ones
+  # the upper three /18s). Derived from var.cidr alone, so the ranges are
+  # known at plan time, before the endpoint's interfaces have addresses.
+  sts_endpoint_cidrs = { for i, az in local.egress_zones : az => cidrsubnet(cidrsubnet(var.cidr, 4, 3), 8, i) }
 }
 
 resource "aws_vpc" "cell" {
@@ -90,6 +100,17 @@ resource "aws_subnet" "private" {
   availability_zone = each.key
   cidr_block        = cidrsubnet(var.cidr, 2, each.value + 1)
   tags              = { Name = "${var.name}-private-${each.key}", "kubernetes.io/role/internal-elb" = "1" }
+}
+
+# No route table of their own: the endpoint's interfaces only answer, and
+# the VPC's main table routes the VPC alone.
+resource "aws_subnet" "sts_endpoint" {
+  region            = var.region
+  for_each          = local.sts_endpoint_cidrs
+  vpc_id            = aws_vpc.cell.id
+  availability_zone = each.key
+  cidr_block        = each.value
+  tags              = { Name = "${var.name}-sts-endpoint-${each.key}" }
 }
 
 resource "aws_internet_gateway" "cell" {
@@ -191,7 +212,7 @@ resource "aws_vpc_endpoint" "sts" {
   service_name        = "com.amazonaws.${data.aws_region.current.region}.sts"
   vpc_endpoint_type   = "Interface"
   private_dns_enabled = true
-  subnet_ids          = local.endpoint_subnet_ids
+  subnet_ids          = [for az in local.egress_zones : aws_subnet.sts_endpoint[az].id]
   security_group_ids  = [aws_security_group.endpoints.id]
   tags                = { Name = "${var.name}-sts" }
 }
@@ -221,6 +242,11 @@ output "private_subnet_ids" {
 output "public_subnet_ids" {
   description = "Subnets for internet-facing load balancers."
   value       = [for subnet in aws_subnet.public : subnet.id]
+}
+
+output "sts_endpoint_cidrs" {
+  description = "The subnets STS's interface endpoint alone sits in, one /28 per zone of egress: the only addresses erp-web reaches in the VPC on 443 (the erp-global chart's awsEndpoints.stsCidrs)."
+  value       = [for az in local.egress_zones : local.sts_endpoint_cidrs[az]]
 }
 
 output "cidr" {

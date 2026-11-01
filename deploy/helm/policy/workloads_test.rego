@@ -168,3 +168,92 @@ test_a_job_that_is_not_a_pre_install_hook_is_not_judged if {
 	plain := object.union(hook_job, {"metadata": {"annotations": {"helm.sh/hook": "post-install"}}})
 	count(deny) == 0 with input as release([deployment({}, container), pdb, deny_all, plain])
 }
+
+# erp-web on 443: STS's endpoint's /28s and the internet alone.
+web := json.patch(deployment({}, container), [
+	{"op": "replace", "path": "/metadata/name", "value": "erp-web"},
+	{"op": "replace", "path": "/spec/selector/matchLabels", "value": {"app.kubernetes.io/name": "erp-web"}},
+	{"op": "add", "path": "/spec/template/metadata", "value": {"labels": {"app.kubernetes.io/name": "erp-web"}}},
+])
+
+web_pdb := {"kind": "PodDisruptionBudget", "metadata": {"name": "erp-web"}, "spec": {"selector": {"matchLabels": {"app.kubernetes.io/name": "erp-web"}}}}
+
+sts := {"to": [{"ipBlock": {"cidr": "10.16.48.0/28"}}, {"ipBlock": {"cidr": "10.16.48.16/28"}}], "ports": [{"protocol": "TCP", "port": 443}]}
+
+internet := {
+	"to": [{"ipBlock": {"cidr": "0.0.0.0/0", "except": ["10.16.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16"]}}],
+	"ports": [{"protocol": "TCP", "port": 443}],
+}
+
+web_policy(egress) := {
+	"kind": "NetworkPolicy",
+	"metadata": {"name": "erp-web"},
+	"spec": {"podSelector": {"matchLabels": {"app.kubernetes.io/name": "erp-web"}}, "policyTypes": ["Ingress", "Egress"], "egress": egress},
+}
+
+web_release(np) := release([web, web_pdb, deny_all, np])
+
+wide_443(np, what) := sprintf("Deployment/erp-web: NetworkPolicy %s admits on 443 %s; it may reach STS's endpoint's subnets and the internet alone", [np, what])
+
+test_erp_web_reaching_sts_and_the_internet_passes if {
+	count(deny) == 0 with input as web_release(web_policy([writer, sts, internet]))
+}
+
+test_erp_web_reaching_the_vpc_on_443_is_refused if {
+	vpc := {"to": [{"ipBlock": {"cidr": "10.16.0.0/16"}}], "ports": [{"protocol": "TCP", "port": 443}]}
+	deny[wide_443("erp-web", "10.16.0.0/16, wider than a /28 and with 10.0.0.0/8 not excepted")] with input as web_release(web_policy([sts, vpc, internet]))
+}
+
+test_erp_web_reaching_a_private_subnet_on_443_is_refused if {
+	subnet := {"to": [{"ipBlock": {"cidr": "10.16.64.0/18"}}], "ports": [{"protocol": "TCP", "port": 443}]}
+	deny[wide_443("erp-web", "10.16.64.0/18, wider than a /28 and with 10.0.0.0/8 not excepted")] with input as web_release(web_policy([subnet]))
+}
+
+test_erp_web_reaching_everything_on_443_is_refused if {
+	open := {"to": [{"ipBlock": {"cidr": "0.0.0.0/0"}}], "ports": [{"protocol": "TCP", "port": 443}]}
+	refused := deny with input as web_release(web_policy([open]))
+	refused[wide_443("erp-web", "0.0.0.0/0, wider than a /28 and with 10.0.0.0/8 not excepted")]
+	refused[wide_443("erp-web", "0.0.0.0/0, wider than a /28 and with 169.254.0.0/16 not excepted")]
+}
+
+test_erp_web_reaching_the_internet_with_the_vpc_alone_excepted_is_refused if {
+	vpc_only := {"to": [{"ipBlock": {"cidr": "0.0.0.0/0", "except": ["10.16.0.0/16"]}}], "ports": [{"protocol": "TCP", "port": 443}]}
+	deny[wide_443("erp-web", "0.0.0.0/0, wider than a /28 and with 10.0.0.0/8 not excepted")] with input as web_release(web_policy([vpc_only]))
+}
+
+test_erp_web_reaching_every_peer_on_443_is_refused if {
+	every_peer := {"ports": [{"protocol": "TCP", "port": 443}]}
+	deny["Deployment/erp-web: NetworkPolicy erp-web admits every address on 443; it may reach STS's endpoint's subnets and the internet alone"] with input as web_release(web_policy([every_peer]))
+}
+
+test_erp_web_reaching_the_vpc_on_every_port_or_a_range_is_refused if {
+	vpc := {"ipBlock": {"cidr": "10.16.0.0/16"}}
+	what := "10.16.0.0/16, wider than a /28 and with 10.0.0.0/8 not excepted"
+	deny[wide_443("erp-web", what)] with input as web_release(web_policy([{"to": [vpc]}]))
+	deny[wide_443("erp-web", what)] with input as web_release(web_policy([{"to": [vpc], "ports": [{"protocol": "TCP"}]}]))
+	deny[wide_443("erp-web", what)] with input as web_release(web_policy([{"to": [vpc], "ports": [{"port": 400, "endPort": 500}]}]))
+	deny[wide_443("erp-web", what)] with input as web_release(web_policy([{"to": [vpc], "ports": [{"port": "https"}]}]))
+}
+
+test_erp_web_reaching_the_vpc_on_other_ports_is_not_judged if {
+	count(deny) == 0 with input as web_release(web_policy([writer, {"to": [{"ipBlock": {"cidr": "10.16.0.0/16"}}], "ports": [{"protocol": "UDP", "port": 443}, {"port": 444, "endPort": 500}]}]))
+}
+
+test_erp_web_reaching_pods_on_443_is_refused if {
+	pods := {"to": [{"namespaceSelector": {}}], "ports": [{"protocol": "TCP", "port": 443}]}
+	deny[wide_443("erp-web", "a pod or namespace selector")] with input as web_release(web_policy([pods]))
+}
+
+test_a_policy_of_every_pod_or_by_expressions_is_judged_for_erp_web if {
+	vpc := {"to": [{"ipBlock": {"cidr": "10.16.0.0/16"}}], "ports": [{"protocol": "TCP", "port": 443}]}
+	what := "10.16.0.0/16, wider than a /28 and with 10.0.0.0/8 not excepted"
+	every_pod := object.union(web_policy([vpc]), {"metadata": {"name": "all"}, "spec": {"podSelector": {}}})
+	deny[wide_443("all", what)] with input as release([web, web_pdb, deny_all, every_pod])
+	exprs := json.patch(web_policy([vpc]), [{"op": "replace", "path": "/spec/podSelector", "value": {"matchExpressions": [{"key": "tier", "operator": "Exists"}]}}])
+	deny[wide_443("erp-web", what)] with input as release([web, web_pdb, deny_all, exprs])
+}
+
+test_other_workloads_may_reach_the_vpc_on_443 if {
+	vpc := {"to": [{"ipBlock": {"cidr": "10.16.0.0/16"}}], "ports": [{"protocol": "TCP", "port": 443}]}
+	count(deny) == 0 with input as release([deployment({}, container), pdb, deny_all, object.union(web_policy([vpc]), {"spec": {"podSelector": {"matchLabels": {"app": "erp-server"}}}})])
+}

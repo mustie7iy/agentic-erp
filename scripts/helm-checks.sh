@@ -31,7 +31,10 @@
 #     subnets alone, ready only once the load balancer finds it healthy;
 #     erp-web (ADR-0052) likewise behind its own load balancer, in
 #     production, on its own https hostname, reaching the router's public
-#     listener alone, with no SPIFFE certificate; the router, erp-web and
+#     listener, the directory, STS's endpoint by its own subnets and the
+#     internet alone (nothing else in the VPC on 443: the policy refuses
+#     more, and tampered renders prove it), with no SPIFFE certificate;
+#     the router, erp-web and
 #     the cell reach the directory as logins of their own (T72h), with
 #     RDS IAM tokens their IRSA roles sign and no password, and the
 #     directory's master credentials reach that hook alone;
@@ -516,7 +519,8 @@ if gates != ["target-health.elbv2.k8s.aws/erp-router"]:
 # The web workspace (ADR-0052): its own balancer's subnets alone, in
 # production on its https hostname, reaching the router's public listener,
 # the directory database (its sessions, over verified TLS), STS's VPC
-# endpoint (its IRSA role, which signs its directory login's tokens) and
+# endpoint by its own /28s (its IRSA role, which signs its directory
+# login's tokens; product owner 2026-11-01) and
 # the identity providers on 443, nothing else; its SPIFFE identity a client
 # certificate for the router alone, which no cell accepts (T73c).
 web = next(d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"] == "erp-web")
@@ -542,8 +546,9 @@ if sources != want:
 egress = [([p.get("podSelector", {}).get("matchLabels", {}).get("app.kubernetes.io/name") or p.get("ipBlock", {}).get("cidr") for p in rule.get("to", [])],
            [x["port"] for x in rule["ports"]]) for rule in policy["spec"]["egress"]]
 outside = [p.get("ipBlock", {}).get("except") for p in policy["spec"]["egress"][3].get("to", [])]
-if egress != [(["erp-router"], [8081]), (["10.16.0.0/16"], [5432]), (["10.16.0.0/16"], [443]), (["0.0.0.0/0"], [443])] or outside != [["10.16.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16"]]:
-    sys.exit("helm-checks: erp-web reaches %r, want the router's public listener, the directory and STS's endpoint in the VPC and the identity providers alone" % egress)
+sts = ["10.16.48.0/28", "10.16.48.16/28", "10.16.48.32/28"]
+if egress != [(["erp-router"], [8081]), (["10.16.0.0/16"], [5432]), (sts, [443]), (["0.0.0.0/0"], [443])] or outside != [["10.16.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16"]]:
+    sys.exit("helm-checks: erp-web reaches %r, want the router's public listener, the directory in the VPC, STS's endpoint by its own subnets and the identity providers alone" % egress)
 into = next(d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "erp-router-from-web")
 if [p["podSelector"]["matchLabels"]["app.kubernetes.io/name"] for rule in into["spec"]["ingress"] for p in rule["from"]] != ["erp-web"]:
     sys.exit("helm-checks: the router's listener is opened to more than erp-web")
@@ -569,7 +574,7 @@ if env.get("ERP_WEB_SESSION_KEY_PREVIOUS") != "file:/etc/erp/secrets/session-key
 PY
 for value in trustDomain vpcCidr trust.caBundle secrets.prefix images.router.repository images.router.digest \
   router.targetGroupArn router.proxyFrom router.operatorIssuers directory.endpoint directory.masterSecretArn directory.caBundle \
-  router.roleArn web.roleArn directory.region awsEndpoints.sts \
+  router.roleArn web.roleArn directory.region awsEndpoints.sts awsEndpoints.stsCidrs \
   directory.logins.router directory.logins.cell directory.logins.web \
   images.web.repository images.web.digest web.hostname web.apiUrl web.targetGroupArn web.proxyFrom; do
   if "$HELM" template erp-global "$chart" --namespace erp-global -f "$values" --set "$value=null" >/dev/null 2>"$work/err"; then
@@ -583,13 +588,48 @@ for value in trustDomain vpcCidr trust.caBundle secrets.prefix images.router.rep
   fi
 done
 for bad in 'images.router.digest=latest' 'router.proxyFrom={}' 'router.proxyFrom={10.16.0.0}' 'images.web.digest=latest' \
-  'web.proxyFrom={}' 'web.proxyFrom={10.16.0.0}' 'web.hostname=App_Workspace' 'web.apiUrl=http://api.dev.erp.example' 'web.apiUrl=https://api.dev.erp.example/v1'; do
+  'web.proxyFrom={}' 'web.proxyFrom={10.16.0.0}' 'web.hostname=App_Workspace' 'web.apiUrl=http://api.dev.erp.example' 'web.apiUrl=https://api.dev.erp.example/v1' \
+  'awsEndpoints.stsCidrs={}' 'awsEndpoints.stsCidrs={10.16.0.0/16}' 'awsEndpoints.stsCidrs={0.0.0.0/0}' 'awsEndpoints.stsCidrs={10.16.48.0}'; do
   if "$HELM" template erp-global "$chart" --namespace erp-global -f "$values" --set "$bad" >/dev/null 2>&1; then
     echo "helm-checks: erp-global took $bad" >&2
     exit 1
   fi
 done
-echo "helm-checks: erp-global refuses to render without each value it requires, with an image not by digest, no load balancer subnets, or a web hostname or API address that is not one"
+echo "helm-checks: erp-global refuses to render without each value it requires, with an image not by digest, no load balancer subnets, a web hostname or API address that is not one, or STS's subnets missing or wider than /28s"
+# erp-web on 443 (product owner 2026-11-01): the policy refuses the
+# rendered release with erp-web's rule to STS's subnets widened back to the
+# VPC or opened to every address, or the internet rule's exceptions
+# dropped. Each tamper must change the rule it names, checked before
+# conftest runs.
+for tamper in vpc every-peer no-except; do
+  python3 - "$work/erp-global.json" "$tamper" "$work/erp-global-$tamper.json" <<'PY'
+import json, sys
+docs, tamper, out = json.load(open(sys.argv[1])), sys.argv[2], sys.argv[3]
+policy = next(d for d in docs if d and d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "erp-web")
+rules = policy["spec"]["egress"]
+before = json.dumps(rules)
+if tamper == "vpc":
+    rules[2]["to"] = [{"ipBlock": {"cidr": "10.16.0.0/16"}}]
+elif tamper == "every-peer":
+    del rules[2]["to"]
+else:
+    del rules[3]["to"][0]["ipBlock"]["except"]
+if json.dumps(rules) == before:
+    sys.exit("helm-checks: the %s tamper left erp-web's policy unchanged" % tamper)
+json.dump(docs, open(out, "w"))
+PY
+  if out="$("$CONFTEST" test --combine --policy deploy/helm/policy --namespace workloads --no-color "$work/erp-global-$tamper.json" 2>&1)"; then
+    echo "$out"
+    echo "helm-checks: the policy took erp-web's 443 egress tampered ($tamper)" >&2
+    exit 1
+  fi
+  if ! grep -q "^FAIL .*Deployment/erp-web: NetworkPolicy erp-web admits .*on 443" <<<"$out"; then
+    echo "$out"
+    echo "helm-checks: the policy refused erp-web's 443 egress tampered ($tamper) for another reason" >&2
+    exit 1
+  fi
+done
+echo "helm-checks: the policy refuses erp-web reaching the VPC, every address or the private ranges on 443"
 rotating "$work/erp-cell.json" "$work/erp-global.json"
 echo "helm-checks: every rotating password is refreshed within five minutes"
 

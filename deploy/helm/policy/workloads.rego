@@ -9,7 +9,8 @@
 #   - every Deployment of more than one replica under a disruption budget;
 #   - a default-deny network policy in the release;
 #   - each pre-install hook Job held, before the default deny exists, by
-#     hook network policies of its own that admit the cluster's DNS.
+#     hook network policies of its own that admit the cluster's DNS;
+#   - erp-web reaching nothing in the VPC on 443 but STS's endpoint.
 # Kubernetes' Pod Security admission enforces the profile in the cluster
 # too (erp-cluster's namespaces); this catches it before a release.
 package workloads
@@ -213,4 +214,92 @@ admits_dns(job) if {
 	some np in holding(job)
 	some r in object.get(np.spec, "egress", [])
 	dns_rule(r)
+}
+
+# erp-web reaches nothing in the VPC on 443 but STS's interface endpoint,
+# whose own subnets are /28s (product owner 2026-11-01, ADR-0035 As built):
+# every egress rule of a NetworkPolicy that may select its Pods and admits
+# TCP 443 names IPv4 blocks alone, each a /28 or narrower, or a block from
+# which each private, shared and link-local range it touches is excepted
+# (the identity providers on the internet). The rendered manifests do not
+# carry the VPC's range; it lies in those ranges (cell.cidr, a private
+# /16), so a VPC-wide block, 0.0.0.0/0 without them excepted, a rule to
+# every peer or on every port, and a pod or namespace selector are refused.
+narrow_443 := {"erp-web"}
+
+internal_ranges := ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16"]
+
+app_name(doc) := object.get(object.get(object.get(doc.spec.template, "metadata", {}), "labels", {}), "app.kubernetes.io/name", "")
+
+# A selector by expressions is taken to select the Pods: refused, not skipped.
+may_select(np, doc) if selects(np, doc)
+
+may_select(np, _) if np.spec.podSelector.matchExpressions
+
+admits_443(r) if not r.ports
+
+admits_443(r) if count(r.ports) == 0
+
+admits_443(r) if {
+	some p in r.ports
+	object.get(p, "protocol", "TCP") == "TCP"
+	port_admits_443(p)
+}
+
+port_admits_443(p) if not p.port
+
+port_admits_443(p) if is_string(p.port)
+
+port_admits_443(p) if p.port == 443
+
+port_admits_443(p) if {
+	is_number(p.port)
+	p.port <= 443
+	443 <= object.get(p, "endPort", p.port)
+}
+
+peers(r) := object.get(r, "to", [])
+
+wide(peer) := {"a pod or namespace selector"} if not peer.ipBlock
+
+wide(peer) := {sprintf("%s, wider than a /28 and with %s not excepted", [peer.ipBlock.cidr, range]) |
+	not narrow(peer.ipBlock.cidr)
+	some range in internal_ranges
+	net.cidr_intersects(peer.ipBlock.cidr, range)
+	not excepted(peer.ipBlock, range)
+} if peer.ipBlock
+
+narrow(cidr) if {
+	not contains(cidr, ":")
+	to_number(split(cidr, "/")[1]) >= 28
+}
+
+excepted(block, range) if {
+	some e in object.get(block, "except", [])
+	net.cidr_contains(e, range)
+}
+
+deny contains msg if {
+	some doc in workloads
+	app_name(doc) in narrow_443
+	some np in documents
+	np.kind == "NetworkPolicy"
+	may_select(np, doc)
+	some r in object.get(np.spec, "egress", [])
+	admits_443(r)
+	count(peers(r)) == 0
+	msg := sprintf("%s: NetworkPolicy %s admits every address on 443; it may reach STS's endpoint's subnets and the internet alone", [name(doc), np.metadata.name])
+}
+
+deny contains msg if {
+	some doc in workloads
+	app_name(doc) in narrow_443
+	some np in documents
+	np.kind == "NetworkPolicy"
+	may_select(np, doc)
+	some r in object.get(np.spec, "egress", [])
+	admits_443(r)
+	some peer in peers(r)
+	some why in wide(peer)
+	msg := sprintf("%s: NetworkPolicy %s admits on 443 %s; it may reach STS's endpoint's subnets and the internet alone", [name(doc), np.metadata.name, why])
 }

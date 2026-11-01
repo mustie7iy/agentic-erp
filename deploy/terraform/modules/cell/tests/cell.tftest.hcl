@@ -120,6 +120,10 @@ run "the_cluster_is_private_and_encrypted" {
     condition     = aws_ebs_encryption_by_default.cell[0].enabled
     error_message = "every new EBS volume of the account is encrypted"
   }
+  assert {
+    condition     = output.sts_endpoint_cidrs == ["10.10.48.0/28", "10.10.48.16/28", "10.10.48.32/28"] && toset(aws_eks_cluster.cell.vpc_config[0].subnet_ids) == toset(module.network.private_subnet_ids)
+    error_message = "STS's endpoint has subnets of its own, an output for erp-web's network policy, and the cluster's interfaces stay in the private subnets"
+  }
 }
 
 run "each_workload_role_trusts_its_service_account_only" {

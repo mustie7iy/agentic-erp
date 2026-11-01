@@ -210,6 +210,7 @@ output "cell" {
     cluster_kms_key_arn        = module.cell.cluster_kms_key_arn
     workload_role_arns         = module.cell.workload_role_arns
     aws_endpoints              = module.cell.aws_endpoints
+    sts_endpoint_cidrs         = module.cell.sts_endpoint_cidrs
     restore_drill              = module.cell.restore_drill
     pilot_light                = module.cell.pilot_light
   }

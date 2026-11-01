@@ -8512,6 +8512,14 @@
      },
      {
       "s": "D",
+      "t": "erp-web's egress to STS narrowed to the endpoint's subnets (PO 2026-11-01)",
+      "r": "ADR-0035 As built 2026-11-01 (erp-web reaches STS's endpoint by its own subnets) · modules/network aws_subnet.sts_endpoint (a /28 per zone of egress in the VPC's fourth /20, STS's endpoint alone) · sts_endpoint_cidrs (network, cell, environment outputs) · deploy/helm/erp-global awsEndpoints.stsCidrs (required, /28s only) · deploy/helm/policy/workloads.rego (erp-web on 443: /28s or the internet with the private ranges excepted) · scripts/helm-checks.sh (exact egress, render refusals, three tampered renders) · no walkthrough step: network policy, no API of its own",
+      "src": "po:2026-11-01",
+      "pilot": "po:2026-11-01 · adr:ADR-0035",
+      "c": []
+     },
+     {
+      "s": "D",
       "t": "erp-cell's erp-migrate and erp-temporal-schema hook network policies admit the cluster's DNS: on a first install the default deny is not there yet and the hook Jobs cannot resolve the writer",
       "r": "deploy/helm/erp-cell/templates/network-policy.yaml · deploy/helm/policy/workloads.rego · scripts/helm-checks.sh · T72h · ADR-0035 amendment 2026-10-28 (As built 2026-10-29)",
       "src": "review:T72h",

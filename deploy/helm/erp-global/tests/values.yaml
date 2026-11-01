@@ -17,6 +17,7 @@ trust:
     -----END CERTIFICATE-----
 awsEndpoints:
   sts: https://sts.eu-central-1.amazonaws.com
+  stsCidrs: [10.16.48.0/28, 10.16.48.16/28, 10.16.48.32/28]
 router:
   roleArn: arn:aws:iam::222222222222:role/erp-dev1-router
   targetGroupArn: arn:aws:elasticloadbalancing:eu-central-1:222222222222:targetgroup/erp-dev-router/0123456789abcdef

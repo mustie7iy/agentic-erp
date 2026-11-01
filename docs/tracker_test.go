@@ -32,8 +32,10 @@ const baselineItems = 951
 // batch 31: a leaf split from a pilot leaf inherits its tag, so the tax
 // registration number formats split from T61g joined (74), and the
 // foreign-currency open item that HSL 0 drops from the pilot migration
-// (review:batch31) joined as a data-correctness gap in its path (75).
-const pilotItems = 76
+// (review:batch31) joined as a data-correctness gap in its path (75). 77
+// since the product owner had erp-web's egress to STS narrowed to the
+// endpoint's subnets (po:2026-11-01), a security-posture leaf of the pilot.
+const pilotItems = 77
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

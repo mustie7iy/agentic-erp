@@ -41,6 +41,11 @@ certificates:
 # their directory logins' IAM tokens (ERP_AWS_STS_ENDPOINT).
 awsEndpoints:
   sts: ""
+  # The subnets STS's VPC endpoint alone sits in, a /28 per zone
+  # (cell.sts_endpoint_cidrs): erp-web's only reach in the VPC on 443
+  # (ADR-0035 As built 2026-11-01). Required; the chart renders nothing
+  # wider in its place.
+  stsCidrs: []
 
 router:
   # Spread over the zones, as the load balancer is.
