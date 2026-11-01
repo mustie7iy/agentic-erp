@@ -9,13 +9,25 @@
 #   - the base images by digest, for each platform: .ko.yaml's (its Debian
 #     packages, which ko's SBOM names but does not list) and erp-analytics's
 #     runtime base, the Dockerfile's BASE_IMAGE (glibc, libstdc++).
+# It also scans the upstream images the release copies and signs
+# (deploy/images/upstream.txt, scripts/mirror-images.sh), each by its
+# pinned digest on the one platform copied, read as the copy reads them
+# (scripts/lib/upstream.sh): the release runs this scan before it pushes
+# anything, so an upstream image with a fixable high or critical
+# vulnerability is never copied, signed or recorded (ADR-0032 amendment of
+# 2026-10-31).
 # Exceptions go in .grype.yaml, each with a reason and an expiry date.
 set -euo pipefail
 OUT="${1:-dist/images}"
+# shellcheck source=scripts/lib/upstream.sh
+. "$(dirname "$0")/lib/upstream.sh"
+upstream="$(upstream_images deploy/images/upstream.txt)"
 # grype comes from scripts/ci-tools.sh, which pins its version, caches the
 # binary and retries a failed build, rather than from `go run` on every scan.
 GRYPE="${GRYPE:-$(./scripts/ci-tools.sh)/grype}"
-args=(--fail-on high --only-fixed --config .grype.yaml)
+# GRYPE_CONFIG is the tests' stand-in for .grype.yaml, so their exception
+# case does not depend on what the real file accepts today.
+args=(--fail-on high --only-fixed --config "${GRYPE_CONFIG:-.grype.yaml}")
 shopt -s nullglob
 sboms=("$OUT"/sbom/*-linux-*.spdx.json)
 if [ ${#sboms[@]} -eq 0 ]; then
@@ -45,3 +57,7 @@ for image in "$base" "$cc"; do
     $GRYPE "registry:$image" --platform "$platform" "${args[@]}"
   done
 done
+while read -r -u 3 name source tag digest; do
+  echo "image-scan: upstream $name, $source:$tag@$digest ($upstream_platform)"
+  $GRYPE "registry:$source:$tag@$digest" --platform "$upstream_platform" "${args[@]}"
+done 3<<<"$upstream"

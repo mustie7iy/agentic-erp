@@ -6803,13 +6803,6 @@
        },
        {
         "s": "T",
-        "t": "The release scans the pinned upstream images it mirrors (deploy/images/upstream.txt: PgBouncer, NATS) with grype and fails on a fixable High or Critical vulnerability, as for the platform's own images (scripts/image-scan.sh, --fail-on high --only-fixed, exceptions in .grype.yaml with a reason and an expiry); today their pins are only reviewed as code changes (product owner 2026-10-31, as recommended in T72i's report)",
-        "r": "scripts/image-scan.sh · scripts/mirror-images.sh · .github/workflows/release.yml · deploy/images/upstream.txt · ADR-0032 amendment 2026-10-28 · T72i",
-        "src": "review:T72i · po:2026-10-31",
-        "c": []
-       },
-       {
-        "s": "T",
         "t": "At first apply: check that the VPC CNI policy agent lets probes through, fill the page-token-key and database-client-password secrets, and load the router's public certificate, key and page-token key into erp/global/",
         "r": "(waits on: an operator, at the first AWS apply)",
         "src": "baseline",
@@ -8435,6 +8428,13 @@
       "t": "The release pushes, signs, attests and records its own images in tooling's ECR (ERP_RELEASE_REGISTRY), as the upstream copies, not in ghcr.io: promotion-checks.sh takes only <registry>/erp-<name> and Kyverno's erp-release-signed admits only release.registries, so no release's own images could be pinned or admitted in production",
       "r": ".github/workflows/release.yml · scripts/promotion-checks.sh · erp-cluster image-policy.yaml · modules/ecr · scripts/test-images.sh · ADR-0032 amendment 2026-10-29 · ADR-0035",
       "src": "review:batch21",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "grype scans the upstream images the release copies (deploy/images/upstream.txt) before anything is pushed, failing on a fixable high or critical vulnerability as for the platform's images, with .grype.yaml's exceptions: image-scan.sh scans each pin by digest on linux/arm64, the list read once for scan and copy",
+      "r": "scripts/image-scan.sh · scripts/lib/upstream.sh · scripts/mirror-images.sh · scripts/test-images.sh · scripts/ci-changes.sh · .github/workflows/release.yml (make image-scan before every push) · ADR-0032 amendment 2026-10-31",
+      "src": "review:T72i · po:2026-10-31",
       "c": []
      },
      {

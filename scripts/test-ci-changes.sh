@@ -142,6 +142,10 @@ prev="$c"
 c="$(change scripts/lib/registry.sh)"
 expect_out "the checks' shared library runs the deploy checks" "$c" deploy true
 prev="$c"
+c="$(change scripts/lib/upstream.sh)"
+expect_out "the upstream list's reader runs the image checks, whose scan reads it" "$c" images true
+expect_out "the upstream list's reader runs the deploy checks, whose mirror reads it" "$c" deploy true
+prev="$c"
 c="$(change .github/workflows/weekly.yml)"
 expect_out "any workflow runs the deploy checks (actionlint)" "$c" deploy true
 # The other files the deploy checks read (review:batch21): each starts them.
