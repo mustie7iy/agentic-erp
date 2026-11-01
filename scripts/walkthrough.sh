@@ -291,8 +291,9 @@ start() {
   say ""
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
-  say "  - the GST34's lines (T61j-T61l), and the Canada pack's tax codes (T62g, Canada pack 2026.4): step 2 configures one code"
-  say "    and the GST/HST registration; step 11 prepares, approves and files a return whose boxes are illustrative, not the GST34's"
+  say "  - the GST34's lines (T61j-T61l), and the tax specialist's sign-off of the Canada pack (T62h): step 2 configures one"
+  say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files a return"
+  say "    whose boxes are illustrative, not the GST34's"
   say "  - the liquidity forecast (T53e-T53k): step 13 shows the daily cash position with a memo record"
   say "  - cost center postings, reports and planning (T56d-T56j)"
   say "  - accounts receivable, fixed assets (T57), period-end close (T64), consolidation (T68)"
@@ -815,9 +816,9 @@ migrated_down_payment() {
 # bank at a Canadian bank with their accounts, the USD accounts revalued
 # at period end, statements matched by end-to-end id or amount and posted
 # with the controller's approval, a cash discount term, the cost center
-# categories, the liquidity items memo records name (T53d) and, until the
-# Canada pack carries tax codes (T62g), one output tax code for the
-# walkthrough's sales entry: GST at 5% (Excise Tax Act, Part IX, s. 165(1);
+# categories, the liquidity items memo records name (T53d) and, as the
+# Canada pack's tax codes are for purchases (T62g), one output tax code for
+# the walkthrough's sales entry: GST at 5% (Excise Tax Act, Part IX, s. 165(1);
 # CRA, "Charge and collect the tax - Which rate to charge",
 # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html).
 # The code's rate and the registration start a year back, so a filing
@@ -841,7 +842,7 @@ PILOT_SETTINGS='
       {"number": "1020", "name": "Bank clearing - RBC USD", "type": "asset", "open_items": true, "revalue_foreign_currency": true},
       {"number": "1030", "name": "Bank - RBC USD", "type": "asset", "revalue_foreign_currency": true},
       {"number": "1040", "name": "Bank incoming - RBC USD", "type": "asset", "open_items": true, "revalue_foreign_currency": true}]
-    | .tax_codes = ((.tax_codes // []) + [{"code": "GO5", "description": "GST 5% on sales (walkthrough, until Canada pack 2026.4)",
+    | .tax_codes = ((.tax_codes // []) + [{"code": "GO5", "description": "GST 5% on sales (walkthrough; the Canada pack codes purchases)",
         "direction": "output", "kind": "standard", "category": "S", "components": [{"key": "gst", "jurisdiction": "CA",
         "account_key": "output", "account": "2300", "rates": [{"rate_percent": "5", "valid_from": "@PREV@-01-01"}]}]}])
     | .house_banks = ((.house_banks // []) + [
@@ -1376,8 +1377,19 @@ step_tax() {
   heading "Step 11 — Tax: the billing system's sales entries, their tax checked by the ledger, large ones parked for a person, and the return that files them"
   as carla
   api 200 '.items[] | select(.country == "CA") | "pack CA \(.version): \(.contents.tax_codes) tax codes"' listCountryPacks
-  say "The released Canada packs carry no tax codes yet: GST/HST, QST and PST come with Canada pack 2026.4 (T62g)."
-  say "Step 2 configured one output code for the pilot instead: GO5, GST at 5% from 1 January, to the pack's 2300 GST/HST payable."
+  expect "Canada 2026.4's tax codes" "$(field '.items[] | select(.country == "CA" and .version == "2026.4") | .contents.tax_codes')" 10
+  # The tax specialist's signed-off version (T62h) will be a later one.
+  say "Canada pack 2026.4 brought the purchase codes for GST/HST, QST and PST (T62g), each with all its dated rates,"
+  say "backed by the pack's sources; the tax specialist has not signed them off yet. Step 2 applied them with $CA_PACK,"
+  say "the walkthrough's copy of the latest released pack with the illustrative return. Nova Scotia's HST:"
+  api 200 '.items[0].document.companies[] | select(.code == "'"$CC"'") | .tax_codes[] | select(.code == "HNS") |
+    "tax code \(.code) \(.description): \([.components[] | .key as $k | .account as $a | .rates[] | "\($k) \(.rate_percent)% from \(.valid_from)\(if .valid_to then " to \(.valid_to)" else "" end) to \($a)"] | join("; "))"' \
+    listConfigVersions -p is_active=true
+  expect "Nova Scotia's HST rates" \
+    "$(field '[.items[0].document.companies[] | select(.code == "'"$CC"'") | .tax_codes[] | select(.code == "HNS") | .components[].rates[] | "\(.rate_percent) \(.valid_from) \(.valid_to // "open")"] | join(", ")')" \
+    "15 2013-04-01 2025-03-31, 14 2025-04-01 open"
+  say "The pack's codes are for purchases; step 2 configured one output code for the pilot's sales: GO5, GST at 5%"
+  say "from 1 January last year, to the pack's 2300 GST/HST payable."
   say "The ERP issues no sales invoices before phase 3, so the pilot's billing system posts its sales as journal"
   say "entries (T61f), as a service principal of its own that holds only ledger.entry.post:"
   billing

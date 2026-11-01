@@ -6,7 +6,8 @@ manifests named by cutoff and digest, `checked_at`, the scheduler; T55d:
 `partners` in place of `vendors`, the reader; T55e: the semantic layer on
 the store, the ledger filter, the reader's limits; T55f: lifecycle,
 compaction, erasure, rebuild, the sweep, the replica wait, freshness
-metrics, the query endpoint)
+metrics, the query endpoint; 2026-11-01: the image's runtime base on
+Debian 13)
 
 ## Context
 The semantic layer (`internal/analytics`, `semantic.yaml`) answers every
@@ -286,8 +287,9 @@ with Debian's cross gcc (no emulation), DuckDB coming prebuilt and static
 from duckdb-go-bindings. The builder's Go is the toolchain go.mod names,
 bumped with it: the golang image builds with `GOTOOLCHAIN=local`, so its
 version is the standard library the binary carries. glibc stays dynamic,
-on `gcr.io/distroless/cc-debian12:nonroot` (glibc, libgcc, libstdc++, no
-shell, uid 65532), both bases pinned by index digest; the base's own
+on `gcr.io/distroless/cc-debian13:nonroot` (glibc, libgcc, libstdc++, no
+shell, uid 65532; Debian 13 since the amendment of 2026-11-01 below),
+both bases pinned by index digest; the base's own
 advisories in libraries the binary does not load are accepted in
 `.grype.yaml` with a reason and an expiry. `-trimpath`, no build id, no
 VCS stamp, stripped, layers dated at `SOURCE_DATE_EPOCH`: two builds
@@ -640,9 +642,54 @@ loop.
 
 ## Consequences
 - A fourth image, the only one with cgo; its build and scan follow ADR-0032
-  on `gcr.io/distroless/cc-debian12` (glibc) instead of `static`.
+  on distroless `cc` (glibc; `cc-debian13` since the amendment of
+  2026-11-01) instead of `static`.
 - Analytics freshness becomes a service level with an alert (T55f), and
   answers say when they come from the fallback.
 - A dataset change is a contract change reviewed like an API change.
 - `semantic.yaml` and the dataset files must change together; the contract
   test fails otherwise.
+
+## Amendment (2026-11-01, T55h follow-up): the runtime base on Debian 13
+
+**Why.** `.grype.yaml` accepted seven advisories in `libssl3`
+3.0.20-1~deb12u2 of `gcr.io/distroless/cc-debian12:nonroot`, the image's
+runtime base, until 2026-11-20, on the grounds that nothing in the image
+loads it. Distroless had not published a Debian 12 digest carrying the
+fix: on 2026-11-01 the coordinator found that `cc-debian12:nonroot` still
+resolved to `sha256:9dac0a79…`, the digest pinned. An exception that
+lapses must be removed, and without it the release's scan fails and
+nothing ships.
+
+**Decision.** The runtime base is `gcr.io/distroless/cc-debian13:nonroot`,
+pinned by its index digest `sha256:08476c244888bfb425bae1ae4dd7c17f093e972aab8426883d97f3c6f280f7c1`
+(resolved by the coordinator on 2026-11-01, when the pinned grype,
+`--platform linux/arm64 --only-fixed --fail-on high`, reported "No
+vulnerabilities found" on it). The libssl3 exception is removed and
+`.grype.yaml` accepts nothing.
+
+**The builder stays Debian 12** (`golang:1.26.10-bookworm`). The binary
+needs `libc.so.6`, `libm.so.6`, `libgcc_s.so.1` and `libstdc++.so.6`,
+and at most `GLIBC_2.34`, `GLIBCXX_3.4.30`, `CXXABI_1.3.13` and
+`GCC_3.0` (readelf and objdump of a linux/arm64 build in the bookworm
+builder, glibc 2.36 and gcc 12.2, 2026-11-01). These libraries keep
+every older symbol version, and the Debian 13 base provides glibc
+2.41-12+deb13u4 (to `GLIBC_2.41`) and libstdc++6 14.2.0-19 (to
+`GLIBCXX_3.4.33`, `CXXABI_1.3.15`) (its `/var/lib/dpkg/status.d` and
+`readelf -V`, same day). That build, run as uid 65532 on the new base
+with a read-only root and no network, loaded and stopped at its
+configuration check, so the dynamic linking resolves. A Debian 13
+builder would buy nothing and could link symbols the base lacks if the
+two ever drifted apart, so the rule is the other way round: the builder
+may never be newer than the runtime base.
+
+**As built.** `deploy/images/erp-analytics.Dockerfile` pins the new
+`BASE_IMAGE`; `scripts/base-image-current.sh` reads the pin from there,
+so the weekly check follows the `cc-debian13:nonroot` tag;
+`scripts/test-images.sh` expects that base in the scan and the moved-pin
+case. The base still carries `libssl3t64` (3.5.7-1~deb13u3), which the
+binary does not load either; a fixable high in it fails the scan like
+any other. The real build (both platforms, the double build) and the
+real scan of the image and its base on both platforms are `make
+ci-local`'s images and image-scan gates; this step ran the script tests
+with fake tools.

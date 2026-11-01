@@ -198,7 +198,7 @@ echo "test-images: an unreadable SBOM stops the signing, a failing git status th
 "$root/scripts/image-scan.sh" "$work/out" >"$work/log" 2>&1 || { cat "$work/log" >&2; fail scan "image-scan.sh failed"; }
 for p in amd64 arm64; do
   [ "$(calls "^grype sbom:.*/erp-analytics-linux-$p.spdx.json ")" -eq 1 ] || fail scan "erp-analytics's linux/$p SBOM not scanned"
-  [ "$(calls "^grype registry:gcr.io/distroless/cc-debian12:nonroot@sha256:[0-9a-f]* --platform linux/$p ")" -eq 1 ] || fail scan "the cc base not scanned for linux/$p"
+  [ "$(calls "^grype registry:gcr.io/distroless/cc-debian13:nonroot@sha256:[0-9a-f]* --platform linux/$p ")" -eq 1 ] || fail scan "the cc base not scanned for linux/$p"
 done
 echo "test-images: erp-analytics's SBOMs and its cc base scanned"
 # The upstream images the release copies (ADR-0032 amendment of
@@ -282,8 +282,8 @@ echo "test-images: each build on a builder of its own; differing erp-analytics d
 : >"$CALLS"
 "$root/scripts/base-image-current.sh" >"$work/log" 2>&1 || { cat "$work/log" >&2; fail current "base-image-current.sh failed"; }
 [ "$(calls "^crane digest")" -eq 3 ] || fail current "$(calls "^crane digest") pins checked, want 3"
-if FAKE_MOVED=gcr.io/distroless/cc-debian12:nonroot "$root/scripts/base-image-current.sh" >"$work/log" 2>&1; then fail moved "a moved base accepted"; fi
-grep -q "cc-debian12:nonroot is now .*erp-analytics.Dockerfile pins" "$work/log" || { cat "$work/log" >&2; fail moved "the moved pin not named"; }
+if FAKE_MOVED=gcr.io/distroless/cc-debian13:nonroot "$root/scripts/base-image-current.sh" >"$work/log" 2>&1; then fail moved "a moved base accepted"; fi
+grep -q "cc-debian13:nonroot is now .*erp-analytics.Dockerfile pins" "$work/log" || { cat "$work/log" >&2; fail moved "the moved pin not named"; }
 grep -q "golang:1.26.10-bookworm is still" "$work/log" || fail moved "the pins after the moved one not checked"
 echo "test-images: base-image-current checks ko's base and erp-analytics's builder and base"
 
