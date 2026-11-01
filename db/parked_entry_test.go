@@ -316,7 +316,7 @@ func TestParkedEntryProvenance(t *testing.T) {
 }
 
 // parkByLimit parks an entry of f as a principal of kind with the limit it
-// was parked by, the columns and values given (T61n, 000174).
+// was parked by, the columns and values given (T61n, 000175).
 func (f fixture) parkByLimit(t *testing.T, kind, columns, values string) error {
 	t.Helper()
 	return asApp(t, f.tenant, func(tx pgx.Tx) error {

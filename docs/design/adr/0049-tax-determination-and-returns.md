@@ -612,7 +612,7 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   T61n:** service principals get a posting limit of their own per
   company, and an entry above it is parked for a person's approval
   rather than refused.
-- **As built (T61n, migrations 000174-000175):** `companies[].service_posting_limit`,
+- **As built (T61n, migrations 000175-000176):** `companies[].service_posting_limit`,
   an amount in the company's currency validated with its digits,
   optional and posting-related (tier 3) like `manual_entry_approval_limit`
   and `release_dual_limit`. `POST /v1/journal-entries` is open to service
@@ -648,7 +648,7 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   configuration lacks has a limit of 0 (every entry parked), as a
   missing manual limit does. People are unaffected. A retry with the same
   `Idempotency-Key` answers the parked entry again. **Rolling upgrade
-  (06 §6.4):** 000174 adds nullable columns and NOT VALID checks, 000175
+  (06 §6.4):** 000175 adds nullable columns and NOT VALID checks, 000176
   validates them; an instance of the previous release refuses a service
   principal's entry outright (403, `x-agent: false`) and never writes the
   columns, so the key fails closed in a mixed cell and needs no ordering.

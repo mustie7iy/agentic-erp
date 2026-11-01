@@ -766,7 +766,7 @@ Rules enforced in the database:
   `limit_currency`; all or none, `service_posting_limit` only, a service's
   entry only, never rewritten: `parked_entry_limit_figures`,
   `parked_entry_limit_by_service`, trigger `parked_entry_keep_limit`,
-  000174-000175). Only people post parked entries or reverse manual
+  000175-000176). Only people post parked entries or reverse manual
   entries (`x-agent: false`); people and service principals post them at
   once, agents never. Agents may hold `ledger.entry.park`;
   `ledger.entry.approve` is an approval permission (agents never hold it).

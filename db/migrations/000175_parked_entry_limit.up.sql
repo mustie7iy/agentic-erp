@@ -6,7 +6,7 @@
 -- the person who reviews it reads why; nothing rewrites them.
 -- Expand only (06 §6.4): nullable columns without a default rewrite
 -- nothing, and the checks and keys are added NOT VALID, reading none of
--- the rows under the lock; 000175 validates them.
+-- the rows under the lock; 000176 validates them.
 ALTER TABLE ledger.parked_entry
   ADD COLUMN limit_kind text,                 -- the limit it was parked by: service_posting_limit
   ADD COLUMN limit_debits bigint,             -- its debits when measured, minor units of limit_debits_currency (the entry's currency then)

@@ -1,5 +1,5 @@
 -- A validated constraint cannot be marked unvalidated again; the down
--- restores 000174's state by adding each one back NOT VALID.
+-- restores 000175's state by adding each one back NOT VALID.
 ALTER TABLE ledger.parked_entry
   DROP CONSTRAINT parked_entry_limit_currency_fkey,
   ADD CONSTRAINT parked_entry_limit_currency_fkey FOREIGN KEY (limit_currency) REFERENCES ref.currency NOT VALID,
