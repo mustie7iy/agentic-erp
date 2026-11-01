@@ -10,7 +10,7 @@ own cluster alone, with no accounts, Dex or ingress of its own: operators
 work through the cell's Kubernetes API with their own access. Each cell's
 bootstrap (ADR-0035, runbook step 6) loads the read-only deploy key from
 `erp/<cell>/argocd-repository`, installs Argo CD once from its pinned chart
-archive (version and SHA-256 in `deploy/helm/addons/addons.txt`, checked by
+archive (version and SHA-256 in `deploy/helm/erp-delivery/addons.txt`, checked by
 `helm-checks.sh`) and applies the project and root Application; from then
 on Argo CD installs and upgrades the add-ons, itself included, and the
 platform at the cell's `release.json`. Its settings
@@ -56,9 +56,11 @@ documentation says, and what it means here:
 - It requires AWS Identity Center for Argo CD's authentication; local
   users are not supported ([Create an Argo CD
   capability](https://docs.aws.amazon.com/eks/latest/userguide/create-argocd-capability.html),
-  Prerequisites). ADR-0035's Argo CD has no accounts and no UI anyone signs
-  in to; adding an identity service the platform does not use today is a
-  change of security posture, for the product owner.
+  Prerequisites). ADR-0035's Argo CD deliberately has no accounts and no
+  UI anyone signs in to; operators may reach the AWS accounts through
+  Identity Center roles (ADR-0035 runbook), but sign-in accounts on Argo CD
+  itself, and Argo CD depending on Identity Center, are a change of
+  security posture, for the product owner.
 - It does not allow modifying the sync timeout ("fixed at 120 seconds")
   and accepts only some `argocd-cm` fields and three `argocd-cmd-params-cm`
   keys ([Comparing EKS Capability for Argo CD to self-managed Argo
@@ -93,14 +95,14 @@ it gets no access to a cluster's API and its state holds no secret value,
 and Argo CD's version stays one pin in `addons.txt`, reviewed and
 checksummed like every add-on, with one owner after the bootstrap (Argo CD
 itself). A cannot avoid a runbook step on failover and owns the release
-twice. B would change the security posture (Identity Center), cannot keep
+twice. B would change the security posture (sign-in accounts on Argo CD through Identity Center), cannot keep
 the migrations' 90-minute sync limit as built, and takes version control
 away from review. "Argo CD in Terraform" in the triage's description of
 T72j is met as T72j built it: Terraform defines what Argo CD needs, and
 the runbook installs it.
 
 Revisit B if its documentation comes to allow the sync limit erp-cell's
-migrations need and an authentication that adds no identity service, or if
+migrations need and no sign-in accounts on Argo CD, or if
 a cell's failover time (ADR-0040's targets) needs Argo CD running on the
 DR cluster before the incident.
 

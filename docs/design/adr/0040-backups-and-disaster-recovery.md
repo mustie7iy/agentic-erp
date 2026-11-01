@@ -384,7 +384,9 @@ procedure is decided; T41g waits on that recovery.
   Terraform Helm or Kubernetes provider: ADR-0035 gives Terraform no access
   to a cluster's API (private, reached by operators and the cell's own
   Argo CD), the roots cannot plan while the home region is down, and the
-  DR cluster has no nodes to run Argo CD on until the failover.
+  DR cluster has no nodes to run Argo CD on until the failover. Neither
+  the Helm provider nor the EKS managed Argo CD capability is used: weighed
+  and declined in ADR-0055 (2026-10-31).
 
 Confirmed on AWS staging before the rehearsal, the steps marked in the
 runbook and these assumptions: a replica secret's ARN is its primary's

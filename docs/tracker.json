@@ -6824,7 +6824,7 @@
        },
        {
         "s": "T",
-        "t": "The directory's logins reach no other database on the directory's server (follow-up of T72h's review): PUBLIC's CONNECT and TEMPORARY defaults and hand grants on other databases (e.g. postgres) stay usable by every login. Decided (product owner 2026-10-31, as recommended in dirhard step 2, batch 25): Setup, given the list of the server's other databases (postgres, template1), also revokes PUBLIC's CONNECT and TEMPORARY on each, then refuses while PUBLIC or a login still holds either on any of them, rdsadmin (RDS's own database) checked too; confirmed on a real RDS instance with \\l",
+        "t": "The directory's logins reach no other database on the directory's server (follow-up of T72h's review): PUBLIC's CONNECT and TEMPORARY defaults and hand grants on other databases (e.g. postgres) stay usable by every login. Decided (product owner 2026-10-31, as recommended in dirhard step 2, batch 25): Setup, given the list of the server's other databases (postgres, template1), also revokes PUBLIC's CONNECT and TEMPORARY on each, then refuses while PUBLIC or a login still holds either on any of them, rdsadmin (RDS's own database) checked too; confirmed on a real RDS instance with \\l. Points for that check: whether RDS's master user can revoke PUBLIC's rights on template1, and template0, which PostgreSQL marks as accepting no connections (datallowconn false) and which the decision does not list",
         "r": "internal/directory/setup.go · ADR-0035",
         "src": "review:T72h · review:batch25 · po:2026-10-31",
         "c": []
