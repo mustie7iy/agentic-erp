@@ -6837,10 +6837,10 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "The directory's logins reach no other database on the directory's server (follow-up of T72h's review): PUBLIC's CONNECT and TEMPORARY defaults and hand grants on other databases (e.g. postgres) stay usable by every login; refuse or document a server holding other databases, or take PUBLIC's CONNECT on them with the IAM authentication step. Waits for the product owner (security posture; dirhard step 2, batch 25): the option offered is that Setup is given the list of the server's other databases, revokes PUBLIC's CONNECT and TEMPORARY on each and then refuses while PUBLIC or a login still holds either, checks rdsadmin (RDS's own database) too, and is confirmed on a real RDS instance with \\l",
-        "r": "internal/directory/setup.go · ADR-0035",
-        "src": "review:T72h · review:batch25",
+        "s": "D",
+        "t": "The directory's logins reach no other database on the directory's server (follow-up of T72h's review). Decided (product owner 2026-10-31, as recommended in dirhard step 2, batch 25) and built: erp-router setup-directory gives Setup the server's other databases (postgres and template1, as the product owner named them), on each of which Setup revokes PUBLIC's CONNECT and TEMPORARY and then refuses, naming the database and the right, while PUBLIC still holds either (a login or privilege role holding one was already refused). template0 is not listed: PostgreSQL marks it as accepting no connections (datallowconn false). RDS's own database rdsadmin is not covered, the decision naming only postgres and template1. For the specialist, on a real RDS instance with \\l: who owns postgres and template1 there and whether RDS's master user can revoke PUBLIC's rights on them, and whether Setup should also cover rdsadmin",
+        "r": "internal/directory/setup.go takePublicDatabases · ServerDatabases · TestSetupTakesPUBLICsRightsOnTheServer · TestSetupAgainOnTheServer · TestSetupRefusesPUBLICsRightsItCannotTake · cmd/erp-router setup.go · ADR-0035 As built 2026-10-31",
+        "src": "review:T72h · review:batch25 · po:2026-10-31",
         "c": []
        }
       ]
@@ -6890,6 +6890,13 @@
         "t": "Argo CD in each cell (product owner: no central Argo CD, no cross-account access to a cell's cluster API), an add-on installing itself, the add-ons and the platform at the cell's release.json; the migrations hooks within its 90-minute sync limit, the wave -10 hooks kept until its sync ends",
         "r": "deploy/helm/erp-delivery · deploy/helm/addons/values/argo-cd.yaml · deploy/terraform/modules/cell (argocd-repository) · scripts/helm-checks.sh · ADR-0035 · T40d3",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "How Argo CD is installed decided (agents, as the product owner asked on 2026-10-31): by each cell's bootstrap runbook from its pinned, checksummed archive, then managing itself as an add-on, with Terraform defining what it needs and installing nothing inside a cluster; not Terraform's Helm provider nor the EKS managed Argo CD capability. No build",
+        "r": "ADR-0055 · ADR-0035 runbook step 6 · ADR-0040 runbook step 6 and as built 2026-10-29 · T72j",
+        "src": "adr:ADR-0055 · po:2026-10-31",
         "c": []
        },
        {
@@ -7293,9 +7300,9 @@
        },
        {
         "s": "T",
-        "t": "A home-region failure of the environment's home cell recovered beyond the cell: the global tier (the router's and the web workspace's load balancers, the directory and its secrets) and the subordinate CA, which stay in the home region and VPC with no DR counterpart (the DR VPC is not peered), so the failover runbook's steps 5, 7 and 8 can complete for the production pilot cell; needs a decision first",
+        "t": "A home-region failure of the environment's home cell recovered beyond the cell: the global tier (the router's and the web workspace's load balancers, the directory and its secrets) and the subordinate CA, which stay in the home region and VPC with no DR counterpart (the DR VPC is not peered), so the failover runbook's steps 5, 7 and 8 can complete for the production pilot cell; needs a decision first, which the product owner deferred on 2026-10-31 to the pre-production checkpoint, with the DR subordinate CA's cost (about USD 400 a month, ADR-0035 Consequences)",
         "r": "ADR-0040 as built 2026-10-29 (Not covered) and runbook · modules/global · modules/subordinate-ca · deploy/helm/erp-cell secrets.yaml (directory password) · T72j · T41g waits on it",
-        "src": "review:T72j",
+        "src": "review:T72j · po:2026-10-31",
         "c": []
        },
        {
@@ -7308,8 +7315,8 @@
        {
         "s": "T",
         "t": "The region failover rehearsed on the production pilot cell before it takes live traffic (a pre-pilot gate), then yearly in a maintenance window (PO, 2026-10-19)",
-        "r": "ADR-0040 · T41g (waits on: the production AWS pilot cell, after T72j, and the global tier and subordinate CA recovered from a home-region failure)",
-        "src": "baseline",
+        "r": "ADR-0040 · T41g (waits on: the production AWS pilot cell, after T72j, and the global tier and subordinate CA recovered from a home-region failure, deferred by the product owner on 2026-10-31 to the pre-production checkpoint)",
+        "src": "po:2026-10-19 · po:2026-10-31",
         "c": []
        },
        {
@@ -8194,9 +8201,9 @@
      },
      {
       "s": "T",
-      "t": "A vendor item SAP cleared against an item of another fiscal year fails the migration run (split from the item before, waits for the product owner): the extract holds the scope's fiscal year only and AUGBL without SAP's clearing date and year (AUGDT, AUGGJ), so a prior-year invoice paid this year fails documents mode (ledger.clearing_not_balanced) in either year's run and balances mode (cleared vendor items do not net to zero). Decide which items a year's migration holds open: open at the extract's date (today) or at the fiscal year's end (SAP's key-date reading by AUGDT), and with it how the later year's run clears the earlier year's item. Recommended (batch 25, sapclear case 2): open at the fiscal year's end, which needs SAP's clearing date and year (AUGDT, AUGGJ) in the extract",
-      "r": "internal/sap FilterScope, ACDOCA · internal/integration/load.go clearings, openingLines · reconcile.go journal",
-      "src": "review:batch22 · review:batch25",
+      "t": "A vendor item SAP cleared against an item of another fiscal year fails the migration run (split from the item before): the extract holds the scope's fiscal year only and AUGBL without SAP's clearing date and year, so a prior-year invoice paid this year fails documents mode (ledger.clearing_not_balanced) in either year's run and balances mode (cleared vendor items do not net to zero). Decided (product owner 2026-10-31, as recommended in batch 25, sapclear case 2): a fiscal year's migration holds open at the year's end every vendor item SAP cleared in a later fiscal year (SAP's key-date reading by the clearing date), and the later year's run clears it with the payment it loads; the extract carries SAP's clearing date and the clearing document's fiscal year (AUGDT, AUGGJ, stated from memory). Waits only on an SAP specialist confirming the extract's field names",
+      "r": "internal/sap FilterScope, ACDOCA · internal/integration/load.go clearings, openingLines · reconcile.go journal · ADR-0034 As built (decided 2026-10-31) · docs/migration.md (waits on: an SAP specialist confirming AUGDT and AUGGJ in the extract)",
+      "src": "review:batch22 · review:batch25 · po:2026-10-31",
       "c": []
      },
      {
@@ -8225,6 +8232,13 @@
       "t": "A migration run's start and reconciliation, which take no body, name a company no longer active without the field scope.legal_entity_ids[i], which only createMigrationRun's request has (an API-consumer class, REVIEW.md)",
       "r": "found in apinames4's sweep of the class (review:batch26 bootstrap leaf) · internal/integration runs.go entities (:153-158) from prepare (:224), runStep/Execute · startMigrationRun, reconcileMigrationRun (integration.legal_entity_not_active)",
       "src": "review:batch26",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Load SAP open items in a foreign document currency in that currency (product owner 2026-10-31, as recommended): an open vendor item, open down payment or open GR/IR position line whose document currency (ACDOCA RWCUR, amount WSL) is not the company's is loaded as a document-currency item beside its company code amount (HSL), so a payment or final invoice in its own currency can clear it, instead of the quality gate refusing it; an OData extract's open items, refused today because its mapping does not carry RWCUR and WSL, load once those properties are mapped",
+      "r": "internal/integration/load.go journalPosting · quality.go documentCurrencies · sap.ACDOCA RWCUR/WSL · ADR-0005 As built (review:batch20) · docs/migration.md · the OData mapping waits on the pilot system's $metadata (SAP S/4HANA OData V2 read connector)",
+      "src": "review:batch20 · po:2026-10-31",
       "c": []
      }
     ]
@@ -8418,6 +8432,13 @@
      },
      {
       "s": "D",
+      "t": "grype scans the upstream images the release copies (deploy/images/upstream.txt) before anything is pushed, failing on a fixable high or critical vulnerability as for the platform's images, with .grype.yaml's exceptions: image-scan.sh scans each pin by digest on linux/arm64, the list read once for scan and copy",
+      "r": "scripts/image-scan.sh · scripts/lib/upstream.sh · scripts/mirror-images.sh · scripts/test-images.sh · scripts/ci-changes.sh · .github/workflows/release.yml (make image-scan before every push) · ADR-0032 amendment 2026-10-31",
+      "src": "review:T72i · po:2026-10-31",
+      "c": []
+     },
+     {
+      "s": "D",
       "t": "The release builds erp-temporal (Temporal's server with the platform's authorization, the temporal/ module) with the platform's images, and tooling's ECR has its erp-temporal repository: release.json and erp-cell require images.temporal, which no release built and no repository held",
       "r": "scripts/images.sh · modules/ecr · scripts/ci-changes.sh · scripts/test-images.sh · ADR-0035 (Temporal, T40c4) · ADR-0032 amendment 2026-10-29",
       "src": "review:batch21",
@@ -8534,10 +8555,10 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "A migration run dates the suppliers it creates on the company's date in its time zone, not the database's UTC current_date. The date is the migrated payments bank account's valid_from, which decides from which day payments go to it, and partner judges bank accounts on its own UTC day; a partner spans companies in several zones, so this waits for the product owner (payment routing and the backdating control); recommended: one partner-wide rule for bank account days, decided with partner",
-        "r": "found in batch 26's lane reviews · internal/integration runs.go loadRun (database.Today, :472) passed to load.go newSupplier (:180), banks.go supplierBank (ValidFrom) · checked in batch 27 (tzcontract): partner changes.go CreatePartner sealBanks refuses a valid_from before database.Today (partner.backdated_bank_account), so a Toronto load at 22:00 dated on the company's date would be refused; ports.go PaymentAccounts (the reconciliation's account valid today) and payees.go (b.valid_from <= the run date) read it; dated in Dubai's zone at 01:00 the reconciliation would miss the account until UTC's day catches up · ADR-0051 as built (T72n1)",
-        "src": "review:batch26",
+        "s": "D",
+        "t": "A migration run's suppliers stay dated by UTC's day, not the company's date in its time zone (product owner 2026-10-31, as recommended): the date is the migrated payments bank account's valid_from, which decides from which day payments go to it and which partner's backdating control judges on its own UTC day; a supplier serves companies in several zones, so a bank account's day is one UTC rule for the whole supplier. No code change",
+        "r": "found in batch 26's lane reviews · internal/integration runs.go loadRun (database.Today, :472) passed to load.go newSupplier (:180), banks.go supplierBank (ValidFrom) · checked in batch 27 (tzcontract): partner changes.go CreatePartner sealBanks refuses a valid_from before database.Today (partner.backdated_bank_account), so a Toronto load at 22:00 dated on the company's date would be refused; ports.go PaymentAccounts (the reconciliation's account valid today) and payees.go (b.valid_from <= the run date) read it; dated in Dubai's zone at 01:00 the reconciliation would miss the account until UTC's day catches up · ADR-0051 as built (T72n1) · decided: ADR-0051 as built (Kept in UTC) · 03-data-model (bank accounts)",
+        "src": "review:batch26 · po:2026-10-31",
         "c": []
        },
        {

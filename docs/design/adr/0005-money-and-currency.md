@@ -60,5 +60,6 @@ and T72b's never-guess rule:
   accounts are not checked: they post in local currency, as before, and a
   cleared line the run's clearing completes is cleared on the platform too.
 - **Not built.** Migrating foreign-currency open items in their document
-  currency (WSL, with their rate) is not this step, and no tracker item asks
-  for it yet.
+  currency (WSL, with their rate) is not this step. The product owner asked
+  for it on 2026-10-31 (as recommended): tracked under Migration from SAP,
+  Transform and load.

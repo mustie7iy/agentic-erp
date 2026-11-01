@@ -2462,7 +2462,7 @@ func TestReplicaDown(t *testing.T) {
 func cellLogin(t *testing.T, u string) string {
 	t.Helper()
 	login := pgtest.NewLogin(t)
-	if err := directory.Setup(context.Background(), u, directory.Login{Name: login.Name, Password: login.Password, Role: directory.CellRole}); err != nil {
+	if err := directory.Setup(context.Background(), u, nil, directory.Login{Name: login.Name, Password: login.Password, Role: directory.CellRole}); err != nil {
 		t.Fatal(err)
 	}
 	return login.As(u)

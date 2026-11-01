@@ -72,8 +72,14 @@ func loadSetup(getenv func(string) string) (setupSettings, error) {
 	return s, errors.Join(errs...)
 }
 
+// serverDatabases are the directory's server's other databases, whose
+// PUBLIC CONNECT and TEMPORARY setup-directory takes back: a variable for
+// the tests alone, whose server is shared with every package's.
+var serverDatabases = directory.ServerDatabases
+
 // setupCmd makes the directory's schema, its privilege roles and the
-// router's, the cells' and erp-web's logins, then exits:
+// router's, the cells' and erp-web's logins, takes PUBLIC's rights on the
+// server's other databases, then exits:
 //
 //	erp-router setup-directory
 //
@@ -88,7 +94,7 @@ func setupCmd(ctx context.Context, getenv func(string) string, stderr io.Writer)
 		fmt.Fprintln(stderr, "erp-router setup-directory: configuration:", err)
 		return 2
 	}
-	if err := directory.Setup(ctx, s.adminURL, s.logins...); err != nil {
+	if err := directory.Setup(ctx, s.adminURL, serverDatabases(), s.logins...); err != nil {
 		fmt.Fprintln(stderr, "erp-router setup-directory:", err)
 		return 1
 	}

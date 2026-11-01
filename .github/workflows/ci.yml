@@ -445,9 +445,10 @@ jobs:
           make images-reproducible
           df -h / | tail -1
       - name: Image scan
-        # grype on each image's SBOM and on the pinned base image, failing on
-        # a high or critical vulnerability that has a fix (.grype.yaml lists
-        # accepted exceptions with their expiry).
+        # grype on each image's SBOM, on the pinned base images and on the
+        # upstream images the release copies (deploy/images/upstream.txt),
+        # failing on a high or critical vulnerability that has a fix
+        # (.grype.yaml lists accepted exceptions with their expiry).
         run: |
           make image-scan
           df -h / | tail -1

@@ -18,14 +18,18 @@
 #     one and a push whose digest is not the index built;
 #   - images-reproducible.sh gives each build a buildx builder of its own,
 #     removes it, and fails when the digests differ;
-#   - image-scan.sh scans erp-analytics's SBOMs and its cc base;
+#   - image-scan.sh scans erp-analytics's SBOMs and its cc base, and each
+#     upstream image of deploy/images/upstream.txt by its pin on
+#     linux/arm64, failing on a fixable high unless .grype.yaml accepts it;
 #   - sign-images.sh signs and attests every erp-analytics reference;
 #   - base-image-current.sh checks the three pins and names the moved one;
 #   - the release pushes every image it builds or copies into the release
 #     registry (ERP_RELEASE_REGISTRY, tooling's ECR) and nowhere else, each
 #     into a repository modules/ecr creates, under the names a cell's
 #     release.json must use (promotion-checks.sh), and every image
-#     release.json names is one the release builds or copies.
+#     release.json names is one the release builds or copies;
+#   - the release scans (make image-scan, upstream pins included) before
+#     it pushes, copies, signs or records anything.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 root="$PWD"
@@ -94,7 +98,19 @@ fake crane 'case "$1" in
 push) ref="$4"; d="sha256:$(shasum -a 256 "$3/index.json" | cut -c1-64)"; echo "${ref%:*}@${FAKE_PUSHED:-$d}" ;;
 digest) if [ "$2" = "${FAKE_MOVED:-}" ]; then echo "sha256:$(printf "%064d" 9)"; else grep -h -o "$2@sha256:[0-9a-f]*" .ko.yaml deploy/images/erp-analytics.Dockerfile | head -1 | sed "s/.*@//"; fi ;;
 esac'
-fake grype ''
+# grype: FAKE_FINDING="WHAT CVE" reports CVE, fixable and high, in each
+# image whose reference contains WHAT, and fails as grype's --fail-on does
+# unless the --config given ignores CVE (.grype.yaml's exceptions). It
+# matches the CVE alone, not the package, so it proves the scan reads the
+# configuration it is given, not grype's own matching of an exception.
+fake grype 'config=""
+while [ $# -gt 0 ]; do case "$1" in --config) config="$2"; shift ;; esac; shift; done
+read -r what cve <<<"${FAKE_FINDING:-}"
+[ -n "$what" ] && grep -q "^grype registry:[^ ]*$what" <(tail -1 "$CALLS") || exit 0
+if [ -n "$config" ] && grep -q "^ *- vulnerability: $cve$" "$config"; then exit 0; fi
+echo "$cve High (fixed) in $what" >&2
+echo "discovered vulnerabilities at or above the severity threshold" >&2
+exit 1'
 fake cosign ''
 export KO="$work/bin/ko" DOCKER="$work/bin/docker" SYFT="$work/bin/syft" CRANE="$work/bin/crane" GRYPE="$work/bin/grype" COSIGN="$work/bin/cosign"
 
@@ -185,6 +201,41 @@ for p in amd64 arm64; do
   [ "$(calls "^grype registry:gcr.io/distroless/cc-debian12:nonroot@sha256:[0-9a-f]* --platform linux/$p ")" -eq 1 ] || fail scan "the cc base not scanned for linux/$p"
 done
 echo "test-images: erp-analytics's SBOMs and its cc base scanned"
+# The upstream images the release copies (ADR-0032 amendment of
+# 2026-10-31): each pin of deploy/images/upstream.txt, PgBouncer's and
+# NATS's, scanned once by digest on the platform copied, with the same
+# threshold and exceptions as the platform's images; a fixable high fails
+# the scan, one .grype.yaml accepts does not.
+scan_args="--fail-on high --only-fixed --config .grype.yaml"
+pins=0
+while read -r name source tag pin; do
+  case "$name" in '' | '#'*) continue ;; esac
+  [ "$(calls "^grype registry:$source:$tag@$pin --platform linux/arm64 $scan_args$")" -eq 1 ] ||
+    fail upstream-scan "$name ($source:$tag@$pin) not scanned once on linux/arm64 with $scan_args"
+  pins=$((pins + 1))
+done <"$root/deploy/images/upstream.txt"
+[ "$(calls "^grype registry:")" -eq $((pins + 4)) ] || fail upstream-scan "$(calls "^grype registry:") registry scans, want the bases' 4 and the $pins pins"
+for name in pgbouncer nats; do
+  [ "$(calls "^grype registry:[^ ]*/$name:")" -eq 1 ] || fail upstream-scan "$name not scanned"
+done
+: >"$CALLS"
+if FAKE_FINDING="cloudnative-pg/pgbouncer CVE-2099-00001" "$root/scripts/image-scan.sh" "$work/out" >"$work/log" 2>&1; then
+  fail upstream-scan "a fixable high in PgBouncer's pin passed the scan"
+fi
+grep -q "CVE-2099-00001 High (fixed) in cloudnative-pg/pgbouncer" "$work/log" || { cat "$work/log" >&2; fail upstream-scan "the scan failed without the finding"; }
+: >"$CALLS"
+# A configuration of the test's own, so the case holds whatever the real
+# .grype.yaml accepts today (its entries expire and are removed).
+excepted=CVE-2099-00002
+printf 'ignore:\n  - vulnerability: %s\n    package:\n      name: nats-server\n' "$excepted" >"$work/grype.yaml"
+GRYPE_CONFIG="$work/grype.yaml" FAKE_FINDING="library/nats $excepted" "$root/scripts/image-scan.sh" "$work/out" >"$work/log" 2>&1 ||
+  { cat "$work/log" >&2; fail upstream-scan "$excepted, which the configuration accepts, failed NATS's scan"; }
+: >"$CALLS"
+if FAKE_FINDING="library/nats $excepted" "$root/scripts/image-scan.sh" "$work/out" >"$work/log" 2>&1; then
+  fail upstream-scan "$excepted passed with .grype.yaml, which does not accept it"
+fi
+[ "$(calls "^grype registry:[^ ]*/library/nats:")" -eq 1 ] || fail upstream-scan "NATS not scanned without the exception"
+echo "test-images: every upstream pin scanned on linux/arm64; a fixable high fails the scan, one the configuration accepts does not"
 
 KO_PLATFORMS=linux/amd64 images "$work/one" || { cat "$work/log" >&2; fail one-platform "images.sh failed"; }
 [ "$(calls "^docker buildx build .*--platform linux/amd64 ")" -eq 1 ] && [ "$(calls "^docker buildx build")" -eq 1 ] ||
@@ -282,6 +333,31 @@ for other in ("ghcr.io", "docker.io", "packages: write"):
     assert other not in text, "release.yml names %s: the release's registry is tooling's ECR" % other
 PY
 echo "test-images: the release pushes every image it builds or copies to ERP_RELEASE_REGISTRY, into modules/ecr's repositories, under release.json's names"
+
+# The release scans before anything leaves the runner (ADR-0032 amendment
+# of 2026-10-31): make image-scan, which scans the upstream pins too, runs
+# in the step before the first push, so a fixable high in a pin fails the
+# release before its copy is pushed, signed, attested or listed; and the
+# copy reads the list the scan read.
+python3 - "$root/.github/workflows/release.yml" "$root/Makefile" >"$work/log" 2>&1 <<'PY' || { cat "$work/log" >&2; fail release-scan "release.yml"; }
+import re, sys
+text, make = open(sys.argv[1]).read(), open(sys.argv[2]).read()
+names = re.findall(r"^      - name: (.*)$", text, re.M)
+steps = {m.group(1): m.group(2) for m in re.finditer(r"^      - name: (.*)\n((?:(?!      - name: ).*\n)*)", text, re.M)}
+scan = "Images, built and scanned before anything is pushed"
+assert scan in steps and re.search(r"^ *make image-scan$", steps[scan], re.M), "no step %r running make image-scan" % scan
+assert re.search(r"^image-scan:\n\t\./scripts/image-scan\.sh dist/images$", make, re.M), "make image-scan does not run image-scan.sh"
+assert "continue-on-error" not in steps[scan] and "image-scan ||" not in steps[scan], "a failed scan does not stop the release"
+for later in ("Images, pushed", "Upstream images, mirrored into the release registry", "Sign and attest"):
+    assert later in names, "no step %r" % later
+for name in names:
+    if any(w in steps[name] for w in ("PUSH=true", "mirror-images.sh", "sign-images.sh", "cosign ", "crane ")):
+        assert names.index(name) > names.index(scan), "%r pushes, copies or signs before %r" % (name, scan)
+assert not re.search(r"\bLIST=", text), "release.yml gives the mirror another list than the scan's"
+PY
+# GRYPE_CONFIG is the tests' alone: no workflow replaces .grype.yaml.
+! grep -l "GRYPE_CONFIG" "$root"/.github/workflows/*.yml || fail release-scan "a workflow sets GRYPE_CONFIG, replacing .grype.yaml's exceptions"
+echo "test-images: the release scans the platform's images and the upstream pins before it pushes, copies or signs anything"
 
 if [ "$failed" -ne 0 ]; then
   exit 1

@@ -3,7 +3,6 @@ package directory_test
 import (
 	"context"
 	"errors"
-	"net/url"
 	"strings"
 	"testing"
 
@@ -29,7 +28,7 @@ func setUpLogins(t *testing.T) logins {
 	t.Helper()
 	ctx := context.Background()
 	l := logins{url: pgtest.EmptyDatabase(t), creds: map[string]pgtest.Login{}}
-	if err := directory.Setup(ctx, l.url, l.all(t)...); err != nil {
+	if err := directory.Setup(ctx, l.url, nil, l.all(t)...); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 	open := func(u string) *directory.Postgres {
@@ -267,7 +266,7 @@ func TestSetupAgain(t *testing.T) {
 	old := l.creds[directory.CellRole]
 	changed := pgtest.Login{Name: old.Name, Password: uuid.NewString()}
 	l.creds[directory.CellRole] = changed
-	if err := directory.Setup(ctx, l.url, l.all(t)...); err != nil {
+	if err := directory.Setup(ctx, l.url, nil, l.all(t)...); err != nil {
 		t.Fatalf("again: %v", err)
 	}
 	for _, c := range []struct {
@@ -310,7 +309,7 @@ func TestSetupRefusesLogins(t *testing.T) {
 	pgtest.Scan(t, `SELECT current_user`, nil, &me)
 	id := func(l pgtest.Login) string { return pgx.Identifier{l.Name}.Sanitize() }
 	pgtest.Exec(t, `CREATE ROLE `+id(createdb)+` LOGIN CREATEDB; CREATE ROLE `+id(member)+` LOGIN; CREATE ROLE `+id(admin)+` LOGIN; CREATE ROLE `+id(owner)+` LOGIN`)
-	if err := directory.Setup(ctx, u); err != nil { // the roles exist
+	if err := directory.Setup(ctx, u, nil); err != nil { // the roles exist
 		t.Fatal(err)
 	}
 	dir, err := directory.OpenWith(ctx, u, nil)
@@ -335,7 +334,7 @@ func TestSetupRefusesLogins(t *testing.T) {
 		"owning objects":                 {Name: owner.Name, Password: "p", Role: directory.CellRole},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if err := directory.Setup(ctx, u, c); !errors.Is(err, directory.ErrLogin) {
+			if err := directory.Setup(ctx, u, nil, c); !errors.Is(err, directory.ErrLogin) {
 				t.Errorf("got %v, want ErrLogin", err)
 			}
 		})
@@ -384,7 +383,7 @@ func TestSetupRefusesOwners(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := strings.ReplaceAll(c.want, "{login}", login.Name)
-			if err := directory.Setup(ctx, u, directory.Login{Name: login.Name, Password: "p", Role: directory.CellRole}); !errors.Is(err, directory.ErrLogin) || !strings.Contains(err.Error(), want) {
+			if err := directory.Setup(ctx, u, nil, directory.Login{Name: login.Name, Password: "p", Role: directory.CellRole}); !errors.Is(err, directory.ErrLogin) || !strings.Contains(err.Error(), want) {
 				t.Errorf("got %v, want ErrLogin naming %q", err, want)
 			}
 		})
@@ -405,7 +404,7 @@ func TestOwnersFunctionsAreNotTheLogins(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := directory.Setup(ctx, l.url, l.all(t)...); err != nil {
+	if err := directory.Setup(ctx, l.url, nil, l.all(t)...); err != nil {
 		t.Fatalf("again: %v", err)
 	}
 	stores := map[string]*directory.Postgres{directory.RouterRole: l.router, directory.CellRole: l.cell, directory.WebRole: l.web}
@@ -430,7 +429,7 @@ func TestPrivilegeRoleInAnother(t *testing.T) {
 	u := pgtest.EmptyDatabase(t)
 	c := pgtest.NewLogin(t)
 	login := directory.Login{Name: c.Name, Password: c.Password, Role: directory.CellRole}
-	if err := directory.Setup(ctx, u, login); err != nil {
+	if err := directory.Setup(ctx, u, nil, login); err != nil {
 		t.Fatal(err)
 	}
 	dir, err := directory.OpenWith(ctx, u, nil)
@@ -463,7 +462,7 @@ func TestSetupRefusesServerWideRights(t *testing.T) {
 	u := pgtest.EmptyDatabase(t)
 	c := pgtest.NewLogin(t)
 	login := directory.Login{Name: c.Name, Password: c.Password, Role: directory.CellRole}
-	if err := directory.Setup(ctx, u, login); err != nil {
+	if err := directory.Setup(ctx, u, nil, login); err != nil {
 		t.Fatal(err)
 	}
 	dir, err := directory.OpenWith(ctx, u, nil)
@@ -497,11 +496,7 @@ func TestSetupRefusesServerWideRights(t *testing.T) {
 // dbName is the quoted name of the database u names.
 func dbName(t *testing.T, u string) string {
 	t.Helper()
-	parsed, err := url.Parse(u)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return pgx.Identifier{strings.TrimPrefix(parsed.Path, "/")}.Sanitize()
+	return pgx.Identifier{databaseName(t, u)}.Sanitize()
 }
 
 // TestSetupDatabaseFailures: every statement of a setup failing in turn
@@ -516,10 +511,13 @@ func TestSetupDatabaseFailures(t *testing.T) {
 	}
 	defer pool.Close()
 	logins := []directory.Login{{Name: c.Name, Password: c.Password, Role: directory.CellRole}}
+	// Another database PUBLIC holds both rights on, until the last run
+	// commits: each failed run is rolled back.
+	others := []string{databaseName(t, pgtest.EmptyDatabase(t))}
 	for n := 1; ; n++ {
 		err := directory.SetupIn(ctx, func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
 			return pool.InTx(ctx, scope, func(ctx context.Context, tx pgx.Tx) error { return fn(ctx, &pgtest.FailingTx{Tx: tx, FailAt: n}) })
-		}, logins)
+		}, others, logins)
 		if err == nil {
 			if n == 1 {
 				t.Error("got success without a statement to fail")
@@ -530,7 +528,7 @@ func TestSetupDatabaseFailures(t *testing.T) {
 			t.Fatalf("statement %d: got %v, want %v", n, err, pgtest.ErrInjected)
 		}
 	}
-	if err := directory.Setup(ctx, "postgres://nobody@127.0.0.1:1/x?connect_timeout=1"); err == nil {
+	if err := directory.Setup(ctx, "postgres://nobody@127.0.0.1:1/x?connect_timeout=1", nil); err == nil {
 		t.Error("out of reach: got it set up, want an error")
 	}
 	empty := pgtest.EmptyDatabase(t)

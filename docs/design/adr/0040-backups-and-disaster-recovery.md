@@ -384,7 +384,9 @@ procedure is decided; T41g waits on that recovery.
   Terraform Helm or Kubernetes provider: ADR-0035 gives Terraform no access
   to a cluster's API (private, reached by operators and the cell's own
   Argo CD), the roots cannot plan while the home region is down, and the
-  DR cluster has no nodes to run Argo CD on until the failover.
+  DR cluster has no nodes to run Argo CD on until the failover. Neither
+  the Helm provider nor the EKS managed Argo CD capability is used: weighed
+  and declined in ADR-0055 (2026-10-31).
 
 Confirmed on AWS staging before the rehearsal, the steps marked in the
 runbook and these assumptions: a replica secret's ARN is its primary's
@@ -400,3 +402,7 @@ recovers; and the subordinate CA issues from the home region only.
 Raised to the product owner on 2026-10-29 and tracked as its own item
 (review:T72j), on which the rehearsal (T41g) waits; until then the
 runbook's steps 5, 7 and 8 cannot complete for the home cell (above).
+On 2026-10-31 the product owner deferred the decision, the global tier's
+recovery and a subordinate CA in the DR region (about USD 400 a month,
+ADR-0035 Consequences) among it, to the pre-production checkpoint; the
+item and the rehearsal (T41g) wait on it.
