@@ -1215,7 +1215,7 @@
        {
         "s": "D",
         "t": "A person accepts a gap without the missing statement (reason, audited), so the bank's lines post again",
-        "r": "ADR-0047 Continuity · T49 · db/migrations/000174-000175 · bank_statement gap_accepted_at/by, gap_reason · POST /v1/bank-statements/{id}:acceptGap · payments.statement.gap.accept · payments.statement_not_in_gap · BankStatementGapAccepted · walkthrough step 8",
+        "r": "ADR-0047 Continuity · T49 · db/migrations/000177-000178 · bank_statement gap_accepted_at/by, gap_reason · POST /v1/bank-statements/{id}:acceptGap · payments.statement.gap.accept · payments.statement_not_in_gap · BankStatementGapAccepted · walkthrough step 8",
         "src": "baseline",
         "pilot": "po:2026-10-31 · adr:ADR-0047 · adr:ADR-0052",
         "c": []

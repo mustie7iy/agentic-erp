@@ -4,7 +4,7 @@
 -- why is kept on the statement while it stands; a statement whose
 -- previous statement changes later (the missing one arrives) is compared
 -- again, and a gap found then is a new one, so the acceptance goes. The
--- check is added NOT VALID and validated in 000175 (06 §6.4).
+-- check is added NOT VALID and validated in 000178 (06 §6.4).
 ALTER TABLE payments.bank_statement
   ADD COLUMN gap_accepted_at timestamptz,
   ADD COLUMN gap_accepted_by uuid,

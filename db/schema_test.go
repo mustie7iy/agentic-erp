@@ -3349,7 +3349,7 @@ func TestBankStatementSchema(t *testing.T) {
 
 // statementGapAcceptanceSchema: a statement whose gap a person accepted
 // says when, by whom and why, all three, is no longer in gap and has a
-// previous statement (ADR-0047, 000174).
+// previous statement (ADR-0047, 000177).
 func statementGapAcceptanceSchema(t *testing.T, f fixture, statement uuid.UUID) {
 	t.Helper()
 	set := func(columns string, args ...any) func(tx pgx.Tx) error {

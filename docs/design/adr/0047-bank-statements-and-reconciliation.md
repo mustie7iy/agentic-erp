@@ -460,7 +460,7 @@ Canadian bank may only offer BAI2.
   rules may reconcile a statement, as it is a fact of the books rather than
   a decision; a gap is resolved by importing the missing statement, or
   by a person accepting it (below).
-- Accepting a gap (2026-11-01, 000174-000175): `POST
+- Accepting a gap (2026-11-01, 000177-000178): `POST
   /v1/bank-statements/{id}:acceptGap` with a reason (`ReasonInput`),
   If-Match and Idempotency-Key, permission
   `payments.statement.gap.accept` (not an approval permission), people

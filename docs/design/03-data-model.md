@@ -2045,8 +2045,8 @@ statement whose opening balance is not the closing balance of the bank's
 statement before it (`previous_statement_id`) is in `gap`; a statement
 imported between two others becomes the next one's previous statement,
 which is compared again (its gap closes, or one opens). A person may
-accept a gap without the missing statement (000174, its check validated in
-000175): the statement becomes `imported` and records when, by whom and
+accept a gap without the missing statement (000177, its check validated in
+000178): the statement becomes `imported` and records when, by whom and
 why (`bank_statement_gap_accepted`: all three or none, never on a
 statement in `gap`, only on one with a previous statement); a gap found
 again when its previous statement changes drops them. The file itself is
