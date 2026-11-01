@@ -2332,9 +2332,12 @@ company's currency after its company was changed). What it settled:
   person typed is kept (review round 1). Without htmx the change is seen when the
   form is sent: a form whose company is not the one it was filled in for
   is not sent (no call to park or post) but rendered for the company,
-  422, with a notice that its currency and dates are now this company's,
-  to be checked and sent again. A company the person may not see fills
-  nothing in, and the API refuses it.
+  422, with a notice that nothing was sent, that the currency and dates
+  filled in for the other company are now this company's and those the
+  person typed kept, to be checked and sent again. Choosing another
+  company, either way, resets the ledgers to every ledger it keeps. A
+  company the person may not see fills nothing in, and the API refuses
+  it.
 - **Foreign-currency entries stay offered**, as the API takes them
   (`JournalEntryCreate.currency`, converted at the posting date's rates):
   the currency's hint names the company's own (“The company's currency
@@ -2393,7 +2396,10 @@ company's currency after its company was changed). What it settled:
   change asks for them again (`op=totals`, no API call): their contents
   are swapped inside a polite live region that stays in the page, so a
   screen reader says the change (`innerHTML`, as the payment progress
-  does; review round 1); without it they are those of the form's
+  does; review round 1), and when a line is added or left out they come
+  with the lines as an out-of-band swap of the region's contents (review
+  round 2); the form's buttons follow the totals, outside the lines'
+  section; without it they are those of the form's
   last rendering. The API checks the balance.
 - **Calls.** The new entry's form reads six (`getCurrentPrincipal`, the
   companies, the company's day, its accounts, its ledgers and the ledger

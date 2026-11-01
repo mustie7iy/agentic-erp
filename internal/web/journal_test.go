@@ -276,8 +276,9 @@ func TestEntryForm(t *testing.T) {
 	v.Del("csrf_token")
 	frag := b.do(http.MethodPost, "/journal/new", v, "HX-Request", "true", "X-CSRF-Token", token)
 	status(t, "a line left out with htmx", frag, http.StatusOK)
-	if strings.Contains(frag.body, "<html") || !strings.Contains(frag.body, `id="entry-lines"`) {
-		t.Errorf("a line left out with htmx: got %q, want the lines' section alone", frag.body)
+	if strings.Contains(frag.body, "<html") || !strings.Contains(frag.body, `id="entry-lines"`) || strings.Contains(frag.body, `id="entry-totals"`) ||
+		!strings.Contains(frag.body, `hx-swap-oob="innerHTML:#entry-totals"`) {
+		t.Errorf("a line left out with htmx: got %q, want the lines' section and the totals' contents out of band, their live region kept", frag.body)
 	}
 	if v := frag.header.Values("Vary"); !strings.Contains(strings.Join(v, " "), "HX-Request") {
 		t.Errorf("the section's Vary: got %v, want HX-Request in it", v)

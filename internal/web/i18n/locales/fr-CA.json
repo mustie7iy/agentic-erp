@@ -932,7 +932,7 @@
   "entry.file.park": "Préenregistrer avec les lignes du fichier",
   "entry.post": "Comptabiliser l'écriture",
   "entry.company.changed.title": "La société a changé",
-  "entry.company.changed": "La devise et les dates étaient celles de la société choisie auparavant : ce sont maintenant celles de cette société. Vérifiez-les et envoyez l'écriture de nouveau.",
+  "entry.company.changed": "Rien n'a été envoyé. La devise et les dates remplies pour la société choisie auparavant sont maintenant celles de cette société; celles que vous avez saisies sont conservées. Vérifiez-les et envoyez l'écriture de nouveau.",
   "entry.line.taxarea": "Territoire fiscal",
   "entry.line.taxbase": "Assiette fiscale déclarée",
   "entry.line.quantity": "Quantité",

@@ -72,6 +72,12 @@ func TestCurrencyFollowsTheCompany(t *testing.T) {
 	filled("Dubai chosen, Toronto's form typed on", r, map[string]string{"currency": "USD", "posting_date": "2025-09-30",
 		"document_date": "2026-01-01", "filled_on": "2026-01-01"})
 	holds(t, "Dubai chosen, Toronto's form typed on", text(r.page(t).doc), "The company was changed")
+	// The same, sent without htmx: nothing is sent, and the notice says
+	// what was typed is kept.
+	r = b.do(http.MethodPost, ui.NewEntryPath, withLines(mine, pair("1.00")...))
+	status(t, "Dubai chosen without htmx, typed on", r, http.StatusUnprocessableEntity)
+	holds(t, "Dubai chosen without htmx, typed on", r.page(t).mainText(), "Nothing was sent.", "those you typed are kept")
+	filled("Dubai chosen without htmx, typed on", r, map[string]string{"currency": "USD", "posting_date": "2025-09-30", "document_date": "2026-01-01"})
 	v.Set(ui.FieldCompany, uuid.NewString())
 	hx, headers = asHTMX(v, ui.OpCompany)
 	filled("a company the person may not see", b.do(http.MethodPost, ui.NewEntryPath, hx, headers...), map[string]string{"currency": "CAD",

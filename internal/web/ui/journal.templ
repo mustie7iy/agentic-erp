@@ -635,6 +635,8 @@ templ EntryFormView(f EntryForm) {
 			}
 		</datalist>
 		@EntryLines(f)
+		@EntryTotalsView(f.Totals)
+		@entryButtons(f)
 		if f.File != nil {
 			@entryFileView(*f.File)
 		}
@@ -741,8 +743,8 @@ templ entryFileView(f LinesUpload) {
 
 // EntryTotalsView are the form's running debits, credits and difference
 // in their live region, said again when they change: htmx swaps the
-// region's contents (EntryTotals) when an amount changes, and the region
-// with the lines.
+// region's contents (EntryTotalsBody) when an amount changes, and out of
+// band when the lines do (EntryLinesSwap).
 templ EntryTotalsView(t EntryTotals) {
 	<div class="entry__totals">
 		<h3>
@@ -785,9 +787,8 @@ templ companyChoice(f EntryForm) {
 	</div>
 }
 
-// EntryLines are the form's lines and its buttons, the section htmx swaps
-// when a line is added or left out. The form's send comes first, so it
-// is the button Enter presses in a field (HTML's implicit submission).
+// EntryLines are the form's lines, the section htmx swaps when a line is
+// added or left out.
 templ EntryLines(f EntryForm) {
 	<div class="entry__lines" id="entry-lines">
 		<h2>
@@ -804,8 +805,24 @@ templ EntryLines(f EntryForm) {
 		for _, l := range f.Lines {
 			@EntryLineView(f.Action, l)
 		}
-		@EntryTotalsView(f.Totals)
-		<div class="filters__buttons">
+	</div>
+}
+
+// EntryLinesSwap is what htmx swaps when the form's lines change: the
+// lines' section, and the running totals' contents out of band, inside
+// their live region, which stays in the page.
+templ EntryLinesSwap(f EntryForm) {
+	@EntryLines(f)
+	<div hx-swap-oob="innerHTML:#entry-totals">
+		@EntryTotalsBody(f.Totals)
+	</div>
+}
+
+// entryButtons are the form's buttons, after its lines and totals and
+// outside the section htmx swaps. The send comes first, so it is the
+// button Enter presses in a field (HTML's implicit submission).
+templ entryButtons(f EntryForm) {
+	<div class="filters__buttons">
 			<button class="button" type="submit" name="op" value="send" id="entry-send-button">
 				if f.Edit {
 					@T(i18n.EntrySaveButton)
@@ -823,7 +840,6 @@ templ EntryLines(f EntryForm) {
 					@T(i18n.EntryAddLine)
 				</button>
 			}
-		</div>
 	</div>
 }
 

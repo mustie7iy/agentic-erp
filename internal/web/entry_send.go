@@ -82,7 +82,7 @@ func (s *Server) parkFile(w http.ResponseWriter, r *http.Request, p *person) {
 	t.file = &ui.LinesUpload{Again: true}
 	t.pad()
 	if t.switched() {
-		t.changed = true
+		t.changed, t.postTo = true, ""
 		s.showNewEntry(w, r, p, m, http.StatusUnprocessableEntity, t, fillChosen, nil)
 		return
 	}

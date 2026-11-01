@@ -932,7 +932,7 @@
   "entry.file.park": "Park with the file's lines",
   "entry.post": "Post the entry",
   "entry.company.changed.title": "The company was changed",
-  "entry.company.changed": "The currency and dates were those of the company chosen before: they are now this company's. Check them and send the entry again.",
+  "entry.company.changed": "Nothing was sent. The currency and dates filled in for the company chosen before are now this company's; those you typed are kept. Check them and send the entry again.",
   "entry.line.taxarea": "Tax jurisdiction",
   "entry.line.taxbase": "Declared tax base",
   "entry.line.quantity": "Quantity",

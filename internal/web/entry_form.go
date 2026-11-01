@@ -401,7 +401,7 @@ func (s *Server) renderForm(w http.ResponseWriter, r *http.Request, p *person, m
 			s.render(w, r, status, ui.EntryFormView(f))
 			return
 		}
-		s.render(w, r, status, ui.EntryLines(f))
+		s.render(w, r, status, ui.EntryLinesSwap(f))
 		return
 	}
 	title := i18n.NewEntryTitle
@@ -453,6 +453,9 @@ func (s *Server) parkEntry(w http.ResponseWriter, r *http.Request, p *person) {
 		return
 	}
 	if t.op == ui.OpAdd || t.op == ui.OpCompany || r.Header.Get("HX-Request") == "true" {
+		if t.op == ui.OpCompany {
+			t.postTo = "" // another company keeps other ledgers: every ledger until chosen again
+		}
 		t.edited(t.op == ui.OpAdd, removed)
 		fill := fillChosen
 		if linesAlone(r, t.op) {
@@ -462,7 +465,7 @@ func (s *Server) parkEntry(w http.ResponseWriter, r *http.Request, p *person) {
 		return
 	}
 	if t.switched() {
-		t.changed = true
+		t.changed, t.postTo = true, ""
 		t.pad()
 		s.showNewEntry(w, r, p, m, http.StatusUnprocessableEntity, t, fillChosen, nil)
 		return
