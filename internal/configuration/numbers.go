@@ -68,17 +68,16 @@ func (Settings) Document(ctx context.Context) (*config.Config, int32, error) {
 }
 
 // CompanyDay is company code's date at instant now in its time zone by
-// the active configuration ((*config.Config).CompanyDay: UTC when the
-// company sets none), and the zone: the tenancy context's port of a legal
-// entity's date today (getLegalEntityToday). Without an active
-// configuration it is 409 config.not_bootstrapped, as Document is.
+// the active configuration (config.DocumentDay: UTC when the document has
+// no such company or it sets none), and the zone: the tenancy context's
+// port of a legal entity's date today (getLegalEntityToday). Without an
+// active configuration it is 409 config.not_bootstrapped, as Document is.
 func (s Settings) CompanyDay(ctx context.Context, code string, now time.Time) (time.Time, *time.Location, error) {
-	doc, _, err := s.Document(ctx)
+	d, err := config.DocumentDay(ctx, s, code, now)
 	if err != nil {
-		return time.Time{}, nil, fmt.Errorf("configuration: time zone of company %s: %w", code, err)
+		return time.Time{}, nil, fmt.Errorf("configuration: date of company %s: %w", code, err)
 	}
-	d, err := doc.CompanyDay(code, now)
-	return d.Date, d.Zone, err
+	return d.Date, d.Zone, nil
 }
 
 // Hold keeps the active configuration from changing until the request's

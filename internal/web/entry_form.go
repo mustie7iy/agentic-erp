@@ -216,7 +216,8 @@ func markRefused(prob gen.Problem, lines []entryLine) {
 }
 
 // newEntry is the form of a new entry, of the company the query names
-// (else the first), dated the company's today in its currency.
+// (else the first) in its currency, dated its today when the query names
+// it or it is the only one (datedCompany).
 func (s *Server) newEntry(w http.ResponseWriter, r *http.Request, p *person) {
 	m, ok := s.whoami(w, r, p)
 	if !ok {
@@ -241,13 +242,14 @@ func (s *Server) showNewEntry(w http.ResponseWriter, r *http.Request, p *person,
 		names = nil // no choice offered: the companies could not be listed
 	}
 	options := companyOptions(names, t.company)
+	dated := datedCompany(t.company, options)
 	t.company = askedOrFirst(t.company, options)
 	company, _ := uuid.Parse(t.company) // uuid.Nil when none: its chart is then empty
 	if e, ok := entities[company]; ok && fresh {
 		t.currency = e.LocalCurrency
 	}
 	if fresh {
-		today := s.today(ctx, m, t.company)
+		today := s.today(ctx, m, dated)
 		t.docDate, t.postingDate = today, today
 	}
 	if ch == nil {

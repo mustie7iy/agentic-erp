@@ -1171,8 +1171,10 @@ webdates; Pilot readiness "Company time zone"):
 - **The operation.** `GET /v1/legal-entities/{id}/today`
   (`getLegalEntityToday`, `tenancy.org.read`, as reading the legal entity
   is) gives the company's date at the API's clock in its time zone and
-  the zone (`date`, `time_zone`; UTC in a document activated before the
-  zone was required that sets none), the day the API defaults a posting
+  the zone (`date`, `time_zone`; UTC when the active configuration has no
+  company of the legal entity's code, or one activated before the zone
+  was required that sets none, as `CompanyLocation` reads it for every
+  date the API judges), the day the API defaults a posting
   date left out to. A client that pre-fills a date (the web workspace,
   ADR-0052) asks it rather than its own clock, so the form and the API
   agree. A legal entity the caller cannot act in is 404, as every

@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/web/ui"
 )
 
 // A form's or report's default date is its company's date today in the
@@ -34,6 +35,19 @@ func (s *Server) companyDay(ctx context.Context, m me, company string) (time.Tim
 		return time.Time{}, false
 	}
 	return day.Date, true
+}
+
+// datedCompany is the company a new form is dated for: the one its
+// address names, else the only one offered. Among several companies none
+// is, and the form's dates are left for the person to type: the form can
+// change its company in the browser without asking the workspace again,
+// and two companies' days differ (Toronto's evening is already the next
+// day in Dubai), so a date pre-filled for one would be sent for the other.
+func datedCompany(named string, options []ui.Option) string {
+	if named != "" || len(options) != 1 {
+		return named
+	}
+	return options[0].Value
 }
 
 // today is the company's date today as a form holds a date, "" when it

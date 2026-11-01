@@ -47,7 +47,7 @@ func runPath(id uuid.UUID) string { return ui.PaymentsPath + "/" + id.String() }
 // wrong with it; the form is rendered again with it.
 type proposal struct {
 	company, bank, currency, runDate, dueBy string
-	fresh                                   bool // not sent yet: of the first company, dated its today
+	fresh                                   bool // not sent yet: dated its company's today (datedCompany)
 	companyErr, currencyErr                 i18n.Key
 	runDateErr, dueByErr                    i18n.Key
 	refusal                                 *ui.Refusal
@@ -72,9 +72,9 @@ func (s *Server) showRuns(w http.ResponseWriter, r *http.Request, p *person, m m
 		Filters: ui.RunFilters{Status: q.Get("status"), Number: strings.TrimSpace(q.Get("document_number")), Companies: companyOptions(companies, q.Get("legal_entity_id"))}}
 	if m.may(permProposeRuns) && len(companies) > 0 {
 		if pr.fresh {
-			// The form's company is the first until the person chooses,
-			// so its dates are that company's today.
-			pr.company = askedOrFirst("", companyOptions(companies, ""))
+			// Of the company the list is filtered by, or the only one;
+			// among several, the person chooses and types the dates.
+			pr.company = datedCompany(q.Get("legal_entity_id"), companyOptions(companies, ""))
 			pr.runDate = s.today(r.Context(), m, pr.company)
 			pr.dueBy = pr.runDate
 		}

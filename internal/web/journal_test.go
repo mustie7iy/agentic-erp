@@ -233,8 +233,15 @@ func TestEntryForm(t *testing.T) {
 	if got := field(form, "currency"); got != "USD" {
 		t.Errorf("the first company's currency: got %q, want USD (Acme Corp US)", got)
 	}
-	if got := field(form, "posting_date"); got != s.clock.Now().Format("2006-01-02") {
-		t.Errorf("the posting date: got %q, want today", got)
+	// Two companies offered and none named: the form can change its
+	// company, so its dates are typed (datedCompany); company 1000's, in
+	// UTC, is today.
+	if got := field(form, "posting_date"); got != "" {
+		t.Errorf("the posting date among two companies: got %q, want none", got)
+	}
+	us := b.get("/journal/new?legal_entity_id=" + d.f.US.String()).page(t).form("/journal/new")
+	if got := field(us, "posting_date"); got != s.clock.Now().UTC().Format("2006-01-02") {
+		t.Errorf("company 1000's posting date: got %q, want today in UTC, its zone", got)
 	}
 	if got := len(formValues(form)["line_account"]); got != 2 {
 		t.Errorf("a new entry's lines: got %d, want 2", got)

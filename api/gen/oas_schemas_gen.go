@@ -20745,8 +20745,9 @@ type LegalEntityToday struct {
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// The company's date at the read, in `time_zone`: at 22:00 in America/Toronto it is still that day.
 	Date time.Time `json:"date"`
-	// The IANA time zone `date` is in: the company's configured `time_zone`, or `UTC` when a document
-	// activated before the zone was required (2026-10-31) sets none.
+	// The IANA time zone `date` is in: the company's configured `time_zone`, or `UTC` when the active
+	// configuration has no company of the legal entity's code, or one activated before the zone was
+	// required (2026-10-31) that sets none.
 	TimeZone string `json:"time_zone"`
 }
 

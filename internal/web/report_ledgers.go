@@ -57,8 +57,8 @@ func (lq ledgerQuery) values() url.Values {
 
 // parseLedgerQuery reads a ledger report's query into its filters (whose
 // options are the companies and ledgers to choose from, the first company
-// and the leading ledger chosen until the query names others, the year of
-// the company's today until it names one, year): valid is false when the company, the ledgers or
+// and the leading ledger chosen until the query names others, this year
+// by the company's date (year) until it names one): valid is false when the company, the ledgers or
 // the page are not what an address of the report holds; a year or period
 // that is none is its filter's error.
 func parseLedgerQuery(q url.Values, f *ui.LedgerFilters, year func(company string) string) (ledgerQuery, bool) {

@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -34,6 +35,11 @@ func zoned(t *testing.T) fixture.Env {
 // the next.
 func TestLegalEntityToday(t *testing.T) {
 	f := zoned(t)
+	// A legal entity the configuration names no company of is dated in
+	// UTC, as every date the API judges for it is (CompanyLocation).
+	unconfigured := uuid.Must(uuid.NewV7())
+	pgtest.Exec(t, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
+		VALUES ($1, $2, 'CA02', 'Maple East', 'CA', 'CAD', gen_random_uuid(), 'active', $3, $3)`, f.Tenant.ID, unconfigured, f.Tenant.Human.ID)
 	for name, tc := range map[string]struct {
 		at     string
 		entity func(fixture.Env) uuid.UUID
@@ -45,6 +51,7 @@ func TestLegalEntityToday(t *testing.T) {
 		"Dubai at 01:00":        {"2026-04-16T21:00:00Z", func(f fixture.Env) uuid.UUID { return f.DE }, "2026-04-17", "Asia/Dubai"},
 		"Dubai the evening":     {"2026-04-17T18:00:00Z", func(f fixture.Env) uuid.UUID { return f.DE }, "2026-04-17", "Asia/Dubai"},
 		"Dubai on Toronto's 22": {"2026-04-18T02:00:00Z", func(f fixture.Env) uuid.UUID { return f.DE }, "2026-04-18", "Asia/Dubai"},
+		"no company configured": {"2026-04-18T02:00:00Z", func(fixture.Env) uuid.UUID { return unconfigured }, "2026-04-18", "UTC"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			at, err := time.Parse(time.RFC3339, tc.at)

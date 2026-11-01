@@ -32,8 +32,9 @@ func companyJSON(id uuid.UUID, code, name, country, currency string) string {
 func todayStub(toronto, dubai uuid.UUID, today http.HandlerFunc) *stubbed {
 	if today == nil {
 		today = func(w http.ResponseWriter, r *http.Request) {
-			day := map[string]string{toronto.String(): "2025-12-31", dubai.String(): "2026-01-01"}[strings.Split(r.URL.Path, "/")[3]]
-			answer(200, fmt.Sprintf(`{"legal_entity_id":%q,"date":%q,"time_zone":"x"}`, strings.Split(r.URL.Path, "/")[3], day))(w, r)
+			id := strings.Split(r.URL.Path, "/")[3]
+			day := map[string]struct{ date, zone string }{toronto.String(): {"2025-12-31", "America/Toronto"}, dubai.String(): {"2026-01-01", "Asia/Dubai"}}[id]
+			answer(200, fmt.Sprintf(`{"legal_entity_id":%q,"date":%q,"time_zone":%q}`, id, day.date, day.zone))(w, r)
 		}
 	}
 	empty := answer(200, `{"items":[]}`)
@@ -53,8 +54,9 @@ func todayStub(toronto, dubai uuid.UUID, today http.HandlerFunc) *stubbed {
 // dates is dated on its company's day as the API tells it
 // (getLegalEntityToday), not on the workspace's clock in UTC: a manual
 // entry's document and posting dates, a payment run's run date and due
-// date (of the company the form chooses first), the open items' key date,
-// and the periods' and ledger reports' fiscal year (review:batch27).
+// date (of the company the address names; among several, none), the
+// open items' key date, and the periods' and ledger reports' fiscal year
+// (review:batch27).
 func TestFormsDatedOnTheCompanysDay(t *testing.T) {
 	toronto, dubai := uuid.New(), uuid.New()
 	_, b, _ := stubStack(t, todayStub(toronto, dubai, nil))
@@ -67,13 +69,19 @@ func TestFormsDatedOnTheCompanysDay(t *testing.T) {
 	}{
 		"a Toronto entry": {in(ui.NewEntryPath, toronto), map[string]string{ui.FieldDocDate: "2025-12-31", ui.FieldPostingDate: "2025-12-31"}},
 		"a Dubai entry":   {in(ui.NewEntryPath, dubai), map[string]string{ui.FieldDocDate: "2026-01-01", ui.FieldPostingDate: "2026-01-01"}},
-		// The propose form's first company by name is Acme FZE, in Dubai.
-		"a payment run":            {ui.PaymentsPath, map[string]string{ui.FieldRunDate: "2026-01-01", ui.FieldDueBy: "2026-01-01"}},
-		"Toronto's open items":     {in(ui.OpenItemsPath, toronto), map[string]string{ui.FieldKeyDate: "2025-12-31"}},
-		"Dubai's open items":       {in(ui.OpenItemsPath, dubai), map[string]string{ui.FieldKeyDate: "2026-01-01"}},
-		"Toronto's periods":        {in(ui.ClosePath, toronto), map[string]string{ui.FieldYear: "2025"}},
-		"Toronto's trial balance":  {in(ui.TrialBalancePath, toronto), map[string]string{ui.FieldYear: "2025"}},
-		"Toronto's reconciliation": {in(ui.LedgerReconPath, toronto), map[string]string{ui.FieldYear: "2025"}},
+		// The propose form's company is the one the list is filtered by.
+		"Toronto's payment run": {in(ui.PaymentsPath, toronto), map[string]string{ui.FieldRunDate: "2025-12-31", ui.FieldDueBy: "2025-12-31"}},
+		"Dubai's payment run":   {in(ui.PaymentsPath, dubai), map[string]string{ui.FieldRunDate: "2026-01-01", ui.FieldDueBy: "2026-01-01"}},
+		// Among two companies and none named, the form can change its
+		// company in the browser, and Toronto's and Dubai's days differ:
+		// its dates are typed, never one company's sent for the other.
+		"an entry of either company":  {ui.NewEntryPath, map[string]string{ui.FieldDocDate: "", ui.FieldPostingDate: ""}},
+		"a payment run of either one": {ui.PaymentsPath, map[string]string{ui.FieldRunDate: "", ui.FieldDueBy: ""}},
+		"Toronto's open items":        {in(ui.OpenItemsPath, toronto), map[string]string{ui.FieldKeyDate: "2025-12-31"}},
+		"Dubai's open items":          {in(ui.OpenItemsPath, dubai), map[string]string{ui.FieldKeyDate: "2026-01-01"}},
+		"Toronto's periods":           {in(ui.ClosePath, toronto), map[string]string{ui.FieldYear: "2025"}},
+		"Toronto's trial balance":     {in(ui.TrialBalancePath, toronto), map[string]string{ui.FieldYear: "2025"}},
+		"Toronto's reconciliation":    {in(ui.LedgerReconPath, toronto), map[string]string{ui.FieldYear: "2025"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			p := b.get(tc.path).page(t)
@@ -84,8 +92,8 @@ func TestFormsDatedOnTheCompanysDay(t *testing.T) {
 			}
 		})
 	}
-	p := b.get(ui.PaymentsPath).page(t)
-	if got := chosen(p.doc, ui.FieldCompany); got != dubai.String() {
+	p := b.get(in(ui.PaymentsPath, dubai)).page(t)
+	if got := chosen(p.form(ui.ProposePath), ui.FieldCompany); got != dubai.String() {
 		t.Errorf("the propose form's company: got %s, want Dubai's %s, whose date it holds", got, dubai)
 	}
 }
@@ -103,7 +111,7 @@ func TestFormsUndatedWithoutTheCompanysDay(t *testing.T) {
 		fields map[string]string
 	}{
 		"an entry":        {in(ui.NewEntryPath), map[string]string{ui.FieldDocDate: "", ui.FieldPostingDate: ""}},
-		"a payment run":   {ui.PaymentsPath, map[string]string{ui.FieldRunDate: "", ui.FieldDueBy: ""}},
+		"a payment run":   {in(ui.PaymentsPath), map[string]string{ui.FieldRunDate: "", ui.FieldDueBy: ""}},
 		"open items":      {in(ui.OpenItemsPath), map[string]string{ui.FieldKeyDate: ""}},
 		"periods":         {in(ui.ClosePath), map[string]string{ui.FieldYear: year}},
 		"a trial balance": {in(ui.TrialBalancePath), map[string]string{ui.FieldYear: year}},
