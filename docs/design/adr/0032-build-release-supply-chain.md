@@ -244,11 +244,11 @@ no new mechanism:
   `mirror-images.sh DRY_RUN=true` plans the real list's copies without a
   registry, which the test runs on `deploy/images/upstream.txt`.
 
-The upstream images are not scanned by grype in the release: their pins are
-reviewed as code changes (ADR-0035), and whether a release should also fail
-on a fixable vulnerability in them is left to the product owner (T72i's
-report). The product owner decided it should (2026-10-31): see the
-amendment of that date.
+Until 2026-10-31 the upstream images were not scanned by grype in the
+release: their pins were reviewed as code changes (ADR-0035), and whether a
+release should also fail on a fixable vulnerability in them was left to the
+product owner (T72i's report). The product owner then decided it should, as
+built in the amendment of 2026-10-31.
 
 ## Amendment (2026-10-29, batch 21 review): the release's own images in tooling's ECR, and erp-temporal
 
