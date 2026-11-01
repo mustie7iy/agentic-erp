@@ -354,6 +354,15 @@ tax_codes:
 - Country packs (ADR-0048, amended) write all their rates; the "later rates
   noted" note and the re-application after a change are gone. T62f (the UAE
   pack) and T62e's tax codes are written in this schema.
+- **As built (T62g):** Canada pack 2026.3 writes T62e's sourced codes in this
+  schema: one component per code (`gst`, `hst` with the province as its
+  jurisdiction, `qst`, and `pst_bc`, `rst_mb`, `pst_sk` as `non_deductible`
+  components without an account), every dated rate written ahead and
+  behind (NB, NL and PE's increases of 2016, NS's decrease of 2025-04-01).
+  Activating them sets up rates from 2013-04-01 (`TestCanadaPackTaxCodes`
+  in the ledger, which also calculates HON 13% and QST 9.975% on 1,000.00
+  as payables does: 130.00 and 99.75, wholly recoverable; BC PST 70.00
+  not). Details and what the specialist confirms: ADR-0048, Canada pack.
 - Validation adds: components unique per code; a `non_deductible` component has
   no account of its own; `self_output`/`self_input` come in pairs on a
   `reverse_charge` or `import` code; recoverable 0-100% with three decimals;

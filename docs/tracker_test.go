@@ -26,8 +26,9 @@ const baselineItems = 951
 // product owner approved on 2026-10-31, the finish line of the first pilot. It
 // must match exactly, so a leaf joining or leaving the pilot scope shows in the
 // diff; a leaf's pilot value starts with the product owner's decision (po:),
-// which TestTrackerPilotScope refuses a value without.
-const pilotItems = 72
+// which TestTrackerPilotScope refuses a value without. 73 since T62g's
+// sign-off part, in the approved scope, became its own leaf (T62h).
+const pilotItems = 73
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

@@ -115,6 +115,35 @@ settings cannot simply overwrite their document.
   company observes is open (the pack, per country, has the federal ones). A payment term with a cash discount is left out: the
   document's payment terms are shared by its companies, and a discount
   term would require a cash discount account in each of them.
+- **As built (T62g): Canada 2026.3** is 2026.2 (accounts, holidays, number
+  ranges, payment terms, `cash.yaml`, sources) plus the ten purchase codes
+  of `packs/ca/TAX-PENDING-T61a.md` in `tax.yaml`: G5 (GST), HON, HNB,
+  HNL, HNS, HPE (HST), QST and PBC, PMB, PSK (provincial sales taxes), each
+  input, standard, category S, one component (`gst`, `hst`, `qst`,
+  `pst_bc`, `rst_mb`, `pst_sk`) with its ISO 3166-2 jurisdiction and every
+  dated rate of the file, the ended ones included (`valid_to` the day before
+  the next rate). Decided by default: the recovery is the file's proposal,
+  GST and HST to 1300, QST to 1310, wholly recoverable; PST
+  `non_deductible` with no account, so it is expensed on the purchase's own
+  line (ADR-0049 §3, §6), not on 6400, which the file proposed and a
+  component cannot name (6400 stays in the chart); the QST and PST rates
+  start on 2026-01-01, the conservative start the file states, as their
+  earlier starts were not fetched from an authority; no combined GST+PST or
+  GST+QST code, as the file has none. `TestCanadaPackTaxCodes` reads the
+  file's table and the pack and fails on any difference in codes, rates,
+  dates or recovery, and checks that every source the file cites is in the
+  manifest. 2026.1 and 2026.2 stay released as they were.
+  **Sign-off is a separate step.** 2026.3 carries no `sign_off`, so
+  production refuses to apply it (409 `config.pack_not_signed_off`) and
+  elsewhere it applies with a note. A released version never changes, so
+  the specialist's sign-off is a later version (2026.3 plus `sign_off`, or
+  with what the specialist corrects), its own tracker leaf split from T62g.
+  For the specialist: the recovery accounts above (proposals); PST expensed
+  on the item rather than 6400; the QST and PST start dates (reported
+  elsewhere, not fetched: QST 9.975% from 2013-01-01, BC PST 7% from
+  2013-04-01, MB RST 7% from 2019-07-01, SK PST 6% from 2017-03-23);
+  whether combined codes are wanted for purchases in BC, MB, SK and QC,
+  which carry GST and a provincial tax together; the holiday items above.
 
 ## Consequences
 - A pack upgrade never silently overwrites a tenant's decision; reviewers

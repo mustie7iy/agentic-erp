@@ -1,9 +1,11 @@
 # Canada pack: tax codes pending T61a
 
-Not part of the pack (`2026.1/tax.yaml` has none): the GST/HST, QST and PST
-codes sourced for T62e, to be written in the tax code schema of ADR-0049
-(T61a). Purchase side; the table is from the 2026-10-20 retrieval of the
-cited pages.
+Not part of 2026.1 or 2026.2 (their `tax.yaml` has none): the GST/HST, QST
+and PST codes sourced for T62e, to be written in the tax code schema of
+ADR-0049 (T61a). Purchase side; the table is from the 2026-10-20 retrieval
+of the cited pages. Written in `2026.3/tax.yaml` (T62g); a test
+(`internal/countrypack`, TestCanadaPackTaxCodes) reads this table and the
+pack and fails when they differ, so keep the table's layout.
 
 | Code | Tax | Rate | In force | Recovery (as proposed) | Source |
 |---|---|---|---|---|---|
