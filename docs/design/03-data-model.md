@@ -28,8 +28,10 @@ types. Both are reviewed together.
 - Foreign keys inside a context include `tenant_id`:
   `FOREIGN KEY (tenant_id, supplier_id) REFERENCES ... (tenant_id, id)`, so a
   row can never point at another tenant's row.
-- Business documents carry a human `document_number`, unique per tenant,
-  legal entity, document type and fiscal year, issued from number ranges.
+- Business documents carry a human `document_number`, issued from number
+  ranges per fiscal year: a journal entry's is unique per fiscal year, every
+  other document's per tenant and legal entity across years, so a range never
+  repeats another year's numbers (ADR-0004 As built).
 
 ### Standard columns
 | Column | On | Meaning |

@@ -132,3 +132,50 @@ func TestCanadaPackCash(t *testing.T) {
 		t.Error("2026.2: got accounts, holidays or payment terms other than 2026.1's, want them unchanged")
 	}
 }
+
+// TestCanadaPackNextYear: the shipped pack applied for a second fiscal
+// year creates that year's ranges afresh, from the same prefixes and
+// first numbers, so the change is refused: the year's first payment run
+// would be numbered PY1 again, which last year's holds (review:T73g2). The
+// refusal names every such range; journal ranges, numbered per year, are
+// not among them, and the ranges given a prefix with the year pass.
+func TestCanadaPackNextYear(t *testing.T) {
+	lib, err := LoadAll(packs.FS)
+	if err != nil {
+		t.Fatalf("LoadAll(packs.FS): %v", err)
+	}
+	ca := lib.Latest("CA")
+	on := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	first, _, err := Apply(companyIn(t, "CA", "CAD"), ca, lib, Options{Company: "1000", On: on, FiscalYear: 2026})
+	if err != nil {
+		t.Fatalf("Apply for 2026: %v", err)
+	}
+	next, _, err := Apply(first, ca, lib, Options{Company: "1000", On: on, FiscalYear: 2027})
+	if err != nil {
+		t.Fatalf("Apply for 2027: %v", err)
+	}
+	found := map[string]string{}
+	for _, f := range config.RangeRepeats(first, next) {
+		found[f.Path] = f.Message
+	}
+	if got := found["number_ranges[1000/payment_run/2027].prefix"]; !strings.Contains(got, "would issue PY1,") {
+		t.Errorf("payment run range of 2027: got %q, want it refused for issuing PY1 again", got)
+	}
+	var want int
+	for _, r := range ca.Numbering.NumberRanges {
+		if !strings.HasPrefix(r.DocumentType, "journal_") {
+			want++
+		}
+	}
+	if len(found) != want {
+		t.Errorf("ranges refused: got %d %v, want the %d ranges not of journal entries", len(found), found, want)
+	}
+	for i, n := range next.NumberRanges {
+		if n.FiscalYear == 2027 && !strings.HasPrefix(n.DocumentType, "journal_") {
+			next.NumberRanges[i].Prefix += "2027-"
+		}
+	}
+	if fs := config.RangeRepeats(first, next); len(fs) != 0 {
+		t.Errorf("ranges with the year in the prefix: got %v, want none refused", fs)
+	}
+}

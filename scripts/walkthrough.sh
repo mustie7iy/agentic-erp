@@ -929,8 +929,38 @@ step_pack() {
   RBC=$(field '.items[] | select(.code == "RBC") | .id')
   RBCUS=$(field '.items[] | select(.code == "RBCUS") | .id')
   if [ -z "$RBC" ] || [ -z "$RBCUS" ]; then fail "the RBC house banks are not there"; fi
+  next_year_ranges "$version"
   accounts
   passed
+}
+
+# next_year_ranges has Ada try the pack's number ranges for next fiscal
+# year: created afresh, they would number next year's first payment run
+# PY1 again, which this year's range issues too, and a run's number (and
+# the end-to-end ids made from it) is unique across years, so the change
+# is refused until the year is in their prefixes (review:T73g2).
+next_year_ranges() {
+  local version=$1 next=$((YEAR + 1)) cr
+  say "Before the year ends Ada applies the pack for fiscal year $next, for its number ranges. The pack starts"
+  say "each range again at 1 with the same prefix, so the year's numbers would repeat this year's: refused."
+  api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
+    -body "{\"country\": \"CA\", \"version\": \"$version\", \"company\": \"$CC\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $next}"
+  cr=$(field .id)
+  jq --arg next "$next" '{title: .title, rationale: "Number ranges of the next fiscal year", proposed: (.proposed | .number_ranges |= map(
+      if .fiscal_year == ($next | tonumber) and (.document_type | startswith("journal_") | not) then .prefix = (.prefix // "") + $next + "-" else . end))}' \
+    "$WORK/last.json" >"$WORK/next-year.json"
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  refused 422 config.validation_failed submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  excerpt '.errors[] | select(.field == "proposed.number_ranges['"$CC"'/payment_run/'"$next"'].prefix") | "\(.field): \(.message)"'
+  expect "the payment run range refused" "$(field '[.errors[] | select(.field == "proposed.number_ranges['"$CC"'/payment_run/'"$next"'].prefix")] | length')" 1
+  say "With the year in each prefix but the journal entries', which are numbered per fiscal year, it is accepted."
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '.proposed.number_ranges[] | select(.document_type == "payment_run" and .company == "'"$CC"'") | "payment run range of \(.fiscal_year): prefix \(.prefix)"' \
+    updateChangeRequest -p "id=$cr" -if-match "$ETAG" -body @next-year.json
+  api 200 '"\(.number): \(.status)"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  say "The pilot takes next year's ranges on at year end, so Ada withdraws the request for now."
+  api 200 '"\(.number): \(.status)"' withdrawChangeRequest -p "id=$cr" -if-match "$ETAG" -body '{"reason": "The next fiscal year ranges are set up at year end"}'
+  expect "status after withdrawal" "$(field .status)" withdrawn
 }
 
 step_procure() {

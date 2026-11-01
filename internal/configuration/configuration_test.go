@@ -330,6 +330,21 @@ func TestSubmitRefusals(t *testing.T) {
 	lowered := document(t)
 	lowered.NumberRanges[0].Last = 10
 	refuse("limit lowered", jsonOf(t, lowered), "config.validation_failed", "can only be raised")
+	// A country pack applied for the next fiscal year creates its ranges
+	// afresh, from the same prefix and first number (review:T73g2).
+	nextYear := func(prefix string) *config.Config {
+		doc := document(t)
+		for _, n := range doc.NumberRanges {
+			n.FiscalYear = 2027
+			if n.DocumentType == "supplier_invoice" {
+				n.Prefix = prefix
+			}
+			doc.NumberRanges = append(doc.NumberRanges, n)
+		}
+		return doc
+	}
+	refuse("a range repeating last year's numbers", jsonOf(t, nextYear("SI-")), "config.validation_failed",
+		"proposed.number_ranges[1000/supplier_invoice/2027].prefix")
 	foreign := document(t)
 	foreign.NumberRanges = append(foreign.NumberRanges, config.NumberRange{Company: "3000", DocumentType: "payment", FiscalYear: 2026, First: 1, Last: 9})
 	refuse("unknown company", jsonOf(t, foreign), "config.validation_failed", "no legal entity has company code 3000")
@@ -338,6 +353,12 @@ func TestSubmitRefusals(t *testing.T) {
 	dollars := document(t)
 	dollars.Companies[1].Currency = "USD"
 	refuse("currency differs from the legal entity's", jsonOf(t, dollars), "config.validation_failed", "proposed.companies[2000].currency")
+
+	t.Run("a range with the year in its prefix", func(t *testing.T) {
+		if code, m := e.transition(t, e.propose(t, 1, nextYear("SI-2027-")), "submit"); code != 200 {
+			t.Errorf("submit: got %d %v, want 200", code, m)
+		}
+	})
 
 	e.Problem(422, "config.unknown_base_version", "POST", "/v1/change-requests", `{"title": "T", "base_version": 7, "proposed": {}}`, "")
 	e.Problem(404, "request.not_found", "GET", "/v1/change-requests/"+uuid.NewString(), "", "")

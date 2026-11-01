@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,13 +78,26 @@ func Document(tb testing.TB) *config.Config {
 	c.Extensions = Schemas()
 	for _, y := range Years() {
 		for _, co := range []string{"1000", "2000"} {
-			for dt, prefix := range DocumentTypes {
-				c.NumberRanges = append(c.NumberRanges, config.NumberRange{Company: co, DocumentType: dt, FiscalYear: y, Prefix: prefix,
-					First: 100000, Last: 999999})
-			}
+			c.NumberRanges = append(c.NumberRanges, yearRanges(co, y)...)
 		}
 	}
 	return c
+}
+
+// yearRanges are a company's number ranges for every document type in fiscal
+// year y: 100000 to 999999 in 2026, and above them in a later year but
+// for journal entries, whose numbers are per fiscal year, as a range may
+// not repeat another year's numbers (config.RangeRepeats).
+func yearRanges(company string, y int) []config.NumberRange {
+	var out []config.NumberRange
+	for dt, prefix := range DocumentTypes {
+		first, last := int64(100000), int64(999999)
+		if y != 2026 && !strings.HasPrefix(dt, "journal_") {
+			first, last = 1000000, 1999999
+		}
+		out = append(out, config.NumberRange{Company: company, DocumentType: dt, FiscalYear: y, Prefix: prefix, First: first, Last: last})
+	}
+	return out
 }
 
 // Schemas are the custom field schemas of the prototype's configuration:
@@ -166,10 +180,7 @@ func NewWith(tb testing.TB, companies []Company, extend func(*config.Config), pe
 		pgtest.Exec(tb, `INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
 			VALUES ($1, gen_random_uuid(), $2, $3, $4, $5, gen_random_uuid(), 'active', $6, $6)`, ten.ID, co.Code, co.Name, co.Country, co.Currency, ten.Human.ID)
 		for _, y := range Years() {
-			for dt, prefix := range DocumentTypes {
-				doc.NumberRanges = append(doc.NumberRanges, config.NumberRange{Company: co.Code, DocumentType: dt, FiscalYear: y, Prefix: prefix,
-					First: 100000, Last: 999999})
-			}
+			doc.NumberRanges = append(doc.NumberRanges, yearRanges(co.Code, y)...)
 		}
 	}
 	if extend != nil {
