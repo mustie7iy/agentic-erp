@@ -157,3 +157,69 @@ func TestForeignCurrencyItemsBalances(t *testing.T) {
 		t.Errorf("the supplier's open USD items (USD EUR): got %s, want %s", got, want)
 	}
 }
+
+// usdInvoice is tiny with an open USD invoice of 100.00, EUR 80.00, and,
+// when currency is given, its payment in that currency on 20 March: in
+// USD the bank at EUR 82.00 and an exchange difference of EUR 2.00 in
+// company currency alone, in EUR at EUR 80.00.
+func usdInvoice(currency string) *sap.Extract {
+	x := tiny()
+	x.SKB1 = append(x.SKB1, sap.SKB1{BUKRS: "2000", SAKNR: "0000610000", TXT50: "Exchange losses"})
+	augbl := ""
+	if currency != "" {
+		augbl = "0100000030"
+	}
+	x.ACDOCA = append(x.ACDOCA, fxLine("0100000020", "000001", "0000520000", "80.00", "100.00", "20260302", "RE"),
+		vendorLine("0100000020", "000002", "-80.00", "-100.00", "20260302", "RE", augbl))
+	switch currency {
+	case "USD":
+		x.ACDOCA = append(x.ACDOCA, vendorLine("0100000030", "000001", "80.00", "100.00", "20260320", "KZ", augbl),
+			fxLine("0100000030", "000002", "0000100000", "-82.00", "-100.00", "20260320", "KZ"),
+			fxLine("0100000030", "000003", "0000610000", "2.00", "0.00", "20260320", "KZ"))
+	case "EUR":
+		pay, bank := vendorLine("0100000030", "000001", "80.00", "80.00", "20260320", "KZ", augbl),
+			fxLine("0100000030", "000002", "0000100000", "-80.00", "-80.00", "20260320", "KZ")
+		pay.RWCUR, bank.RWCUR = "EUR", "EUR"
+		x.ACDOCA = append(x.ACDOCA, pay, bank)
+	}
+	return x
+}
+
+// TestForeignItemAcrossRuns: a USD item an earlier run loaded open is
+// cleared by the final delta run that loads SAP's payment of it in USD,
+// with its exchange difference; paid in EUR instead, the delta run's
+// quality gate refuses the payment, which could not clear the USD item,
+// rather than leave the clearing to fail in the load.
+func TestForeignItemAcrossRuns(t *testing.T) {
+	for _, c := range []struct{ currency, status string }{{"USD", "loaded"}, {"EUR", "failed"}} {
+		t.Run("paid in "+c.currency, func(t *testing.T) {
+			e := dpSetup(t)
+			write(t, e.dir, "fx.json", usdInvoice(""))
+			conn := e.connector(t, "fx.json")
+			if _, got := e.act(t, e.run(t, conn, "documents", false, e.DE.String()), "start"); got["status"] != "loaded" {
+				t.Fatalf("first run: got %v, want loaded: %v", got["status"], got["report"])
+			}
+			write(t, e.dir, "fx.json", usdInvoice(c.currency))
+			_, got := e.act(t, e.run(t, conn, "documents", false, e.DE.String()), "start")
+			if got["status"] != c.status {
+				t.Fatalf("delta run: got %v, want %s: %v", got["status"], c.status, got["report"])
+			}
+			report := got["report"].(map[string]any)
+			if c.status == "failed" {
+				if q := fmt.Sprint(report["quality"]); !strings.Contains(q, "SAP cleared it together with documents an earlier run loaded in USD") {
+					t.Errorf("quality: got %s, want the EUR payment refused", q)
+				}
+				return
+			}
+			if n := report["loaded"].(map[string]any)["clearings"]; n != float64(1) {
+				t.Errorf("clearings of the delta run: got %v, want the USD item's", n)
+			}
+			items, _ := e.Must(200, "GET", "/v1/open-items?partner_id="+supplierOf(t, e, "0000000001").String(), "", "")
+			for _, it := range items["items"].([]any) {
+				if a := it.(map[string]any)["amount"].(map[string]any); a["currency"] == "USD" {
+					t.Errorf("open USD items after the payment: got %v, want none", a)
+				}
+			}
+		})
+	}
+}

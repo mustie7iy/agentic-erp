@@ -154,7 +154,8 @@ func (l *loader) load(ctx context.Context) error {
 	if err := l.e.Postings.LockAllEntries(ctx); err != nil {
 		return err
 	}
-	l.downPayments, l.foreign = downPaymentDocs(l.ext), foreignDocuments(l.ext, l.t)
+	l.downPayments = downPaymentDocs(l.ext)
+	l.foreign, _ = foreignDocuments(l.ext, l.t) // the quality gate refused the conflicts
 	l.grir, l.viaGRIR = grirPositions(l.ext, l.t), map[string]bool{}
 	for _, fn := range []func(context.Context) error{l.partners, l.orders, l.lockOrderItems, l.invoiced, l.receipts, l.takeOverGRIR, l.invoices, l.journal, l.clearings,
 		l.blocked} {
@@ -655,11 +656,10 @@ func (l *loader) openingEntry(ctx context.Context, c sap.T001, key string) error
 }
 
 // openingLines are a company's opening entry lines: account balances in
-// account order, then the open vendor items; the documents holding an
-// open down payment are left out, posted on their own (journal). It also
-// returns the latest
-// posting date, the entry's date, and the sum of the cleared vendor items,
-// which must be zero.
+// account order, then the open vendor items; the documents that post on
+// their own (ownEntry) are left out. It also returns the latest posting
+// date, the entry's date, and the sum of the cleared vendor items, which
+// must be zero.
 func (l *loader) openingLines(c sap.T001) ([]ledger.PostingLine, string, money.Minor) {
 	balances := map[string]money.Minor{}
 	var open []ledger.PostingLine

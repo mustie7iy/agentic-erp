@@ -173,8 +173,9 @@ func (q *qualityCheck) ownDocument(key, what string, lines []sap.ACDOCA) {
 // of the company with one deductible component on an account, as the
 // platform's down payments post (T46c), whose tax lines are all on that
 // account and add up to the code's rate of the down payment, in the
-// currency the document posts in (documentAmount): SAP calculates tax in
-// the document currency. The platform
+// currency the document posts in (documentAmount), on the assumption that
+// SAP calculates tax in the document currency (stated from memory, for an
+// SAP specialist to confirm; ADR-0005 As built). The platform
 // keeps a down payment net of its tax, which is SAP's net display; SAP's
 // gross display, where the down payment includes the tax and a clearing
 // account offsets it, is refused rather than loaded wrong.
@@ -268,7 +269,7 @@ func (l *loader) takeOverDownPayment(ctx context.Context, key string, lines []sa
 		tax, _ := l.lineAmounts(t, local) // likewise
 		taxes = append(taxes, tax)
 	}
-	tax, _ := money.Sum(taxes...)   // bounded by the company's lines (journal)
+	tax, _ := money.Sum(taxes...)   // bounded by the company's lines (journal), or the document's (foreignDocument)
 	gross, _ := money.Sum(net, tax) // likewise
 	date, _ := sapDate(dp.BUDAT)    // checked by the quality gate
 	// The reference names the source system and document, or the document

@@ -874,15 +874,16 @@ func rateOfType(ctx context.Context, tx pgx.Tx, rateType, from, to string, date 
 // currency to the local one and from that to the group's: the average
 // rates valid on the date, or into local currency the source system's
 // (given, Posting.Rate). A rate whose 12-decimal form is zero, the
-// reciprocal of a recorded rate above 2e12, or not above zero, a given
-// one below 5e-13, cannot be recorded on the entry, so the posting is
-// refused (F19).
+// reciprocal of a recorded rate above 2e12, or a given one that is not
+// recordable (RecordableRate), cannot be recorded on the entry, so the
+// posting is refused (F19).
 func postingRates(ctx context.Context, tx pgx.Tx, tc, lc, gc string, date time.Time, given *big.Rat) (toLC, toGC exchange, err error) {
 	switch {
-	case given != nil && money.ParseRat(given.FloatString(12)).Sign() <= 0:
+	case given != nil && !RecordableRate(given):
 		return exchange{}, exchange{}, problem.Unprocessable("ledger.rate_not_recordable",
-			fmt.Sprintf("The source system's rate from %s to %s, %s, is not above zero to the 12 decimals a journal entry records.", tc, lc, given.FloatString(15)),
-			problem.FieldError{Field: "currency", Code: "rate_not_recordable", Message: "a rate above zero"})
+			fmt.Sprintf("The source system's rate from %s to %s, %s, is not above zero to the 12 decimals a journal entry records, or not below 10^16.",
+				tc, lc, given.FloatString(15)),
+			problem.FieldError{Field: "currency", Code: "rate_not_recordable", Message: "a rate above zero and below 10^16"})
 	case given != nil:
 		toLC = exchange{exact: given, shown: given.FloatString(12)}
 	default:
@@ -905,6 +906,17 @@ func postingRates(ctx context.Context, tx pgx.Tx, tc, lc, gc string, date time.T
 		}
 	}
 	return toLC, toGC, nil
+}
+
+// maxRate is the first rate a journal entry cannot record: rate_tc_lc is
+// numeric(28,12), 16 digits before the point.
+var maxRate = new(big.Rat).SetFrac(new(big.Int).Exp(big.NewInt(10), big.NewInt(16), nil), big.NewInt(1))
+
+// RecordableRate reports whether a journal entry can record a rate a
+// source system gives (Posting.Rate): above zero to the 12 decimals it
+// keeps, and below 10^16.
+func RecordableRate(r *big.Rat) bool {
+	return money.ParseRat(r.FloatString(12)).Sign() > 0 && r.Cmp(maxRate) < 0
 }
 
 var errTooLarge = problem.Unprocessable("ledger.amount_too_large", "A converted amount is too large to post.")

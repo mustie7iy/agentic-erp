@@ -88,14 +88,47 @@ func sourceRateReports(t *testing.T, e env) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	read := func(ctx context.Context) error {
-		_, err := ledger.Reports{}.OpenForeignItems(ctx, e.de, 2026)
+	for name, read := range map[string]func(ctx context.Context) error{
+		"open foreign-currency items": func(ctx context.Context) error {
+			_, err := ledger.Reports{}.OpenForeignItems(ctx, e.de, 2026)
+			return err
+		},
+		"entry currencies": func(ctx context.Context) error {
+			_, err := postings().EntryCurrencies(ctx, []uuid.UUID{uuid.New()})
+			return err
+		},
+	} {
+		if read(context.Background()) == nil {
+			t.Errorf("%s outside a unit of work: got no error, want one", name)
+		}
+		apitest.EveryFailure(t, e.ten, e.ten.Human, name, read)
+	}
+}
+
+// TestEntryCurrencies: the transaction currency of each entry that exists,
+// an id that names none left out.
+func TestEntryCurrencies(t *testing.T) {
+	e := setup(t)
+	expense, ap := settleAccount(t, e, "2000", "520000"), settleAccount(t, e, "2000", "211000")
+	var usd ledger.Entry
+	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
+		usd, err = sourcePost(ctx, e, "USD", big.NewRat(9, 10), ledger.PostingLine{AccountID: expense, Amount: 100, LC: kept(90)},
+			ledger.PostingLine{AccountID: ap, Amount: -100, LC: kept(-90), PartnerID: &e.supplier})
 		return err
+	}); err != nil {
+		t.Fatal(err)
 	}
-	if read(context.Background()) == nil {
-		t.Error("open foreign-currency items outside a unit of work: got no error, want one")
+	eur := revaluationPost(t, e, e.de, "2026-03-02", "EUR", ledger.PostingLine{AccountID: expense, Amount: 100},
+		ledger.PostingLine{AccountID: ap, Amount: -100, PartnerID: &e.supplier})
+	if err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+		got, err := postings().EntryCurrencies(ctx, []uuid.UUID{usd.ID, eur.ID, uuid.New()})
+		if want := fmt.Sprint(map[uuid.UUID]string{usd.ID: "USD", eur.ID: "EUR"}); err == nil && fmt.Sprint(got) != want {
+			t.Errorf("entry currencies: got %v, want %s", got, want)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
 	}
-	apitest.EveryFailure(t, e.ten, e.ten.Human, "open foreign-currency items", read)
 }
 
 // sourceRateRefusals: what a posting at a source system's rate refuses.
@@ -111,6 +144,8 @@ func sourceRateRefusals(t *testing.T, e env, expense, ap uuid.UUID) {
 	}{
 		{"a rate that rounds to zero", tiny, []ledger.PostingLine{{AccountID: expense, Amount: 100, LC: kept(1)}, {AccountID: ap, Amount: -100, LC: kept(-1), PartnerID: &e.supplier}},
 			false, "ledger.rate_not_recordable"},
+		{"a rate of 10^16", new(big.Rat).SetFrac64(10_000_000_000_000_000, 1), []ledger.PostingLine{{AccountID: expense, Amount: 100, LC: kept(1)},
+			{AccountID: ap, Amount: -100, LC: kept(-1), PartnerID: &e.supplier}}, false, "ledger.rate_not_recordable"},
 		{"a negative rate", big.NewRat(-1, 1), []ledger.PostingLine{{AccountID: expense, Amount: 100, LC: kept(1)}, {AccountID: ap, Amount: -100, LC: kept(-1), PartnerID: &e.supplier}},
 			false, "ledger.rate_not_recordable"},
 		{"a line of no amount in either currency", big.NewRat(1, 1), []ledger.PostingLine{{AccountID: expense, Amount: 0, LC: kept(0)},

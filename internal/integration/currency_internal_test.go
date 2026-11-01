@@ -150,7 +150,7 @@ func TestForeignDocumentQuality(t *testing.T) {
 		}, nil},
 		{"a vendor line without a document amount", func(e *sap.Extract, _ *target) {
 			open(e, "0.00")
-			last(e, 2).WSL = "0.00"
+			last(e, 2).WSL = "100.00"
 		}, []string{"2000/2026/0100000011/000002: vendor line has no amount in its document currency USD (WSL)"}},
 		{"amounts of opposite signs", func(e *sap.Extract, _ *target) {
 			open(e, "100.00")
@@ -163,6 +163,21 @@ func TestForeignDocumentQuality(t *testing.T) {
 		}, []string{"2000/2026/0100000011: document does not balance in its document currency USD (WSL, off by -100 minor units)"}},
 		{"a rate that rounds to zero", func(e *sap.Extract, _ *target) { open(e, "-900000000000000.00") },
 			[]string{"2000/2026/0100000011: the rate from USD to EUR that the document's amounts imply is not above zero"}},
+		{"a rate of 10^16", func(e *sap.Extract, _ *target) {
+			withDocument(e, "0100000011", "USD", sap.ACDOCA{RACCT: "0000211000", HSL: "-100000000000000.00", WSL: "-0.01", LIFNR: "0000000001"})
+		}, []string{"2000/2026/0100000011: the rate from USD to EUR that the document's amounts imply is not above zero to the 12 decimals a " +
+			"journal entry records, or not below 10^16"}},
+		{"document amounts out of range together", func(e *sap.Extract, _ *target) { open(e, "-50000000000000000.00") },
+			[]string{"2000/2026/0100000011: the document amounts (WSL) of the document add up to more than an amount holds"}},
+		{"no document amount on any line", func(e *sap.Extract, _ *target) {
+			open(e, "0.00")
+			last(e, 2).WSL = "0.00"
+		}, []string{"2000/2026/0100000011/000002: open item of SAP document 0100000011 is in document currency USD, but no line of its " +
+			"document has an amount in it (WSL)"}},
+		{"no document amount on a cleared document", func(e *sap.Extract, _ *target) {
+			withDocument(e, "0100000011", "USD", sap.ACDOCA{RACCT: "0000211000", HSL: "-50.00", WSL: "0.00", LIFNR: "0000000001", AUGBL: "0100000013"})
+			last(e, 2).WSL = "0.00"
+		}, nil},
 		{"cleared together with a document in another currency", func(e *sap.Extract, _ *target) {
 			open(e, "-100.00")
 			last(e, 2).HSL, last(e, 2).WSL = "51.00", "102.00"
@@ -175,8 +190,52 @@ func TestForeignDocumentQuality(t *testing.T) {
 	})
 }
 
+// TestForeignDocumentEarlierRuns: documents SAP cleared together with
+// documents an earlier run loaded post in the currency those were posted
+// in: a USD payment of a USD item loaded earlier posts in USD, and one
+// in EUR, or a clearing whose earlier documents were posted in two
+// currencies, is refused, naming the currency; an item loaded earlier in
+// company currency takes a USD payment in it.
+func TestForeignDocumentEarlierRuns(t *testing.T) {
+	paid := func(e *sap.Extract, currency, wsl string) {
+		withDocument(e, "0100000011", "USD", sap.ACDOCA{RACCT: "0000211000", HSL: "-50.00", LIFNR: "0000000001", AUGBL: "0100000013"})
+		withDocument(e, "0100000013", currency, sap.ACDOCA{RACCT: "0000100000", HSL: "-50.00", WSL: "-" + wsl})
+		pay := &e.ACDOCA[len(e.ACDOCA)-2]
+		pay.RACCT, pay.LIFNR, pay.AUGBL = "0000211000", "0000000001", "0100000013"
+	}
+	posted := func(t *target, currencies ...string) {
+		t.posted = map[string]string{"2000/2026/0100000011": currencies[0]}
+		if len(currencies) > 1 {
+			t.posted["2000/2026/0100000013"] = currencies[1]
+		}
+	}
+	runDocumentCurrencyCases(t, []documentCurrencyCase{
+		{"paid in USD", func(e *sap.Extract, t *target) { paid(e, "USD", "100.00"); posted(t, "USD") }, nil},
+		{"paid in EUR", func(e *sap.Extract, t *target) { paid(e, "EUR", "50.00"); posted(t, "USD") },
+			[]string{"2000/2026/0100000013: SAP document 2000/2026/0100000013 cannot load in a currency its clearing can be taken over in: SAP " +
+				"cleared it together with documents an earlier run loaded in USD, and 2000/2026/0100000013 is not in USD"}},
+		{"loaded in two currencies", func(e *sap.Extract, t *target) {
+			paid(e, "USD", "100.00")
+			posted(t, "USD", "EUR")
+			withDocument(e, "0100000015", "USD", sap.ACDOCA{RACCT: "0000211000", HSL: "-1.00", LIFNR: "0000000001", AUGBL: "0100000013"})
+		}, []string{"2000/2026/0100000015: SAP document 2000/2026/0100000015 cannot load in a currency its clearing can be taken over in: " +
+			"earlier runs loaded the documents SAP cleared together with it in EUR and USD"}},
+		{"loaded in company currency", func(e *sap.Extract, t *target) { paid(e, "USD", "100.00"); posted(t, "EUR") }, nil},
+	})
+}
+
+// TestSourceRateWithoutAmount: a document with no document amount implies
+// no rate.
+func TestSourceRateWithoutAmount(t *testing.T) {
+	tg := dpTarget()
+	if _, ok := sourceRate([]sap.ACDOCA{{WSL: "0.00", HSL: "1.00"}}, "EUR", "EUR", tg); ok {
+		t.Error("rate of a document without document amounts: got one, want none")
+	}
+}
+
 // TestForeignDownPaymentTax: a down payment in a foreign currency has its
-// tax checked in its document currency, which SAP calculates it in: 19%
+// tax checked in its document currency (where SAP is assumed to calculate
+// it, for an SAP specialist to confirm): 19%
 // of its document amount passes whatever its company code amounts round
 // to, and a tax that is not is refused in that currency.
 func TestForeignDownPaymentTax(t *testing.T) {

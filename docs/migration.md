@@ -130,11 +130,15 @@ CAD company is a USD item: a USD payment or final invoice clears it, a payment
 run in USD pays it, and a revaluation values it as one posted on the platform,
 while the trial balance and the open payables stay SAP's in CAD. A down
 payment's request is in its document currency, and its tax is checked in it,
-where SAP calculates it. Documents SAP cleared together post in one currency:
-in `documents` mode a document posts in its foreign currency when every
-document cleared together with it (directly or through others) is in that
-currency, and a set that mixes currencies (a USD invoice paid in CAD) posts in
-company currency as before. In `balances` mode the documents holding an open
+on the assumption that SAP calculates it there (for an SAP specialist to
+confirm). Documents SAP cleared together post in one currency:
+in `documents` mode the documents cleared together (directly or through
+others) post in the currency an earlier run posted those of them it loaded in,
+else in their document currency when they share one, and a set that mixes
+currencies (a USD invoice paid in CAD) posts in company currency as before. A
+document that would have to clear with an earlier run's documents in a
+currency it is not in (a USD item loaded open, then paid in CAD) is refused by
+the quality gate. In `balances` mode the documents holding an open
 item in a foreign currency load whole on their own beside the opening entry,
 as down payments do, and the others are part of the opening balances.
 
@@ -148,8 +152,9 @@ currency, which is not migrated yet (tracked); and, for a document that posts
 in a foreign currency, a currency the platform does not know, a document amount
 that does not parse, a line with a document amount and no company code amount
 or the two of opposite signs, a vendor line without a document amount, a
-document that does not balance in its currency, and a rate that rounds to zero
-at the 12 decimals an entry records. A line with a company code amount and no
+document that does not balance in its currency or whose document amounts add
+up to more than an amount holds, and a rate an entry cannot record (zero at
+its 12 decimals, or 10^16 and above). A line with a company code amount and no
 document amount (an exchange difference SAP posted in local currency) is
 loaded as one (ADR-0005, As built). A company whose payables hold such items
 values its payables account at period end (`fx_valuation.accounts`, with an

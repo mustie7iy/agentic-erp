@@ -3,12 +3,16 @@ package integration
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"maps"
 	"math/big"
 	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
+
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
@@ -38,9 +42,11 @@ import (
 // others are part of the opening balances.
 
 // documentCurrencies is each document's currency: the one its lines'
-// RWCUR agree on, or "" when they do not, or one of them carries none.
-func documentCurrencies(e *sap.Extract) map[string]string {
-	out := map[string]string{}
+// RWCUR agree on, or "" when they do not, or one of them carries none. A
+// document none of whose lines has a document amount (WSL) is in its
+// company's currency: it has nothing in another to post.
+func documentCurrencies(e *sap.Extract, t target) map[string]string {
+	out, amounts := map[string]string{}, map[string]bool{}
 	for _, l := range e.ACDOCA {
 		key := documentKey(l)
 		c, seen := out[key]
@@ -49,6 +55,12 @@ func documentCurrencies(e *sap.Extract) map[string]string {
 			out[key] = l.RWCUR
 		case c != l.RWCUR:
 			out[key] = ""
+		}
+		amounts[key] = amounts[key] || !t.zero(l.WSL, l.RWCUR)
+	}
+	for key := range out {
+		if !amounts[key] {
+			out[key] = t.localCurrency(key)
 		}
 	}
 	return out
@@ -128,29 +140,95 @@ func clearingComponents(e *sap.Extract, t target) [][]string {
 }
 
 // foreignDocuments are the documents the run posts in their foreign
-// document currency, by document key, with that currency.
-func foreignDocuments(e *sap.Extract, t target) map[string]string {
-	currencies := documentCurrencies(e)
+// document currency, by document key, with that currency; and the
+// documents it cannot post in a currency that clears with what earlier
+// runs posted (clearingCurrency), with why, which the quality gate
+// refuses. Earlier runs' documents (target.posted) are included in the
+// first map when they were posted in a foreign currency, so a later run
+// numbers their lines as the run that posted them did.
+func foreignDocuments(e *sap.Extract, t target) (map[string]string, map[string]string) {
+	currencies := documentCurrencies(e, t)
 	foreign := func(key string) bool { c := currencies[key]; return c != "" && c != t.localCurrency(key) }
-	out := map[string]string{}
+	out, conflicts := map[string]string{}, map[string]string{}
 	if t.balances {
 		for key := range openDocuments(e, t) {
 			if foreign(key) {
 				out[key] = currencies[key]
 			}
 		}
-		return out
+		return out, conflicts
 	}
 	for _, docs := range clearingComponents(e, t) {
-		c := currencies[docs[0]]
-		if !foreign(docs[0]) || slices.ContainsFunc(docs, func(k string) bool { return currencies[k] != c }) {
-			continue
-		}
+		c, why := clearingCurrency(docs, currencies, t)
 		for _, key := range docs {
-			out[key] = c
+			_, earlier := t.posted[key]
+			switch {
+			case why != "" && !earlier:
+				conflicts[key] = why
+			case why == "" && c != t.localCurrency(key):
+				out[key] = c
+			}
 		}
 	}
-	return out
+	return out, conflicts
+}
+
+// clearingCurrency is the currency the documents SAP cleared together post
+// in: the one earlier runs posted those of them they loaded in (an item
+// posted is never posted again), else their document currency when they
+// all share one, else company currency, as before (a USD invoice paid in
+// CAD). why says why they cannot: earlier runs posted them in different
+// currencies, or in a foreign one that another of them is not in, so the
+// platform could not clear them (ledger.mixed_items, a clearing that does
+// not net); "" when they can.
+func clearingCurrency(docs []string, currencies map[string]string, t target) (string, string) {
+	var posted []string
+	for _, key := range docs {
+		if c, ok := t.posted[key]; ok && !slices.Contains(posted, c) {
+			posted = append(posted, c)
+		}
+	}
+	local := t.localCurrency(docs[0])
+	slices.Sort(posted)
+	switch {
+	case len(posted) > 1:
+		return "", fmt.Sprintf("earlier runs loaded the documents SAP cleared together with it in %s", strings.Join(posted, " and "))
+	case len(posted) == 1 && posted[0] != local:
+		for _, key := range docs {
+			if _, earlier := t.posted[key]; !earlier && currencies[key] != posted[0] {
+				return "", fmt.Sprintf("SAP cleared it together with documents an earlier run loaded in %s, and %s is not in %s", posted[0], key, posted[0])
+			}
+		}
+		return posted[0], ""
+	case len(posted) == 1:
+		return local, ""
+	}
+	c := currencies[docs[0]]
+	if c == "" || slices.ContainsFunc(docs, func(k string) bool { return currencies[k] != c }) {
+		return local, ""
+	}
+	return c, ""
+}
+
+// postedCurrencies are the currencies earlier runs posted the extract's
+// documents in, by document key: the transaction currency of the entry
+// each one's external reference names.
+func (e *Endpoints) postedCurrencies(ctx context.Context, ext *sap.Extract, r refs) (map[string]string, error) {
+	keys := map[uuid.UUID]string{}
+	for _, l := range ext.ACDOCA {
+		if id, ok := r["ACDOCA/"+documentKey(l)]; ok {
+			keys[id] = documentKey(l)
+		}
+	}
+	out := map[string]string{}
+	if len(keys) == 0 {
+		return out, nil
+	}
+	currencies, err := e.Postings.EntryCurrencies(ctx, slices.Collect(maps.Keys(keys)))
+	for id, c := range currencies {
+		out[keys[id]] = c
+	}
+	return out, err
 }
 
 // sourceRate is the rate from a foreign document's currency into its
@@ -289,7 +367,13 @@ func (q *qualityCheck) documentCurrencies() {
 		}
 	}
 	for _, key := range sortedKeys(q.foreign) {
-		q.foreignDocument(key, q.foreign[key], docs[key])
+		if _, earlier := q.t.posted[key]; !earlier {
+			q.foreignDocument(key, q.foreign[key], docs[key])
+		}
+	}
+	for _, key := range sortedKeys(q.conflicts) {
+		q.add(SevError, "ACDOCA", key, "SAP document %s cannot load in a currency its clearing can be taken over in: %s; the platform clears "+
+			"items of one currency, so load the year in balances mode or have the clearing corrected", key, q.conflicts[key])
 	}
 }
 
@@ -304,11 +388,14 @@ func (q *qualityCheck) foreignItem(l sap.ACDOCA, lines []sap.ACDOCA) {
 	case q.t.isGRIR(l):
 		q.add(SevError, "ACDOCA", key, "open item of SAP document %s is in document currency %s, not company %s's currency %s: open GR/IR "+
 			"positions in a foreign document currency are not migrated yet", l.BELNR, l.RWCUR, l.RBUKRS, cur)
-	case q.foreign[documentKey(l)] == l.RWCUR:
-		// loads in its document currency
+	case q.foreign[documentKey(l)] == l.RWCUR, q.conflicts[documentKey(l)] != "":
+		// loads in its document currency, or is refused as a conflict
 	case slices.ContainsFunc(lines, func(o sap.ACDOCA) bool { return o.RWCUR != l.RWCUR }):
 		q.add(SevError, "ACDOCA", key, "open item of SAP document %s is in document currency %s, and not every line of its document is "+
 			"(RWCUR): a document posts in one currency, which cannot be told", l.BELNR, l.RWCUR)
+	case !slices.ContainsFunc(lines, func(o sap.ACDOCA) bool { return !q.t.zero(o.WSL, o.RWCUR) }):
+		q.add(SevError, "ACDOCA", key, "open item of SAP document %s is in document currency %s, but no line of its document has an "+
+			"amount in it (WSL)", l.BELNR, l.RWCUR)
 	default:
 		q.add(SevError, "ACDOCA", key, "open item of SAP document %s is in document currency %s, and SAP cleared its document together "+
 			"with documents in another currency or without one (AUGBL): the platform clears items of one currency, so it cannot load in %s",
@@ -319,8 +406,9 @@ func (q *qualityCheck) foreignItem(l sap.ACDOCA, lines []sap.ACDOCA) {
 // foreignDocument checks a document that posts in a foreign currency: a
 // currency the platform knows (ref.currency), each line's document amount
 // (WSL) parsing in it and agreeing with its company code amount (HSL),
-// the lines balancing in it, a rate SAP's amounts imply that a journal
-// entry can record, and in balances mode, where it loads on its own, what
+// the lines' document amounts in range together and balancing, a rate
+// SAP's amounts imply that a journal entry can record
+// (ledger.RecordableRate), and in balances mode, where it loads on its own, what
 // ownDocument checks (a down payment's document is downPayments').
 func (q *qualityCheck) foreignDocument(key, cur string, lines []sap.ACDOCA) {
 	if _, ok := q.t.exponents[cur]; !ok {
@@ -336,13 +424,21 @@ func (q *qualityCheck) foreignDocument(key, cur string, lines []sap.ACDOCA) {
 	if len(q.out) > reported {
 		return // a line's amounts are wrong, which the document's would repeat
 	}
-	if total, err := money.Sum(amounts...); err != nil || total != 0 {
-		q.add(SevError, "ACDOCA", key, "document does not balance in its document currency %s (WSL, %s)", cur, offBy(total, err))
+	sizes := make([]money.Minor, len(amounts))
+	for i, a := range amounts {
+		sizes[i] = a.Abs() // parsed amounts are never -2^63
+	}
+	if _, err := money.Sum(sizes...); err != nil {
+		q.add(SevError, "ACDOCA", key, "the document amounts (WSL) of the document add up to more than an amount holds")
 		return
 	}
-	if rate, ok := sourceRate(lines, cur, local, q.t); !ok || money.ParseRat(rate.FloatString(12)).Sign() <= 0 {
+	if total, _ := money.Sum(amounts...); total != 0 { // bounded by the sizes
+		q.add(SevError, "ACDOCA", key, "document does not balance in its document currency %s (WSL, off by %d minor units)", cur, int64(total))
+		return
+	}
+	if rate, ok := sourceRate(lines, cur, local, q.t); !ok || !ledger.RecordableRate(rate) {
 		q.add(SevError, "ACDOCA", key, "the rate from %s to %s that the document's amounts imply is not above zero to the 12 decimals a journal "+
-			"entry records", cur, local)
+			"entry records, or not below 10^16", cur, local)
 	}
 	if q.t.balances && len(openDownPayments(lines)) == 0 {
 		q.ownDocument(key, "the document in "+cur, lines)
@@ -350,11 +446,11 @@ func (q *qualityCheck) foreignDocument(key, cur string, lines []sap.ACDOCA) {
 }
 
 // foreignLine checks a line of a document that posts in a foreign
-// currency and returns its document amount. A line may have a company code amount without a document amount
-// (an exchange difference SAP posts in local currency alone), but a vendor
-// line may not, being an item in its document currency, and no line may
-// have a document amount without a company code amount, or the two of
-// opposite signs.
+// currency and returns its document amount. A line may have a company
+// code amount without a document amount (an exchange difference SAP
+// posts in local currency alone), but a vendor line may not, being an
+// item in its document currency, and no line may have a document amount
+// without a company code amount, or the two of opposite signs.
 func (q *qualityCheck) foreignLine(l sap.ACDOCA, cur, local string) money.Minor {
 	key := documentKey(l) + "/" + l.DOCLN
 	wsl, err := q.t.amount(l.WSL, cur)

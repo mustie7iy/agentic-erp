@@ -48,6 +48,10 @@ type target struct {
 	methods  map[string]map[string]bool
 	year     int32
 	balances bool // balances mode
+	// posted are the currencies earlier runs posted the extract's
+	// documents in, by document key (postedCurrencies), which a document
+	// SAP cleared together with them posts in too (foreignDocuments).
+	posted map[string]string
 }
 
 func (t target) hasRange(company, documentType string) bool {
@@ -113,7 +117,8 @@ func duplicateInvoices(e *sap.Extract) map[string]string {
 // loaded. Problems found here are cheap to fix in SAP or in the
 // configuration; problems found after cutover are not.
 func checkQuality(e *sap.Extract, t target) []Issue {
-	q := &qualityCheck{e: e, t: t, foreign: foreignDocuments(e, t)}
+	q := &qualityCheck{e: e, t: t}
+	q.foreign, q.conflicts = foreignDocuments(e, t)
 	q.companies()
 	q.accounts()
 	q.vendors()
@@ -147,8 +152,9 @@ type qualityCheck struct {
 	// open ones documentCurrencies checks too.
 	positions map[string]*grirPosition
 	// foreign are the documents the load posts in their foreign document
-	// currency (foreignDocuments).
-	foreign map[string]string
+	// currency, and conflicts those it cannot post in a currency that
+	// clears with earlier runs' documents (foreignDocuments).
+	foreign, conflicts map[string]string
 }
 
 func (q *qualityCheck) add(sev, table, key, format string, args ...any) {

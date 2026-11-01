@@ -83,22 +83,28 @@ and the load as built:
   exchange difference SAP posted in company currency alone, posts as such
   (`PostingLine.LC`; the ledger refuses a line of no amount in either
   currency).
-- **Which documents.** In `documents` mode a document posts in its foreign
-  currency when every document SAP cleared together with it, directly or
-  through others, is in that currency: a posting has one currency and a
-  clearing clears items of one (`ledger.mixed_items`), and the rule gives a
-  document the same currency in every run, so a final delta run clears with
-  a USD payment the USD item an earlier run loaded. A set of documents that
-  mixes currencies (a USD invoice paid in CAD) posts in company currency, as
-  before. In `balances` mode the documents holding an open item in a
+- **Which documents.** In `documents` mode the documents SAP cleared
+  together, directly or through others, post in one currency, since a
+  posting has one currency and a clearing clears items of one
+  (`ledger.mixed_items`): the currency earlier runs posted those of them
+  they loaded in, read from their entries (an entry is never posted again),
+  so a final delta run clears with a USD payment the USD item an earlier
+  run loaded; else their document currency when they all share one; else
+  company currency, as before (a USD invoice paid in CAD). The gate refuses
+  a document that would have to clear with earlier runs' documents in a
+  currency it is not in (a USD item an earlier run loaded, paid in CAD
+  since), naming the currency, rather than leave the clearing to fail in
+  the load. In `balances` mode the documents holding an open item in a
   foreign currency post whole on their own beside the opening entry, as
-  down payments do (T72c); the rest are opening balances.
+  down payments do (T72c); the rest are opening balances. A document with
+  no document amount on any line posts in company currency.
 - **What follows.** The open item is the supplier's item in its own
   currency: a payment run in that currency pays it, a payment or final
   invoice in it clears it, and a revaluation values it as one posted on the
   platform (tests in ledger and integration). A down payment's paid request
-  is in its document currency and its tax is checked in it, where SAP
-  calculates it.
+  is in its document currency and its tax is checked in it, on the
+  assumption that SAP calculates tax in the document currency (for an SAP
+  specialist, below).
 - **The gate.** It refuses an open item without RWCUR (an OData extract's,
   until RWCUR and WSL are mapped against the pilot system's `$metadata`;
   they then load as a file extract's do), one whose document's lines are not
@@ -110,15 +116,20 @@ and the load as built:
   platform does not know (`ref.currency`), a WSL that does not parse, a line
   with a WSL and no HSL or the two of opposite signs, a vendor line without
   a WSL, a document that does not balance in WSL, and an implied rate that
-  rounds to zero.
+  is not recordable: zero at 12 decimals, or 10^16 and above, which
+  `numeric(28,12)` cannot hold (`ledger.RecordableRate`, checked by the
+  ledger too); and document amounts that add up, unsigned, to more than an
+  amount holds.
 - **Reconciliation.** The controls in company currency are unchanged and
   cover these items through HSL. Open items in each foreign currency are
   compared too, per vendor and in total in that currency (`Open items in
   USD total`), where either side has any: the local controls cannot tell an
   item loaded with the wrong document amount.
-- **For an SAP specialist.** That an exchange difference SAP posts when it
-  clears foreign items is a line with HSL and no WSL, and that it values the
-  vendor line of a clearing so the cleared items net to zero in company
-  currency, are from memory and are what the load takes over (a clearing
+- **For an SAP specialist.** That SAP calculates a document's tax in its
+  document currency, which the down payment's tax check assumes; that an
+  exchange difference SAP posts when it clears foreign items is a line with
+  HSL and no WSL; and that it values the vendor line of a clearing so the
+  cleared items net to zero in company currency: all from memory, and what
+  the load takes over (a clearing
   that does not net in both currencies is refused by the ledger, an issue of
   the run); and which field carries the document's exchange rate.

@@ -121,6 +121,7 @@ type Postings interface {
 	TakenOverGRIR(ctx context.Context, legalEntity uuid.UUID, orders []uuid.UUID) (map[uuid.UUID]ledger.GRIRTakenOverOrder, error)
 	Clear(ctx context.Context, legalEntity uuid.UUID, date time.Time, by ledger.ItemRef, items []ledger.ItemRef) (uuid.UUID, error)
 	EntryYears(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]int16, error)
+	EntryCurrencies(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
 	ClearedTogether(ctx context.Context, items []ledger.ItemRef) (bool, error)
 	LockAllEntries(ctx context.Context) error
 }

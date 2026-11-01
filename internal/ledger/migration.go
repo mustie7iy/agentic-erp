@@ -93,18 +93,32 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 // (its external reference), and names the entry's lines to Clear by year
 // and id.
 func (Postings) EntryYears(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]int16, error) {
+	return entryValues[int16](ctx, `SELECT id, fiscal_year FROM ledger.journal_entry WHERE id = ANY($1)`, "fiscal years", ids)
+}
+
+// entryValues reads one value of each of the entries that exists, by id,
+// with a query of their ids and values.
+func entryValues[T any](ctx context.Context, query, what string, ids []uuid.UUID) (map[uuid.UUID]T, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT id, fiscal_year FROM ledger.journal_entry WHERE id = ANY($1)`, ids)
-	out := map[uuid.UUID]int16{}
+	rows, _ := tx.Query(ctx, query, ids)
+	out := map[uuid.UUID]T{}
 	var id uuid.UUID
-	var year int16
-	if _, err := pgx.ForEachRow(rows, []any{&id, &year}, func() error { out[id] = year; return nil }); err != nil {
-		return out, fmt.Errorf("ledger: fiscal years of %d entries: %w", len(ids), err)
+	var v T
+	if _, err := pgx.ForEachRow(rows, []any{&id, &v}, func() error { out[id] = v; return nil }); err != nil {
+		return out, fmt.Errorf("ledger: %s of %d entries: %w", what, len(ids), err)
 	}
 	return out, nil
+}
+
+// EntryCurrencies returns the transaction currency of each of the entries
+// that exists, by id: a migration run posts the documents a source system
+// cleared together in one currency, so a later run reads the currency an
+// earlier run posted a document in (ADR-0005 As built).
+func (Postings) EntryCurrencies(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	return entryValues[string](ctx, `SELECT id, currency_tc FROM ledger.journal_entry WHERE id = ANY($1)`, "currencies", ids)
 }
 
 // ClearedTogether reports whether one clearing cleared every one of the
