@@ -106,9 +106,12 @@ var ErrServer = errors.New("directory: server")
 // directory's server holds and no chart or module of the platform names
 // (the global module makes the directory's alone, db_name "directory"):
 // postgres and template1, which every PostgreSQL cluster has from initdb
-// (PostgreSQL 17 manual, §22.2 and §22.3), and rdsadmin, RDS's own, absent
-// elsewhere. erp-router setup-directory gives Setup these.
-func ServerDatabases() []string { return []string{"postgres", "template1", "rdsadmin"} }
+// (PostgreSQL 17 manual, §22.2 and §22.3), as the product owner named
+// them (2026-10-31). RDS's own rdsadmin is not among them: its owner and
+// ACL there are unknown, and a REVOKE the master user may not make would
+// stop every release (ADR-0035, the specialist's list). erp-router
+// setup-directory gives Setup these.
+func ServerDatabases() []string { return []string{"postgres", "template1"} }
 
 // Setup makes the directory's schema and its privilege roles' grants, and
 // each login, as the database's owner (url names the RDS master user):
@@ -321,8 +324,8 @@ func checkLogin(ctx context.Context, tx pgx.Tx, l Login) error {
 // connection Setup has: pg_database is one catalog for the whole server
 // (the manual's pg_database page), and has_database_privilege reads its
 // ACL, the default (acldefault) when it is null, for the pseudo-role
-// public (§9.27), without connecting to the database, which template1 or
-// rdsadmin need not allow.
+// public (§9.27), without connecting to the database, which template1
+// need not allow.
 func takePublicDatabases(ctx context.Context, tx pgx.Tx, others []string) error {
 	held, err := publicOn(ctx, tx, others)
 	if err != nil {

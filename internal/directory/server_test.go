@@ -51,8 +51,7 @@ func mustHold(ctx context.Context, t *testing.T, c *pgx.Conn, names []string) []
 // TestSetupTakesPUBLICsRightsOnTheServer: on the server's own postgres
 // and template1, which PUBLIC may connect to from initdb (postgres's ACL
 // is null, its default; template1's PUBLIC CONNECT is explicit), Setup
-// with ServerDatabases leaves PUBLIC neither right; rdsadmin, RDS's, is
-// not there and passed over. The test server is every package's, whose
+// with ServerDatabases leaves PUBLIC neither right. The test server is every package's, whose
 // tests connect to postgres as logins of their own, so the run is rolled
 // back once checked.
 func TestSetupTakesPUBLICsRightsOnTheServer(t *testing.T) {

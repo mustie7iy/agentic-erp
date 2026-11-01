@@ -6817,7 +6817,7 @@
        },
        {
         "s": "D",
-        "t": "The directory's logins reach no other database on the directory's server (follow-up of T72h's review; product owner 2026-10-31): erp-router setup-directory gives Setup the server's other databases (postgres, template1, rdsadmin), on each of which Setup revokes PUBLIC's CONNECT and TEMPORARY and then refuses, naming the database and the right, while PUBLIC still holds either (a login or privilege role holding one was already refused); confirming it on a real RDS instance with \\l is the specialist's",
+        "t": "The directory's logins reach no other database on the directory's server (follow-up of T72h's review; product owner 2026-10-31): erp-router setup-directory gives Setup the server's other databases (postgres and template1, as the product owner named them), on each of which Setup revokes PUBLIC's CONNECT and TEMPORARY and then refuses, naming the database and the right, while PUBLIC still holds either (a login or privilege role holding one was already refused); confirming it on a real RDS instance with \\l, and whether Setup should also cover RDS's rdsadmin, are the specialist's",
         "r": "internal/directory/setup.go takePublicDatabases · ServerDatabases · TestSetupTakesPUBLICsRightsOnTheServer · TestSetupAgainOnTheServer · TestSetupRefusesPUBLICsRightsItCannotTake · cmd/erp-router setup.go · ADR-0035 As built 2026-10-31",
         "src": "review:T72h · review:batch25 · po:2026-10-31",
         "c": []

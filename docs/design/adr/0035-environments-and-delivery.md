@@ -897,10 +897,12 @@ database's ACL with the server's, dbid 0).
 
 - *Which databases:* the chart (`directory.name`) and the global module
   (`db_name = "directory"`) name the directory's database alone, so the
-  list is the ones every server has: `postgres` and `template1`, which
-  initdb makes (§22.2, §22.3), and `rdsadmin`, RDS's own, which the
-  tracker's option named; one not there (rdsadmin outside RDS) is passed
-  over. `template0` is left out: it takes no connections
+  list is the ones every server has and the product owner named:
+  `postgres` and `template1`, which initdb makes (§22.2, §22.3); one not
+  there is passed over. RDS's own `rdsadmin` is left out (coordinator,
+  2026-10-31: the decision named only the two, and if the `rdsadmin` role
+  owns it the master user's `REVOKE` would only warn and Setup would stop
+  every release). `template0` is left out: it takes no connections
   (`datallowconn` false, §22.3), whatever its ACL. The directory's own
   database keeps `PUBLIC`'s `CONNECT`, as `Grants` leaves it.
 - *Decided by default — read, not connected:* the rights are read through
@@ -909,7 +911,7 @@ database's ACL with the server's, dbid 0).
   server (the manual's `pg_database` page) and the function reads its ACL, the default
   (`acldefault`) when null, for the pseudo-role `public` (§9.27). That is
   what the server checks at connection, so no connection to each database
-  is needed, which template1 or rdsadmin need not allow.
+  is needed, which template1 need not allow.
 - *Decided by default — refuse, not warn:* RDS's master user is no
   superuser (`NOSUPERUSER`, a member of `rds_superuser`: RDS user guide,
   "Understanding the rds_superuser role",
@@ -928,11 +930,11 @@ database's ACL with the server's, dbid 0).
 - *Idempotent:* a database `PUBLIC` holds nothing on gets no `REVOKE`, so
   a second run writes nothing to `pg_database`.
 - *Not confirmed on an RDS instance (for the specialist):* who owns
-  `postgres`, `template1` and `rdsadmin` there, and so whether the master
-  user's `REVOKE` takes effect or Setup stops the first release; what
-  `rdsadmin`'s ACL gives `PUBLIC`; and whether RDS's own agents connect
-  to `postgres` or `template1` as a role that loses its right with
-  `PUBLIC`'s. AWS's guide states none of these.
+  `postgres` and `template1` there, and so whether the master user's
+  `REVOKE` takes effect or Setup stops the first release; whether RDS's
+  own agents connect to `postgres` or `template1` as a role that loses
+  its right with `PUBLIC`'s; and should Setup also cover `rdsadmin` once
+  its owner and ACL on RDS are known. AWS's guide states none of these.
 - *Tests:* `TestSetupTakesPUBLICsRightsOnTheServer` runs Setup with
   `ServerDatabases` against the test server's own `postgres` and
   `template1`, checks a fresh server's defaults before and no right after,

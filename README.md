@@ -275,7 +275,7 @@ router's, the cells' and erp-web's logins, `erp_router_login`,
 `erp_cell_login` and `erp_web_login` unless `ERP_DIRECTORY_*_USER` names
 others), which the services then connect as (T72h). It also takes
 `PUBLIC`'s `CONNECT` and `TEMPORARY` on the server's other databases
-(`postgres`, `template1`, `rdsadmin`), and stops, naming the database,
+(`postgres`, `template1`), and stops, naming the database,
 where it cannot: run against a development server, its logins may then no
 longer connect to `postgres`. With
 `ERP_DIRECTORY_URL` and `ERP_CELL_API_URL` set, the cell records its tenants
