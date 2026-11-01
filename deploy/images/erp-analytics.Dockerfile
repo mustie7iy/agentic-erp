@@ -11,8 +11,11 @@
 #   own gcc for the same one. DuckDB comes prebuilt and static from
 #   duckdb-go-bindings (go.sum pins it); glibc stays dynamic, so the
 #   runtime base is distroless cc (glibc, libgcc, libstdc++, CA
-#   certificates, time zones, no shell, uid 65532), Debian 12 like the
-#   builder, so the binary never needs a newer glibc than it finds.
+#   certificates, time zones, no shell, uid 65532). The base is Debian
+#   13, the builder Debian 12 (ADR-0044 amendment of 2026-11-01): glibc,
+#   libgcc_s and libstdc++ keep every older symbol version, so a binary
+#   linked against Debian 12's runs on Debian 13's, never the reverse.
+#   The builder may never be newer than the runtime base.
 # - Reproducible: -trimpath, no build id, no VCS stamp (the revision is in
 #   the signed provenance), stripped, and buildx dates every layer at
 #   SOURCE_DATE_EPOCH (rewrite-timestamp), so the digest depends on the
@@ -20,7 +23,7 @@
 # - The pod runs it as uid 65532 with a read-only root file system; the
 #   verified-file cache is an emptyDir (ERP_ANALYTICS_CACHE).
 ARG GO_IMAGE=docker.io/library/golang:1.26.10-bookworm@sha256:386f0cbb8fb3402ff5a15048c96731e6ff37142d31182f3b72306359a1f5e9b7
-ARG BASE_IMAGE=gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
+ARG BASE_IMAGE=gcr.io/distroless/cc-debian13:nonroot@sha256:08476c244888bfb425bae1ae4dd7c17f093e972aab8426883d97f3c6f280f7c1
 
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
 ARG BUILDARCH
