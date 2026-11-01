@@ -19,7 +19,7 @@ func invoiceJSON(id uuid.UUID) string {
 		"document_number":"SI9","legal_entity_id":%q,"supplier_id":%q,"supplier_reference":"R-9","invoice_date":"2026-03-10",
 		"tax_date":"2026-03-11","gross_amount":{"amount":"1.00","currency":"EUR"},"tax_amount":{"amount":"0.00","currency":"EUR"},
 		"purchase_order_id":%q,"kind":"new_kind","status":"in_review","source":"edi","items":[{"quantity":{"value":"1","unit":"EA"},
-		"amount":{"amount":"1.00","currency":"EUR"}}],"extensions":{}}`, id, u(), u(), u(), u())
+		"amount":{"amount":"1.00","currency":"EUR"}}],"extensions":{},"documentary_warnings":[]}`, id, u(), u(), u(), u())
 }
 
 // recommendationJSON is an open recommendation of a kind the workspace
