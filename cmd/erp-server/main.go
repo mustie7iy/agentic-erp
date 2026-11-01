@@ -619,6 +619,7 @@ func (s *server) newAPI() error {
 		Metrics: s.metrics, Tracer: s.tp, Meter: otel.GetMeterProvider(), Now: time.Now,
 		RequireBoundAgents: cfg.Environment == config.Production, EvalCell: cfg.EvalCell,
 		RefuseEBICS: cfg.Environment == config.Production, RefuseUnsignedPacks: cfg.Environment == config.Production,
+		UnreleasedPacks: cfg.PacksDir, // config.Load refuses it in production
 	}
 	if s.gateway != nil {
 		s.apiCfg.Model = s.gateway

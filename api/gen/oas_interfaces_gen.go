@@ -525,6 +525,10 @@ type GetSupplierInvoiceRes interface {
 	getSupplierInvoiceRes()
 }
 
+type GetTaxReturnDraftRes interface {
+	getTaxReturnDraftRes()
+}
+
 type GetUploadRes interface {
 	getUploadRes()
 }
@@ -831,6 +835,10 @@ type ListTaxPeriodsRes interface {
 
 type ListTaxRegistrationsRes interface {
 	listTaxRegistrationsRes()
+}
+
+type ListTaxReturnDraftItemsRes interface {
+	listTaxReturnDraftItemsRes()
 }
 
 type ListWebhookDeliveriesRes interface {

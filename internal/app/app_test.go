@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -156,6 +157,14 @@ func TestNewWithoutModel(t *testing.T) {
 // The server does not start on country packs that are not as released.
 func TestCountryPacksRefused(t *testing.T) {
 	_, err := New(Config{Packs: fstest.MapFS{}, Log: slog.New(slog.DiscardHandler)}) // no hash list
+	if err == nil || !strings.Contains(err.Error(), "app: country packs") {
+		t.Errorf("New: got %v, want the country packs refused", err)
+	}
+}
+
+// The server does not start on unreleased packs it cannot load.
+func TestUnreleasedPacksRefused(t *testing.T) {
+	_, err := New(Config{UnreleasedPacks: filepath.Join(t.TempDir(), "none"), Log: slog.New(slog.DiscardHandler)})
 	if err == nil || !strings.Contains(err.Error(), "app: country packs") {
 		t.Errorf("New: got %v, want the country packs refused", err)
 	}

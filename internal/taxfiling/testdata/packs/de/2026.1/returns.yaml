@@ -1,0 +1,22 @@
+# A test return, not any authority's: output tax and its base, input tax
+# recovered and not, the difference of output and recovered input tax; prior-period items up to 10.00 of tax.
+returns:
+  - type: TEST-1
+    name: Test return
+    prior_period_threshold: "10"
+    boxes:
+      - code: sales
+        label: Taxed sales
+        select: {direction: output, measure: base, negate: true}
+      - code: out
+        label: Output tax
+        select: {direction: output, measure: tax, negate: true}
+      - code: in
+        label: Input tax recovered
+        select: {direction: input, account_keys: [input], measure: recoverable}
+      - code: cost
+        label: Input tax not recovered
+        select: {direction: input, account_keys: [input, non_deductible], measure: non_recoverable}
+      - code: net
+        label: Net tax
+        expression: box_out - box_in

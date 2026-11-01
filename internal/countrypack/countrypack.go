@@ -29,7 +29,8 @@ type Pack struct {
 	Calendar  Calendar
 	Numbering Numbering
 	Payments  Payments
-	Cash      Cash // optional: packs released before T53b have none
+	Cash      Cash    // optional: packs released before T53b have none
+	Returns   Returns // optional: packs released before T61h have none
 }
 
 // Manifest is pack.yaml: what the pack is, from when it holds, the legal
@@ -111,7 +112,7 @@ var Files = []string{"pack.yaml", "accounts.yaml", "tax.yaml", "calendar.yaml", 
 
 // OptionalFiles are the files a pack directory may have: added after packs
 // were released without them, which never change (ADR-0048).
-var OptionalFiles = []string{"cash.yaml"}
+var OptionalFiles = []string{"cash.yaml", "returns.yaml"}
 
 // Parse reads a pack's files by name strictly: an unknown or missing file
 // and an unknown field are errors, so a typo never drops a setting.
@@ -122,7 +123,7 @@ func Parse(files map[string][]byte) (*Pack, error) {
 		}
 	}
 	p := &Pack{}
-	targets := []any{&p.Manifest, &p.Accounts, &p.Tax, &p.Calendar, &p.Numbering, &p.Payments, &p.Cash}
+	targets := []any{&p.Manifest, &p.Accounts, &p.Tax, &p.Calendar, &p.Numbering, &p.Payments, &p.Cash, &p.Returns}
 	for i, name := range append(slices.Clone(Files), OptionalFiles...) {
 		b, ok := files[name]
 		if !ok && i >= len(Files) {

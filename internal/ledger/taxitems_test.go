@@ -277,6 +277,14 @@ func TestTaxItemFailures(t *testing.T) {
 			_, err := ledger.TaxItems{}.Dated(ctx, e.de, date("2026-01-01"), date("2027-01-01"))
 			return err
 		},
+		"a return's unreported items": func(ctx context.Context) error {
+			_, err := ledger.TaxItems{}.Unreported(ctx, []uuid.UUID{e.de}, date("2026-01-01"), date("2026-03-31"))
+			return err
+		},
+		"a return box's items": func(ctx context.Context) error {
+			_, err := ledger.TaxItems{}.UnreportedItems(ctx, []uuid.UUID{e.de}, date("2026-03-31"), ledger.TaxItemSelection{Direction: "input"}, nil, 10)
+			return err
+		},
 	}
 	for name, call := range calls {
 		t.Run(name, func(t *testing.T) {

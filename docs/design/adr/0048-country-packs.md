@@ -22,7 +22,8 @@ settings cannot simply overwrite their document.
   `numbering.yaml` (number range templates by document type) and
   `payments.yaml` (payment terms). The bundles are embedded with `go:embed`
   in the tiny `packs` package at the module root; `internal/countrypack`
-  (pure Go, importing only `config` and the shared kernel) loads, validates
+  (pure Go, importing only `config`, the shared kernel and, for return
+  definitions, the platform's CEL engine `platform/rules`) loads, validates
   and applies them, as `delivery/sapconfig` generates a draft from SAP.
 - **Validation** refuses a pack with a rate outside 0-100% or with more than
   three decimals, overlapping effective dates of one tax code, an account
@@ -95,6 +96,19 @@ settings cannot simply overwrite their document.
   as they are, whatever the date of application, and the ledger sets up
   every rate ahead; the earlier "rate in force, later rates noted, apply
   again" behaviour is gone.
+- **Returns** (T61h, ADR-0049 §11): an optional `returns.yaml` holds the
+  country's tax return definitions (each return type's boxes: selections
+  of tax items or expressions over earlier boxes, and the prior-period
+  threshold), validated (`countrypack.Validate`, the expressions compiled
+  by the CEL engine of ADR-0046) and hashed with the pack like every file;
+  packs released before have none. Applying a pack writes nothing of it:
+  a draft return reads the definition from the pack version the company
+  adopted (`packs`). **Unreleased packs** for a demonstration or a test
+  are served from a directory (`ERP_PACKS_DIR`, `Library.AddUnreleased`:
+  hashed but not checked against the hash list, logged as not released, a
+  released directory refused), and production refuses the setting at
+  start, so it applies only released packs; the walkthrough serves a copy
+  of the latest Canada pack with an illustrative return through it.
 - **Scope**: tax calculation and returns are T61, e-invoicing T65 and the
   regulatory agent that proposes new pack versions T71. Steps: T62a schema,
   loader and validation; T62b apply and merge with provenance; T62c the

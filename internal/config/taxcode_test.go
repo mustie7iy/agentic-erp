@@ -212,3 +212,28 @@ func paths(cs []Change) []string {
 	}
 	return out
 }
+
+// TestTaxItemValues: the forms a country pack's return selects tax items
+// by (T61h) are the configuration's own.
+func TestTaxItemValues(t *testing.T) {
+	for name, c := range map[string]struct {
+		is   func(string) bool
+		good string
+		bad  string
+	}{
+		"kind":          {IsTaxKind, TaxReverseCharge, "reduced"},
+		"account key":   {IsTaxAccountKey, KeySelfInput, "tax"},
+		"return type":   {IsTaxReturnType, "VAT201", "vat 201"},
+		"component key": {IsTaxComponentKey, "pst_bc", "PST"},
+		"jurisdiction":  {IsTaxJurisdiction, "AE-DU", "ae"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if !c.is(c.good) {
+				t.Errorf("%q: got false, want true", c.good)
+			}
+			if c.is(c.bad) {
+				t.Errorf("%q: got true, want false", c.bad)
+			}
+		})
+	}
+}

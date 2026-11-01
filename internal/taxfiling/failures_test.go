@@ -9,6 +9,8 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/countrypack"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -80,5 +82,38 @@ func TestUnreadableNumber(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("check: got no error, want the number not opened")
+	}
+}
+
+// TestReturnDatabaseFailures computes a draft and lists a box's items
+// outside a unit of work and with each database statement failing in
+// turn, the ledger's included.
+func TestReturnDatabaseFailures(t *testing.T) {
+	e := returnsEnv(t)
+	sale(t, e, "2026-02-10", "")
+	lib, err := countrypack.LoadAll(apitest.Packs(t, "testdata/packs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := endpoints(t, time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC))
+	h.Packs, h.Items = lib, ledger.TaxItems{}
+	testID := uuid.MustParse(id(t, e, "TEST"))
+	calls := map[string]func(ctx context.Context) error{
+		"compute": func(ctx context.Context) error {
+			_, err := h.GetTaxReturnDraft(ctx, gen.GetTaxReturnDraftParams{ID: testID, PeriodStart: date("2026-01-01")})
+			return err
+		},
+		"a box's items": func(ctx context.Context) error {
+			_, err := h.ListTaxReturnDraftItems(ctx, gen.ListTaxReturnDraftItemsParams{ID: testID, PeriodStart: date("2026-01-01"), Box: "out"})
+			return err
+		},
+	}
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			if err := call(context.Background()); err == nil {
+				t.Error("outside a unit of work: got no error, want one")
+			}
+			apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
+		})
 	}
 }
