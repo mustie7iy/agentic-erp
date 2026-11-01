@@ -50,6 +50,23 @@ func TestCalculationFailed(t *testing.T) {
 	}
 }
 
+// TestReadFigures: a read's calculation out of range leaves the figures
+// out, as posting refuses it; the calculator's other errors are wrapped.
+func TestReadFigures(t *testing.T) {
+	for name, err := range map[string]error{"the calculator's": fmt.Errorf("tax: line 1: %w", money.ErrOverflow), "the charged total's": nil} {
+		t.Run(name, func(t *testing.T) {
+			large := money.Minor(1) << 62
+			items := []tax.ComponentTax{{Code: "V1", AccountKey: tax.KeyInput, Amounts: tax.Amounts{Tax: large}}, {Code: "V7", AccountKey: tax.KeyInput, Amounts: tax.Amounts{Tax: large}}}
+			if got, err := readFigures(Invoice{Currency: "EUR", Exponent: 2}, items, err); got != nil || err != nil {
+				t.Errorf("got %v, %v, want no figures and no error", got, err)
+			}
+		})
+	}
+	if _, err := readFigures(Invoice{}, nil, tax.ErrInvalidCode); !errors.Is(err, tax.ErrInvalidCode) {
+		t.Errorf("an invalid code: got %v, want it wrapped", err)
+	}
+}
+
 // TestToleranceOf: a company the configuration does not list has the
 // default tolerance, one minor unit per code.
 func TestToleranceOf(t *testing.T) {

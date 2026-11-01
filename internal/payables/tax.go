@@ -153,13 +153,36 @@ func calculationFailed(id uuid.UUID, err error) error {
 	return fmt.Errorf("payables: tax of invoice %s: %w", id, err)
 }
 
-// taxDocument is the calculator's document of an invoice's coded items:
-// their codes' components and rates on the tax date, rounded as the
-// company's tax settings say and converted into local currency at the tax
-// date's rate of their rate type (ADR-0049 §8).
+// taxDocument is the calculator's document of an invoice's coded items
+// (codesDocument), converted into local currency at the tax date's rate of
+// their rate type (ADR-0049 §8).
 func (e *Endpoints) taxDocument(ctx context.Context, v Invoice, local string, taxDate time.Time, coded []int, settings config.TaxSettings) (tax.Document,
 	ledger.Conversion, error) {
-	doc := tax.Document{TaxDate: taxDate, Currency: v.Currency, Codes: map[string]tax.Code{}, Rounding: tax.Rounding(settings.Rounding)}
+	doc, unknown, err := e.codesDocument(ctx, v, taxDate, coded, settings)
+	switch {
+	case err != nil:
+		return tax.Document{}, ledger.Conversion{}, err
+	case unknown >= 0:
+		return tax.Document{}, ledger.Conversion{}, invalid("payables.unknown_tax_code", fmt.Sprintf("items[%d].tax_code", unknown),
+			"Tax code "+*v.Items[unknown].TaxCode+" is not an input tax code of the legal entity on the tax date "+taxDate.Format(time.DateOnly)+".")
+	}
+	conv, err := e.taxConversion(ctx, v.Currency, local, taxDate, settings.RateTypeOrAverage())
+	if err != nil {
+		return tax.Document{}, ledger.Conversion{}, err
+	}
+	doc.Local = &tax.Conversion{Rate: conv.Rate, FromExp: conv.FromExp, ToExp: conv.ToExp}
+	return doc, conv, nil
+}
+
+// codesDocument is the calculator's document of an invoice's coded items
+// in its currency: their codes' components and rates on the tax date,
+// rounded as the company's tax settings say. unknown is the first item
+// whose code is no input tax code of the legal entity on the tax date, -1
+// for none: the caller says what that means (taxDocument refuses it, a
+// read leaves its figures out).
+func (e *Endpoints) codesDocument(ctx context.Context, v Invoice, taxDate time.Time, coded []int, settings config.TaxSettings) (doc tax.Document, unknown int,
+	err error) {
+	doc = tax.Document{TaxDate: taxDate, Currency: v.Currency, Codes: map[string]tax.Code{}, Rounding: tax.Rounding(settings.Rounding)}
 	for _, i := range coded {
 		code := *v.Items[i].TaxCode
 		doc.Lines = append(doc.Lines, tax.Line{Amount: v.Items[i].Amount, Code: code})
@@ -168,20 +191,69 @@ func (e *Endpoints) taxDocument(ctx context.Context, v Invoice, local string, ta
 		}
 		t, ok, err := e.Accounts.TaxCode(ctx, v.LegalEntityID, code, taxDate)
 		if err != nil {
-			return tax.Document{}, ledger.Conversion{}, err
+			return tax.Document{}, -1, err
 		}
 		if !ok || t.Direction != config.TaxInput {
-			return tax.Document{}, ledger.Conversion{}, invalid("payables.unknown_tax_code", fmt.Sprintf("items[%d].tax_code", i),
-				"Tax code "+code+" is not an input tax code of the legal entity on the tax date "+taxDate.Format(time.DateOnly)+".")
+			return tax.Document{}, i, nil
 		}
 		doc.Codes[code] = t.Calculable()
 	}
-	conv, err := e.taxConversion(ctx, v.Currency, local, taxDate, settings.RateTypeOrAverage())
-	if err != nil {
-		return tax.Document{}, ledger.Conversion{}, err
+	return doc, -1, nil
+}
+
+// calculatedTax is the tax an invoice's codes' rates give on its tax date,
+// beside the tax it states (getSupplierInvoice, ADR-0052 T73e3): nil when
+// no item carries a code and an amount, or when its codes cannot be
+// calculated on the tax date (a code no longer an input tax code of the
+// legal entity then, amounts out of range), which a read does not refuse:
+// posting says why. It is calculated on each read, as a parked invoice's
+// items, tax date and codes' rates change; no local amounts are needed.
+func (e *Endpoints) calculatedTax(ctx context.Context, v Invoice) (*problem.CalculatedTax, error) {
+	coded := codedItems(v)
+	if len(coded) == 0 {
+		return nil, nil
 	}
-	doc.Local = &tax.Conversion{Rate: conv.Rate, FromExp: conv.FromExp, ToExp: conv.ToExp}
-	return doc, conv, nil
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	taxDate, err := taxDateOf(ctx, tx, v.TaxDate, v.InvoiceDate, v.ReferenceInvoiceID)
+	if err != nil {
+		return nil, err
+	}
+	le, _, err := e.LegalEntities.Entity(ctx, v.LegalEntityID) // a stored invoice's legal entity exists
+	if err != nil {
+		return nil, err
+	}
+	co, err := e.company(ctx, le.Code)
+	if err != nil {
+		return nil, err
+	}
+	doc, unknown, err := e.codesDocument(ctx, v, taxDate, coded, settingsOf(co))
+	if err != nil || unknown >= 0 {
+		return nil, err
+	}
+	res, err := tax.Calculate(doc)
+	return readFigures(v, res.Items, err)
+}
+
+// readFigures are the figures of a read's calculation (calculatedTax), err
+// the calculator's: none when it or the charged total finds amounts out of
+// range (money.ErrOverflow), as posting refuses them, without making the
+// problem a read never answers; the calculator's other errors are not
+// expected.
+func readFigures(v Invoice, items []tax.ComponentTax, err error) (*problem.CalculatedTax, error) {
+	var charged money.Minor
+	if err == nil {
+		charged, _, err = chargedSum(items)
+	}
+	switch {
+	case errors.Is(err, money.ErrOverflow):
+		return nil, nil
+	case err != nil:
+		return nil, fmt.Errorf("payables: tax of invoice %s: %w", v.ID, err)
+	}
+	return taxFigures(v, items, charged), nil
 }
 
 // taxConversion converts tax into local currency on the tax date at the
@@ -299,6 +371,20 @@ func statedTax(v Invoice, items []tax.ComponentTax, units int, conv ledger.Conve
 // self-assessed aside), its difference to the stated tax and the number
 // of codes charging some; out of range (items of both signs), too large.
 func chargedTax(stated money.Minor, items []tax.ComponentTax) (charged, diff money.Minor, codes int, err error) {
+	charged, codes, err = chargedSum(items)
+	if err == nil {
+		diff, err = money.Diff(stated, charged)
+	}
+	if err != nil {
+		return 0, 0, 0, errTaxTooLarge
+	}
+	return charged, diff, codes, nil
+}
+
+// chargedSum is the tax the supplier charges by the calculation (the
+// self-assessed aside) and the number of codes charging some; out of
+// range, money.ErrOverflow.
+func chargedSum(items []tax.ComponentTax) (charged money.Minor, codes int, err error) {
 	var taxes []money.Minor
 	charging := map[string]bool{}
 	for _, c := range items {
@@ -311,13 +397,7 @@ func chargedTax(stated money.Minor, items []tax.ComponentTax) (charged, diff mon
 		}
 	}
 	charged, err = money.Sum(taxes...)
-	if err == nil {
-		diff, err = money.Diff(stated, charged)
-	}
-	if err != nil {
-		return 0, 0, 0, errTaxTooLarge
-	}
-	return charged, diff, len(charging), nil
+	return charged, len(charging), err
 }
 
 // shareOut shares a difference out in proportion to the weights' size,
@@ -376,10 +456,11 @@ func sameSide(was, tax, recoverable money.Minor) bool {
 	return side(tax) && side(recoverable) && recoverable.Abs() <= tax.Abs()
 }
 
-// mismatch refuses an invoice whose stated tax is beyond the tolerance
-// (422 payables.tax_mismatch), naming each code's calculated tax in its
-// detail and as its figures (calculated_tax, ADR-0052 decision D3).
-func mismatch(v Invoice, items []tax.ComponentTax, charged money.Minor) error {
+// taxFigures are an invoice's tax figures (ADR-0052 decision D3): the tax
+// it states, the tax its codes' rates give (charged) and each code's, in
+// the order of the items that first carry it; self-assessed tax, which the
+// supplier does not charge, left out of both.
+func taxFigures(v Invoice, items []tax.ComponentTax, charged money.Minor) *problem.CalculatedTax {
 	byCode := map[string]money.Minor{}
 	var codes []string
 	for _, c := range items {
@@ -395,10 +476,20 @@ func mismatch(v Invoice, items []tax.ComponentTax, charged money.Minor) error {
 		return problem.Money{Amount: m.Plain(v.Exponent), Currency: v.Currency}
 	}
 	figures := &problem.CalculatedTax{Stated: in(v.Tax), Calculated: in(charged), Codes: make([]problem.CodeTax, len(codes))}
-	parts := make([]string, len(codes))
 	for i, c := range codes {
-		parts[i] = c + " " + byCode[c].Plain(v.Exponent)
 		figures.Codes[i] = problem.CodeTax{TaxCode: c, Tax: in(byCode[c])}
+	}
+	return figures
+}
+
+// mismatch refuses an invoice whose stated tax is beyond the tolerance
+// (422 payables.tax_mismatch), naming each code's calculated tax in its
+// detail and as its figures (calculated_tax, ADR-0052 decision D3).
+func mismatch(v Invoice, items []tax.ComponentTax, charged money.Minor) error {
+	figures := taxFigures(v, items, charged)
+	parts := make([]string, len(figures.Codes))
+	for i, c := range figures.Codes {
+		parts[i] = c.TaxCode + " " + c.Tax.Amount
 	}
 	p := problem.Unprocessable("payables.tax_mismatch", fmt.Sprintf("The invoice states tax of %s %s; the tax calculated at its codes' rates is %s (%s), "+
 		"beyond the company's tolerance or with no component to take the difference.", v.Tax.Plain(v.Exponent), v.Currency, charged.Plain(v.Exponent), strings.Join(parts, ", ")),

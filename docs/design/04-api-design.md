@@ -169,7 +169,9 @@ codes by the repository layer; a raw database message never reaches a client.
 A refusal whose figures a client must show carries them as fields of the
 problem, never only in `detail`: `payables.tax_mismatch` carries
 `calculated_tax` (the tax stated, the tax its codes' rates give, and each
-code's; ADR-0052 decision D3, T73e2).
+code's; ADR-0052 decision D3, T73e2), and `payables.match_outdated` carries
+`match_issues` (the issues the match at posting finds that its basis did
+not show, as `MatchIssue`s; T73e3).
 Each operation lists the codes its handler can answer in `x-problem-codes`,
 and the document lists those the request pipeline can answer on any
 operation (authentication, authorization, rate limits, idempotency,

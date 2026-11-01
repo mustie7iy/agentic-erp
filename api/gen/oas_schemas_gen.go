@@ -6313,10 +6313,11 @@ func (s *BusinessPartnerPage) SetTotalEstimate(val OptInt64) {
 
 func (*BusinessPartnerPage) listBusinessPartnersRes() {}
 
-// The figures of a supplier invoice whose stated tax its tax codes' rates do not bear out within the
-// company's tolerance (422 `payables.tax_mismatch`): the tax it states, the tax calculated at its
-// items' codes' rates on its tax date, and each code's share of it, in the invoice's currency.
-// Self-assessed tax, which the supplier does not charge, is left out of both.
+// A supplier invoice's tax figures: the tax it states, the tax calculated at its items' codes' rates
+// on its tax date, and each code's share of it, in the invoice's currency. Self-assessed tax, which
+// the supplier does not charge, is left out of both. Given when its stated tax its codes' rates do not
+// bear out within the company's tolerance (422 `payables.tax_mismatch`) and on the invoice read by
+// itself (`getSupplierInvoice`).
 // Ref: #/components/schemas/CalculatedTax
 type CalculatedTax struct {
 	// The tax the invoice states (`tax_amount`).
@@ -33717,6 +33718,10 @@ type Problem struct {
 	// With `payables.tax_mismatch` only: the tax the invoice's codes' rates give, in all and per code,
 	// beside the tax it states (ADR-0052, decision D3).
 	CalculatedTax OptCalculatedTax `json:"calculated_tax"`
+	// With `payables.match_outdated` only: the issues the invoice's match under its order items' locks
+	// finds that the clean match, or the match its exception was approved on, did not show (ADR-0052,
+	// decision D3).
+	MatchIssues []MatchIssue `json:"match_issues"`
 }
 
 // GetType returns the value of Type.
@@ -33764,6 +33769,11 @@ func (s *Problem) GetCalculatedTax() OptCalculatedTax {
 	return s.CalculatedTax
 }
 
+// GetMatchIssues returns the value of MatchIssues.
+func (s *Problem) GetMatchIssues() []MatchIssue {
+	return s.MatchIssues
+}
+
 // SetType sets the value of Type.
 func (s *Problem) SetType(val string) {
 	s.Type = val
@@ -33807,6 +33817,11 @@ func (s *Problem) SetErrors(val []FieldError) {
 // SetCalculatedTax sets the value of CalculatedTax.
 func (s *Problem) SetCalculatedTax(val OptCalculatedTax) {
 	s.CalculatedTax = val
+}
+
+// SetMatchIssues sets the value of MatchIssues.
+func (s *Problem) SetMatchIssues(val []MatchIssue) {
+	s.MatchIssues = val
 }
 
 // Merged schema.
@@ -41894,6 +41909,12 @@ type SupplierInvoice struct {
 	// may post and decide not to claim. Empty before posting, for an invoice or subsequent debit claiming
 	// no tax, for a credit memo or subsequent credit, and for invoices posted before the check existed.
 	DocumentaryWarnings []DocumentaryWarning `json:"documentary_warnings"`
+	// The tax its items' codes' rates give on its tax date, in all and per code, beside the tax it states
+	// (ADR-0052, T73e3): in `getSupplierInvoice`'s answer alone, as it is calculated on each read,
+	// whatever the invoice's status. Absent when no item carries a tax code and an amount, and when the
+	// codes cannot be calculated on the tax date (a code no longer an input tax code of the legal entity
+	// then, amounts out of range): posting says why.
+	CalculatedTax OptCalculatedTax `json:"calculated_tax"`
 	// Expanded references.
 	Expanded OptExpanded `json:"expanded"`
 }
@@ -42036,6 +42057,11 @@ func (s *SupplierInvoice) GetExtensions() Extensions {
 // GetDocumentaryWarnings returns the value of DocumentaryWarnings.
 func (s *SupplierInvoice) GetDocumentaryWarnings() []DocumentaryWarning {
 	return s.DocumentaryWarnings
+}
+
+// GetCalculatedTax returns the value of CalculatedTax.
+func (s *SupplierInvoice) GetCalculatedTax() OptCalculatedTax {
+	return s.CalculatedTax
 }
 
 // GetExpanded returns the value of Expanded.
@@ -42181,6 +42207,11 @@ func (s *SupplierInvoice) SetExtensions(val Extensions) {
 // SetDocumentaryWarnings sets the value of DocumentaryWarnings.
 func (s *SupplierInvoice) SetDocumentaryWarnings(val []DocumentaryWarning) {
 	s.DocumentaryWarnings = val
+}
+
+// SetCalculatedTax sets the value of CalculatedTax.
+func (s *SupplierInvoice) SetCalculatedTax(val OptCalculatedTax) {
+	s.CalculatedTax = val
 }
 
 // SetExpanded sets the value of Expanded.

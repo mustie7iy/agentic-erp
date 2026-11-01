@@ -1,11 +1,16 @@
 package payables_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
+	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -47,6 +52,11 @@ func TestTaxCodeChangedBeforePosting(t *testing.T) {
 		`"stated":{"amount":"19.00","currency":"EUR"}}`; got != want {
 		t.Errorf("calculated_tax:\ngot  %s\nwant %s", got, want)
 	}
+	// The invoice read by itself carries them too, before the post (T73e3).
+	read, _ := e.Must(200, "GET", "/v1/supplier-invoices/"+id(inv), "", "")
+	if got, err := json.Marshal(read["calculated_tax"]); err != nil || string(got) != string(figures) {
+		t.Errorf("the invoice's calculated_tax:\ngot  %s (%v)\nwant %s", got, err, figures)
+	}
 	e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(inv), `{"gross_amount": {"amount": "126.00", "currency": "EUR"}, "tax_amount": {"amount": "26.00", "currency": "EUR"}}`,
 		e.tag(t, id(inv)))
 	posted := e.act(t, 200, id(inv), "post", `{"posting_date": "2026-03-21"}`)
@@ -57,4 +67,50 @@ func TestTaxCodeChangedBeforePosting(t *testing.T) {
 	if got, want := taxItems(t, posted["journal_entry_id"]), "V1/pst 10000 700 0 at 7 on 2026-03-10; V1/tax 10000 1900 1900 at 19 on 2026-03-10"; got != want {
 		t.Errorf("items:\ngot  %s\nwant %s", got, want)
 	}
+}
+
+// TestCalculatedTaxOnRead: an invoice read by itself carries the tax its
+// codes' rates give on its tax date (ADR-0052, T73e3), a credit memo's at
+// the corrected invoice's; none without a coded item and none on a list;
+// every database read of the calculation reports its failure.
+func TestCalculatedTaxOnRead(t *testing.T) {
+	e := setup(t)
+	po := e.order(t, e.Supplier, "PO-1")
+	e.receive(t, po, 1, "10")
+	e.receive(t, po, 2, "5")
+	invoice := e.clean(t, po, "INV-1")
+	e.act(t, 200, id(invoice), "match", "")
+	e.act(t, 200, id(invoice), "post", "")
+	memo, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.document("credit_memo", "CM-1", "23.80", "3.80",
+		fmt.Sprintf(`, "reference_invoice_id": %q`, id(invoice)), poItem(po, 1, "2", "EA", "20.00")), "")
+	untaxed, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "NO-TAX", "20.00", "0.00", untaxedItem(e.expense, "20.00")), "")
+	for name, tc := range map[string]struct {
+		id   string
+		want string
+	}{
+		"an invoice":     {id(invoice), `{"calculated":{"amount":"22.80","currency":"EUR"},"codes":[{"tax":{"amount":"22.80","currency":"EUR"},"tax_code":"V1"}],"stated":{"amount":"22.80","currency":"EUR"}}`},
+		"a credit memo":  {id(memo), `{"calculated":{"amount":"3.80","currency":"EUR"},"codes":[{"tax":{"amount":"3.80","currency":"EUR"},"tax_code":"V1"}],"stated":{"amount":"3.80","currency":"EUR"}}`},
+		"no coded items": {id(untaxed), "null"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			read, _ := e.Must(200, "GET", "/v1/supplier-invoices/"+tc.id, "", "")
+			got, err := json.Marshal(read["calculated_tax"])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != tc.want {
+				t.Errorf("calculated_tax:\ngot  %s\nwant %s", got, tc.want)
+			}
+		})
+	}
+	list, _ := e.Must(200, "GET", "/v1/supplier-invoices", "", "")
+	for _, it := range list["items"].([]any) {
+		if figures := it.(map[string]any)["calculated_tax"]; figures != nil {
+			t.Errorf("listed: got calculated_tax %v, want none on a list", figures)
+		}
+	}
+	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "read a credit memo", func(ctx context.Context) error {
+		_, err := endpoints(nil).GetSupplierInvoice(ctx, gen.GetSupplierInvoiceParams{ID: uuid.MustParse(id(memo))})
+		return err
+	})
 }

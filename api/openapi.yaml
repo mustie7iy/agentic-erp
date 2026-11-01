@@ -11137,9 +11137,10 @@ paths:
       tags:
         - payables
       summary: Get a supplier invoice
-      description: "Returns one supplier invoice. Expandable: `supplier`."
+      description: "Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`). Expandable: `supplier`."
       x-permission: payables.invoice.read
-      x-problem-codes: []
+      x-problem-codes:
+        - config.not_bootstrapped
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/Expand"
@@ -11313,7 +11314,7 @@ paths:
       tags:
         - payables
       summary: Post a supplier invoice
-      description: "Posts the invoice to the ledger (supplier reconciliation, expense or GR/IR, input tax). Requires status `parked`, a clean latest match of the invoice as it now stands for PO-based invoices (or an exception approved at the invoice's current version; 409 `payables.match_required` otherwise: an invoice changed after its match, including a hold and release by hand, is matched again, and an edit unlinks an approved exception), an open period and an unblocked supplier. The invoice is matched again under its order items' locks: 409 `payables.match_outdated`, the invoice left parked, when documents posted on the order since (another invoice past the received quantity, a credit memo past the invoiced one), a change of the order or of the tolerances leave it with an issue its clean match, or the match its exception was approved on, did not have."
+      description: "Posts the invoice to the ledger (supplier reconciliation, expense or GR/IR, input tax). Requires status `parked`, a clean latest match of the invoice as it now stands for PO-based invoices (or an exception approved at the invoice's current version; 409 `payables.match_required` otherwise: an invoice changed after its match, including a hold and release by hand, is matched again, and an edit unlinks an approved exception), an open period and an unblocked supplier. The invoice is matched again under its order items' locks: 409 `payables.match_outdated`, the invoice left parked, when documents posted on the order since (another invoice past the received quantity, a credit memo past the invoiced one), a change of the order or of the tolerances leave it with an issue its clean match, or the match its exception was approved on, did not have; the problem's `match_issues` are those issues."
       x-permission: payables.invoice.post
       x-problem-codes:
         - config.no_number_range
@@ -18670,6 +18671,11 @@ components:
         calculated_tax:
           $ref: "#/components/schemas/CalculatedTax"
           description: "With `payables.tax_mismatch` only: the tax the invoice's codes' rates give, in all and per code, beside the tax it states (ADR-0052, decision D3)."
+        match_issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/MatchIssue"
+          description: "With `payables.match_outdated` only: the issues the invoice's match under its order items' locks finds that the clean match, or the match its exception was approved on, did not show (ADR-0052, decision D3)."
       examples:
         - type: "https://errors.example.com/request/not-found"
           title: Raise the tier 2 approval limit
@@ -18677,7 +18683,7 @@ components:
           code: payables.invoice.post
     CalculatedTax:
       type: object
-      description: "The figures of a supplier invoice whose stated tax its tax codes' rates do not bear out within the company's tolerance (422 `payables.tax_mismatch`): the tax it states, the tax calculated at its items' codes' rates on its tax date, and each code's share of it, in the invoice's currency. Self-assessed tax, which the supplier does not charge, is left out of both."
+      description: "A supplier invoice's tax figures: the tax it states, the tax calculated at its items' codes' rates on its tax date, and each code's share of it, in the invoice's currency. Self-assessed tax, which the supplier does not charge, is left out of both. Given when its stated tax its codes' rates do not bear out within the company's tolerance (422 `payables.tax_mismatch`) and on the invoice read by itself (`getSupplierInvoice`)."
       readOnly: true
       required:
         - stated
@@ -29400,6 +29406,9 @@ components:
                 $ref: "#/components/schemas/DocumentaryWarning"
               description: "What the invoice's document may lack for its input tax to be recovered, by the company's documentary requirements (its `tax_settings`, from the country pack: Canada's $100 and $500 tiers, the UAE's threshold), recorded when the invoice posts (ADR-0049 §6). Warnings, never refusals: the business may post and decide not to claim. Empty before posting, for an invoice or subsequent debit claiming no tax, for a credit memo or subsequent credit, and for invoices posted before the check existed."
               readOnly: true
+            calculated_tax:
+              $ref: "#/components/schemas/CalculatedTax"
+              description: "The tax its items' codes' rates give on its tax date, in all and per code, beside the tax it states (ADR-0052, T73e3): in `getSupplierInvoice`'s answer alone, as it is calculated on each read, whatever the invoice's status. Absent when no item carries a tax code and an amount, and when the codes cannot be calculated on the tax date (a code no longer an input tax code of the legal entity then, amounts out of range): posting says why."
             expanded:
               $ref: "#/components/schemas/Expanded"
               description: Expanded references.

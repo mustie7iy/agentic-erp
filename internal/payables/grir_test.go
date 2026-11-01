@@ -1,6 +1,7 @@
 package payables_test
 
 import (
+	"encoding/json"
 	"cmp"
 	"context"
 	"fmt"
@@ -221,6 +222,14 @@ func TestInvoiceOnARemovedOrderItem(t *testing.T) {
 	m := e.Problem(409, "payables.match_outdated", "POST", "/v1/supplier-invoices/"+id(inv)+":post", "", e.tag(t, id(inv)))
 	if detail, _ := m["detail"].(string); !strings.Contains(detail, "order item 2 is not on purchase order PO-1") {
 		t.Errorf("refusal: got %q, want it to name the missing order item", detail)
+	}
+	// The same issue as fields, for a client's own words (ADR-0052 D3).
+	issues, err := json.Marshal(m["match_issues"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(issues), `[{"code":"order_item_missing","item_no":1,"message":"order item 2 is not on purchase order PO-1"}]`; got != want {
+		t.Errorf("match_issues:\ngot  %s\nwant %s", got, want)
 	}
 	// Matched again it is held; an exception approved on the missing item
 	// still does not let it clear GR/IR on another.
