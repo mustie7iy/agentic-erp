@@ -42866,7 +42866,8 @@ func (*TaxPeriodPage) listTaxPeriodsRes() {}
 
 // A company's registration with a tax authority (ADR-0049 §10, T61g), from the configuration
 // (`companies[].tax_registrations`). Its periods follow from `frequency` and `first_period_start`,
-// which never change under its code (`listTaxPeriods`).
+// which never change under its code (`listTaxPeriods`); `first_period_start` is the first period the
+// ERP files, and its returns are prepared in period order from it (`prepareTaxReturn`).
 // Ref: #/components/schemas/TaxRegistration
 type TaxRegistration struct {
 	// Identifier.
@@ -42891,7 +42892,9 @@ type TaxRegistration struct {
 	// How often the registration files: a period lasts a month, a quarter or a year. Open enumeration:
 	// clients must accept and preserve values not listed here; values may be added within /v1.
 	Frequency string `json:"frequency"`
-	// The first day of the first period; each later period starts on the same day of a month.
+	// The first day of the first period the ERP files, its cutover: earlier periods' returns were filed
+	// outside it, and returns are prepared in period order from it (ADR-0049 §11 As built, period order).
+	// Each later period starts on the same day of a month.
 	FirstPeriodStart time.Time `json:"first_period_start"`
 	// The last day of the last period, once the registration has ended (or its frequency changed, a
 	// registration of a new code continuing); absent while it runs.

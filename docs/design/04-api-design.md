@@ -274,7 +274,9 @@ a return the adopted pack does not define 409 `tax.return_undefined`.
 A return is prepared from the draft (ADR-0049 §11 As built, T61i): `POST
 /v1/tax-registrations/{id}/returns` (`tax.return.prepare`, `kind` `original`
 or `amendment`) stores the snapshot and claims its items, once the fiscal
-periods of the tax period are closed (409 `tax.fiscal_period_open`), and
+periods of the tax period are closed (409 `tax.fiscal_period_open`) and,
+for an original, every earlier period of the registration from its first
+(the cutover) is filed (409 `tax.earlier_period_unfiled`, period order), and
 opens a `tax_return` approval request decided by a holder of `tax_manager`
 other than the preparer; `POST /v1/tax-returns/{id}:file` (`tax.return.file`,
 If-Match) records the authority's confirmation and locks the fiscal periods;

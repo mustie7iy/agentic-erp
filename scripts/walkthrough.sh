@@ -78,6 +78,21 @@ date_add() {
   fi
 }
 
+# tax_first is the GST/HST registration's first period (step 11): the
+# quarter before the latest one ended on the pilot company's date in
+# Toronto, so two periods have ended and the earlier is filed first.
+# Earlier periods were filed before the cutover, outside the ERP.
+tax_first() {
+  local today y m
+  today=$(TZ=America/Toronto date +%F)
+  y=${today:0:4} m=$((10#${today:5:2}))
+  m=$(((m - 1) / 3 * 3 + 1 - 6))
+  if [ "$m" -lt 1 ]; then
+    m=$((m + 12)) y=$((y - 1))
+  fi
+  printf '%s-%02d-01' "$y" "$m"
+}
+
 # month_end is the last day of this month.
 month_end() {
   local first="${TODAY:0:7}-01"
@@ -292,7 +307,7 @@ start() {
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
   say "  - the GST34's lines (T61j-T61l), and the tax specialist's sign-off of the Canada pack (T62h): step 2 configures one"
-  say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files a return"
+  say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
   say "    whose boxes are illustrative, not the GST34's"
   say "  - the liquidity forecast (T53e-T53k): step 13 shows the daily cash position with a memo record"
   say "  - cost center postings, reports and planning (T56d-T56j)"
@@ -824,10 +839,11 @@ migrated_down_payment() {
 # the walkthrough's sales entry: GST at 5% (Excise Tax Act, Part IX, s. 165(1);
 # CRA, "Charge and collect the tax - Which rate to charge",
 # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html).
-# The code's rate and the registration start a year back, so a filing
-# period has always ended, whatever today is (step 11).
-# @YEAR@ is replaced with this year, @PREV@ with last year and @CC@ with
-# the company code.
+# The code's rate starts a year back; the registration's first period,
+# its cutover, is @TAXFIRST@ (tax_first), so two filing periods have
+# ended, whatever today is (step 11).
+# @YEAR@ is replaced with this year, @PREV@ with last year, @TAXFIRST@
+# with tax_first and @CC@ with the company code.
 PILOT_SETTINGS='
 .payment_terms += [{"key": "2/10N30", "description": "2% in 10 days, 30 days net", "net_days": 30,
     "discounts": [{"days": 10, "percent": "2"}]}]
@@ -854,7 +870,7 @@ PILOT_SETTINGS='
       {"name": "RBCUS", "bic": "ROYCCAT2", "institution_number": "003", "transit_number": "00002", "account_number": "4000001",
        "gl_account": "1020", "main_gl_account": "1030", "incoming_gl_account": "1040", "currency": "USD"}])
     | .tax_registrations = [{"code": "GSTHST", "authority": "CRA", "number": "123456789 RT 0001", "return_type": "GST34",
-        "frequency": "quarterly", "first_period_start": "@PREV@-01-01"}]
+        "frequency": "quarterly", "first_period_start": "@TAXFIRST@"}]
     | .release_dual_limit = "4000.00"
     | .service_posting_limit = "1000.00"
     | .fx_valuation.accounts += (["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"}))
@@ -888,6 +904,7 @@ step_pack() {
   say "down payment account (T074), so the pack's own, 1400, is left out: a company has one (ADR-0037)."
   local settings=${PILOT_SETTINGS//@YEAR@/$YEAR}
   settings=${settings//@PREV@/$PREV}
+  settings=${settings//@TAXFIRST@/$(tax_first)}
   settings=${settings//@CC@/$CC}
   jq "{title: \"Canada pack $version and the pilot's settings\", rationale: \"Pilot company set-up\", proposed: (.proposed | $settings)}" \
     "$WORK/last.json" >"$WORK/proposal.json"
@@ -1512,10 +1529,11 @@ step_tax() {
   local registration
   registration=$(field '.items[0].id')
   say "Its filing periods follow from the frequency and the first period, apart from fiscal periods, up to the"
-  say "one under way on the company's date in its time zone; the returns (T61h-T61i) are prepared for them."
+  say "one under way on the company's date in its time zone; the returns (T61h-T61i) are prepared for them. The first"
+  say "period is the cutover: the CRA has the returns of the periods before it, filed before the ERP."
   api 200 '"periods starting by \(.start_date_to) (the company'"'"'s date in \(.time_zone)):", (.items[] | "  \(.start_date) to \(.end_date)")' \
     listTaxPeriods -p "id=$registration"
-  expect "the first period" "$(field '.items[0] | "\(.start_date) \(.end_date)"')" "$PREV-01-01 $PREV-03-31"
+  expect "the first period, and the periods to date" "$(field '"\(.items[0].start_date) \(.items | length)"')" "$(tax_first) 3"
   expect "the time zone" "$(field .time_zone)" America/Toronto
   local start end before running
   start=$(field '.items[-2].start_date')
@@ -1525,14 +1543,17 @@ step_tax() {
   say "A registration nobody may see, or none, is not found:"
   refused 404 request.not_found listTaxPeriods -p "id=00000000-0000-7000-8000-000000000000"
   tax_return "$cash" "$sales" "$gst" "$registration" "$start" "$end" "$before" "$running"
+  file_return "$registration" "$start" "$end"
   passed
 }
 
 # tax_return CASH SALES GST REGISTRATION START END BEFORE RUNNING is step
 # 11's draft return (T61h) of the latest ended period, START to END: two
-# late sales, one dated END and one BEFORE, an earlier period's end; the
+# late sales, one dated END and one BEFORE, the first period's end; the
 # draft computed twice; the output tax box drilled down to its items;
-# SAP's down payment left out; the period under way, RUNNING, refused.
+# SAP's down payment left out; the period under way, RUNNING, refused;
+# the return of START refused until the first period's is filed, which
+# reports the late sale of BEFORE.
 tax_return() {
   local cash=$1 sales=$2 gst=$3 registration=$4 start=$5 end=$6 before=$7 running=$8
   say "Two of the billing system's invoices arrive late, and Carla posts them today with their own tax date (P6):"
@@ -1560,7 +1581,53 @@ tax_return() {
   say "the draft leaves the items of migrated entries out (ADR-0037); its clearing's reversal, posted here, is reported."
   say "The period under way has not ended, so its return cannot be drafted yet:"
   refused 409 tax.period_not_ended getTaxReturnDraft -p "id=$registration" -p "period_start=$running"
-  file_return "$registration" "$start" "$end"
+  say "Returns are prepared in period order, so each period's items are reported in its own return: the return of"
+  say "$start to $end waits until the first period's is filed, and invoice 1031 is that period's to report."
+  refused 409 tax.earlier_period_unfiled prepareTaxReturn -p "id=$registration" -body "{\"period_start\": \"$start\"}"
+  file_earlier "$registration" "$before"
+}
+
+# close_tax_periods START END BODY REGISTRATION closes the leading
+# ledger's open fiscal periods of the tax period START to END, which
+# preparing the return BODY asks for needs (T61i), once preparing has
+# been refused for them; LEADING is the leading ledger.
+close_tax_periods() {
+  local start=$1 end=$2 body=$3 registration=$4 open p
+  QUIET=1 api 200 '' listLedgers
+  LEADING=$(field '.items[] | select(.is_leading) | .id')
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=${start%%-*}" -p "ledger_id=$LEADING" -p page_size=100
+  open=$(jq -r --arg s "$start" --arg e "$end" '[.items[] | select((.is_special | not) and .status == "open" and .start_date <= $e and .end_date >= $s)
+    | "\(.id)/\(.version)"] | join(" ")' "$WORK/last.json")
+  if [ -n "$open" ]; then
+    refused 409 tax.fiscal_period_open prepareTaxReturn -p "id=$registration" -body "$body"
+    for p in $open; do
+      QUIET=1 api 200 '' closeFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+    done
+    show erp call closeFiscalPeriod -p "id=..." -if-match '"2"' "# $(wc -w <<<"$open" | tr -d ' ') periods of the leading ledger"
+  fi
+}
+
+# file_earlier REGISTRATION END is step 11's return of the registration's
+# first period, ending END, prepared, approved by Fiona and filed before
+# the latest ended period's: it reports invoice 1031.
+file_earlier() {
+  local registration=$1 end=$2 start ret
+  QUIET=1 api 200 '' listTaxPeriods -p "id=$registration"
+  start=$(field '.items[0].start_date')
+  local body="{\"period_start\": \"$start\"}"
+  say "Carla prepares the first period's return, $start to $end, once its fiscal periods are closed; Fiona approves it"
+  say "and Carla records it filed:"
+  close_tax_periods "$start" "$end" "$body" "$registration"
+  api 201 '"return \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end): \(.status), \(.item_count) items", (.boxes[] | "  \(.code) \(.amount.amount)")' \
+    prepareTaxReturn -p "id=$registration" -body "$body"
+  expect "the first period's output tax, invoice 1031's" "$(field '.boxes[] | select(.code == "output_tax") | .amount.amount')" "10.00"
+  ret=$(field .id)
+  approve fiona "$(field .approval_request_id)" "Boxes agree with the tax accounts"
+  as carla
+  QUIET=1 api 200 '' getTaxReturn -p "id=$ret"
+  api 200 '"return \(.status): confirmation \(.filing.confirmation_number) of \(.filing.filed_on)"' fileTaxReturn -p "id=$ret" -if-match "$ETAG" \
+    -body "{\"confirmation_number\": \"WALKTHROUGH-0000\", \"filed_on\": \"$TODAY\"}"
+  expect "the first period's return" "$(field .status)" filed
 }
 
 # file_return REGISTRATION START END is step 11's return of START to END
@@ -1569,28 +1636,15 @@ tax_return() {
 # prepared it; recorded as filed, which locks the periods; the period's
 # draft then empty, and a manual entry's tax date in it refused (P6).
 file_return() {
-  local registration=$1 start=$2 end=$3 leading ret request p
+  local registration=$1 start=$2 end=$3 ret request
   local body="{\"period_start\": \"$start\"}"
   say "Carla prepares the return of $start to $end (T61i): a snapshot of the draft that claims its items, so no later"
-  say "draft or return reports them again. The leading ledger's fiscal periods of the tax period must be closed first,"
-  say "so no posting is under way in it:"
-  QUIET=1 api 200 '' listLedgers
-  leading=$(field '.items[] | select(.is_leading) | .id')
-  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=${start%%-*}" -p "ledger_id=$leading" -p page_size=100
-  cp "$WORK/last.json" "$WORK/tax-periods.json"
-  local open
-  open=$(jq -r --arg s "$start" --arg e "$end" '[.items[] | select((.is_special | not) and .status == "open" and .start_date <= $e and .end_date >= $s)
-    | "\(.id)/\(.version)"] | join(" ")' "$WORK/tax-periods.json")
-  if [ -n "$open" ]; then
-    refused 409 tax.fiscal_period_open prepareTaxReturn -p "id=$registration" -body "$body"
-    for p in $open; do
-      QUIET=1 api 200 '' closeFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
-    done
-    show erp call closeFiscalPeriod -p "id=..." -if-match '"2"' "# $(wc -w <<<"$open" | tr -d ' ') periods of the leading ledger"
-  fi
+  say "draft or return reports them again; invoice 1031 is the first period's now. The leading ledger's fiscal periods"
+  say "of the tax period must be closed first, so no posting is under way in it:"
+  close_tax_periods "$start" "$end" "$body" "$registration"
   api 201 '"return \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end): \(.status), \(.item_count) items, hash \(.items_hash[0:12])...", (.boxes[] | "  \(.code) \(.amount.amount)")' \
     prepareTaxReturn -p "id=$registration" -body "$body"
-  expect "the return's output tax" "$(field '.boxes[] | select(.code == "output_tax") | .amount.amount')" "60.00"
+  expect "the return's output tax, invoice 1039's" "$(field '.boxes[] | select(.code == "output_tax") | .amount.amount')" "50.00"
   ret=$(field .id)
   request=$(field .approval_request_id)
   say "A second return of the period cannot be prepared while this one stands:"
@@ -1606,7 +1660,7 @@ file_return() {
   expect "approved, by another person" "$(field '"\(.status) \(.approved_by != .created_by)"')" "approved true"
   api 200 '"return \(.status): confirmation \(.filing.confirmation_number) of \(.filing.filed_on)"' fileTaxReturn -p "id=$ret" -if-match "$ETAG" \
     -body "{\"confirmation_number\": \"WALKTHROUGH-0001\", \"filed_on\": \"$TODAY\"}"
-  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=${start%%-*}" -p "ledger_id=$leading" -p page_size=100
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=${start%%-*}" -p "ledger_id=$LEADING" -p page_size=100
   expect "the tax period's fiscal periods" "$(jq -r --arg s "$start" --arg e "$end" '[.items[] | select((.is_special | not) and .start_date <= $e
     and .end_date >= $s) | .status] | unique | join(" ")' "$WORK/last.json")" locked
   say "The items it reported are in no later draft: the period's draft is empty now, and the next return starts afresh."

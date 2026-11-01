@@ -869,9 +869,11 @@ companies (all in the tenant, under RLS). A registration change is financial
   draft is computed, §11 As built), `frequency` (`monthly`, `quarterly`, `annual`),
   `first_period_start` (day 1-28 of a month, so every period starts on the
   same day; a start on the 29th-31st is refused for want of a rule for the
-  shorter months) and optional `last_period_end` (the last day of one of
-  its periods) and `group_members` (a UAE tax group: the other companies'
-  codes, the registration listed under the representative member).
+  shorter months; the first period the ERP files, its cutover, from which
+  returns are prepared in period order: §11 As built, period order) and
+  optional `last_period_end` (the last day of one of its periods) and
+  `group_members` (a UAE tax group: the other companies' codes, the
+  registration listed under the representative member).
   Validation refuses a code twice in the tenant, a company covered by two
   registrations of one authority whose periods overlap, and one number
   (as fieldcrypt normalizes it) on two registrations of one authority
@@ -1202,6 +1204,60 @@ companies (all in the tenant, under RLS). A registration change is financial
     calls the partner and configuration contexts); no new ADR. A ledger
     wired without the port fails a held posting (500) rather than post
     it unheld.
+- **As built (period order, review:batch32).** Returns of a registration
+  are prepared in period order; decided by default from this section's
+  "`reported_in` empty, so a late item lands in the next return", P7 and
+  the T61i lifecycle, for the product owner to overrule. No migration.
+  - **The rule.** An original of a period is refused while an earlier
+    period of the registration, from its first period, has no filed
+    return (409 `tax.earlier_period_unfiled`, naming the earliest such
+    period). An original claims the unreported items dated by its
+    period's end, so without the rule a later period prepared first took
+    an earlier unfiled period's items as prior-period items, and that
+    period's own return then reported less than happened in it. With
+    it, a period's items are claimed by its own return, and once that
+    return is filed, those arriving later by the next return (P7) or the
+    period's amendment, as this section and T61i intended. Prepared or
+    approved is not filed: a withdrawn or rejected return releases its
+    items, and the late items of a period not filed belong to its own
+    return. Amendments are not checked: an amendment claims only its own
+    period's items, and its period is filed, so under the rule every
+    earlier one is too; the exemption changes no outcome.
+  - **The cutover.** The registration's first period has none before it.
+    `first_period_start` is the first period the ERP files: the returns of
+    earlier periods were filed before the cutover, outside the ERP (SAP),
+    and the items of non-migrated entries dated before the first period
+    are its return's prior-period items, as T61h built (the threshold's
+    bucket "before its first"). The pilot's registration names the first
+    period it files on the ERP. A period with no items is filed as a nil
+    return: preparing an original claims what there is, none included.
+  - **Concurrency.** The check runs after the registration is locked FOR
+    UPDATE, in a query of its own over the earlier periods' filed
+    returns; filed is final (`tax_return_fixed`), so a concurrent filing
+    can only make a refused prepare pass on a retry, never a prepare pass
+    that should not (`TestPrepareInOrderConcurrently`: two periods prepared at once, the
+    later refused whichever runs first; an earlier period filed while the
+    later is prepared). No database rule backs it: periods are computed
+    from the registration (`config.TaxPeriods`), not stored, and the
+    check reads only the registration's own returns under its lock.
+  - **Drafts** are not held to the order: a draft claims nothing, and the
+    draft of a later period shows an earlier unfiled period's items apart
+    as earlier periods', which its return could not claim until that
+    period is filed.
+  - **Not decided here:** a registration's predecessor (a changed
+    frequency or group starts a new code the day after the old one's
+    `last_period_end`, §10 As built) is another registration, so the
+    first return of the new code may claim the old code's last unfiled
+    period's items as prior-period items. Whether those belong to the old
+    code's return or amendment, or may go to the new code's, is the tax
+    specialist's (listed for the product owner).
+  - **Walkthrough.** Step 11's registration starts with the quarter
+    before the latest ended one, its cutover (`tax_first`): the latest
+    ended period's draft still shows invoice 1031 of the first period
+    apart (60.00, of which 10.00 earlier), its return is refused until
+    the first period's is filed (`tax.earlier_period_unfiled`), the first
+    period's return reports 1031 (10.00), and the latest period's then
+    reports 1039 alone (50.00).
 
 ### 12. Audit
 Every change of a registration, code or rate is a configuration change request
