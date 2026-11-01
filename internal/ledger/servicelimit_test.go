@@ -141,3 +141,22 @@ func TestParkLimitDetail(t *testing.T) {
 		})
 	}
 }
+
+// TestServiceEntryOutOfRange: debits that overflow are refused before the
+// entry is measured, as a person's are.
+func TestServiceEntryOutOfRange(t *testing.T) {
+	e := setup(t)
+	body := e.serviceEntry(t, "92233720368547758.07") // 2^63-1 cents
+	body.Lines = append(body.Lines, body.Lines...)
+	if _, err := e.postAsService(t, endpoints(), body); problem.From(err).Code != "ledger.amount_too_large" {
+		t.Errorf("got %v, want ledger.amount_too_large", err)
+	}
+}
+
+// TestServiceEntryOutsideARequest: posting needs the request's transaction.
+func TestServiceEntryOutsideARequest(t *testing.T) {
+	e := setup(t)
+	if _, err := endpoints().PostJournalEntry(context.Background(), e.serviceEntry(t, "1.00"), gen.PostJournalEntryParams{}); err == nil {
+		t.Error("got no error, want the missing request refused")
+	}
+}

@@ -56,7 +56,7 @@ func (e *Endpoints) postDirect(ctx context.Context, in NewEntry) (je Entry, park
 		// integrations too (as importBankStatements, ADR-0047).
 		return Entry{}, nil, problem.Forbidden("identity.agent_not_allowed",
 			"Journal entries are posted by people and integrations; an agent parks its proposal (POST /v1/parked-journal-entries).")
-	case reqctx.KindService:
+	case reqctx.KindService: // measured against the service posting limit below
 	default:
 		je, err = e.postEntry(ctx, in, e.withinLimit)
 		return je, nil, err
@@ -89,7 +89,8 @@ func (e *Endpoints) postDirect(ctx context.Context, in NewEntry) (je Entry, park
 // (config.Company.ServiceLimit), and 0 when it has neither or the
 // configuration lacks the company. It returns nil within the limit. A
 // period that is not open refuses the entry first, as withinLimit does: a
-// person could not post it either.
+// person could not post it either. Keep it in step with
+// approvals.manualEntrySteps, which measures a person's entries.
 func (e *Endpoints) overServiceLimit(ctx context.Context, tx pgx.Tx, v prepared, in NewEntry) (*ParkLimit, error) {
 	if _, _, _, err := postingPeriod(ctx, tx, v.le, v.choice.ledgers, in.PostingDate); err != nil {
 		return nil, err

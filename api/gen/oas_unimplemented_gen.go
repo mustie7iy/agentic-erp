@@ -2659,8 +2659,9 @@ func (UnimplementedHandler) PostGoodsReceipt(ctx context.Context, req *GoodsRece
 // subdivision) are the tax its base lines give at the rates of the tax date, within one minor unit per
 // component, or 422 `ledger.output_tax_mismatch`; a code with tax lines and no base line is an
 // adjustment of tax alone. Zero-rated and exempt bases carry their codes without tax lines and are
-// recorded as tax items at rate 0. People and service principals post here; an agent is refused with
-// 403 `identity.agent_not_allowed` and proposes entries by parking them.
+// recorded as tax items at rate 0. People and service principals post here; an agent never does,
+// whatever its level or permissions (403 `identity.agent_not_allowed`; below autonomy level 2 it is
+// refused for its autonomy first), and proposes entries by parking them.
 //
 // POST /v1/journal-entries
 func (UnimplementedHandler) PostJournalEntry(ctx context.Context, req *JournalEntryCreate, params PostJournalEntryParams) (r PostJournalEntryRes, _ error) {
