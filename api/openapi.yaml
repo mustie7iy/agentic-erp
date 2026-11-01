@@ -5855,6 +5855,22 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: account_id
+          in: query
+          required: false
+          description: "Only entries with a line on this G/L account (`GET /v1/accounts`): a trial balance's or a cost or profit center balance's account drilled down to its entries; each entry is listed with all its lines."
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_period
+          in: query
+          required: false
+          description: "Only entries of this posting period of the fiscal year, as a trial balance's row names it; best with `fiscal_year`, without which every year's period of that number is listed."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"

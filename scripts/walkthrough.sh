@@ -1750,6 +1750,18 @@ step_reports() {
   local balanced
   balanced=$(jq '[.items[] | (.debit_lc.amount | sub("\\."; "") | tonumber) - (.credit_lc.amount | sub("\\."; "") | tonumber)] | add' "$WORK/last.json")
   expect "debits less credits" "$balanced" 0
+  local row acc per cur net
+  row=$(jq -c '([.items[] | select(.debit_lc.amount != "0.00" and .credit_lc.amount != "0.00")] | first) // .items[0]' "$WORK/last.json")
+  acc=$(jq -r .account_id <<<"$row")
+  per=$(jq -r .fiscal_period <<<"$row")
+  cur=$(jq -r .currency <<<"$row")
+  net=$(jq -r '(.debit_lc.amount | sub("\\."; "") | tonumber) - (.credit_lc.amount | sub("\\."; "") | tonumber)' <<<"$row")
+  say "One account's row drilled down to its entries (T73j2: the journal list by account_id and fiscal_period):"
+  api 200 '.items[] | "entry \(.document_number) of \(.posting_date): " + ([.lines[] | select(.account_id == "'"$acc"'") | "line \(.line_no) \(.amount_lc.amount)"] | join(", "))' \
+    listJournalEntries -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "fiscal_period=$per" -p "account_id=$acc" -p page_size=500
+  expect "entries without a line on the account" "$(field "[.items[] | select([.lines[].account_id] | index(\"$acc\") | not)] | length")" 0
+  expect "the entries' lines on the account, in $cur, less the row's debits less credits" \
+    "$(field "[.items[].lines[] | select(.account_id == \"$acc\" and .amount.currency == \"$cur\") | .amount_lc.amount | sub(\"\\\\.\"; \"\") | tonumber] | add - $net")" 0
   say "\"Revenue by year\": the governed revenue metric by fiscal year, read under Carla's access."
   show erp query -measures revenue -by fiscal_year -companies "$CC"
   "$ERP" query -measures revenue -by fiscal_year -companies "$CC" >"$WORK/query.out" 2>&1 || { sed 's/^/     /' "$WORK/query.out"; fail "the query failed"; }
