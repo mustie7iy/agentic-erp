@@ -8212,6 +8212,13 @@
       "r": "found in apinames4's sweep of the class (review:batch26 bootstrap leaf) · internal/integration runs.go entities (:153-158) from prepare (:224), runStep/Execute · startMigrationRun, reconcileMigrationRun (integration.legal_entity_not_active)",
       "src": "review:batch26",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "Load SAP open items in a foreign document currency in that currency (product owner 2026-10-31, as recommended): an open vendor item, open down payment or open GR/IR position line whose document currency (ACDOCA RWCUR, amount WSL) is not the company's is loaded as a document-currency item beside its company code amount (HSL), so a payment or final invoice in its own currency can clear it, instead of the quality gate refusing it; an OData extract's open items, refused today because its mapping does not carry RWCUR and WSL, load once those properties are mapped",
+      "r": "internal/integration/load.go journalPosting · quality.go documentCurrencies · sap.ACDOCA RWCUR/WSL · ADR-0005 As built (review:batch20) · docs/migration.md · the OData mapping waits on the pilot system's $metadata (SAP S/4HANA OData V2 read connector)",
+      "src": "review:batch20 · po:2026-10-31",
+      "c": []
      }
     ]
    },

@@ -124,7 +124,8 @@ SAP's transaction currency; its amount, WSL, is carried and not yet read) is
 not the company's: an open vendor item, an open down payment or a line of an
 open GR/IR position, named by its document and line. Loaded in local currency
 only, it could not be cleared in its own currency (`ledger.mixed_items`).
-Foreign-currency open items are not migrated yet. An open item without a
+Foreign-currency open items are not migrated yet; loading them in their
+document currency is decided (product owner, 2026-10-31) and tracked. An open item without a
 document currency is refused too, rather than assumed to be in the company's
 (an OData extract does not carry RWCUR yet). Lines SAP reports as cleared
 (AUGBL), lines of no amount and lines on other accounts are not checked
