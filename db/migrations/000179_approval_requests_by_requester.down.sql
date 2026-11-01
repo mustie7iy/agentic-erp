@@ -1,0 +1,1 @@
+DROP INDEX workflow.approval_request_by_requester;

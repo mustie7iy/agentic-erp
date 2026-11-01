@@ -3,6 +3,7 @@ package approvals
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -11,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -118,8 +120,9 @@ var requestSort = pagination.Sort{Default: "created_at", DefaultDesc: true, Fiel
 	{Name: "created_at", Column: "r.created_at", Type: "timestamptz"},
 }}
 
-// ListApprovalRequests implements GET /v1/approval-requests, and with
-// decidable_by=me the caller's inbox (ADR-0052 G1).
+// ListApprovalRequests implements GET /v1/approval-requests: with
+// decidable_by=me the caller's inbox (ADR-0052 G1), with requested_by=me
+// the requests the caller asked for (T73d2).
 func (e *Endpoints) ListApprovalRequests(ctx context.Context, params gen.ListApprovalRequestsParams) (gen.ListApprovalRequestsRes, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -129,7 +132,8 @@ func (e *Endpoints) ListApprovalRequests(ctx context.Context, params gen.ListApp
 	if params.ObjectID.Set {
 		object = &params.ObjectID.Value
 	}
-	scope := fmt.Sprintf("listApprovalRequests|%s|%s|%s|%s", params.Status.Value, params.ObjectType.Value, params.ObjectID.Value, params.DecidableBy.Value)
+	scope := fmt.Sprintf("listApprovalRequests|%s|%s|%s|%s|%s", params.Status.Value, params.ObjectType.Value, params.ObjectID.Value, params.DecidableBy.Value,
+		params.RequestedBy.Value)
 	ks, err := e.Pages.Keyset(requestSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
@@ -141,8 +145,12 @@ func (e *Endpoints) ListApprovalRequests(ctx context.Context, params gen.ListApp
 	if in.none {
 		return &gen.ApprovalRequestPage{Items: []gen.ApprovalRequest{}}, nil
 	}
-	q, args := ks.SQL(requestSelect+` WHERE ($1 = '' OR r.status = $1) AND ($2 = '' OR r.object_type = $2) AND ($3::uuid IS NULL OR r.object_id = $3)`+in.where,
-		append([]any{params.Status.Value, params.ObjectType.Value, object}, in.args...))
+	where, args := `WHERE ($1 = '' OR r.status = $1) AND ($2 = '' OR r.object_type = $2) AND ($3::uuid IS NULL OR r.object_id = $3)`+in.where,
+		append([]any{params.Status.Value, params.ObjectType.Value, object}, in.args...)
+	if where, args, err = requestedBy(p, params.RequestedBy.Value, where, args); err != nil {
+		return nil, err
+	}
+	q, args := ks.SQL(requestSelect+` `+where, args)
 	rows, _ := tx.Query(ctx, q, args...)
 	requests, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Request, error) { return scanRequest(r) })
 	if err != nil {
@@ -194,4 +202,19 @@ func (e *Endpoints) CancelApprovalRequest(ctx context.Context, req *gen.CommentR
 		return nil, err
 	}
 	return e.ok(ctx, r)
+}
+
+// requestedBy adds requested_by=me to the list's filter: the requests the
+// caller asked for, read by approval_request_by_requester (04 §4.5). by is
+// the parameter's value; "" filters nothing, anything but "me" is refused.
+func requestedBy(p reqctx.Principal, by, where string, args []any) (string, []any, error) {
+	switch by {
+	case "":
+		return where, args, nil
+	case "me":
+		args = append(args, p.ID)
+		return where + ` AND r.requester_id = $` + strconv.Itoa(len(args)), args, nil
+	}
+	return "", nil, problem.BadRequest("request.invalid_parameter", "Parameter requested_by is me or absent.",
+		problem.FieldError{Field: "requested_by", Code: "invalid", Message: "me"})
 }

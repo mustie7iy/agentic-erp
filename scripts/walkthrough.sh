@@ -949,6 +949,10 @@ step_procure() {
   req=$(field .id)
   api 200 '"\(.status): approval request \(.workflow_request_id)"' submitRequisition -p "id=$req" -if-match "$ETAG"
   request=$(field .workflow_request_id)
+  say "Ben follows what he asked for: his own requests still waiting (requested_by=me, T73d2)."
+  api 200 '.items[] | "approval request \(.object_type): \(.title), \(.status), step \(.current_step) of \(.steps | length)"' listApprovalRequests \
+    -p requested_by=me -p status=pending
+  expect "Ben's pending request" "$(field '[.items[] | select(.id == "'"$request"'")] | length')" 1
   say "Ben cannot decide his own request; Priya, the purchasing manager, approves it."
   QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
   refused 403 identity.permission_missing approveApprovalRequest -p "id=$request" -if-match "$ETAG" -body '{}'
