@@ -8438,6 +8438,13 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "scripts/ci-changes.sh's images class does not include scripts/mirror-images.sh, although scripts/test-images.sh runs it in dry-run mode (the release registry's plan): a pull request changing only mirror-images.sh does not run the image job, so test-images.sh's check of the mirror's plan does not run on it",
+      "r": "scripts/ci-changes.sh (images) · scripts/test-images.sh · scripts/test-ci-changes.sh",
+      "src": "review:batch29",
+      "c": []
+     },
+     {
       "s": "D",
       "t": "The release builds erp-temporal (Temporal's server with the platform's authorization, the temporal/ module) with the platform's images, and tooling's ECR has its erp-temporal repository: release.json and erp-cell require images.temporal, which no release built and no repository held",
       "r": "scripts/images.sh · modules/ecr · scripts/ci-changes.sh · scripts/test-images.sh · ADR-0035 (Temporal, T40c4) · ADR-0032 amendment 2026-10-29",
