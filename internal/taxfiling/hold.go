@@ -35,8 +35,11 @@ func (Holds) Holding(ctx context.Context, legalEntity uuid.UUID, taxDate time.Ti
 		return ledger.HeldReturn{}, false, err
 	}
 	// Locked in a statement of its own: the read below then starts after
-	// any prepare it waited for committed, and sees that return.
-	if _, err := tx.Exec(ctx, `SELECT FROM tax.registration WHERE legal_entity_id = $1 OR $1 = ANY (group_member_ids) FOR SHARE`,
+	// any prepare it waited for committed, and sees that return. By code,
+	// the order Setup locks them in; the ledger asks only once it holds
+	// the posting's number range, which an activation locks first.
+	if _, err := tx.Exec(ctx, `SELECT FROM tax.registration WHERE legal_entity_id = $1 OR $1 = ANY (group_member_ids)
+		ORDER BY code FOR SHARE`,
 		legalEntity); err != nil {
 		return ledger.HeldReturn{}, false, fmt.Errorf("taxfiling: lock the tax registrations of %s: %w", legalEntity, err)
 	}

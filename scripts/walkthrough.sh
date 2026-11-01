@@ -1540,7 +1540,7 @@ file_return() {
   expect "the period's draft after filing" "$(field .item_count)" 0
   say "A tax date is chosen only in a period no return reports yet (P6): invoice 1038, of $end too, arrives after the"
   say "filing, and Carla may not date its tax in the filed period; she would date it in the period under way, whose"
-  say "return reports it. A supplier's invoice dated in the period, which no person chose, still reaches its amendment."
+  say "return reports it."
   refused 409 ledger.tax_date_in_return postJournalEntry \
     -body "$(sale "Billing: invoice 1038, sent after the filing" "$(line "$cash" 105.00), $(line "$sales" -100.00 GO5), $(line "$gst" -5.00 GO5)" "$end")"
   expect "the refusal names the filed return" "$(jq -r --arg r "$ret" '.detail | contains("whose original return \($r) is filed")' "$WORK/last.json")" true

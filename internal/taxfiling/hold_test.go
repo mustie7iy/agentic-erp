@@ -20,6 +20,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/taxfiling"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -37,9 +38,9 @@ func saleBody(t *testing.T, e fixture.Env, day, taxDate string) string {
 
 // heldBy asserts that posting the body is refused for the return of
 // TEST's first quarter in the status.
-func heldBy(t *testing.T, e fixture.Env, method, path, body, ifMatch, ret, status string) {
+func heldBy(t *testing.T, c apitest.Client, method, path, body, ifMatch, ret, status string) {
 	t.Helper()
-	code, m, _ := e.In(t).Do(method, path, body, ifMatch)
+	code, m, _ := c.In(t).Do(method, path, body, ifMatch)
 	want(t, "status code", code, 409)
 	want(t, "problem", m["code"], any("ledger.tax_date_in_return"))
 	detail := fmt.Sprintf("period 2026-01-01 to 2026-03-31 of tax registration TEST, whose original return %s is %s", ret, status)
@@ -83,9 +84,18 @@ func TestTaxDateHold(t *testing.T) {
 	late := saleBody(t, e, "2026-05-05", "2026-03-15")
 	t.Run("prepared", func(t *testing.T) {
 		e := in(t, e)
-		heldBy(t, e, "POST", "/v1/journal-entries", late, "", first, "prepared")
+		heldBy(t, e.Client, "POST", "/v1/journal-entries", late, "", first, "prepared")
 		pe, ptag := e.Must(201, "POST", "/v1/parked-journal-entries", late, "")
-		heldBy(t, e, "POST", "/v1/parked-journal-entries/"+pe["id"].(string)+":post", "", ptag, first, "prepared")
+		heldBy(t, e.Client, "POST", "/v1/parked-journal-entries/"+pe["id"].(string)+":post", "", ptag, first, "prepared")
+		// Above the approval limit it waits for approval, and its approval
+		// is refused when it would post.
+		big, btag := e.Must(201, "POST", "/v1/parked-journal-entries",
+			entryBody(t, e, "2026-05-05", "2026-03-15", "100000 21000.00", "400000 -20000.00 S5", "240000 -1000.00 S5"), "")
+		submitted, _ := e.Must(200, "POST", "/v1/parked-journal-entries/"+big["id"].(string)+":post", "", btag)
+		want(t, "the large entry", submitted["status"], any("pending_approval"))
+		r := e.Pending(t, big["id"].(string))
+		heldBy(t, e.As(e.Approver), "POST", "/v1/approval-requests/"+r["id"].(string)+":approve", `{"comment": "ok"}`, fmt.Sprintf(`"%v"`, r["version"]),
+			first, "prepared")
 		post(t, e, "2026-05-05", "2026-03-15", "100000 10.00", "400000 -10.00") // no tax
 		sale(t, e, "2026-05-05", "2026-04-10")                                  // an open period
 		sale(t, e, "2026-05-05", "")                                            // dated its posting date, in one
@@ -97,12 +107,12 @@ func TestTaxDateHold(t *testing.T) {
 	want(t, "items of the return prepared again", claimedBy(t, e, again), 2)
 	e.Approve(t, again)
 	t.Run("approved", func(t *testing.T) {
-		heldBy(t, in(t, e), "POST", "/v1/journal-entries", late, "", again, "approved")
+		heldBy(t, in(t, e).Client, "POST", "/v1/journal-entries", late, "", again, "approved")
 	})
 	e.Must(200, "POST", "/v1/tax-returns/"+again+":file", `{"confirmation_number": "TAX-1", "filed_on": "2026-04-20"}`, `"2"`)
 	t.Run("filed", func(t *testing.T) {
 		e := in(t, e)
-		heldBy(t, e, "POST", "/v1/journal-entries", late, "", again, "filed")
+		heldBy(t, e.Client, "POST", "/v1/journal-entries", late, "", again, "filed")
 		code, m := invoice(t, e, "INV-CHOSEN", "2026-03-20", "2026-05-07")
 		want(t, "an invoice whose tax date a person set", fmt.Sprintf("%d %v", code, m["code"]), "409 ledger.tax_date_in_return")
 		code, m = invoice(t, e, "INV-LATE", "", "2026-05-07")
@@ -174,4 +184,64 @@ func TestTaxDateHoldSerializes(t *testing.T) {
 		want(t, "prepare", prepared, error(nil))
 		want(t, "the post that waited for it", problem.From(posted).Code, "ledger.tax_date_in_return")
 	})
+}
+
+// TestTaxDateHoldLockOrder: a held posting locks the tax registrations
+// only once it holds its number range, the order a configuration
+// activation locks them in (number ranges, then the sections'
+// registrations), so the two cannot deadlock: a posting waiting for its
+// range holds no registration, which an activation may still lock.
+func TestTaxDateHoldLockOrder(t *testing.T) {
+	e := returnsEnv(t)
+	held, release, firstDone := make(chan int32), make(chan struct{}), make(chan error, 1)
+	go func() {
+		firstDone <- apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+			tx, _, err := reqctx.Request(ctx)
+			if err != nil {
+				return err
+			}
+			var pid int32
+			if err := tx.QueryRow(ctx, `SELECT pg_backend_pid() FROM config.number_range WHERE legal_entity_id = $1 AND document_type = 'journal_sa'
+				AND fiscal_year = 2026 FOR UPDATE`, e.DE).Scan(&pid); err != nil {
+				return err
+			}
+			held <- pid
+			<-release
+			return nil
+		})
+	}()
+	var pid int32
+	select {
+	case pid = <-held:
+	case err := <-firstDone:
+		t.Fatalf("lock the number range: %v", err)
+	}
+	posted := make(chan int, 1)
+	go func() {
+		code, _, _ := e.Do("POST", "/v1/journal-entries", saleBody(t, e, "2026-05-05", "2026-04-10"), "")
+		posted <- code
+	}()
+	pgtest.Eventually(t, 10*time.Second, func() bool {
+		var waiting bool
+		pgtest.Scan(t, `SELECT EXISTS (SELECT FROM pg_stat_activity WHERE datname = current_database() AND $1::int = ANY (pg_blocking_pids(pid)))`,
+			[]any{pid}, &waiting)
+		return waiting
+	}, "the posting did not wait for the number range")
+	admin := pgtest.Admin(t)
+	tx, err := admin.Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, lockErr := tx.Exec(context.Background(), `SELECT FROM tax.registration WHERE tenant_id = $1 ORDER BY code FOR UPDATE NOWAIT`, e.Tenant.ID)
+	if err := tx.Rollback(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("number range transaction: %v", err)
+	}
+	if lockErr != nil {
+		t.Errorf("the registrations while the posting waits for its number range: got %v, want them free", lockErr)
+	}
+	want(t, "the posting", <-posted, 201)
 }

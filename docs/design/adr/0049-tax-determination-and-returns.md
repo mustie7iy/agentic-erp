@@ -1168,12 +1168,18 @@ companies (all in the tenant, under RLS). A registration change is financial
     `startMigrationRun`, whose postings reach the same code but never
     choose a date.
   - **Concurrency.** The tax filing context's `Holds` locks the
-    registrations covering the company FOR SHARE in a statement of its
-    own and then reads their returns; prepare locks its registration FOR
-    UPDATE before it claims items. A posting under way is claimed by the
-    prepare that waited for it; a posting that waited for a prepare sees
-    its return and is refused; postings share the lock
-    (`TestTaxDateHoldSerializes`, which fails without the lock).
+    registrations covering the company FOR SHARE, by code, in a statement
+    of its own and then reads their returns; prepare locks its
+    registration FOR UPDATE before it claims items. A posting under way
+    is claimed by the prepare that waited for it; a posting that waited
+    for a prepare sees its return and is refused; postings share the lock
+    (`TestTaxDateHoldSerializes`, which fails without the lock). The
+    posting asks once it holds its document number range (`postAll`,
+    after `Numbers.Next`): a configuration activation locks the number
+    ranges first and the registrations after (taxfiling's `Setup`, by
+    code), so the posting takes the two in the same order and cannot
+    deadlock with it (`TestTaxDateHoldLockOrder`, which fails with the
+    hold taken before the number).
   - **The port.** `ledger.TaxReturns` (`Holding`) is in the ledger's
     published API and implemented by `taxfiling.Holds`, wired in
     `internal/app` into the API's ledger endpoints, the manual entries'

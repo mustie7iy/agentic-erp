@@ -206,7 +206,11 @@ type draft struct {
 	documentDate time.Time
 	postingDate  time.Time
 	// taxDate is the entry's tax date; zero: its posting date.
-	taxDate          time.Time
+	taxDate time.Time
+	// hold, when set, refuses a tax date held to the periods no tax return
+	// reports yet (holdTaxDate, ADR-0049 P6): a manual entry's, or one a
+	// person chose. A function, so its refusal is its makers' alone.
+	hold             func(context.Context) error
 	currencyTC       string
 	currencyLC       string
 	currencyGC       string
@@ -342,6 +346,14 @@ func (e *Endpoints) postAll(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	docNumber, err := e.Numbers.Next(ctx, d.entity.ID, "journal_"+strings.ToLower(d.documentType), year)
 	if err != nil {
 		return nil, err
+	}
+	// After the number range, as a configuration activation locks ranges
+	// before the tax registrations the hold locks: the reverse order
+	// would deadlock with it.
+	if d.hold != nil {
+		if err := d.hold(ctx); err != nil {
+			return nil, err
+		}
 	}
 	group := uuid.Must(uuid.NewV7())
 	cols := lineColumnsOf(d.lines)
@@ -1066,14 +1078,11 @@ func (e *Endpoints) postPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 			return Entry{}, err
 		}
 	}
-	if err := holdTaxDate(ctx, e.TaxReturns, v.le.ID, in.heldTaxDate(), in.taxDay(), v.lines); err != nil {
-		return Entry{}, err
-	}
 	if items := importItems(v.lines, rateLC, v.expTC, v.exps[v.le.LocalCurrency]); items != nil {
 		in.taxItems = items
 	}
 	posted, err := e.post(ctx, tx, p, draft{entity: v.le, ledgers: v.choice.ledgers, ledgerGroup: v.choice.group, documentType: in.DocumentType, documentDate: in.DocumentDate,
-		postingDate: in.PostingDate, taxDate: in.taxDay(), currencyTC: in.Currency, currencyLC: v.le.LocalCurrency, currencyGC: v.group, rateTCLC: rateLC.shown,
+		postingDate: in.PostingDate, taxDate: in.taxDay(), hold: e.holding(v.le.ID, in.heldTaxDate(), in.taxDay(), v.lines), currencyTC: in.Currency, currencyLC: v.le.LocalCurrency, currencyGC: v.group, rateTCLC: rateLC.shown,
 		rateLCGC: rateGC.shown, reference: in.Reference, headerText: in.HeaderText, sourceContext: cmp.Or(in.SourceContext, "ledger"),
 		sourceDocumentID: in.SourceDocumentID, lines: v.lines, givenItems: in.taxItems})
 	if err != nil {

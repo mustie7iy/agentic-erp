@@ -71,3 +71,9 @@ func holdTaxDate(ctx context.Context, returns TaxReturns, le uuid.UUID, held boo
 		"tax period; the period's own late items go to its amendment or the next return.", day.Format(time.DateOnly),
 		r.PeriodStart.Format(time.DateOnly), r.PeriodEnd.Format(time.DateOnly), r.Registration, r.Kind, r.ID, r.Status))
 }
+
+// holding is a draft's hold (draft.hold) of the tax date day of an entry
+// of the legal entity with the lines, held when held is set.
+func (e *Endpoints) holding(le uuid.UUID, held bool, day time.Time, lines []Line) func(context.Context) error {
+	return func(ctx context.Context) error { return holdTaxDate(ctx, e.TaxReturns, le, held, day, lines) }
+}
