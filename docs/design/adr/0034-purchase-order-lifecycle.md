@@ -257,8 +257,12 @@ SAP's GR/IR credit stayed on the account with no order item to clear it
 - **What the gate refuses** (T72b's never-guess rule): a GR/IR line without
   its order item or naming one outside the extract; SAP's GR/IR account
   (T030 WRX) with lines when it is not the legal entity's `gr_ir`; an order
-  in another currency than the company's (the extract has the company code
-  amount only); a movement other than a receipt, or a receipt quantity that
+  in another currency than the company's (the take-over posts SAP's company
+  code amount, HSL; the extract carries the document amount, WSL, since
+  ADR-0005's As built of 2026-10-31, which loads foreign open vendor items
+  and down payments in their currency, and a line of an open GR/IR position
+  in a foreign document currency stays refused until that take-over is
+  built, tracked); a movement other than a receipt, or a receipt quantity that
   does not parse, on an item with a position; an open quantity without a
   balance; and an item received without a GR/IR line on an order whose other
   items post one, which an invoice after cutover would clear a position it

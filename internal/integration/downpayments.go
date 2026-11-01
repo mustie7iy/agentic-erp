@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strings"
@@ -141,40 +142,44 @@ func (q *qualityCheck) downPayments() {
 			q.add(SevError, "ACDOCA", key+"/"+dp.DOCLN, "the open down payment is not a debit (%s %s); only a down payment made to the supplier is migrated", dp.HSL, cur)
 			continue
 		}
-		q.downPaymentTax(key, dp, amt, lines)
+		q.downPaymentTax(key, dp, lines)
 		if !q.t.hasRange(dp.RBUKRS, payables.RequestNumbers) {
 			q.add(SevError, "ACDOCA", key, "the configuration has no %s number range in %d for the down payment's request", payables.RequestNumbers, q.t.year)
 		}
 		if q.t.balances {
-			q.downPaymentDocument(key, lines)
+			q.ownDocument(key, "the down payment's document", lines)
 		}
 	}
 }
 
-// downPaymentDocument checks, in balances mode, that a down payment's
-// document can load whole beside the opening entry: no cleared vendor
+// ownDocument checks, in balances mode, that a document loading as an
+// entry of its own beside the opening entry (what: a down payment's, or
+// one in a foreign document currency) can load whole: no cleared vendor
 // line, whose clearing partner the opening entry leaves out, and a number
 // range for its document type.
-func (q *qualityCheck) downPaymentDocument(key string, lines []sap.ACDOCA) {
+func (q *qualityCheck) ownDocument(key, what string, lines []sap.ACDOCA) {
 	for _, l := range lines {
 		if l.AUGBL != "" && q.account[l.RBUKRS+"/"+l.RACCT].MITKZ == "K" {
-			q.add(SevError, "ACDOCA", key+"/"+l.DOCLN, "the down payment's document has a vendor line cleared by %s; load the year in documents mode", l.AUGBL)
+			q.add(SevError, "ACDOCA", key+"/"+l.DOCLN, "%s has a vendor line cleared by %s; load the year in documents mode", what, l.AUGBL)
 		}
 	}
 	first := lines[0]
 	if documentType := "journal_" + strings.ToLower(first.BLART); !q.t.hasRange(first.RBUKRS, documentType) {
-		q.add(SevError, "ACDOCA", key, "the configuration has no %s number range for the down payment's document in %d", documentType, q.t.year)
+		q.add(SevError, "ACDOCA", key, "the configuration has no %s number range for %s in %d", documentType, what, q.t.year)
 	}
 }
 
 // downPaymentTax checks a down payment's tax: none, or an input tax code
 // of the company with one deductible component on an account, as the
 // platform's down payments post (T46c), whose tax lines are all on that
-// account and add up to the code's rate of the down payment. The platform
+// account and add up to the code's rate of the down payment, in the
+// currency the document posts in (documentAmount), on the assumption that
+// SAP calculates tax in the document currency (stated from memory, for an
+// SAP specialist to confirm; ADR-0005 As built). The platform
 // keeps a down payment net of its tax, which is SAP's net display; SAP's
 // gross display, where the down payment includes the tax and a clearing
 // account offsets it, is refused rather than loaded wrong.
-func (q *qualityCheck) downPaymentTax(key string, dp sap.ACDOCA, amt money.Minor, lines []sap.ACDOCA) {
+func (q *qualityCheck) downPaymentTax(key string, dp sap.ACDOCA, lines []sap.ACDOCA) {
 	if dp.MWSKZ == "" {
 		return
 	}
@@ -187,6 +192,10 @@ func (q *qualityCheck) downPaymentTax(key string, dp sap.ACDOCA, amt money.Minor
 		q.add(SevError, "ACDOCA", key+"/"+dp.DOCLN, "%s", why)
 		return
 	}
+	amt, cur, err := q.documentAmount(dp)
+	if err != nil {
+		return // reported by journalLine or foreignDocument
+	}
 	var taxes []money.Minor
 	for _, l := range downPaymentTaxLines(dp, lines) {
 		if sap.Alpha(l.RACCT) != part.Account {
@@ -194,9 +203,9 @@ func (q *qualityCheck) downPaymentTax(key string, dp sap.ACDOCA, amt money.Minor
 				"only SAP's net display is migrated", sap.Alpha(l.RACCT), dp.MWSKZ, part.Account)
 			return
 		}
-		tax, err := q.t.amount(l.HSL, q.currency[l.RBUKRS])
+		tax, _, err := q.documentAmount(l)
 		if err != nil {
-			return // reported by journalLine
+			return // reported by journalLine or foreignDocument
 		}
 		taxes = append(taxes, tax)
 	}
@@ -207,8 +216,8 @@ func (q *qualityCheck) downPaymentTax(key string, dp sap.ACDOCA, amt money.Minor
 		return
 	}
 	if tax != want {
-		q.add(SevError, "ACDOCA", key, "the down payment's tax on %s is %s, not %s%% of the down payment, %s: only SAP's net display, the down payment "+
-			"without its tax, is migrated", dp.MWSKZ, tax.Plain(q.t.exponents[q.currency[dp.RBUKRS]]), rate, want.Plain(q.t.exponents[q.currency[dp.RBUKRS]]))
+		q.add(SevError, "ACDOCA", key, "the down payment's tax on %s is %s %s, not %s%% of the down payment, %s: only SAP's net display, the down payment "+
+			"without its tax, is migrated", dp.MWSKZ, tax.Plain(q.t.exponents[cur]), cur, rate, want.Plain(q.t.exponents[cur]))
 	}
 }
 
@@ -252,14 +261,15 @@ func downPaymentPosting(pl *ledger.PostingLine, line sap.ACDOCA, dp *sap.ACDOCA)
 // just posted as the entry as a paid down payment request (payables).
 func (l *loader) takeOverDownPayment(ctx context.Context, key string, lines []sap.ACDOCA, entry ledger.Entry) error {
 	dp := openDownPayments(lines)[0]
-	cur := l.t.entities[dp.RBUKRS].LocalCurrency
-	net, _ := l.t.amount(dp.HSL, cur) // checked by the quality gate (journal)
+	local := l.t.entities[dp.RBUKRS].LocalCurrency
+	cur := cmp.Or(l.foreign[key], local) // the entry's: its document currency when foreign (foreignDocuments)
+	net, _ := l.lineAmounts(dp, local)   // checked by the quality gate (journal, foreignDocument)
 	taxes := []money.Minor{}
 	for _, t := range downPaymentTaxLines(dp, lines) {
-		tax, _ := l.t.amount(t.HSL, cur) // checked by the quality gate (journal)
+		tax, _ := l.lineAmounts(t, local) // likewise
 		taxes = append(taxes, tax)
 	}
-	tax, _ := money.Sum(taxes...)   // bounded by the company's lines (journal)
+	tax, _ := money.Sum(taxes...)   // bounded by the company's lines (journal), or the document's (foreignDocument)
 	gross, _ := money.Sum(net, tax) // likewise
 	date, _ := sapDate(dp.BUDAT)    // checked by the quality gate
 	// The reference names the source system and document, or the document

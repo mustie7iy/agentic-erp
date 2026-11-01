@@ -48,6 +48,10 @@ type target struct {
 	methods  map[string]map[string]bool
 	year     int32
 	balances bool // balances mode
+	// posted are the currencies earlier runs posted the extract's
+	// documents in, by document key (postedCurrencies), which a document
+	// SAP cleared together with them posts in too (foreignDocuments).
+	posted map[string]string
 }
 
 func (t target) hasRange(company, documentType string) bool {
@@ -114,6 +118,7 @@ func duplicateInvoices(e *sap.Extract) map[string]string {
 // configuration; problems found after cutover are not.
 func checkQuality(e *sap.Extract, t target) []Issue {
 	q := &qualityCheck{e: e, t: t}
+	q.foreign, q.conflicts = foreignDocuments(e, t)
 	q.companies()
 	q.accounts()
 	q.vendors()
@@ -146,6 +151,10 @@ type qualityCheck struct {
 	// positions are the extract's GR/IR positions (grirChecks), whose
 	// open ones documentCurrencies checks too.
 	positions map[string]*grirPosition
+	// foreign are the documents the load posts in their foreign document
+	// currency, and conflicts those it cannot post in a currency that
+	// clears with earlier runs' documents (foreignDocuments).
+	foreign, conflicts map[string]string
 }
 
 func (q *qualityCheck) add(sev, table, key, format string, args ...any) {
@@ -384,33 +393,6 @@ func (q *qualityCheck) journalLine(l sap.ACDOCA, s *journalScan) {
 	if documentType := "journal_" + strings.ToLower(l.BLART); !q.t.balances && !q.t.hasRange(l.RBUKRS, documentType) && !s.noRange[l.RBUKRS+documentType] {
 		s.noRange[l.RBUKRS+documentType] = true
 		q.add(SevError, "ACDOCA", key, "the configuration has no %s number range for company %s in %d", documentType, l.RBUKRS, q.t.year)
-	}
-}
-
-// documentCurrencies refuses an open item whose document currency (ACDOCA
-// RWCUR) is not its company's, and one without a document currency (T72b's
-// never-guess rule; an OData extract does not carry it yet). The load
-// posts every line in company code currency (HSL): a foreign-currency
-// open item, an invoice, a down payment or a GR/IR position, would load
-// as a local-currency item that could not be cleared in its own currency
-// (review:batch20). Such items are not migrated yet. Lines SAP reports as
-// cleared (AUGBL) and lines of no amount are not checked. It runs after
-// grirChecks, which reads the positions.
-func (q *qualityCheck) documentCurrencies() {
-	for _, l := range q.e.ACDOCA {
-		cur := q.currency[l.RBUKRS]
-		if l.RWCUR == cur || !q.openItem(l) {
-			continue
-		}
-		key := documentKey(l) + "/" + l.DOCLN
-		if l.RWCUR == "" {
-			q.add(SevError, "ACDOCA", key, "open item of SAP document %s has no document currency (RWCUR): it is not migrated unless it is "+
-				"in company %s's currency %s, which cannot be told; extract RWCUR", l.BELNR, l.RBUKRS, cur)
-			continue
-		}
-		q.add(SevError, "ACDOCA", key, "open item of SAP document %s is in document currency %s, not company %s's currency %s: open items "+
-			"in a foreign document currency are not migrated yet, since it would load in %s only and could not be cleared in %s",
-			l.BELNR, l.RWCUR, l.RBUKRS, cur, cur, l.RWCUR)
 	}
 }
 

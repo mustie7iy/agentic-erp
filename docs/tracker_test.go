@@ -26,8 +26,10 @@ const baselineItems = 951
 // product owner approved on 2026-10-31, the finish line of the first pilot. It
 // must match exactly, so a leaf joining or leaving the pilot scope shows in the
 // diff; a leaf's pilot value starts with the product owner's decision (po:),
-// which TestTrackerPilotScope refuses a value without.
-const pilotItems = 72
+// which TestTrackerPilotScope refuses a value without. 73 since the leaf
+// loading SAP's foreign-currency open items was split in two, its GR/IR
+// positions apart (fxopen, 2026-11-01), within the same decision.
+const pilotItems = 73
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

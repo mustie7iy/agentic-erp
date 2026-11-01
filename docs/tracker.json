@@ -8315,9 +8315,17 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "Load SAP open items in a foreign document currency in that currency (product owner 2026-10-31, as recommended): an open vendor item or open down payment whose document currency (ACDOCA RWCUR, amount WSL) is not the company's is loaded as a document-currency item beside its company code amount (HSL), so a payment or final invoice in its own currency can clear it, instead of the quality gate refusing it; the open GR/IR position lines are the next leaf; an OData extract's open items, refused today because its mapping does not carry RWCUR and WSL, load once those properties are mapped",
+      "r": "internal/integration/currency.go foreignDocuments · sourceRate · documentCurrencies · load.go journalPosting · downpayments.go takeOverDownPayment · reconcile Open items in <currency> · ledger.Posting.Rate · PostingLine.LC of a line of local amount only · Reports.OpenForeignItems · sap mock foreignInvoice · walkthrough steps 1, 3 and 9 · ADR-0005 As built · docs/migration.md · the OData mapping waits on the pilot system's $metadata (SAP S/4HANA OData V2 read connector)",
+      "src": "review:batch20 · po:2026-10-31",
+      "pilot": "po:2026-10-31",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "Load SAP open items in a foreign document currency in that currency (product owner 2026-10-31, as recommended): an open vendor item, open down payment or open GR/IR position line whose document currency (ACDOCA RWCUR, amount WSL) is not the company's is loaded as a document-currency item beside its company code amount (HSL), so a payment or final invoice in its own currency can clear it, instead of the quality gate refusing it; an OData extract's open items, refused today because its mapping does not carry RWCUR and WSL, load once those properties are mapped",
-      "r": "internal/integration/load.go journalPosting · quality.go documentCurrencies · sap.ACDOCA RWCUR/WSL · ADR-0005 As built (review:batch20) · docs/migration.md · the OData mapping waits on the pilot system's $metadata (SAP S/4HANA OData V2 read connector)",
+      "t": "Take over open GR/IR positions in a foreign document currency in that currency (split from the leaf above, product owner 2026-10-31): a line of an open GR/IR position whose document currency (ACDOCA RWCUR) is not the company's, and its order in that currency, are refused by the quality gate; the take-over entry posts SAP's balance in company code currency (HSL) only, and a GR/IR take-over item keeps no local amount of its own",
+      "r": "internal/integration/grir.go grirPosting · grirPosition (order currency) · currency.go foreignItem · ledger GRIRItem.TakesOver · ADR-0034 As built (T72f) · ADR-0005 As built",
       "src": "review:batch20 · po:2026-10-31",
       "pilot": "po:2026-10-31",
       "c": []

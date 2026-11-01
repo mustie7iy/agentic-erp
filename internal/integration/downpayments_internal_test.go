@@ -144,7 +144,7 @@ func TestDownPaymentQuality(t *testing.T) {
 		{"gross display", func(e *sap.Extract, _ *target) {
 			line(e, 0).HSL, line(e, 2).HSL = "1190.00", "-1190.00"
 			e.ACDOCA = append(e.ACDOCA, dpLine("000004", "0000170000", "-190.00", "", "", ""), dpLine("000005", "0000100000", "190.00", "", "", ""))
-		}, "the down payment's tax on V1 is 190.00, not 19% of the down payment, 226.10"},
+		}, "the down payment's tax on V1 is 190.00 EUR, not 19% of the down payment, 226.10"},
 		{"a rate out of range", func(_ *sap.Extract, t *target) {
 			t.taxes["2000"]["V1"] = config.TaxCode{Code: "V1", RatePercent: "x", Account: "140000"}
 		},

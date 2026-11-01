@@ -93,18 +93,32 @@ func (p Postings) Clear(ctx context.Context, legalEntity uuid.UUID, date time.Ti
 // (its external reference), and names the entry's lines to Clear by year
 // and id.
 func (Postings) EntryYears(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]int16, error) {
+	return entryValues[int16](ctx, `SELECT id, fiscal_year FROM ledger.journal_entry WHERE id = ANY($1)`, "fiscal years", ids)
+}
+
+// entryValues reads one value of each of the entries that exists, by id,
+// with a query of their ids and values.
+func entryValues[T any](ctx context.Context, query, what string, ids []uuid.UUID) (map[uuid.UUID]T, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT id, fiscal_year FROM ledger.journal_entry WHERE id = ANY($1)`, ids)
-	out := map[uuid.UUID]int16{}
+	rows, _ := tx.Query(ctx, query, ids)
+	out := map[uuid.UUID]T{}
 	var id uuid.UUID
-	var year int16
-	if _, err := pgx.ForEachRow(rows, []any{&id, &year}, func() error { out[id] = year; return nil }); err != nil {
-		return out, fmt.Errorf("ledger: fiscal years of %d entries: %w", len(ids), err)
+	var v T
+	if _, err := pgx.ForEachRow(rows, []any{&id, &v}, func() error { out[id] = v; return nil }); err != nil {
+		return out, fmt.Errorf("ledger: %s of %d entries: %w", what, len(ids), err)
 	}
 	return out, nil
+}
+
+// EntryCurrencies returns the transaction currency of each of the entries
+// that exists, by id: a migration run posts the documents a source system
+// cleared together in one currency, so a later run reads the currency an
+// earlier run posted a document in (ADR-0005 As built).
+func (Postings) EntryCurrencies(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	return entryValues[string](ctx, `SELECT id, currency_tc FROM ledger.journal_entry WHERE id = ANY($1)`, "currencies", ids)
 }
 
 // ClearedTogether reports whether one clearing cleared every one of the
@@ -294,6 +308,43 @@ func (Reports) OpenPayableItems(ctx context.Context, legalEntity uuid.UUID, fisc
 func (Reports) OpenDownPayments(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error) {
 	sums, _, err := openSupplierItems(ctx, legalEntity, fiscalYear, true)
 	return sums, err
+}
+
+// OpenForeignItems sums the legal entity's open supplier items of the
+// fiscal year posted in a currency other than its local one, ordinary
+// items and down payments alike, in their transaction currency per
+// partner and currency, in the leading ledger: what a migration run
+// loaded in their document currency (ADR-0005 As built), which the local
+// currency controls cannot tell from items loaded in the wrong amount.
+func (Reports) OpenForeignItems(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]map[string]money.Minor, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT l.partner_id, e.currency_tc, sum(l.amount_tc) FROM ledger.journal_line l
+		JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
+			AND e.currency_tc <> e.currency_lc
+		JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id AND g.is_leading
+		JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id AND a.reconciliation_kind = 'supplier'
+		WHERE l.legal_entity_id = $1 AND l.fiscal_year = $2
+			AND NOT EXISTS (SELECT FROM ledger.clearing_item c WHERE c.tenant_id = l.tenant_id AND c.fiscal_year = l.fiscal_year
+				AND c.journal_entry_id = l.journal_entry_id AND c.line_no = l.line_no)
+		GROUP BY l.partner_id, e.currency_tc`, legalEntity, fiscalYear)
+	out := map[uuid.UUID]map[string]money.Minor{}
+	var partner uuid.UUID
+	var currency string
+	var sum money.Minor
+	_, err = pgx.ForEachRow(rows, []any{&partner, &currency, &sum}, func() error {
+		if out[partner] == nil {
+			out[partner] = map[string]money.Minor{}
+		}
+		out[partner][currency] = sum
+		return nil
+	})
+	if err != nil {
+		return out, fmt.Errorf("ledger: open foreign-currency supplier items of %s %d: %w", legalEntity, fiscalYear, err)
+	}
+	return out, nil
 }
 
 // OpenGRIR is an order item's open GR/IR position as the migration

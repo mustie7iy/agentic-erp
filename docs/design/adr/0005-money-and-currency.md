@@ -59,7 +59,77 @@ and T72b's never-guess rule:
   reports as cleared (AUGBL), lines of no amount and lines on other
   accounts are not checked: they post in local currency, as before, and a
   cleared line the run's clearing completes is cleared on the platform too.
-- **Not built.** Migrating foreign-currency open items in their document
-  currency (WSL, with their rate) is not this step. The product owner asked
-  for it on 2026-10-31 (as recommended): tracked under Migration from SAP,
-  Transform and load.
+- **Not built then.** Migrating foreign-currency open items in their
+  document currency was not that step; the product owner asked for it on
+  2026-10-31 (as recommended), built as the next section says.
+
+## As built: SAP open items loaded in their document currency (product owner 2026-10-31)
+Decided by default under ADR-0053 §d, from this ADR's three amounts per line
+and the load as built:
+- **What the platform stores.** An SAP document whose lines are all in one
+  document currency (RWCUR) other than the company's posts in that currency:
+  `amount_tc` is SAP's document amount (WSL) and `amount_lc` SAP's company
+  code amount (HSL), kept as given and not converted again ("conversions are
+  done once at posting and stored, never recomputed": SAP did the
+  conversion). `amount_gc` is converted from the local amounts at the
+  average rate into group currency, as every posting's, all lines together
+  so the group amounts balance. The entry's `rate_tc_lc` is the rate SAP's
+  amounts imply, HSL over WSL of the line with the largest document amount,
+  to 12 decimals (`ledger.Posting.Rate`): the extract carries no document
+  rate (BKPF-KURSF would be SAP's, which the extract does not hold; for an
+  SAP specialist to confirm), and the platform's own average rate of that
+  day would describe amounts it did not produce. No platform rate of the
+  posting date is needed. A line of local amount only (`amount_tc` 0), an
+  exchange difference SAP posted in company currency alone, posts as such
+  (`PostingLine.LC`; the ledger refuses a line of no amount in either
+  currency).
+- **Which documents.** In `documents` mode the documents SAP cleared
+  together, directly or through others, post in one currency, since a
+  posting has one currency and a clearing clears items of one
+  (`ledger.mixed_items`): the currency earlier runs posted those of them
+  they loaded in, read from their entries (an entry is never posted again),
+  so a final delta run clears with a USD payment the USD item an earlier
+  run loaded; else their document currency when they all share one; else
+  company currency, as before (a USD invoice paid in CAD). The gate refuses
+  a document that would have to clear with earlier runs' documents in a
+  currency it is not in (a USD item an earlier run loaded, paid in CAD
+  since), naming the currency, rather than leave the clearing to fail in
+  the load. In `balances` mode the documents holding an open item in a
+  foreign currency post whole on their own beside the opening entry, as
+  down payments do (T72c); the rest are opening balances. A document with
+  no document amount on any line posts in company currency.
+- **What follows.** The open item is the supplier's item in its own
+  currency: a payment run in that currency pays it, a payment or final
+  invoice in it clears it, and a revaluation values it as one posted on the
+  platform (tests in ledger and integration). A down payment's paid request
+  is in its document currency and its tax is checked in it, on the
+  assumption that SAP calculates tax in the document currency (for an SAP
+  specialist, below).
+- **The gate.** It refuses an open item without RWCUR (an OData extract's,
+  until RWCUR and WSL are mapped against the pilot system's `$metadata`;
+  they then load as a file extract's do), one whose document's lines are not
+  all in its currency or whose document SAP cleared together with documents
+  in another currency, and a line of an open GR/IR position in a foreign
+  currency (not migrated yet: the take-over posts SAP's balance in company
+  currency against an order in its currency, ADR-0034 T72f; tracked). For a
+  document that posts in a foreign currency it refuses a currency the
+  platform does not know (`ref.currency`), a WSL that does not parse, a line
+  with a WSL and no HSL or the two of opposite signs, a vendor line without
+  a WSL, a document that does not balance in WSL, and an implied rate that
+  is not recordable: zero at 12 decimals, or 10^16 and above, which
+  `numeric(28,12)` cannot hold (`ledger.RecordableRate`, checked by the
+  ledger too); and document amounts that add up, unsigned, to more than an
+  amount holds.
+- **Reconciliation.** The controls in company currency are unchanged and
+  cover these items through HSL. Open items in each foreign currency are
+  compared too, per vendor and in total in that currency (`Open items in
+  USD total`), where either side has any: the local controls cannot tell an
+  item loaded with the wrong document amount.
+- **For an SAP specialist.** That SAP calculates a document's tax in its
+  document currency, which the down payment's tax check assumes; that an
+  exchange difference SAP posts when it clears foreign items is a line with
+  HSL and no WSL; and that it values the vendor line of a clearing so the
+  cleared items net to zero in company currency: all from memory, and what
+  the load takes over (a clearing
+  that does not net in both currencies is refused by the ledger, an issue of
+  the run); and which field carries the document's exchange rate.

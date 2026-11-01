@@ -473,6 +473,13 @@ func (e *Endpoints) Execute(ctx context.Context, id uuid.UUID) (operations.Opera
 
 // load checks the extract and loads it under the operation.
 func (e *Endpoints) load(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, op operations.Operation, t target, ext *sap.Extract, c Connector) (operations.Operation, error) {
+	existing, err := loadRefs(ctx, tx, system(c))
+	if err != nil {
+		return operations.Operation{}, err
+	}
+	if t.posted, err = e.postedCurrencies(ctx, ext, existing); err != nil {
+		return operations.Operation{}, err
+	}
 	quality := checkQuality(ext, t)
 	report := Report{Extract: ext.Counts(), Quality: asList(quality)}
 	if hasErrors(quality) {
@@ -484,10 +491,6 @@ func (e *Endpoints) load(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r R
 	today, err := database.Today(ctx, tx)
 	if err != nil {
 		return operations.Operation{}, fmt.Errorf("integration: read the load date of migration run %s: %w", r.ID, err)
-	}
-	existing, err := loadRefs(ctx, tx, system(c))
-	if err != nil {
-		return operations.Operation{}, err
 	}
 	l := &loader{e: e, tx: tx, p: p, run: r, system: system(c), ext: ext, t: t, refs: existing, today: today,
 		vendors: map[string]uuid.UUID{}, entries: map[string]loadedEntry{}}
