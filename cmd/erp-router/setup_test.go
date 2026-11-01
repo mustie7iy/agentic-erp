@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"net/url"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -13,9 +15,20 @@ import (
 )
 
 // setupEnvironment is setup-directory's settings for a database of the
-// test's own, with logins of the test's own (roles are the server's).
-func setupEnvironment(t *testing.T) (map[string]string, map[string]pgtest.Login) {
+// test's own, with logins of the test's own (roles are the server's), and
+// another database of its own standing in for the server's (whose
+// postgres every package's tests connect to as their logins), whose name
+// it returns.
+func setupEnvironment(t *testing.T) (map[string]string, map[string]pgtest.Login, string) {
 	t.Helper()
+	other, err := url.Parse(pgtest.EmptyDatabase(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherName := strings.TrimPrefix(other.Path, "/")
+	was := serverDatabases
+	t.Cleanup(func() { serverDatabases = was })
+	serverDatabases = func() []string { return []string{otherName} }
 	dir := t.TempDir()
 	env := map[string]string{"ERP_ENV": "development", "ERP_DIRECTORY_ADMIN_URL": "file:" + tlstest.WriteFile(t, dir, "admin-url", []byte(pgtest.EmptyDatabase(t)+"\n"))}
 	logins := map[string]pgtest.Login{}
@@ -25,14 +38,19 @@ func setupEnvironment(t *testing.T) (map[string]string, map[string]pgtest.Login)
 		env[l.user] = c.Name
 		env[l.password] = "file:" + tlstest.WriteFile(t, dir, l.role, []byte(c.Password))
 	}
-	return env, logins
+	return env, logins, otherName
 }
 
 // TestSetupDirectory: erp-router setup-directory makes the directory and
-// the three logins, as which the router and a cell then open it (T72h).
+// the three logins, as which the router and a cell then open it (T72h),
+// and takes PUBLIC's rights on the server's other databases (one of the
+// test's own stands in for them, setupEnvironment).
 func TestSetupDirectory(t *testing.T) {
 	ctx := context.Background()
-	env, logins := setupEnvironment(t)
+	if got, want := serverDatabases(), directory.ServerDatabases(); !slices.Equal(got, want) {
+		t.Errorf("the server's databases: got %v, want %v", got, want)
+	}
+	env, logins, otherName := setupEnvironment(t)
 	var stderr bytes.Buffer
 	if code := command(ctx, []string{"setup-directory"}, func(k string) string { return env[k] }, &stderr, nil); code != 0 {
 		t.Fatalf("exit: got %d (%s), want 0", code, stderr.String())
@@ -49,13 +67,18 @@ func TestSetupDirectory(t *testing.T) {
 	if code := command(ctx, []string{"setup-directory"}, func(k string) string { return env[k] }, &stderr, nil); code != 0 {
 		t.Errorf("again: got %d (%s), want 0", code, stderr.String())
 	}
+	var public bool
+	pgtest.Scan(t, `SELECT has_database_privilege('public', $1, 'CONNECT') OR has_database_privilege('public', $1, 'TEMPORARY')`, []any{otherName}, &public)
+	if public {
+		t.Errorf("PUBLIC on %s: got CONNECT or TEMPORARY held, want neither", otherName)
+	}
 }
 
 // TestSetupDirectoryRefuses: bad settings exit 2, a failed setup 1, and
 // other arguments 2.
 func TestSetupDirectoryRefuses(t *testing.T) {
 	ctx := context.Background()
-	env, _ := setupEnvironment(t)
+	env, _, _ := setupEnvironment(t)
 	with := func(k, v string) map[string]string {
 		e := map[string]string{}
 		for name, value := range env {

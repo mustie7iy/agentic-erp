@@ -41,7 +41,7 @@ func environment(t *testing.T, is *authntest.Issuer) map[string]string {
 	issuers, _ := json.Marshal([]any{is.Config()})
 	login := pgtest.NewLogin(t)
 	u := pgtest.EmptyDatabase(t)
-	if err := directory.Setup(context.Background(), u, directory.Login{Name: login.Name, Password: login.Password, Role: directory.RouterRole}); err != nil {
+	if err := directory.Setup(context.Background(), u, nil, directory.Login{Name: login.Name, Password: login.Password, Role: directory.RouterRole}); err != nil {
 		t.Fatal(err)
 	}
 	return map[string]string{ownerKey: u, "ERP_DIRECTORY_URL": login.As(u), "ERP_ENV": "development", "ERP_OIDC_ISSUERS": string(issuers), "ERP_OPERATOR_ISSUERS": string(issuers),

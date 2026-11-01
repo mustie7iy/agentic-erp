@@ -881,3 +881,67 @@ directories hold every `.rego` file in the repository.
 - *Decided by default:* the check covers `deploy/policy` too, since
   the item's gap (Rego no gate formats) held there as well, and one
   helper serves both scripts rather than a copy in each.
+
+**As built (2026-10-31, product owner): the directory's logins reach no
+other database on its server.** Every login is a member of `PUBLIC`, which
+may connect to a new database and make temporary objects in it by default
+(PostgreSQL 17 manual, §5.8 table 5.2), so the directory's logins could
+reach the server's other databases. The product owner took the option
+offered (batch 25): `erp-router setup-directory` gives `directory.Setup`
+the server's other databases, `directory.ServerDatabases`; Setup revokes
+`PUBLIC`'s `CONNECT` and `TEMPORARY` on each `PUBLIC` holds either on,
+then reads them again and refuses (`directory.ErrServer`), naming each
+database and right, while `PUBLIC` still holds one. A login or privilege
+role given either by hand was already refused (`pg_shdepend` records a
+database's ACL with the server's, dbid 0).
+
+- *Which databases:* the chart (`directory.name`) and the global module
+  (`db_name = "directory"`) name the directory's database alone, so the
+  list is the ones every server has and the product owner named:
+  `postgres` and `template1`, which initdb makes (§22.2, §22.3); one not
+  there is passed over. RDS's own `rdsadmin` is left out (coordinator,
+  2026-10-31: the decision named only the two, and if the `rdsadmin` role
+  owns it and `PUBLIC` holds a right there, the master user's `REVOKE`
+  would only warn and Setup would stop every release). `template0` is left out: it takes no connections
+  (`datallowconn` false, §22.3), whatever its ACL. The directory's own
+  database keeps `PUBLIC`'s `CONNECT`, as `Grants` leaves it.
+- *Decided by default — read, not connected:* the rights are read through
+  `has_database_privilege('public', oid, …)` over `pg_database` from
+  Setup's own connection: `pg_database` is one catalog for the whole
+  server (the manual's `pg_database` page) and the function reads its ACL, the default
+  (`acldefault`) when null, for the pseudo-role `public` (§9.27). That is
+  what the server checks at connection, so no connection to each database
+  is needed, which template1 need not allow.
+- *Decided by default — refuse, not warn:* RDS's master user is no
+  superuser (`NOSUPERUSER`, a member of `rds_superuser`: RDS user guide,
+  "Understanding the rds_superuser role",
+  https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Appendix.PostgreSQL.CommonDBATasks.Roles.rds_superuser.html).
+  Where it neither owns a database (nor is a member of the owning role)
+  nor holds the right with the grant option, its `REVOKE` only warns and
+  leaves the right, and a `REVOKE` removes only the grants its own role
+  made (§`REVOKE`, Notes, and Description),
+  so Setup reads the rights again and stops the release rather than
+  trusting the statement; a role holding no right at all gets an error,
+  reported with the database. The only statements are `REVOKE … ON
+  DATABASE … FROM PUBLIC` and catalog reads, which AWS's guide itself runs
+  as the master user (`REVOKE ALL ON DATABASE lab_db FROM public`,
+  "Controlling user access to the PostgreSQL database",
+  https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Appendix.PostgreSQL.CommonDBATasks.Access.html).
+- *Idempotent:* a database `PUBLIC` holds nothing on gets no `REVOKE`, so
+  a second run writes nothing to `pg_database`.
+- *Not confirmed on an RDS instance (for the specialist):* who owns
+  `postgres` and `template1` there, and so whether the master user's
+  `REVOKE` takes effect or Setup stops the first release; whether RDS's
+  own agents connect to `postgres` or `template1` as a role that loses
+  its right with `PUBLIC`'s; and should Setup also cover `rdsadmin` once
+  its owner and ACL on RDS are known. AWS's guide states none of these.
+- *Tests:* `TestSetupTakesPUBLICsRightsOnTheServer` runs Setup with
+  `ServerDatabases` against the test server's own `postgres` and
+  `template1`, checks a fresh server's defaults before and no right after,
+  and rolls back, since every package's tests connect to `postgres` as
+  logins of their own; `TestSetupAgainOnTheServer` (databases of its own:
+  a login refused afterwards, a second run writing nothing, a grant by
+  hand taken back), `TestSetupRefusesPUBLICsRightsItCannotTake` (an owner
+  of the directory's database who is no superuser and owns not the other)
+  and `TestSetupDatabaseFailures`. Development and the other packages'
+  tests give Setup no other database: their server is shared.

@@ -6844,9 +6844,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "The directory's logins reach no other database on the directory's server (follow-up of T72h's review): PUBLIC's CONNECT and TEMPORARY defaults and hand grants on other databases (e.g. postgres) stay usable by every login. Decided (product owner 2026-10-31, as recommended in dirhard step 2, batch 25): Setup, given the list of the server's other databases (postgres, template1), also revokes PUBLIC's CONNECT and TEMPORARY on each, then refuses while PUBLIC or a login still holds either on any of them, rdsadmin (RDS's own database) checked too; confirmed on a real RDS instance with \\l. Points for that check: whether RDS's master user can revoke PUBLIC's rights on template1, and template0, which PostgreSQL marks as accepting no connections (datallowconn false) and which the decision does not list",
-        "r": "internal/directory/setup.go · ADR-0035",
+        "s": "D",
+        "t": "The directory's logins reach no other database on the directory's server (follow-up of T72h's review). Decided (product owner 2026-10-31, as recommended in dirhard step 2, batch 25) and built: erp-router setup-directory gives Setup the server's other databases (postgres and template1, as the product owner named them), on each of which Setup revokes PUBLIC's CONNECT and TEMPORARY and then refuses, naming the database and the right, while PUBLIC still holds either (a login or privilege role holding one was already refused). template0 is not listed: PostgreSQL marks it as accepting no connections (datallowconn false). RDS's own database rdsadmin is not covered, the decision naming only postgres and template1. For the specialist, on a real RDS instance with \\l: who owns postgres and template1 there and whether RDS's master user can revoke PUBLIC's rights on them, and whether Setup should also cover rdsadmin",
+        "r": "internal/directory/setup.go takePublicDatabases · ServerDatabases · TestSetupTakesPUBLICsRightsOnTheServer · TestSetupAgainOnTheServer · TestSetupRefusesPUBLICsRightsItCannotTake · cmd/erp-router setup.go · ADR-0035 As built 2026-10-31",
         "src": "review:T72h · review:batch25 · po:2026-10-31",
         "c": []
        }
