@@ -924,7 +924,10 @@ release runbook. The cell now refuses such an activation itself.
   revision (`buildinfo`), and the keys its binary knows. It does so before
   it serves (a replica that cannot record itself does not start), then
   every 30 seconds (`configuration.Replica`, as `erp_worker`), and deletes
-  its row when it stops. No registry existed; a table read in the
+  its row when it has stopped: after the API drained its requests and the
+  workers returned, never when the shutdown begins, so a replica is
+  counted for as long as it reads the configuration (review:T72m round
+  1). No registry existed; a table read in the
   activation's own transaction is the smallest mechanism that needs no new
   infrastructure, and the database is the one place every replica reaches.
 - **A dead replica stops counting.** A row counts while its last record is

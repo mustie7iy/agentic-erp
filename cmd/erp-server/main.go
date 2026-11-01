@@ -166,9 +166,18 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	if err := s.newAPI(); err != nil {
 		return err
 	}
-	if err := s.register(ctx); err != nil {
+	return s.launch(ctx, started)
+}
+
+// launch records the replica, starts the workers and the relay and serves
+// until the server stops; the record is stopped last, once every request
+// and worker has ended.
+func (s *server) launch(ctx context.Context, started func(api, admin net.Listener)) error {
+	stopRecord, err := s.register(ctx)
+	if err != nil {
 		return err
 	}
+	defer stopRecord() // after serve: the row outlives every request and worker
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	startWorkersHook(s, runCtx)
@@ -643,13 +652,29 @@ func (s *server) newAPI() error {
 // register records the replica, its version and the configuration keys it
 // knows, before it serves: an activation setting a key this version does
 // not know is refused while it runs (ADR-0038 rollout, 06 §6.4). A replica
-// that cannot record itself does not start.
-func (s *server) register(ctx context.Context) error {
-	s.registry = &configuration.Replica{Pool: s.pool, WorkerRole: s.cfg.WorkerRole, Build: buildinfo.Get(), Log: s.log, Begin: s.beginCheck}
-	if err := s.registry.Register(ctx); err != nil {
-		return fmt.Errorf("erp-server: %w", err)
+// that cannot record itself does not start. The record is kept on a
+// context of its own, not runCtx, which a shutdown cancels at once: the
+// row must outlive the requests the API drains and the workers stop waits
+// for, or an activation could pass while this replica still reads the
+// configuration. The function returned stops it and deletes the row; run
+// calls it last. A record failing for too long fails the server, as a
+// critical worker does.
+func (s *server) register(ctx context.Context) (func(), error) {
+	if s.registry == nil { // tests set their own, with a clock
+		s.registry = &configuration.Replica{Pool: s.pool, WorkerRole: s.cfg.WorkerRole, Build: buildinfo.Get(), Log: s.log, Begin: s.beginCheck}
 	}
-	return nil
+	if err := s.registry.Register(ctx); err != nil {
+		return nil, fmt.Errorf("erp-server: %w", err)
+	}
+	recordCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if err := worker.Recover(func() error { return s.registry.Run(recordCtx) }); err != nil {
+			s.fail(fmt.Errorf("erp-server: replica record: %w", err))
+		}
+	}()
+	return func() { cancel(); <-done }, nil
 }
 
 // startWorkersHook is what run calls to start the workers; tests wrap it to see
@@ -659,9 +684,6 @@ var startWorkersHook = (*server).startWorkers
 // startWorkers starts the background workers on runCtx, which run cancels
 // at shutdown.
 func (s *server) startWorkers(runCtx context.Context) {
-	// Critical: a replica no longer recorded would stop counting while it
-	// serves, and a configuration it cannot read could be activated.
-	s.spawnCritical("replica record", func() error { return s.registry.Run(runCtx) })
 	s.startProjections(runCtx)
 	s.startOperations(runCtx)
 	s.startMaintenance(runCtx)

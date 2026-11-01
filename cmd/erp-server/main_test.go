@@ -45,9 +45,11 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 
 	"github.com/mustie7iy/agentic-erp/internal/agents"
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
 	"github.com/mustie7iy/agentic-erp/internal/platform/autonomy"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
@@ -2469,10 +2471,84 @@ func cellLogin(t *testing.T, u string) string {
 }
 
 // TestRegisterFailure: a replica that cannot record itself, and so the
-// configuration keys it knows, does not start (ADR-0038 rollout).
+// configuration keys it knows, does not start (ADR-0038 rollout); run stops
+// before serving.
 func TestRegisterFailure(t *testing.T) {
 	cfg := load(t, environment(t, authntest.New(t), ""))
 	s := &server{cfg: cfg, pool: pgtest.Pool(t), log: slog.New(slog.DiscardHandler),
 		beginCheck: func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }}
-	pgtest.WantErr(t, s.register(context.Background()), "erp-server: configuration: record the replica: database down")
+	_, err := s.register(context.Background())
+	pgtest.WantErr(t, err, "erp-server: configuration: record the replica: database down")
+
+	env := environment(t, authntest.New(t), "")
+	env["ERP_DB_WORKER_ROLE"] = "no_such_role"
+	var logs bytes.Buffer
+	if code := cli(context.Background(), nil, func(k string) string { return env[k] }, io.Discard, &logs, nil); code == 0 {
+		t.Fatal("exit 0, want the start refused")
+	}
+	if !strings.Contains(logs.String(), "record the replica") {
+		t.Errorf("logs: got %s, want the failed record", logs.String())
+	}
+}
+
+// replicaRows counts the recorded replicas.
+func replicaRows(t *testing.T) int {
+	t.Helper()
+	var n int
+	pgtest.Scan(t, `SELECT count(*) FROM config.replica`, nil, &n)
+	return n
+}
+
+// TestRecordOutlivesShutdown: the replica's row stays while the server
+// shuts down (a shutdown cancels the server's context first, then drains
+// requests and stops workers), and goes when run stops the record last;
+// otherwise an activation could pass while this version still serves.
+func TestRecordOutlivesShutdown(t *testing.T) {
+	cfg := load(t, environment(t, authntest.New(t), ""))
+	s := &server{cfg: cfg, pool: pgtest.Pool(t), log: slog.New(slog.DiscardHandler)}
+	before := replicaRows(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	stop, err := s.register(ctx)
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	cancel() // the shutdown begins
+	if got := replicaRows(t); got != before+1 {
+		t.Errorf("rows while shutting down: got %d, want %d", got, before+1)
+	}
+	stop()
+	if got := replicaRows(t); got != before {
+		t.Errorf("rows once stopped: got %d, want %d", got, before)
+	}
+}
+
+// TestRecordFailureStopsTheServer: records failing past half the expiry
+// fail the server, as a critical worker does. The clock is injected, a
+// minute a reading.
+func TestRecordFailureStopsTheServer(t *testing.T) {
+	cfg := load(t, environment(t, authntest.New(t), ""))
+	pool := pgtest.Pool(t)
+	calls := 0
+	clock := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	s := &server{cfg: cfg, pool: pool, log: slog.New(slog.DiscardHandler), failed: make(chan struct{})}
+	s.registry = &configuration.Replica{Pool: pool, WorkerRole: cfg.WorkerRole, Build: buildinfo.Info{Version: "v0.0.1"}, Interval: time.Millisecond,
+		Log: s.log, Now: func() time.Time { clock = clock.Add(time.Minute); return clock },
+		Begin: func(ctx context.Context, sc database.Scope) (pgx.Tx, error) {
+			if calls++; calls == 1 {
+				return pool.Begin(ctx, sc)
+			}
+			return nil, errors.New("database down")
+		}}
+	stop, err := s.register(context.Background())
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	t.Cleanup(func() { pgtest.Exec(t, `DELETE FROM config.replica WHERE version = 'v0.0.1'`) }) // its deletion failed too
+	select {
+	case <-s.failed:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the server did not fail")
+	}
+	stop()
+	pgtest.WantErr(t, s.failure, "erp-server: replica record: configuration: the replica has not been recorded since")
 }

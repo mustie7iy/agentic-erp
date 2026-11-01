@@ -32,6 +32,9 @@ const (
 	// stopped without deleting its row (a crash) still counts; until then
 	// an activation it would ignore a key of waits.
 	ReplicaExpiry = 5 * time.Minute
+	// leaveTimeout bounds deleting the row on stopping, well inside a pod's
+	// termination grace: a row not deleted expires anyway.
+	leaveTimeout = 10 * time.Second
 )
 
 // Replica records this replica, its version and the configuration keys it
@@ -123,7 +126,7 @@ func (r *Replica) record(ctx context.Context) error {
 // leave deletes the replica's row; if that fails, the row stops counting
 // at its expiry, which is why the failure is only logged.
 func (r *Replica) leave(ctx context.Context) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, leaveTimeout)
 	defer cancel()
 	tx, err := database.BeginOr(ctx, r.Pool, r.Begin, database.Scope{Role: r.WorkerRole})
 	if err == nil {
