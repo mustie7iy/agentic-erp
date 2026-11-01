@@ -613,6 +613,10 @@ type ListBankStatementMatchesRes interface {
 	listBankStatementMatchesRes()
 }
 
+type ListBankStatementPaymentsRes interface {
+	listBankStatementPaymentsRes()
+}
+
 type ListBankStatementsRes interface {
 	listBankStatementsRes()
 }

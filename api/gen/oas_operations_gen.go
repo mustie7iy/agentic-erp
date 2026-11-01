@@ -159,6 +159,7 @@ const (
 	ListBankAccountsOperation                 OperationName = "ListBankAccounts"
 	ListBankFilesOperation                    OperationName = "ListBankFiles"
 	ListBankStatementMatchesOperation         OperationName = "ListBankStatementMatches"
+	ListBankStatementPaymentsOperation        OperationName = "ListBankStatementPayments"
 	ListBankStatementsOperation               OperationName = "ListBankStatements"
 	ListBusinessPartnersOperation             OperationName = "ListBusinessPartners"
 	ListCenterChangesOperation                OperationName = "ListCenterChanges"
