@@ -118,7 +118,7 @@ func (g *gen) ranking(mp string, co *config.Company, code string) []config.BankR
 		bank, currency := r.a.HBKID, strings.TrimSpace(r.a.WAERS) // HBKID as T012K's, which names the house banks
 		g.rankedBank(mp, bank, currency, banks)
 		if slices.Contains(byCurrency[currency], bank) {
-			g.note(mp+".ranking", fmt.Sprintf("T042A ranks house bank %s twice for %q; rank it once (validation refuses it)", bank, currency))
+			g.note(mp+".ranking", fmt.Sprintf("T042A ranks house bank %s twice %s; rank it once (validation refuses it)", bank, rowsFor(currency)))
 		}
 		byCurrency[currency] = append(byCurrency[currency], bank)
 	}
@@ -130,6 +130,14 @@ func (g *gen) ranking(mp string, co *config.Company, code string) []config.BankR
 		out = append(out, config.BankRanking{Currency: currency, HouseBanks: byCurrency[currency]})
 	}
 	return out
+}
+
+// rowsFor names the T042A rows of a currency, or those without one.
+func rowsFor(currency string) string {
+	if currency == "" {
+		return "without a currency"
+	}
+	return "for " + currency
 }
 
 // rankedBank notes a T042A row validation will refuse: a bank the company

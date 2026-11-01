@@ -105,12 +105,20 @@ func TestPaymentMethodsNotedAndRefused(t *testing.T) {
 			change: func(e *sap.Extract) {
 				e.T042A = append(e.T042A, sap.T042A{ZBUKR: "3000", ZLSCH: "T", WAERS: "CAD", RANGF: "00002", HBKID: "MAIN"})
 			},
-			ranking: "CAD: MAIN MAIN; USD: MUSD", note: mp + `.ranking: T042A ranks house bank MAIN twice for "CAD"`,
+			ranking: "CAD: MAIN MAIN; USD: MUSD", note: mp + `.ranking: T042A ranks house bank MAIN twice for CAD`,
 			errors: []string{mp + ".ranking[CAD].house_banks"},
 		},
 		"a bank ranked for another currency": {
 			change:  func(e *sap.Extract) { t042a(e, "MUSD", "CAD", "00002") },
 			ranking: "CAD: MAIN MUSD", note: mp + ".ranking[CAD]: T042A ranks house bank MUSD, an account in USD, for payments in CAD",
+			errors: []string{mp + ".ranking[CAD].house_banks"},
+		},
+		"a bank ranked twice without a currency": {
+			change: func(e *sap.Extract) {
+				t042a(e, "MAIN", "", "00001")
+				e.T042A = append(e.T042A, sap.T042A{ZBUKR: "3000", ZLSCH: "T", RANGF: "00003", HBKID: "MAIN"})
+			},
+			ranking: "CAD: MAIN MAIN; USD: MUSD", note: mp + ".ranking: T042A ranks house bank MAIN twice without a currency",
 			errors: []string{mp + ".ranking[CAD].house_banks"},
 		},
 		"rows without a currency": {

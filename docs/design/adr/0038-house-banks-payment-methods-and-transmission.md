@@ -887,16 +887,20 @@ counterpart for is noted):
   `A_SupplierCompany`'s `PaymentMethodsList` (SAP Cloud SDK,
   https://help.sap.com/doc/505cd8d2cbd340a38eeae8b63b5df753/1.0/en-US/interfaces/_sap_cloud_sdk_vdm_business_partner_service.suppliercompanytype.html);
   the T042 tables, like T012K, come from file extracts.
-- **Lock order (review round 1).** A supplier given methods takes the
+- **Lock order (review rounds 1-2).** A supplier given methods takes the
   partner context's method lock, and the load then draws numbers from
   configuration ranges; an activation locks the ranges first and the method
   lock after (ADR-0008). So a run holds the active configuration
-  (`configuration.Settings.Hold`: the tenant's active version `FOR SHARE`,
-  the row an activation updates before anything else it locks) before it
-  reads the configuration: an activation waits for the run's transaction,
-  and a run waits for an activation under way, instead of one of them
-  being aborted as a deadlock. A run also loads under the configuration it
-  checked. An activation therefore waits while a run extracts and loads.
+  (`configuration.Settings.Hold`) before it reads the configuration: the
+  tenant's activation lock, an advisory lock it takes shared and every
+  activation takes exclusively before it locks any range or applies any
+  section. An activation under way is waited for; an activation while a
+  run extracts and loads waits for the run's transaction up to the
+  requests' lock timeout and is then refused with the retryable 409
+  `request.in_progress`, instead of one of the two being aborted as a
+  deadlock. Only activation is held back: drafting a change request,
+  applying a country pack or building a regression suite takes no part
+  of the lock. A run also loads under the configuration it checked.
 - **No contract change.** The run's report counts the tables a run reads;
   the T042 tables are read only by the draft, so its extract counts are
   unchanged, and the API already returns a supplier's methods

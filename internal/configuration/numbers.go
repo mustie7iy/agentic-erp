@@ -67,24 +67,28 @@ func (Settings) Document(ctx context.Context) (*config.Config, int32, error) {
 }
 
 // Hold keeps the active configuration from changing until the request's
-// transaction ends. It shares the lock on the tenant's active version,
-// which an activation updates before anything else it locks: an
-// activation in progress is waited for, and a later one waits for the
-// transaction. A long transaction that takes locks an activation also
-// takes, in another order, holds it first so the two never wait on each
-// other in a cycle (ADR-0008): a migration load gives suppliers payment
-// methods under the partner context's method lock, then draws numbers
-// from ranges, where an activation locks the ranges, then the method lock.
+// transaction ends: it takes the tenant's activation lock shared, which an
+// activation takes exclusively before it locks number ranges or applies a
+// section (activate). A long transaction that takes locks an activation
+// also takes, in another order, holds it first so the two never wait on
+// each other in a cycle (ADR-0008): a migration load gives suppliers
+// payment methods under the partner context's method lock, then draws
+// numbers from ranges, where an activation locks the ranges, then the
+// method lock. Only activation is held back: drafting a change request,
+// a country pack or a regression suite does not take the lock.
 func (Settings) Hold(ctx context.Context) error {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `SELECT 1 FROM config.active_version FOR SHARE`); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock_shared(hashtextextended($1 || platform.require_tenant()::text, 0))`, activationLock); err != nil {
 		return fmt.Errorf("configuration: hold the active configuration: %w", err)
 	}
 	return nil
 }
+
+// activationLock names the tenant's activation lock (Settings.Hold).
+const activationLock = "config.activation."
 
 // Schema returns the entity's custom field schema in the active
 // configuration (extensions.Schemas), nil when the tenant declares none,
