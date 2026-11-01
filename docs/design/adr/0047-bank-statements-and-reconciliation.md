@@ -499,14 +499,15 @@ Canadian bank may only offer BAI2.
   lines are the open items a line clears, so "a payment or open item"
   is a payment here, and customers' open items wait for accounts
   receivable as above; it filters by the amount paid (bounds with exactly
-  the currency's digits) and the run's date, latest first by end-to-end
-  id (run document number, then sequence); it requires
+  the currency's digits) and the run's date, latest first by when the
+  payment was made (not by end-to-end id, whose run document number is
+  neither padded nor unique across fiscal years); it requires
   `payments.statement.match`, the permission of the decision it serves,
   and is `x-agent: false`, so the agent's reach is unchanged (it proposes
   from the rules' candidates). The page is chosen on the ids before the
   rows are read whole, over two branches (a payment naming its bank, read
-  by `payment_posted_by_bank`; one leaving it to its run): 60 ms for a
-  first page and 20 ms for a search finding nothing at 20,000 posted
+  by `payment_posted_by_bank`; one leaving it to its run): 40 ms for a
+  first page and 10 ms for a search finding nothing at 20,000 posted
   payments (`TestSearchPaymentsBudget`, 01's list budget 150 ms).
 - Steps: a ADR, configuration and the house bank's columns · b parsers ·
   c tables, upload, idempotency and continuity · d SFTP fetch · e rule

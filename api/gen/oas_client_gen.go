@@ -1366,11 +1366,10 @@ type Invoker interface {
 	// with `payment_ids`), whatever the rules found: posted, from the statement's house bank, in its
 	// currency, and matched to no line. Their lines on the bank's clearing account are the open items a
 	// statement line clears (ADR-0047); a customer's open items are matched to no statement line until
-	// accounts receivable (Phase 3). Latest first by end-to-end id, which follows the payment run's
-	// document number. Narrowed by the amount paid, in the statement's currency with exactly its
-	// minor-unit digits (400 `request.invalid_parameter` otherwise), and by the payment run's date. People
-	// only, holding the permission to match lines: the reconciliation agent proposes from the rules'
-	// candidates (T49g).
+	// accounts receivable (Phase 3). Latest first: the payments made last (their run proposed last) first.
+	// Narrowed by the amount paid, in the statement's currency with exactly its minor-unit digits (400
+	// `request.invalid_parameter` otherwise), and by the payment run's date. People only, holding the
+	// permission to match lines: the reconciliation agent proposes from the rules' candidates (T49g).
 	//
 	// GET /v1/bank-statements/{id}/payments
 	ListBankStatementPayments(ctx context.Context, params ListBankStatementPaymentsParams) (ListBankStatementPaymentsRes, error)
@@ -25896,11 +25895,10 @@ func (c *Client) sendListBankStatementMatches(ctx context.Context, params ListBa
 // with `payment_ids`), whatever the rules found: posted, from the statement's house bank, in its
 // currency, and matched to no line. Their lines on the bank's clearing account are the open items a
 // statement line clears (ADR-0047); a customer's open items are matched to no statement line until
-// accounts receivable (Phase 3). Latest first by end-to-end id, which follows the payment run's
-// document number. Narrowed by the amount paid, in the statement's currency with exactly its
-// minor-unit digits (400 `request.invalid_parameter` otherwise), and by the payment run's date. People
-// only, holding the permission to match lines: the reconciliation agent proposes from the rules'
-// candidates (T49g).
+// accounts receivable (Phase 3). Latest first: the payments made last (their run proposed last) first.
+// Narrowed by the amount paid, in the statement's currency with exactly its minor-unit digits (400
+// `request.invalid_parameter` otherwise), and by the payment run's date. People only, holding the
+// permission to match lines: the reconciliation agent proposes from the rules' candidates (T49g).
 //
 // GET /v1/bank-statements/{id}/payments
 func (c *Client) ListBankStatementPayments(ctx context.Context, params ListBankStatementPaymentsParams) (ListBankStatementPaymentsRes, error) {

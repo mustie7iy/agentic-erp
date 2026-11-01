@@ -30,10 +30,12 @@ type PaymentSearch struct {
 	RunFrom, RunTo       *time.Time
 }
 
-// statementPaymentSort is the search's one order: the end-to-end id, whose
-// run document number follows the runs, latest first.
-var statementPaymentSort = pagination.Sort{Default: "end_to_end_id", DefaultDesc: true,
-	Fields: []pagination.Field{{Name: "end_to_end_id", Column: "end_to_end_id", Type: "text"}}}
+// statementPaymentSort is the search's one order: latest first, by when
+// the payment was made (its run's proposal). Not the end-to-end id: its run
+// document number is not padded (PY9 sorts after PY10) and starts again
+// each fiscal year (review round 1).
+var statementPaymentSort = pagination.Sort{Default: "created_at", DefaultDesc: true,
+	Fields: []pagination.Field{{Name: "created_at", Column: "created_at", Type: "timestamptz"}}}
 
 // matchablePayments is the search: $1 the house bank, $2 the currency, $3
 // and $4 the amount's bounds, $5 and $6 the run date's.
@@ -60,14 +62,14 @@ func StatementPayments(ctx context.Context, ks *pagination.Keyset, id uuid.UUID,
 	if err != nil {
 		return Statement{}, nil, err
 	}
-	// The page is chosen by id and end-to-end id alone, and only its rows
+	// The page is chosen by id and creation time alone, and only its rows
 	// are read whole: paymentSelect's items and exclusion, read for every
 	// payment before the sort, took 120 ms at 20,000 (the budget test).
-	page, args := ks.SQL(`SELECT * FROM (SELECT p.id, p.end_to_end_id FROM payments.payment p `+matchablePayments+` AND p.house_bank_id = $1
-		UNION ALL SELECT p.id, p.end_to_end_id FROM payments.payment p `+matchablePayments+` AND p.house_bank_id IS NULL AND r.house_bank_id = $1) p WHERE true`,
+	page, args := ks.SQL(`SELECT * FROM (SELECT p.id, p.created_at FROM payments.payment p `+matchablePayments+` AND p.house_bank_id = $1
+		UNION ALL SELECT p.id, p.created_at FROM payments.payment p `+matchablePayments+` AND p.house_bank_id IS NULL AND r.house_bank_id = $1) p WHERE true`,
 		[]any{s.HouseBankID, s.Currency, least, most, f.RunFrom, f.RunTo})
 	// The search has one order, latest first (statementPaymentSort).
-	rows, _ := tx.Query(ctx, paymentSelect+` JOIN (`+page+`) page ON page.id = p.id ORDER BY p.end_to_end_id DESC, p.id DESC`, args...)
+	rows, _ := tx.Query(ctx, paymentSelect+` JOIN (`+page+`) page ON page.id = p.id ORDER BY p.created_at DESC, p.id DESC`, args...)
 	pays, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Payment, error) { return scanPayment(r) })
 	if err != nil {
 		return Statement{}, nil, fmt.Errorf("payments: search payments for statement %s: %w", id, err)
@@ -88,7 +90,7 @@ func (e *Endpoints) ListBankStatementPayments(ctx context.Context, params gen.Li
 	if err != nil {
 		return nil, err
 	}
-	page, next := pagination.Page(ks, pays, func(p Payment) (string, uuid.UUID) { return p.EndToEndID, p.ID })
+	page, next := pagination.Page(ks, pays, func(p Payment) (string, uuid.UUID) { return p.CreatedAt.UTC().Format(time.RFC3339Nano), p.ID })
 	run := Run{Currency: s.Currency, Exponent: s.Exponent, HouseBankID: &s.HouseBankID}
 	refs, err := e.paymentRefs(ctx, run, page)
 	if err != nil {

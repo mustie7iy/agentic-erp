@@ -68,8 +68,11 @@ func TestSearchPaymentsToMatch(t *testing.T) {
 	}
 	first, _ := e.Must(200, "GET", search+"?page_size=1", "", "")
 	next, _ := e.Must(200, "GET", search+"?page_size=1&page_token="+first["next_page_token"].(string), "", "")
-	if got := e2es(next); got != pays[2].e2e || next["next_page_token"] != nil {
-		t.Errorf("second page: got %s (next %v), want %s and no more", got, next["next_page_token"], pays[2].e2e)
+	if got := e2es(next); got != pays[2].e2e {
+		t.Errorf("second page: got %s, want %s", got, pays[2].e2e)
+	}
+	if got := next["next_page_token"]; got != nil {
+		t.Errorf("second page's next token: got %v, want none", got)
 	}
 	_, tag := e.Must(200, "GET", "/v1/bank-statements/"+sc.statement, "", "")
 	e.Must(201, "POST", "/v1/bank-statements/"+sc.statement+"/lines/5:match", `{"payment_ids": ["`+pays[3].payment+`"], "reason": "Remittance found."}`, tag)

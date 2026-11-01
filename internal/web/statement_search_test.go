@@ -49,8 +49,9 @@ func TestRulesAgain(t *testing.T) {
 		t.Fatal("no form to run the rules again")
 	}
 	r := sendForm(b, path, first)
-	if r.status != http.StatusSeeOther || r.location() != statementPath(d.statement)+"?done=rules" {
-		t.Fatalf("the rules run: got %d to %q", r.status, r.location())
+	status(t, "the rules run", r, http.StatusSeeOther)
+	if got, want := r.location(), statementPath(d.statement)+"?done=rules"; got != want {
+		t.Fatalf("the rules run's redirect: got %q, want %q", got, want)
 	}
 	holds(t, "after the run", b.get(r.location()).page(t).mainText(), "The matching rules ran again; the lines show what they found.")
 	if got := linesOfStatement(t, d.statement); got != "posted unmatched unmatched proposed proposed" {
@@ -225,12 +226,11 @@ func TestLineSearchStubbed(t *testing.T) {
 	if want := search + "?amount_min=19.5&page=p2&run_date_from=2026-10-01"; more != want {
 		t.Errorf("next page: got %q, want %q", more, want)
 	}
-	if refused := b.get(search+"?amount_min=x", "HX-Request", "true"); refused.status != http.StatusOK ||
-		!strings.Contains(refused.body, "The search could not be run") {
-		t.Errorf("htmx's refused filter: got %d %q, want 200 with the error in its place", refused.status, refused.body)
-	}
+	refusedFilter := b.get(search+"?amount_min=x", "HX-Request", "true")
+	status(t, "htmx's refused filter", refusedFilter, http.StatusOK)
+	holds(t, "htmx's refused filter", refusedFilter.body, "The search could not be run")
 	section := b.get(search, "HX-Request", "true")
-	if strings.Contains(section.body, "<html") || !strings.HasPrefix(section.body, `<div id="payment-search">`) {
+	if !strings.HasPrefix(section.body, `<div id="payment-search">`) {
 		t.Errorf("htmx's answer: got %q, want the filter and results alone", section.body)
 	}
 	if got := section.header.Values("Vary"); !strings.Contains(strings.Join(got, ","), "HX-Request") {

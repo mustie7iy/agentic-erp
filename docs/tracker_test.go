@@ -48,7 +48,8 @@ const baselineItems = 950
 // Arabic-Indic digits and partners on an entry's pages split into T73h3,
 // which inherits the tag (83); T73i2's walk-through by a pilot GL
 // accountant and controller, human acceptance, split into T73i3, which
-// inherits its tag (84).
+// inherits its tag (84); T73g2's walk-through by a pilot treasury user,
+// human acceptance, split into T73g3, which inherits the tag (85).
 const pilotItems = 85
 
 // accepted lists the sources an item may name, several joined by " · ":

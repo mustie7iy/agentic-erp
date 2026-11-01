@@ -1043,6 +1043,13 @@
       "r": "internal/payments propose.go withholdingWithin (fmt %d of money.Minor, it.EntryID) · money.EventAmount / the amount formatting other refusals use, release.go supplierNamed (batch 28's apinames5) are the patterns · REVIEW.md API-consumer classes: an amount without its currency and scale, an identifier without the name its consumer needs · T46f",
       "src": "review:batch28",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "A payment run's end-to-end ids collide across fiscal years (pre-existing, found in T73g2's review): an end-to-end id is the company, the run's document number and a sequence (internal/payments/propose.go), unique per tenant (000008), while run numbers are drawn from a range per fiscal year that the country packs start again at PY1; the first run of a new fiscal year whose range repeats the prefix would draw an id last year's run holds, and its proposal fails on the unique constraint. Needs a check against the configuration's ranges, then the fiscal year in the id or a year-specific prefix required",
+      "r": "internal/payments propose.go · migration 000008 payment (tenant_id, end_to_end_id) · config.number_range per fiscal year · packs numbering.yaml payment_run",
+      "src": "review:T73g2",
+      "c": []
      }
     ]
    },
@@ -5592,7 +5599,7 @@
        },
        {
         "s": "D",
-        "t": "Bank statements beyond T73g: matching a line by hand to a payment the rules did not find, from a search of the payments its statement's lines may clear (listBankStatementPayments, contract first: posted, from the statement's house bank, in its currency, held by no line; by amount and run date, latest first; people only, payments.statement.match; index 000191, 60 ms a first page at 20,000 payments), sent through the existing matchBankStatementLine with the statement's ETag and a fresh idempotency key, a refusal shown on the statement with the payment chosen kept; a payment's clearing line is the open item a line clears, customers' open items waiting for accounts receivable (ADR-0047); running the matching rules again from the statement's page (matchBankStatement); downloading a statement's file (getBankStatementFile, always as a download, sandboxed, never cached, ADR-0052 §7); the search a page of its own (three calls) whose filter htmx answers in place; walkthrough step 8: a line whose end-to-end id the bank lost found, matched by hand and posted with approval; EN and FR; axe at zero at 1280 and 390 px",
+        "t": "Bank statements beyond T73g: matching a line by hand to a payment the rules did not find, from a search of the payments its statement's lines may clear (listBankStatementPayments, contract first: posted, from the statement's house bank, in its currency, held by no line; by amount and run date, latest first; people only, payments.statement.match; index 000191, 40 ms a first page at 20,000 payments), sent through the existing matchBankStatementLine with the statement's ETag and a fresh idempotency key, a refusal shown on the statement with the payment chosen kept; a payment's clearing line is the open item a line clears, customers' open items waiting for accounts receivable (ADR-0047); running the matching rules again from the statement's page (matchBankStatement); downloading a statement's file (getBankStatementFile, always as a download, sandboxed, never cached, ADR-0052 §7); the search a page of its own (three calls) whose filter htmx answers in place; walkthrough step 8: a line whose end-to-end id the bank lost found, matched by hand and posted with approval; EN and FR; axe at zero at 1280 and 390 px",
         "r": "api/openapi.yaml listBankStatementPayments · internal/payments statementpayments.go · migration 000191 payment_posted_by_bank · TestSearchPaymentsToMatch · TestSearchPaymentsRefused · TestSearchPaymentsDatabaseFailures · TestSearchPaymentsBudget · internal/web statement_search.go · statement.go withFound · operations.go · ui/bank.templ LinePayments, PaymentSearchBody, RulesFormView · static/css filters' error · i18n en, fr-CA · TestRulesAgain · TestStatementFile · TestLineSearch · TestLineSearchStubbed · TestLineSearchClosed · TestLineSearchInTheBrowser · TestBankInTheBrowser · walkthrough step 8 (match_by_hand) · ADR-0047 as built · ADR-0052 Built in T73g2 · T73g2",
         "src": "split:T73g",
         "pilot": "po:2026-10-31 · split:T73g · adr:ADR-0052",
