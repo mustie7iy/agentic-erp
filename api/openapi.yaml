@@ -10130,7 +10130,7 @@ paths:
       tags:
         - procurement
       summary: Reverse a goods receipt
-      description: "Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance. A movement on a closed order is reversed too, as a mistaken receipt or return is undone whenever it is found. Returns the reversal."
+      description: "Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance; a 102 is refused (409 `procurement.reversal_below_invoiced`, naming the receipt, the order item and both quantities) if it would leave an order item received less than posted supplier documents invoiced of it, net of credit memos: the supplier's credit memo is posted first, or the goods returned (122). A movement on a closed order is reversed too, as a mistaken receipt or return is undone whenever it is found. Returns the reversal."
       x-permission: procurement.receipt.post
       x-problem-codes:
         - config.no_number_range
@@ -10182,6 +10182,7 @@ paths:
         - procurement.mixed_currencies
         - procurement.over_delivery
         - procurement.return_exceeds_receipts
+        - procurement.reversal_below_invoiced
         - procurement.reversal_exceeds_receipts
         - procurement.unknown_order_item
         - request.invalid_amount
@@ -11268,7 +11269,7 @@ paths:
       tags:
         - payables
       summary: Reverse a posted supplier invoice
-      description: "Posts a reversal of the invoice's journal entry; the status becomes `reversed` and `reversal_entry_id` is set. Refused (409) if the invoice is in a live payment run or cleared. Requires status `posted`."
+      description: "Posts a reversal of the invoice's journal entry; the status becomes `reversed` and `reversal_entry_id` is set. Refused (409) if the invoice is in a live payment run or cleared. Requires status `posted`. On a purchase order, refused (409, naming the document, the order item and the quantities) if the documents posted on the order would no longer pass the three-way match without it: a credit memo's reversal invoicing an order item past what was received (`payables.reversal_exceeds_received`), an invoice's reversal leaving credit memos crediting more than remains invoiced (`payables.reversal_exceeds_invoiced`) or a posted subsequent debit or credit on an item nothing remains invoiced of (`payables.reversal_leaves_revaluation`)."
       x-permission: payables.invoice.post
       x-problem-codes:
         - config.no_number_range
@@ -11308,6 +11309,10 @@ paths:
         - payables.invoice_has_corrections
         - payables.invoice_in_payment_run
         - payables.negative_amount
+        - payables.order_not_found
+        - payables.reversal_exceeds_invoiced
+        - payables.reversal_exceeds_received
+        - payables.reversal_leaves_revaluation
         - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"

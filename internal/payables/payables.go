@@ -103,8 +103,8 @@ type Suppliers interface {
 // Orders is what payables reads about purchase orders (procurement context).
 type Orders interface {
 	Order(ctx context.Context, id uuid.UUID) (procurement.Order, bool, error)
-	// LockItems locks the order's items until the transaction ends: an
-	// invoice posts under them (lockedOrder).
+	// LockItems locks the order's items until the transaction ends: a
+	// document posts (lockedOrder) and is reversed (reversible) under them.
 	LockItems(ctx context.Context, id uuid.UUID, items []int32) error
 }
 

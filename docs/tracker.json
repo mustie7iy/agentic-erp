@@ -592,25 +592,25 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Quantities checked on reversal: goods receipt and credit memo reversals past the invoiced quantity, invoice reversals under credit memos or subsequent debits naming none",
-      "r": "follow-up of the overpayment fix · 03 §3.9",
+      "r": "follow-up of the overpayment fix · 03 §3.9 · ADR-0034 as built (apqty) · procurement receipts.go keepsInvoiced, Invoices.Invoiced · payables reversequantity.go reversible · 409 procurement.reversal_below_invoiced, payables.reversal_exceeds_received, payables.reversal_exceeds_invoiced, payables.reversal_leaves_revaluation · returns (122) not held to it · a subsequent debit or credit naming another invoice is held too (review round 1) · TestReversalsKeepQuantities · walkthrough step 6 · apqty",
       "src": "baseline",
       "pilot": "po:2026-10-31 · design:03 §3.9",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Index payables.supplier_invoice_item (tenant_id, purchase_order_id, po_item_no) for the invoiced quantities read at :match and under the item locks at :post",
-      "r": "follow-up of the overpayment fix · invoicedQuantities",
+      "r": "follow-up of the overpayment fix · invoicedQuantities · db/migrations/000172 supplier_invoice_item_by_order (concurrently, items on an order) · apqty",
       "src": "baseline",
       "pilot": "po:2026-10-31 · design:03 §3.9",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Tests: an invoice's posting against a goods receipt reversal (apitest.Serialized) and against an order change applied through procurement",
-      "r": "follow-up of the overpayment fix · 03 §3.9",
+      "r": "follow-up of the overpayment fix · 03 §3.9 · TestConcurrentReversalsSerialize (posting and receipt reversal both ways, credit memo reversal and receipt reversal both ways, posting after an order change submitted through procurement) · apqty",
       "src": "baseline",
       "pilot": "po:2026-10-31 · design:03 §3.9",
       "c": []

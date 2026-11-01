@@ -292,6 +292,8 @@ type invoiced struct {
 
 func (i invoiced) HasInvoices(context.Context, uuid.UUID) (bool, error) { return i.yes, i.err }
 
+func (i invoiced) Invoiced(context.Context, uuid.UUID) (map[int32]string, error) { return nil, i.err }
+
 var _ procurement.Invoices = invoiced{}
 
 func TestGoodsReceipts(t *testing.T) {

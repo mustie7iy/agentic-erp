@@ -3161,7 +3161,10 @@ func (UnimplementedHandler) ResumeWebhookSubscription(ctx context.Context, param
 // ReverseGoodsReceipt implements reverseGoodsReceipt operation.
 //
 // Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
-// the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance. A
+// the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance; a 102 is
+// refused (409 `procurement.reversal_below_invoiced`, naming the receipt, the order item and both
+// quantities) if it would leave an order item received less than posted supplier documents invoiced of
+// it, net of credit memos: the supplier's credit memo is posted first, or the goods returned (122). A
 // movement on a closed order is reversed too, as a mistaken receipt or return is undone whenever it is
 // found. Returns the reversal.
 //
@@ -3195,7 +3198,12 @@ func (UnimplementedHandler) ReverseJournalEntry(ctx context.Context, req OptJour
 //
 // Posts a reversal of the invoice's journal entry; the status becomes `reversed` and
 // `reversal_entry_id` is set. Refused (409) if the invoice is in a live payment run or cleared.
-// Requires status `posted`.
+// Requires status `posted`. On a purchase order, refused (409, naming the document, the order item and
+// the quantities) if the documents posted on the order would no longer pass the three-way match
+// without it: a credit memo's reversal invoicing an order item past what was received
+// (`payables.reversal_exceeds_received`), an invoice's reversal leaving credit memos crediting more
+// than remains invoiced (`payables.reversal_exceeds_invoiced`) or a posted subsequent debit or credit
+// on an item nothing remains invoiced of (`payables.reversal_leaves_revaluation`).
 //
 // POST /v1/supplier-invoices/{id}:reverse
 func (UnimplementedHandler) ReverseSupplierInvoice(ctx context.Context, req *SupplierInvoiceReverse, params ReverseSupplierInvoiceParams) (r ReverseSupplierInvoiceRes, _ error) {

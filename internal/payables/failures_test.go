@@ -138,6 +138,10 @@ func TestDatabaseFailures(t *testing.T) {
 			_, err := payables.Invoices{}.HasInvoices(ctx, po)
 			return err
 		},
+		"invoiced": func(ctx context.Context) error {
+			_, err := payables.Invoices{}.Invoiced(ctx, po)
+			return err
+		},
 	}
 	for name, call := range calls {
 		t.Run(name, func(t *testing.T) {

@@ -1699,15 +1699,45 @@ verdict is advice the posting checks again under the lock, so reading the
 received quantities `FOR SHARE` there would only make receipts wait for
 matches.
 
-Reversals are not checked against quantities and take no item lock on the
-invoice side: a goods receipt's reversal (or a return) after an invoice
-posted, or a credit memo's reversal, can leave an order item invoiced past
-what was received; an invoice's reversal can leave a credit memo or
-subsequent debit that names no invoice crediting or revaluing what is no
-longer invoiced (one naming it is refused, `payables.invoice_has_corrections`).
-On an order valued through GR/IR the position then shows the difference
-(open in `/v1/gr-ir-balances`); on a directly valued one nothing shows it.
-The tracker holds checking quantities on reversal.
+Reversals are held to the same quantities, under the same item locks
+(apqty): a reversal is refused when the documents left standing would not
+pass the match's quantity checks, and its refusal names the document, the
+order item and the quantities. It is held to the plain quantities: there is
+no exception to approve for a reversal, so on an item invoiced past what was
+received on an approved exception, a receipt's or credit memo's reversal is
+refused until the documents agree again.
+
+- A goods receipt's reversal (102) may not leave an order item received
+  less than the documents posted on it invoice, net of credit memos and
+  with what SAP invoiced before migration (409
+  `procurement.reversal_below_invoiced`). Procurement reads the invoiced
+  quantities through its `Invoices` port (`Invoiced`, payables'
+  `invoicedQuantities`) after locking the order items, as every goods
+  movement does. A return (122) is not held to them: goods sent back after
+  their invoice are what the supplier's credit memo credits (ADR-0034), and
+  until it posts the position shows the difference.
+- A credit memo's reversal may not invoice an order item past what was
+  received (409 `payables.reversal_exceeds_received`), as a receipt's
+  reversal since the memo may have left it.
+- An invoice's reversal may not leave credit memos crediting more than
+  remains invoiced (409 `payables.reversal_exceeds_invoiced`), nor a
+  subsequent debit or credit revaluing an item nothing remains invoiced of
+  (409 `payables.reversal_leaves_revaluation`), whichever other invoice it
+  names, as the match holds it (`nothing_invoiced`); one naming the
+  invoice is refused before (`payables.invoice_has_corrections`).
+- A subsequent debit's or credit's reversal moves no quantity and is not
+  checked.
+
+A document's reversal locks the order items it names
+(`procurement.Orders.LockItems`) after its own row and before the ledger's
+GR/IR lock, as its posting does, so a reversal, a posting and a goods
+movement on one item wait for each other and the second reads what the
+first committed (`TestConcurrentReversalsSerialize`). An order change
+writes the items it changes, so a posting waits for it too and is matched
+against the order as changed. The quantities are read through
+`supplier_invoice_item_by_order` (migration 000172, on `(tenant_id,
+purchase_order_id, po_item_no)` for items on an order, built
+concurrently), as they are at `:match` and under the locks at `:post`.
 
 The invoice likewise records the version the approval of its exception left
 it at (`exception_version`, migration 000041, F16), and the linked approved

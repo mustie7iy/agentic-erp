@@ -239,7 +239,7 @@ func (q *qualityCheck) grirPosition(p *grirPosition, h sap.EKKO, movements []sap
 	}
 	if p.balance() == 0 && p.qty.Sign() != 0 {
 		q.add(SevError, "ACDOCA", key, "order item %s has an open GR/IR quantity of %s and no balance on the GR/IR account; it cannot be taken over",
-			key, plainQuantity(p.qty))
+			key, money.PlainQuantity(p.qty))
 	}
 }
 
@@ -501,7 +501,7 @@ func (l *loader) grirPosting(order string, items []grirItem) ledger.Posting {
 	for _, it := range items {
 		balance := it.balance
 		item := "SAP " + order + "/" + it.ebelp
-		in.GRIR = append(in.GRIR, ledger.GRIRItem{PurchaseOrderID: l.refs["EKKO/"+order], POItemNo: it.no, Quantity: plainQuantity(it.qty),
+		in.GRIR = append(in.GRIR, ledger.GRIRItem{PurchaseOrderID: l.refs["EKKO/"+order], POItemNo: it.no, Quantity: money.PlainQuantity(it.qty),
 			Unit: unit, TakesOver: &balance, TakenOver: it.taken, Text: &item})
 	}
 	return in
@@ -571,7 +571,7 @@ func (rc *reconciler) platformGRIR(ctx context.Context, s companyScope) (map[str
 
 // grirValue renders a position as the reconciliation compares it.
 func grirValue(balance string, qty *big.Rat) string {
-	return fmt.Sprintf("%s, quantity %s", balance, plainQuantity(qty))
+	return fmt.Sprintf("%s, quantity %s", balance, money.PlainQuantity(qty))
 }
 
 // itemsByNo maps EBELN/item number, as the load numbers an order's items

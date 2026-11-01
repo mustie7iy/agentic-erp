@@ -900,6 +900,7 @@ step_procure() {
   say "The chairs arrive; Ben posts the goods receipt (debit expense, credit GR/IR)."
   api 201 '"goods receipt \(.id), journal entry \(.journal_entry_id)"' postGoodsReceipt \
     -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$PO\", \"po_item_no\": 1, \"quantity\": {\"value\": \"10\", \"unit\": \"EA\"}}]}"
+  RECEIPT=$(field .id)
   api 200 '.items[] | "item \(.item_no): ordered \(.quantity.value), received \(.received_quantity.value)"' getPurchaseOrder -p "id=$PO"
   passed
 }
@@ -989,7 +990,7 @@ migrated_grir_invoice() {
 }
 
 step_credit() {
-  heading "Step 6 — A credit memo"
+  heading "Step 6 — A credit memo; the receipt it leaves invoiced cannot be reversed"
   as alex
   say "One chair arrived damaged; Tyrell credits it. A credit memo debits the supplier when posted."
   invoice TY-CM-77 1 470.00 credit_memo
@@ -1004,7 +1005,32 @@ step_credit() {
   [ "$(field .posting_date)" = "$before" ] || expect "the credit memo's posting date, Toronto's" "$(field .posting_date)" "$(TZ=America/Toronto date +%F)"
   CREDIT_ENTRY=$(field .journal_entry_id)
   api 200 '.items[] | "open item \(.amount.amount) \(.amount.currency)"' listOpenItems -p "partner_id=$SUPPLIER"
+  receipt_held
   passed
+}
+
+# receipt_held has Ben try to reverse the chairs' receipt of step 4 once
+# nine of them are invoiced net of the credit memo: a receipt's reversal
+# may not leave less received than invoiced (03 §3.9), or the order would
+# be paid for goods it no longer shows received.
+receipt_held() {
+  say "Ben thinks the chairs' receipt was posted by mistake and tries to reverse it. Nine of the ten are"
+  say "invoiced, net of the credit memo: the reversal would leave none received of nine paid for, so it is"
+  say "refused, naming the receipt, the order item and both quantities. Tyrell's credit memo, or a return"
+  say "of the goods (122), comes first."
+  as ben
+  QUIET=1 api 200 '' getGoodsReceipt -p "id=$RECEIPT"
+  local number
+  number=$(field .document_number)
+  refused 409 procurement.reversal_below_invoiced reverseGoodsReceipt -p "id=$RECEIPT" -if-match "$ETAG" -body '{}'
+  local detail
+  detail=$(field .detail)
+  case "$detail" in
+    *"goods receipt $number "*"with 0 received of 9 invoiced"*) ;;
+    *) fail "the refusal does not name the receipt $number and its quantities: $detail" ;;
+  esac
+  api 200 '.items[] | "item \(.item_no): ordered \(.quantity.value), received \(.received_quantity.value)"' getPurchaseOrder -p "id=$PO"
+  expect "the chairs received after the refusal" "$(field '.items[0].received_quantity.value')" 10
 }
 
 step_payment() {
