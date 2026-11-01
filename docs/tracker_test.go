@@ -22,6 +22,12 @@ import (
 // take a baseline item's place unseen in the diff.
 const baselineItems = 951
 
+// pilotItems is the number of leaves carrying "pilot": the pilot-ready list the
+// product owner approved on 2026-10-31, the finish line of the first pilot. It
+// must match exactly, so a leaf joining or leaving the pilot scope shows in the
+// diff; changing it needs a product owner source in the leaf's pilot value.
+const pilotItems = 72
+
 // accepted lists the sources an item may name, several joined by " · ":
 //
 //	adr:ADR-0052           an accepted ADR asks for it
@@ -44,12 +50,17 @@ type item struct {
 	Title    string `json:"t"`
 	Ref      string `json:"r"`
 	Source   string `json:"src"`
+	Pilot    string `json:"pilot"`
 	Children []item `json:"c"`
 }
 
 type leaf struct {
 	path   string
 	source string
+	// pilot names why the leaf is in the pilot scope, in src's grammar, or
+	// is empty; text is the leaf's title and reference, read for "post-pilot".
+	pilot string
+	text  string
 }
 
 // vouch counts, for each step a leaf names in its title or reference, one leaf
@@ -82,7 +93,7 @@ func walk(items []item, path string, out []leaf, steps map[string]int) []leaf {
 		}
 		if len(it.Children) == 0 {
 			vouch(it, steps)
-			out = append(out, leaf{path: p, source: it.Source})
+			out = append(out, leaf{path: p, source: it.Source, pilot: it.Pilot, text: it.Title + " " + it.Ref})
 			continue
 		}
 		out = walk(it.Children, p, out, steps)
@@ -142,7 +153,41 @@ func designSection(t *testing.T, doc, section string) string {
 	return why
 }
 
-func TestTrackerItemsNameTheirSource(t *testing.T) {
+// pilotGroups lists the groups carrying "pilot": the pilot scope is a list of
+// leaves, so a group's tag would hide which of its leaves the pilot needs.
+func pilotGroups(items []item, path string, out []string) []string {
+	for _, it := range items {
+		p := it.Title
+		if path != "" {
+			p = path + " / " + it.Title
+		}
+		if len(it.Children) == 0 {
+			continue
+		}
+		if it.Pilot != "" {
+			out = append(out, p)
+		}
+		out = pilotGroups(it.Children, p, out)
+	}
+	return out
+}
+
+// checkSources reports each " · "-separated part of value (a leaf's src or
+// pilot) that is not a known source or names nothing real.
+func checkSources(t *testing.T, path, field, value string, steps map[string]int) {
+	t.Helper()
+	for _, s := range strings.Split(value, " · ") {
+		m := sourcePattern.FindStringSubmatch(s)
+		if m == nil {
+			t.Errorf("%s: %s %q is not a known source; want %s", path, field, s, accepted)
+		} else if why := sourceExists(t, m, steps); why != "" {
+			t.Errorf("%s: %s %q %s", path, field, s, why)
+		}
+	}
+}
+
+func readTracker(t *testing.T) []item {
+	t.Helper()
 	raw, err := os.ReadFile("tracker.json")
 	if err != nil {
 		t.Fatalf("read tracker: %v", err)
@@ -151,6 +196,11 @@ func TestTrackerItemsNameTheirSource(t *testing.T) {
 	if err := json.Unmarshal(raw, &items); err != nil {
 		t.Fatalf("parse tracker: %v", err)
 	}
+	return items
+}
+
+func TestTrackerItemsNameTheirSource(t *testing.T) {
+	items := readTracker(t)
 	steps := map[string]int{}
 	baseline := 0
 	for _, l := range walk(items, "", nil, steps) {
@@ -162,17 +212,36 @@ func TestTrackerItemsNameTheirSource(t *testing.T) {
 			t.Errorf("%s: no src; want %s", l.path, accepted)
 			continue
 		}
-		for _, s := range strings.Split(l.source, " · ") {
-			m := sourcePattern.FindStringSubmatch(s)
-			if m == nil {
-				t.Errorf("%s: src %q is not a known source; want %s", l.path, s, accepted)
-			} else if why := sourceExists(t, m, steps); why != "" {
-				t.Errorf("%s: src %q %s", l.path, s, why)
-			}
-		}
+		checkSources(t, l.path, "src", l.source, steps)
 	}
 	if baseline != baselineItems {
 		t.Errorf("%d items carry src baseline, want %d: a new item names its source, and a removed one lowers baselineItems", baseline, baselineItems)
+	}
+}
+
+// TestTrackerPilotScope: the pilot scope (product owner 2026-10-31) is a set of
+// leaves, each naming in "pilot" the sources that put it there, as src names
+// those that put it in the tracker. A leaf the product owner put after the
+// pilot cannot be in it, and the scope's size changes only in a reviewed diff.
+func TestTrackerPilotScope(t *testing.T) {
+	items := readTracker(t)
+	steps := map[string]int{}
+	tagged := 0
+	for _, l := range walk(items, "", nil, steps) {
+		if l.pilot == "" {
+			continue
+		}
+		tagged++
+		checkSources(t, l.path, "pilot", l.pilot, steps)
+		if strings.Contains(l.text, "post-pilot") {
+			t.Errorf("%s: carries pilot but says post-pilot; want one or the other", l.path)
+		}
+	}
+	for _, p := range pilotGroups(items, "", nil) {
+		t.Errorf("%s: a group carries pilot; want it on the leaves the pilot needs", p)
+	}
+	if tagged != pilotItems {
+		t.Errorf("%d leaves carry pilot, want %d: a change to the pilot scope names the product owner's decision and updates pilotItems", tagged, pilotItems)
 	}
 }
 
