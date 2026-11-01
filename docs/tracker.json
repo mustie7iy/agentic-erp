@@ -8690,9 +8690,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Configuration activation refused while replicas of two versions run, so a key an older replica would ignore (companies[].release_dual_limit: the old :release has no approval check) cannot take effect on part of the cell; until then the release runbook activates such changes only after the upgrade completes",
-      "r": "ADR-0038 amendment (rollout) · 06 §6.4 config.ParseActive · T72m",
+      "r": "ADR-0038 amendment (rollout) · 06 §6.4 config.ParseActive · T72m · built: config.replica (000177) records each replica's version and config.Keys() every 30 s, a crashed one stops counting after 5 minutes on the database's clock; activate refuses a document whose Config.Used() keys a running replica lacks, 409 config.replica_lacks_key naming key and versions (:activate and provisioning); the upgrade bringing it keeps the runbook rule · ADR-0038 As built",
       "src": "baseline",
       "pilot": "po:2026-10-31 · adr:ADR-0038",
       "c": []

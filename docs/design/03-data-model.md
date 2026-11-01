@@ -500,6 +500,20 @@ captured invoice that has since lost its purchase order (a parked invoice
 edited onto accounts) is replayed as `not_evaluable` with the issue
 `no_purchase_order` (F17).
 
+`config.replica` (000177, ADR-0038 rollout) is the cell's running
+replicas, not a tenant's: per replica its id, its version and revision
+(`buildinfo`), the configuration keys its binary knows (`config_keys`,
+`config.Keys()`: every key path of the document type, such as
+`companies[].release_dual_limit`) and when it was last sighted
+(`seen_at`, the database's clock). Each replica records itself at start
+and every 30 seconds as `erp_worker` (`configuration.Replica`) and deletes
+its row when it stops; a row older than 5 minutes no longer counts and is
+removed by the next record. Row-level security is on with a policy that
+lets `erp_app` read every row and write none, so that each tenant's
+activation can compare the keys its document sets (`Config.Used`) with
+every running replica's (409 `config.replica_lacks_key`); its primary key
+is not led by `tenant_id`, as it has none.
+
 ## 3.6 Business partners (`partner`)
 
 ```mermaid

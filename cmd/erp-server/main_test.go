@@ -2467,3 +2467,12 @@ func cellLogin(t *testing.T, u string) string {
 	}
 	return login.As(u)
 }
+
+// TestRegisterFailure: a replica that cannot record itself, and so the
+// configuration keys it knows, does not start (ADR-0038 rollout).
+func TestRegisterFailure(t *testing.T) {
+	cfg := load(t, environment(t, authntest.New(t), ""))
+	s := &server{cfg: cfg, pool: pgtest.Pool(t), log: slog.New(slog.DiscardHandler),
+		beginCheck: func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }}
+	pgtest.WantErr(t, s.register(context.Background()), "erp-server: configuration: record the replica: database down")
+}

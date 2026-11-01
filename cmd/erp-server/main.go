@@ -166,6 +166,9 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger, started func(
 	if err := s.newAPI(); err != nil {
 		return err
 	}
+	if err := s.register(ctx); err != nil {
+		return err
+	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	startWorkersHook(s, runCtx)
@@ -245,6 +248,7 @@ type server struct {
 	apiCfg       app.Config
 	apiHandler   http.Handler
 	simulator    *configuration.SimulationWorker
+	registry     *configuration.Replica // records this replica and the configuration keys it knows
 
 	// workers counts the background workers spawn started and wait waits
 	// for; running has every one of them by name, true until it stopped.
@@ -636,6 +640,18 @@ func (s *server) newAPI() error {
 	return nil
 }
 
+// register records the replica, its version and the configuration keys it
+// knows, before it serves: an activation setting a key this version does
+// not know is refused while it runs (ADR-0038 rollout, 06 §6.4). A replica
+// that cannot record itself does not start.
+func (s *server) register(ctx context.Context) error {
+	s.registry = &configuration.Replica{Pool: s.pool, WorkerRole: s.cfg.WorkerRole, Build: buildinfo.Get(), Log: s.log, Begin: s.beginCheck}
+	if err := s.registry.Register(ctx); err != nil {
+		return fmt.Errorf("erp-server: %w", err)
+	}
+	return nil
+}
+
 // startWorkersHook is what run calls to start the workers; tests wrap it to see
 // the server whose workers they check.
 var startWorkersHook = (*server).startWorkers
@@ -643,6 +659,9 @@ var startWorkersHook = (*server).startWorkers
 // startWorkers starts the background workers on runCtx, which run cancels
 // at shutdown.
 func (s *server) startWorkers(runCtx context.Context) {
+	// Critical: a replica no longer recorded would stop counting while it
+	// serves, and a configuration it cannot read could be activated.
+	s.spawnCritical("replica record", func() error { return s.registry.Run(runCtx) })
 	s.startProjections(runCtx)
 	s.startOperations(runCtx)
 	s.startMaintenance(runCtx)
