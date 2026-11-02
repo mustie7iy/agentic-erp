@@ -113,34 +113,78 @@ func openDocuments(e *sap.Extract, t target) map[string]bool {
 	return out
 }
 
-// grirForeignDocuments are the documents holding a line on the GR/IR
-// account that names an item of an order in a foreign currency, of which
-// SAP cleared no supplier line. Balances mode posts them in their
-// document currency, as documents mode does, so the source system's side
-// of the GR/IR account and the offset of the position taken over in that
-// currency (ledger.GRIRItem.TakesOver) net to zero in it, not in local
-// currency alone. One SAP cleared is left in the opening entry, as an
-// item it cleared is never loaded open.
+// grirForeignDocuments are the documents balances mode posts in their
+// document currency for the GR/IR account (ADR-0005 As built): those
+// holding a line on it that names an item of an order in a foreign
+// currency, taken together with every other document holding a line of
+// such a position, directly or through other positions, unless SAP
+// cleared a supplier line of any of them. Posted in that currency, as
+// documents mode posts them, SAP's side of the GR/IR account nets in it:
+// to zero for a position SAP closed, and against the offset of a position
+// taken over in it (ledger.GRIRItem.TakesOver) for an open one. A group
+// with a cleared supplier line (an invoice SAP paid, in whatever
+// currency) stays whole in the opening entry, as an item SAP cleared is
+// never loaded open, and nets there in company currency: moving its other
+// documents alone would split a position SAP closed between the two
+// currencies (review round 2). The groups are by position, not by whether
+// one is still open, so an invoice SAP left unpaid, which posts in its
+// currency as an open item (openDocuments), takes the receipts of its
+// position with it, closed or not.
 func grirForeignDocuments(e *sap.Extract, t target) map[string]bool {
 	currencies := map[string]string{}
 	for _, h := range e.EKKO {
 		currencies[h.EBELN] = h.WAERS
 	}
-	out, cleared := map[string]bool{}, map[string]bool{}
+	groups, first, grir, cleared := documentGroups{}, map[string]string{}, map[string]bool{}, map[string]bool{}
 	for _, l := range e.ACDOCA {
 		key := documentKey(l)
-		if c := currencies[l.EBELN]; t.isGRIR(l) && c != "" && c != t.localCurrency(key) {
-			out[key] = true
-		}
+		groups.add(key)
 		if l.AUGBL != "" && t.supplierLine(l) {
 			cleared[key] = true
 		}
+		if c := currencies[l.EBELN]; !t.isGRIR(l) || c == "" || c == t.localCurrency(key) {
+			continue
+		}
+		grir[key] = true
+		position := l.EBELN + "/" + l.EBELP // as grirPositions keys them
+		if f, ok := first[position]; ok {
+			groups.union(key, f)
+		} else {
+			first[position] = key
+		}
 	}
+	blocked := map[string]bool{}
 	for key := range cleared {
-		delete(out, key)
+		blocked[groups.find(key)] = true
+	}
+	out := map[string]bool{}
+	for key := range grir {
+		if !blocked[groups.find(key)] {
+			out[key] = true
+		}
 	}
 	return out
 }
+
+// documentGroups is a union-find of document keys: each key's parent, a
+// root its own. A key is added before it is found or joined.
+type documentGroups map[string]string
+
+func (g documentGroups) add(key string) {
+	if _, ok := g[key]; !ok {
+		g[key] = key
+	}
+}
+
+func (g documentGroups) find(key string) string {
+	for g[key] != key {
+		g[key] = g[g[key]]
+		key = g[key]
+	}
+	return key
+}
+
+func (g documentGroups) union(a, b string) { g[g.find(a)] = g.find(b) }
 
 // clearingComponents groups the extract's documents into those SAP
 // cleared together, directly or through other documents: a clearing is
@@ -148,33 +192,24 @@ func grirForeignDocuments(e *sap.Extract, t target) map[string]bool {
 // the load clears them (clearings). A document no clearing names is a
 // component of its own. Each component's keys are sorted.
 func clearingComponents(e *sap.Extract, t target) [][]string {
-	parent := map[string]string{}
-	find := func(k string) string {
-		for parent[k] != k {
-			parent[k] = parent[parent[k]]
-			k = parent[k]
-		}
-		return k
-	}
+	groups := documentGroups{}
 	first := map[string]string{} // clearing -> a document of it
 	for _, l := range e.ACDOCA {
 		key := documentKey(l)
-		if _, ok := parent[key]; !ok {
-			parent[key] = key
-		}
+		groups.add(key)
 		if l.AUGBL == "" || !t.supplierLine(l) {
 			continue
 		}
 		clearing := l.RBUKRS + "/" + l.AUGBL
 		if f, ok := first[clearing]; ok {
-			parent[find(key)] = find(f)
+			groups.union(key, f)
 		} else {
 			first[clearing] = key
 		}
 	}
 	byRoot := map[string][]string{}
-	for _, key := range sortedKeys(parent) {
-		byRoot[find(key)] = append(byRoot[find(key)], key)
+	for _, key := range sortedKeys(groups) {
+		byRoot[groups.find(key)] = append(byRoot[groups.find(key)], key)
 	}
 	out := make([][]string, 0, len(byRoot))
 	for _, root := range sortedKeys(byRoot) {
@@ -280,11 +315,10 @@ func (e *Endpoints) postedCurrencies(ctx context.Context, ext *sap.Extract, r re
 // document amount of its line with the largest document amount (the
 // first by document number, then line, of equal ones, so the lines of an
 // order's several GR/IR documents give one rate whatever the extract's
-// order), where SAP's rounding moves the
-// rate least; ok is false when no line has a document amount. The
-// extract does not carry the document's own exchange rate (an SAP
-// specialist is to confirm which field would). Amounts that do not parse
-// count as zero: the quality gate refuses them.
+// order), where SAP's rounding moves the rate least; ok is false when no
+// line has a document amount. The extract does not carry the document's
+// own exchange rate (an SAP specialist is to confirm which field would).
+// Amounts that do not parse count as zero: the quality gate refuses them.
 func sourceRate(lines []sap.ACDOCA, currency, local string, t target) (*big.Rat, bool) {
 	sorted := slices.Clone(lines)
 	slices.SortFunc(sorted, func(a, b sap.ACDOCA) int {
@@ -404,13 +438,13 @@ func (q *qualityCheck) documentAmount(l sap.ACDOCA) (money.Minor, string, error)
 // an open item whose document cannot post in its currency (foreignItem).
 // An open item in company currency with a document amount and none in
 // company currency is refused too: the load would post no line for it
-// (review:batch31). So no open item with an
-// amount in either currency is left out unreported, in either mode: in a
-// document that posts in a foreign currency foreignLine refuses a line of
-// a document amount alone, and in balances mode the opening entry takes
-// the rest from HSL as journalPosting does. Lines SAP reports as cleared
-// (AUGBL) and lines of no amount in either currency are not checked as
-// items. It runs after grirChecks, which reads the positions.
+// (review:batch31). So no open item with an amount in either currency is
+// left out unreported, in either mode: in a document that posts in a
+// foreign currency foreignLine refuses a line of a document amount alone,
+// and in balances mode the opening entry takes the rest from HSL as
+// journalPosting does. Lines SAP reports as cleared (AUGBL) and lines of
+// no amount in either currency are not checked as items. It runs after
+// grirChecks, which reads the positions.
 func (q *qualityCheck) documentCurrencies() {
 	docs := map[string][]sap.ACDOCA{}
 	for _, l := range q.e.ACDOCA {

@@ -260,3 +260,67 @@ func TestForeignGRIRQuality(t *testing.T) {
 		})
 	}
 }
+
+// usdInvoiced is usdGRIR with SAP's invoice of units of the two received
+// posted rather than parked: USD 62.50 a unit at EUR 50.00 (0.8), its
+// document 0100000030 debiting the GR/IR account on the order item and
+// crediting the vendor, and, when paid, SAP's payment 0100000031 in USD
+// from the bank clearing the vendor line (AUGBL).
+func usdInvoiced(units int, paid bool) *sap.Extract {
+	usd, eur := map[int]string{1: "62.50", 2: "125.00"}[units], map[int]string{1: "50.00", 2: "100.00"}[units]
+	x := usdGRIR()
+	x.RBKP = []sap.RBKP{{BELNR: "5100000030", GJAHR: "2026", BUKRS: "2000", LIFNR: "0000000001", XBLNR: "P-30", BLDAT: "20260307", WAERS: "USD",
+		RMWWR: usd, WMWST1: "0.00", RBSTAT: "5", XRECH: sap.Indicator("X")}}
+	x.RSEG = []sap.RSEG{{BELNR: "5100000030", GJAHR: "2026", BUZEI: "000001", EBELN: "4500000001", EBELP: "00010", MENGE: fmt.Sprint(units), WRBTR: usd}}
+	grir := fxLine("0100000030", "000001", "0000219000", eur, usd, "20260307", "RE")
+	grir.EBELN, grir.EBELP = "4500000001", "00010"
+	clearing := ""
+	if paid {
+		clearing = "0100000031"
+		x.ACDOCA = append(x.ACDOCA, vendorLine("0100000031", "000001", eur, usd, "20260320", "KZ", clearing),
+			fxLine("0100000031", "000002", "0000100000", "-"+eur, "-"+usd, "20260320", "KZ"))
+	}
+	x.ACDOCA = append(x.ACDOCA, grir, vendorLine("0100000030", "000002", "-"+eur, "-"+usd, "20260307", "RE", clearing))
+	return x
+}
+
+// TestForeignGRIRBalancesMode: in balances mode SAP's documents of a
+// position of an order in USD stay together (review round 2): all in the
+// opening entry, in EUR, when SAP cleared a vendor line of any of them,
+// whatever currency it paid in, else all in USD, open position or not.
+// So the GR/IR account nets per entry currency for a closed position,
+// paid or not, and for an open one SAP's invoice of which is unpaid,
+// against the take-over's offset in USD; an open position with a paid
+// invoice is the case left (ADR-0005 As built): SAP's side in EUR, the
+// take-over's in USD, netting in local currency alone.
+func TestForeignGRIRBalancesMode(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		x         *sap.Extract
+		positions any
+		want      string
+	}{
+		{"a closed position, its invoice paid", usdInvoiced(2, true), nil, ""},
+		{"a closed position, its invoice unpaid", usdInvoiced(2, false), nil, "USD 0 0"},
+		{"an open position, invoiced in part, unpaid", usdInvoiced(1, false), float64(1), "USD -6250 -5000"},
+		{"an open position, invoiced in part, paid", usdInvoiced(1, true), float64(1), "EUR -5000 -5000, USD 0 0"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := grirSetup(t, c.x)
+			run := e.run(t, e.connector(t, "grir.json"), "balances", false, e.DE.String())
+			_, got := e.act(t, run, "start")
+			if got["status"] != "loaded" {
+				t.Fatalf("start status: got %v, want loaded: %v", got["status"], got["report"])
+			}
+			if n := got["report"].(map[string]any)["loaded"].(map[string]any)["gr_ir_positions"]; n != c.positions {
+				t.Errorf("GR/IR positions taken over: got %v, want %v", n, c.positions)
+			}
+			if _, got := e.act(t, run, "reconcile"); got["status"] != "reconciled" {
+				t.Errorf("reconcile: got %v, want reconciled: %v", got["status"], got["report"])
+			}
+			if got := e.grirAccountByCurrency(t); got != c.want {
+				t.Errorf("the GR/IR account by entry currency (amount, local amount): got %q, want %q", got, c.want)
+			}
+		})
+	}
+}

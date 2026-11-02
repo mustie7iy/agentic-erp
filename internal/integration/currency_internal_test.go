@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -508,5 +509,40 @@ func TestLeftOutLines(t *testing.T) {
 			run = append(run, documentCurrencyCase{mode + ": " + c.name, func(e *sap.Extract, t *target) { t.balances = balances; c.change(e, t) }, want})
 		}
 		runDocumentCurrencyCases(t, run)
+	}
+}
+
+// TestGRIRForeignDocumentGroups: balances mode moves a foreign order's
+// GR/IR documents into their currency together, through every position a
+// document shares (review round 2): a receipt of items 10 and 20 ties an
+// invoice of 10 to one of 20, so a payment SAP cleared the latter with
+// keeps all three in the opening entry; unpaid, all three move. A GR/IR
+// line of an order in company currency never moves a document.
+func TestGRIRForeignDocumentGroups(t *testing.T) {
+	tg := dpTarget()
+	tg.charts["2000"]["219000"] = ledger.ChartAccount{GRIR: true}
+	line := func(belnr, docln, account, order, item string) sap.ACDOCA {
+		return sap.ACDOCA{RBUKRS: "2000", GJAHR: "2026", BELNR: belnr, DOCLN: docln, RACCT: account, RWCUR: "USD", EBELN: order, EBELP: item}
+	}
+	extract := func(clearing string) *sap.Extract {
+		vendor := line("0100000007", "000002", "0000211000", "", "")
+		vendor.LIFNR, vendor.AUGBL = "0000000001", clearing
+		return &sap.Extract{EKKO: []sap.EKKO{{EBELN: "4500000001", WAERS: "USD"}, {EBELN: "4500000002", WAERS: "EUR"}},
+			ACDOCA: []sap.ACDOCA{
+				line("0100000005", "000001", "0000219000", "4500000001", "00010"), line("0100000005", "000002", "0000219000", "4500000001", "00020"),
+				line("0100000006", "000001", "0000219000", "4500000001", "00010"),
+				line("0100000007", "000001", "0000219000", "4500000001", "00020"), vendor,
+				line("0100000008", "000001", "0000219000", "4500000002", "00010"),
+			}}
+	}
+	for _, c := range []struct{ name, clearing, want string }{
+		{"the invoice of item 20 paid", "0100000009", "[]"},
+		{"the invoice of item 20 unpaid", "", "[2000/2026/0100000005 2000/2026/0100000006 2000/2026/0100000007]"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := fmt.Sprint(sortedKeys(grirForeignDocuments(extract(c.clearing), tg))); got != c.want {
+				t.Errorf("documents posted in USD: got %s, want %s", got, c.want)
+			}
+		})
 	}
 }

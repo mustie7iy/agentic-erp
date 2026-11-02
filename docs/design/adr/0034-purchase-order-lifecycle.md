@@ -378,22 +378,22 @@ GR/IR rules as built (T33b):
 
 - **The order keeps its currency** (EKKO WAERS), as every loaded order
   does, and is valued through GR/IR like any other.
-- **The take-over is in the order's currency.** Each item's balance there
-  is the sum of SAP's document amounts (WSL) on its GR/IR lines, and its
-  local balance the sum of their company code amounts (HSL), kept as SAP
-  booked them and not converted again (`GRIRItem.TakesOverLC`), the group
-  amount converted from it at the posting date's rate, as for every
-  document loaded in a foreign currency. The entry records the rate SAP's
-  amounts imply (`Posting.Rate`): HSL over WSL of the order's GR/IR line
-  with the largest document amount, the first by document number and line
-  of equal ones (`sourceRate`). The ledger takes a rate and local balances
-  together only, on every item of a take-over in a foreign currency
+- **The take-over is in the order's currency.** Each item's balance there is
+  the sum of SAP's document amounts (WSL) on its GR/IR lines, and its local
+  balance the sum of their company code amounts (HSL), kept as SAP booked
+  them and not converted again (`GRIRItem.TakesOverLC`), the group amount
+  converted from it at the posting date's rate, as for every document loaded
+  in a foreign currency. The entry records the rate SAP's amounts imply
+  (`Posting.Rate`): HSL over WSL of the order's GR/IR line with the largest
+  document amount, the first by document number and line of equal ones
+  (`sourceRate`). The ledger takes a rate and local balances together only,
+  on every item of a take-over in a foreign currency
   (`checkForeignTakeOver`; a 500 otherwise, a caller's error), so an order
-  in company currency is taken over with neither. A top-up moves both balances from what
-  the earlier take-overs hold (`GRIRTakenOver.BalanceLC`, guarded as the
-  quantity and balance are, 409 `ledger.gr_ir_position_exists`). An order
-  in company currency is taken over as before, its local balance its
-  balance.
+  in company currency is taken over with neither. A top-up moves both
+  balances from what the earlier take-overs hold (`GRIRTakenOver.BalanceLC`,
+  guarded as the quantity and balance are, 409
+  `ledger.gr_ir_position_exists`). An order in company currency is taken
+  over as before, its local balance its balance.
 - **After cutover nothing new is needed.** The position is in the order's
   currency, so a goods receipt or invoice in it moves it as one the platform
   posted (`ledger.gr_ir_currency_mismatch` refuses another currency, as
@@ -424,14 +424,20 @@ GR/IR rules as built (T33b):
   wrong document amount differs, and the total in local currency is joined
   by one per foreign currency, `Open GR/IR in USD total`, as open items in
   a foreign currency are totalled (review round 1).
-- **SAP's documents.** A document holding a GR/IR line of such an order
-  posts in the order's currency in balances mode too, as in documents mode
-  (`grirForeignDocuments`), unless SAP cleared a vendor line of it, so the
-  take-over's offset line on the GR/IR account nets with SAP's line in that
-  currency. One SAP cleared in company currency (a USD invoice paid in CAD)
-  posts its GR/IR line in company currency in either mode, leaving the
-  account netting in local currency only: ADR-0005 As built states it, and
-  it is listed for the product owner.
+- **SAP's documents.** In documents mode a document holding a GR/IR line of
+  such an order posts in the order's currency unless SAP cleared it together
+  with documents in another currency (`clearingCurrency`). In balances mode
+  SAP's documents of such a position move together (`grirForeignDocuments`,
+  review round 2): all of them, with those of any position a shared document
+  ties them to, post in the order's currency, so SAP's side of the GR/IR
+  account nets in it, to zero for a closed position and against the
+  take-over's offset for an open one, unless SAP cleared a vendor line of
+  any of them, in whatever currency it paid; then all stay in the opening
+  entry in company currency, where a closed position nets to zero too. An
+  open position with a document SAP paid (an item invoiced in part by an
+  invoice SAP paid) and a position SAP paid only in part leave the account
+  netting in local currency alone: ADR-0005 As built states the cases, and
+  they are listed for the product owner.
 - **Tests and walkthrough.** Both modes through the load with real
   PostgreSQL (`TestForeignGRIRPositions`): the take-over in USD at SAP's
   rate, a receipt at the platform's rate and the invoice clearing the
@@ -440,8 +446,11 @@ GR/IR rules as built (T33b):
   the ledger's take-over (`TestGRIRTakeOverForeign`) and its refusals of a
   rate or local balance out of place (`TestGRIRTakeOverRefusals`); the
   GR/IR account netting to zero in USD once the position is cleared, in
-  either mode; and walkthrough step 3
-  with the mock's USD order of the CAD company.
+  either mode; in balances mode, the GR/IR account by entry currency for a
+  closed position paid and unpaid, and an open one invoiced in part, paid
+  and unpaid (`TestForeignGRIRBalancesMode`), and the documents grouped
+  through a receipt of two positions (`TestGRIRForeignDocumentGroups`); and
+  walkthrough step 3 with the mock's USD order of the CAD company.
 
 For an SAP specialist (from memory, not assumed by the load beyond what the
 gate refuses): that SAP's GR/IR lines of an order carry the order's currency

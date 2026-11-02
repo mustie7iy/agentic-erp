@@ -108,15 +108,20 @@ position as it moves one the platform posted in that currency: the invoice
 clears it in both currencies, the GR/IR line at the value the position was
 booked at and the exchange difference on its own line. A later run tops it up
 in both currencies. SAP's documents holding such GR/IR lines load in the
-order's currency in balances mode too, unless SAP cleared a vendor line of
-them; one paid in company currency keeps its GR/IR line in company currency
-(ADR-0005 As built). The quality gate refuses, for such an order, a GR/IR line
-in another currency (RWCUR) than the order's, a document amount that does not
-parse, a line with an amount in one currency and none in the other or the two
-of opposite signs, a position with a balance in one currency alone, document
-amounts that add up to more than an amount holds, and a rate the take-over
-entry cannot record; a line of an open position of an order in company
-currency that is in a foreign currency is refused too.
+order's currency, so its GR/IR account nets in that currency: in documents
+mode unless SAP cleared one with documents in another currency, and in
+balances mode a position's documents together, unless SAP cleared a vendor
+line of any of them, in whatever currency it paid; those then stay in the
+opening entry in company currency. An open position with an invoice SAP paid,
+or a position SAP paid only in part, leaves the account netting in company
+currency alone (ADR-0005 As built lists the cases). The quality gate refuses,
+for such an order, a GR/IR line in another currency (RWCUR) than the order's,
+a document amount that does not parse, a line with an amount in one currency
+and none in the other or the two of opposite signs, a position with a balance
+in one currency alone, document amounts that add up to more than an amount
+holds, and a rate the take-over entry cannot record; a line of an open
+position of an order in company currency that is in a foreign currency is
+refused too.
 
 In `documents` mode the load clears the vendor items SAP cleared (AUGBL) by
 SAP's clearing document, or by the latest document of the clearing when the

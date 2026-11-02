@@ -241,17 +241,40 @@ a foreign currency, has the detail):
   refuses either without the other, either on an entry in local currency
   (a position in local currency keeps its local amounts equal to its own)
   and a local balance on a receipt, invoice or clearing.
-- **SAP's side of the GR/IR account nets in that currency.** A document
-  holding a GR/IR line of such an order posts in its document currency in
-  either mode (balances mode too, unless SAP cleared a vendor line of it),
-  so the take-over's offset line nets with SAP's line in the order's
-  currency, not in local currency alone. A document SAP cleared in company
-  currency (a USD invoice paid in CAD, which documents mode posts in CAD,
-  as balances mode's opening entry does) leaves its GR/IR line in company
-  currency: the account nets in local currency, while in the entries'
-  currencies the order's currency and the company's hold offsetting
-  amounts. The GR/IR account is not revalued, so this moves no value; a
-  view of it by currency shows them.
+- **SAP's side of the GR/IR account nets in that currency where it can.** A
+  document holding a GR/IR line of such an order posts in its document
+  currency, so the take-over's offset line nets with SAP's lines in the
+  order's currency, not in local currency alone. Documents mode posts it so
+  unless SAP cleared it together with documents in another currency
+  (`clearingCurrency`): a USD invoice paid in USD posts in USD, one paid in
+  another currency in company currency. Balances mode, which takes no
+  clearing over, moves SAP's documents of such a position together
+  (`grirForeignDocuments`, review round 2): every document with a GR/IR line
+  of it, and through a document shared with another position that position's
+  documents too, post in the order's currency unless SAP cleared a vendor
+  line of any of them, in whatever currency it was paid; then all stay in
+  the opening entry, in company currency. Grouping by position rather than
+  moving each uncleared document was chosen because it leaves the account
+  netting per currency in more cases: a closed position, paid or not, nets
+  to zero in one currency (moving the receipt of a paid invoice alone would
+  leave the receipt in USD and the invoice in EUR), and an open one whose
+  invoices SAP left unpaid nets in the order's currency against the
+  take-over. The GR/IR account is not revalued, so what is left moves no
+  value, but a view of it by currency shows it. **Left for the product
+  owner**, the account then netting in local currency alone, the order's
+  currency and the company's holding offsetting amounts: in balances mode,
+  (1) an open position with a document SAP cleared a vendor line of, such as
+  an item invoiced in part by an invoice SAP paid, or tied to such a
+  document through a receipt shared with another position: SAP's side stays
+  in company currency while the take-over is in the order's, so the invoice
+  that clears it after cutover posts in the order's currency against a
+  balance in company currency; and (2) a position whose documents SAP partly
+  paid, one invoice paid and another not: the unpaid invoice posts in the
+  order's currency as an open item, the rest stays in company currency,
+  whether the position is open or closed. In documents mode, a document SAP
+  cleared together with documents in another currency (a USD invoice paid in
+  EUR or CAD) keeps its GR/IR line in company currency while the position's
+  other documents post in the order's.
 - **What follows.** The position is the platform's own in that currency:
   receipts and invoices move it by ADR-0034's GR/IR rules (T33b), the local
   value kept at what it was booked at and the difference an exchange

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -350,11 +349,9 @@ func (Postings) GRIROrder(ctx context.Context, legalEntity, order uuid.UUID) (GR
 }
 
 // Post posts the entry in the leading ledger; one with GR/IR items books
-// their lines too (postGRIR).
+// their lines too (postGRIR), and takes a given rate only as a take-over
+// in a foreign currency (checkForeignTakeOver, the rule's one place).
 func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
-	if in.Rate != nil && slices.ContainsFunc(in.GRIR, func(it GRIRItem) bool { return it.TakesOverLC == nil }) {
-		return Entry{}, errors.New("ledger: post: a given rate is taken with GR/IR items only by take-overs giving their local balances")
-	}
 	if len(in.GRIR) > 0 {
 		return p.postGRIR(ctx, in)
 	}
