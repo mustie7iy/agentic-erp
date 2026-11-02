@@ -438,8 +438,12 @@ GR/IR rules as built (T33b):
   entry in company currency, where a closed position nets to zero too. An
   open position with a document SAP paid (an item invoiced in part by an
   invoice SAP paid) and a position SAP paid only in part leave the account
-  netting in local currency alone: ADR-0005 As built states the cases, and
-  they are listed for the product owner.
+  netting in local currency alone: ADR-0005 As built states the cases (with
+  documents mode's document SAP cleared together with documents in another
+  currency, three in all). **Accepted by the product owner on 2026-11-02**
+  as documented: in them the account nets in local currency alone, the
+  order's and the company's currency amounts offset, nothing is revalued
+  and no value moves.
 - **Tests and walkthrough.** Both modes through the load with real
   PostgreSQL (`TestForeignGRIRPositions`): the take-over in USD at SAP's
   rate, a receipt at the platform's rate and the invoice clearing the

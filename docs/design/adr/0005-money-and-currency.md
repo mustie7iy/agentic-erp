@@ -260,9 +260,11 @@ a foreign currency, has the detail):
   leave the receipt in USD and the invoice in EUR), and an open one whose
   invoices SAP left unpaid nets in the order's currency against the
   take-over. The GR/IR account is not revalued, so what is left moves no
-  value, but a view of it by currency shows it. **Left for the product
-  owner**, the account then netting in local currency alone, the order's
-  currency and the company's holding offsetting amounts: in balances mode,
+  value, but a view of it by currency shows it. **Accepted by the product
+  owner on 2026-11-02 (po:2026-11-02), as documented here**: three cases in
+  which the account nets in local currency alone, the order's currency and
+  the company's holding offsetting amounts, nothing revalued and no value
+  moved. In balances mode,
   (1) an open position with a document SAP cleared a vendor line of, such as
   an item invoiced in part by an invoice SAP paid, or tied to such a
   document through a receipt shared with another position: SAP's side stays

@@ -114,7 +114,9 @@ balances mode a position's documents together, unless SAP cleared a vendor
 line of any of them, in whatever currency it paid; those then stay in the
 opening entry in company currency. An open position with an invoice SAP paid,
 or a position SAP paid only in part, leaves the account netting in company
-currency alone (ADR-0005 As built lists the cases). The quality gate refuses,
+currency alone (ADR-0005 As built lists the cases, which the product owner
+accepted on 2026-11-02: nothing is revalued and no value moves). The quality
+gate refuses,
 for such an order, a GR/IR line in another currency (RWCUR) than the order's,
 a document amount that does not parse, a line with an amount in one currency
 and none in the other or the two of opposite signs, a position with a balance
