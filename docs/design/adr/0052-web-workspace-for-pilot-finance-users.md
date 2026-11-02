@@ -3031,7 +3031,8 @@ built:
   unchanged and bound how long an upload may take (ADR-0020 As built).
 - **Tests.** `TestCaptureByUpload` (the S3 double behind the real API:
   the document in the bucket under the upload, via api, the upload used,
-  the form sent again landing on the same invoice), `TestCaptureRefusals`
+  the form sent again shown again, fresh, with a 409 and a link to the
+  invoice captured then), `TestCaptureRefusals`
   (each refusal before any call, as a forgery and by the API, in French,
   a person who may not capture), `TestCaptureTooLarge` (50 MB and more,
   streamed: 413, nothing in the bucket), `TestCaptureStubbed` (a bucket
@@ -3106,7 +3107,8 @@ settled:
   added or left out no line and the invoice has as many lines as when the
   form was opened, each line with the person's changes on it field by
   field by its place, as T73e2 did (another person who left one line out
-  and added another meanwhile is not told apart: reported); otherwise, both having changed the lines,
+  and added another meanwhile is not told apart: the tracker item of
+  src `review:batch38`); otherwise, both having changed the lines,
   the invoice's lines as they are now without the person's changes to
   them, said on the form (409, no call), the person's header changes kept
   at the invoice's version now. This is the entry form's rule for a

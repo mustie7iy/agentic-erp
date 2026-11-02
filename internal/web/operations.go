@@ -91,10 +91,12 @@ var (
 	opInvoice = []Operation{opMe, {ID: "getSupplierInvoice", HiddenBy: permReadInvoices}, {ID: "listMatchResults", HiddenBy: permReadInvoices},
 		{ID: "listRecommendations", HiddenBy: permReadRecommendations}, opNames, opCompanies}
 	// opInvoiceForm are the reads of a parked invoice's change form
-	// (invoice_edit.go).
-	opInvoiceForm = []Operation{opMe, {ID: "getSupplierInvoice", HiddenBy: permReadInvoices}}
-	opHouseBanks  = Operation{ID: "listHouseBanks", HiddenBy: permReadStatements}
-	opOperation   = Operation{ID: "getOperation", HiddenBy: permReadOperations}
+	// (invoice_edit.go): its lines name accounts and centers by their codes
+	// (invoiceCodes), and sending it looks codes up besides (opLookups).
+	opInvoiceForm = []Operation{opMe, {ID: "getSupplierInvoice", HiddenBy: permReadInvoices}, opAccounts,
+		{ID: "listCostCenters", HiddenBy: permReadCenters}, {ID: "listProfitCenters", HiddenBy: permReadCenters}}
+	opHouseBanks = Operation{ID: "listHouseBanks", HiddenBy: permReadStatements}
+	opOperation  = Operation{ID: "getOperation", HiddenBy: permReadOperations}
 	// opStatementList are the reads of the statements' list (bank.go),
 	// opStatement those of a statement's page (statement.go).
 	opStatementList = []Operation{opMe, opHouseBanks, opCompanies, {ID: "listBankStatements", HiddenBy: permReadStatements}}
@@ -251,7 +253,7 @@ var Screens = func() map[string][]Operation {
 			{ID: "listGoodsReceipts", HiddenBy: permReadReceipts}},
 		"GET /invoices/{id}/document": {{ID: "getSupplierInvoiceDocument", HiddenBy: permReadInvoices}},
 		"GET /invoices/{id}/edit":     opInvoiceForm,
-		"POST /invoices/{id}/edit":    append([]Operation{{ID: "updateSupplierInvoice", HiddenBy: permCaptureInvoices}}, opInvoiceForm...),
+		"POST /invoices/{id}/edit":    append(append([]Operation{{ID: "updateSupplierInvoice", HiddenBy: permCaptureInvoices}}, opInvoiceForm...), opLookups...),
 		"POST /invoices/{id}/recommendations/{rec}/decide": append([]Operation{{ID: "decideRecommendation", HiddenBy: permDecideRecommendations,
 			HumanOnly: true}}, opInvoice...),
 		"GET /bank":                        opStatementList,
