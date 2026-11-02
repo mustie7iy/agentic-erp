@@ -242,8 +242,9 @@ func TestCanadaPack2026_4(t *testing.T) {
 	}
 }
 
-// Canada 2026.5 is 2026.4 signed off (T62h): every file is 2026.4's and
-// the manifest differs only in its version and the sign-off, the tax
+// Canada 2026.5 is 2026.4 signed off (T62h): every file but pack.yaml is
+// 2026.4's byte for byte, and the manifest differs only in its version
+// and the sign-off (its header comment aside), the tax
 // specialist's as the product owner reported it on 2026-11-02. It is the
 // latest Canada pack.
 func TestCanadaPack2026_5(t *testing.T) {
@@ -268,5 +269,24 @@ func TestCanadaPack2026_5(t *testing.T) {
 	}
 	if got := lib.Latest("CA"); got != ca {
 		t.Errorf("Latest(CA): got %s, want ca/2026.5", got.Dir())
+	}
+	files, err := fs.ReadDir(packs.FS, "ca/2026.5")
+	if err != nil {
+		t.Fatalf("ReadDir(ca/2026.5): %v", err)
+	}
+	for _, f := range files {
+		if f.Name() == "pack.yaml" {
+			continue
+		}
+		t.Run(f.Name(), func(t *testing.T) {
+			was, errWas := fs.ReadFile(packs.FS, "ca/2026.4/"+f.Name())
+			is, errIs := fs.ReadFile(packs.FS, "ca/2026.5/"+f.Name())
+			if errWas != nil || errIs != nil {
+				t.Fatalf("read: got %v and %v, want the file in both versions", errWas, errIs)
+			}
+			if string(was) != string(is) {
+				t.Error("got other bytes than 2026.4's, want the same file")
+			}
+		})
 	}
 }

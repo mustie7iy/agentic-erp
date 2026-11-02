@@ -1443,10 +1443,12 @@ pack 2026.5 records it (ADR-0048, Canada pack). Nothing above is
 rewritten; this note says which of the items marked from memory, to
 confirm or for the tax specialist stand confirmed.
 - **Confirmed as written (Canada):** the reporting periods by annual
-  taxable supplies and their due dates (Context, from memory); the ITC time
+  taxable supplies (Context, from memory); the ITC time
   limit of generally four years; the conversion at the Bank of Canada rate
   of the day the tax became payable (Excise Tax Act s. 159, as recalled),
-  and with it the Canada pack's `rate_type: average` (§8 As built); rounding
+  and with it the Canada pack's `rate_type: average` (§8 As built), which
+  holds while the tenant records the Bank of Canada's daily rate under that
+  type (the ledger does not check a rate's source); rounding
   once per document, code and component, Canada's `rounding: document` (§8,
   §8 As built; no `rounding: line` for Canada); which tax identifier
   schemes count for `supplier_tax_id` (those named after the company's
@@ -1466,7 +1468,8 @@ confirm or for the tax specialist stand confirmed.
   lines (P4) are signed off with the step that writes them.
 - **Still open (questions the approval of what exists does not answer):**
   the registration number formats (§10 As built, its own tracker leaf); the
-  authorities' due dates (§10, not built); the measure of the prior-period
+  authorities' due dates (§10, not built), the Context's "one month after
+  a monthly or quarterly period" among them; the measure of the prior-period
   threshold (§11 As built: net or gross, per period or pooled; no released
   pack sets a threshold, the UAE's will); and whether a predecessor
   registration's unfiled period's items belong to its own return or the
