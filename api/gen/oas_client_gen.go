@@ -34136,6 +34136,23 @@ func (c *Client) sendListOpenItems(ctx context.Context, params ListOpenItemsPara
 		}
 	}
 	{
+		// Encode "special_gl" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "special_gl",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.SpecialGl.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
 		// Encode "aging_key_date" parameter.
 		cfg := uri.QueryParameterEncodingConfig{
 			Name:    "aging_key_date",

@@ -38013,6 +38013,10 @@ func (s *Server) handleListOpenItemsRequest(args [0]string, argsEscaped bool, w 
 					In:   "query",
 				}: params.DueDateTo,
 				{
+					Name: "special_gl",
+					In:   "query",
+				}: params.SpecialGl,
+				{
 					Name: "aging_key_date",
 					In:   "query",
 				}: params.AgingKeyDate,

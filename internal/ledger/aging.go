@@ -48,14 +48,14 @@ func agingDays(params gen.ListOpenItemsParams) ([]int32, error) {
 	return params.AgingDays, nil
 }
 
-// agingSelect sums the open items openItemFilters select ($1-$7) per
-// local currency and bucket on the key date $8: -1 without terms, 0 not
-// due, k overdue past the k-1 first of the days $9; a bucket without items
+// agingSelect sums the open items openItemFilters select ($1-$8) per
+// local currency and bucket on the key date $9: -1 without terms, 0 not
+// due, k overdue past the k-1 first of the days $10; a bucket without items
 // is left out.
 const agingSelect = `SELECT bucket, currency_lc, exp_lc, count(*), sum(amount_lc)::bigint FROM (
 	SELECT CASE WHEN o.net_days IS NULL THEN -1
-		WHEN $8::date - (o.baseline_date + o.net_days) <= 0 THEN 0
-		ELSE 1 + (SELECT count(*) FROM unnest($9::int[]) d WHERE d < $8::date - (o.baseline_date + o.net_days)) END AS bucket,
+		WHEN $9::date - (o.baseline_date + o.net_days) <= 0 THEN 0
+		ELSE 1 + (SELECT count(*) FROM unnest($10::int[]) d WHERE d < $9::date - (o.baseline_date + o.net_days)) END AS bucket,
 		o.currency_lc, o.exp_lc, o.amount_lc
 	FROM (` + openItemSelect + openItemFilters + `) o) o) a
 GROUP BY currency_lc, exp_lc, bucket ORDER BY currency_lc, bucket < 0, bucket`

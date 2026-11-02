@@ -532,6 +532,13 @@
         "r": "db/migrations/000081 · supplier-invoices/{id}:clearDownPayments · ledger.Postings.ClearDownPayments · DownPaymentsCleared · T46d",
         "src": "baseline",
         "c": []
+       },
+       {
+        "s": "D",
+        "t": "A down payment clearing counts each request once (found by the t73e4 lane, batch 39): the request of a chosen item is found by its payment entry alone, so two down payment lines of one entry, which the shared-tax rule makes a person choose together, counted the same request twice in the invoice's gross check and the cleared total; a choice that is not exactly the requests' down payments (one of a request's lines, or an entry paying two requests) marked cleared an amount the ledger did not clear. No path reaches either today (a run posts one entry per request with one down payment; the migration refuses more than one open down payment in a document)",
+        "r": "internal/payables downpayment_clearing.go clearedRequests (a request counted once; an entry's requests resolved in id order) · requireWholeRequests (the transfer's payables debit is the requests' total, else 422 payables.not_a_down_payment_request, the transfer rolled back) · TestClearDownPaymentsCountsEachRequestOnce · ADR-0037 As built 2026-11-02 (batch 39)",
+        "src": "review:batch39",
+        "c": []
        }
       ]
      },
@@ -5577,17 +5584,25 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Invoices beyond T73e3: clearing down payments on a posted invoice (clearSupplierInvoiceDownPayments: the supplier's paid down payments chosen from their open items, listOpenItems with special G/L A, at the invoice's version); walked through by a pilot AP clerk",
-        "r": "T73e4 (split from T73e3, 2026-11-01; the rest of T73e2's split leaf: docs/tracker_test.go vouch takes no step a split leaf names)",
+        "s": "D",
+        "t": "Invoices beyond T73e3: clearing down payments on a posted invoice, a screen of its own linked from the invoice's page for a person who may post invoices and read the ledger's items: the supplier's open down payments in the invoice's company, a page of listOpenItems with special G/L A (contract: listOpenItems.special_gl, the API's own filter, a page at a time), each with its paid request's number, what was paid tax included and its input tax (listDownPaymentRequests), one without a paid request, requested for another order or in another currency shown without its box and why; the down payments chosen and the transfer's posting date (the company's today by default) sent as clearSupplierInvoiceDownPayments at the invoice's ETag with the form's idempotency key, every money rule the API's; refused, the choice kept at the invoice's version now; EN and FR; axe at zero at 1280 and 390 px. The pilot AP clerk's walk-through is the leaf below",
+        "r": "api/openapi.yaml listOpenItems special_gl · internal/ledger api.go openItemFilters · aging.go · internal/web downpayments.go · invoice.go · operations.go opDownPayments · ui/downpayments.templ · static/css .fieldset · i18n downpayments.*, DownPaymentProblems · internal/platform/fixture downpayments.go · TestClearDownPayments (ledger, open items with special G/L A) · TestClearDownPayments · TestClearDownPaymentsInFrench · TestClearDownPaymentsAsOthers · TestDownPaymentsCallTheirInventory · TestClearDownPaymentsStubbed · TestClearDownPaymentsUnavailable · TestChoiceOf · TestDownPaymentRef · TestDownPaymentsInTheBrowser · walkthrough step_downpayment · ADR-0037 As built 2026-11-02 · ADR-0052 Built in T73e4 · T73e4",
         "src": "split:T73e2 · adr:ADR-0052",
         "pilot": "po:2026-10-31 · split:T73e2 · adr:ADR-0052",
         "c": []
        },
        {
         "s": "T",
+        "t": "Supplier invoices as built in T73e to T73e4 walked through by a pilot AP clerk: the queue and an exception decided, a parked invoice corrected (its tax per code, its lines), a scan captured by upload, a final invoice posted and the supplier's down payments cleared against it, on the pilot's own suppliers and orders; what they find becomes tracker items",
+        "r": "T73e5 (split from T73e4, 2026-11-02): human acceptance",
+        "src": "split:T73e2 · adr:ADR-0052",
+        "pilot": "po:2026-10-31 · split:T73e2 · adr:ADR-0052",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "After a 412 on a parked invoice's change, lines are matched up by their place whenever the counts are equal (T73e2's rule, kept by T73e3). If another person left out line A and added line C meanwhile, the person's edit to A lands on B.",
-        "r": "internal/web invoice_edit.go rebaseItems (found in batch 38's integration review)",
+        "r": "internal/web invoice_edit.go rebaseItems (found in batch 38's integration review): lines matched by their order item (purchase order and order item, the opened lines' was_item_purchase_order_id), never by place; a changed line of no order item, of one the invoice no longer holds or of one several lines share is lost, shown with the lines as they are (409) · identity · placesOf · asTyped · ui.FieldItemOrderID · TestChangeInvoiceLinesByOrderItem · TestChangeInvoiceLinesMeanwhile · TestRebaseItems · TestAsTypedErrors · ADR-0052 Built in T73e3, lines after a 412 · entry_form.go rebaseEntry checked: lines one block, not affected",
         "src": "review:batch38",
         "c": []
        },

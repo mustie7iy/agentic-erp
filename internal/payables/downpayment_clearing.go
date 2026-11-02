@@ -73,7 +73,36 @@ func (e *Endpoints) ClearDownPayments(ctx context.Context, id uuid.UUID, ifMatch
 	if err != nil {
 		return Invoice{}, err
 	}
+	if err := requireWholeRequests(entry, sup.ReconciliationID, total); err != nil {
+		return Invoice{}, err
+	}
 	return v, markCleared(ctx, tx, p, v, requests, total, entry)
+}
+
+// requireWholeRequests refuses the clearing (422
+// payables.not_a_down_payment_request) when the transfer's payables debit,
+// what the ledger cleared, is not the total of the requests found: the
+// items are then not exactly the down payments of those requests (one of
+// a request's lines left out, or an entry paying several requests), and
+// marking the requests cleared would record an amount the ledger did not
+// clear. A run posts one entry per request with one down payment, and the
+// migration refuses more than one open down payment in a document
+// (ADR-0037, As built T72c), so no path reaches this today; it holds the
+// money if one ever does (review:batch39). The refusal rolls the transfer
+// back with the unit of work.
+func requireWholeRequests(entry ledger.Entry, apAccount uuid.UUID, total money.Minor) error {
+	debits := 0
+	var debit money.Minor
+	for _, l := range entry.Lines {
+		if l.AccountID == apAccount && l.SpecialGL == nil {
+			debits, debit = debits+1, l.TC
+		}
+	}
+	if debits != 1 || debit != total {
+		return invalid("payables.not_a_down_payment_request", "items",
+			"The items are not the whole down payments of the paid requests they belong to: choose every down payment of a request's payment, and no other.")
+	}
+	return nil
 }
 
 // clearedRequests are the paid requests whose down payments the items are,
@@ -81,13 +110,17 @@ func (e *Endpoints) ClearDownPayments(ctx context.Context, id uuid.UUID, ifMatch
 // payment entry) of the invoice's supplier, legal entity and currency, on
 // the invoice's purchase order when it names one, and they, with those
 // cleared against the invoice before, are at most its gross amount, since
-// only whole down payments are cleared.
+// only whole down payments are cleared. A request counts once however
+// many of the items its payment entry holds (review:batch39); an entry
+// naming several requests, which ADR-0037 rules out, is resolved to the
+// same one every time, so requireWholeRequests refuses it.
 func clearedRequests(ctx context.Context, tx pgx.Tx, v Invoice, items []ledger.ItemRef) ([]DownPaymentRequest, money.Minor, error) {
 	amounts := []money.Minor{}
 	var requests []DownPaymentRequest
+	counted := map[uuid.UUID]bool{}
 	for i, it := range items {
 		r, err := scanRequest(tx.QueryRow(ctx, requestSelect+` WHERE r.journal_entry_year = $1 AND r.journal_entry_id = $2 AND r.status IN ('paid', 'cleared')
-			AND r.supplier_id = $3 AND r.legal_entity_id = $4 AND r.currency = $5 FOR UPDATE OF r`, it.FiscalYear, it.EntryID, v.SupplierID, v.LegalEntityID, v.Currency))
+			AND r.supplier_id = $3 AND r.legal_entity_id = $4 AND r.currency = $5 ORDER BY r.id LIMIT 1 FOR UPDATE OF r`, it.FiscalYear, it.EntryID, v.SupplierID, v.LegalEntityID, v.Currency))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, 0, invalid("payables.not_a_down_payment_request", fmt.Sprintf("items[%d]", i),
 				"The item is not the down payment of a paid request of the invoice's supplier in its currency.")
@@ -102,6 +135,10 @@ func clearedRequests(ctx context.Context, tx pgx.Tx, v Invoice, items []ledger.I
 			return nil, 0, invalid("payables.down_payment_other_order", fmt.Sprintf("items[%d]", i),
 				"Down payment request "+r.DocumentNumber+" is for another purchase order than the invoice's.")
 		}
+		if counted[r.ID] {
+			continue
+		}
+		counted[r.ID] = true
 		requests, amounts = append(requests, r), append(amounts, r.Amount)
 	}
 	var before money.Minor

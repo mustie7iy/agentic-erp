@@ -137,6 +137,9 @@ func importComponent(ctx context.Context, le uuid.UUID, date time.Time, l Line) 
 func calculatedOn(t TaxCode, k int, base money.Minor, date time.Time) (tax.ComponentTax, error) {
 	res, err := tax.Calculate(tax.Document{TaxDate: date, Codes: map[string]tax.Code{t.Code: t.Calculable()}, Lines: []tax.Line{{Amount: base, Code: t.Code}}})
 	if err != nil {
+		if p := notCalculable(err); p != nil {
+			return tax.ComponentTax{}, p
+		}
 		return tax.ComponentTax{}, fmt.Errorf("ledger: tax on a declared base of %s: %w", t.Code, err)
 	}
 	return res.Items[k], nil

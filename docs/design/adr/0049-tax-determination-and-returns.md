@@ -779,6 +779,20 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   which the pack names. Canada 2026.3 and 2026.4 name `average` and `document`, both
   pending the specialist (the conversion and rounding rules are cited from
   memory above).
+- **As built (fix, review:T73e3, 2026-11-02):** a code the calculator
+  cannot calculate on the date is refused, not answered 500. The ledger
+  reads a code with the rates in force on the date, so a code half of whose
+  components have no rate then (a reverse charge or import code whose
+  `self_output` rate starts later than its `self_input`'s) reaches the
+  calculator as half a pair (`tax.ErrInvalidCode`); a component without a
+  rate is `tax.ErrNoRate`. Posting a supplier invoice and capturing one
+  answer 422 `payables.invalid_tax_code` or `payables.no_tax_rate`; a
+  journal entry's output tax and declared import bases 422
+  `ledger.invalid_tax_code` or `ledger.no_tax_rate`; each detail names the
+  code (`tax.Reason`). A capture whose code cannot be calculated is refused
+  as one whose code is no input code on the tax date is
+  (`payables.unknown_tax_code`), not held. The invoice read already leaves
+  its `calculated_tax` out then (ADR-0052 T73e3).
 
 ### 9. Reverse charge and self-assessment
 A `reverse_charge` or `import` code has a `self_output` and a `self_input`

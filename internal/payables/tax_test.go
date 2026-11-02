@@ -292,6 +292,33 @@ func TestCodeWithdrawnBeforePosting(t *testing.T) {
 	e.Problem(422, "payables.unknown_tax_code", "POST", "/v1/supplier-invoices/"+id(inv)+":post", `{"posting_date": "2026-03-21"}`, e.tag(t, id(inv)))
 }
 
+// TestCodeNotCalculable: an invoice whose code the calculator cannot
+// calculate on its tax date is refused with 422 payables.invalid_tax_code
+// naming the code, not a 500: a reverse charge code whose self-assessed
+// half has no rate on the tax date yet, so the code read then is half a
+// pair. The invoice read leaves its figures out (T73e3).
+func TestCodeNotCalculable(t *testing.T) {
+	e := setup(t)
+	fixture.TaxCodes(t, e.Tenant, inputCodes(t, e), halfPair("RX"))
+	inv, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "HALF", "100.00", "0.00", coded(e, "100.00", "RX")), "")
+	if read, _ := e.Must(200, "GET", "/v1/supplier-invoices/"+id(inv), "", ""); read["calculated_tax"] != nil {
+		t.Errorf("read: got calculated_tax %v, want none", read["calculated_tax"])
+	}
+	p := e.Problem(422, "payables.invalid_tax_code", "POST", "/v1/supplier-invoices/"+id(inv)+":post", `{"posting_date": "2026-03-21"}`, e.tag(t, id(inv)))
+	if detail := fmt.Sprint(p["detail"]); !strings.Contains(detail, "RX") {
+		t.Errorf("detail: got %s, want the code named", detail)
+	}
+}
+
+// halfPair is a reverse charge code whose self-assessed output has a rate
+// from April 2026 only: on an earlier date the code read is its claim
+// alone, which the calculator cannot calculate.
+func halfPair(code string) config.TaxCode {
+	return config.TaxCode{Code: code, Description: "Half a pair", Kind: config.TaxReverseCharge, Components: []config.TaxComponent{
+		{Key: "due", AccountKey: config.KeySelfOutput, Account: "240000", Rates: []config.TaxRate{rate("5", "2026-04-01", "")}},
+		{Key: "claim", AccountKey: config.KeySelfInput, Account: "140000", Rates: []config.TaxRate{rate("5", "2026-01-01", "")}}}}
+}
+
 // TestTaxTooLarge: an invoice whose tax's local amounts at the tax date's
 // rate are out of range is refused with 422 payables.amount_too_large.
 func TestTaxTooLarge(t *testing.T) {

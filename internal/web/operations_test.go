@@ -134,7 +134,7 @@ func TestScreensAgainstTheContract(t *testing.T) {
 		}
 	}
 	for _, explained := range []map[string]i18n.Key{i18n.Problems, i18n.ObjectProblems, i18n.InvoiceProblems, i18n.BankProblems, i18n.PaymentProblems,
-		i18n.PeriodProblems, i18n.RevaluationProblems, i18n.EntryProblems} {
+		i18n.PeriodProblems, i18n.RevaluationProblems, i18n.EntryProblems, i18n.DownPaymentProblems} {
 		for _, code := range slices.Sorted(maps.Keys(explained)) {
 			if !answerable[code] {
 				t.Errorf("problem %s: explained by the catalog, but no operation the screens call answers it", code)

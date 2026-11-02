@@ -676,6 +676,11 @@ templ ActionsSection(ip InvoicePage) {
 			@ButtonLink(ip.Edit, i18n.InvoiceEdit)
 		</p>
 	}
+	if ip.DownPayments != "" {
+		<p>
+			@ButtonLink(ip.DownPayments, i18n.InvoiceDownPayments)
+		</p>
+	}
 	if len(ip.Actions) == 0 {
 		@Paragraph(ip.Why)
 	} else {

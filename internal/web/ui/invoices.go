@@ -284,11 +284,14 @@ type InvoicePage struct {
 	RecsError  *Refusal
 	RecsWhy    i18n.Key // why the open recommendations offer no decision
 	Actions    []ActionForm
-	Edit       string   // the change form's path; "" unless parked and the person may change it
-	Why        i18n.Key // why Actions is empty
-	Pending    bool     // an exception's request is linked to the invoice on hold: waiting, or approved before a hold by hand
-	Done       i18n.Key
-	Refusal    *Refusal
+	Edit       string // the change form's path; "" unless parked and the person may change it
+	// DownPayments is the clearing of down payments' path; "" unless a
+	// posted invoice and the person may clear them (T73e4).
+	DownPayments string
+	Why          i18n.Key // why Actions is empty
+	Pending      bool     // an exception's request is linked to the invoice on hold: waiting, or approved before a hold by hand
+	Done         i18n.Key
+	Refusal      *Refusal
 }
 
 // OrderHeader is a purchase order's summary.
@@ -471,6 +474,11 @@ const (
 	FieldItemAccountID    = "item_account_id"
 	FieldItemCostCenterID = "item_cost_center_id"
 	FieldItemProfitID     = "item_profit_center_id"
+	// FieldItemOrderID is an opened line's purchase order: with its order
+	// item, the line's identity after another person's change, which the
+	// API, numbering lines by their place, gives no line of its own
+	// (ADR-0052, review:batch38).
+	FieldItemOrderID = "item_purchase_order_id"
 	// FieldWas prefixes a field's value when the form was opened, sent
 	// beside it so the change is what the person changed (T73e2).
 	FieldWas = "was_"
@@ -559,9 +567,9 @@ func ItemFieldNames() []string {
 }
 
 // OpenedFieldNames are the fields of a line the form was opened with:
-// its fields, and its account's and centers' ids.
+// its fields, its account's and centers' ids, and its purchase order's.
 func OpenedFieldNames() []string {
-	return append(ItemFieldNames(), FieldItemAccountID, FieldItemCostCenterID, FieldItemProfitID)
+	return append(ItemFieldNames(), FieldItemAccountID, FieldItemCostCenterID, FieldItemProfitID, FieldItemOrderID)
 }
 
 // shownFields are the line's fields the form shows: the order item's only

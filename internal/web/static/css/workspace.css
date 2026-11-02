@@ -745,10 +745,14 @@ p,
   margin-block: 0.75rem;
 }
 
+/* A fieldset is as wide as its content at least (min-inline-size:
+   min-content), so a table in one widened the page on a phone instead of
+   scrolling in its own region (T73e4's down payments). */
 .fieldset {
   margin: 0;
   padding: 0;
   border: 0;
+  min-inline-size: 0;
 }
 
 .radio {

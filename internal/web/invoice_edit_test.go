@@ -14,6 +14,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/web/i18n"
+	"github.com/mustie7iy/agentic-erp/internal/web/ui"
 )
 
 func editPath(id uuid.UUID) string { return invoicePath(id) + "/edit" }
@@ -377,25 +379,36 @@ func TestChangeInvoiceLines(t *testing.T) {
 }
 
 // TestChangeInvoiceLinesMeanwhile: lines another person changed meanwhile
-// are kept. The person's changes to a line's fields are put on it; lines
-// the person did not change are taken as they are now; when both changed
-// the lines and lines were added or left out, the form shows the lines as
-// they are now, without the person's changes to them, and says so,
-// keeping the person's other changes, which sent again apply alone.
+// are kept. The person's changes to a line's fields are put on the line of
+// the same order item; lines the person did not change are taken as they
+// are now; when both changed the lines and the person added or left out
+// lines, or changed a line of no order item, which has no identity to put
+// them on, the form shows the lines as they are now, without the person's
+// changes to them, and says so, keeping the person's other changes, which
+// sent again apply alone.
 func TestChangeInvoiceLinesMeanwhile(t *testing.T) {
 	s, d := invoicesStack(t)
 	b := s.browser()
 	b.signIn()
-	// The person changes the line's amount; someone else its description.
-	amount := editForm(t, b, d.account, url.Values{"item_amount": {"90.00"}, "gross_amount": {"109.00"}, "tax_amount": {"19.00"}})
-	status(t, "a description meanwhile", b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"item_description": {"Fees B"}})),
+	// The person changes a line's amount; someone else its description.
+	amount := editForm(t, b, d.clean, url.Values{"item_amount": {"110.00", "15.00"}, "gross_amount": {"147.80"}})
+	status(t, "a description meanwhile", b.do(http.MethodPost, editPath(d.clean), editForm(t, b, d.clean, url.Values{"item_description": {"Paper", ""}})),
 		http.StatusSeeOther)
-	merged := b.do(http.MethodPost, editPath(d.account), amount)
+	merged := b.do(http.MethodPost, editPath(d.clean), amount)
 	status(t, "both on one line", merged, http.StatusPreconditionFailed)
-	status(t, "both on one line, sent again", b.do(http.MethodPost, editPath(d.account), formValues(merged.page(t).form(editPath(d.account)))),
+	status(t, "both on one line, sent again", b.do(http.MethodPost, editPath(d.clean), formValues(merged.page(t).form(editPath(d.clean)))),
 		http.StatusSeeOther)
-	if got, want := itemsOf(t, d.account), "- Fees B 1 EA 9000 V1 520000 -"; got != want {
+	if got, want := itemsOf(t, d.clean), "1 Paper 10 EA 11000 V1 520000 -; 2 - 5 KG 1500 - 520000 -"; got != want {
 		t.Errorf("both on one line: got %s, want %s", got, want)
+	}
+	// The same on a line of no order item: not told apart from another
+	// line put in its place.
+	unknown := editForm(t, b, d.account, url.Values{"item_amount": {"90.00"}, "gross_amount": {"109.00"}})
+	status(t, "a description meanwhile, no order item", b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account,
+		url.Values{"item_description": {"Fees B"}})), http.StatusSeeOther)
+	status(t, "both on a line of no order item", b.do(http.MethodPost, editPath(d.account), unknown), http.StatusConflict)
+	if got, want := itemsOf(t, d.account), "- Fees B 1 EA 10000 V1 520000 -"; got != want {
+		t.Errorf("both on a line of no order item: got %s, want %s", got, want)
 	}
 
 	// The person changes the reference alone; someone else adds a line.
@@ -433,6 +446,54 @@ func TestChangeInvoiceLinesMeanwhile(t *testing.T) {
 	}
 	if got := strings.Count(itemsOf(t, d.account), ";"); got != 1 {
 		t.Errorf("both changed the lines, sent again: got %d lines, want the two kept", got+1)
+	}
+}
+
+// TestChangeInvoiceLinesByOrderItem: after another person's change, the
+// person's change to a line is put on the invoice's line of the same
+// order item, never on the line now in its place. Someone else left out
+// the line the person changed and added another (as many lines as
+// before): the person's change has no line to go on, so the form shows the
+// lines as they are now and says so, sending nothing for them (the tracker
+// item of src review:batch38). Someone else left out another line: the
+// person's change goes on its line.
+func TestChangeInvoiceLinesByOrderItem(t *testing.T) {
+	s, d := invoicesStack(t)
+	b := s.browser()
+	b.signIn()
+	mine := editForm(t, b, d.clean, url.Values{"item_description": {"Mine", ""}})
+	other := formValues(b.do(http.MethodPost, editPath(d.clean), editForm(t, b, d.clean, url.Values{"op": {"add"}})).page(t).form(editPath(d.clean)))
+	for name, values := range map[string][]string{"item_order_item": {"1", "2", "2"}, "item_quantity": {"10", "5", "1"}, "item_unit": {"EA", "KG", "KG"},
+		"item_amount": {"120.00", "15.00", "3.00"}, "item_remove": {"1"}} {
+		other[name] = values
+	}
+	other.Set("gross_amount", "40.80")
+	status(t, "a line left out and one added meanwhile", b.do(http.MethodPost, editPath(d.clean), other), http.StatusSeeOther)
+	before := itemsOf(t, d.clean)
+	lost := b.do(http.MethodPost, editPath(d.clean), mine)
+	status(t, "the line changed is gone", lost, http.StatusConflict)
+	lp := lost.page(t)
+	holds(t, "the line changed is gone", lp.mainText(), "Someone else changed the invoice's lines since you opened this form, and so did you.")
+	again := b.do(http.MethodPost, editPath(d.clean), formValues(lp.form(editPath(d.clean))))
+	if got := again.location(); got != invoicePath(d.clean)+"?done=unchanged" {
+		t.Errorf("the line changed is gone, sent again: got %d to %q, want nothing changed", again.status, got)
+	}
+	if got := itemsOf(t, d.clean); got != before {
+		t.Errorf("the line changed is gone: got %s, want %s", got, before)
+	}
+
+	// The invoice's lines are of order items 1 and 2 again; the person
+	// changes the second; someone else leaves the first out.
+	status(t, "the order items again", b.do(http.MethodPost, editPath(d.clean), editForm(t, b, d.clean, url.Values{"item_order_item": {"1", "2"},
+		"item_quantity": {"10", "5"}, "item_unit": {"EA", "KG"}, "item_amount": {"120.00", "15.00"}, "gross_amount": {"157.80"}})), http.StatusSeeOther)
+	second := editForm(t, b, d.clean, url.Values{"item_description": {"", "Toner"}})
+	status(t, "another line left out meanwhile", b.do(http.MethodPost, editPath(d.clean), editForm(t, b, d.clean, url.Values{"item_remove": {"1"},
+		"gross_amount": {"37.80"}})), http.StatusSeeOther)
+	merged := b.do(http.MethodPost, editPath(d.clean), second)
+	status(t, "its line kept", merged, http.StatusPreconditionFailed)
+	status(t, "its line kept, sent again", b.do(http.MethodPost, editPath(d.clean), formValues(merged.page(t).form(editPath(d.clean)))), http.StatusSeeOther)
+	if got, want := itemsOf(t, d.clean), "2 Toner 5 KG 1500 - 520000 -"; got != want {
+		t.Errorf("its line kept: got %s, want %s", got, want)
 	}
 }
 
@@ -558,34 +619,88 @@ func TestOrderItemChanged(t *testing.T) {
 }
 
 // TestRebaseItems: the lines a change sends after another person's, by
-// who changed them and how.
+// who changed them and how; the person's changes go on the line of the
+// same order item, never on the line in its place, and lines of no order
+// item, or of one the invoice no longer holds or several lines share, are
+// none to put them on.
 func TestRebaseItems(t *testing.T) {
 	line := func(from int, amount string) itemTyped { return itemTyped{from: from, amount: amount, unit: "EA"} }
+	of := func(from int, item, amount string) itemTyped {
+		it := line(from, amount)
+		it.orderItem, it.held[3] = item, "po"
+		return it
+	}
 	opened := []itemTyped{line(1, "1.00"), line(2, "2.00")}
+	ordered := []itemTyped{of(1, "1", "1.00"), of(2, "2", "2.00")}
 	for name, tc := range map[string]struct {
-		typed, now []itemTyped
-		want       linesTaken
-		amounts    string
+		opened, typed, now []itemTyped
+		want               linesTaken
+		amounts, mine      string
 	}{
-		"nobody else":                      {[]itemTyped{line(1, "1.00")}, opened, linesTyped, "1.00"},
-		"the person changed none":          {opened, []itemTyped{line(1, "1.00")}, linesNow, "1.00"},
-		"fields of both":                   {[]itemTyped{line(1, "1.50"), line(2, "2.00")}, []itemTyped{line(1, "1.00"), line(2, "2.50")}, linesMerged, "1.50 2.50"},
-		"both, one left out":               {[]itemTyped{line(1, "1.50")}, []itemTyped{line(1, "1.00"), line(2, "2.50")}, linesLost, "1.00 2.50"},
-		"both, one added":                  {[]itemTyped{line(1, "1.50"), line(2, "2.00"), line(0, "3.00")}, []itemTyped{line(1, "1.00"), line(2, "2.50")}, linesLost, "1.00 2.50"},
-		"both, one left out and one added": {[]itemTyped{line(1, "1.50"), line(0, "3.00")}, []itemTyped{line(1, "1.00"), line(2, "2.50")}, linesLost, "1.00 2.50"},
-		"both, the other added":            {[]itemTyped{line(1, "1.50"), line(2, "2.00")}, []itemTyped{line(1, "1.00"), line(2, "2.00"), line(3, "3.00")}, linesLost, "1.00 2.00 3.00"},
+		"nobody else":             {opened, []itemTyped{line(1, "1.00")}, opened, linesTyped, "1.00", "0"},
+		"the person changed none": {opened, opened, []itemTyped{line(1, "1.00")}, linesNow, "1.00", "0"},
+		"fields of both, no order items": {opened, []itemTyped{line(1, "1.50"), line(2, "2.00")}, []itemTyped{line(1, "1.00"), line(2, "2.50")}, linesLost,
+			"1.00 2.50", "0 0"},
+		"fields of both": {ordered, []itemTyped{of(1, "1", "1.50"), of(2, "2", "2.00")}, []itemTyped{of(1, "1", "1.00"), of(2, "2", "2.50")}, linesMerged,
+			"1.50 2.50", "1 0"},
+		"its line left out, another added": {ordered, []itemTyped{of(1, "1", "1.50"), of(2, "2", "2.00")}, []itemTyped{of(1, "2", "2.00"),
+			of(2, "3", "3.00")}, linesLost, "2.00 3.00", "0 0"},
+		"another line left out": {ordered, []itemTyped{of(1, "1", "1.00"), of(2, "2", "2.50")}, []itemTyped{of(1, "2", "2.00")}, linesMerged, "2.50", "2"},
+		"another line added": {ordered, []itemTyped{of(1, "1", "1.50"), of(2, "2", "2.00")}, []itemTyped{of(1, "1", "1.00"), of(2, "2", "2.00"),
+			of(3, "3", "3.00")}, linesMerged, "1.50 2.00 3.00", "1 0 0"},
+		"the lines in another order": {ordered, []itemTyped{of(1, "1", "1.50"), of(2, "2", "2.00")}, []itemTyped{of(1, "2", "2.00"), of(2, "1", "1.00")},
+			linesMerged, "2.00 1.50", "0 1"},
+		"its order item on two lines now": {ordered, []itemTyped{of(1, "1", "1.50"), of(2, "2", "2.00")}, []itemTyped{of(1, "1", "1.00"),
+			of(2, "1", "2.00")}, linesLost, "1.00 2.00", "0 0"},
+		"its order item on two lines opened": {[]itemTyped{of(1, "1", "1.00"), of(2, "1", "2.00")}, []itemTyped{of(1, "1", "1.50"), of(2, "1", "2.00")},
+			[]itemTyped{of(1, "1", "1.00")}, linesLost, "1.00", "0"},
+		"both, one left out": {ordered, []itemTyped{of(1, "1", "1.50")}, []itemTyped{of(1, "1", "1.00"), of(2, "2", "2.50")}, linesLost, "1.00 2.50", "0 0"},
+		"both, one added": {ordered, []itemTyped{of(1, "1", "1.50"), of(2, "2", "2.00"), line(0, "3.00")}, []itemTyped{of(1, "1", "1.00"),
+			of(2, "2", "2.50")}, linesLost, "1.00 2.50", "0 0"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got, taken := rebaseItems(tc.typed, opened, tc.now)
-			var amounts []string
+			got, taken := rebaseItems(tc.typed, tc.opened, tc.now)
+			var amounts, mine []string
 			for _, it := range got {
-				amounts = append(amounts, it.amount)
+				amounts, mine = append(amounts, it.amount), append(mine, fmt.Sprint(it.mine))
 			}
 			if taken != tc.want {
 				t.Errorf("taken: got %d, want %d", taken, tc.want)
 			}
 			if got := strings.Join(amounts, " "); got != tc.amounts {
 				t.Errorf("amounts: got %s, want %s", got, tc.amounts)
+			}
+			if got := strings.Join(mine, " "); got != tc.mine {
+				t.Errorf("the person's lines: got %s, want %s", got, tc.mine)
+			}
+		})
+	}
+}
+
+// TestAsTypedErrors: a form refused by the checks shows each line's errors
+// on the person's line: in its place when the person's lines were taken,
+// on the line whose changes it carries when they were put on the
+// invoice's.
+func TestAsTypedErrors(t *testing.T) {
+	wrong := map[string]i18n.Key{ui.FieldItemAmount: i18n.EntryAmountInvalid}
+	typed := invoiceTyped{items: []itemTyped{{from: 1}, {from: 2}}}
+	for name, tc := range map[string]struct {
+		checked []itemTyped
+		taken   linesTaken
+		want    string
+	}{
+		"the person's lines":            {[]itemTyped{{}, {errs: wrong}}, linesTyped, "0 1"},
+		"put on the invoice's":          {[]itemTyped{{errs: wrong, mine: 2}, {}}, linesMerged, "0 1"},
+		"put on the invoice's, another": {[]itemTyped{{mine: 1}, {}}, linesMerged, "0 0"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := asTyped(invoiceTyped{items: slices.Clone(typed.items)}, typed, `"1"`, invoiceTyped{items: tc.checked}, tc.taken)
+			var errs []string
+			for _, it := range got.items {
+				errs = append(errs, fmt.Sprint(len(it.errs)))
+			}
+			if got := strings.Join(errs, " "); got != tc.want {
+				t.Errorf("errors per line: got %s, want %s", got, tc.want)
 			}
 		})
 	}

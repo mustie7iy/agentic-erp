@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -40,14 +41,31 @@ func TestStatedTaxRefusals(t *testing.T) {
 	}
 }
 
-// TestCalculationFailed: amounts out of range are the invoice's 422; the
-// calculator's other errors are wrapped.
+// TestCalculationFailed: amounts out of range are the invoice's 422; a
+// code the calculator cannot calculate on the tax date is a 422 naming the
+// code, its problem's code saying why (no rate then, or components that
+// make no code then); the calculator's other errors are wrapped.
 func TestCalculationFailed(t *testing.T) {
-	if got := problem.From(calculationFailed(uuid.Nil, fmt.Errorf("tax: line 1: %w", money.ErrOverflow))); got == nil || got.Code != "payables.amount_too_large" {
-		t.Errorf("overflow: got %v, want payables.amount_too_large", got)
+	for name, c := range map[string]struct {
+		err  error
+		code string
+	}{
+		"overflow":     {fmt.Errorf("tax: line 1: %w", money.ErrOverflow), "payables.amount_too_large"},
+		"no rate":      {fmt.Errorf("%w: code V1 component tax on 2026-03-10", tax.ErrNoRate), "payables.no_tax_rate"},
+		"invalid code": {fmt.Errorf("%w V1: no components", tax.ErrInvalidCode), "payables.invalid_tax_code"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := problem.From(calculationFailed(uuid.Nil, c.err))
+			if got == nil || got.Code != c.code || got.Status != 422 {
+				t.Fatalf("got %v, want 422 %s", got, c.code)
+			}
+			if c.code != "payables.amount_too_large" && !strings.Contains(got.Detail, "V1") {
+				t.Errorf("detail: got %q, want the code named", got.Detail)
+			}
+		})
 	}
-	if err := calculationFailed(uuid.Nil, tax.ErrInvalidCode); !errors.Is(err, tax.ErrInvalidCode) {
-		t.Errorf("an invalid code: got %v, want it wrapped", err)
+	if err := calculationFailed(uuid.Nil, tax.ErrInvalid); !errors.Is(err, tax.ErrInvalid) {
+		t.Errorf("an invalid document: got %v, want it wrapped", err)
 	}
 }
 

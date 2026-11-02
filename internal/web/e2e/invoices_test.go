@@ -424,6 +424,11 @@ func TestInvoiceLinesInTheBrowser(t *testing.T) {
 			); err != nil {
 				t.Fatal(err)
 			}
+			// htmx gives the line now last its autofocus when the swap
+			// settles, after the old line is gone: moving the focus to the
+			// top before then lost it to that field under load (batch 39,
+			// -race -shuffle).
+			focusedIs(t, ctx, "item-2-item_order_item")
 			once, err := chromedp.Run(ctx, chromedp.Evaluate[bool](`window.loadedOnce === true`))
 			if err != nil || !once {
 				t.Errorf("the lines were changed by loading the page again, not by htmx (%v)", err)

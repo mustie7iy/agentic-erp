@@ -166,11 +166,32 @@ func outputMismatch(g outputGroup, it tax.ComponentTax, got money.Minor, expTC i
 }
 
 // calculationFailed is the calculator's error: base lines adding up to more
-// than an amount are the entry's (422 ledger.amount_too_large); the rest,
-// of codes the configuration validated, are not expected.
+// than an amount are the entry's (422 ledger.amount_too_large); a code it
+// cannot calculate on the date is the configuration's then (notCalculable);
+// the rest are not expected.
 func calculationFailed(code string, err error) error {
 	if errors.Is(err, money.ErrOverflow) {
 		return errTotalTooLarge("lines")
 	}
+	if p := notCalculable(err); p != nil {
+		return p
+	}
 	return fmt.Errorf("ledger: output tax of code %s: %w", code, err)
+}
+
+// notCalculable is the problem of a code the calculator cannot calculate
+// on the entry's date, the configuration's on that date, which the entry
+// cannot post on until it is corrected or another date or code is chosen:
+// a component without a rate then (422 ledger.no_tax_rate), or components
+// as rated then that do not make a code (a self-assessed code missing half
+// its pair, its halves at different rates: 422 ledger.invalid_tax_code),
+// the calculator's words naming the code; nil for its other errors.
+func notCalculable(err error) error {
+	switch {
+	case errors.Is(err, tax.ErrNoRate):
+		return problem.Unprocessable("ledger.no_tax_rate", "The entry's tax cannot be calculated: "+tax.Reason(err)+".")
+	case errors.Is(err, tax.ErrInvalidCode):
+		return problem.Unprocessable("ledger.invalid_tax_code", "The entry's tax cannot be calculated: "+tax.Reason(err)+".")
+	}
+	return nil
 }

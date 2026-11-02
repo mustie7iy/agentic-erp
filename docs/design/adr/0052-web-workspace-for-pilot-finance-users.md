@@ -3092,7 +3092,8 @@ settled:
   invoice left without lines is refused before any call. A line names
   the invoice's line it shows (`item_from`), and the lines the form was
   opened with travel as a block of their own (`was_…`, with each line's
-  account and centers by id), so adding or leaving out lines keeps them,
+  account and centers by id, and its purchase order's since batch 38's
+  review), so adding or leaving out lines keeps them,
   and whether another person changed the lines is decided by what the
   invoice holds, not by what the company's pages read showed (go-reviewer,
   round 1). A line whose order item changed takes the new order item's
@@ -3100,19 +3101,36 @@ settled:
   (the API fills them from the order item); one leaving its order item
   keeps the account it shows.
 - **Lines after a 412 (decided by default, for the product owner to
-  overrule).** The API numbers lines by their place, so a line added or
-  left out has no identity to put another person's change on field by
-  field. `rebaseItems` takes the person's lines when nobody else changed
-  the lines; the invoice's when the person changed none; while the person
-  added or left out no line and the invoice has as many lines as when the
-  form was opened, each line with the person's changes on it field by
-  field by its place, as T73e2 did (another person who left one line out
-  and added another meanwhile is not told apart: the tracker item of
-  src `review:batch38`); otherwise, both having changed the lines,
-  the invoice's lines as they are now without the person's changes to
-  them, said on the form (409, no call), the person's header changes kept
-  at the invoice's version now. This is the entry form's rule for a
-  parked entry's lines (lane entrylost).
+  overrule).** The API gives an invoice's line no id of its own and
+  numbers lines by their place, so a line's identity is its order item
+  (its purchase order and order item; an invoice is for one order). The
+  lines the form was opened with carry their purchase order's id
+  (`was_item_purchase_order_id`) beside the account's and centers'.
+  `rebaseItems` takes the person's lines when nobody else changed the
+  lines; the invoice's when the person changed none; while the person
+  added and left out no line, the invoice's lines now, each line the
+  person changed with the changes on the invoice's line of the same order
+  item field by field, wherever it now is and whatever lines someone else
+  added or left out; otherwise, both having changed the lines, the
+  invoice's lines as they are now without the person's changes to them,
+  said on the form (409, no call), the person's header changes kept at the
+  invoice's version now. Otherwise covers a changed line that no line now
+  is known to be: of no order item (a line of an invoice not on an order
+  has no identity: another person may have left it out and added another
+  in its place), of an order item the invoice no longer holds, or of one
+  several lines share, opened or now. Lines were matched by their place
+  whenever the counts were equal until batch 38's review (src
+  `review:batch38`): another person who left out line A and added C put
+  the person's change to A on B (`TestChangeInvoiceLinesByOrderItem`
+  reproduced it). A line of no order item changed by both people is the
+  price of never guessing: the person sees the lines as they are and types
+  the change again. A form opened before this fix carries no purchase
+  order ids, so its lines read as changed by someone else: a line the
+  person changed there is shown as it is now (409), once. This is the
+  entry form's rule for a parked entry's
+  lines (lane entrylost), whose lines travel as one block, so the same
+  bug cannot arise there (`rebaseEntry` takes the person's lines whole or
+  the entry's whole).
 - **Permissions.** The AP clerk's role needs `ledger.account.read` and
   `ledger.cost_center.read` to see numbers and codes rather than ids
   (`fixture.InvoicePermissions` gains both); without them the form still
@@ -3127,11 +3145,77 @@ settled:
 - **Tests.** `TestCalculatedTaxOnRead`, `TestReadFigures` and the
   extended `TestTaxCodeChangedBeforePosting`, `TestCodeWithdrawnBeforePosting`
   and `TestInvoiceOnARemovedOrderItem` in payables; `TestChangeInvoiceLines`,
-  `TestChangeInvoiceLinesMeanwhile`, `TestChangeInvoiceOrderItems`,
-  `TestChangeInvoiceCenters`, `TestTaxAndIssuesShown`, `TestOrderItemChanged`
-  and `TestRebaseItems` in the workspace; `TestInvoiceLinesInTheBrowser`
+  `TestChangeInvoiceLinesMeanwhile`, `TestChangeInvoiceLinesByOrderItem`, `TestChangeInvoiceOrderItems`,
+  `TestChangeInvoiceCenters`, `TestTaxAndIssuesShown`, `TestOrderItemChanged`,
+  `TestRebaseItems` and `TestAsTypedErrors` in the workspace; `TestInvoiceLinesInTheBrowser`
   adds and leaves out a line with htmx, axe at zero at 1280 px in English
   and 390 px in French, and saves a line of an order item.
+
+## Built in T73e4 (2026-11-02)
+Invoices beyond T73e3: clearing a supplier's down payments against its
+posted final invoice (SAP F-54, ADR-0037), the rest of T73e2's split leaf.
+The pilot AP clerk's walk-through, human acceptance, is T73e5. What it
+settled:
+- **Contract.** `listOpenItems` gains `special_gl`, the items with that
+  special G/L indicator alone (`A`: a supplier's down payments, the items
+  `clearSupplierInvoiceDownPayments` clears). The workspace cannot name the
+  down payment account (`account_id`): no operation answers the account
+  determination, and the account is a supplier reconciliation account like
+  the payables account. Filtering a page of all the supplier's items in the
+  workspace would break §8 (lists map the API's pages one to one, only the
+  API's filters). Additive and optional; the page token is bound to it, as
+  to every filter. The walkthrough's step 16 chooses the migrated down
+  payment from that list before clearing it, as the screen does.
+- **The screen.** `GET /invoices/{id}/down-payments`, linked from a posted
+  invoice's actions (kind `invoice`) for a person holding
+  `payables.invoice.post` and `ledger.entry.read` (advisory); any other
+  invoice goes to its page. It reads `getCurrentPrincipal`,
+  `getSupplierInvoice`, `getLegalEntityToday` (the transfer's default
+  posting date, as every form's date), `listOpenItems` (the invoice's
+  company and supplier, `special_gl=A`, 100 a page: as many as one clearing
+  takes; the next page by its token in the address) and
+  `listDownPaymentRequests` (the supplier's `paid` requests, 500, the API's
+  largest page): five calls. Each down payment shows its request's number,
+  the payment entry's number, posting date and reference, what was paid
+  tax included and the input tax: the request's amounts, the ones the
+  clearing weighs against the invoice's gross amount, where the ledger's
+  item holds the net (ADR-0037 As built, T72c). The person checks the down
+  payments to clear and the posting date; `POST` sends them as
+  `clearSupplierInvoiceDownPayments` with the ETag the screen was read at
+  and the form's idempotency key. Done, the invoice's page says so; refused
+  (above the gross, a stale version, a period closed, a down payment
+  cleared meanwhile), the screen says why in the person's words with the
+  choice and date kept, at the invoice's version now; a form the checks
+  refuse before any call (no down payment, no or no valid date) keeps the
+  version it was read at, as the change form does (T73e2). The clearing's
+  codes have messages of their own (`DownPaymentProblems`, looked up
+  before the invoice screens'): `payables.invoice_in_payment_run` there
+  speaks of a reversal.
+- **Decided by default (for the product owner to overrule).** No money
+  rule is the screen's: it adds and compares no amounts, and offers no
+  partial clearing, which the API does not have (each down payment is
+  cleared whole). A down payment the API would refuse whatever is chosen
+  with it is shown without its box, saying why (§7, advisory): no paid
+  request names its payment (one beyond the 500 requests read is shown so
+  too, erring towards offering less), its request names another purchase
+  order than the invoice's, or it is in another currency. The screen sits
+  on its own page rather than the invoice's: the invoice's page already
+  makes six calls. A fieldset no longer widens a phone's page with a table
+  in it (`.fieldset { min-inline-size: 0 }`).
+- **Tests.** `TestClearDownPayments` (the real API and PostgreSQL: the link,
+  the supplier's two down payments alone, the date the company's today,
+  each check before any call with the choice kept, a tampered choice
+  refused as not the page's form, both above the gross refused with the
+  choice kept, a stale version, the one chosen cleared and the other left,
+  a parked invoice not offered), `TestClearDownPaymentsInFrench`,
+  `TestClearDownPaymentsAsOthers` (the API's 403 in place),
+  `TestDownPaymentsCallTheirInventory`, `TestClearDownPaymentsStubbed`,
+  `TestClearDownPaymentsUnavailable`, `TestChoiceOf`, `TestDownPaymentRef`;
+  ledger's `TestClearDownPayments` lists the supplier's down payments by
+  `special_gl`. The browser suite runs axe at zero on the screen in
+  English, French and both pseudo-locales at 1280 and 390 px, and walks, in
+  French on a phone, both down payments refused above the gross with the
+  choice kept and one cleared (`TestDownPaymentsInTheBrowser`).
 
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
