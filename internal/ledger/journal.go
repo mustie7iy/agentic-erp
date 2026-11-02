@@ -1030,6 +1030,9 @@ func (e *Endpoints) prepareFor(ctx context.Context, tx pgx.Tx, le tenancy.Entity
 	if err != nil {
 		return prepared{}, err
 	}
+	if err := refuseAssetReconciliation(cmp.Or(in.SourceContext, "ledger"), lines, accounts); err != nil {
+		return prepared{}, err
+	}
 	if err := commonOnReconciliation(choice, lines, accounts); err != nil {
 		return prepared{}, err
 	}

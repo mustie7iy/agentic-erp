@@ -96,6 +96,7 @@ func (s Setup) Check(ctx context.Context, base, proposed *config.Config) ([]conf
 	if err := checkLedgers(ctx, tx, proposed, &out); err != nil {
 		return nil, err
 	}
+	checkAssetRanges(proposed, clock.Now(s.Now), &out)
 	if base == nil {
 		return out, nil
 	}
@@ -162,6 +163,9 @@ func (s Setup) checkCompany(ctx context.Context, tx pgx.Tx, co config.Company, w
 	if err := checkOpenItemsUnposted(ctx, tx, p, le.ID, co, was, out); err != nil {
 		return err
 	}
+	if err := checkAssetReconciliationUnposted(ctx, tx, p, le.ID, co, was, out); err != nil {
+		return err
+	}
 	if dated {
 		if _, err := readControlling(ctx, tx, p, le.ID, co, today, false, out); err != nil {
 			return err
@@ -184,21 +188,8 @@ func checkDay(now time.Time, co config.Company) (companyDay, bool) {
 // company names a new clearing account instead and transfers the old
 // balance to it with one audited manual entry.
 func checkOpenItemsUnposted(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID, co config.Company, was *config.Company, out *findings) error {
-	var numbers []string
-	for _, a := range co.ChartOfAccounts {
-		if a.OpenItems && (was == nil || was.Account(a.Number) == nil || !was.Account(a.Number).OpenItems) {
-			numbers = append(numbers, a.Number)
-		}
-	}
-	if len(numbers) == 0 {
-		return nil
-	}
-	rows, _ := tx.Query(ctx, `SELECT g.number FROM ledger.gl_account g
-		JOIN ledger.chart_of_accounts c ON c.tenant_id = g.tenant_id AND c.id = g.chart_id AND c.code = $2
-		WHERE g.number = ANY($3) AND EXISTS (SELECT FROM ledger.journal_line l
-			WHERE l.tenant_id = g.tenant_id AND l.legal_entity_id = $1 AND l.account_id = g.id)
-		ORDER BY 1`, le, co.Code, numbers)
-	posted, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	turned := turnedOn(co, was, func(a *config.Account) bool { return a.OpenItems })
+	posted, err := postedAccounts(ctx, tx, le, co.Code, turned)
 	if err != nil {
 		return fmt.Errorf("ledger: check company %s: open-item accounts: %w", co.Code, err)
 	}
@@ -207,6 +198,84 @@ func checkOpenItemsUnposted(ctx context.Context, tx pgx.Tx, p string, le uuid.UU
 			"name a new clearing account and transfer the old balance to it", number)
 	}
 	return nil
+}
+
+// checkAssetReconciliationUnposted reports accounts the proposal makes
+// asset reconciliation accounts that already have postings (ADR-0057 §3):
+// their balance would not be the assets' movements, and lines no assets
+// document posted could stay on them. The company flags a new account
+// before any balance is migrated onto it.
+func checkAssetReconciliationUnposted(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID, co config.Company, was *config.Company, out *findings) error {
+	turned := turnedOn(co, was, func(a *config.Account) bool { return a.AssetReconciliation })
+	posted, err := postedAccounts(ctx, tx, le, co.Code, turned)
+	if err != nil {
+		return fmt.Errorf("ledger: check company %s: asset reconciliation accounts: %w", co.Code, err)
+	}
+	for _, number := range posted {
+		out.add(p+".chart_of_accounts["+number+"].asset_reconciliation", "account %s has postings, so it cannot become an asset reconciliation "+
+			"account; flag a new account before any balance is posted or migrated onto it", number)
+	}
+	return nil
+}
+
+// turnedOn is the numbers of the company's accounts flag holds for that it
+// did not hold for in the activated company was (nil: a new company).
+func turnedOn(co config.Company, was *config.Company, flag func(*config.Account) bool) []string {
+	var numbers []string
+	for i := range co.ChartOfAccounts {
+		a := &co.ChartOfAccounts[i]
+		if !flag(a) {
+			continue
+		}
+		if was == nil || was.Account(a.Number) == nil || !flag(was.Account(a.Number)) {
+			numbers = append(numbers, a.Number)
+		}
+	}
+	return numbers
+}
+
+// postedAccounts is those of the numbers of company code's chart that have
+// lines in the legal entity, in order.
+func postedAccounts(ctx context.Context, tx pgx.Tx, le uuid.UUID, code string, numbers []string) ([]string, error) {
+	if len(numbers) == 0 {
+		return nil, nil
+	}
+	rows, _ := tx.Query(ctx, `SELECT g.number FROM ledger.gl_account g
+		JOIN ledger.chart_of_accounts c ON c.tenant_id = g.tenant_id AND c.id = g.chart_id AND c.code = $2
+		WHERE g.number = ANY($3) AND EXISTS (SELECT FROM ledger.journal_line l
+			WHERE l.tenant_id = g.tenant_id AND l.legal_entity_id = $1 AND l.account_id = g.id)
+		ORDER BY 1`, le, code, numbers)
+	posted, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("accounts with postings: %w", err)
+	}
+	return posted, nil
+}
+
+// checkAssetRanges reports a company with asset accounts that lacks a
+// number range of AssetRanges in its current fiscal year (ADR-0057 §3):
+// its assets, acquisitions and depreciation could not be numbered. The
+// fiscal year is the one the company's date at now falls in; a company
+// whose zone does not load is not judged (validation reports the zone).
+func checkAssetRanges(doc *config.Config, now time.Time, out *findings) {
+	have := map[string]bool{}
+	for _, n := range doc.NumberRanges {
+		have[n.Key()] = true
+	}
+	for _, co := range doc.Companies {
+		today, dated := checkDay(now, co)
+		if len(co.AssetAccounts) == 0 || !dated {
+			continue
+		}
+		year := fiscalYearOf(today.day, co.FiscalYearStartMonth)
+		for _, kind := range config.AssetRanges {
+			need := config.NumberRange{Company: co.Code, DocumentType: kind, FiscalYear: year}
+			if !have[need.Key()] {
+				out.add("number_ranges["+need.Key()+"]", "company %s has asset accounts, so it numbers its assets and their postings: "+
+					"add a %s range for fiscal year %d, the current one", co.Code, kind, year)
+			}
+		}
+	}
 }
 
 // checkGRIRUnposted reports a GR/IR account that is not yet the legal
@@ -266,6 +335,8 @@ func checkActivated(base, proposed *config.Config, out *findings) {
 				out.add(p+".chart_of_accounts["+was.Number+"].vendor_reconciliation", "an account's reconciliation kind cannot change once activated")
 			case was.OpenItems && !a.OpenItems: // its lines are open items a statement may still clear (ADR-0047)
 				out.add(p+".chart_of_accounts["+was.Number+"].open_items", "open-item management cannot be turned off once activated")
+			case was.AssetReconciliation && !a.AssetReconciliation: // its balance is assets' movements (ADR-0057 §3)
+				out.add(p+".chart_of_accounts["+was.Number+"].asset_reconciliation", "an asset reconciliation account stays one once activated")
 			}
 		}
 	}
@@ -384,8 +455,11 @@ func applyAccounts(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart
 	var numbers, names, types, kinds, elements []string
 	for _, a := range co.ChartOfAccounts {
 		kind := "none"
-		if a.VendorReconciliation {
+		switch {
+		case a.VendorReconciliation:
 			kind = "supplier"
+		case a.AssetReconciliation:
+			kind = "asset"
 		}
 		ids = append(ids, uuid.Must(uuid.NewV7()))
 		numbers, names, types, kinds = append(numbers, a.Number), append(names, a.Name), append(types, string(a.Type)), append(kinds, kind)
@@ -406,11 +480,52 @@ func applyAccounts(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart
 		return fmt.Errorf("ledger: apply company %s: deactivate accounts: %w", co.Code, err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.company_account (tenant_id, legal_entity_id, account_id, is_open_item_managed, created_by, updated_by)
-		SELECT $1, $2, id, reconciliation_kind <> 'none', $4, $4 FROM ledger.gl_account WHERE chart_id = $3 AND number = ANY($5)
+		SELECT $1, $2, id, reconciliation_kind IN ('supplier', 'customer'), $4, $4 FROM ledger.gl_account WHERE chart_id = $3 AND number = ANY($5)
 		ON CONFLICT DO NOTHING`, p.TenantID, le, chart, p.ID, numbers); err != nil {
 		return fmt.Errorf("ledger: apply company %s: company accounts: %w", co.Code, err)
 	}
+	if err := applyAssetReconciliation(ctx, tx, p, le, chart, co); err != nil {
+		return err
+	}
 	return applyOpenItems(ctx, tx, p, le, chart, co)
+}
+
+// applyAssetReconciliation makes the accounts the document flags
+// asset_reconciliation asset reconciliation accounts (ADR-0057 §3): a new
+// account is inserted as one, an existing one that reconciles nothing
+// becomes one, and the activation is refused when such an account has
+// postings in the legal entity (409 ledger.asset_reconciliation_posted).
+// Check refuses the same on submission; an entry posted while the change
+// awaited approval is caught here, and the activation rolls back.
+func applyAssetReconciliation(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart uuid.UUID, co config.Company) error {
+	var numbers []string
+	for _, a := range co.ChartOfAccounts {
+		if a.AssetReconciliation {
+			numbers = append(numbers, a.Number)
+		}
+	}
+	if len(numbers) == 0 {
+		return nil
+	}
+	rows, _ := tx.Query(ctx, `UPDATE ledger.gl_account g SET reconciliation_kind = 'asset', version = g.version + 1, updated_by = $4
+		WHERE g.chart_id = $2 AND g.number = ANY($3) AND g.reconciliation_kind = 'none'
+		RETURNING g.number, EXISTS (SELECT FROM ledger.journal_line l WHERE l.tenant_id = g.tenant_id AND l.legal_entity_id = $1 AND l.account_id = g.id)`,
+		le, chart, numbers, p.ID)
+	type turned struct {
+		Number string
+		Posted bool
+	}
+	on, err := pgx.CollectRows(rows, pgx.RowToStructByPos[turned])
+	if err != nil {
+		return fmt.Errorf("ledger: apply company %s: asset reconciliation accounts: %w", co.Code, err)
+	}
+	for _, a := range on {
+		if a.Posted {
+			return problem.Conflict("ledger.asset_reconciliation_posted", "Account "+a.Number+" of company "+co.Code+
+				" has postings, so it cannot become an asset reconciliation account; flag a new account before any balance is posted or migrated onto it.")
+		}
+	}
+	return nil
 }
 
 // applyOpenItems makes the accounts the document has open-item managed

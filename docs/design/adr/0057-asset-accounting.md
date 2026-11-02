@@ -1419,3 +1419,60 @@ tracker item only when one does (07 §7.5).
 
 ## As built
 (Filled in by the slices T57a-T57i.)
+
+**T57a (classes and asset accounts; asset reconciliation enforced).**
+Built as §3: `asset_classes` (code, name, terms per ledger),
+`companies[].asset_accounts` (per class: acquisition cost, accumulated
+depreciation, depreciation, clearing, gain, loss, sale clearing) and
+`chart_of_accounts[].asset_reconciliation` in `internal/config`
+(`assets.go`), validated with the problems on their fields; tiers: a
+class's name 1, its terms and the asset accounts 3, the flag 4 (the
+chart's rule). `ledger.Setup` writes `reconciliation_kind = 'asset'` (a new
+account inserted as one, an unposted one that reconciled nothing turned
+into one), refuses an account with postings on submission
+(`chart_of_accounts[n].asset_reconciliation`) and at activation, and
+refuses removing the flag; `company_account.is_open_item_managed` starts
+true for supplier and customer reconciliation accounts only. Migration
+000189 adds the asset rule to `ledger.check_line`
+(`journal_line_asset_reconciliation`, schema test
+`TestAssetReconciliationAccounts`) and the permission `assets.asset.read`.
+`GET /v1/asset-classes` (`listAssetClasses`) is the `assets` leaf's first
+operation. Decided by default, for the product owner to overrule:
+- The `assets` package and its `internal/layout` entry (a leaf, `config`
+  only) start with T57a, since `listAssetClasses` is the context's (§10);
+  so does 02 §2.2's row. Its ports so far: `assets.Settings` (the active
+  document, as `cash.Settings`) and `assets.Companies.ByCode` (the legal
+  entity of a company code, with its name), the first part of §2's
+  `assets.Companies`; T57b adds the rest. `assets.asset.read` comes with
+  T57a, as the operation needs it; T57b adds the others.
+- `listAssetClasses` is cursor-paged by class code with a
+  `legal_entity_id` filter (only the classes that company uses, its
+  accounts alone); a company the caller may not act in is left out of a
+  class's companies (ADR-0010). Terms name the ledger by code and name, as
+  the configuration does; accounts by number and name (§10), their ids
+  from `GET /v1/accounts?number=`.
+- A declining factor is required with `declining_balance`, refused
+  otherwise, and has at most four decimals; a class has terms in at least
+  one ledger, each a ledger of the document once (a ledger no company using
+  the class keeps is allowed). Within one company's class the acquisition
+  cost and accumulated depreciation accounts differ, and so do the clearing
+  and sale clearing accounts; accounts may be shared across classes.
+- An asset reconciliation account is refused wherever the document names
+  an account for another use (account determination, house banks,
+  statement posting rules, withholding taxes): only assets post to it.
+- The number ranges `asset`, `journal_aa` and `journal_af` are required
+  for the fiscal year the company's date falls in, when a change is
+  submitted (`ledger.Setup.Check`, which knows the company's date); a
+  document activated later in the year keeps them, as every range check
+  is made on submission.
+- An entry posted on a newly flagged account between submission and
+  activation fails the activation with 409
+  `ledger.asset_reconciliation_posted`, as `open_items` does with
+  `ledger.open_items_account_posted` (a new code beside §10's).
+- The posting paths that take lines from a caller (manual and parked
+  entries, templates, other contexts through `ledger.Postings.Post`)
+  refuse a line on an asset reconciliation account outside `assets` and
+  `integration` naming it (`lines[i].account_id`); the ledger's own
+  postings (bank statements, clearings, settlements, revaluation,
+  reversals, which keep their original's source) are held by the database
+  rule, whose problem is the same with the field `lines.account_id`.

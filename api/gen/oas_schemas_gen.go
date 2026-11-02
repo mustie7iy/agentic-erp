@@ -2758,6 +2758,333 @@ type ApproveApprovalRequestUnprocessableEntity Problem
 
 func (*ApproveApprovalRequestUnprocessableEntity) approveApprovalRequestRes() {}
 
+// An account of a company's chart of accounts, by number and name (`GET /v1/accounts?number=` gives
+// its id).
+// Ref: #/components/schemas/AssetAccountRef
+type AssetAccountRef struct {
+	// The account number.
+	Number string `json:"number"`
+	// The account's name.
+	Name string `json:"name"`
+}
+
+// GetNumber returns the value of Number.
+func (s *AssetAccountRef) GetNumber() string {
+	return s.Number
+}
+
+// GetName returns the value of Name.
+func (s *AssetAccountRef) GetName() string {
+	return s.Name
+}
+
+// SetNumber sets the value of Number.
+func (s *AssetAccountRef) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetName sets the value of Name.
+func (s *AssetAccountRef) SetName(val string) {
+	s.Name = val
+}
+
+// An asset class (ADR-0057 §3, SAP's asset class): its default depreciation terms per ledger and, per
+// company using it, the accounts its assets post to. From the active configuration.
+// Ref: #/components/schemas/AssetClass
+type AssetClass struct {
+	// The class's code: 1-20 upper-case letters, digits or underscores.
+	Code string `json:"code"`
+	// The class's name.
+	Name string `json:"name"`
+	// The depreciation terms an asset of the class starts with, one per ledger the class has terms in, by
+	// ledger code.
+	Terms []AssetClassTerms `json:"terms"`
+	// The companies that use the class and that the caller may act in, by company code, with their
+	// accounts.
+	Companies []AssetClassCompany `json:"companies"`
+}
+
+// GetCode returns the value of Code.
+func (s *AssetClass) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *AssetClass) GetName() string {
+	return s.Name
+}
+
+// GetTerms returns the value of Terms.
+func (s *AssetClass) GetTerms() []AssetClassTerms {
+	return s.Terms
+}
+
+// GetCompanies returns the value of Companies.
+func (s *AssetClass) GetCompanies() []AssetClassCompany {
+	return s.Companies
+}
+
+// SetCode sets the value of Code.
+func (s *AssetClass) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *AssetClass) SetName(val string) {
+	s.Name = val
+}
+
+// SetTerms sets the value of Terms.
+func (s *AssetClass) SetTerms(val []AssetClassTerms) {
+	s.Terms = val
+}
+
+// SetCompanies sets the value of Companies.
+func (s *AssetClass) SetCompanies(val []AssetClassCompany) {
+	s.Companies = val
+}
+
+// A class's accounts in a company, each by number and name in the company's chart of accounts.
+// Ref: #/components/schemas/AssetClassAccounts
+type AssetClassAccounts struct {
+	// The acquisition cost: an asset reconciliation account, which only assets post to.
+	AcquisitionCost AssetAccountRef `json:"acquisition_cost"`
+	// The accumulated depreciation: an asset reconciliation account, which only assets post to.
+	AccumulatedDepreciation AssetAccountRef `json:"accumulated_depreciation"`
+	// The depreciation expense.
+	Depreciation AssetAccountRef `json:"depreciation"`
+	// The asset clearing account a supplier invoice, goods receipt or manual entry posts to and an
+	// acquisition settles.
+	Clearing AssetAccountRef `json:"clearing"`
+	// The gain on retirements.
+	Gain AssetAccountRef `json:"gain"`
+	// The loss on retirements.
+	Loss AssetAccountRef `json:"loss"`
+	// The clearing account a sale's proceeds wait on until they are billed.
+	SaleClearing AssetAccountRef `json:"sale_clearing"`
+}
+
+// GetAcquisitionCost returns the value of AcquisitionCost.
+func (s *AssetClassAccounts) GetAcquisitionCost() AssetAccountRef {
+	return s.AcquisitionCost
+}
+
+// GetAccumulatedDepreciation returns the value of AccumulatedDepreciation.
+func (s *AssetClassAccounts) GetAccumulatedDepreciation() AssetAccountRef {
+	return s.AccumulatedDepreciation
+}
+
+// GetDepreciation returns the value of Depreciation.
+func (s *AssetClassAccounts) GetDepreciation() AssetAccountRef {
+	return s.Depreciation
+}
+
+// GetClearing returns the value of Clearing.
+func (s *AssetClassAccounts) GetClearing() AssetAccountRef {
+	return s.Clearing
+}
+
+// GetGain returns the value of Gain.
+func (s *AssetClassAccounts) GetGain() AssetAccountRef {
+	return s.Gain
+}
+
+// GetLoss returns the value of Loss.
+func (s *AssetClassAccounts) GetLoss() AssetAccountRef {
+	return s.Loss
+}
+
+// GetSaleClearing returns the value of SaleClearing.
+func (s *AssetClassAccounts) GetSaleClearing() AssetAccountRef {
+	return s.SaleClearing
+}
+
+// SetAcquisitionCost sets the value of AcquisitionCost.
+func (s *AssetClassAccounts) SetAcquisitionCost(val AssetAccountRef) {
+	s.AcquisitionCost = val
+}
+
+// SetAccumulatedDepreciation sets the value of AccumulatedDepreciation.
+func (s *AssetClassAccounts) SetAccumulatedDepreciation(val AssetAccountRef) {
+	s.AccumulatedDepreciation = val
+}
+
+// SetDepreciation sets the value of Depreciation.
+func (s *AssetClassAccounts) SetDepreciation(val AssetAccountRef) {
+	s.Depreciation = val
+}
+
+// SetClearing sets the value of Clearing.
+func (s *AssetClassAccounts) SetClearing(val AssetAccountRef) {
+	s.Clearing = val
+}
+
+// SetGain sets the value of Gain.
+func (s *AssetClassAccounts) SetGain(val AssetAccountRef) {
+	s.Gain = val
+}
+
+// SetLoss sets the value of Loss.
+func (s *AssetClassAccounts) SetLoss(val AssetAccountRef) {
+	s.Loss = val
+}
+
+// SetSaleClearing sets the value of SaleClearing.
+func (s *AssetClassAccounts) SetSaleClearing(val AssetAccountRef) {
+	s.SaleClearing = val
+}
+
+// The accounts a company posts one class's assets to (ADR-0057 §3).
+// Ref: #/components/schemas/AssetClassCompany
+type AssetClassCompany struct {
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The class's accounts in the company.
+	Accounts AssetClassAccounts `json:"accounts"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AssetClassCompany) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *AssetClassCompany) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *AssetClassCompany) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetAccounts returns the value of Accounts.
+func (s *AssetClassCompany) GetAccounts() AssetClassAccounts {
+	return s.Accounts
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AssetClassCompany) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *AssetClassCompany) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *AssetClassCompany) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetAccounts sets the value of Accounts.
+func (s *AssetClassCompany) SetAccounts(val AssetClassAccounts) {
+	s.Accounts = val
+}
+
+// One page of asset classes.
+// Ref: #/components/schemas/AssetClassPage
+type AssetClassPage struct {
+	// The asset classes on this page.
+	Items []AssetClass `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *AssetClassPage) GetItems() []AssetClass {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AssetClassPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *AssetClassPage) SetItems(val []AssetClass) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AssetClassPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*AssetClassPage) listAssetClassesRes() {}
+
+// A class's default depreciation terms in one ledger (ADR-0057 §7).
+// Ref: #/components/schemas/AssetClassTerms
+type AssetClassTerms struct {
+	// The ledger's code (`GET /v1/ledgers`).
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name.
+	LedgerName string `json:"ledger_name"`
+	// The depreciation method: `straight_line`, or `declining_balance` (switching to straight-line when
+	// that gives more). Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Method string `json:"method"`
+	// The useful life in months.
+	UsefulLifeMonths int32 `json:"useful_life_months"`
+	// The declining balance factor, a plain decimal above 1 and at most 10; only with `declining_balance`.
+	DecliningFactor OptString `json:"declining_factor"`
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *AssetClassTerms) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *AssetClassTerms) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetMethod returns the value of Method.
+func (s *AssetClassTerms) GetMethod() string {
+	return s.Method
+}
+
+// GetUsefulLifeMonths returns the value of UsefulLifeMonths.
+func (s *AssetClassTerms) GetUsefulLifeMonths() int32 {
+	return s.UsefulLifeMonths
+}
+
+// GetDecliningFactor returns the value of DecliningFactor.
+func (s *AssetClassTerms) GetDecliningFactor() OptString {
+	return s.DecliningFactor
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *AssetClassTerms) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *AssetClassTerms) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetMethod sets the value of Method.
+func (s *AssetClassTerms) SetMethod(val string) {
+	s.Method = val
+}
+
+// SetUsefulLifeMonths sets the value of UsefulLifeMonths.
+func (s *AssetClassTerms) SetUsefulLifeMonths(val int32) {
+	s.UsefulLifeMonths = val
+}
+
+// SetDecliningFactor sets the value of DecliningFactor.
+func (s *AssetClassTerms) SetDecliningFactor(val OptString) {
+	s.DecliningFactor = val
+}
+
 type AssignProfitCenterBadRequest Problem
 
 func (*AssignProfitCenterBadRequest) assignProfitCenterRes() {}
@@ -22083,6 +22410,14 @@ func (*ListApprovalRequestsBadRequest) listApprovalRequestsRes() {}
 type ListApprovalRequestsForbidden Problem
 
 func (*ListApprovalRequestsForbidden) listApprovalRequestsRes() {}
+
+type ListAssetClassesBadRequest Problem
+
+func (*ListAssetClassesBadRequest) listAssetClassesRes() {}
+
+type ListAssetClassesForbidden Problem
+
+func (*ListAssetClassesForbidden) listAssetClassesRes() {}
 
 type ListAuditEventsBadRequest Problem
 
@@ -44809,6 +45144,7 @@ func (*TooManyRequestsHeaders) listAccountsRes()                     {}
 func (*TooManyRequestsHeaders) listAgentSessionsRes()                {}
 func (*TooManyRequestsHeaders) listAgentToolCallsRes()               {}
 func (*TooManyRequestsHeaders) listApprovalRequestsRes()             {}
+func (*TooManyRequestsHeaders) listAssetClassesRes()                 {}
 func (*TooManyRequestsHeaders) listAuditEventsRes()                  {}
 func (*TooManyRequestsHeaders) listBalancesRes()                     {}
 func (*TooManyRequestsHeaders) listBankAccountsRes()                 {}
@@ -45173,6 +45509,7 @@ func (*UnauthorizedHeaders) listAccountsRes()                     {}
 func (*UnauthorizedHeaders) listAgentSessionsRes()                {}
 func (*UnauthorizedHeaders) listAgentToolCallsRes()               {}
 func (*UnauthorizedHeaders) listApprovalRequestsRes()             {}
+func (*UnauthorizedHeaders) listAssetClassesRes()                 {}
 func (*UnauthorizedHeaders) listAuditEventsRes()                  {}
 func (*UnauthorizedHeaders) listBalancesRes()                     {}
 func (*UnauthorizedHeaders) listBankAccountsRes()                 {}

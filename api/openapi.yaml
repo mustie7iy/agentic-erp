@@ -59,6 +59,8 @@ tags:
     description: Payment runs, payments and bank files.
   - name: cash
     description: "Cash management (ADR-0051): the daily cash position, computed from statements, payments, runs and memo records, and the memo records of expected receipts and payments."
+  - name: assets
+    description: "Asset accounting (ADR-0057): asset classes with their depreciation terms and accounts."
   - name: controlling
     description: "Controlling (ADR-0050): plan categories, plan lines by batch and plan against actual by cost center."
   - name: tax
@@ -2465,6 +2467,7 @@ paths:
         - config.rules_not_simulated
         - config.unknown_base_version
         - config.unknown_keys
+        - ledger.asset_reconciliation_posted
         - ledger.controlling_invalid
         - ledger.down_payment_account_fixed
         - ledger.gr_ir_account_fixed
@@ -5902,6 +5905,7 @@ paths:
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -6112,6 +6116,7 @@ paths:
         - ledger.account_not_postable
         - ledger.already_reversed
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cannot_reverse_reversal
         - ledger.cost_center_invalid
@@ -6317,6 +6322,7 @@ paths:
       x-problem-codes:
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -6455,6 +6461,7 @@ paths:
       x-problem-codes:
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -6607,6 +6614,7 @@ paths:
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -6744,6 +6752,7 @@ paths:
         - config.not_bootstrapped
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -6863,6 +6872,7 @@ paths:
         - config.not_bootstrapped
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -7006,6 +7016,7 @@ paths:
       x-problem-codes:
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -7217,6 +7228,7 @@ paths:
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -7331,6 +7343,7 @@ paths:
         - ledger.account_not_postable
         - ledger.already_reversed
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cannot_reverse_reversal
         - ledger.cost_center_invalid
@@ -8670,6 +8683,7 @@ paths:
         - config.no_number_range
         - config.number_range_exhausted
         - ledger.account_not_postable
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.clearing_not_balanced
         - ledger.cost_center_invalid
@@ -10510,6 +10524,7 @@ paths:
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -10650,6 +10665,7 @@ paths:
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -11368,6 +11384,7 @@ paths:
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -11652,6 +11669,7 @@ paths:
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
@@ -11802,6 +11820,7 @@ paths:
         - ledger.account_not_postable
         - ledger.already_reversed
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.cannot_reverse_reversal
         - ledger.cost_center_invalid
@@ -12681,6 +12700,7 @@ paths:
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.clearing_not_balanced
         - ledger.cost_center_invalid
@@ -12839,6 +12859,7 @@ paths:
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.clearing_not_balanced
         - ledger.cost_center_invalid
@@ -13236,6 +13257,7 @@ paths:
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.clearing_not_balanced
         - ledger.cost_center_invalid
@@ -13639,6 +13661,43 @@ paths:
           $ref: "#/components/responses/NotFound"
         "422":
           $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/asset-classes:
+    get:
+      operationId: listAssetClasses
+      tags:
+        - assets
+      summary: List asset classes
+      description: "The asset classes of the active configuration (ADR-0057 §3, T57a): each class's code and name, its default depreciation terms per ledger (method, useful life in months and, for the declining balance method, its factor), and, per company that uses the class and that the caller may act in, the accounts its assets post to, by number and name: acquisition cost and accumulated depreciation (asset reconciliation accounts, which only assets post to: a manual entry or another context's posting on one is 422 `ledger.asset_reconciliation_account`), depreciation, the asset clearing account acquisitions settle, gain, loss and the sale clearing account. Classes, terms and accounts change only through the configuration's approval loop. With `legal_entity_id`, only the classes that legal entity uses, with its accounts alone; one the caller cannot act in has none. Ordered by code."
+      x-permission: assets.asset.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: false
+          description: Only the classes this legal entity uses, with its accounts.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of asset classes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetClassPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/cash-position:
@@ -15099,6 +15158,7 @@ paths:
         - config.unknown_base_version
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.center_change_pending
         - ledger.clearing_not_balanced
@@ -16704,6 +16764,7 @@ paths:
         - integration.secret_unavailable
         - ledger.account_not_postable
         - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
         - ledger.automatic_account
         - ledger.clearing_not_balanced
         - ledger.cost_center_invalid
@@ -31600,6 +31661,220 @@ components:
               lines:
                 - {line_no: 1, booking_date: "2026-04-17", amount: {amount: "-10.50", currency: EUR}, is_reversal: false, transaction_code: NCHG, status: posted, match_id: 0192a000-0000-7000-8000-000000000b40, match_kind: rule, match_rule: transaction_code, match_status: matched, posting_date: "2026-04-17", journal_entry_id: 0192a000-0000-7000-8000-000000000d01, journal_entry_year: 2026}
                 - {line_no: 2, booking_date: "2026-04-17", amount: {amount: "-60.00", currency: EUR}, is_reversal: false, transaction_code: NTRF, status: unmatched, proposal_outcome: rejected}
+    AssetClassPage:
+      type: object
+      description: One page of asset classes.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssetClass"
+          description: The asset classes on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items:
+            - code: MACHINES
+              name: Machinery and equipment
+              terms:
+                - ledger_code: 0L
+                  ledger_name: Leading ledger
+                  method: straight_line
+                  useful_life_months: 120
+              companies:
+                - legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+                  company_code: "1000"
+                  company_name: Maple Manufacturing Ltd.
+                  accounts:
+                    acquisition_cost: {number: "1600", name: Machinery}
+                    accumulated_depreciation: {number: "1609", name: "Machinery, accumulated depreciation"}
+                    depreciation: {number: "6250", name: Depreciation of machinery}
+                    clearing: {number: "1690", name: Asset clearing}
+                    gain: {number: "4950", name: Gain on asset retirements}
+                    loss: {number: "6950", name: Loss on asset retirements}
+                    sale_clearing: {number: "1695", name: Asset sale clearing}
+    AssetClass:
+      type: object
+      description: "An asset class (ADR-0057 §3, SAP's asset class): its default depreciation terms per ledger and, per company using it, the accounts its assets post to. From the active configuration."
+      required:
+        - code
+        - name
+        - terms
+        - companies
+      properties:
+        code:
+          type: string
+          description: "The class's code: 1-20 upper-case letters, digits or underscores."
+          pattern: "^[A-Z0-9_]{1,20}$"
+          readOnly: true
+        name:
+          type: string
+          description: The class's name.
+          readOnly: true
+        terms:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssetClassTerms"
+          description: "The depreciation terms an asset of the class starts with, one per ledger the class has terms in, by ledger code."
+          readOnly: true
+        companies:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssetClassCompany"
+          description: "The companies that use the class and that the caller may act in, by company code, with their accounts."
+          readOnly: true
+      examples:
+        - code: VEHICLES
+          name: Vehicles
+          terms:
+            - ledger_code: 0L
+              ledger_name: Leading ledger
+              method: declining_balance
+              useful_life_months: 60
+              declining_factor: "2"
+          companies: []
+    AssetClassTerms:
+      type: object
+      description: "A class's default depreciation terms in one ledger (ADR-0057 §7)."
+      required:
+        - ledger_code
+        - ledger_name
+        - method
+        - useful_life_months
+      properties:
+        ledger_code:
+          type: string
+          description: "The ledger's code (`GET /v1/ledgers`)."
+          pattern: "^[0-9A-Z]{2}$"
+          readOnly: true
+        ledger_name:
+          type: string
+          description: The ledger's name.
+          readOnly: true
+        method:
+          type: string
+          x-extensible-enum: [straight_line, declining_balance]
+          description: "The depreciation method: `straight_line`, or `declining_balance` (switching to straight-line when that gives more). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        useful_life_months:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 1200
+          description: The useful life in months.
+          readOnly: true
+        declining_factor:
+          type: string
+          description: "The declining balance factor, a plain decimal above 1 and at most 10; only with `declining_balance`."
+          pattern: "^[0-9]+(\\.[0-9]{1,4})?$"
+          readOnly: true
+      examples:
+        - ledger_code: 2L
+          ledger_name: Local GAAP
+          method: declining_balance
+          useful_life_months: 120
+          declining_factor: "2"
+    AssetClassCompany:
+      type: object
+      description: "The accounts a company posts one class's assets to (ADR-0057 §3)."
+      required:
+        - legal_entity_id
+        - company_code
+        - company_name
+        - accounts
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The company's legal entity.
+          readOnly: true
+        company_code:
+          type: string
+          description: The company code.
+          readOnly: true
+        company_name:
+          type: string
+          description: The company's name.
+          readOnly: true
+        accounts:
+          $ref: "#/components/schemas/AssetClassAccounts"
+          description: The class's accounts in the company.
+          readOnly: true
+      examples:
+        - legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+          company_code: "1000"
+          company_name: Maple Manufacturing Ltd.
+          accounts:
+            acquisition_cost: {number: "1600", name: Machinery}
+            accumulated_depreciation: {number: "1609", name: "Machinery, accumulated depreciation"}
+            depreciation: {number: "6250", name: Depreciation of machinery}
+            clearing: {number: "1690", name: Asset clearing}
+            gain: {number: "4950", name: Gain on asset retirements}
+            loss: {number: "6950", name: Loss on asset retirements}
+            sale_clearing: {number: "1695", name: Asset sale clearing}
+    AssetClassAccounts:
+      type: object
+      description: "A class's accounts in a company, each by number and name in the company's chart of accounts."
+      required:
+        - acquisition_cost
+        - accumulated_depreciation
+        - depreciation
+        - clearing
+        - gain
+        - loss
+        - sale_clearing
+      properties:
+        acquisition_cost:
+          $ref: "#/components/schemas/AssetAccountRef"
+          description: "The acquisition cost: an asset reconciliation account, which only assets post to."
+        accumulated_depreciation:
+          $ref: "#/components/schemas/AssetAccountRef"
+          description: "The accumulated depreciation: an asset reconciliation account, which only assets post to."
+        depreciation:
+          $ref: "#/components/schemas/AssetAccountRef"
+          description: The depreciation expense.
+        clearing:
+          $ref: "#/components/schemas/AssetAccountRef"
+          description: "The asset clearing account a supplier invoice, goods receipt or manual entry posts to and an acquisition settles."
+        gain:
+          $ref: "#/components/schemas/AssetAccountRef"
+          description: The gain on retirements.
+        loss:
+          $ref: "#/components/schemas/AssetAccountRef"
+          description: The loss on retirements.
+        sale_clearing:
+          $ref: "#/components/schemas/AssetAccountRef"
+          description: "The clearing account a sale's proceeds wait on until they are billed."
+      examples:
+        - acquisition_cost: {number: "1600", name: Machinery}
+          accumulated_depreciation: {number: "1609", name: "Machinery, accumulated depreciation"}
+          depreciation: {number: "6250", name: Depreciation of machinery}
+          clearing: {number: "1690", name: Asset clearing}
+          gain: {number: "4950", name: Gain on asset retirements}
+          loss: {number: "6950", name: Loss on asset retirements}
+          sale_clearing: {number: "1695", name: Asset sale clearing}
+    AssetAccountRef:
+      type: object
+      description: "An account of a company's chart of accounts, by number and name (`GET /v1/accounts?number=` gives its id)."
+      required:
+        - number
+        - name
+      properties:
+        number:
+          type: string
+          description: The account number.
+          readOnly: true
+        name:
+          type: string
+          description: The account's name.
+          readOnly: true
+      examples:
+        - number: "1600"
+          name: Machinery
     CashPosition:
       type: object
       description: "A legal entity's daily cash position (ADR-0051 §8, T53c): per house bank and per currency first, then the converted total. Amounts are signed: money in the bank is positive, a payment out negative."

@@ -200,6 +200,7 @@ var operationRolesOidc = map[string][]string{
 	ListAgentSessionsOperation:                []string{},
 	ListAgentToolCallsOperation:               []string{},
 	ListApprovalRequestsOperation:             []string{},
+	ListAssetClassesOperation:                 []string{},
 	ListAuditEventsOperation:                  []string{},
 	ListBalancesOperation:                     []string{},
 	ListBankAccountsOperation:                 []string{},

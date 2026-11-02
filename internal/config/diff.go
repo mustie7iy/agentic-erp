@@ -139,6 +139,12 @@ var tierRules = []struct {
 	{rx(`^cash\.planning_groups\[\*\]\.name$`), TierCosmetic},
 	{rx(`^cash(\.|$)`), TierOperational},
 	{rx(`^companies\[\*\]\.cash(\.|$)`), TierOperational},
+	// A class's name is cosmetic; its terms and a company's asset accounts
+	// decide what assets post (ADR-0057 §3). asset_reconciliation is the
+	// chart's, structural, by the chart_of_accounts rule above.
+	{rx(`^asset_classes\[\*\]\.name$`), TierCosmetic},
+	{rx(`^asset_classes(\[|$)`), TierPostingRelated},
+	{rx(`^companies\[\*\]\.asset_accounts`), TierPostingRelated},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }
@@ -181,6 +187,9 @@ var listKeys = map[string]string{
 	"liquidity_items": "code", "planning_groups": "code",
 	"value_days": "house_bank,method", "credit_lines": "house_bank",
 	"cost_center_categories": "code", "default_assignments": "account",
+	// Asset classes by code, their terms by ledger, a company's asset
+	// accounts by class (ADR-0057 §3).
+	"asset_classes": "code", "terms": "ledger", "asset_accounts": "class",
 }
 
 // pathKeys override listKeys for a list at one path, where its name is

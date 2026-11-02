@@ -1313,6 +1313,20 @@ type Handler interface {
 	//
 	// GET /v1/approval-requests
 	ListApprovalRequests(ctx context.Context, params ListApprovalRequestsParams) (ListApprovalRequestsRes, error)
+	// ListAssetClasses implements listAssetClasses operation.
+	//
+	// The asset classes of the active configuration (ADR-0057 §3, T57a): each class's code and name, its
+	// default depreciation terms per ledger (method, useful life in months and, for the declining balance
+	// method, its factor), and, per company that uses the class and that the caller may act in, the
+	// accounts its assets post to, by number and name: acquisition cost and accumulated depreciation
+	// (asset reconciliation accounts, which only assets post to: a manual entry or another context's
+	// posting on one is 422 `ledger.asset_reconciliation_account`), depreciation, the asset clearing
+	// account acquisitions settle, gain, loss and the sale clearing account. Classes, terms and accounts
+	// change only through the configuration's approval loop. With `legal_entity_id`, only the classes that
+	// legal entity uses, with its accounts alone; one the caller cannot act in has none. Ordered by code.
+	//
+	// GET /v1/asset-classes
+	ListAssetClasses(ctx context.Context, params ListAssetClassesParams) (ListAssetClassesRes, error)
 	// ListAuditEvents implements listAuditEvents operation.
 	//
 	// Audit trail entries, newest first by default. Sortable by: `occurred_at`.

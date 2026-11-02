@@ -593,6 +593,10 @@ type ListApprovalRequestsRes interface {
 	listApprovalRequestsRes()
 }
 
+type ListAssetClassesRes interface {
+	listAssetClassesRes()
+}
+
 type ListAuditEventsRes interface {
 	listAuditEventsRes()
 }
