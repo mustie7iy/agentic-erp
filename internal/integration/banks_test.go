@@ -50,6 +50,18 @@ func TestCanadianBankAccounts(t *testing.T) {
 		}
 	})
 
+	t.Run("a vendor no business partner links to is warned of", func(t *testing.T) {
+		x := tiny()
+		x.LFBK, x.VendorsWithoutPartner = nil, []string{"0000000001"}
+		write(t, e.dir, "unlinked.json", x)
+		_, got := e.act(t, e.run(t, e.connector(t, "unlinked.json"), "documents", true, e.DE.String()), "start")
+		quality := fmt.Sprint(got["report"].(map[string]any)["quality"])
+		want := "key:0000000001 message:no business partner in the extract is this vendor's, so its bank accounts were not read; it loads without them severity:warning table:LFBK"
+		if !strings.Contains(quality, want) {
+			t.Errorf("quality gate: got %s, want it to report %q", quality, want)
+		}
+	})
+
 	write(t, e.dir, "ca.json", canadianTiny("0003-00002", "123-4567"))
 	c := e.connector(t, "ca.json")
 	run := e.run(t, c, "documents", false, e.DE.String())

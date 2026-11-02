@@ -895,9 +895,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "SAP bank accounts attach to the right vendor (pre-existing finding on T72d): the OData mapping takes LFBK's vendor from A_BusinessPartnerBank.BusinessPartner, assuming business partner and vendor numbers are equal; where the ranges differ, accounts attach to no vendor or the wrong one; checked against the pilot's set-up",
-        "r": "internal/sap/odata.go",
+        "r": "sap.ODataSource attachBanks (A_BusinessPartner Supplier link, sap.PartnerLink) · sap.Extract.VendorsWithoutPartner · integration quality gate vendorBanks warning (LFBK) · ADR-0034 As built (review:T72d) · docs/migration.md (A_BusinessPartner Supplier from memory, for the SAP specialist and the pilot's $metadata)",
         "src": "review:T72d",
         "pilot": "po:2026-10-31 · review:T72d",
         "c": []

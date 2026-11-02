@@ -595,3 +595,40 @@ fiscal year. Tracked as the item that follows this one.
   locks and holds it to the same quantities
   (`payables.reversal_exceeds_received`, `payables.reversal_exceeds_invoiced`,
   `payables.reversal_leaves_revaluation`).
+
+## As built: SAP bank accounts attach to the right vendor (review:T72d)
+
+The review of T72d found the OData source taking a vendor bank account's
+vendor (LFBK-LIFNR) from `A_BusinessPartnerBank`'s `BusinessPartner`,
+assuming a business partner's number is its supplier's. Where the two number
+ranges differ, an account attached to no vendor, or to the vendor whose
+number happened to be the partner's. Decided by default, since a file
+extract's LFBK names its vendor itself and is unchanged:
+
+- **The link.** The OData source reads, beside the bank accounts, each
+  business partner's supplier from `A_BusinessPartner`'s `Supplier`
+  (`sap.PartnerLink`, a mapping in `DefaultEntities` like every other, so it
+  can be adjusted to a system's `$metadata`), and gives each account the
+  supplier its partner links to (`attachBanks`). Equal numbers load as
+  before. The extract `erp extract` writes carries the vendor numbers, so a
+  file made from an OData extract loads the same.
+- **A partner that is no supplier.** Its accounts are dropped: they are a
+  customer's or another partner's, never a vendor's, and are no more loaded
+  than the accounts of a vendor outside the scope, which `FilterScope` has
+  always dropped. They are not reported: every customer with a bank account
+  would be a finding.
+- **A vendor no partner links to.** Its bank accounts cannot be told, and
+  the reconciliation cannot see the loss, since it compares the load with
+  the same extract. The extract names such vendors in scope
+  (`VendorsWithoutPartner`, absent from file extracts) and the quality gate
+  warns of each (table LFBK, keyed by the vendor): the vendor loads without
+  bank accounts, which the business signs off or fixes in SAP or the
+  mapping before a further run. A warning rather than an error, because the
+  vendor and its documents are right and the account can be added on the
+  platform; a mapping that links no vendor at all shows as a warning on
+  every vendor.
+- **For the SAP specialist.** `A_BusinessPartner` and its `Supplier`
+  property, and that every S/4HANA supplier has a business partner whose
+  `Supplier` names it, are stated from memory, not from a primary source in
+  this repository. Confirm both against the pilot system's `$metadata` and
+  set-up (docs/migration.md, "What to check on a real SAP system").

@@ -60,7 +60,7 @@ func TestODataSourcePagesAndFilters(t *testing.T) {
 
 	src := &ODataSource{
 		BaseURL: srv.URL, User: "user", Password: "pw", PageSize: 2,
-		Entities: []EntityMapping{DefaultEntities[5]}, // EKKO
+		Entities: []EntityMapping{entity(t, "EKKO")},
 	}
 	e, err := src.Extract(context.Background(), Scope{CompanyCodes: []string{"1000"}, FiscalYear: "2026"})
 	if err != nil {
@@ -80,6 +80,89 @@ func TestODataSourcePagesAndFilters(t *testing.T) {
 	}
 }
 
+// entity is the default mapping of a table.
+func entity(t *testing.T, table string) EntityMapping {
+	t.Helper()
+	for _, em := range DefaultEntities {
+		if em.Table == table {
+			return em
+		}
+	}
+	t.Fatalf("no default mapping of %s", table)
+	return EntityMapping{}
+}
+
+// TestODataBankAccountsAttachToTheirSupplier: a bank account read by
+// business partner (A_BusinessPartnerBank) takes the vendor its partner
+// links to (A_BusinessPartner's Supplier), whether or not the two numbers
+// are equal; the account of a partner that is no supplier attaches to no
+// vendor, even one whose number is the partner's; and a vendor in scope
+// no partner links to is named in VendorsWithoutPartner (review:T72d).
+func TestODataBankAccountsAttachToTheirSupplier(t *testing.T) {
+	rows := map[string][]map[string]any{
+		"A_Supplier": {{"Supplier": "0000100001", "SupplierName": "Equal"}, {"Supplier": "0000100002", "SupplierName": "Differs"},
+			{"Supplier": "0000100003", "SupplierName": "Unlinked"}, {"Supplier": "0000100004", "SupplierName": "Other company"},
+			{"Supplier": "0000100005", "SupplierName": "Unlinked, other company"}},
+		"A_SupplierCompany": {{"Supplier": "0000100001", "CompanyCode": "1000"}, {"Supplier": "0000100002", "CompanyCode": "1000"},
+			{"Supplier": "0000100003", "CompanyCode": "1000"}},
+		"A_BusinessPartner": {{"BusinessPartner": "0000100001", "Supplier": "0000100001"}, {"BusinessPartner": "0000100002", "Supplier": nil},
+			{"BusinessPartner": "0009000002", "Supplier": "0000100002"}, {"BusinessPartner": "0000100003", "Supplier": "0000100004"}},
+		"A_BusinessPartnerBank": {{"BusinessPartner": "0000100001", "BankCountryKey": "DE", "BankAccount": "equal"},
+			{"BusinessPartner": "0009000002", "BankCountryKey": "DE", "BankAccount": "differs"},
+			{"BusinessPartner": "0000100002", "BankCountryKey": "DE", "BankAccount": "a customer's"},
+			{"BusinessPartner": "0000100003", "BankCountryKey": "DE", "BankAccount": "other company's"},
+			{"BusinessPartner": "0000777777", "BankCountryKey": "DE", "BankAccount": "no partner's"}},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		entitySet := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+		// A failed write reaches the source as a broken answer, which the test asserts on.
+		_ = json.NewEncoder(w).Encode(map[string]any{"d": map[string]any{"results": rows[entitySet]}})
+	}))
+	defer srv.Close()
+	src := &ODataSource{BaseURL: srv.URL, Entities: []EntityMapping{entity(t, "LFA1"), entity(t, "LFB1"), entity(t, "LFBK"), entity(t, PartnerLink)}}
+	e, err := src.Extract(context.Background(), Scope{CompanyCodes: []string{"1000"}, FiscalYear: "2026"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, b := range e.LFBK {
+		got[b.BANKN] = b.LIFNR
+	}
+	for account, want := range map[string]string{"equal": "0000100001", "differs": "0000100002"} {
+		t.Run(account+" numbers", func(t *testing.T) {
+			if got[account] != want {
+				t.Errorf("vendor of the account: got %q, want %q", got[account], want)
+			}
+		})
+	}
+	if len(e.LFBK) != 2 {
+		t.Errorf("bank accounts: got %v, want only the two of suppliers in scope", e.LFBK)
+	}
+	if fmt.Sprint(e.VendorsWithoutPartner) != "[0000100003]" {
+		t.Errorf("vendors without a partner: got %v, want [0000100003]", e.VendorsWithoutPartner)
+	}
+}
+
+// Without an LFBK mapping the extraction reads no bank accounts and names
+// no vendor as without a partner: it never looked.
+func TestODataWithoutBankAccountsNamesNoVendor(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"d":{"results":[{"Supplier": "0000100001", "CompanyCode": "1000"}]}}`))
+	}))
+	defer srv.Close()
+	src := &ODataSource{BaseURL: srv.URL, Entities: []EntityMapping{entity(t, "LFA1"), entity(t, "LFB1")}}
+	e, err := src.Extract(context.Background(), Scope{CompanyCodes: []string{"1000"}, FiscalYear: "2026"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(e.LFA1) != 1 {
+		t.Errorf("vendors: got %v, want one", e.LFA1)
+	}
+	if e.VendorsWithoutPartner != nil {
+		t.Errorf("vendors without a partner: got %v, want none", e.VendorsWithoutPartner)
+	}
+}
+
 // TestODataInvoicesHaveNoKindIndicator: the OData mapping does not carry
 // RBKP-XRECH, so an extracted invoice's indicator is absent (nil), never a
 // blank that would read as a credit memo; the quality gate refuses it
@@ -91,13 +174,7 @@ func TestODataInvoicesHaveNoKindIndicator(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"d": map[string]any{"results": []map[string]any{row}}})
 	}))
 	defer srv.Close()
-	var rbkp EntityMapping
-	for _, em := range DefaultEntities {
-		if em.Table == "RBKP" {
-			rbkp = em
-		}
-	}
-	src := &ODataSource{BaseURL: srv.URL, Entities: []EntityMapping{rbkp}}
+	src := &ODataSource{BaseURL: srv.URL, Entities: []EntityMapping{entity(t, "RBKP")}}
 	e, err := src.Extract(context.Background(), Scope{CompanyCodes: []string{"1000"}, FiscalYear: "2026"})
 	if err != nil {
 		t.Fatal(err)
