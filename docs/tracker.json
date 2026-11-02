@@ -5704,9 +5704,25 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Manual journal entries beyond T73h2: partners named by number and name on a parked and a posted entry's lines, read with the entry (contract first: expand=partners on getJournalEntry and getParkedJournalEntry, expanded.partners, only for a caller who may read business partners; the posted entry's ETag unchanged), so each page still makes six calls; a line without a partner unchanged, a person who may not read partners shown the id; EN and FR; Arabic-Indic digits and the pilot walk-through split into T73h4 and T73h5",
+        "r": "api/openapi.yaml expand=partners · JournalEntryExpanded · PartnerName · internal/ledger entry_partners.go · internal/web parked.go · journal_entries.go · TestEntryPartners · TestEntryPartnersFailures · TestPartnersNamedOnEntries · TestEntryPagesNamePartners · walkthrough step 8 (partners_named) · ADR-0052 Built in T73h3 · T73h3",
+        "src": "split:T73h2",
+        "pilot": "po:2026-10-31 · split:T73h2 · adr:ADR-0052",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Manual journal entries beyond T73h2: amounts typed in Arabic-Indic digits (T73l reads digits per locale; not built, so amounts stay ASCII); partners named on a parked or posted entry's lines (listBusinessPartners ids exists since T73h2, but those pages read six already: an expansion, or names in place of another read); walked through by a pilot GL accountant and controller",
-        "r": "T73h3 (split from T73h2, 2026-11-01)",
+        "t": "Manual journal entries' amounts typed in Arabic-Indic digits, read with T73l's reading of digits per locale (not built, so amounts stay ASCII): the entry form, the change form and the CSV upload",
+        "r": "T73h4 (split from T73h3, 2026-11-02)",
+        "src": "split:T73h2",
+        "pilot": "po:2026-10-31 · split:T73h2 · adr:ADR-0052",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Manual journal entries walked through by a pilot GL accountant and controller (human acceptance): the parked entries, the entry form, park, change, post at once and with approval, the journal and an entry's page with its partners named, the reversal",
+        "r": "T73h5 (split from T73h3, 2026-11-02)",
         "src": "split:T73h2",
         "pilot": "po:2026-10-31 · split:T73h2 · adr:ADR-0052",
         "c": []

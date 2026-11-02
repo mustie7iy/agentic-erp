@@ -1013,7 +1013,9 @@ type Invoker interface {
 	GetHierarchyNode(ctx context.Context, params GetHierarchyNodeParams) (GetHierarchyNodeRes, error)
 	// GetJournalEntry invokes getJournalEntry operation.
 	//
-	// Returns one journal entry with its lines.
+	// Returns one journal entry with its lines. Expandable: `partners`, the business partners its lines
+	// name (`expanded.partners`), to a caller who may read business partners (`partner.supplier.read`);
+	// for another caller, and when no line names a partner, `expanded` is left out.
 	//
 	// GET /v1/journal-entries/{id}
 	GetJournalEntry(ctx context.Context, params GetJournalEntryParams) (GetJournalEntryRes, error)
@@ -1080,7 +1082,10 @@ type Invoker interface {
 	GetOrgUnit(ctx context.Context, params GetOrgUnitParams) (GetOrgUnitRes, error)
 	// GetParkedJournalEntry invokes getParkedJournalEntry operation.
 	//
-	// Returns one parked journal entry with its lines.
+	// Returns one parked journal entry with its lines. Expandable: `partners`, the business partners its
+	// lines name (`expanded.partners`), to a caller who may read business partners
+	// (`partner.supplier.read`); for another caller, and when no line names a partner, `expanded` is left
+	// out.
 	//
 	// GET /v1/parked-journal-entries/{id}
 	GetParkedJournalEntry(ctx context.Context, params GetParkedJournalEntryParams) (GetParkedJournalEntryRes, error)
@@ -18635,7 +18640,9 @@ func (c *Client) sendGetHierarchyNode(ctx context.Context, params GetHierarchyNo
 
 // GetJournalEntry invokes getJournalEntry operation.
 //
-// Returns one journal entry with its lines.
+// Returns one journal entry with its lines. Expandable: `partners`, the business partners its lines
+// name (`expanded.partners`), to a caller who may read business partners (`partner.supplier.read`);
+// for another caller, and when no line names a partner, `expanded` is left out.
 //
 // GET /v1/journal-entries/{id}
 func (c *Client) GetJournalEntry(ctx context.Context, params GetJournalEntryParams) (GetJournalEntryRes, error) {
@@ -18701,6 +18708,36 @@ func (c *Client) sendGetJournalEntry(ctx context.Context, params GetJournalEntry
 		pathParts[1] = encoded
 	}
 	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "expand" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "expand",
+			Style:   uri.QueryStyleForm,
+			Explode: false,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if params.Expand != nil {
+				return e.EncodeArray(func(e uri.Encoder) error {
+					for i, item := range params.Expand {
+						if err := func() error {
+							return e.EncodeValue(conv.StringToString(item))
+						}(); err != nil {
+							return errors.Wrapf(err, "[%d]", i)
+						}
+					}
+					return nil
+				})
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
 
 	stage = "EncodeRequest"
 	r, err := ht.NewRequest(ctx, "GET", u)
@@ -19828,7 +19865,10 @@ func (c *Client) sendGetOrgUnit(ctx context.Context, params GetOrgUnitParams) (r
 
 // GetParkedJournalEntry invokes getParkedJournalEntry operation.
 //
-// Returns one parked journal entry with its lines.
+// Returns one parked journal entry with its lines. Expandable: `partners`, the business partners its
+// lines name (`expanded.partners`), to a caller who may read business partners
+// (`partner.supplier.read`); for another caller, and when no line names a partner, `expanded` is left
+// out.
 //
 // GET /v1/parked-journal-entries/{id}
 func (c *Client) GetParkedJournalEntry(ctx context.Context, params GetParkedJournalEntryParams) (GetParkedJournalEntryRes, error) {
@@ -19894,6 +19934,36 @@ func (c *Client) sendGetParkedJournalEntry(ctx context.Context, params GetParked
 		pathParts[1] = encoded
 	}
 	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "expand" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "expand",
+			Style:   uri.QueryStyleForm,
+			Explode: false,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if params.Expand != nil {
+				return e.EncodeArray(func(e uri.Encoder) error {
+					for i, item := range params.Expand {
+						if err := func() error {
+							return e.EncodeValue(conv.StringToString(item))
+						}(); err != nil {
+							return errors.Wrapf(err, "[%d]", i)
+						}
+					}
+					return nil
+				})
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
 
 	stage = "EncodeRequest"
 	r, err := ht.NewRequest(ctx, "GET", u)

@@ -1315,7 +1315,9 @@ func (UnimplementedHandler) GetHierarchyNode(ctx context.Context, params GetHier
 
 // GetJournalEntry implements getJournalEntry operation.
 //
-// Returns one journal entry with its lines.
+// Returns one journal entry with its lines. Expandable: `partners`, the business partners its lines
+// name (`expanded.partners`), to a caller who may read business partners (`partner.supplier.read`);
+// for another caller, and when no line names a partner, `expanded` is left out.
 //
 // GET /v1/journal-entries/{id}
 func (UnimplementedHandler) GetJournalEntry(ctx context.Context, params GetJournalEntryParams) (r GetJournalEntryRes, _ error) {
@@ -1409,7 +1411,10 @@ func (UnimplementedHandler) GetOrgUnit(ctx context.Context, params GetOrgUnitPar
 
 // GetParkedJournalEntry implements getParkedJournalEntry operation.
 //
-// Returns one parked journal entry with its lines.
+// Returns one parked journal entry with its lines. Expandable: `partners`, the business partners its
+// lines name (`expanded.partners`), to a caller who may read business partners
+// (`partner.supplier.read`); for another caller, and when no line names a partner, `expanded` is left
+// out.
 //
 // GET /v1/parked-journal-entries/{id}
 func (UnimplementedHandler) GetParkedJournalEntry(ctx context.Context, params GetParkedJournalEntryParams) (r GetParkedJournalEntryRes, _ error) {

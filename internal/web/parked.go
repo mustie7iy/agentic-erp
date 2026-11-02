@@ -12,10 +12,11 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/web/ui"
 )
 
-// A parked entry's page reads the entry, the companies, the company's
-// accounts, who parked and owns it, and, while it waits for approval, its
-// approval request (for the withdrawal's ETag): with getCurrentPrincipal
-// six calls (ADR-0052 §10).
+// A parked entry's page reads the entry with the partners its lines name
+// (expand=partners, T73h3: no call of their own), the companies, the
+// company's accounts, who parked and owns it, and, while it waits for
+// approval, its approval request (for the withdrawal's ETag): with
+// getCurrentPrincipal six calls (ADR-0052 §10).
 //
 // The decisions on it (T35): its owner posts it (postParkedJournalEntry,
 // people's alone), which within the company's manual entry limit posts it
@@ -61,11 +62,12 @@ func (s *Server) parkedEntry(w http.ResponseWriter, r *http.Request, p *person) 
 	s.showParked(w, r, p, m, id, http.StatusOK, parkedTyped{}, nil)
 }
 
-// readParked reads the parked entry (getParkedJournalEntry) and its ETag.
-// ok is false when the answer is already written: not found, or the
-// refusal on a page of its own.
+// readParked reads the parked entry (getParkedJournalEntry) and its ETag,
+// with its lines' partners named when the person may read them. ok is
+// false when the answer is already written: not found, or the refusal on
+// a page of its own.
 func (s *Server) readParked(w http.ResponseWriter, r *http.Request, p *person, m me, id uuid.UUID) (gen.ParkedJournalEntry, string, bool) {
-	res, err := s.API.GetParkedJournalEntry(r.Context(), gen.GetParkedJournalEntryParams{ID: id})
+	res, err := s.API.GetParkedJournalEntry(r.Context(), gen.GetParkedJournalEntryParams{ID: id, Expand: m.partnersExpanded()})
 	if got, ok := res.(*gen.GetParkedJournalEntryOKHeaders); ok {
 		return got.Response, got.ETag.Or(etag.Format(got.Response.Version)), true
 	}
@@ -91,7 +93,7 @@ func (s *Server) showParked(w http.ResponseWriter, r *http.Request, p *person, m
 		ch := s.chartOf(ctx, m, pe.LegalEntityID)
 		t.chart = &ch
 	}
-	pp := ui.ParkedPage{Header: s.parkedHeader(ctx, p, m, pe), Lines: parkedLines(pe.Lines, t.chart.names()),
+	pp := ui.ParkedPage{Header: s.parkedHeader(ctx, p, m, pe), Lines: parkedLines(pe.Lines, t.chart.names(), partnerNames(pe.Expanded)),
 		Done: parkedDone[r.URL.Query().Get("done")], Refusal: refused, Back: ui.JournalPath, Audit: auditLink(m, pe.ID)}
 	if req, ok := pe.ApprovalRequestID.Get(); ok {
 		pp.Approval = ui.ApprovalsPath + "/" + req.String()
@@ -133,15 +135,45 @@ func (s *Server) parkedHeader(ctx context.Context, p *person, m me, pe gen.Parke
 	return h
 }
 
-// parkedLines are a parked entry's lines, their accounts named.
-func parkedLines(lines []gen.ParkedJournalLine, accounts map[uuid.UUID]string) []ui.JournalLine {
+// parkedLines are a parked entry's lines, their accounts and partners
+// named.
+func parkedLines(lines []gen.ParkedJournalLine, accounts, partners map[uuid.UUID]string) []ui.JournalLine {
 	out := make([]ui.JournalLine, 0, len(lines))
 	for _, l := range lines {
 		out = append(out, ui.JournalLine{No: l.LineNo, Account: accountText(accounts, l.AccountID), Amount: moneyOf(l.Amount),
-			CostCenter: l.CostCenterCode.Or(""), ProfitCenter: l.ProfitCenterCode.Or(""), Segment: l.SegmentCode.Or(""), Partner: idText(l.PartnerID),
+			CostCenter: l.CostCenterCode.Or(""), ProfitCenter: l.ProfitCenterCode.Or(""), Segment: l.SegmentCode.Or(""), Partner: partnerText(partners, l.PartnerID),
 			TaxCode: l.TaxCode.Or(""), Text: l.LineText.Or("")})
 	}
 	return out
+}
+
+// partnersExpanded is the expansion that names an entry's partners when
+// the person may read business partners (advisory, ADR-0052 §7: the API
+// leaves it out for anyone else), none otherwise.
+func (m me) partnersExpanded() []string {
+	if m.may(permReadSuppliers) {
+		return []string{"partners"}
+	}
+	return nil
+}
+
+// partnerNames are the partners an entry's expansion names, by number and
+// name, by id; empty without one.
+func partnerNames(exp gen.OptJournalEntryExpanded) map[uuid.UUID]string {
+	out := map[uuid.UUID]string{}
+	for _, bp := range exp.Value.Partners {
+		out[bp.ID] = bp.Number + " " + bp.Name
+	}
+	return out
+}
+
+// partnerText is a line's partner by number and name, by id when it is
+// not named, "" without one.
+func partnerText(partners map[uuid.UUID]string, id gen.OptUUID) string {
+	if v, ok := partners[id.Value]; ok && id.Set {
+		return v
+	}
+	return idText(id)
 }
 
 // parkedForms are the person's decisions on a parked entry (advisory,

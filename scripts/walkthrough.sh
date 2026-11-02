@@ -1487,6 +1487,26 @@ recurring_rent() {
   expect "the rent entry's status" "$(field .status)" posted
 }
 
+# partners_named reads a posted and a parked entry with the partners
+# their lines name (expand=partners, T73h3): by number and name, with no
+# call per partner, as the workspace's entry pages read them. The parked
+# entry is cancelled, so it books nothing.
+partners_named() {
+  say "A journal line names its partner by id. Read with its partners (expand=partners), an entry names each"
+  say "by number and name, as the workspace's entry pages read it, with no call of their own (T73h3):"
+  api 200 '.expanded.partners[] | "TY-5001'"'"'s entry: partner \(.number) \(.name)"' getJournalEntry -p "id=$INVOICE_ENTRY" -p expand=partners
+  expect "the partner TY-5001's entry names" "$(field '[.expanded.partners[].name] | join(", ")')" "Tyrell Office Products"
+  say "So does a parked entry: Tom parks an accrual for Tyrell, reads it with its partner, and cancels it."
+  local accrual
+  api 201 '"parked entry \(.id[0:8])…: \(.status)"' parkJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Accrual for Tyrell, shown and cancelled\", \"lines\": [{\"account_id\": \"$(account 6000)\", \"amount\": {\"amount\": \"75.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$(account 211000)\", \"amount\": {\"amount\": \"-75.00\", \"currency\": \"CAD\"}, \"partner_id\": \"$SUPPLIER\"}]}"
+  accrual=$(field .id)
+  api 200 '.expanded.partners[] | "the accrual: partner \(.number) \(.name)"' getParkedJournalEntry -p "id=$accrual" -p expand=partners
+  expect "the partner the parked accrual names" "$(field '[.expanded.partners[].name] | join(", ")')" "Tyrell Office Products"
+  api 200 '"parked entry: \(.status)"' cancelParkedJournalEntry -p "id=$accrual" -if-match "$ETAG" -body '{"reason": "Shown, not booked"}'
+  expect "the accrual's status" "$(field .status)" cancelled
+}
+
 step_statement() {
   heading "Step 8 — The bank statement: imported, a gap accepted, matched by rules and by hand, posted with approval, reconciled"
   as tom
@@ -1506,6 +1526,7 @@ step_statement() {
   api 200 '"parked entry: \(.status), journal entry \(.journal_entry_id)"' getParkedJournalEntry -p "id=$parked"
   expect "parked entry status" "$(field .status)" posted
   recurring_rent
+  partners_named
   local yesterday
   yesterday=$(date_add "$TODAY" -1)
   say "RBC's statement of $yesterday, before the funding, closes the empty account at 0.00. Tom imports it:"

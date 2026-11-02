@@ -13510,6 +13510,9 @@ func decodeGetHierarchyNodeParams(args [2]string, argsEscaped bool, r *http.Requ
 type GetJournalEntryParams struct {
 	// Resource identifier (UUIDv7).
 	ID uuid.UUID
+	// Referenced resources to embed as read-only copies under `expanded`. Only the values listed in the
+	// operation description are accepted. Expansion never crosses tenants or permissions.
+	Expand []string `json:",omitempty"`
 }
 
 func unpackGetJournalEntryParams(packed middleware.Parameters) (params GetJournalEntryParams) {
@@ -13520,10 +13523,20 @@ func unpackGetJournalEntryParams(packed middleware.Parameters) (params GetJourna
 		}
 		params.ID = packed[key].(uuid.UUID)
 	}
+	{
+		key := middleware.ParameterKey{
+			Name: "expand",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Expand = v.([]string)
+		}
+	}
 	return params
 }
 
 func decodeGetJournalEntryParams(args [1]string, argsEscaped bool, r *http.Request) (params GetJournalEntryParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
 	// Decode path: id.
 	if err := func() error {
 		param := args[0]
@@ -13566,6 +13579,95 @@ func decodeGetJournalEntryParams(args [1]string, argsEscaped bool, r *http.Reque
 		return params, &ogenerrors.DecodeParamError{
 			Name: "id",
 			In:   "path",
+			Err:  err,
+		}
+	}
+	// Decode query: expand.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "expand",
+			Style:   uri.QueryStyleForm,
+			Explode: false,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				params.Expand = nil
+				return d.DecodeArray(func(d uri.Decoder) error {
+					var paramsDotExpandVal string
+					if err := func() error {
+						val, err := d.DecodeValue()
+						if err != nil {
+							return err
+						}
+
+						c, err := conv.ToString(val)
+						if err != nil {
+							return err
+						}
+
+						paramsDotExpandVal = c
+						return nil
+					}(); err != nil {
+						return err
+					}
+					params.Expand = append(params.Expand, paramsDotExpandVal)
+					return nil
+				})
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if params.Expand == nil {
+					return nil // optional
+				}
+				if err := (validate.Array{
+					MinLength:    0,
+					MinLengthSet: false,
+					MaxLength:    5,
+					MaxLengthSet: true,
+				}).ValidateLength(len(params.Expand)); err != nil {
+					return errors.Wrap(err, "array")
+				}
+				var failures []validate.FieldError
+				for i, elem := range params.Expand {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     0,
+							MinLengthSet:  false,
+							MaxLength:     0,
+							MaxLengthSet:  false,
+							Email:         false,
+							Hostname:      false,
+							Regex:         regexMap["^[a-z_]+$"],
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(elem)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						failures = append(failures, validate.FieldError{
+							Name:  fmt.Sprintf("[%d]", i),
+							Error: err,
+						})
+					}
+				}
+				if len(failures) > 0 {
+					return &validate.Error{Fields: failures}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "expand",
+			In:   "query",
 			Err:  err,
 		}
 	}
@@ -14104,6 +14206,9 @@ func decodeGetOrgUnitParams(args [1]string, argsEscaped bool, r *http.Request) (
 type GetParkedJournalEntryParams struct {
 	// Resource identifier (UUIDv7).
 	ID uuid.UUID
+	// Referenced resources to embed as read-only copies under `expanded`. Only the values listed in the
+	// operation description are accepted. Expansion never crosses tenants or permissions.
+	Expand []string `json:",omitempty"`
 }
 
 func unpackGetParkedJournalEntryParams(packed middleware.Parameters) (params GetParkedJournalEntryParams) {
@@ -14114,10 +14219,20 @@ func unpackGetParkedJournalEntryParams(packed middleware.Parameters) (params Get
 		}
 		params.ID = packed[key].(uuid.UUID)
 	}
+	{
+		key := middleware.ParameterKey{
+			Name: "expand",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Expand = v.([]string)
+		}
+	}
 	return params
 }
 
 func decodeGetParkedJournalEntryParams(args [1]string, argsEscaped bool, r *http.Request) (params GetParkedJournalEntryParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
 	// Decode path: id.
 	if err := func() error {
 		param := args[0]
@@ -14160,6 +14275,95 @@ func decodeGetParkedJournalEntryParams(args [1]string, argsEscaped bool, r *http
 		return params, &ogenerrors.DecodeParamError{
 			Name: "id",
 			In:   "path",
+			Err:  err,
+		}
+	}
+	// Decode query: expand.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "expand",
+			Style:   uri.QueryStyleForm,
+			Explode: false,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				params.Expand = nil
+				return d.DecodeArray(func(d uri.Decoder) error {
+					var paramsDotExpandVal string
+					if err := func() error {
+						val, err := d.DecodeValue()
+						if err != nil {
+							return err
+						}
+
+						c, err := conv.ToString(val)
+						if err != nil {
+							return err
+						}
+
+						paramsDotExpandVal = c
+						return nil
+					}(); err != nil {
+						return err
+					}
+					params.Expand = append(params.Expand, paramsDotExpandVal)
+					return nil
+				})
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if params.Expand == nil {
+					return nil // optional
+				}
+				if err := (validate.Array{
+					MinLength:    0,
+					MinLengthSet: false,
+					MaxLength:    5,
+					MaxLengthSet: true,
+				}).ValidateLength(len(params.Expand)); err != nil {
+					return errors.Wrap(err, "array")
+				}
+				var failures []validate.FieldError
+				for i, elem := range params.Expand {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     0,
+							MinLengthSet:  false,
+							MaxLength:     0,
+							MaxLengthSet:  false,
+							Email:         false,
+							Hostname:      false,
+							Regex:         regexMap["^[a-z_]+$"],
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(elem)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						failures = append(failures, validate.FieldError{
+							Name:  fmt.Sprintf("[%d]", i),
+							Error: err,
+						})
+					}
+				}
+				if len(failures) > 0 {
+					return &validate.Error{Fields: failures}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "expand",
+			In:   "query",
 			Err:  err,
 		}
 	}

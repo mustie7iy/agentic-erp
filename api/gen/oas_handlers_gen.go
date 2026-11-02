@@ -21464,7 +21464,9 @@ func (s *Server) handleGetHierarchyNodeRequest(args [2]string, argsEscaped bool,
 
 // handleGetJournalEntryRequest handles getJournalEntry operation.
 //
-// Returns one journal entry with its lines.
+// Returns one journal entry with its lines. Expandable: `partners`, the business partners its lines
+// name (`expanded.partners`), to a caller who may read business partners (`partner.supplier.read`);
+// for another caller, and when no line names a partner, `expanded` is left out.
 //
 // GET /v1/journal-entries/{id}
 func (s *Server) handleGetJournalEntryRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -21609,6 +21611,10 @@ func (s *Server) handleGetJournalEntryRequest(args [1]string, argsEscaped bool, 
 					Name: "id",
 					In:   "path",
 				}: params.ID,
+				{
+					Name: "expand",
+					In:   "query",
+				}: params.Expand,
 			},
 			Raw: r,
 		}
@@ -23160,7 +23166,10 @@ func (s *Server) handleGetOrgUnitRequest(args [1]string, argsEscaped bool, w htt
 
 // handleGetParkedJournalEntryRequest handles getParkedJournalEntry operation.
 //
-// Returns one parked journal entry with its lines.
+// Returns one parked journal entry with its lines. Expandable: `partners`, the business partners its
+// lines name (`expanded.partners`), to a caller who may read business partners
+// (`partner.supplier.read`); for another caller, and when no line names a partner, `expanded` is left
+// out.
 //
 // GET /v1/parked-journal-entries/{id}
 func (s *Server) handleGetParkedJournalEntryRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -23305,6 +23314,10 @@ func (s *Server) handleGetParkedJournalEntryRequest(args [1]string, argsEscaped 
 					Name: "id",
 					In:   "path",
 				}: params.ID,
+				{
+					Name: "expand",
+					In:   "query",
+				}: params.Expand,
 			},
 			Raw: r,
 		}

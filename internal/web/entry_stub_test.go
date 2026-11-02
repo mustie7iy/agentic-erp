@@ -220,3 +220,63 @@ func TestParkFileUnavailable(t *testing.T) {
 		t.Errorf("got %d, want the workspace unavailable", r.status)
 	}
 }
+
+// TestEntryPagesNamePartners: a parked entry waiting for the person's own
+// approval request and a posted entry, each at its page's most calls,
+// read their lines' partners with the entry (expand=partners), so each
+// page makes six calls, the budget of ADR-0052 §10; a partner the
+// expansion does not name, and a person who may not read partners, see
+// the id.
+func TestEntryPagesNamePartners(t *testing.T) {
+	me, company, parked, entry, request := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	named, unnamed := uuid.New(), uuid.New()
+	withPartners := func(doc string) string {
+		doc = strings.Replace(doc, `{"line_no":1,`, `{"line_no":1,"partner_id":"`+unnamed.String()+`",`, 1)
+		return strings.Replace(doc, `{"line_no":2,`, `{"line_no":2,"partner_id":"`+named.String()+`",`, 1)
+	}
+	// The API's expansion, as it gives it: only when asked.
+	expanded := func(r *http.Request) string {
+		if r.URL.Query().Get("expand") != "partners" {
+			return ""
+		}
+		return `,"expanded":{"partners":[{"id":"` + named.String() + `","number":"BP42","name":"Tyrell"}]}`
+	}
+	reader := answer(200, meAs(me, permReadEntries, permParkEntries, permReadCompanies, permReadAccounts, permCancelRequests, permReadSuppliers))
+	empty := answer(200, `{"items":[]}`)
+	st := &stubbed{routes: map[string]http.HandlerFunc{
+		"GET /v1/me": reader, "GET /v1/legal-entities": empty, "GET /v1/accounts": empty, "GET /v1/ledgers": empty,
+		"GET /v1/principal-names": empty,
+		"GET /v1/parked-journal-entries/": func(w http.ResponseWriter, r *http.Request) {
+			answer(200, withPartners(parkedJSON(parked, company, "pending_approval",
+				`,"owner_id":"`+me.String()+`","approval_request_id":"`+request.String()+`"`+expanded(r))))(w, r)
+		},
+		"GET /v1/approval-requests/": answer(200, strings.Replace(requestJSON(request), `"status":"on_hold"`, `"status":"pending"`, 1)),
+		"GET /v1/journal-entries/": func(w http.ResponseWriter, r *http.Request) {
+			answer(200, withPartners(journalEntryJSON(entry, company, expanded(r))))(w, r)
+		},
+	}}
+	_, b, _ := stubStack(t, st)
+	for name, path := range map[string]string{"parked": parkedPath(parked), "posted": entryPath(entry)} {
+		t.Run(name, func(t *testing.T) {
+			before := len(st.queries)
+			got := b.get(path).page(t).mainText()
+			holds(t, name, got, "BP42 Tyrell", unnamed.String())
+			if n := len(st.queries) - before; n != 6 {
+				t.Errorf("calls: got %d, want 6", n)
+			}
+			if q := st.queries[before+1]; q.Get("expand") != "partners" {
+				t.Errorf("the entry's read: got %v, want expand=partners", q)
+			}
+		})
+	}
+	st.routes["GET /v1/me"] = answer(200, meAs(me, permReadEntries, permReadCompanies, permReadAccounts))
+	for name, path := range map[string]string{"parked": parkedPath(parked), "posted": entryPath(entry)} {
+		t.Run(name+", by a person who may not read partners", func(t *testing.T) {
+			before := len(st.queriesWith("expand", "partners"))
+			holds(t, name, b.get(path).page(t).mainText(), named.String(), unnamed.String())
+			if n := len(st.queriesWith("expand", "partners")) - before; n != 0 {
+				t.Errorf("reads expanded: got %d, want none", n)
+			}
+		})
+	}
+}
