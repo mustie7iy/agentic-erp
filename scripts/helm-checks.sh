@@ -23,7 +23,8 @@
 #     default deny), whose Rego is held to `conftest fmt`
 #     (scripts/lib/rego-fmt.sh); the workflow engine's configuration it
 #     renders must be one erp-temporal accepts (check-config, built from
-#     temporal/); its SLO rules pass promtool's checks and unit tests
+#     temporal/); its server's shutdown budget (ERP_SHUTDOWN_TIMEOUT)
+#     must leave time inside its grace period; its SLO rules pass promtool's checks and unit tests
 #     (rules/); its dashboards (dashboards/) render as the ConfigMaps
 #     Grafana's sidecar loads;
 #   - deploy/helm/erp-global likewise, its router reading the PROXY header
@@ -412,6 +413,14 @@ server = [d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"]
 env = {e["name"]: e.get("value") for c in server["spec"]["template"]["spec"]["containers"] for e in c.get("env", [])}
 if env.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") != "http://erp-tracing.tracing.svc:4318/v1/traces":
     sys.exit("helm-checks: erp-cell's server must send its spans to the cell's collector, erp-tracing.tracing.svc:4318")
+# The server stops within its grace (ADR-0038 As built, review:T72m): the
+# API's drain and the workflow worker's wait for its activities share
+# ERP_SHUTDOWN_TIMEOUT and run side by side, and the replica's record is
+# deleted after both, which the grace must leave time for.
+import re
+grace, budget = server["spec"]["template"]["spec"]["terminationGracePeriodSeconds"], re.fullmatch(r"([0-9]+)s", env.get("ERP_SHUTDOWN_TIMEOUT") or "")
+if not budget or not 0 < int(budget.group(1)) <= grace - 5:
+    sys.exit("helm-checks: erp-cell's server stops within ERP_SHUTDOWN_TIMEOUT=%r, want whole seconds at least 5 s inside its grace of %ss" % (env.get("ERP_SHUTDOWN_TIMEOUT"), grace))
 egress = [d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "erp-server"][0]["spec"]["egress"]
 if not any([p["port"] for p in r["ports"]] == [4318] and r.get("to") == [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "tracing"}},
         "podSelector": {"matchLabels": {"app.kubernetes.io/name": "opentelemetry-collector", "app.kubernetes.io/instance": "opentelemetry-collector"}}}] for r in egress):

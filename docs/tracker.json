@@ -8921,9 +8921,16 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The workflow worker stops without waiting for in-flight activities (worker.Options{} leaves WorkerStopTimeout 0): a stopping replica's release activity that read the configuration may still commit after the replica's record is deleted, so an activation it lacks a key for can pass in that window; set WorkerStopTimeout within the termination grace so activities finish before the record goes",
-      "r": "internal/platform/workflow workflow.go Worker · cmd/erp-server launch stopRecord · ADR-0038 As built (activation refused while a replica lacks a key) · T72m",
+      "r": "internal/platform/workflow workflow.go Config.StopTimeout, Worker (WorkerStopTimeout) · cmd/erp-server dialEngine (ERP_SHUTDOWN_TIMEOUT), launch stopRecord after stop · cmd/erp-server shutdown_test.go TestTheRecordOutlivesTheWorkflowWorker · deploy/helm/erp-cell server.yaml ERP_SHUTDOWN_TIMEOUT 20s in a 30 s grace, scripts/helm-checks.sh · ADR-0038 As built (the workflow worker waits for its activities) · T72m",
+      "src": "review:T72m",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "API requests can outlive the replica's record: ERP_REQUEST_TIMEOUT (30s default, not set in the chart) exceeds ERP_SHUTDOWN_TIMEOUT (20s), and http.Server.Shutdown returns at its deadline without waiting for running handlers, so launch deletes the record while a request that reads the configuration can still commit, and an activation the replica lacks a key for can pass in that window; bound requests within the drain (RequestTimeout <= ShutdownTimeout) or wait for in-flight handlers before the record goes",
+      "r": "cmd/erp-server serve (srv.Shutdown) and launch stopRecord · internal/platform/httpapi request deadline · internal/platform/config ERP_REQUEST_TIMEOUT, ERP_SHUTDOWN_TIMEOUT · deploy/helm/erp-cell server.yaml · ADR-0038 As built (activation refused while a replica lacks a key) · T72m",
       "src": "review:T72m",
       "c": []
      },

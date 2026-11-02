@@ -930,6 +930,28 @@ release runbook. The cell now refuses such an activation itself.
   1). No registry existed; a table read in the
   activation's own transaction is the smallest mechanism that needs no new
   infrastructure, and the database is the one place every replica reaches.
+- **The workflow worker waits for its activities** (review:T72m, decided
+  by default). A Temporal worker stopped without `WorkerStopTimeout`
+  cancels its running activities and returns at once (the SDK's
+  `baseWorker.Stop` waits for its task processing for that long only:
+  go.temporal.io/sdk@v1.49.0 `internal/internal_worker_base.go`), so a
+  release activity that had read the configuration could commit after
+  the record was deleted. The worker now waits up to
+  `ERP_SHUTDOWN_TIMEOUT` (`workflow.Config.StopTimeout`; 20 s, set in
+  the chart), the API's drain budget: no new setting, since both start
+  when the shutdown cancels the server's context and run side by side,
+  and the record is deleted only after `run` has waited for every
+  worker. The pod's grace (30 s) leaves time for the deletion; the
+  chart's checks (`scripts/helm-checks.sh`) refuse a budget within 5 s of
+  the grace. An activity still running at the timeout has its context
+  cancelled, so its transaction rolls back unless its commit was already
+  sent; the worker returns without it, and the activity is retried
+  (activities are idempotent, ADR-0012). The SDK's own steps (its shutdown
+  call to the engine, the workflow worker's wait) come before the
+  activity worker's wait, so an activity's context stays live for at
+  least the budget and the stop as a whole can take longer. A pod killed
+  at the end of its grace leaves its record, which then counts until it
+  expires: the safe side.
 - **A dead replica stops counting.** A row counts while its last record is
   under 5 minutes old (`ReplicaExpiry`), measured on the database's clock
   alone (`seen_at = now()` on record, compared with `now()` on
