@@ -64,6 +64,7 @@ type itemTyped struct {
 	from                                                    int
 	orderItem, description, quantity, unit, amount, taxCode string
 	account, costCenter, profitCenter                       string
+	held                                                    [3]string // the ids of an opened line's account and centers
 	errs                                                    map[string]i18n.Key
 	refused                                                 []refusedField
 	focus                                                   bool
@@ -89,8 +90,14 @@ func (it *itemTyped) field(name string) *string {
 		return &it.account
 	case ui.FieldItemCostCenter:
 		return &it.costCenter
-	default:
+	case ui.FieldItemProfit:
 		return &it.profitCenter
+	case ui.FieldItemAccountID:
+		return &it.held[0]
+	case ui.FieldItemCostCenterID:
+		return &it.held[1]
+	default:
+		return &it.held[2]
 	}
 }
 
@@ -121,6 +128,24 @@ func (it itemTyped) same(other itemTyped) bool {
 // sameItems reports whether two lists of lines hold the same values.
 func sameItems(a, b []itemTyped) bool {
 	return slices.EqualFunc(a, b, itemTyped.same)
+}
+
+// sameHeld reports whether two lists of the invoice's lines (as opened,
+// and now) hold the same: their fields, the account and centers by their
+// ids, which do not depend on what the company's pages read showed.
+func sameHeld(a, b []itemTyped) bool {
+	return slices.EqualFunc(a, b, func(x, y itemTyped) bool {
+		for _, name := range ui.OpenedFieldNames() {
+			switch name {
+			case ui.FieldItemAccount, ui.FieldItemCostCenter, ui.FieldItemProfit:
+			default:
+				if strings.TrimSpace(*x.field(name)) != strings.TrimSpace(*y.field(name)) {
+					return false
+				}
+			}
+		}
+		return true
+	})
 }
 
 // kept reports whether the lines are the n the form was opened with, in
@@ -208,7 +233,8 @@ func invoiceTypedOf(inv gen.SupplierInvoice, tag string, loc i18n.Locale, codes 
 	for i, it := range inv.Items {
 		line := itemTyped{from: i + 1, description: it.Description.Or(""), quantity: loc.AmountInput(it.Quantity.Value), unit: it.Quantity.Unit,
 			amount: loc.AmountInput(it.Amount.Amount), taxCode: it.TaxCode.Or(""), account: codes.account(it.AccountID),
-			costCenter: codeIn(codes.costCenters, it.CostCenterID), profitCenter: codeIn(codes.profitCenters, it.ProfitCenterID)}
+			costCenter: codeIn(codes.costCenters, it.CostCenterID), profitCenter: codeIn(codes.profitCenters, it.ProfitCenterID),
+			held: [3]string{idText(it.AccountID), idText(it.CostCenterID), idText(it.ProfitCenterID)}}
 		if n, ok := it.PoItemNo.Get(); ok {
 			line.orderItem = strconv.Itoa(int(n))
 		}
@@ -234,13 +260,16 @@ func readInvoiceForm(f url.Values, prefix string) invoiceTyped {
 		}
 		return ""
 	}
+	names := ui.OpenedFieldNames()
+	if prefix == "" {
+		t.op, names = f.Get(ui.FieldOp), ui.ItemFieldNames()
+	}
 	for i := range len(f[prefix+ui.FieldItemAmount]) {
 		it := itemTyped{from: i + 1}
 		if prefix == "" {
 			it.from, _ = strconv.Atoi(at(ui.FieldItemFrom, i)) // a line added has none: 0
-			t.op = f.Get(ui.FieldOp)
 		}
-		for _, name := range ui.ItemFieldNames() {
+		for _, name := range names {
 			*it.field(name) = at(name, i)
 		}
 		t.items = append(t.items, it)
@@ -271,13 +300,14 @@ func (t *invoiceTyped) leaveOut(boxes []string) (removed int) {
 // added, focused, or the line now in the first removed line's place
 // focused; never fewer than one line.
 func (t *invoiceTyped) edited(add bool, removed int) {
-	if add && len(t.items) < ui.MaxFormLines {
+	added := add && len(t.items) < ui.MaxFormLines
+	if added {
 		t.items = append(t.items, itemTyped{focus: true})
 	}
 	if len(t.items) == 0 {
 		t.items = []itemTyped{{}}
 	}
-	if removed > 0 {
+	if removed > 0 && !added { // one field has the focus: the line added's
 		t.items[min(removed, len(t.items))-1].focus = true
 	}
 }
@@ -329,7 +359,7 @@ func pick(t, o, n string) string {
 func rebaseItems(typed, opened, now []itemTyped) ([]itemTyped, linesTaken) {
 	untouched := kept(typed, len(opened))
 	switch {
-	case sameItems(opened, now):
+	case sameHeld(opened, now):
 		return typed, linesTyped
 	case untouched && sameItems(typed, opened):
 		return now, linesNow
@@ -581,8 +611,9 @@ func (s *Server) resolveItems(ctx context.Context, company uuid.UUID, codes invo
 }
 
 // itemsChange are the lines as sent, nil when they are the invoice's. A
-// line whose order item changed takes the new order item's account and
-// cost center, as its hint says, unless the person changed them too.
+// line whose order item changed takes the new order item's account, cost
+// center and tax code, as its hints say, unless the person changed them
+// too.
 func (t *invoiceTyped) itemsChange(inv gen.SupplierInvoice) []gen.SupplierInvoiceItem {
 	out := make([]gen.SupplierInvoiceItem, len(t.items))
 	changed := len(t.items) != len(inv.Items)
@@ -594,6 +625,9 @@ func (t *invoiceTyped) itemsChange(inv gen.SupplierInvoice) []gen.SupplierInvoic
 			}
 			if item.CostCenterID == base.CostCenterID {
 				item.CostCenterID = gen.OptUUID{}
+			}
+			if item.TaxCode == base.TaxCode {
+				item.TaxCode = gen.OptString{}
 			}
 		}
 		out[i] = item
@@ -616,7 +650,7 @@ func (t invoiceTyped) view(inv gen.SupplierInvoice, p *person, ch chart) ui.Invo
 			ui.FieldTaxDate: t.opened.taxDate, ui.FieldGross: t.opened.gross, ui.FieldTax: t.opened.tax}}
 	for _, o := range t.opened.items {
 		values := map[string]string{}
-		for _, name := range ui.ItemFieldNames() {
+		for _, name := range ui.OpenedFieldNames() {
 			values[name] = *o.field(name)
 		}
 		f.Opened = append(f.Opened, values)

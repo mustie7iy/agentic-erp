@@ -300,7 +300,7 @@
   "invoice.edit.taxdate.hint": "Facultative, année-mois-jour, si les taux d'un autre jour s'appliquent aux codes de taxe. Vide : la date de la facture ou, pour une correction, la date fiscale de la facture corrigée.",
   "invoice.edit.amount.hint": "En %s, avec ses décimales et sans séparateur de milliers, par exemple 1080,00.",
   "invoice.edit.items": "Lignes",
-  "invoice.edit.items.hint": "Modifiez, ajoutez ou ignorez des lignes. Une ligne d'un article de commande prend le compte et le centre de coûts de l'article, et son code de taxe si elle n'en a pas; une ligne sans article de commande indique son compte.",
+  "invoice.edit.items.hint": "Modifiez, ajoutez ou ignorez des lignes. Une ligne d'un article de commande prend le compte et le centre de coûts de l'article, et son code de taxe si elle n'en a pas; avec un autre article, elle prend ceux du nouveau, sauf si vous les modifiez aussi. Une ligne sans article de commande indique son compte.",
   "invoice.edit.item": "Ligne %d",
   "invoice.edit.unit": "Unité",
   "invoice.edit.save": "Enregistrer les modifications",

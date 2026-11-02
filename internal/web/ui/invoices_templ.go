@@ -3110,7 +3110,7 @@ func invoiceEditContent(f InvoiceForm) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		for _, opened := range f.Opened {
-			for _, name := range ItemFieldNames() {
+			for _, name := range OpenedFieldNames() {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 223, "<input")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err

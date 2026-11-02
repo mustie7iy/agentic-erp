@@ -2779,7 +2779,8 @@ settled:
   calculated on the tax date (a code no longer an input tax code of the
   legal entity then, amounts out of range), without making a problem the
   read never answers (`codesDocument` reports the unknown code,
-  `readFigures` money's overflow): posting says why. The read's
+  `readFigures` money's overflow and a code the calculator cannot
+  calculate on the tax date): posting says why. The read's
   `x-problem-codes` gain `config.not_bootstrapped`, the configuration it
   reads. Both additive. The walkthrough's step 5 reads the duplicate
   invoice's `match_issues`, step 16 the final invoice's `calculated_tax`;
@@ -2805,18 +2806,23 @@ settled:
   first field focused. A line added and left empty is not sent; an
   invoice left without lines is refused before any call. A line names
   the invoice's line it shows (`item_from`), and the lines the form was
-  opened with travel as a block of their own (`was_…`), so adding or
-  leaving out lines keeps them. A line whose order item changed takes the
-  new order item's account and cost center unless the person changed
-  them too (the API fills them from the order item); one leaving its
-  order item keeps the account it shows.
+  opened with travel as a block of their own (`was_…`, with each line's
+  account and centers by id), so adding or leaving out lines keeps them,
+  and whether another person changed the lines is decided by what the
+  invoice holds, not by what the company's pages read showed (go-reviewer,
+  round 1). A line whose order item changed takes the new order item's
+  account, cost center and tax code unless the person changed them too
+  (the API fills them from the order item); one leaving its order item
+  keeps the account it shows.
 - **Lines after a 412 (decided by default, for the product owner to
   overrule).** The API numbers lines by their place, so a line added or
   left out has no identity to put another person's change on field by
   field. `rebaseItems` takes the person's lines when nobody else changed
-  the lines; the invoice's when the person changed none; while neither
-  added nor left out a line, each line with the person's changes on it
-  field by field, as T73e2 did; otherwise, both having changed the lines,
+  the lines; the invoice's when the person changed none; while the person
+  added or left out no line and the invoice has as many lines as when the
+  form was opened, each line with the person's changes on it field by
+  field by its place, as T73e2 did (another person who left one line out
+  and added another meanwhile is not told apart: reported); otherwise, both having changed the lines,
   the invoice's lines as they are now without the person's changes to
   them, said on the form (409, no call), the person's header changes kept
   at the invoice's version now. This is the entry form's rule for a

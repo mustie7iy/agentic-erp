@@ -463,6 +463,13 @@ const (
 	FieldItemFrom = "item_from"
 	// FieldItemRemove leaves the line of its value's number out.
 	FieldItemRemove = "item_remove"
+	// The ids of an opened line's account and centers, which the form
+	// shows by number and code as far as the company's pages read hold
+	// them: whether another person changed a line is decided by what the
+	// invoice holds, not by what a page read showed (T73e3).
+	FieldItemAccountID    = "item_account_id"
+	FieldItemCostCenterID = "item_cost_center_id"
+	FieldItemProfitID     = "item_profit_center_id"
 	// FieldWas prefixes a field's value when the form was opened, sent
 	// beside it so the change is what the person changed (T73e2).
 	FieldWas = "was_"
@@ -548,6 +555,12 @@ func ItemFieldNames() []string {
 		out[i] = f.Name
 	}
 	return out
+}
+
+// OpenedFieldNames are the fields of a line the form was opened with:
+// its fields, and its account's and centers' ids.
+func OpenedFieldNames() []string {
+	return append(ItemFieldNames(), FieldItemAccountID, FieldItemCostCenterID, FieldItemProfitID)
 }
 
 // shownFields are the line's fields the form shows: the order item's only

@@ -300,7 +300,7 @@
   "invoice.edit.taxdate.hint": "Optional, year-month-day, if the tax codes' rates of another day apply. Empty: the invoice date, or for a correction the corrected invoice's tax date.",
   "invoice.edit.amount.hint": "In %s, with its decimals and no grouping, for example 1080.00.",
   "invoice.edit.items": "Lines",
-  "invoice.edit.items.hint": "Change, add or leave out lines. A line of an order item takes the order item's account and cost center, and its tax code when it has none; a line of no order item names its account.",
+  "invoice.edit.items.hint": "Change, add or leave out lines. A line of an order item takes the order item's account and cost center, and its tax code when it has none; given another order item, it takes the new one's unless you change them too. A line of no order item names its account.",
   "invoice.edit.item": "Line %d",
   "invoice.edit.unit": "Unit",
   "invoice.edit.save": "Save the changes",

@@ -239,16 +239,18 @@ func (e *Endpoints) calculatedTax(ctx context.Context, v Invoice) (*problem.Calc
 
 // readFigures are the figures of a read's calculation (calculatedTax), err
 // the calculator's: none when it or the charged total finds amounts out of
-// range (money.ErrOverflow), as posting refuses them, without making the
-// problem a read never answers; the calculator's other errors are not
-// expected.
+// range (money.ErrOverflow), or the calculator finds a code it cannot
+// calculate on the tax date (a component without a rate then, a
+// self-assessed code missing half its pair: tax.ErrNoRate,
+// tax.ErrInvalidCode), as posting refuses them, without making the problem
+// a read never answers; the calculator's other errors are not expected.
 func readFigures(v Invoice, items []tax.ComponentTax, err error) (*problem.CalculatedTax, error) {
 	var charged money.Minor
 	if err == nil {
 		charged, _, err = chargedSum(items)
 	}
 	switch {
-	case errors.Is(err, money.ErrOverflow):
+	case errors.Is(err, money.ErrOverflow), errors.Is(err, tax.ErrNoRate), errors.Is(err, tax.ErrInvalidCode):
 		return nil, nil
 	case err != nil:
 		return nil, fmt.Errorf("payables: tax of invoice %s: %w", v.ID, err)

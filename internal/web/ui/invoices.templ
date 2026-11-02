@@ -803,7 +803,7 @@ templ invoiceEditContent(f InvoiceForm) {
 			</div>
 		</fieldset>
 		for _, opened := range f.Opened {
-			for _, name := range ItemFieldNames() {
+			for _, name := range OpenedFieldNames() {
 				<input { hidden(FieldWas+name, opened[name])... }/>
 			}
 		}

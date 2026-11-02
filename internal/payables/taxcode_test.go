@@ -54,8 +54,12 @@ func TestTaxCodeChangedBeforePosting(t *testing.T) {
 	}
 	// The invoice read by itself carries them too, before the post (T73e3).
 	read, _ := e.Must(200, "GET", "/v1/supplier-invoices/"+id(inv), "", "")
-	if got, err := json.Marshal(read["calculated_tax"]); err != nil || string(got) != string(figures) {
-		t.Errorf("the invoice's calculated_tax:\ngot  %s (%v)\nwant %s", got, err, figures)
+	got, err := json.Marshal(read["calculated_tax"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(figures) {
+		t.Errorf("the invoice's calculated_tax:\ngot  %s\nwant %s", got, figures)
 	}
 	e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(inv), `{"gross_amount": {"amount": "126.00", "currency": "EUR"}, "tax_amount": {"amount": "26.00", "currency": "EUR"}}`,
 		e.tag(t, id(inv)))

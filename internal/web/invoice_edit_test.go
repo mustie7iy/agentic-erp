@@ -315,10 +315,30 @@ func TestChangeInvoiceLines(t *testing.T) {
 	if got, want := itemsOf(t, d.account), "- Fees 1 EA 10000 V1 520000 -; - Travel 2 EA 5000 V1 530000 -"; got != want {
 		t.Errorf("two lines:\ngot  %s\nwant %s", got, want)
 	}
-	left := b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"item_remove": {"1"}, "gross_amount": {"59.50"},
+	// A line added and left empty is not sent: nothing changed.
+	blank := formValues(b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"op": {"add"}})).page(t).form(editPath(d.account)))
+	unchanged := b.do(http.MethodPost, editPath(d.account), blank)
+	if got := unchanged.location(); got != invoicePath(d.account)+"?done=unchanged" {
+		t.Errorf("a blank line: got %d to %q, want nothing changed", unchanged.status, got)
+	}
+	// A form opened when the company's accounts could not be read shows
+	// the account by its id: the invoice is not changed by someone else
+	// for that, and lines added on it are kept.
+	byID := formValues(b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"op": {"add"}})).page(t).form(editPath(d.account)))
+	byID.Set("was_item_account", byID.Get("was_item_account_id"))
+	for name, values := range map[string][]string{"item_quantity": {"1", "2", "1"}, "item_unit": {"EA", "EA", "EA"}, "item_amount": {"100.00", "50.00", "5.00"},
+		"item_account": {"520000", "530000", "530000"}, "item_description": {"Fees", "Travel", "Taxi"}} {
+		byID[name] = values
+	}
+	byID.Set("gross_amount", "183.50")
+	status(t, "opened by id", b.do(http.MethodPost, editPath(d.account), byID), http.StatusSeeOther)
+	if got := strings.Count(itemsOf(t, d.account), ";"); got != 2 {
+		t.Errorf("opened by id: got %d lines, want 3", got+1)
+	}
+	left := b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"item_remove": {"1"}, "gross_amount": {"64.50"},
 		"tax_amount": {"9.50"}}))
 	status(t, "a line left out", left, http.StatusSeeOther)
-	if got, want := itemsOf(t, d.account), "- Travel 2 EA 5000 V1 530000 -"; got != want {
+	if got, want := itemsOf(t, d.account), "- Travel 2 EA 5000 V1 530000 -; - Taxi 1 EA 500 - 530000 -"; got != want {
 		t.Errorf("a line left out: got %s, want %s", got, want)
 	}
 
@@ -328,12 +348,12 @@ func TestChangeInvoiceLines(t *testing.T) {
 	if strings.Contains(swapped.body, "<html") {
 		t.Error("a line added with htmx: the whole page was answered")
 	}
-	emptied := b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"item_remove": {"1"}}), "HX-Request", "true")
+	emptied := b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"item_remove": {"1", "2"}}), "HX-Request", "true")
 	holds(t, "every line left out with htmx", emptied.body, "Line 1")
-	if strings.Contains(emptied.body, `value="Travel"`) {
+	if strings.Contains(emptied.body, `value="Taxi"`) {
 		t.Error("every line left out with htmx: the line is still there")
 	}
-	none := b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"item_remove": {"1"}}))
+	none := b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"item_remove": {"1", "2"}}))
 	status(t, "no line", none, http.StatusUnprocessableEntity)
 	holds(t, "no line", none.page(t).mainText(), "An invoice has at least one line.", "Line 1")
 
@@ -346,7 +366,7 @@ func TestChangeInvoiceLines(t *testing.T) {
 		"a center's code wrong":   {url.Values{"item_profit_center": {"P C"}}, "A code has at most 10 letters"},
 		"no unit":                 {url.Values{"item_unit": {" "}}, "A quantity needs its unit."},
 		"a unit wrong":            {url.Values{"item_unit": {"PIECES7"}}, "A unit has 1 to 6 capital letters"},
-		"a unit not known":        {url.Values{"item_unit": {"PIECES"}}, "No unit of measure has this code."},
+		"a unit not known":        {url.Values{"item_unit": {"PIECES", "EA"}}, "No unit of measure has this code."},
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, tc.change))
@@ -463,6 +483,13 @@ func TestChangeInvoiceCenters(t *testing.T) {
 	if got := itemsOf(t, inv); !strings.HasSuffix(got, " 520000 2000") {
 		t.Errorf("a cost center: got %s, want 2000", got)
 	}
+	status(t, "a profit center", b.do(http.MethodPost, editPath(inv), editForm(t, b, inv, url.Values{"item_profit_center": {"pc1"}})), http.StatusSeeOther)
+	var profit string
+	pgtest.Scan(t, `SELECT coalesce(p.code, '-') FROM payables.supplier_invoice_item it LEFT JOIN ledger.profit_center p ON p.id = it.profit_center_id
+		WHERE it.supplier_invoice_id = $1 AND NOT it.is_removed`, []any{inv}, &profit)
+	if profit != "PC1" {
+		t.Errorf("a profit center: got %s, want PC1", profit)
+	}
 	form := b.get(editPath(inv)).page(t).form(editPath(inv))
 	if got := field(form, "item_cost_center"); got != "2000" {
 		t.Errorf("the cost center shown: got %q, want its code", got)
@@ -499,27 +526,32 @@ func TestTaxAndIssuesShown(t *testing.T) {
 }
 
 // TestOrderItemChanged: a line whose order item changed takes the new
-// order item's account and cost center unless the person changed them
-// too; a line leaving its order item keeps what it shows.
+// order item's account, cost center and tax code unless the person
+// changed them too; a line leaving its order item keeps what it shows.
 func TestOrderItemChanged(t *testing.T) {
 	po, account, other, center := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	inv := gen.SupplierInvoice{Items: []gen.SupplierInvoiceItem{{ItemNo: gen.NewOptInt32(1), PurchaseOrderID: gen.NewOptUUID(po), PoItemNo: gen.NewOptInt32(2),
-		AccountID: gen.NewOptUUID(account), CostCenterID: gen.NewOptUUID(center)}}}
+		AccountID: gen.NewOptUUID(account), CostCenterID: gen.NewOptUUID(center), TaxCode: gen.NewOptString("V1")}}}
 	for name, tc := range map[string]struct {
 		sent gen.SupplierInvoiceItem
 		want gen.SupplierInvoiceItem
 	}{
 		"another order item": {gen.SupplierInvoiceItem{PurchaseOrderID: gen.NewOptUUID(po), PoItemNo: gen.NewOptInt32(1), AccountID: gen.NewOptUUID(account),
-			CostCenterID: gen.NewOptUUID(center)}, gen.SupplierInvoiceItem{PurchaseOrderID: gen.NewOptUUID(po), PoItemNo: gen.NewOptInt32(1)}},
-		"another order item and account": {gen.SupplierInvoiceItem{PurchaseOrderID: gen.NewOptUUID(po), PoItemNo: gen.NewOptInt32(1), AccountID: gen.NewOptUUID(other)},
-			gen.SupplierInvoiceItem{PurchaseOrderID: gen.NewOptUUID(po), PoItemNo: gen.NewOptInt32(1), AccountID: gen.NewOptUUID(other)}},
+			CostCenterID: gen.NewOptUUID(center), TaxCode: gen.NewOptString("V1")}, gen.SupplierInvoiceItem{PurchaseOrderID: gen.NewOptUUID(po), PoItemNo: gen.NewOptInt32(1)}},
+		"another order item, account and code": {gen.SupplierInvoiceItem{PurchaseOrderID: gen.NewOptUUID(po), PoItemNo: gen.NewOptInt32(1), AccountID: gen.NewOptUUID(other),
+			TaxCode: gen.NewOptString("V7")}, gen.SupplierInvoiceItem{PurchaseOrderID: gen.NewOptUUID(po), PoItemNo: gen.NewOptInt32(1), AccountID: gen.NewOptUUID(other),
+			TaxCode: gen.NewOptString("V7")}},
 		"no order item": {gen.SupplierInvoiceItem{AccountID: gen.NewOptUUID(account), CostCenterID: gen.NewOptUUID(center)},
 			gen.SupplierInvoiceItem{AccountID: gen.NewOptUUID(account), CostCenterID: gen.NewOptUUID(center)}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			typed := invoiceTyped{items: []itemTyped{{from: 1, sent: tc.sent}}}
-			if got := typed.itemsChange(inv); len(got) != 1 || got[0] != tc.want {
-				t.Errorf("got %+v, want %+v", got, tc.want)
+			got := typed.itemsChange(inv)
+			if len(got) != 1 {
+				t.Fatalf("lines: got %d, want 1", len(got))
+			}
+			if got[0] != tc.want {
+				t.Errorf("got %+v, want %+v", got[0], tc.want)
 			}
 		})
 	}
@@ -535,12 +567,13 @@ func TestRebaseItems(t *testing.T) {
 		want       linesTaken
 		amounts    string
 	}{
-		"nobody else":             {[]itemTyped{line(1, "1.00")}, opened, linesTyped, "1.00"},
-		"the person changed none": {opened, []itemTyped{line(1, "1.00")}, linesNow, "1.00"},
-		"fields of both":          {[]itemTyped{line(1, "1.50"), line(2, "2.00")}, []itemTyped{line(1, "1.00"), line(2, "2.50")}, linesMerged, "1.50 2.50"},
-		"both, one left out":      {[]itemTyped{line(1, "1.50")}, []itemTyped{line(1, "1.00"), line(2, "2.50")}, linesLost, "1.00 2.50"},
-		"both, one added":         {[]itemTyped{line(1, "1.50"), line(2, "2.00"), line(0, "3.00")}, []itemTyped{line(1, "1.00"), line(2, "2.50")}, linesLost, "1.00 2.50"},
-		"both, the other added":   {[]itemTyped{line(1, "1.50"), line(2, "2.00")}, []itemTyped{line(1, "1.00"), line(2, "2.00"), line(3, "3.00")}, linesLost, "1.00 2.00 3.00"},
+		"nobody else":                      {[]itemTyped{line(1, "1.00")}, opened, linesTyped, "1.00"},
+		"the person changed none":          {opened, []itemTyped{line(1, "1.00")}, linesNow, "1.00"},
+		"fields of both":                   {[]itemTyped{line(1, "1.50"), line(2, "2.00")}, []itemTyped{line(1, "1.00"), line(2, "2.50")}, linesMerged, "1.50 2.50"},
+		"both, one left out":               {[]itemTyped{line(1, "1.50")}, []itemTyped{line(1, "1.00"), line(2, "2.50")}, linesLost, "1.00 2.50"},
+		"both, one added":                  {[]itemTyped{line(1, "1.50"), line(2, "2.00"), line(0, "3.00")}, []itemTyped{line(1, "1.00"), line(2, "2.50")}, linesLost, "1.00 2.50"},
+		"both, one left out and one added": {[]itemTyped{line(1, "1.50"), line(0, "3.00")}, []itemTyped{line(1, "1.00"), line(2, "2.50")}, linesLost, "1.00 2.50"},
+		"both, the other added":            {[]itemTyped{line(1, "1.50"), line(2, "2.00")}, []itemTyped{line(1, "1.00"), line(2, "2.00"), line(3, "3.00")}, linesLost, "1.00 2.00 3.00"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, taken := rebaseItems(tc.typed, opened, tc.now)
@@ -548,8 +581,11 @@ func TestRebaseItems(t *testing.T) {
 			for _, it := range got {
 				amounts = append(amounts, it.amount)
 			}
-			if taken != tc.want || strings.Join(amounts, " ") != tc.amounts {
-				t.Errorf("got %d %v, want %d %s", taken, amounts, tc.want, tc.amounts)
+			if taken != tc.want {
+				t.Errorf("taken: got %d, want %d", taken, tc.want)
+			}
+			if got := strings.Join(amounts, " "); got != tc.amounts {
+				t.Errorf("amounts: got %s, want %s", got, tc.amounts)
 			}
 		})
 	}
