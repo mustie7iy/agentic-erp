@@ -3029,6 +3029,8 @@ built:
 - **Decided by default (for the product owner to overrule):** the
   30-second read timeouts of erp-web, the router and erp-server are
   unchanged and bound how long an upload may take (ADR-0020 As built).
+  Overruled by the product owner on 2026-11-02: five minutes for the
+  upload path alone (below).
 - **Tests.** `TestCaptureByUpload` (the S3 double behind the real API:
   the document in the bucket under the upload, via api, the upload used,
   the form sent again shown again, fresh, with a 409 and a link to the
@@ -3045,6 +3047,29 @@ built:
   refused on its fields, a scan captured to its invoice, and a running
   capture polled to its invoice (`TestCaptureJobInTheBrowser`). The
   walkthrough's step 18 captures a 6 MB scan through the API's path.
+
+## Five minutes for the capture's upload (2026-11-02, product owner 2026-11-02)
+The upload path's read timeout is five minutes on all three hops, every
+other request keeping its listener's 30 seconds (ADR-0020 As built
+2026-11-02: the deadlines hop by hop, slow-loris, what holds a slot, and
+what in the deployment could not be scoped to the path). In erp-web:
+- **The capture's own deadlines.** `POST /invoices/capture` reads its
+  document for up to seven minutes and answers within ten, from the moment
+  the person is known to be signed in and the form's CSRF token checked
+  (`csrfStream`) and its fields read, before the document's first bytes;
+  until then the listener's deadlines hold, header included, as for every
+  other form. Seven minutes cover `createUpload` (30 s at most) and the
+  router's and the cell's own deadlines (six and five minutes, which start
+  later); ten cover the relay and `captureSupplierInvoice`.
+- **The relay's call.** The relay's client allows each relayed `PUT` eight
+  minutes rather than the API client's 30 seconds, past the router's
+  answer (seven minutes); every other call keeps 30 seconds. erp-web links
+  no `api` package, so its values are written out in `capture.go` and
+  `TestCaptureDeadlines` holds them to the router's and `api`'s.
+- **Tests.** `TestCaptureOutlastsTheListener`: erp-web and the real API
+  behind listeners shrunk to two seconds; a capture whose document pauses
+  past both while it is being relayed is captured, the same pause on the
+  statement upload's form is cut at the listener's timeout.
 
 ## Built in T73e3 (2026-11-01)
 Invoices beyond T73e2, first slice: a parked invoice's lines added, left

@@ -104,7 +104,8 @@ to the API instead. On S3 the API offered only the presigned URL, so:
   30-second read timeout of erp-web's, the router's and erp-server's
   listeners is unchanged and bounds how long an upload may take (50 MB
   needs about 14 Mbit/s end to end; a scanned invoice of a few MB goes in
-  seconds). Lifting it for the upload's route is security posture. The
+  seconds). Lifting it for the upload's route is security posture
+  (superseded by the product owner's decision of 2026-11-02, below). The
   capture still reads the consumed document whole to hash and extract it,
   as before.
 - **Walkthrough:** step 18 creates an upload `via: api`, streams a 6 MB
@@ -115,3 +116,85 @@ to the API instead. On S3 the API offered only the presigned URL, so:
   422 `payables.invalid_purchase_order` on it); the model is a stand-in that answers the
   extraction (`internal/llm/llmtest/modelstub`), as the mock SAP extract
   stands in for SAP.
+
+## As built: five minutes for the upload path (2026-11-02, product owner 2026-11-02)
+The product owner raised the read timeout to five minutes for the upload
+path alone (security posture): 50 MB then needs about 1.4 Mbit/s rather
+than 14. Every other request keeps its listener's timeouts (header 10 s,
+read 30 s, write 60 s, idle 120 s), and so does every upload request until
+it has passed its own checks.
+- **The deadlines, hop by hop.** `api.UploadTimeout` (five minutes) is the
+  cell's; each hop in front allows `api.UploadMargin` (a minute) more than
+  the hop behind it, since its deadlines start first, so the cell is the
+  one to cut an upload that overruns, as `router.ModelTimeout` does for a
+  model call (ADR-0036). Each is set by `http.ResponseController` in the
+  handler; the listeners are unchanged.
+
+  | Hop | Set when | Body read | Answer written |
+  |---|---|---|---|
+  | erp-server, `PUT /v1/uploads/{id}/content` (`payables.Uploads`) | the URL's signature checked, the upload open and of its type, a receiving slot held | 5 min | 6 min |
+  | erp-router, a `PUT` on `/v1/uploads/{uuid}/content` (`router.UploadReadTimeout`, `UploadWriteTimeout`) | the bearer token verified and the tenant's cell found | 6 min | 7 min |
+  | erp-web, `POST /invoices/capture` (`allowTime`) | signed in, the form's CSRF token the session's, its fields read | 7 min | 10 min |
+  | erp-web's relay to the router (its client's timeout) | each relayed `PUT` | 8 min, the whole call | |
+
+  erp-web's read covers its `createUpload` (30 s at most) before the
+  relay, then the cell's five minutes; its relay covers the router's
+  answer; its own answer covers the relay and `captureSupplierInvoice`
+  (30 s at most). The router's proxy has no timeout of its own (its
+  transport sets none; the listener's deadlines bounded it), so the
+  router's two deadlines are its proxy's for this path.
+- **Slow-loris.** The header's timeout (10 s) is unchanged everywhere, and
+  every request reads its first bytes under the listener's 30 s: a request
+  is given the upload's time only once it has proved its right to it on
+  that hop (above). An anonymous client holds a connection no longer than
+  before; a request refused before its body is read (a wrong signature,
+  an upload closed, all slots taken) keeps the listener's deadlines. The
+  router cannot check the path's signature (the cell holds its key), so a
+  holder of any tenant's token may hold a router connection for six
+  minutes with a `PUT` on an upload's path: the cell refuses a bad signature before reading a byte, the router
+  passes the refusal on, and Go's server then reads at most 256 KB more
+  of a body left unread (none of one whose declared length is larger)
+  before it reuses or closes the connection.
+- **Holding is bounded by size and time.** A replica receives at most four
+  documents at once (`payables.MaxReceiving`), each a temporary file of at
+  most 50 MB in erp-server's 256 MiB `/tmp`, now for up to five minutes
+  each instead of 30 seconds; a fifth is 503 with `Retry-After: 5`. At the
+  slowest rate the path accepts, a replica takes four documents per five
+  minutes, so four clients sending slowly keep every other upload to that
+  replica waiting on 503s for up to five minutes. The router and erp-web
+  hold no slot: a connection, a goroutine and a buffer each, for up to six
+  and seven minutes. The temporary file is removed when the request ends,
+  whether received, refused or cut (`spooled.discard`), as before.
+- **Not scoped to the path.** Nothing in the deployment cuts an upload at
+  30 or 60 seconds: the balancers in front of the router and erp-web are
+  network load balancers passing TCP (deploy/terraform/modules/global),
+  whose idle timeout, 350 seconds by AWS's default (from memory, for a
+  specialist to confirm), ends only an idle connection, and an upload
+  sending is not idle; erp-web reaches the router's Service and the router
+  each cell's Service directly, with no ingress or proxy between. Two
+  limits stay for every request alike, and so for the upload: a rollout
+  drains each replica for `ERP_SHUTDOWN_TIMEOUT` (20 s) before an upload
+  still arriving is cut, and the person sends the form again (the upload
+  stays open for its 15 minutes, and the form's derived key finds it); and
+  the upload URL's own 15 minutes, checked when the `PUT` begins.
+- **Found on the way.** The telemetry middleware's response writer did not
+  unwrap, so `http.ResponseController` was refused behind it: the router's
+  and the cell's model-call write deadlines (ADR-0036) had never taken
+  effect in a deployed server, only in tests that called the handler
+  directly. It unwraps now (`statusWriter.Unwrap`), which the upload path
+  needs too; a test through the middleware holds it
+  (`TestHandlersReachTheServersWriter`), and the tests below go through a
+  real listener.
+- **Tests.** On each hop a listener whose timeouts are shrunk to a second
+  or two (configuration, not sleeping): a body that pauses past the
+  listener's read timeout (`pgtest.PausedBody`) is received on the upload
+  path, while the same pause on another route is cut at the listener's
+  timeout, observed before the upload goes on, so the upload's own
+  listener deadline is known to be past; on the cell and the router the
+  path's own deadline, brought near by the injected clock, still cuts a
+  body that outlasts it (`TestUploadOutlastsTheListener` in payables and
+  router). erp-web's test sends a capture whose document pauses while it
+  is being relayed to the real API, both listeners shrunk
+  (`TestCaptureOutlastsTheListener`); `TestCaptureDeadlines` holds
+  erp-web's values, written out since erp-web links no `api` package, to
+  the router's and the margins.

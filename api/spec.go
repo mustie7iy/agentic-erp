@@ -318,6 +318,22 @@ func DirectoryOperations() (map[string]Operation, error) {
 // contract, because the cell and the router share it.
 const ModelCallTimeout = 10 * time.Minute
 
+// UploadTimeout is how long a document's bytes may take to arrive on the
+// API's own signed upload path (PUT /v1/uploads/{id}/content, ADR-0020):
+// five minutes, where every other request keeps its listener's 30 seconds
+// (PO 2026-11-02), so 50 MB needs about 1.4 Mbit/s. erp-server cuts the
+// body at it; the router and erp-web in front of it allow UploadMargin
+// more per hop, since their deadlines start first, so the cell is the one
+// to cut an upload that overruns. It is here, beside ModelCallTimeout,
+// because the cell and the router share it.
+const UploadTimeout = 5 * time.Minute
+
+// UploadMargin is what each hop adds to the deadline of the hop behind it
+// on the upload path: the cell's answer after the last byte (storing the
+// document), the router's checks before it forwards, and erp-web's calls
+// before it relays (two, of 30 seconds at most each).
+const UploadMargin = time.Minute
+
 // ModelSpec is the embedded model gateway contract (model.yaml): every
 // model call, served on the public listener outside the generated server
 // by hand-written handlers (internal/agents), ADR-0036.
