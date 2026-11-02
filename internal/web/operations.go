@@ -19,6 +19,7 @@ const (
 	permDecide                = "workflow.request.decide"
 	permReadInvoices          = "payables.invoice.read"
 	permCaptureInvoices       = "payables.invoice.capture"
+	permPostInvoices          = "payables.invoice.post"
 	permReadRecommendations   = "agents.session.read"
 	permDecideRecommendations = "agents.recommendation.decide"
 	permReadOrders            = "procurement.order.read"
@@ -95,6 +96,12 @@ var (
 	// (invoiceCodes), and sending it looks codes up besides (opLookups).
 	opInvoiceForm = []Operation{opMe, {ID: "getSupplierInvoice", HiddenBy: permReadInvoices}, opAccounts,
 		{ID: "listCostCenters", HiddenBy: permReadCenters}, {ID: "listProfitCenters", HiddenBy: permReadCenters}}
+	// opDownPayments are the reads of the clearing of down payments against
+	// a posted invoice (downpayments.go): the supplier's open down payments
+	// and their paid requests, and the company's date today, the transfer's
+	// default posting date.
+	opDownPayments = []Operation{opMe, {ID: "getSupplierInvoice", HiddenBy: permReadInvoices}, opToday, opListItems,
+		{ID: "listDownPaymentRequests", HiddenBy: permReadInvoices}}
 	opHouseBanks = Operation{ID: "listHouseBanks", HiddenBy: permReadStatements}
 	opOperation  = Operation{ID: "getOperation", HiddenBy: permReadOperations}
 	// opStatementList are the reads of the statements' list (bank.go),
@@ -251,9 +258,12 @@ var Screens = func() map[string][]Operation {
 			{ID: "captureSupplierInvoice", HiddenBy: permCaptureInvoices, Write: true}}, opMe, opCompanies, Operation{ID: "getUpload", HiddenBy: permCaptureInvoices}),
 		"GET /invoices/{id}/order": {opMe, {ID: "getSupplierInvoice", HiddenBy: permReadInvoices}, {ID: "getPurchaseOrder", HiddenBy: permReadOrders},
 			{ID: "listGoodsReceipts", HiddenBy: permReadReceipts}},
-		"GET /invoices/{id}/document": {{ID: "getSupplierInvoiceDocument", HiddenBy: permReadInvoices}},
-		"GET /invoices/{id}/edit":     opInvoiceForm,
-		"POST /invoices/{id}/edit":    append(append([]Operation{{ID: "updateSupplierInvoice", HiddenBy: permCaptureInvoices}}, opInvoiceForm...), opLookups...),
+		"GET /invoices/{id}/document":      {{ID: "getSupplierInvoiceDocument", HiddenBy: permReadInvoices}},
+		"GET /invoices/{id}/edit":          opInvoiceForm,
+		"GET /invoices/{id}/down-payments": opDownPayments,
+		"POST /invoices/{id}/down-payments": append([]Operation{{ID: "clearSupplierInvoiceDownPayments", HiddenBy: permPostInvoices}},
+			opDownPayments...),
+		"POST /invoices/{id}/edit": append(append([]Operation{{ID: "updateSupplierInvoice", HiddenBy: permCaptureInvoices}}, opInvoiceForm...), opLookups...),
 		"POST /invoices/{id}/recommendations/{rec}/decide": append([]Operation{{ID: "decideRecommendation", HiddenBy: permDecideRecommendations,
 			HumanOnly: true}}, opInvoice...),
 		"GET /bank":                        opStatementList,

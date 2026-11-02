@@ -284,11 +284,14 @@ type InvoicePage struct {
 	RecsError  *Refusal
 	RecsWhy    i18n.Key // why the open recommendations offer no decision
 	Actions    []ActionForm
-	Edit       string   // the change form's path; "" unless parked and the person may change it
-	Why        i18n.Key // why Actions is empty
-	Pending    bool     // an exception's request is linked to the invoice on hold: waiting, or approved before a hold by hand
-	Done       i18n.Key
-	Refusal    *Refusal
+	Edit       string // the change form's path; "" unless parked and the person may change it
+	// DownPayments is the clearing of down payments' path; "" unless a
+	// posted invoice and the person may clear them (T73e4).
+	DownPayments string
+	Why          i18n.Key // why Actions is empty
+	Pending      bool     // an exception's request is linked to the invoice on hold: waiting, or approved before a hold by hand
+	Done         i18n.Key
+	Refusal      *Refusal
 }
 
 // OrderHeader is a purchase order's summary.

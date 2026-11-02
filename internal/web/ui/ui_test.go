@@ -202,6 +202,9 @@ func components() map[string]templ.Component {
 	for name, c := range captureComponents() {
 		out[name] = c
 	}
+	for name, c := range downPaymentComponents() {
+		out[name] = c
+	}
 	return out
 }
 

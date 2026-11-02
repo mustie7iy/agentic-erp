@@ -1,0 +1,144 @@
+package ui
+
+import "github.com/mustie7iy/agentic-erp/internal/web/i18n"
+
+// DownPayments is the clearing of the supplier's down payments against a
+// posted invoice (T73e4, ADR-0037): the person chooses them from the
+// supplier's open down payments and the transfer's posting date.
+templ DownPayments(s Shell, v DownPaymentsPage) {
+	@Layout(s, downPaymentsContent(v))
+}
+
+templ downPaymentsContent(v DownPaymentsPage) {
+	<p>
+		<a { link(v.Back, "")... }>
+			@T(i18n.OrderBack)
+		</a>
+	</p>
+	<p class="caption" translate="no">
+		@Value(v.Number)
+	</p>
+	<h1>
+		@T(i18n.DownPaymentsTitle)
+	</h1>
+	@Paragraph(i18n.DownPaymentsLead)
+	if v.Refusal != nil {
+		@RefusalNotice(*v.Refusal)
+	}
+	<div hx-disable>
+		@SummaryList(downPaymentRows(v))
+	</div>
+	<h2>
+		@T(i18n.DownPaymentsListTitle)
+	</h2>
+	if v.Closed {
+		@Paragraph(i18n.DownPaymentsClosed)
+	} else if v.ItemsRefusal != nil {
+		@RefusalNotice(*v.ItemsRefusal)
+	} else if len(v.Items) == 0 {
+		@Paragraph(i18n.DownPaymentsNone)
+	} else if !v.Offered() {
+		@DownPaymentsTable(v.Items, "")
+		if v.More != "" {
+			@ButtonLink(v.More, i18n.DownPaymentsMore)
+		}
+	} else {
+		@downPaymentsForm(v)
+	}
+}
+
+// downPaymentsForm is the choice: a real form posting the CSRF token, the
+// invoice's ETag as If-Match and the form's own idempotency key, each down
+// payment a box, and the transfer's posting date.
+templ downPaymentsForm(v DownPaymentsPage) {
+	<form class="entry" { post(v.Action)... }>
+		@decideHidden(v.CSRF, v.ETag, v.Key)
+		<input { hidden(FieldPage, v.Page)... }/>
+		<fieldset class="fieldset">
+			<legend class="field__label">
+				@T(i18n.DownPaymentsChoose)
+			</legend>
+			if v.ChooseError != "" {
+				<p class="field__error" { idAttr("down-payments-error")... }>
+					@T(v.ChooseError)
+				</p>
+			}
+			@DownPaymentsTable(v.Items, v.ChooseError)
+		</fieldset>
+		@InputField("down-payments-date", FieldDate, "date", i18n.DownPaymentsDate, i18n.DownPaymentsDateHint, v.Date, v.DateError)
+		<div class="filters__buttons">
+			<button class="button" type="submit">
+				@T(i18n.DownPaymentsClear)
+			</button>
+		</div>
+	</form>
+	if v.More != "" {
+		@ButtonLink(v.More, i18n.DownPaymentsMore)
+	}
+}
+
+// DownPaymentsTable is the supplier's open down payments, each with its
+// box or why it is not offered, in a region that scrolls sideways on its
+// own on a phone. The references are the supplier's or the source
+// system's: data.
+templ DownPaymentsTable(items []DownPaymentChoice, err i18n.Key) {
+	<div class="table-wrap" role="region" tabindex="0" { labelledBy("down-payments-caption")... }>
+		<table class="table" hx-disable>
+			<caption class="visually-hidden" { idAttr("down-payments-caption")... }>
+				@T(i18n.DownPaymentsListTitle)
+			</caption>
+			<thead>
+				<tr>
+					@HeaderCell(i18n.DownPaymentsRequest)
+					@HeaderCell(i18n.DownPaymentsEntry)
+					@HeaderCell(i18n.EntryReference)
+					@HeaderCell(i18n.EntryPostingDate)
+					@HeaderCell(i18n.DownPaymentsAmount)
+					@HeaderCell(i18n.DownPaymentsTax)
+				</tr>
+			</thead>
+			<tbody>
+				for i, c := range items {
+					@downPaymentRow(i, c, err)
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+// downPaymentRow is one down payment: its box labelled by its request's
+// number, or the number and why it is not offered.
+templ downPaymentRow(i int, c DownPaymentChoice, err i18n.Key) {
+	<tr>
+		<td>
+			if c.Value != "" {
+				<div class="checkbox">
+					<input { downPaymentBox(i, c, err)... }/>
+					<label class="checkbox__label" translate="no" { forAttr(downPaymentID(i))... }>
+						@Value(c.Request)
+					</label>
+				</div>
+			} else {
+				@codeOrNone(c.Request)
+				<p class="hint">
+					@T(c.Why)
+				</p>
+			}
+		</td>
+		<td translate="no">
+			@Value(c.Entry)
+		</td>
+		<td>
+			@Data(c.Reference)
+		</td>
+		<td>
+			@Day(c.Posting)
+		</td>
+		<td>
+			@optionalAmount(c.Amount)
+		</td>
+		<td>
+			@optionalAmount(c.Tax)
+		</td>
+	</tr>
+}

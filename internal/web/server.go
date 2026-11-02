@@ -205,6 +205,8 @@ func (s *Server) invoiceRoutes(route func(string, http.HandlerFunc)) {
 	route("GET "+ui.InvoicesPath+"/{id}/document", s.signedIn(s.document))
 	route("GET "+ui.InvoicesPath+"/{id}/edit", s.signedIn(s.editInvoice))
 	route("POST "+ui.InvoicesPath+"/{id}/edit", s.signedIn(s.csrf(s.saveInvoice)))
+	route("GET "+ui.InvoicesPath+"/{id}/"+ui.DownPaymentsVerb, s.signedIn(s.downPayments))
+	route("POST "+ui.InvoicesPath+"/{id}/"+ui.DownPaymentsVerb, s.signedIn(s.csrf(s.clearDownPayments)))
 	for verb := range actionOps {
 		route("POST "+ui.InvoicesPath+"/{id}/"+verb, s.signedIn(s.csrf(s.act(verb))))
 	}

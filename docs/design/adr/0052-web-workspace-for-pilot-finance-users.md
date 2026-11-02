@@ -3133,6 +3133,72 @@ settled:
   adds and leaves out a line with htmx, axe at zero at 1280 px in English
   and 390 px in French, and saves a line of an order item.
 
+## Built in T73e4 (2026-11-02)
+Invoices beyond T73e3: clearing a supplier's down payments against its
+posted final invoice (SAP F-54, ADR-0037), the rest of T73e2's split leaf.
+The pilot AP clerk's walk-through, human acceptance, is T73e5. What it
+settled:
+- **Contract.** `listOpenItems` gains `special_gl`, the items with that
+  special G/L indicator alone (`A`: a supplier's down payments, the items
+  `clearSupplierInvoiceDownPayments` clears). The workspace cannot name the
+  down payment account (`account_id`): no operation answers the account
+  determination, and the account is a supplier reconciliation account like
+  the payables account. Filtering a page of all the supplier's items in the
+  workspace would break §8 (lists map the API's pages one to one, only the
+  API's filters). Additive and optional; the page token is bound to it, as
+  to every filter. The walkthrough's step 16 chooses the migrated down
+  payment from that list before clearing it, as the screen does.
+- **The screen.** `GET /invoices/{id}/down-payments`, linked from a posted
+  invoice's actions (kind `invoice`) for a person holding
+  `payables.invoice.post` and `ledger.entry.read` (advisory); any other
+  invoice goes to its page. It reads `getCurrentPrincipal`,
+  `getSupplierInvoice`, `getLegalEntityToday` (the transfer's default
+  posting date, as every form's date), `listOpenItems` (the invoice's
+  company and supplier, `special_gl=A`, 100 a page: as many as one clearing
+  takes; the next page by its token in the address) and
+  `listDownPaymentRequests` (the supplier's `paid` requests, 500, the API's
+  largest page): five calls. Each down payment shows its request's number,
+  the payment entry's number, posting date and reference, what was paid
+  tax included and the input tax: the request's amounts, the ones the
+  clearing weighs against the invoice's gross amount, where the ledger's
+  item holds the net (ADR-0037 As built, T72c). The person checks the down
+  payments to clear and the posting date; `POST` sends them as
+  `clearSupplierInvoiceDownPayments` with the ETag the screen was read at
+  and the form's idempotency key. Done, the invoice's page says so; refused
+  (above the gross, a stale version, a period closed, a down payment
+  cleared meanwhile), the screen says why in the person's words with the
+  choice and date kept, at the invoice's version now; a form the checks
+  refuse before any call (no down payment, no or no valid date) keeps the
+  version it was read at, as the change form does (T73e2). The clearing's
+  codes have messages of their own (`DownPaymentProblems`, looked up
+  before the invoice screens'): `payables.invoice_in_payment_run` there
+  speaks of a reversal.
+- **Decided by default (for the product owner to overrule).** No money
+  rule is the screen's: it adds and compares no amounts, and offers no
+  partial clearing, which the API does not have (each down payment is
+  cleared whole). A down payment the API would refuse whatever is chosen
+  with it is shown without its box, saying why (§7, advisory): no paid
+  request names its payment (one beyond the 500 requests read is shown so
+  too, erring towards offering less), its request names another purchase
+  order than the invoice's, or it is in another currency. The screen sits
+  on its own page rather than the invoice's: the invoice's page already
+  makes six calls. A fieldset no longer widens a phone's page with a table
+  in it (`.fieldset { min-inline-size: 0 }`).
+- **Tests.** `TestClearDownPayments` (the real API and PostgreSQL: the link,
+  the supplier's two down payments alone, the date the company's today,
+  each check before any call with the choice kept, a tampered choice
+  refused as not the page's form, both above the gross refused with the
+  choice kept, a stale version, the one chosen cleared and the other left,
+  a parked invoice not offered), `TestClearDownPaymentsInFrench`,
+  `TestClearDownPaymentsAsOthers` (the API's 403 in place),
+  `TestDownPaymentsCallTheirInventory`, `TestClearDownPaymentsStubbed`,
+  `TestClearDownPaymentsUnavailable`, `TestChoiceOf`, `TestDownPaymentRef`;
+  ledger's `TestClearDownPayments` lists the supplier's down payments by
+  `special_gl`. The browser suite runs axe at zero on the screen in
+  English, French and both pseudo-locales at 1280 and 390 px, and walks, in
+  French on a phone, both down payments refused above the gross with the
+  choice kept and one cleared (`TestDownPaymentsInTheBrowser`).
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF
