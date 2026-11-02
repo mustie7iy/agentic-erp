@@ -161,6 +161,32 @@ settings cannot simply overwrite their document.
   2013-04-01, MB RST 7% from 2019-07-01, SK PST 6% from 2017-03-23);
   whether combined codes are wanted for purchases in BC, MB, SK and QC,
   which carry GST and a provincial tax together; the holiday items above.
+- **As built (T62h): Canada 2026.5** is 2026.4 signed off. The product
+  owner reported on 2026-11-02 that the tax specialist, **Musto Ibrahim**,
+  approved the items put to them, signed 2026-11-02; the approval covers
+  what exists as written and builds nothing new. So 2026.5's files are
+  2026.4's, byte for byte, but `pack.yaml`, which gains `sign_off:
+  {tax_specialist: "Musto Ibrahim", date: 2026-11-02}`, its version and its
+  header comment (`TestCanadaPack2026_5`); production applies it, and
+  2026.4 stays released, unsigned. Confirmed as written: the ten codes and
+  their rates; the recovery accounts above (no longer proposals); PST
+  expensed on the purchase's own line; the QST and PST rates from
+  2026-01-01, the start the pack states (the earlier starts reported
+  elsewhere were among the items confirmed but are not in the pack: a
+  later version, if a document dated before 2026 needs them); no combined
+  codes for purchases in BC, MB, SK and QC, as built; and 2026.3's tax
+  settings (ADR-0049 §6, §8 As built). The remarks in `tax.yaml` calling
+  these proposals or pending stay, as the file is 2026.4's. **Still open**,
+  as questions the approval of what exists does not answer: the day
+  observed when a holiday falls on a weekend (the pack lists each holiday
+  on its own date) and which provincial holidays a company observes (the
+  tenant adds them). **Decided by default:** nothing pins a pack version
+  (the API lists every released version and a change request names the
+  one it applies), so new companies take 2026.5 by being offered it as the
+  newest Canada version, and companies on 2026.4 move by applying 2026.5,
+  an ordinary upgrade; the walkthrough's illustrative copy of the latest
+  pack drops the `sign_off`, since the specialist reviewed the released
+  pack, not the walkthrough's illustrative return.
 
 ## Consequences
 - A pack upgrade never silently overwrites a tenant's decision; reviewers

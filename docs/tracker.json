@@ -5248,10 +5248,10 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Canada pack signed off by the tax specialist before the pilot: a new version with sign_off in pack.yaml (a released version never changes), after the specialist confirms 2026.4's tax codes, their proposed recovery accounts, PST expensed on the item, the QST and PST start dates and the holiday items listed in ADR-0048, and the tax settings 2026.3 brought (rate type, rounding), which ADR-0049 marks pending the specialist",
-        "r": "packs/ca · packs/released.sha256 · ADR-0048 · T62h",
-        "src": "split:T62g · adr:ADR-0048",
+        "r": "packs/ca/2026.5: 2026.4 with sign_off Musto Ibrahim, 2026-11-02 (tax specialist's approval as written, reported by the product owner 2026-11-02) · packs/released.sha256 · TestCanadaPack2026_5 · ADR-0048 and ADR-0049 As built (T62h: what was confirmed; the weekend observed day and provincial holidays left open; UAE items wait for T62f, T61k) · walkthrough step 11 shows the sign-off · T62h",
+        "src": "split:T62g · adr:ADR-0048 · po:2026-11-02",
         "pilot": "po:2026-10-31 · adr:ADR-0048",
         "c": []
        }
@@ -5382,9 +5382,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Tax-identifier formats per country reviewed by a tax specialist before the pilot",
-        "r": "platform/redact taxIDs · T42e (waits on: a tax specialist's sign-off)",
+        "r": "platform/redact taxIDs reviewed as written by the tax specialist, Musto Ibrahim, 2026-11-02 (reported by the product owner, po:2026-11-02) · ADR-0036 As built (T42e, reviewed) · T42e",
         "src": "baseline",
         "pilot": "po:2026-10-31",
         "c": []

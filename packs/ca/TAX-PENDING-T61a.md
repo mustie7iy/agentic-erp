@@ -28,8 +28,13 @@ Sources (also in `2026.1/pack.yaml`; keep them in the version T61a makes):
 - Manitoba Retail Sales Tax: https://gov.mb.ca/finance/taxation/taxes/retail.html
 - Saskatchewan PST: https://sets.saskatchewan.ca/rptp/portal/footer/taxinformation/provincial-sales-tax/
 
-For the tax specialist: the PST and QST start dates (reported elsewhere, not
-fetched from an authority: QST 9.975% from 2013-01-01, BC PST 7% from
-2013-04-01, MB RST 7% from 2019-07-01, SK PST 6% from 2017-03-23); whether
-PST is expensed and QST recovered as written; purchases in BC, MB, SK and
-QC carry GST and a provincial tax together.
+Signed off (T62h, `2026.5/pack.yaml`): the tax specialist, Musto Ibrahim,
+confirmed the codes as written on 2026-11-02 (reported by the product
+owner): the recovery as built (GST and HST to 1300, QST to 1310, wholly
+recoverable; PST expensed on the purchase's own line rather than 6400, as
+ADR-0048 records), the QST and PST rates from 2026-01-01, and no combined
+GST+PST or GST+QST code for purchases in BC, MB, SK and QC.
+The earlier starts reported elsewhere (QST 9.975% from 2013-01-01, BC PST 7%
+from 2013-04-01, MB RST 7% from 2019-07-01, SK PST 6% from 2017-03-23) were
+among the items confirmed, but the pack does not hold them: writing them
+is a later version, if a document dated before 2026 ever needs them.
