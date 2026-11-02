@@ -6890,7 +6890,7 @@
        {
         "s": "T",
         "t": "Validation against a live system's $metadata",
-        "r": "(waits on: access to the pilot's SAP system) · ACDOCA RWCUR/WSL not mapped yet, so an OData extract's open items are refused (review:batch20)",
+        "r": "(waits on: access to the pilot's SAP system) · ACDOCA RWCUR/WSL not mapped yet, so an OData extract's open items are refused (review:batch20) · A_BusinessPartner Supplier, the partner -> supplier link of vendor bank accounts, stated from memory (review:T72d)",
         "src": "baseline",
         "pilot": "po:2026-10-31",
         "c": []

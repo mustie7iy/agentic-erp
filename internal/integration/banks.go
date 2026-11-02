@@ -68,7 +68,7 @@ func supplierBank(v sap.LFA1, b sap.LFBK, today time.Time) partner.BankInput {
 // with the same extract.
 func (q *qualityCheck) vendorBanks() {
 	for _, lifnr := range q.e.VendorsWithoutPartner {
-		q.add(SevWarning, "LFBK", lifnr, "no business partner in the extract is this vendor's, so its bank accounts were not read; it loads without them")
+		q.add(SevWarning, "LFBK", lifnr, "no business partner in the extract is vendor %q's, so its bank accounts were not read; it loads without them", q.vendor[lifnr].NAME1)
 	}
 	banks := firstBanks(q.e)
 	for _, lifnr := range sortedKeys(banks) {

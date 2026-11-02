@@ -56,7 +56,7 @@ func TestCanadianBankAccounts(t *testing.T) {
 		write(t, e.dir, "unlinked.json", x)
 		_, got := e.act(t, e.run(t, e.connector(t, "unlinked.json"), "documents", true, e.DE.String()), "start")
 		quality := fmt.Sprint(got["report"].(map[string]any)["quality"])
-		want := "key:0000000001 message:no business partner in the extract is this vendor's, so its bank accounts were not read; it loads without them severity:warning table:LFBK"
+		want := "key:0000000001 message:no business partner in the extract is vendor \"Tiny GmbH\"'s, so its bank accounts were not read; it loads without them severity:warning table:LFBK"
 		if !strings.Contains(quality, want) {
 			t.Errorf("quality gate: got %s, want it to report %q", quality, want)
 		}
