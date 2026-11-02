@@ -31,9 +31,12 @@ type relay struct {
 	hc   *http.Client
 }
 
-// newRelay is the relay to the API at base through hc's transport.
+// newRelay is the relay to the API at base through hc's transport, each
+// call bounded by relayTimeout rather than hc's 30 seconds: a document
+// streams through it for as long as the cell takes it (PO 2026-11-02).
 func newRelay(base *url.URL, hc *http.Client) relay {
 	c := *hc
+	c.Timeout = relayTimeout
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return relay{base: base, hc: &c}
 }

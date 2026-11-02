@@ -12,10 +12,12 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/web/i18n"
 	"github.com/mustie7iy/agentic-erp/internal/web/ui"
 )
@@ -38,6 +40,46 @@ const maxCaptureDocument = 50 << 20
 // maxCaptureForm bounds a capture's whole form: the document and the
 // form's few fields.
 const maxCaptureForm = maxCaptureDocument + maxForm
+
+// The capture's deadlines (PO 2026-11-02): the cell gives the document's
+// bytes api.UploadTimeout (five minutes) on its signed path, where every
+// other request keeps its listener's 30 seconds, and each hop in front
+// allows api.UploadMargin (a minute) more than the one behind it, so the
+// cell is the one to cut an upload that overruns. erp-web links no api
+// package (ADR-0052 §7), so the values are written out here and
+// TestCaptureDeadlines holds them to api's and the router's.
+const (
+	// captureReadTimeout: the cell's five minutes, from after createUpload
+	// (30 seconds at most) and the router's checks: two margins.
+	captureReadTimeout = 7 * time.Minute
+	// relayTimeout is the relay's whole call, past the router's write
+	// deadline (router.UploadWriteTimeout, seven minutes) by a margin.
+	relayTimeout = 8 * time.Minute
+	// captureWriteTimeout: createUpload, the relay, then
+	// captureSupplierInvoice (30 seconds at most) and the page, a margin
+	// past them all.
+	captureWriteTimeout = 10 * time.Minute
+)
+
+// allowTime gives the capture's document captureReadTimeout to arrive from
+// now and its answer captureWriteTimeout to be written, where every other
+// request keeps the listener's 30 and 60 seconds. Only a capture about to
+// read its document gets it: the person signed in, the form's CSRF token
+// the session's (csrfStream), the fields before the document read under
+// the listener's deadlines. The header's own timeout is the listener's,
+// unchanged. A writer without deadlines (a test's recorder) has none to
+// lift; the listener's are lifted through the telemetry middleware
+// (Unwrap). The connection closes after the answer (Connection: close),
+// so Go's server never reads what is left of a document nobody read (a
+// form refused, an upload the API refused): it would otherwise read up to
+// 256 KB of the rest before answering, for as long as the lifted deadline
+// allows (go-reviewer, round 1).
+func allowTime(w http.ResponseWriter, now time.Time) {
+	rc := http.NewResponseController(w)
+	_ = rc.SetReadDeadline(now.Add(captureReadTimeout))
+	_ = rc.SetWriteDeadline(now.Add(captureWriteTimeout))
+	w.Header().Set("Connection", "close")
+}
 
 // captureTypes are the documents a capture takes, as their first bytes
 // show them (http.DetectContentType), and the upload's content type each
@@ -180,6 +222,7 @@ func (s *Server) captureDocument(w http.ResponseWriter, r *http.Request, p *pers
 	if err != nil {
 		c.companyErr = i18n.CaptureCompanyNeeded
 	}
+	allowTime(w, clock.Now(s.Now))
 	doc, contentType, fileErr := sniff(form.file)
 	if c.fileErr = fileErr; c.companyErr != "" || c.fileErr != "" {
 		s.showCapture(w, r, p, m, http.StatusUnprocessableEntity, c)
