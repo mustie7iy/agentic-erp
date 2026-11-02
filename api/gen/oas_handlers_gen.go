@@ -12469,9 +12469,11 @@ func (s *Server) handleCreateSupplierInvoiceRequest(args [0]string, argsEscaped 
 //
 // Starts an upload of a document too large for a request body (04 §4.11): the answer names a `url` to
 // `PUT` the bytes to, with the `headers` to send, within `expires_at`; the URL is absolute when it
-// points at object storage, or a path on this API. The upload is then named by `upload_id` in the
-// operation that consumes it (`POST /v1/supplier-invoices:capture` for `supplier_invoice`). 503 while
-// the server has no object storage.
+// points at object storage, or a path on this API. `via: api` asks for the path on this API whatever
+// the store, for a client that must not reach the object store (ADR-0020); the answer's `via` says
+// which was given. The upload is then named by `upload_id` in the operation that consumes it
+// (`POST /v1/supplier-invoices:capture` for `supplier_invoice`). 503 while the server has no object
+// storage.
 //
 // POST /v1/uploads
 func (s *Server) handleCreateUploadRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

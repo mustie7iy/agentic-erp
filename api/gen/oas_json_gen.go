@@ -122490,6 +122490,10 @@ func (s *Upload) encodeFields(e *jx.Encoder) {
 		e.Str(s.Status)
 	}
 	{
+		e.FieldStart("via")
+		e.Str(s.Via)
+	}
+	{
 		e.FieldStart("url")
 		e.Str(s.URL)
 	}
@@ -122519,7 +122523,7 @@ func (s *Upload) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfUpload = [16]string{
+var jsonFieldsNameOfUpload = [17]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -122530,12 +122534,13 @@ var jsonFieldsNameOfUpload = [16]string{
 	7:  "content_type",
 	8:  "max_bytes",
 	9:  "status",
-	10: "url",
-	11: "method",
-	12: "headers",
-	13: "expires_at",
-	14: "size",
-	15: "used_by",
+	10: "via",
+	11: "url",
+	12: "method",
+	13: "headers",
+	14: "expires_at",
+	15: "size",
+	16: "used_by",
 }
 
 // Decode decodes Upload from json.
@@ -122543,7 +122548,7 @@ func (s *Upload) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode Upload to nil")
 	}
-	var requiredBitSet [2]uint8
+	var requiredBitSet [3]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -122665,8 +122670,20 @@ func (s *Upload) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
-		case "url":
+		case "via":
 			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.Via = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"via\"")
+			}
+		case "url":
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.URL = string(v)
@@ -122678,7 +122695,7 @@ func (s *Upload) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"url\"")
 			}
 		case "method":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.Method = string(v)
@@ -122690,7 +122707,7 @@ func (s *Upload) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"method\"")
 			}
 		case "headers":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				if err := s.Headers.Decode(d); err != nil {
 					return err
@@ -122700,7 +122717,7 @@ func (s *Upload) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"headers\"")
 			}
 		case "expires_at":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.ExpiresAt = v
@@ -122740,9 +122757,10 @@ func (s *Upload) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [2]uint8{
+	for i, mask := range [3]uint8{
 		0b11011111,
-		0b00111111,
+		0b01111111,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -122805,11 +122823,18 @@ func (s *UploadCreate) encodeFields(e *jx.Encoder) {
 		e.FieldStart("content_type")
 		e.Str(s.ContentType)
 	}
+	{
+		if s.Via.Set {
+			e.FieldStart("via")
+			s.Via.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfUploadCreate = [2]string{
+var jsonFieldsNameOfUploadCreate = [3]string{
 	0: "purpose",
 	1: "content_type",
+	2: "via",
 }
 
 // Decode decodes UploadCreate from json.
@@ -122844,6 +122869,16 @@ func (s *UploadCreate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"content_type\"")
+			}
+		case "via":
+			if err := func() error {
+				s.Via.Reset()
+				if err := s.Via.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"via\"")
 			}
 		default:
 			return d.Skip()

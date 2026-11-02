@@ -5563,10 +5563,17 @@
        },
        {
         "s": "T",
-        "t": "Invoices beyond T73e2: capture by upload (createUpload, the bytes relayed by erp-web, captureSupplierInvoice's 202 polled to the new invoice), waiting for the product owner on how erp-web reaches the store when the API answers a presigned S3 URL rather than its own signed path (ADR-0052 §7) and how large an upload erp-web accepts and holds; clearing down payments (clearSupplierInvoiceDownPayments); a line added or left out in a parked invoice's change, and its account, centers and order item changed; tax per code on the invoice's page outside a refusal (the representation has none: a contract change); payables.match_outdated's changes as fields of the problem (coordinator D3's other half); walked through by a pilot AP clerk",
+        "t": "Invoices beyond T73e2: clearing down payments (clearSupplierInvoiceDownPayments); a line added or left out in a parked invoice's change, and its account, centers and order item changed; tax per code on the invoice's page outside a refusal (the representation has none: a contract change); payables.match_outdated's changes as fields of the problem (coordinator D3's other half); walked through by a pilot AP clerk. Capture by upload, first held for the product owner, was decided (po:2026-11-01) and built in the upload lane: the leaf below",
         "r": "T73e3 (split from T73e2, 2026-11-01)",
-        "src": "split:T73e2",
+        "src": "split:T73e2 · po:2026-11-01",
         "pilot": "po:2026-10-31 · split:T73e2 · adr:ADR-0052",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Invoices beyond T73e2, capture by upload (PO 2026-11-01): createUpload's via api gives the API's own signed path on any store (contract: UploadCreate.via, Upload.via; payables.upload.via), which keeps ADR-0020's signature, expiry, single use, content type and tenant, enforces the 50 MB cap while the body streams and streams it into the bucket through a temporary file, never in memory; erp-web's capture page streams the document through the router to that path (the token checked first, no bucket URL ever followed, no new egress), captures the invoice from the upload and lands the person on it, or polls the capture's operation with htmx until it names it; a form sent again is never taken for its first document (shown again, fresh, linking the invoice captured then); EN and FR; axe at zero at 1280 and 390 px",
+        "r": "api/openapi.yaml UploadCreate.via · Upload.via · db 000188_upload_via · internal/platform/blobstore Streamer PutStream · internal/payables uploads.go receive expect spool slot · internal/web capture.go · capture_relay.go · ui/capture.templ · i18n capture.* · internal/llm/llmtest/modelstub · TestRelayedUploads · TestRelayedUploadVia · TestRelayedUploadCap · TestRelayedUploadFailures · TestPutStream · TestUploadVia · TestCaptureByUpload · TestCaptureRefusals · TestCaptureTooLarge · TestCaptureStubbed · TestCaptureWait · TestRelay · TestCaptureInTheBrowser · TestCaptureJobInTheBrowser · walkthrough step_capture · ADR-0020 As built 2026-11-01 · ADR-0052 Built in T73e3, capture by upload · T73e3",
+        "src": "po:2026-11-01 · split:T73e2 · adr:ADR-0052",
         "c": []
        },
        {

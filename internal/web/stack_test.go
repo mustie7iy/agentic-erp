@@ -26,6 +26,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/capture"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
@@ -125,6 +126,10 @@ type stackOptions struct {
 	// extend changes the configured tenant's configuration document before
 	// it is bootstrapped (fixture.NewWith).
 	extend func(*config.Config)
+	// store, when set, is the API's object storage in place of objects
+	// (an S3 double, capture_test.go); extractor reads captured documents.
+	store     blobstore.Store
+	extractor capture.Extractor
 }
 
 const loginCodeOf = "acme"
@@ -161,6 +166,10 @@ func newStack(t *testing.T, opts stackOptions) *stack {
 		cfg.Verifier = v
 		cfg.Now = s.clock.Now // the cell's sessions age with erp-web's
 		cfg.Objects = s.objects
+		if opts.store != nil {
+			cfg.Objects = opts.store
+		}
+		cfg.Extractor = opts.extractor
 		cfg.Connector = fixture.Accepting{} // a bank that takes every file a payment run's transmission sends
 	})
 	// The cell believes the address erp-web forwards, as it believes the

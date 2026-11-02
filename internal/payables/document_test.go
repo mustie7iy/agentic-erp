@@ -3,6 +3,7 @@ package payables_test
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,9 @@ type failingStore struct{ err error }
 func (f failingStore) Put(context.Context, string, []byte, blobstore.PutOptions) error { return f.err }
 func (f failingStore) Get(context.Context, string) ([]byte, string, error)             { return nil, "", f.err }
 func (f failingStore) Stat(context.Context, string) (int64, string, error)             { return 0, "", f.err }
+func (f failingStore) PutStream(context.Context, string, io.Reader, int64, [32]byte, blobstore.PutOptions) error {
+	return f.err
+}
 
 // TestCapturedDocumentsAreKept: with object storage the document is stored
 // under its hash before extraction and can be downloaded, byte for byte,

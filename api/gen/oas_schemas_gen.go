@@ -46682,8 +46682,16 @@ type Upload struct {
 	// enumeration: clients must accept and preserve values not listed here; values may be added within
 	// /v1.
 	Status string `json:"status"`
-	// Where to send the bytes with `method` and `headers`: an absolute URL of the object store, or a path
-	// on this API (no bearer token needed; the URL is signed).
+	// Where `url` sends the bytes: `store`, a presigned URL of the object store, or `api`, a signed path
+	// on this API, which streams them into the store (asked for with `via: api`, and the only one a store
+	// that cannot presign gives). Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Via string `json:"via"`
+	// Where to send the bytes with `method` and `headers`: an absolute URL of the object store
+	// (`via: store`), or a path on this API (`via: api`), signed, single use, until `expires_at`, at most
+	// `max_bytes` (a larger body is refused while it arrives, 413 `payables.document_too_large`, and
+	// nothing is stored). The path needs no bearer token of its own; through the global router, which
+	// routes by the token's tenant, send the caller's bearer token with it.
 	URL string `json:"url"`
 	// The HTTP method to send the bytes with. Open enumeration: clients must accept and preserve values
 	// not listed here; values may be added within /v1.
@@ -46746,6 +46754,11 @@ func (s *Upload) GetMaxBytes() int64 {
 // GetStatus returns the value of Status.
 func (s *Upload) GetStatus() string {
 	return s.Status
+}
+
+// GetVia returns the value of Via.
+func (s *Upload) GetVia() string {
+	return s.Via
 }
 
 // GetURL returns the value of URL.
@@ -46828,6 +46841,11 @@ func (s *Upload) SetStatus(val string) {
 	s.Status = val
 }
 
+// SetVia sets the value of Via.
+func (s *Upload) SetVia(val string) {
+	s.Via = val
+}
+
 // SetURL sets the value of URL.
 func (s *Upload) SetURL(val string) {
 	s.URL = val
@@ -46867,6 +46885,12 @@ type UploadCreate struct {
 	// The content type of the document; another type is refused (422 `payables.unsupported_content_type`).
 	// Open enumeration: values may be added within /v1.
 	ContentType string `json:"content_type"`
+	// Where the bytes are to go: `store` (the default), the object store's presigned URL when the store
+	// gives one, else this API's path; `api`, this API's signed path whatever the store, which streams
+	// them into the store, for a client that must not reach the object store (the web workspace, ADR-0052
+	// §7). Another value is refused (422 `payables.unknown_upload_via`). Open enumeration: values may be
+	// added within /v1.
+	Via OptString `json:"via"`
 }
 
 // GetPurpose returns the value of Purpose.
@@ -46879,6 +46903,11 @@ func (s *UploadCreate) GetContentType() string {
 	return s.ContentType
 }
 
+// GetVia returns the value of Via.
+func (s *UploadCreate) GetVia() OptString {
+	return s.Via
+}
+
 // SetPurpose sets the value of Purpose.
 func (s *UploadCreate) SetPurpose(val string) {
 	s.Purpose = val
@@ -46887,6 +46916,11 @@ func (s *UploadCreate) SetPurpose(val string) {
 // SetContentType sets the value of ContentType.
 func (s *UploadCreate) SetContentType(val string) {
 	s.ContentType = val
+}
+
+// SetVia sets the value of Via.
+func (s *UploadCreate) SetVia(val OptString) {
+	s.Via = val
 }
 
 // Headers the request to `url` must carry, exactly.

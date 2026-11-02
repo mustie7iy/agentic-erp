@@ -11072,10 +11072,11 @@ paths:
       tags:
         - payables
       summary: Start a direct upload
-      description: "Starts an upload of a document too large for a request body (04 §4.11): the answer names a `url` to `PUT` the bytes to, with the `headers` to send, within `expires_at`; the URL is absolute when it points at object storage, or a path on this API. The upload is then named by `upload_id` in the operation that consumes it (`POST /v1/supplier-invoices:capture` for `supplier_invoice`). 503 while the server has no object storage."
+      description: "Starts an upload of a document too large for a request body (04 §4.11): the answer names a `url` to `PUT` the bytes to, with the `headers` to send, within `expires_at`; the URL is absolute when it points at object storage, or a path on this API. `via: api` asks for the path on this API whatever the store, for a client that must not reach the object store (ADR-0020); the answer's `via` says which was given. The upload is then named by `upload_id` in the operation that consumes it (`POST /v1/supplier-invoices:capture` for `supplier_invoice`). 503 while the server has no object storage."
       x-permission: payables.invoice.capture
       x-problem-codes:
         - payables.unknown_upload_purpose
+        - payables.unknown_upload_via
         - payables.unsupported_content_type
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -29701,6 +29702,7 @@ components:
             - method
             - headers
             - expires_at
+            - via
           properties:
             purpose:
               type: string
@@ -29725,9 +29727,16 @@ components:
                 - received
                 - used
               readOnly: true
+            via:
+              type: string
+              description: "Where `url` sends the bytes: `store`, a presigned URL of the object store, or `api`, a signed path on this API, which streams them into the store (asked for with `via: api`, and the only one a store that cannot presign gives). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - store
+                - api
+              readOnly: true
             url:
               type: string
-              description: "Where to send the bytes with `method` and `headers`: an absolute URL of the object store, or a path on this API (no bearer token needed; the URL is signed)."
+              description: "Where to send the bytes with `method` and `headers`: an absolute URL of the object store (`via: store`), or a path on this API (`via: api`), signed, single use, until `expires_at`, at most `max_bytes` (a larger body is refused while it arrives, 413 `payables.document_too_large`, and nothing is stored). The path needs no bearer token of its own; through the global router, which routes by the token's tenant, send the caller's bearer token with it."
               readOnly: true
             method:
               type: string
@@ -29766,6 +29775,7 @@ components:
           content_type: application/pdf
           max_bytes: 52428800
           status: open
+          via: store
           url: "https://s3.eu-west-1.amazonaws.com/erp-objects/tenants/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d00/uploads/01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=900"
           method: PUT
           headers:
@@ -29792,9 +29802,18 @@ components:
             - image/jpeg
             - application/xml
             - text/xml
+        via:
+          type: string
+          description: "Where the bytes are to go: `store` (the default), the object store's presigned URL when the store gives one, else this API's path; `api`, this API's signed path whatever the store, which streams them into the store, for a client that must not reach the object store (the web workspace, ADR-0052 §7). Another value is refused (422 `payables.unknown_upload_via`). Open enumeration: values may be added within /v1."
+          x-extensible-enum:
+            - store
+            - api
       examples:
         - purpose: supplier_invoice
           content_type: application/pdf
+        - purpose: supplier_invoice
+          content_type: application/pdf
+          via: api
     SupplierInvoicePost:
       type: object
       description: Options for posting.

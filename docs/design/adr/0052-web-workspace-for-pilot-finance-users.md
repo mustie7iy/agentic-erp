@@ -2961,6 +2961,90 @@ this ADR, the contract or T73j's behaviour settled it:
   listed all have a line on the account, and those lines in the row's
   currency sum to its debits less credits.
 
+## Built in T73e3, capture by upload (2026-11-01)
+The upload half of T73e3, after the product owner's decision of
+2026-11-01 (security posture): the API issues its own signed upload path
+on S3 too, erp-web streams the bytes through erp-router to erp-server on
+it without holding the document, the cap is the API's 50 MB enforced while
+it streams, and erp-web never follows a presigned bucket URL, its egress
+as narrow as before. §7's "signed path variant, relayed by erp-web" as
+built:
+- **Contract.** `createUpload` takes `via: api` and answers the API's own
+  signed path on any store, `via` in the answer saying which (ADR-0020 As
+  built 2026-11-01: why a field the client asks with, and the path's
+  protections, which the API keeps on S3 as on the directory store).
+- **The page.** `GET /invoices/capture` (two reads: `getCurrentPrincipal`,
+  `listLegalEntities`), linked from the queue for a person holding
+  `payables.invoice.capture` (advisory): the company the invoice is
+  addressed to (none chosen for the person when there are several) and
+  the document. `POST /invoices/capture` reads the multipart form as it
+  arrives (`csrfStream`): the CSRF token, the idempotency key and the
+  company come first, the document last, so the token is checked before a
+  byte of the document is read; a form whose token is missing, comes after
+  the document or is not the session's is refused as a forgery. The
+  document's first 512 bytes decide its type (PDF, PNG, JPEG or XML, as
+  capture's own detection), then `createUpload` (via api, a key derived
+  from the form's) and the document streamed to the path the upload
+  names: resolved against erp-web's own address of the API (the router),
+  with the upload's headers exactly and the person's bearer token, which
+  the router routes by; the client follows no redirect, and an upload
+  whose URL is not the API's signed path for it (a presigned bucket URL,
+  another upload's path, a path without its signature) is refused before
+  a byte is sent. erp-web holds a buffer of the document at a time, never
+  all of it, and cuts it at the upload's `max_bytes`; the whole form is bounded by
+  50 MB and the form's fields. Then `captureSupplierInvoice` with the
+  upload and the form's key: done, the person lands on the invoice;
+  while its operation runs, on `GET /invoices/capture?operation=…`
+  (`getCurrentPrincipal`, `getOperation`), which htmx polls every two
+  seconds (a status already shown answered 204, as a run's progress),
+  going to the invoice once the operation names it (HX-Redirect; a link
+  to check again without htmx). The progress lives under the capture's
+  path with a query: a path of its own under `/invoices/` collides with
+  an invoice's actions (`/invoices/{id}/{verb}`) in Go's mux.
+- **Sent again.** A form sent twice creates no second upload (the derived
+  key replays `createUpload`) and finds its upload holding a document
+  (409 `payables.upload_closed`, before a byte is taken). The document sent
+  now may not be that one (a form restored by Back and sent with another
+  file), and erp-web cannot tell without reading it, so it is never taken
+  for it (go-reviewer, round 1): the form is shown again, fresh, saying it
+  was sent before (409), with a link to the invoice captured then when
+  `getUpload` names one; the person opens it or sends the document again.
+  The capture's own key could not replay the first answer anyway: the
+  typed client sends a multipart body under a fresh boundary each time, so
+  the API takes it for another request (`request.idempotency_key_reused`;
+  the same holds for `importBankStatements`, reported as pre-existing).
+- **Refusals.** Said on the form in the person's words: no document, one
+  of another type, no company, larger than 50 MB (413, nothing stored);
+  the API's codes of the capture (`payables.unreadable_document`,
+  `already_captured`, `capture_needs_order`, `document_too_large`,
+  `upload_expired`, `upload_url_expired`, `agents.ai_disabled`,
+  `documents_withheld`, `budget_exhausted`) before the invoice screens'.
+- **Network.** No new egress: erp-web reaches the router alone, as every
+  call does; the chart and network policy are unchanged.
+- **A refused form** holds no file (a browser does not keep it); it says to choose the
+  file again, as the statement upload does. The form sits on the page's
+  white rather than the filters' grey, where the error text's red is
+  4.3:1, below WCAG 2.2's 4.5:1 (axe found it on this form; the statement
+  upload's form has the same contrast, pre-existing).
+- **Decided by default (for the product owner to overrule):** the
+  30-second read timeouts of erp-web, the router and erp-server are
+  unchanged and bound how long an upload may take (ADR-0020 As built).
+- **Tests.** `TestCaptureByUpload` (the S3 double behind the real API:
+  the document in the bucket under the upload, via api, the upload used,
+  the form sent again landing on the same invoice), `TestCaptureRefusals`
+  (each refusal before any call, as a forgery and by the API, in French,
+  a person who may not capture), `TestCaptureTooLarge` (50 MB and more,
+  streamed: 413, nothing in the bucket), `TestCaptureStubbed` (a bucket
+  URL never followed, the path's refusals and failures, a redirect not
+  followed, a capture running, sent again with the same document or
+  another), `TestCaptureWait`,
+  `TestRelay`; the browser suite runs axe at zero on the form and the
+  progress in English, French and both pseudo-locales at 1280 and 390 px
+  (`TestCaptureInTheBrowser`), and walks, in French on a phone, a form
+  refused on its fields, a scan captured to its invoice, and a running
+  capture polled to its invoice (`TestCaptureJobInTheBrowser`). The
+  walkthrough's step 18 captures a 6 MB scan through the API's path.
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF
