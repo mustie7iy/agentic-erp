@@ -622,8 +622,11 @@ type Invoker interface {
 	// points at object storage, or a path on this API. `via: api` asks for the path on this API whatever
 	// the store, for a client that must not reach the object store (ADR-0020); the answer's `via` says
 	// which was given. The upload is then named by `upload_id` in the operation that consumes it
-	// (`POST /v1/supplier-invoices:capture` for `supplier_invoice`). 503 while the server has no object
-	// storage.
+	// (`POST /v1/supplier-invoices:capture` for `supplier_invoice`). A `PUT` to this API's path is charged
+	// to the tenant's request quota once its signature checks out, and carries the rate-limit headers (429
+	// `request.rate_limited` with `Retry-After` over it); it is answered 503 with `Retry-After` while the
+	// server is receiving as many documents as it can, or as many of the tenant's at once as one tenant
+	// may (ADR-0020). 503 while the server has no object storage.
 	//
 	// POST /v1/uploads
 	CreateUpload(ctx context.Context, request *UploadCreate, params CreateUploadParams) (CreateUploadRes, error)
@@ -11980,8 +11983,11 @@ func (c *Client) sendCreateSupplierInvoice(ctx context.Context, request *Supplie
 // points at object storage, or a path on this API. `via: api` asks for the path on this API whatever
 // the store, for a client that must not reach the object store (ADR-0020); the answer's `via` says
 // which was given. The upload is then named by `upload_id` in the operation that consumes it
-// (`POST /v1/supplier-invoices:capture` for `supplier_invoice`). 503 while the server has no object
-// storage.
+// (`POST /v1/supplier-invoices:capture` for `supplier_invoice`). A `PUT` to this API's path is charged
+// to the tenant's request quota once its signature checks out, and carries the rate-limit headers (429
+// `request.rate_limited` with `Retry-After` over it); it is answered 503 with `Retry-After` while the
+// server is receiving as many documents as it can, or as many of the tenant's at once as one tenant
+// may (ADR-0020). 503 while the server has no object storage.
 //
 // POST /v1/uploads
 func (c *Client) CreateUpload(ctx context.Context, request *UploadCreate, params CreateUploadParams) (CreateUploadRes, error) {

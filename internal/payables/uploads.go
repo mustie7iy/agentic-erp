@@ -27,6 +27,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -66,6 +67,13 @@ const (
 // there. One more is answered 503 with Retry-After.
 const MaxReceiving = 4
 
+// MaxReceivingPerTenant is how many of a replica's receiving slots one
+// tenant holds at once unless Uploads.MaxReceivingPerTenant says otherwise
+// (PO 2026-11-02, ADR-0020 As built): half of MaxReceiving, so one
+// tenant's burst of uploads leaves the others slots. The tenant's next is
+// answered 503 with Retry-After.
+const MaxReceivingPerTenant = 2
+
 // UploadTypes are the content types a document may be uploaded as.
 var UploadTypes = map[string]bool{"application/pdf": true, "image/png": true, "image/jpeg": true, "application/xml": true, "text/xml": true}
 
@@ -102,14 +110,22 @@ type Uploads struct {
 	InTx func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error
 	// SpoolDir holds the documents being received on the API's path until
 	// they are measured and hashed ("": os.TempDir()); MaxReceiving bounds
-	// how many at once (0: the package's MaxReceiving).
-	SpoolDir     string
-	MaxReceiving int
+	// how many at once (0: the package's MaxReceiving), and
+	// MaxReceivingPerTenant how many of those one tenant's (0: the
+	// package's MaxReceivingPerTenant).
+	SpoolDir              string
+	MaxReceiving          int
+	MaxReceivingPerTenant int
+	// Limits charges a PUT on the API's path to the request quota of the
+	// tenant its verified URL names, as the API charges that tenant's
+	// requests (04 §4.11); nil charges none.
+	Limits *ratelimit.Limiter
 
 	slotsOnce sync.Once
 	slots     chan struct{}
 	mu        sync.Mutex
 	receiving map[uuid.UUID]bool // the uploads whose documents are arriving on this replica
+	tenants   map[uuid.UUID]int  // how many slots each tenant holds on this replica
 }
 
 func (u *Uploads) inTx(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
@@ -256,6 +272,11 @@ func (u *Uploads) receive(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	// Only now is the tenant known to be the one that signed URL was
+	// given to; a refusal costs no database read and reads no body.
+	if err := u.Limits.ChargeTenant(w, tenant); err != nil {
+		return err
+	}
 	if u.Objects == nil {
 		return problem.Unavailable("This server has no object storage.", 0)
 	}
@@ -268,7 +289,7 @@ func (u *Uploads) receive(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	release, err := u.slot(id)
+	release, err := u.slot(id, tenant)
 	if err != nil {
 		return err
 	}
@@ -338,27 +359,36 @@ func tooLarge(limit int64, cause error) *problem.Problem {
 		fmt.Sprintf("Uploads are at most %d MB.", limit>>20)).WithCause(cause)
 }
 
-// slot takes one of the replica's receiving slots for the upload, or
-// answers 503 while all are taken, or while the upload's document is
-// already arriving here; release gives it back. One signed URL therefore
-// holds one slot per replica at most, not all four for five minutes
-// (go-reviewer, round 1); a second replica's receive of the same upload
-// is settled by the upload's lock when it is marked received.
-func (u *Uploads) slot(id uuid.UUID) (release func(), err error) {
+// slot takes one of the replica's receiving slots for the tenant's
+// upload, or answers 503 while all are taken, while the tenant holds its
+// share (MaxReceivingPerTenant, PO 2026-11-02), or while the upload's
+// document is already arriving here; release gives it back. One signed
+// URL therefore holds one slot per replica at most, not all four for five
+// minutes (go-reviewer, round 1), and one tenant at most its share; a
+// second replica's receive of the same upload is settled by the upload's
+// lock when it is marked received.
+func (u *Uploads) slot(id, tenant uuid.UUID) (release func(), err error) {
 	u.slotsOnce.Do(func() {
-		u.slots, u.receiving = make(chan struct{}, cmp.Or(u.MaxReceiving, MaxReceiving)), map[uuid.UUID]bool{}
+		u.slots, u.receiving, u.tenants = make(chan struct{}, cmp.Or(u.MaxReceiving, MaxReceiving)), map[uuid.UUID]bool{}, map[uuid.UUID]int{}
 	})
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	if u.receiving[id] {
+	switch {
+	case u.receiving[id]:
 		return nil, problem.Unavailable("This upload's document is already arriving; send it again if that fails.", 5)
+	case u.tenants[tenant] >= cmp.Or(u.MaxReceivingPerTenant, MaxReceivingPerTenant):
+		return nil, problem.Unavailable("This server is receiving as many of your documents at once as one tenant may; send it again shortly.", 5)
 	}
 	select {
 	case u.slots <- struct{}{}:
 		u.receiving[id] = true
+		u.tenants[tenant]++
 		return func() {
 			u.mu.Lock()
 			delete(u.receiving, id)
+			if u.tenants[tenant]--; u.tenants[tenant] == 0 {
+				delete(u.tenants, tenant) // the map holds only tenants receiving now
+			}
 			u.mu.Unlock()
 			<-u.slots
 		}, nil
