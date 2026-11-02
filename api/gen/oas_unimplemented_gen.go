@@ -1593,7 +1593,8 @@ func (UnimplementedHandler) GetSodRule(ctx context.Context, params GetSodRulePar
 
 // GetSupplierInvoice implements getSupplierInvoice operation.
 //
-// Returns one supplier invoice. Expandable: `supplier`.
+// Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`).
+// Expandable: `supplier`.
 //
 // GET /v1/supplier-invoices/{id}
 func (UnimplementedHandler) GetSupplierInvoice(ctx context.Context, params GetSupplierInvoiceParams) (r GetSupplierInvoiceRes, _ error) {
@@ -2945,7 +2946,8 @@ func (UnimplementedHandler) PostRevaluationRun(ctx context.Context, req *Revalua
 // again under its order items' locks: 409 `payables.match_outdated`, the invoice left parked, when
 // documents posted on the order since (another invoice past the received quantity, a credit memo past
 // the invoiced one), a change of the order or of the tolerances leave it with an issue its clean
-// match, or the match its exception was approved on, did not have.
+// match, or the match its exception was approved on, did not have; the problem's `match_issues` are
+// those issues.
 //
 // POST /v1/supplier-invoices/{id}:post
 func (UnimplementedHandler) PostSupplierInvoice(ctx context.Context, req OptSupplierInvoicePost, params PostSupplierInvoiceParams) (r PostSupplierInvoiceRes, _ error) {

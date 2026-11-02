@@ -3045,6 +3045,92 @@ built:
   capture polled to its invoice (`TestCaptureJobInTheBrowser`). The
   walkthrough's step 18 captures a 6 MB scan through the API's path.
 
+## Built in T73e3 (2026-11-01)
+Invoices beyond T73e2, first slice: a parked invoice's lines added, left
+out and changed whole, its tax per code outside a refusal, and an
+outdated match's issues as fields (decision D3's other half). What it
+settled:
+- **Contract.** `Problem` gains `match_issues` (`MatchIssue`s), set by
+  `payables.match_outdated` alone: the issues the match under the order
+  items' locks finds that the clean match, or the match the exception was
+  approved on, did not show (`problem.Problem.MatchIssues`, built in
+  `payables.matchOutdated`). `SupplierInvoice` gains `calculated_tax`
+  (`CalculatedTax`, the tax stated, the tax its codes' rates give on its
+  tax date and each code's), given by `getSupplierInvoice` alone and
+  calculated on each read (`payables.calculatedTax`): lists and writes
+  would calculate it for every invoice they answer. It is left out when
+  no item carries a code and an amount, and when the codes cannot be
+  calculated on the tax date (a code no longer an input tax code of the
+  legal entity then, amounts out of range), without making a problem the
+  read never answers (`codesDocument` reports the unknown code,
+  `readFigures` money's overflow and a code the calculator cannot
+  calculate on the tax date): posting says why. The read's
+  `x-problem-codes` gain `config.not_bootstrapped`, the configuration it
+  reads. Both additive. The walkthrough's step 5 reads the duplicate
+  invoice's `match_issues`, step 16 the final invoice's `calculated_tax`;
+  04 §4.6 names both fields.
+- **On the pages.** An invoice's page shows "Tax per code" from the read
+  (`TaxFiguresView`, as a refusal's), no further call; every refusal's
+  notice lists an outdated match's issues as the match's section does
+  (the code's words, the line, the API's explanation shown as data). The
+  payables codes a line's change now reaches (`unknown_po_item`,
+  `unit_mismatch`, `account_required`, `account_not_postable`,
+  `assignment_from_order`, `unknown_unit`, `po_item_required`) have the
+  invoice screens' own messages.
+- **Lines.** Each line names its order item (on an invoice on an order),
+  description, quantity, unit, net amount, tax code, account by number
+  and cost and profit center by code, as SAP's MIRO does; the form reads
+  the company's accounts, cost centers and profit centers besides the
+  principal and the invoice (five calls), shows an id they do not hold as
+  it is, and looks codes up when sent as the entry form does
+  (`resolveItems`, `lookUp`). A line is added by the form's button and
+  left out by its box: without htmx the button renders the form again and
+  a box takes effect on the next send; with htmx the lines' section is
+  swapped (`InvoiceItemsSwap`, the buttons out of band), the new line's
+  first field focused. A line added and left empty is not sent; an
+  invoice left without lines is refused before any call. A line names
+  the invoice's line it shows (`item_from`), and the lines the form was
+  opened with travel as a block of their own (`was_…`, with each line's
+  account and centers by id), so adding or leaving out lines keeps them,
+  and whether another person changed the lines is decided by what the
+  invoice holds, not by what the company's pages read showed (go-reviewer,
+  round 1). A line whose order item changed takes the new order item's
+  account, cost center and tax code unless the person changed them too
+  (the API fills them from the order item); one leaving its order item
+  keeps the account it shows.
+- **Lines after a 412 (decided by default, for the product owner to
+  overrule).** The API numbers lines by their place, so a line added or
+  left out has no identity to put another person's change on field by
+  field. `rebaseItems` takes the person's lines when nobody else changed
+  the lines; the invoice's when the person changed none; while the person
+  added or left out no line and the invoice has as many lines as when the
+  form was opened, each line with the person's changes on it field by
+  field by its place, as T73e2 did (another person who left one line out
+  and added another meanwhile is not told apart: reported); otherwise, both having changed the lines,
+  the invoice's lines as they are now without the person's changes to
+  them, said on the form (409, no call), the person's header changes kept
+  at the invoice's version now. This is the entry form's rule for a
+  parked entry's lines (lane entrylost).
+- **Permissions.** The AP clerk's role needs `ledger.account.read` and
+  `ledger.cost_center.read` to see numbers and codes rather than ids
+  (`fixture.InvoicePermissions` gains both); without them the form still
+  works on ids.
+- **Not built (T73e4).** Clearing down payments did not fit the slice:
+  the person chooses the supplier's paid down payments (their ledger
+  items, `listOpenItems` with special G/L `A`) on the posted invoice, a
+  screen of its own; no money rule is open. It and the pilot AP clerk's
+  walk-through are T73e4. Capture by upload, which waited for the product
+  owner when this slice was cut, was decided (2026-11-01) and is built:
+  "Built in T73e3, capture by upload" above (batch 38's integration).
+- **Tests.** `TestCalculatedTaxOnRead`, `TestReadFigures` and the
+  extended `TestTaxCodeChangedBeforePosting`, `TestCodeWithdrawnBeforePosting`
+  and `TestInvoiceOnARemovedOrderItem` in payables; `TestChangeInvoiceLines`,
+  `TestChangeInvoiceLinesMeanwhile`, `TestChangeInvoiceOrderItems`,
+  `TestChangeInvoiceCenters`, `TestTaxAndIssuesShown`, `TestOrderItemChanged`
+  and `TestRebaseItems` in the workspace; `TestInvoiceLinesInTheBrowser`
+  adds and leaves out a line with htmx, axe at zero at 1280 px in English
+  and 390 px in French, and saves a line of an order item.
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF

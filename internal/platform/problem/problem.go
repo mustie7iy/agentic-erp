@@ -55,6 +55,15 @@ type CodeTax struct {
 	Tax     Money  `json:"tax"`
 }
 
+// MatchIssue is one issue of a supplier invoice's three-way match, as the
+// API's MatchIssue: its code, the invoice item it concerns, and its
+// explanation.
+type MatchIssue struct {
+	Code    string `json:"code"`
+	ItemNo  *int32 `json:"item_no,omitempty"`
+	Message string `json:"message"`
+}
+
 // Problem is an RFC 9457 problem document.
 type Problem struct {
 	Type     string       `json:"type"`
@@ -68,6 +77,10 @@ type Problem struct {
 	// CalculatedTax are payables.tax_mismatch's figures (ADR-0052,
 	// decision D3), set by that problem alone.
 	CalculatedTax *CalculatedTax `json:"calculated_tax,omitempty"`
+	// MatchIssues are payables.match_outdated's issues (ADR-0052,
+	// decision D3), set by that problem alone: those the invoice's match
+	// at posting finds that its basis did not show.
+	MatchIssues []MatchIssue `json:"match_issues,omitempty"`
 
 	// RetryAfter, in seconds, is sent as the Retry-After header when set.
 	RetryAfter int `json:"-"`

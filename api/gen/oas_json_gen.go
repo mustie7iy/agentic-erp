@@ -88963,9 +88963,19 @@ func (s *Problem) encodeFields(e *jx.Encoder) {
 			s.CalculatedTax.Encode(e)
 		}
 	}
+	{
+		if s.MatchIssues != nil {
+			e.FieldStart("match_issues")
+			e.ArrStart()
+			for _, elem := range s.MatchIssues {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfProblem = [9]string{
+var jsonFieldsNameOfProblem = [10]string{
 	0: "type",
 	1: "title",
 	2: "status",
@@ -88975,6 +88985,7 @@ var jsonFieldsNameOfProblem = [9]string{
 	6: "trace_id",
 	7: "errors",
 	8: "calculated_tax",
+	9: "match_issues",
 }
 
 // Decode decodes Problem from json.
@@ -89090,6 +89101,23 @@ func (s *Problem) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"calculated_tax\"")
+			}
+		case "match_issues":
+			if err := func() error {
+				s.MatchIssues = make([]MatchIssue, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem MatchIssue
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.MatchIssues = append(s.MatchIssues, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"match_issues\"")
 			}
 		default:
 			return d.Skip()
@@ -111074,6 +111102,12 @@ func (s *SupplierInvoice) encodeFields(e *jx.Encoder) {
 		e.ArrEnd()
 	}
 	{
+		if s.CalculatedTax.Set {
+			e.FieldStart("calculated_tax")
+			s.CalculatedTax.Encode(e)
+		}
+	}
+	{
 		if s.Expanded.Set {
 			e.FieldStart("expanded")
 			s.Expanded.Encode(e)
@@ -111081,7 +111115,7 @@ func (s *SupplierInvoice) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSupplierInvoice = [29]string{
+var jsonFieldsNameOfSupplierInvoice = [30]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -111110,7 +111144,8 @@ var jsonFieldsNameOfSupplierInvoice = [29]string{
 	25: "items",
 	26: "extensions",
 	27: "documentary_warnings",
-	28: "expanded",
+	28: "calculated_tax",
+	29: "expanded",
 }
 
 // Decode decodes SupplierInvoice from json.
@@ -111441,6 +111476,16 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"documentary_warnings\"")
+			}
+		case "calculated_tax":
+			if err := func() error {
+				s.CalculatedTax.Reset()
+				if err := s.CalculatedTax.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"calculated_tax\"")
 			}
 		case "expanded":
 			if err := func() error {

@@ -26746,7 +26746,8 @@ func (s *Server) handleGetSodRuleRequest(args [1]string, argsEscaped bool, w htt
 
 // handleGetSupplierInvoiceRequest handles getSupplierInvoice operation.
 //
-// Returns one supplier invoice. Expandable: `supplier`.
+// Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`).
+// Expandable: `supplier`.
 //
 // GET /v1/supplier-invoices/{id}
 func (s *Server) handleGetSupplierInvoiceRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -49502,7 +49503,8 @@ func (s *Server) handlePostRevaluationRunRequest(args [0]string, argsEscaped boo
 // again under its order items' locks: 409 `payables.match_outdated`, the invoice left parked, when
 // documents posted on the order since (another invoice past the received quantity, a credit memo past
 // the invoiced one), a change of the order or of the tolerances leave it with an issue its clean
-// match, or the match its exception was approved on, did not have.
+// match, or the match its exception was approved on, did not have; the problem's `match_issues` are
+// those issues.
 //
 // POST /v1/supplier-invoices/{id}:post
 func (s *Server) handlePostSupplierInvoiceRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

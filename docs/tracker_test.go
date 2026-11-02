@@ -57,8 +57,11 @@ const baselineItems = 950
 // payment run (review:T73g2) to the pilot (po:2026-11-01, 87); T73j2's
 // downloads of the ledger reconciliation and the audit history, budgets
 // at the pilot's volumes and pilot walk-through split into T73j4, which
-// inherits the tag (88).
-const pilotItems = 88
+// inherits the tag (88). 89 since batch 38: T73e3's down payments and
+// pilot AP clerk's walk-through split into T73e4, which inherits the tag
+// (89); capture by upload, decided by the product owner (po:2026-11-01),
+// is a leaf of its own without the tag.
+const pilotItems = 89
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

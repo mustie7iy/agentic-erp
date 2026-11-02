@@ -285,6 +285,10 @@ func TestCodeWithdrawnBeforePosting(t *testing.T) {
 	inv, _ := e.Must(201, "POST", "/v1/supplier-invoices", e.invoice(e.Supplier, "LATE", "107.00", "7.00", coded(e, "100.00", "V7")), "")
 	fixture.TaxCodes(t, e.Tenant, doc, config.TaxCode{Code: "V7", Description: "Reduced", Components: []config.TaxComponent{
 		{Key: "tax", AccountKey: config.KeyInput, Account: "140000", Rates: []config.TaxRate{rate("7", "2026-04-01", "")}}}})
+	// Read, the invoice leaves its figures out (T73e3): posting says why.
+	if read, _ := e.Must(200, "GET", "/v1/supplier-invoices/"+id(inv), "", ""); read["calculated_tax"] != nil {
+		t.Errorf("read: got calculated_tax %v, want none without a rate", read["calculated_tax"])
+	}
 	e.Problem(422, "payables.unknown_tax_code", "POST", "/v1/supplier-invoices/"+id(inv)+":post", `{"posting_date": "2026-03-21"}`, e.tag(t, id(inv)))
 }
 

@@ -225,6 +225,13 @@ templ RefusalNotice(r Refusal) {
 		if r.Tax != nil {
 			@TaxFiguresView(refusalID(r), *r.Tax)
 		}
+		if len(r.Issues) > 0 {
+			<ul class="list" hx-disable>
+				for _, is := range r.Issues {
+					@IssueItem(is)
+				}
+			</ul>
+		}
 		<dl class="facts">
 			@Fact(i18n.RefusalCode, Code(r.Code))
 			if r.Trace != "" {

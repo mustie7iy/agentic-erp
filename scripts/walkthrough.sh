@@ -1177,6 +1177,10 @@ step_invoices() {
   INVOICE_ENTRY=$(field .journal_entry_id)
   say "Posting the second re-checks the match under the order's lock (T72a): 20 invoiced, 10 received."
   refused 409 payables.match_outdated postSupplierInvoice -p "id=$dup" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  say "The refusal carries the issue as fields (T73e3, ADR-0052 decision D3), which the web workspace names in the"
+  say "clerk's language:"
+  excerpt '.match_issues[] | "issue \(.code) on item \(.item_no): \(.message)"'
+  expect "the refusal's issue" "$(field '[.match_issues[] | "\(.code) \(.item_no)"] | join(", ")')" "quantity_exceeds_received 1"
   say "Matched again it shows the quantity issue and goes on hold; Alex cancels the duplicate."
   api 200 "$MATCHED" matchSupplierInvoice -p "id=$dup" -if-match '"1"'
   expect "the issue" "$(field '.issues[0].code')" quantity_exceeds_received
@@ -2078,6 +2082,11 @@ step_downpayment() {
   say "Alex corrects the parked invoice's tax and gross (a merge patch of the two figures alone) and posts it."
   api 200 '"\(.document_number): \(.status), tax \(.tax_amount.amount), gross \(.gross_amount.amount)"' updateSupplierInvoice -p "id=$invoice" -if-match '"1"' \
     -body '{"gross_amount": {"amount": "5250.00", "currency": "CAD"}, "tax_amount": {"amount": "250.00", "currency": "CAD"}}'
+  say "Read by itself, the invoice now states the tax its code's rate gives (T73e3: its tax per code outside a refusal)."
+  api 200 '"\(.document_number): stated \(.calculated_tax.stated.amount), calculated \(.calculated_tax.calculated.amount): \([.calculated_tax.codes[] | "\(.tax_code) \(.tax.amount)"] | join(", "))"' \
+    getSupplierInvoice -p "id=$invoice"
+  expect "the invoice's tax per code" "$(field '.calculated_tax | "\(.stated.amount) \(.calculated.amount) \([.codes[] | "\(.tax_code) \(.tax.amount)"] | join(" "))"')" \
+    "250.00 250.00 V1 250.00"
   api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
   expect "the final invoice's status" "$(field .status)" posted
   say "The posting checks the CRA's documentary requirements for the input tax credit, which the Canada pack"

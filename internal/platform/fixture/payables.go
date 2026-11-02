@@ -11,11 +11,12 @@ import (
 )
 
 // InvoicePermissions are the permissions of the people who work supplier
-// invoices: their payables permissions, the agents' recommendations, and
-// the orders and receipts invoices are matched against.
+// invoices: their payables permissions, the agents' recommendations, the
+// orders and receipts invoices are matched against, and the accounts and
+// centers an invoice's lines name (T73e3).
 var InvoicePermissions = []string{"payables.invoice.read", "payables.invoice.capture", "payables.invoice.post", "payables.invoice.hold",
 	"payables.invoice.review", "agents.session.read", "agents.recommendation.decide", "procurement.order.read", "procurement.receipt.read",
-	"ledger.entry.read"}
+	"ledger.entry.read", "ledger.account.read", "ledger.cost_center.read"}
 
 // Order inserts a released purchase order of the supplier in company 2000
 // (EUR): item 1 is 10 EA of paper at 12.00 with tax code V1, item 2 is
