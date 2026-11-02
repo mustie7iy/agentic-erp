@@ -261,6 +261,7 @@ func (s *Server) reconcileLedgers(w http.ResponseWriter, r *http.Request, p *per
 		lp.Trials = append(lp.Trials, ui.TrialView{Ledger: codes[tb.LedgerID], Debit: moneyOf(tb.DebitLc), Credit: moneyOf(tb.CreditLc), Balanced: tb.Balanced})
 	}
 	lp.Differences = differenceViews(page.Items, lq)
+	lp.CSV = ui.ReportFor(ui.LedgerReconPath+ui.CSVSuffix, lq.values())
 	if next := page.NextPageToken.Or(""); next != "" {
 		lp.More = ui.ReportFor(ui.LedgerReconPath, with(q, "page", next))
 	}

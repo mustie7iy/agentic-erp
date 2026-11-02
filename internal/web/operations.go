@@ -158,11 +158,15 @@ var (
 	opSupplier     = Operation{ID: "listBusinessPartners", HiddenBy: permReadSuppliers}
 	opOpenItems    = []Operation{opMe, opCompanies, opToday, opAccounts, opSupplier, opListItems}
 	opGRIR         = []Operation{opMe, opCompanies, opListGRIR}
-	opReconcile    = []Operation{opMe, opCompanies, opToday, opLedgers, {ID: "listLedgerReconciliation", HiddenBy: permReadEntries}}
+	opListRecon    = Operation{ID: "listLedgerReconciliation", HiddenBy: permReadEntries}
+	opReconcile    = []Operation{opMe, opCompanies, opToday, opLedgers, opListRecon}
 	opReconEntries = []Operation{opMe, opToday, opLedgers, opAccounts, {ID: "listLedgerReconciliationEntries", HiddenBy: permReadEntries}}
 	// opAccountEntries are the reads of a trial balance account's entries
 	// (report_entries.go, T73j2).
 	opAccountEntries = []Operation{opMe, opToday, opLedgers, opAccounts, {ID: "listJournalEntries", HiddenBy: permReadEntries}}
+	// opListAudit is a document's audit history's read (reports.go); its
+	// download names the history's actors in one read (T73j4).
+	opListAudit = Operation{ID: "listAuditEvents", HiddenBy: permReadAudit}
 )
 
 // paged is the operation a download reads page by page.
@@ -301,8 +305,10 @@ var Screens = func() map[string][]Operation {
 		"GET /reports/gr-ir":                         opGRIR,
 		"GET /reports/gr-ir.csv":                     {opMe, paged(opListGRIR)},
 		"GET /reports/ledger-reconciliation":         opReconcile,
+		"GET /reports/ledger-reconciliation.csv":     {opMe, opToday, paged(opListRecon)},
 		"GET /reports/ledger-reconciliation/entries": opReconEntries,
-		"GET /reports/audit":                         {opMe, {ID: "listAuditEvents", HiddenBy: permReadAudit}, opNames},
+		"GET /reports/audit":                         {opMe, opListAudit, opNames},
+		"GET /reports/audit.csv":                     {opMe, paged(opListAudit), opNames},
 	}
 	for verb, op := range decideOps {
 		screens["POST /approvals/{id}/"+verb] = append([]Operation{op}, opRequest...)

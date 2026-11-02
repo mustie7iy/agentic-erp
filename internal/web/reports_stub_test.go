@@ -256,6 +256,9 @@ func TestReportRefusals(t *testing.T) {
 		"an account's entries":   {"GET /v1/journal-entries", "/reports/trial-balance/entries?" + url.Values{"legal_entity_id": {company}, "account_id": {company}, "fiscal_year": {"2026"}}.Encode()},
 		"a download, refused":    {"GET /v1/gr-ir-balances", "/reports/gr-ir.csv?legal_entity_id=" + company},
 		"a download of balances": {"GET /v1/balances", "/reports/trial-balance.csv?legal_entity_id=" + company},
+		"the reconciliation's download": {"GET /v1/ledger-reconciliation", "/reports/ledger-reconciliation.csv?" + url.Values{"legal_entity_id": {company},
+			"ledger_id": {company}, "compare_ledger_id": {uuid.NewString()}, "fiscal_year": {"2026"}}.Encode()},
+		"the history's download": {"GET /v1/audit-events", "/reports/audit.csv?object_id=" + company},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, b, _ := stubStack(t, &stubbed{routes: map[string]http.HandlerFunc{"GET /v1/me": answer(200, meJSON(permReadEntries)), tc.route: refused}})
@@ -356,10 +359,13 @@ func TestReportsUnavailable(t *testing.T) {
 		"entries: 503":           {"GET /v1/ledger-reconciliation/entries", "/reports/ledger-reconciliation/entries?" + co, http.StatusServiceUnavailable, ""},
 		"account entries: 503":   {"GET /v1/journal-entries", "/reports/trial-balance/entries?" + co, http.StatusServiceUnavailable, ""},
 		"audit: 503":             {"GET /v1/audit-events", "/reports/audit?object_id=" + id, http.StatusServiceUnavailable, ""},
+		"audit: download 503":    {"GET /v1/audit-events", "/reports/audit.csv?object_id=" + id, http.StatusServiceUnavailable, ""},
+		"reconciliation: download 503": {"GET /v1/ledger-reconciliation", "/reports/ledger-reconciliation.csv?" + co + "&fiscal_year=2026",
+			http.StatusServiceUnavailable, ""},
 	}
 	for _, path := range []string{"/reports/trial-balance", "/reports/trial-balance.csv", "/reports/open-items", "/reports/open-items.csv",
 		"/reports/gr-ir", "/reports/gr-ir.csv", "/reports/ledger-reconciliation", "/reports/ledger-reconciliation/entries", "/reports/trial-balance/entries",
-		"/reports/audit"} {
+		"/reports/audit", "/reports/ledger-reconciliation.csv", "/reports/audit.csv"} {
 		cases[path+": who am I, 401"] = struct {
 			route, path string
 			status      int
@@ -395,15 +401,96 @@ func TestDownloadCutShort(t *testing.T) {
 	holds(t, "the log", logs.String(), "a report's download was cut short", "the client went away")
 }
 
-// TestSafeCell: a text that a spreadsheet would run as a formula is kept
-// as text; numbers, dates and other texts are as they are.
+// TestSafeCell: numbers and dates are as they are; every other text is
+// quoted, its quotes doubled, so neither a comma nor a semicolon nor a
+// line break starts a new cell; a text beginning with a character OWASP
+// names (= + - @, tab, carriage return, line feed and their full-width
+// forms) is kept as text by a leading apostrophe; OWASP's own example.
 func TestSafeCell(t *testing.T) {
-	for in, want := range map[string]string{"=SUM(A1)": "'=SUM(A1)", "+1": "'+1", "-x": "'-x", "@x": "'@x", "\tx": "'\tx", "\rx": "'\rx",
-		"-2-3": "'-2-3", "-119.00": "-119.00", "2026-04-09": "2026-04-09", "INV-1": "INV-1", "": ""} {
+	for in, want := range map[string]string{"=SUM(A1)": `"'=SUM(A1)"`, "+1": `"'+1"`, "-x": `"'-x"`, "@x": `"'@x"`, "\tx": "\"'\tx\"",
+		"\rx": "\"'\rx\"", "\nx": "\"'\nx\"", "\uff1dSUM(A1)": "\"'\uff1dSUM(A1)\"", "\uff0b1": "\"'\uff0b1\"", "\uff0dx": "\"'\uff0dx\"",
+		"\uff20x": "\"'\uff20x\"", "-2-3": `"'-2-3"`, "-119.00": "-119.00", "42": "42", "2026-04-09": "2026-04-09", "INV-1": `"INV-1"`, "": "",
+		"a,=1+2": `"a,=1+2"`, "a;=1+2": `"a;=1+2"`, "a\n=1+2": "\"a\n=1+2\"", `say "hi"`: `"say ""hi"""`,
+		`=1+2";=1+2`: `"'=1+2"";=1+2"`, "\xff=": "\"\xff=\""} {
 		t.Run(in, func(t *testing.T) {
 			if got := safeCell(in); got != want {
 				t.Errorf("got %q, want %q", got, want)
 			}
 		})
+	}
+}
+
+// TestDownloadsStubbed: the reconciliation's and the history's downloads
+// from a stub: every page read until the last; the history's actors named
+// in one read, by id alone when the names cannot be read, a kind the
+// catalog does not name as the API gives it, the details as one JSON
+// object and its texts safe for a spreadsheet; the downloads refused,
+// unavailable and over the limit as the others are.
+func TestDownloadsStubbed(t *testing.T) {
+	company, ledger, compare, object := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	m := moneyJSON("5.00")
+	difference := fmt.Sprintf(`{"account_id":%q,"account_number":"400000","account_name":"=Sales","currency":"EUR","balance":%s,
+		"compare_balance":%s,"difference":%s,"difference_lc":%s,"difference_gc":%s}`, uuid.New(), m, m, m, m, m)
+	paged := func(item string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			next := `,"next_page_token":"n"`
+			if r.URL.Query().Get("page_token") != "" {
+				next = ""
+			}
+			if got := r.URL.Query().Get("page_size"); got != "500" {
+				t.Errorf("%s: page_size %q, want 500", r.URL.Path, got)
+			}
+			answer(200, fmt.Sprintf(`{"ledger_id":%q,"compare_ledger_id":%q,"trial_balances":[],"items":[%s]%s}`, ledger, compare, item, next))(w, r)
+		}
+	}
+	names := 0
+	st := &stubbed{routes: map[string]http.HandlerFunc{
+		"GET /v1/me":                    answer(200, meJSON(permReadEntries, permReadAudit)),
+		"GET /v1/ledger-reconciliation": paged(difference),
+		"GET /v1/audit-events":          paged(auditJSON()),
+		"GET /v1/principal-names": func(w http.ResponseWriter, r *http.Request) {
+			names++
+			answer(500, problemJSON(500, "platform.internal"))(w, r)
+		},
+	}}
+	_, b, _ := stubStack(t, st)
+	recon := sheet(t, "the reconciliation", b.get("/reports/ledger-reconciliation.csv?"+url.Values{"legal_entity_id": {company.String()},
+		"ledger_id": {ledger.String()}, "compare_ledger_id": {compare.String()}, "fiscal_year": {"2026"}, "period": {"3"}}.Encode()))
+	if got := len(recon); got != 4 {
+		t.Errorf("the reconciliation: got %d lines, want the filters, the columns and a row of each of two pages", got)
+	}
+	if got, want := strings.Join(recon[2], "|"), "400000 =Sales|EUR|5.00|5.00|5.00|5.00|EUR|5.00|EUR"; got != want {
+		t.Errorf("the reconciliation's row: got %q, want %q", got, want)
+	}
+	audit := b.get("/reports/audit.csv?object_id=" + object.String())
+	history := sheet(t, "the history", audit)
+	if got := len(history); got != 4 {
+		t.Errorf("the history: got %d lines, want the filters, the columns and an event of each of two pages", got)
+	}
+	if got, want := strings.Join(history[2][4:], "|"), `robot|ledger.journal_entry.post|succeeded|203.0.113.24|{"lines":2,"text":"<script>x</script>"}`; got != want {
+		t.Errorf("the history's event: got %q, want %q", got, want)
+	}
+	if history[2][2] != "" || history[2][3] == "" {
+		t.Errorf("the history's actor, the names unread: got %q and %q, want no name and the id", history[2][2], history[2][3])
+	}
+	if names != 1 {
+		t.Errorf("the names: read %d times, want once for the whole history", names)
+	}
+	holds(t, "the history's first line", strings.SplitN(audit.body, "\n", 2)[0], `"object_id=`+object.String()+`"`)
+}
+
+// TestFirstActors: a history's actors are named in one read, each once,
+// the first hundred of them.
+func TestFirstActors(t *testing.T) {
+	a, b := uuid.New(), uuid.New()
+	if got := firstActors([]uuid.UUID{a, b, a}); len(got) != 2 || got[0] != a || got[1] != b {
+		t.Errorf("two actors, one twice: got %v, want %v and %v", got, a, b)
+	}
+	many := make([]uuid.UUID, namesPerCall+5)
+	for i := range many {
+		many[i] = uuid.New()
+	}
+	if got := firstActors(many); len(got) != namesPerCall || got[namesPerCall-1] != many[namesPerCall-1] {
+		t.Errorf("%d actors: got %d, want the first %d", len(many), len(got), namesPerCall)
 	}
 }

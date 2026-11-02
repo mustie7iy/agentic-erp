@@ -1591,10 +1591,21 @@ step_ledgers() {
   say "A local-GAAP adjustment posts to 2L alone, and the ledger reconciliation shows the difference:"
   api 201 '"2L only: entry \(.document_number), \(.header_text)"' postJournalEntry \
     -body "{\"legal_entity_id\": \"$LE\", \"ledger_id\": \"$l2\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"ASPE: expense the implementation fees\", \"lines\": [{\"account_id\": \"$fees\", \"amount\": {\"amount\": \"1200.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$retained\", \"amount\": {\"amount\": \"-1200.00\", \"currency\": \"CAD\"}}]}"
+  local adjustment
+  adjustment=$(field .id)
   api 200 '.items[] | "account \(.account_number) \(.account_name): 0L \(.balance.amount), 2L \(.compare_balance.amount), difference \(.difference.amount) \(.currency)"' listLedgerReconciliation \
     -p "legal_entity_id=$LE" -p "compare_ledger_id=$l2" -p "fiscal_year=$YEAR"
   expect "accounts that differ" "$(field '.items | length')" 2
   expect "the fees account, named by the reconciliation (T73i2)" "$(field "[.items[] | select(.account_id == \"$fees\") | .account_number] | join(\" \")")" 6100
+  say "The web workspace downloads the reconciliation as CSV (T73j4): it reads these rows in pages of 500 until"
+  say "the last, every page before the file's first byte, so a file is never cut short:"
+  api 200 '"\(.items | length) account(s) that differ on the page, \(if .next_page_token then "more pages to read" else "the last page" end)"' \
+    listLedgerReconciliation -p "legal_entity_id=$LE" -p "compare_ledger_id=$l2" -p "fiscal_year=$YEAR" -p page_size=500
+  expect "the download's pages after the first" "$(field '.next_page_token // "none"')" none
+  say "The adjustment's audit history, which the workspace downloads too, its actors named in one read:"
+  api 200 '.items | reverse | .[] | "\(.occurred_at)  \(.actor_id)  \(.action)  \(.outcome)"' listAuditEvents -p "object_id=$adjustment" \
+    -p page_size=500 | name_actors
+  expect "the adjustment's posting in its history" "$(field '[.items[] | select(.action == "ledger.journal_entry.post")] | length')" 1
   passed
 }
 

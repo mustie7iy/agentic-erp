@@ -1220,6 +1220,12 @@ const (
 	AuditKindService         Key = "audit.kind.service"
 	AuditKindSystem          Key = "audit.kind.system"
 	AuditLink                Key = "audit.link"
+	AuditSeq                 Key = "audit.seq"
+	AuditActorID             Key = "audit.actor.id"
+	AuditAction              Key = "audit.action"
+	AuditDetails             Key = "audit.details"
+	DifferenceLC             Key = "difference.lc"
+	DifferenceGC             Key = "difference.gc"
 	CheckReport              Key = "check.report"
 )
 
