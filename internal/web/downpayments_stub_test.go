@@ -48,7 +48,7 @@ func TestClearDownPaymentsStubbed(t *testing.T) {
 	r := b.get(downPaymentsPath(id) + "?page=t1")
 	status(t, "a page without requests", r, http.StatusOK)
 	p := r.page(t)
-	holds(t, "a page without requests", p.mainText(), "100009", "No paid down payment request of the supplier names this payment")
+	holds(t, "a page without requests", p.mainText(), "100009", "No paid down payment request was found for this payment")
 	if offered, _ := boxes(p); len(offered) != 0 {
 		t.Errorf("a down payment without a request: got %v offered, want none", offered)
 	}

@@ -1336,5 +1336,5 @@
   "downpayments.tax": "Taxe sur les intrants",
   "downpayments.other_order": "Demandé pour un autre bon de commande : il ne se lettre qu'avec une facture de cette commande.",
   "downpayments.other_currency": "Payé dans une autre devise que celle de la facture.",
-  "downpayments.no_request": "Aucune demande d'acompte payée du fournisseur ne nomme ce paiement; il n'est donc pas lettré ici."
+  "downpayments.no_request": "Aucune demande d'acompte payée n'a été trouvée pour ce paiement; il n'est donc pas lettré ici."
 }

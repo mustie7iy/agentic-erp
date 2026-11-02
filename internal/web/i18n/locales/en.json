@@ -1336,5 +1336,5 @@
   "downpayments.tax": "Input tax",
   "downpayments.other_order": "Requested for another purchase order: it clears only against an invoice of that order.",
   "downpayments.other_currency": "Paid in another currency than the invoice's.",
-  "downpayments.no_request": "No paid down payment request of the supplier names this payment, so it is not cleared here."
+  "downpayments.no_request": "No paid down payment request was found for this payment, so it is not cleared here."
 }

@@ -102,8 +102,8 @@ type clearingTyped struct {
 	dateErr, chooseErr i18n.Key
 }
 
-// downPayments is the clearing's screen; an invoice down payments are not
-// cleared against goes to its page, which says what it is.
+// downPayments is the clearing's screen; an invoice that down payments
+// cannot be cleared against goes to its own page, which says what it is.
 func (s *Server) downPayments(w http.ResponseWriter, r *http.Request, p *person) {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
