@@ -164,15 +164,15 @@ func send(t *testing.T, ln net.Listener, raw string) (net.Conn, error) {
 // TestTheRecordOutlivesTheRequests: requests still running when the
 // shutdown's drain (ERP_SHUTDOWN_TIMEOUT, 5s in environment) ends are
 // ended, and the replica's record is deleted only once their handlers
-// returned (review:T72m). One waits on its context, as a transaction
-// does, its body unread, so closing its connection does not end its
-// context (net/http watches a connection only once the body was read):
-// only the requests' own cancellation does. The other waits on a body
-// still arriving, its read deadline lifted to api.UploadTimeout as an
-// upload's is: only closing its connection ends it. http.Server.Shutdown returns at
-// its deadline with both still running and cancels neither, so without
-// the requests' own ending the server deletes the record and returns
-// while they run on.
+// returned (review:T72m). One waits on its context, as a transaction does,
+// its body unread, so closing its connection does not end its context
+// (net/http watches a connection only once the body was read): only the
+// requests' own cancellation does. The other waits on a body still
+// arriving, its read deadline lifted to api.UploadTimeout as an upload's
+// is: only closing its connection ends it. http.Server.Shutdown returns at
+// its deadline with both still running and cancels neither, so without the
+// requests' own ending the server deletes the record and returns while
+// they run on.
 func TestTheRecordOutlivesTheRequests(t *testing.T) {
 	env := environment(t, authntest.New(t), "")
 	before := replicaRows(t)
