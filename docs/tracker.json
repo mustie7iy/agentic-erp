@@ -5750,10 +5750,18 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Reports beyond T73j2: downloads of the ledger reconciliation and the audit history (CSV as T73j's, up to 10,000 rows); the page budgets measured at the pilot's volumes once the pilot gives them (neither the tracker nor ADR-0052 names them); OWASP's CSV injection guidance and the byte order mark's need verified from primary sources (ADR-0052, from memory); walked through by a pilot GL accountant, AP clerk and controller",
-        "r": "T73j4 (split from T73j2, 2026-11-01)",
+        "s": "D",
+        "t": "Reports beyond T73j2: downloads of the ledger reconciliation (the accounts that differ, with the difference in the company's and the group's currency) and of a document's audit history (who by name and by id, the details as JSON, the actors named in one read), CSV as T73j's, up to 10,000 rows within a download's 40 calls; OWASP's CSV injection guidance verified from its page (fetched 2026-11-02) and the writer's gaps fixed: a line feed and the full-width = + - @ neutralised, every text cell quoted so a semicolon starts no new cell; the byte order mark's need left unverified (no primary source); the page budgets at the pilot's volumes and the pilot walk-through split into T73j5; EN and FR",
+        "r": "internal/web report_downloads.go · report_csv.go safeCell · ui/reports.templ · operations.go · TestLedgerReconReport · TestAuditHistory · TestDownloadsStubbed · TestReportRefusals · TestReportsUnavailable · TestSafeCell · TestReportsJobsInTheBrowser · walkthrough step 10 (the reconciliation read as its download reads it) · ADR-0052 Built in T73j4 · T73j4",
         "src": "split:T73j2",
+        "pilot": "po:2026-10-31 · split:T73j2 · adr:ADR-0052",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Reports at the pilot's volumes, walked through: the reports' page budgets (ADR-0052 §10) measured at the pilot's volumes once the pilot gives them (neither the tracker nor ADR-0052 names them); walked through by a pilot GL accountant, AP clerk and controller (human acceptance), the downloads opened in the pilot's spreadsheet program, which checks the byte order mark's need (ADR-0052, from memory, unverified)",
+        "r": "T73j5 (split from T73j4, 2026-11-02)",
+        "src": "split:T73j2 · adr:ADR-0052",
         "pilot": "po:2026-10-31 · split:T73j2 · adr:ADR-0052",
         "c": []
        },
