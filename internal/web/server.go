@@ -59,6 +59,7 @@ type Server struct {
 	Now     func() time.Time // nil: the wall clock
 
 	nameCache nameCache // principals' names per session (ADR-0052 G3)
+	relay     relay     // where a captured document's bytes go: the API's signed upload path (capture_relay.go)
 }
 
 // New is the workspace for cfg: its catalog (the pseudo-locales outside
@@ -108,9 +109,11 @@ func newServer(cfg Config, build buildinfo.Info, log *slog.Logger, catalog func(
 	if s.Assets, err = assets(); err != nil {
 		return nil, err
 	}
-	if s.API, err = NewAPI(cfg.APIURL.String(), apiClient(cfg.APIDial, nil, cfg.Identity)); err != nil {
+	hc := apiClient(cfg.APIDial, nil, cfg.Identity)
+	if s.API, err = NewAPI(cfg.APIURL.String(), hc); err != nil {
 		return nil, err
 	}
+	s.relay = newRelay(cfg.APIURL, hc)
 	return s, nil
 }
 
@@ -176,6 +179,8 @@ func (s *Server) mux() *http.ServeMux {
 		route("POST "+ui.ApprovalsPath+"/{id}/"+verb, s.signedIn(s.csrf(s.decide(verb))))
 	}
 	route("GET "+ui.InvoicesPath, s.signedIn(s.invoices))
+	route("GET "+ui.CapturePath, s.signedIn(s.capture))
+	route("POST "+ui.CapturePath, s.signedIn(s.csrfStream(s.captureDocument)))
 	route("GET "+ui.InvoicesPath+"/{id}", s.signedIn(s.invoice))
 	route("GET "+ui.InvoicesPath+"/{id}/order", s.signedIn(s.order))
 	route("GET "+ui.InvoicesPath+"/{id}/document", s.signedIn(s.document))

@@ -19,6 +19,9 @@ templ invoicesContent(l InvoiceList) {
 		@T(i18n.InvoicesTitle)
 	</h1>
 	@Paragraph(i18n.InvoicesLead)
+	if l.Capture {
+		@ButtonLink(CapturePath, i18n.CaptureLink)
+	}
 	@StatusTabs(l.Tabs)
 	@FilterForm(l.Filters, l.Companies)
 	if l.Invalid {

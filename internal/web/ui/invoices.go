@@ -85,6 +85,7 @@ type InvoiceList struct {
 	More      string
 	Refusal   *Refusal
 	Invalid   bool
+	Capture   bool // the person may capture an invoice from its document (advisory)
 }
 
 // QueuePath is the queue's path with the query, "" values left out.

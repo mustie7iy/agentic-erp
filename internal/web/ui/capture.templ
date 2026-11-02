@@ -1,0 +1,147 @@
+package ui
+
+import "github.com/mustie7iy/agentic-erp/internal/web/i18n"
+
+// Capture is the capture of a supplier invoice from its document
+// (ADR-0052 §7, PO 2026-11-01): the company and the document, which
+// erp-web streams to the API's own signed upload path and captures from.
+templ Capture(s Shell, f CaptureForm) {
+	@Layout(s, captureContent(f))
+}
+
+templ captureContent(f CaptureForm) {
+	<p>
+		<a { link(InvoicesPath, "")... }>
+			@T(i18n.CaptureBack)
+		</a>
+	</p>
+	<h1>
+		@T(i18n.CaptureTitle)
+	</h1>
+	@Paragraph(i18n.CaptureLead)
+	if f.Refusal != nil {
+		@RefusalNotice(*f.Refusal)
+	}
+	if f.Companies == nil {
+		@Notice("capture-companies", i18n.CaptureRefusedTitle, Paragraph(i18n.CaptureNoCompanies))
+	} else {
+		@CaptureFormView(f)
+	}
+}
+
+// CaptureFormView is the capture's form: the CSRF token and the
+// idempotency key first, then the company, the document last (CaptureForm).
+// It sits on the page's white, where the error text's red has its
+// contrast (a form on the filters' grey has 4.3:1, below WCAG 2.2's 4.5:1).
+// With several companies none is chosen for the person.
+templ CaptureFormView(f CaptureForm) {
+	<form class="decide" enctype="multipart/form-data" { post(CapturePath)... }>
+		<input { csrfInput(f.CSRF)... }/>
+		<input { hidden(FieldIdempotency, f.Key)... }/>
+		<div { fieldClass(f.CompanyError)... }>
+			<label class="field__label" for="capture-company">
+				@T(i18n.CaptureCompany)
+			</label>
+			if f.CompanyError != "" {
+				<p class="field__error" id="capture-company-error">
+					@T(f.CompanyError)
+				</p>
+			}
+			<select class="select" { captureCompany(f.CompanyError)... }>
+				if len(f.Companies) > 1 {
+					<option value="">
+						@T(i18n.CaptureCompanyChoose)
+					</option>
+				}
+				for _, o := range f.Companies {
+					<option translate="no" { option(o)... }>
+						@Value(o.Text)
+					</option>
+				}
+			</select>
+		</div>
+		<div { fieldClass(f.FileError)... }>
+			<label class="field__label" for="upload-file">
+				@T(i18n.CaptureFile)
+			</label>
+			<p class="field__hint" id="upload-file-hint">
+				@T(i18n.CaptureFileHint)
+			</p>
+			if f.FileError != "" {
+				<p class="field__error" id="upload-file-error">
+					@T(f.FileError)
+				</p>
+			}
+			if f.Again {
+				<p class="hint">
+					@T(i18n.UploadChooseAgain)
+				</p>
+			}
+			<input class="input" { fileInput(f.FileError)... }/>
+		</div>
+		<button class="button" type="submit">
+			@T(i18n.CaptureSubmit)
+		</button>
+	</form>
+}
+
+// CaptureWaitPage is a capture's operation while it runs: its state,
+// asked for again every two seconds with htmx, and a link to ask again
+// without it; or why it stopped.
+templ CaptureWaitPage(s Shell, v CaptureWait) {
+	@Layout(s, captureWaitContent(v))
+}
+
+templ captureWaitContent(v CaptureWait) {
+	<p>
+		<a { link(InvoicesPath, "")... }>
+			@T(i18n.CaptureBack)
+		</a>
+	</p>
+	<h1>
+		@T(i18n.CaptureWaitTitle)
+	</h1>
+	if v.Refusal != nil {
+		@RefusalNotice(*v.Refusal)
+	} else if v.Running {
+		@Paragraph(i18n.CaptureWaitLead)
+		<div role="status">
+			@CaptureWaitPoll(v)
+		</div>
+		<p class="hint">
+			@T(i18n.CaptureWaitAuto)
+		</p>
+		<p>
+			<a { link(v.Self, "")... }>
+				@T(i18n.CaptureWaitRefresh)
+			</a>
+		</p>
+	} else {
+		<div role="status">
+			@CaptureWaitStatus(v)
+		</div>
+		<p>
+			<a { link(CapturePath, "")... }>
+				@T(i18n.CaptureTitle)
+			</a>
+		</p>
+	}
+}
+
+// CaptureWaitPoll is the capture's state while it runs, asked for again
+// every two seconds.
+templ CaptureWaitPoll(v CaptureWait) {
+	<div { capturePoll(v.Self, v.Shown)... }>
+		@CaptureWaitStatus(v)
+	</div>
+}
+
+// CaptureWaitStatus is the capture's state, and why it stopped.
+templ CaptureWaitStatus(v CaptureWait) {
+	<dl class="facts">
+		@Fact(i18n.CaptureWaitState, OperationStatusTag(v.Status))
+	</dl>
+	if v.Error != nil {
+		@RefusalNotice(*v.Error)
+	}
+}

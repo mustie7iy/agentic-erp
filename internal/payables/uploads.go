@@ -280,7 +280,7 @@ func (u *Uploads) receive(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		if up.Status != "open" {
-			return errUploadClosed
+			return uploadClosed()
 		}
 		if err := u.store(ctx, streamer, up, doc); err != nil {
 			return err
@@ -293,7 +293,11 @@ func (u *Uploads) receive(w http.ResponseWriter, r *http.Request) error {
 	})
 }
 
-var errUploadClosed = problem.Conflict("payables.upload_closed", "This upload has already received its document.")
+// uploadClosed refuses a second document: a new problem each time, since
+// problem.Write fills in the request's instance and trace id.
+func uploadClosed() *problem.Problem {
+	return problem.Conflict("payables.upload_closed", "This upload has already received its document.")
+}
 
 // expect reads the upload the URL names and refuses, before the body is
 // read, what the upload will not take: one already received or used, one
@@ -313,7 +317,7 @@ func (u *Uploads) expect(r *http.Request, scope database.Scope, id uuid.UUID) (U
 		// Its bytes go to the store's presigned URL; this path was never given out for it.
 		return Upload{}, problem.Forbidden("payables.invalid_upload_url", "The upload URL is not valid.")
 	case up.Status != "open":
-		return Upload{}, errUploadClosed
+		return Upload{}, uploadClosed()
 	case r.Header.Get("Content-Type") != up.ContentType:
 		return Upload{}, problem.Unprocessable("payables.upload_content_type", "Send the document as "+up.ContentType+", the type the upload was created for.")
 	case r.ContentLength > up.MaxBytes:

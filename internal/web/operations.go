@@ -94,6 +94,7 @@ var (
 	// (invoice_edit.go).
 	opInvoiceForm = []Operation{opMe, {ID: "getSupplierInvoice", HiddenBy: permReadInvoices}}
 	opHouseBanks  = Operation{ID: "listHouseBanks", HiddenBy: permReadStatements}
+	opOperation   = Operation{ID: "getOperation", HiddenBy: permReadOperations}
 	// opStatementList are the reads of the statements' list (bank.go),
 	// opStatement those of a statement's page (statement.go).
 	opStatementList = []Operation{opMe, opHouseBanks, opCompanies, {ID: "listBankStatements", HiddenBy: permReadStatements}}
@@ -239,6 +240,10 @@ var Screens = func() map[string][]Operation {
 		"GET /approvals/{id}": opRequest,
 		"GET /invoices":       {opMe, opCompanies, {ID: "listSupplierInvoices", HiddenBy: permReadInvoices}, opNames},
 		"GET /invoices/{id}":  opInvoice,
+		// The capture's form, and its operation's progress (?operation=).
+		"GET /invoices/capture": {opMe, opCompanies, opOperation},
+		"POST /invoices/capture": append([]Operation{{ID: "createUpload", HiddenBy: permCaptureInvoices},
+			{ID: "captureSupplierInvoice", HiddenBy: permCaptureInvoices, Write: true}}, opMe, opCompanies, Operation{ID: "getUpload", HiddenBy: permCaptureInvoices}),
 		"GET /invoices/{id}/order": {opMe, {ID: "getSupplierInvoice", HiddenBy: permReadInvoices}, {ID: "getPurchaseOrder", HiddenBy: permReadOrders},
 			{ID: "listGoodsReceipts", HiddenBy: permReadReceipts}},
 		"GET /invoices/{id}/document": {{ID: "getSupplierInvoiceDocument", HiddenBy: permReadInvoices}},

@@ -60,7 +60,7 @@ func (s *Server) invoices(w http.ResponseWriter, r *http.Request, p *person) {
 	}
 	q := r.URL.Query()
 	params, f, valid := queueParams(q)
-	l := ui.InvoiceList{Filters: f, Tabs: statusTabs(q)}
+	l := ui.InvoiceList{Filters: f, Tabs: statusTabs(q), Capture: m.may(permCaptureInvoices)}
 	companies := s.companies(r.Context(), m)
 	l.Companies = companyOptions(companies, q.Get("legal_entity_id"))
 	status := http.StatusOK
