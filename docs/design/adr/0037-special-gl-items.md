@@ -146,3 +146,10 @@ Decided by default under ADR-0053 §d, each from this ADR or T46's code:
   one whose extract has no document currency, is refused by the quality
   gate with every other such open item, until they are migrated in their
   own currency (ADR-0005, As built).
+
+## As built: down payments listed by their indicator (T73e4, 2026-11-02)
+`listOpenItems` takes `special_gl`: with `A` it lists a supplier's down
+payments alone, which the web workspace's clearing against the final
+invoice chooses from (ADR-0052, Built in T73e4). Listing the down payment
+account's items (`account_id`) does the same, but no operation names that
+account to a client.

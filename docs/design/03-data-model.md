@@ -1095,8 +1095,9 @@ them out, so they never net in a payment run or count towards a debit
 balance, and clearing, settlement and reservation refuse them
 (`ledger.special_gl_item`): they leave the account only by clearing against
 the supplier's invoice (T46d) or by a reversal, which keeps the indicator.
-Listing the `down_payment` account's open items (`account_id`) lists the
-supplier's down payments. A down payment migrated open from SAP (ACDOCA UMSKZ A,
+Listing the `down_payment` account's open items (`account_id`), or the
+items with indicator `A` (`special_gl`, T73e4), lists the supplier's down
+payments. A down payment migrated open from SAP (ACDOCA UMSKZ A,
 T72c) is posted as its SAP document, the special item on its tax code
 beside its tax lines, and recorded as a `paid` `down_payment_request`
 naming that entry, its reference the source document, so it behaves as one

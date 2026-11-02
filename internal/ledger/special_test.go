@@ -356,6 +356,19 @@ func TestClearDownPayments(t *testing.T) {
 			t.Errorf("transfer's payables debit: got no payment terms, want the invoice's")
 		}
 	}
+	// The supplier's down payments alone, which an invoice's clearing
+	// chooses from (T73e4): the shared entry's two, not the ordinary items
+	// nor the one cleared.
+	page, _ = e.Must(200, "GET", "/v1/open-items?special_gl=A&partner_id="+e.supplier.String(), "", "")
+	var downs []string
+	for _, it := range page["items"].([]any) {
+		m := it.(map[string]any)
+		downs = append(downs, fmt.Sprintf("%v/%v %v", m["journal_entry_id"], m["line_no"], m["special_gl"]))
+	}
+	slices.Sort(downs) // the page orders by posting date, then by an id derived from the line
+	if want := []string{shared.ID.String() + "/1 A", shared.ID.String() + "/2 A"}; !slices.Equal(downs, want) {
+		t.Errorf("open items with special G/L A: got %v, want %v", downs, want)
+	}
 	for name, c := range map[string]struct {
 		mutate func(*ledger.DownPaymentClearing)
 		code   string

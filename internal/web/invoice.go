@@ -28,7 +28,7 @@ const maxRecommendations = 20
 var invoiceDone = map[string]i18n.Key{"matched": i18n.InvoiceDoneMatched, "posted": i18n.InvoiceDonePosted,
 	"held": i18n.InvoiceDoneHeld, "released": i18n.InvoiceDoneReleased, "cancelled": i18n.InvoiceDoneCancelled,
 	"reversed": i18n.InvoiceDoneReversed, "decided": i18n.InvoiceDoneDecided, "changed": i18n.InvoiceDoneChanged,
-	"unchanged": i18n.InvoiceDoneUnchanged}
+	"unchanged": i18n.InvoiceDoneUnchanged, "cleared": i18n.InvoiceDoneCleared}
 
 // typed is what the person sent in a form the API refused or that was
 // not valid: the action's verb (or the recommendation's id), its text,
@@ -95,6 +95,9 @@ func (s *Server) showInvoice(w http.ResponseWriter, r *http.Request, p *person, 
 	ip.Actions, ip.Why = actionForms(inv, m, p, tag, t)
 	if inv.Status == "parked" && m.may(permCaptureInvoices) {
 		ip.Edit = invoicePath(id) + "/edit"
+	}
+	if clearable(inv) && mayClear(m) {
+		ip.DownPayments = downPaymentsPath(id)
 	}
 	s.render(w, r, status, ui.Invoice(s.page(i18n.InvoiceTitle, ui.InvoicesPath, p, m), ip))
 }

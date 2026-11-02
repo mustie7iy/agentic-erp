@@ -56,6 +56,22 @@ var InvoiceProblems = map[string]Key{
 	"agents.already_decided":          ProblemAlreadyDecided,
 }
 
+// DownPaymentProblems are the codes the clearing of down payments against
+// an invoice (T73e4) explains in its own words, looked up before
+// InvoiceProblems: the clearing's payables and ledger codes, and an
+// invoice in a payment run, which InvoiceProblems explains for a reversal.
+var DownPaymentProblems = map[string]Key{
+	"payables.down_payment_already_cleared": ProblemDownPaymentCleared,
+	"payables.down_payment_other_order":     ProblemDownPaymentOtherOrder,
+	"payables.down_payments_exceed_invoice": ProblemDownPaymentsExceed,
+	"payables.not_a_down_payment_request":   ProblemNotDownPaymentRequest,
+	"payables.not_an_invoice":               ProblemNotAnInvoice,
+	"payables.invoice_in_payment_run":       ProblemClearInPaymentRun,
+	"ledger.not_a_down_payment":             ProblemNotADownPayment,
+	"ledger.down_payment_tax_shared":        ProblemDownPaymentTaxShared,
+	"ledger.item_already_cleared":           ProblemItemAlreadyCleared,
+}
+
 // BankProblems are the codes the bank statement screens (T73g) explain
 // in their own words, looked up before Problems: the payments codes of a
 // statement's import and of its lines' decisions, and the general ones
