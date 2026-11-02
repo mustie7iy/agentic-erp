@@ -163,7 +163,7 @@ func TestCanadaPackNextYear(t *testing.T) {
 	}
 	var want int
 	for _, r := range ca.Numbering.NumberRanges {
-		if !strings.HasPrefix(r.DocumentType, "journal_") {
+		if !config.NumberedPerYear(r.DocumentType) {
 			want++
 		}
 	}
@@ -171,7 +171,7 @@ func TestCanadaPackNextYear(t *testing.T) {
 		t.Errorf("ranges refused: got %d %v, want the %d ranges not of journal entries", len(found), found, want)
 	}
 	for i, n := range next.NumberRanges {
-		if n.FiscalYear == 2027 && !strings.HasPrefix(n.DocumentType, "journal_") {
+		if n.FiscalYear == 2027 && !config.NumberedPerYear(n.DocumentType) {
 			next.NumberRanges[i].Prefix += "2027-"
 		}
 	}
