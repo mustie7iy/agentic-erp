@@ -952,6 +952,29 @@ release runbook. The cell now refuses such an activation itself.
   least the budget and the stop as a whole can take longer. A pod killed
   at the end of its grace leaves its record, which then counts until it
   expires: the safe side.
+- **The API's requests end before the record goes** (review:T72m,
+  decided by default). `http.Server.Shutdown` returns at its deadline
+  without waiting for the handlers still running and cancels none of
+  them, and the request deadline (`ERP_REQUEST_TIMEOUT`, 30 s) is longer
+  than the drain (20 s), so a request that read the configuration could
+  commit after the record was deleted; the upload path (five minutes,
+  ADR-0020) and the model route (ten, ADR-0036), outside that deadline,
+  could run on for longer still. Bounding the request deadline inside the drain
+  alone would leave those two, so `erp-server` itself ends what the drain
+  left (`cmd/erp-server` `requests`): both listeners' requests take their
+  context from one the shutdown cancels once the drain's deadline passed,
+  their connections are then closed (a body still arriving stops being
+  read), and the server waits for every handler to return before it
+  stops the workers and deletes the record. A cancelled request's unit of
+  work rolls back unless its commit was already sent, as an activity's
+  does; the router answers 502 `platform.cell_unreachable` (or the
+  cell's 503 reaches it) and the client sends it again with the same
+  Idempotency-Key, and an upload not yet received stays open for the same
+  signed URL. A request starting after the cancellation cannot
+  begin a transaction. A handler that ignored its context would hold the
+  record until the pod is killed at the end of its grace: the safe side.
+  The request deadline and the chart are unchanged: a request that ends
+  within the drain still finishes, and only one longer is cut short.
 - **A dead replica stops counting.** A row counts while its last record is
   under 5 minutes old (`ReplicaExpiry`), measured on the database's clock
   alone (`seen_at = now()` on record, compared with `now()` on

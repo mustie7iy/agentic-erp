@@ -45,10 +45,11 @@ spec:
       # On SIGTERM the server drains the API and stops its workflow
       # worker side by side: the drain within ERP_SHUTDOWN_TIMEOUT (20 s),
       # and the worker's activities keep a live context for at least as
-      # long. Only then does it delete its replica's record, so the record
-      # outlives the activities that read the configuration (ADR-0038 As
-      # built). A pod killed at the end of the grace leaves its record to
-      # expire, the safe side.
+      # long; requests still running when the drain ends are cancelled
+      # and waited for. Only then does it delete its replica's record, so
+      # the record outlives the requests and activities that read the
+      # configuration (ADR-0038 As built). A pod killed at the end of the
+      # grace leaves its record to expire, the safe side.
       terminationGracePeriodSeconds: 30
       securityContext:
         {{- include "erp-cell.podSecurity" (dict "uid" 65532) | nindent 8 }}
