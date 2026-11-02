@@ -177,6 +177,9 @@ func components() map[string]templ.Component {
 		// Lines added and left out, tax per code and an outdated match's
 		// issues (T73e3).
 		"InvoiceItemsSwap": InvoiceItemsSwap(invoiceForm(true)),
+		// Rendered on their own too, so their error paths run (batch 38).
+		"InvoiceItems":     InvoiceItems(invoiceForm(true)),
+		"itemFieldView":    itemFieldView(invoiceForm(true).Items[0], FieldItemAccount, true),
 		"lines full":       invoiceButtons(InvoiceForm{Items: make([]ItemInput, MaxFormLines)}),
 		"invoice with tax": invoiceContent(InvoicePage{Tax: taxFigures(), Why: i18n.ActionsNone}),
 		"match outdated":   RefusalNotice(Refusal{Title: i18n.InvoiceRefusedTitle, Code: "payables.match_outdated", Issues: []Issue{{Label: Label{Key: i18n.MatchIssueQuantity}, Line: 1, Message: "m"}}}),
@@ -194,6 +197,9 @@ func components() map[string]templ.Component {
 		out[name] = c
 	}
 	for name, c := range reportComponents() {
+		out[name] = c
+	}
+	for name, c := range captureComponents() {
 		out[name] = c
 	}
 	return out
