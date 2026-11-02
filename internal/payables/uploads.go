@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
@@ -107,6 +108,8 @@ type Uploads struct {
 
 	slotsOnce sync.Once
 	slots     chan struct{}
+	mu        sync.Mutex
+	receiving map[uuid.UUID]bool // the uploads whose documents are arriving on this replica
 }
 
 func (u *Uploads) inTx(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
@@ -246,7 +249,8 @@ func (u *Uploads) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // body to a temporary file while measuring and hashing it, then stores it
 // and marks the upload received under the upload's lock. No transaction is
 // open while the client sends: a slow client holds a temporary file and a
-// receiving slot, never a database connection.
+// receiving slot, never a database connection, for api.UploadTimeout at
+// most (allowTime).
 func (u *Uploads) receive(w http.ResponseWriter, r *http.Request) error {
 	id, tenant, err := u.checkURL(r)
 	if err != nil {
@@ -264,11 +268,12 @@ func (u *Uploads) receive(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	release, err := u.slot()
+	release, err := u.slot(id)
 	if err != nil {
 		return err
 	}
 	defer release()
+	allowTime(w, u.now())
 	doc, err := u.spool(w, r, up.MaxBytes)
 	if err != nil {
 		return err
@@ -333,16 +338,49 @@ func tooLarge(limit int64, cause error) *problem.Problem {
 		fmt.Sprintf("Uploads are at most %d MB.", limit>>20)).WithCause(cause)
 }
 
-// slot takes one of the replica's receiving slots, or answers 503 while
-// all are taken; release gives it back.
-func (u *Uploads) slot() (release func(), err error) {
-	u.slotsOnce.Do(func() { u.slots = make(chan struct{}, cmp.Or(u.MaxReceiving, MaxReceiving)) })
+// slot takes one of the replica's receiving slots for the upload, or
+// answers 503 while all are taken, or while the upload's document is
+// already arriving here; release gives it back. One signed URL therefore
+// holds one slot per replica at most, not all four for five minutes
+// (go-reviewer, round 1); a second replica's receive of the same upload
+// is settled by the upload's lock when it is marked received.
+func (u *Uploads) slot(id uuid.UUID) (release func(), err error) {
+	u.slotsOnce.Do(func() {
+		u.slots, u.receiving = make(chan struct{}, cmp.Or(u.MaxReceiving, MaxReceiving)), map[uuid.UUID]bool{}
+	})
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.receiving[id] {
+		return nil, problem.Unavailable("This upload's document is already arriving; send it again if that fails.", 5)
+	}
 	select {
 	case u.slots <- struct{}{}:
-		return func() { <-u.slots }, nil
+		u.receiving[id] = true
+		return func() {
+			u.mu.Lock()
+			delete(u.receiving, id)
+			u.mu.Unlock()
+			<-u.slots
+		}, nil
 	default:
 		return nil, problem.Unavailable("This server is receiving as many documents as it can; send it again shortly.", 5)
 	}
+}
+
+// allowTime gives the body api.UploadTimeout to arrive from now, where
+// every other request has the listener's 30 seconds (PO 2026-11-02), and
+// the answer, written once the document is stored, api.UploadMargin more.
+// Only a request about to be received gets it: its URL's signature
+// checked, its upload open and of its type, a receiving slot held. A
+// refusal before keeps the listener's deadlines, so nobody without a
+// signed URL holds a connection longer than any other request does. The
+// header's own timeout is the listener's, unchanged.
+func allowTime(w http.ResponseWriter, now time.Time) {
+	rc := http.NewResponseController(w)
+	// A writer without deadlines (a test's recorder) has none to lift; the
+	// listener's are lifted through the telemetry middleware (Unwrap).
+	_ = rc.SetReadDeadline(now.Add(api.UploadTimeout))
+	_ = rc.SetWriteDeadline(now.Add(api.UploadTimeout + api.UploadMargin))
 }
 
 // spooled is a document received on the API's path, in a temporary file.

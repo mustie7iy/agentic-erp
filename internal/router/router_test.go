@@ -19,6 +19,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/internal/agents"
 
 	"github.com/mustie7iy/agentic-erp/internal/directory"
@@ -536,18 +537,21 @@ func TestForwardsTheClientAddress(t *testing.T) {
 	}
 }
 
-// deadlineWriter records the write deadline asked of it.
+// deadlineWriter records the deadlines asked of it.
 type deadlineWriter struct {
 	*httptest.ResponseRecorder
-	deadline time.Time
+	read, write time.Time
 }
 
-func (d *deadlineWriter) SetWriteDeadline(t time.Time) error { d.deadline = t; return nil }
+func (d *deadlineWriter) SetReadDeadline(t time.Time) error  { d.read = t; return nil }
+func (d *deadlineWriter) SetWriteDeadline(t time.Time) error { d.write = t; return nil }
 
 // TestModelCallsMayTakeTheirTime: a model call through the router may be
 // answered for the gateway's call time, not the listener's write timeout,
 // which would cut a long answer and have the SDK call again, billed again
-// (ADR-0036); other requests keep the listener's.
+// (ADR-0036); a document on an upload's signed path may take the upload's
+// time to arrive and be answered (PO 2026-11-02); other requests keep the
+// listener's.
 func TestModelCallsMayTakeTheirTime(t *testing.T) {
 	is := authntest.New(t)
 	v, err := authn.New(context.Background(), authn.Development, []authn.Issuer{is.Config()})
@@ -567,17 +571,36 @@ func TestModelCallsMayTakeTheirTime(t *testing.T) {
 	}
 	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
 	rt := &router.Router{Verifier: v, Directory: lookup{m}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Transport: ok, Now: func() time.Time { return now }}
-	for _, c := range []struct {
-		path string
-		want time.Time
-	}{{"/v1/model/v1/messages", now.Add(router.ModelTimeout)}, {"/v1/balances", time.Time{}}} {
-		t.Run(c.path, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, c.path, strings.NewReader("{}"))
+	// An upload's body and answer likewise outlast the cell's (PO 2026-11-02).
+	if cell := api.UploadTimeout; router.UploadReadTimeout <= cell {
+		t.Errorf("router's upload read timeout: got %v, want more than the cell's %v", router.UploadReadTimeout, cell)
+	}
+	if cell := api.UploadTimeout + api.UploadMargin; router.UploadWriteTimeout <= cell {
+		t.Errorf("router's upload write timeout: got %v, want more than the cell's %v", router.UploadWriteTimeout, cell)
+	}
+	upload := "/v1/uploads/" + uuid.NewString() + "/content"
+	for name, c := range map[string]struct {
+		method, path string
+		read, write  time.Time
+	}{
+		"a model call":                   {http.MethodPost, "/v1/model/v1/messages", time.Time{}, now.Add(router.ModelTimeout)},
+		"another request":                {http.MethodPost, "/v1/balances", time.Time{}, time.Time{}},
+		"an upload's document":           {http.MethodPut, upload + "?signature=s", now.Add(router.UploadReadTimeout), now.Add(router.UploadWriteTimeout)},
+		"a POST on an upload's path":     {http.MethodPost, upload, time.Time{}, time.Time{}},
+		"an upload's path without an id": {http.MethodPut, "/v1/uploads/x/content", time.Time{}, time.Time{}},
+		"an upload's path, deeper":       {http.MethodPut, "/v1/uploads/" + uuid.NewString() + "/x/content", time.Time{}, time.Time{}},
+		"an upload itself":               {http.MethodPut, "/v1/uploads/" + uuid.NewString(), time.Time{}, time.Time{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(c.method, c.path, strings.NewReader("{}"))
 			req.Header.Set("Authorization", "Bearer "+is.Token(t, tenant, "ada", nil))
 			w := &deadlineWriter{ResponseRecorder: httptest.NewRecorder()}
 			rt.ServeHTTP(w, req)
-			if !w.deadline.Equal(c.want) {
-				t.Errorf("write deadline: got %v, want %v", w.deadline, c.want)
+			if !w.read.Equal(c.read) {
+				t.Errorf("read deadline: got %v, want %v", w.read, c.read)
+			}
+			if !w.write.Equal(c.write) {
+				t.Errorf("write deadline: got %v, want %v", w.write, c.write)
 			}
 		})
 	}

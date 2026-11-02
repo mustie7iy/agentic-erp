@@ -20,6 +20,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/mustie7iy/agentic-erp/api"
 	"github.com/mustie7iy/agentic-erp/internal/directory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
@@ -218,6 +220,18 @@ type Router struct {
 // overruns.
 const ModelTimeout = api.ModelCallTimeout + 2*time.Minute
 
+// UploadReadTimeout and UploadWriteTimeout are how long a document's bytes
+// may take to come through the router on the API's signed upload path,
+// and its answer to go back (api.UploadTimeout, PO 2026-11-02), where
+// every other request keeps the listener's 30 and 60 seconds. Each is an
+// api.UploadMargin past the cell's own, since the router's deadlines start
+// before it has forwarded the request, so the cell is the one to cut an
+// upload that overruns.
+const (
+	UploadReadTimeout  = api.UploadTimeout + api.UploadMargin
+	UploadWriteTimeout = api.UploadTimeout + 2*api.UploadMargin
+)
+
 // ServeHTTP implements http.Handler. /livez answers without a token; every
 // other request needs a tenant token and a routable directory entry.
 func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -231,9 +245,7 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		problem.Write(w, r, problem.From(err))
 		return
 	}
-	if strings.HasPrefix(r.URL.Path, "/v1/model/") {
-		_ = http.NewResponseController(w).SetWriteDeadline(clock.Now(rt.Now).Add(ModelTimeout)) // a writer without deadlines has none to lift
-	}
+	rt.allowTime(w, r)
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target.url)
@@ -257,6 +269,47 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r = r.WithContext(tlsconf.ExpectPeer(r.Context(), rt.PeerOf(target.cell)))
 	}
 	proxy.ServeHTTP(w, r)
+}
+
+// allowTime lifts the listener's deadlines for the two kinds of request
+// that may outlast them, once the request is routed (its token verified,
+// its tenant's cell found), so nobody without a tenant's token holds a
+// connection longer than any other request does: a model call's answer
+// (ModelTimeout), and a document sent to the API's signed upload path
+// (UploadReadTimeout, UploadWriteTimeout). Every other request keeps the
+// listener's, and every request the listener's header timeout. A writer
+// without deadlines (a test's recorder) has none to lift; the listener's
+// are lifted through the telemetry middleware (Unwrap).
+//
+// An upload's connection closes after its answer (Connection: close), so
+// Go's server never reads what is left of a body nobody read: the cell
+// refuses a bad signature, a closed upload or a full replica before
+// reading a byte, and Go would otherwise read up to 256 KB of the rest
+// before answering, for as long as the lifted deadline allows, so a
+// holder of any tenant's token could keep the connection for six minutes
+// with a body trickled in (go-reviewer, round 1). One upload's TLS
+// handshake is the cost.
+func (rt *Router) allowTime(w http.ResponseWriter, r *http.Request) {
+	rc := http.NewResponseController(w)
+	switch {
+	case strings.HasPrefix(r.URL.Path, "/v1/model/"):
+		_ = rc.SetWriteDeadline(clock.Now(rt.Now).Add(ModelTimeout))
+	case isUpload(r):
+		now := clock.Now(rt.Now)
+		_ = rc.SetReadDeadline(now.Add(UploadReadTimeout))
+		_ = rc.SetWriteDeadline(now.Add(UploadWriteTimeout))
+		w.Header().Set("Connection", "close")
+	}
+}
+
+// isUpload reports whether r is a PUT on an upload's signed path,
+// /v1/uploads/{id}/content (api.yaml's uploadContent); the cell checks its
+// signature.
+func isUpload(r *http.Request) bool {
+	id, ok := strings.CutPrefix(r.URL.Path, "/v1/uploads/")
+	id, content := strings.CutSuffix(id, "/content")
+	_, err := uuid.Parse(id)
+	return r.Method == http.MethodPut && ok && content && err == nil
 }
 
 // forwardClientCert tells the cell the thumbprint of the client

@@ -222,7 +222,11 @@ They must be equal.
 - Vendor count per company code
 - Each vendor's payments bank account: SAP's first LFBK row as it loads
   (scheme, bank country, Canadian routing, last four characters) against the
-  supplier's account valid today (differences listed by vendor; T72d)
+  supplier's account valid today (differences listed by vendor; T72d). The
+  account loads valid from the day before UTC's: on a cutover evening in
+  Toronto UTC is already tomorrow, and a payment run dated on the company's
+  day must find it. Partner allows that one day only to the suppliers a
+  run creates (product owner 2026-11-02; ADR-0051 as built)
 - Purchase order count and value
 - Parked supplier documents by kind: invoices, and credit memos, subsequent
   debits and subsequent credits where either side has one (posted ones are

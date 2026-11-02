@@ -110,6 +110,11 @@ func (s *statusWriter) WriteHeader(code int) {
 	s.ResponseWriter.WriteHeader(code)
 }
 
+// Unwrap lets http.ResponseController reach the server's own writer: a
+// handler's deadlines (the model gateway's, the upload path's) would
+// otherwise be refused as unsupported behind this middleware.
+func (s *statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
 func (s *statusWriter) Write(b []byte) (int, error) {
 	if !s.wrote {
 		s.status, s.wrote = http.StatusOK, true

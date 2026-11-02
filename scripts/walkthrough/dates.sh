@@ -36,10 +36,9 @@ date_add() {
   fi
 }
 
-# year_apart COMPANY_DAY UTC_DAY says whether the two days fall in
-# different years: on 31 December from 19:00 in Toronto (00:00 UTC) no
-# payment run date serves both the company's year and bank accounts valid
-# from UTC's day, so the walkthrough stops.
-year_apart() {
-  [ "${1:0:4}" != "${2:0:4}" ]
+# utc_day [SECONDS] is UTC's date now, or at SECONDS since the epoch: the
+# database's day (current_date), by which partner judges a business
+# partner's dates. company_day in zone UTC.
+utc_day() {
+  ZONE=UTC company_day "$@"
 }

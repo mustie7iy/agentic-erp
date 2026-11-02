@@ -130,6 +130,13 @@ type stackOptions struct {
 	// (an S3 double, capture_test.go); extractor reads captured documents.
 	store     blobstore.Store
 	extractor capture.Extractor
+	// listener, when set, is the read timeout of erp-web's and the API's
+	// listeners in place of none (their header's too; the write timeout
+	// twice it): production's 30 seconds, shrunk.
+	listener time.Duration
+	// seen, when set, is told of each request the API receives, as it
+	// arrives.
+	seen func(*http.Request)
 }
 
 const loginCodeOf = "acme"
@@ -174,10 +181,21 @@ func newStack(t *testing.T, opts stackOptions) *stack {
 	})
 	// The cell believes the address erp-web forwards, as it believes the
 	// router's, which passes erp-web's on (ADR-0033).
-	s.api = httptest.NewServer(httpapi.ClientAddress(true, api.Handler))
-	t.Cleanup(s.api.Close)
+	handler := httpapi.ClientAddress(true, api.Handler)
+	if opts.seen != nil {
+		next := handler
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			opts.seen(r)
+			next.ServeHTTP(w, r)
+		})
+	}
+	s.api = httptest.NewUnstartedServer(handler)
 	s.web = httptest.NewUnstartedServer(nil)
-	t.Cleanup(s.web.Close)
+	for _, srv := range []*httptest.Server{s.api, s.web} {
+		srv.Config.ReadHeaderTimeout, srv.Config.ReadTimeout, srv.Config.WriteTimeout = opts.listener, opts.listener, 2*opts.listener
+		t.Cleanup(srv.Close)
+	}
+	s.api.Start()
 	s.public = "https://" + s.web.Listener.Addr().String()
 	creds := t.TempDir()
 	s.key = writeKey(t, filepath.Join(creds, "acme.pem"))

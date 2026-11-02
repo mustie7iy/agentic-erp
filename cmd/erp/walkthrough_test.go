@@ -58,25 +58,42 @@ func TestWalkthrough(t *testing.T) {
 // (scripts/walkthrough/dates.sh). At 23:30 in Toronto UTC is already
 // tomorrow; a return filed on UTC's date was refused as filed in the
 // future (tax.invalid_filed_on), so the walkthrough failed every evening.
-// The instants are read with the system's date, GNU's or BSD's.
+// The payment runs are dated on the company's day too: the migration
+// loads the suppliers' bank accounts valid from the day before UTC's
+// (partner.Migration, ADR-0051 As built; PO 2026-11-02), which is never
+// after the company's day, in winter, in summer and on New Year's Eve,
+// when the walkthrough used to stop. The instants are read with the
+// system's date, GNU's or BSD's.
 func TestWalkthroughDates(t *testing.T) {
 	for name, c := range map[string]struct {
-		at   time.Time
-		want string
+		at        time.Time
+		want, utc string
 	}{
-		"23:30 in Toronto, winter": {time.Date(2026, 11, 2, 4, 30, 0, 0, time.UTC), "2026-11-01"},
-		"23:30 in Toronto, summer": {time.Date(2026, 7, 1, 3, 30, 0, 0, time.UTC), "2026-06-30"},
-		"00:30 in Toronto":         {time.Date(2026, 11, 2, 5, 30, 0, 0, time.UTC), "2026-11-02"},
-		"New Year's Eve, 23:30":    {time.Date(2027, 1, 1, 4, 30, 0, 0, time.UTC), "2026-12-31"},
+		"23:30 in Toronto, winter": {time.Date(2026, 11, 2, 4, 30, 0, 0, time.UTC), "2026-11-01", "2026-11-02"},
+		"23:30 in Toronto, summer": {time.Date(2026, 7, 1, 3, 30, 0, 0, time.UTC), "2026-06-30", "2026-07-01"},
+		"00:30 in Toronto":         {time.Date(2026, 11, 2, 5, 30, 0, 0, time.UTC), "2026-11-02", "2026-11-02"},
+		"New Year's Eve, 23:30":    {time.Date(2027, 1, 1, 4, 30, 0, 0, time.UTC), "2026-12-31", "2027-01-01"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			script := `. ../../scripts/walkthrough/dates.sh && company_day "$1"`
+			script := `. ../../scripts/walkthrough/dates.sh && company_day "$1" && utc_day "$1" && date_add "$(utc_day "$1")" -1`
 			out, err := exec.CommandContext(t.Context(), "bash", "-c", script, "dates", strconv.FormatInt(c.at.Unix(), 10)).CombinedOutput()
 			if err != nil {
-				t.Fatalf("company_day: %v\n%s", err, out)
+				t.Fatalf("dates: %v\n%s", err, out)
 			}
-			if got := strings.TrimSpace(string(out)); got != c.want {
-				t.Errorf("company_day at %s: got %s, want %s", c.at.Format(time.RFC3339), got, c.want)
+			days := strings.Fields(string(out))
+			if len(days) != 3 {
+				t.Fatalf("dates at %s: got %q, want the company's day, UTC's and the migrated bank accounts' first", c.at.Format(time.RFC3339), out)
+			}
+			runDay, utcDay, bankFrom := days[0], days[1], days[2]
+			if runDay != c.want {
+				t.Errorf("company_day at %s: got %s, want %s", c.at.Format(time.RFC3339), runDay, c.want)
+			}
+			if utcDay != c.utc {
+				t.Errorf("utc_day at %s: got %s, want %s", c.at.Format(time.RFC3339), utcDay, c.utc)
+			}
+			// ISO dates compare as strings.
+			if bankFrom > runDay {
+				t.Errorf("at %s: the migrated bank accounts start %s, after the payment run's date %s (no_bank_account)", c.at.Format(time.RFC3339), bankFrom, runDay)
 			}
 		})
 	}
@@ -86,16 +103,6 @@ func TestWalkthroughDates(t *testing.T) {
 	}
 	if got, want := strings.Fields(string(out)), []string{"2027-01-01", "2026-02-28"}; strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("date_add: got %v, want %v", got, want)
-	}
-	// On New Year's Eve from 19:00 in Toronto the walkthrough stops: no
-	// payment run date serves both the company's year and the bank
-	// accounts valid from UTC's day.
-	for days, apart := range map[string]bool{"2026-12-31 2027-01-01": true, "2026-11-01 2026-11-02": false, "2026-11-02 2026-11-02": false} {
-		err := exec.CommandContext(t.Context(), "bash", "-c", `. ../../scripts/walkthrough/dates.sh && year_apart $1 $2`, "dates", strings.Fields(days)[0],
-			strings.Fields(days)[1]).Run()
-		if got := err == nil; got != apart {
-			t.Errorf("year_apart %s: got %v, want %v", days, got, apart)
-		}
 	}
 }
 

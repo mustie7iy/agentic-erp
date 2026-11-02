@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/otel/codes"
@@ -305,5 +306,38 @@ func TestEventsPublished(t *testing.T) {
 	m.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
 	if want := `erp_events_published_total{context="ledger",event="journal_entry_posted"} 2`; !strings.Contains(rec.Body.String(), want) {
 		t.Errorf("metrics: got %s, want %s", rec.Body.String(), want)
+	}
+}
+
+// deadlines records the deadlines a handler asks of the server's writer.
+type deadlines struct {
+	*httptest.ResponseRecorder
+	read, write time.Time
+}
+
+func (d *deadlines) SetReadDeadline(t time.Time) error  { d.read = t; return nil }
+func (d *deadlines) SetWriteDeadline(t time.Time) error { d.write = t; return nil }
+
+// TestHandlersReachTheServersWriter: behind the middleware, a handler's
+// http.ResponseController still sets the server's deadlines (the model
+// gateway's, the upload path's) rather than being refused as unsupported.
+func TestHandlersReachTheServersWriter(t *testing.T) {
+	at := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	h := Middleware(slog.New(slog.DiscardHandler), NewMetrics(), noop.NewTracerProvider())(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		rc := http.NewResponseController(w)
+		if err := rc.SetReadDeadline(at); err != nil {
+			t.Errorf("read deadline: %v", err)
+		}
+		if err := rc.SetWriteDeadline(at.Add(time.Minute)); err != nil {
+			t.Errorf("write deadline: %v", err)
+		}
+	}))
+	w := &deadlines{ResponseRecorder: httptest.NewRecorder()}
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPut, "/v1/uploads/x/content", nil))
+	if !w.read.Equal(at) {
+		t.Errorf("read deadline: got %v, want %v", w.read, at)
+	}
+	if !w.write.Equal(at.Add(time.Minute)) {
+		t.Errorf("write deadline: got %v, want %v", w.write, at.Add(time.Minute))
 	}
 }

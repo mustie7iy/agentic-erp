@@ -38,16 +38,19 @@ func paperInvoice(order string) *capture.Extraction {
 
 // captureStack is the stack on an S3 double with an extractor of e, PO-1
 // ordered; it returns the double too, and a person who may read invoices
-// but not capture them.
-func captureStack(t *testing.T, e *capture.Extraction) (*stack, *blobstoretest.Server, pgtest.Actor) {
+// but not capture them; change, when given, changes the stack's options.
+func captureStack(t *testing.T, e *capture.Extraction, change ...func(*stackOptions)) (*stack, *blobstoretest.Server, pgtest.Actor) {
 	t.Helper()
 	s3 := blobstoretest.New(t)
 	var viewer pgtest.Actor
-	s := newStack(t, stackOptions{permissions: fixture.InvoicePermissions, store: s3.Store(), extractor: reads{e: e}, seed: func(f fixture.Env) {
+	opts := stackOptions{permissions: fixture.InvoicePermissions, store: s3.Store(), extractor: reads{e: e}, seed: func(f fixture.Env) {
 		f.Order(t, f.Supplier, "PO-1")
 		viewer = roleHolder(t, f, "viewer", "payables.invoice.read", "tenancy.org.read")
-	}})
-	return s, s3, viewer
+	}}
+	for _, c := range change {
+		c(&opts)
+	}
+	return newStack(t, opts), s3, viewer
 }
 
 // captureForm posts the capture form as the page offers it: its fields,
