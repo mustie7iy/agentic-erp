@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -26,6 +28,21 @@ func setup(t *testing.T) env {
 	t.Helper()
 	f := fixture.New(t, perms...)
 	return env{Env: f, expense: f.Account(t, "2000", "510000").String(), office: f.Account(t, "2000", "520000").String()}
+}
+
+// setupIn2026 is setup with the API's clock on a day of 2026, for a test
+// that reads the number of a document numbered on its company's date (a
+// requisition, a contract): that number is then drawn from 2026's range,
+// which starts at 100000, whatever the year the test runs in. From 2027
+// the fixture also has the year the test runs in, whose ranges number
+// above 2026's (fixture.Years, config.RangeRepeats).
+func setupIn2026(t *testing.T) env {
+	t.Helper()
+	e := setup(t)
+	e.API = apitest.NewWith(t, func(cfg *app.Config) {
+		cfg.Now = func() time.Time { return time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC) }
+	})
+	return e
 }
 
 // in returns e reporting to t, so a subtest's failure stops that subtest
@@ -65,7 +82,7 @@ func (e env) act(t *testing.T, path, action, body string) map[string]any {
 }
 
 func TestRequisitionLifecycle(t *testing.T) {
-	e := setup(t)
+	e := setupIn2026(t)
 	r := e.requisition(t, items(item(e.office, "10", "EA", "50.00", "EUR", ""), item(e.expense, "2.5", "KG", "4.00", "EUR", `, "price_unit": 2`)),
 		fmt.Sprintf(`, "supplier_id": %q, "needed_by": "2026-11-01", "extensions": {"region": "MKT"}`, e.Supplier))
 	path := "/v1/requisitions/" + id(r)

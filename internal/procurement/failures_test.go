@@ -38,7 +38,7 @@ func genCancel(id string) gen.CancelPurchaseOrderParams {
 }
 
 func TestLists(t *testing.T) {
-	e := setup(t)
+	e := setupIn2026(t)
 	ok := items(item(e.office, "1", "EA", "1.00", "EUR", ""))
 	for range 3 {
 		e.requisition(t, ok, fmt.Sprintf(`, "supplier_id": %q`, e.Supplier))

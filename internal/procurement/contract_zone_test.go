@@ -1,6 +1,7 @@
 package procurement_test
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -15,8 +16,10 @@ import (
 // not UTC's: at 22:00 on 31 December 2026 in Toronto (03:00 UTC on 1
 // January 2027) from 2026's range, at 01:00 on 1 January 2027 in Dubai
 // (21:00 UTC on 31 December 2026) from 2027's. Company 2000's 2027
-// contract range has its own prefix, CU, so the number shows the year; a
-// renewal, drafted by the same path, is numbered alike.
+// contract range has its own prefix, CU, so the number shows the year; it
+// replaces the fixture's own 2027 range, which the fixture has from 1
+// January 2027 (fixture.Years). A renewal, drafted by the same path, is
+// numbered alike.
 func TestContractNumberTimeZone(t *testing.T) {
 	for _, c := range []struct {
 		zone, number string
@@ -28,6 +31,9 @@ func TestContractNumberTimeZone(t *testing.T) {
 		t.Run(c.zone, func(t *testing.T) {
 			f := fixture.NewWith(t, nil, func(doc *config.Config) {
 				doc.Company("2000").TimeZone = c.zone
+				doc.NumberRanges = slices.DeleteFunc(doc.NumberRanges, func(n config.NumberRange) bool {
+					return n.Company == "2000" && n.DocumentType == "contract" && n.FiscalYear == 2027 // the fixture's own from 2027 (fixture.Years)
+				})
 				doc.NumberRanges = append(doc.NumberRanges, config.NumberRange{Company: "2000", DocumentType: "contract", FiscalYear: 2027, Prefix: "CU",
 					First: 100000, Last: 999999})
 			}, perms...)
