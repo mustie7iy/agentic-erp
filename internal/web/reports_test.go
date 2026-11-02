@@ -355,8 +355,9 @@ func TestLedgerReconReport(t *testing.T) {
 	}
 }
 
-// reconDownload: the reconciliation's download holds the difference on
-// account 100000, its columns in English and in French; filters that are
+// reconDownload: the reconciliation's download names both ledgers by
+// code and holds the difference on account 100000, its columns in
+// English and in French; filters that are
 // not the report's, or one ledger twice, are refused.
 func reconDownload(t *testing.T, b *browser, d *reportData, p page) {
 	t.Helper()
@@ -366,8 +367,8 @@ func reconDownload(t *testing.T, b *browser, d *reportData, p page) {
 		t.Errorf("the reconciliation's download's name: got %q", got)
 	}
 	records := sheet(t, "the reconciliation's download", dl)
-	if got, want := strings.Join(records[0], "|"), "Ledger reconciliation|compare_ledger_id="+d.local.String()+"|fiscal_year=2026|ledger_id="+
-		d.leading.String()+"|legal_entity_id="+d.f.DE.String(); got != want {
+	if got, want := strings.Join(records[0], "|"), "Ledger reconciliation|compare_ledger=2L|compare_ledger_id="+d.local.String()+
+		"|fiscal_year=2026|ledger=0L|ledger_id="+d.leading.String()+"|legal_entity_id="+d.f.DE.String(); got != want {
 		t.Errorf("the reconciliation's download's first line: got %q, want %q", got, want)
 	}
 	if got, want := strings.Join(records[1], "|"), "Account|Currency|Balance in the ledger|Balance in the compared ledger|Difference|"+

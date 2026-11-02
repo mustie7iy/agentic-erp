@@ -421,7 +421,8 @@ func TestSafeCell(t *testing.T) {
 }
 
 // TestDownloadsStubbed: the reconciliation's and the history's downloads
-// from a stub: every page read until the last; the history's actors named
+// from a stub: every page read until the last; the reconciled ledgers
+// named from the API's answer, by id when they cannot be read; the history's actors named
 // in one read, by id alone when the names cannot be read, a kind the
 // catalog does not name as the API gives it, the details as one JSON
 // object and its texts safe for a spreadsheet; the downloads refused,
@@ -462,6 +463,11 @@ func TestDownloadsStubbed(t *testing.T) {
 	if got, want := strings.Join(recon[2], "|"), "400000 =Sales|EUR|5.00|5.00|5.00|5.00|EUR|5.00|EUR"; got != want {
 		t.Errorf("the reconciliation's row: got %q, want %q", got, want)
 	}
+	// Without ledger_id the API reconciles its leading ledger, which the
+	// first line names from the answer; the ledgers unread, by id.
+	leading := sheet(t, "the reconciliation from the leading ledger", b.get("/reports/ledger-reconciliation.csv?"+url.Values{
+		"legal_entity_id": {company.String()}, "compare_ledger_id": {compare.String()}, "fiscal_year": {"2026"}}.Encode()))
+	holds(t, "the reconciliation's ledgers", strings.Join(leading[0], "|"), "|compare_ledger="+compare.String()+"|", "|ledger="+ledger.String()+"|")
 	audit := b.get("/reports/audit.csv?object_id=" + object.String())
 	history := sheet(t, "the history", audit)
 	if got := len(history); got != 4 {

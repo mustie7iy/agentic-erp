@@ -3138,8 +3138,12 @@ The downloads T73j2 left, and ADR-0052's CSV injection statement checked
 against OWASP. What it settled, each decided by default where this ADR,
 the contract or T73j's downloads settled it:
 - **The ledger reconciliation's download.** `GET
-  /reports/ledger-reconciliation.csv` (the report's filters, its ledgers
-  named by id): the accounts that differ, per account and transaction
+  /reports/ledger-reconciliation.csv` (the report's filters; the first
+  line names both ledgers by code, `ledger` and `compare_ledger`, beside
+  their ids, from the API's answer, so the file says which balance is
+  which even for an address naming no ledger, where the API reconciles
+  the leading one; by id when the ledgers cannot be read; T73j4's
+  review): the accounts that differ, per account and transaction
   currency, each with its balance in both ledgers, the difference, and
   the difference in the company's and the group's currency, each with
   its currency, read as T73j's downloads read (pages of 500, at most 25,
@@ -3149,9 +3153,9 @@ the contract or T73j's downloads settled it:
   two lines of a different shape, not rows of the differences. The link
   shows above the differences when there are any. An address without the
   compared ledger, or naming one ledger twice, is refused (400), as the
-  entries behind a difference are. Three calls and the pages
+  entries behind a difference are. Three reads and the pages
   (`getCurrentPrincipal`, the company's day when the address names no
-  year, `listLedgerReconciliation`).
+  year, `listLedgers`, `listLedgerReconciliation`): 28 of 40.
 - **The audit history's download.** `GET /reports/audit.csv?object_id=`:
   the document's events newest first, each with its sequence number, the
   instant in UTC (RFC 3339), who by name and by id, the kind in the
@@ -3160,7 +3164,7 @@ the contract or T73j's downloads settled it:
   details as one JSON object, its names sorted (data, as the page shows
   them). **Decided:** the actors are named in one read
   (`listPrincipalNames`, at most 100 ids) after every page is read, not a
-  page at a time: a download's calls stay at 27 of 40. Actors beyond the
+  page at a time: the download's calls stay at 27 of 40. Actors beyond the
   first hundred of one document's history, and any whose names cannot be
   read (logged), are given by id alone; the id is in every row, so no
   row loses who acted.
@@ -3186,7 +3190,8 @@ the contract or T73j's downloads settled it:
 
   **What it changed.** T73j's writer (`encoding/csv`) put the apostrophe
   before `=`, `+`, `-`, `@`, a tab and a carriage return, and quoted a
-  cell only when it held a comma, a quote or a line break. Three gaps,
+  cell only when it held a comma, a quote or a line break, or began
+  with a space. Three gaps,
   fixed in `safeCell` for every download: a line feed and the four
   full-width characters now take the apostrophe too, and every text
   cell is quoted, its quotes doubled, so a semicolon, the other

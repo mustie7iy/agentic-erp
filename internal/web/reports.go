@@ -20,10 +20,10 @@ import (
 // ledger reconciliation with the entries behind a difference
 // (report_ledgers.go, report_items.go), each downloaded as CSV up to
 // 10,000 rows (G5, report_csv.go, report_downloads.go); a house bank's
-// reconciliation report is the bank statements' (T73g), linked from the
-// index; a document's audit history (this file), downloaded as well. Every report reads the figures as the API
-// gives them now, with the person's own access: the workspace computes
-// no figure of its own. Accounts, ledgers, companies and names that
+// reconciliation report is the bank statements' (T73g), linked from
+// the index; a document's audit history (this file), downloaded as
+// well. Every report reads the figures as the API gives them now, with
+// the person's own access: the workspace computes no figure of its own. Accounts, ledgers, companies and names that
 // cannot be read are no reason to refuse a report: they are logged, and
 // shown by id or not offered.
 

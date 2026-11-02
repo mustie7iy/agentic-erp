@@ -305,7 +305,7 @@ var Screens = func() map[string][]Operation {
 		"GET /reports/gr-ir":                         opGRIR,
 		"GET /reports/gr-ir.csv":                     {opMe, paged(opListGRIR)},
 		"GET /reports/ledger-reconciliation":         opReconcile,
-		"GET /reports/ledger-reconciliation.csv":     {opMe, opToday, paged(opListRecon)},
+		"GET /reports/ledger-reconciliation.csv":     {opMe, opToday, opLedgers, paged(opListRecon)},
 		"GET /reports/ledger-reconciliation/entries": opReconEntries,
 		"GET /reports/audit":                         {opMe, opListAudit, opNames},
 		"GET /reports/audit.csv":                     {opMe, paged(opListAudit), opNames},

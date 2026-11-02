@@ -24,9 +24,12 @@ import (
 
 // ledgerReconCSV is the ledger reconciliation's download: the accounts
 // that differ between the two ledgers, per transaction currency, with
-// the difference in the company's and the group's currency. Each
-// ledger's trial balance check, which the API gives on the first page
-// alone, is the report's page's.
+// the difference in the company's and the group's currency. The first
+// line names both ledgers by code beside their ids (ledger and
+// compare_ledger, the API's own when the address names no ledger), so
+// the file says which balance is which. Each ledger's trial balance
+// check, which the API gives on the first page alone, is the report's
+// page's.
 func (s *Server) ledgerReconCSV(w http.ResponseWriter, r *http.Request, p *person) {
 	m, ok := s.whoami(w, r, p)
 	if !ok {
@@ -40,7 +43,8 @@ func (s *Server) ledgerReconCSV(w http.ResponseWriter, r *http.Request, p *perso
 		s.downloadInvalid(w, r, p, m, i18n.LedgerReconTitle, back)
 		return
 	}
-	s.download(w, r, p, m, export{file: "ledger-reconciliation-" + strconv.Itoa(int(lq.year)), title: i18n.LedgerReconTitle, filters: lq.values(),
+	ledgers, filters := s.ledgers(r.Context(), m), lq.values()
+	s.download(w, r, p, m, export{file: "ledger-reconciliation-" + strconv.Itoa(int(lq.year)), title: i18n.LedgerReconTitle, filters: filters,
 		back: back, columns: []i18n.Key{i18n.DifferenceAccount, i18n.DifferenceCurrency, i18n.DifferenceBalance, i18n.DifferenceCompare,
 			i18n.DifferenceAmount, i18n.DifferenceLC, i18n.BalanceCurrency, i18n.DifferenceGC, i18n.BalanceCurrency},
 		read: func(ctx context.Context, token string) ([][]string, string, *failure) {
@@ -54,6 +58,8 @@ func (s *Server) ledgerReconCSV(w http.ResponseWriter, r *http.Request, p *perso
 			if !ok {
 				return nil, "", &failure{"listLedgerReconciliation", res, err}
 			}
+			filters.Set(fieldLedgerCode, ledgerCode(ledgers, page.LedgerID))
+			filters.Set(fieldCompareCode, ledgerCode(ledgers, page.CompareLedgerID))
 			var rows [][]string
 			for _, d := range page.Items {
 				rows = append(rows, []string{d.AccountNumber + " " + d.AccountName, d.Currency, d.Balance.Amount, d.CompareBalance.Amount,
@@ -62,6 +68,12 @@ func (s *Server) ledgerReconCSV(w http.ResponseWriter, r *http.Request, p *perso
 			return rows, page.NextPageToken.Or(""), nil
 		}})
 }
+
+// The first line's names of the reconciled ledgers' codes.
+const (
+	fieldLedgerCode  = "ledger"
+	fieldCompareCode = "compare_ledger"
+)
 
 // auditCSV is a document's audit history's download: its events newest
 // first, as the history shows them, the actor by name and by id.
