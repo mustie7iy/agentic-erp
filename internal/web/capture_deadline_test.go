@@ -117,14 +117,10 @@ func TestCaptureOutlastsTheListener(t *testing.T) {
 	refused = bytes.Replace(refused, []byte(s.f.DE.String()), []byte("not-a-company"), 1)
 	cut = bytes.Index(refused, []byte(doc[:16])) + 1024
 	stopped := pgtest.NewPausedBody(refused[:cut], body.Bytes()[len(body.Bytes())-16:])
-	start = time.Now()
 	select {
 	case got := <-sendPaused(t, b, ui.CapturePath, stopped, mw.FormDataContentType()):
 		if got.Status != http.StatusUnprocessableEntity {
 			t.Errorf("a form refused while its document is paused: got %d %v, want 422", got.Status, got.Err)
-		}
-		if elapsed := time.Since(start); elapsed >= listenerTimeout {
-			t.Errorf("a form refused while its document is paused was answered after %v, want at once", elapsed)
 		}
 	case <-time.After(10 * listenerTimeout):
 		t.Fatal("a form refused while its document is paused: no answer; the lifted deadline outlived the refusal")

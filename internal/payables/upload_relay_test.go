@@ -257,7 +257,10 @@ func twice(t *testing.T, serve func(*testing.T, *payables.Uploads, map[string]an
 	first, other := r.create(t), r.create(t)
 	pr, pw := io.Pipe()
 	done := make(chan int)
-	go func() { done <- serve(t, u, first, pr).Code }()
+	go func() {
+		defer func() { _ = pr.Close() }() // a pipe's Close never fails; a refusal before reading then fails the write below rather than hanging it
+		done <- serve(t, u, first, pr).Code
+	}()
 	if _, err := pw.Write([]byte(r.pdf)); err != nil { // returns once the first PUT reads it: it holds a slot
 		t.Fatal(err)
 	}

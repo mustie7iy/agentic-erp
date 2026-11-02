@@ -150,9 +150,11 @@ it has passed its own checks.
   before; a request the cell refuses before its body is read (a wrong
   signature, an upload closed, all slots taken) keeps the cell's listener
   deadlines. The router cannot check the path's signature (the cell holds
-  its key), so a holder of any tenant's token may hold a router
-  connection for six minutes with a `PUT` on an upload's path while it
-  sends. Once an answer is written nothing more is read: the router and
+  its key), so it lifts its deadlines for a holder of any tenant's token
+  with a `PUT` on an upload's path; but only an upload the cell takes
+  (signature valid, upload open, a slot held) keeps a router connection
+  for six minutes, and one the cell refuses ends within the cell's
+  listener timeout (30 s), as before. Once an answer is written nothing more is read: the router and
   erp-web answer an upload with `Connection: close`, so Go's server never
   reads the rest of a body nobody read before answering (otherwise up to
   256 KB, under the lifted deadline: a refused upload trickled in would
