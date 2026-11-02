@@ -53,6 +53,13 @@
         "r": "found in apinames4's sweep of the class (review:batch26 bootstrap leaf) · internal/ledger journal.go prepare (:948), postReversal (:1190), checkedAccounts (:663-736), :972, :1070-1096, manual.go postableEntity (:196) and :35, targets.go, assignment.go · reached through ledger ports.go Post/Reverse, bankposting.go PostBank, dpclearing.go ClearDownPayments · approveApprovalRequest documents the parked entry's fields",
         "src": "review:batch26",
         "c": []
+       },
+       {
+        "s": "D",
+        "t": "A source system's rate (Posting.Rate) is taken only on an entry in a foreign currency (found in the batch 40 integration review): postingRates converted an entry in the company's own currency at a given rate, so its local amounts differed from its amounts; a rate given there is refused 422 ledger.rate_not_recordable (field error rate_in_local_currency), entries with GR/IR items included. No path reaches it today: the migration gives a rate only to a document or order whose currency is not the company's",
+        "r": "internal/ledger journal.go postingRates (the rule's one place) · grir_takeover.go checkForeignTakeOver (the local-currency condition moved to postingRates) · TestSourceRatePosting (sourceRateRefusals), TestGRIRTakeOverRefusals · ADR-0005 As built 2026-11-02 (batch 40)",
+        "src": "review:batch40",
+        "c": []
        }
       ]
      },
@@ -5546,9 +5553,17 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Approvals beyond T73d2: the object's summary of an order change and of a bank clearing, read where the request's object_resource places them (no contract change: ADR-0034 gave every request the path its owning context reads the object at); an order change through its order (getPurchaseOrderChange), a bank clearing's match among its statement's (listBankStatementMatches), linked to its line on the statement's page; hidden without the read permission, refused in place, a request whose resource does not place its object said so; EN and FR; axe at zero at 1280 and 390 px",
+        "r": "internal/web approval_object.go placed, readChange, readClearing, changeSummary, clearingSummary · operations_test.go contract paths · fixture OrderChange, Clearing · i18n en, fr-CA · TestPlacedObjects · TestObjectPlacedOrNot · TestPlaced · TestPlacedSummaries · TestObjectReadsPlacedByTheContract · TestEveryObjectRead · TestApprovalsInTheBrowser · walkthrough step_procure order_change · step_statement clearing_object · ADR-0052 Built in T73d3 · T73d3",
+        "src": "split:T73d2 · adr:ADR-0052",
+        "pilot": "po:2026-10-31 · split:T73d2 · adr:ADR-0052",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Approvals beyond T73d2: the object's summary of an order change (getPurchaseOrderChange needs the order's id, which the request does not carry: a contract change, the order on the request or a read of the change by its own id) and of a bank clearing (its object is a statement line's match, which no operation reads by id: a contract change); walked through by a pilot approver",
-        "r": "T73d3 (split from T73d2, 2026-11-01)",
+        "t": "Approvals walked through by a pilot approver (human acceptance of T73d2 and T73d3): the inbox, my requests and all I can see, each kind of object's summary, approve, reject and withdraw, a decision's text across a step-up sign-in, in English and French, with the screen-reader review of ADR-0052 §10",
+        "r": "T73d4 (split from T73d3, 2026-11-02)",
         "src": "split:T73d2 · adr:ADR-0052",
         "pilot": "po:2026-10-31 · split:T73d2 · adr:ADR-0052",
         "c": []
@@ -5742,10 +5757,18 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Reports beyond T73j2: downloads of the ledger reconciliation and the audit history (CSV as T73j's, up to 10,000 rows); the page budgets measured at the pilot's volumes once the pilot gives them (neither the tracker nor ADR-0052 names them); OWASP's CSV injection guidance and the byte order mark's need verified from primary sources (ADR-0052, from memory); walked through by a pilot GL accountant, AP clerk and controller",
-        "r": "T73j4 (split from T73j2, 2026-11-01)",
+        "s": "D",
+        "t": "Reports beyond T73j2: downloads of the ledger reconciliation (the accounts that differ, with the difference in the company's and the group's currency) and of a document's audit history (who by name and by id, the details as JSON, the actors named in one read), CSV as T73j's, up to 10,000 rows within a download's 40 calls; OWASP's CSV injection guidance verified from its page (fetched 2026-11-02) and the writer's gaps fixed: a line feed and the full-width = + - @ neutralised, every text cell quoted so a semicolon starts no new cell; the byte order mark's need left unverified (no primary source); the page budgets at the pilot's volumes and the pilot walk-through split into T73j5; EN and FR",
+        "r": "internal/web report_downloads.go · report_csv.go safeCell · ui/reports.templ · operations.go · TestLedgerReconReport · TestAuditHistory · TestDownloadsStubbed · TestReportRefusals · TestReportsUnavailable · TestSafeCell · TestReportsJobsInTheBrowser · walkthrough step 10 (the reconciliation read as its download reads it) · ADR-0052 Built in T73j4 · T73j4",
         "src": "split:T73j2",
+        "pilot": "po:2026-10-31 · split:T73j2 · adr:ADR-0052",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Reports at the pilot's volumes, walked through: the reports' page budgets (ADR-0052 §10) measured at the pilot's volumes once the pilot gives them (neither the tracker nor ADR-0052 names them); walked through by a pilot GL accountant, AP clerk and controller (human acceptance), the downloads opened in the pilot's spreadsheet program, which checks the byte order mark's need (ADR-0052, from memory, unverified)",
+        "r": "T73j5 (split from T73j4, 2026-11-02)",
+        "src": "split:T73j2 · adr:ADR-0052",
         "pilot": "po:2026-10-31 · split:T73j2 · adr:ADR-0052",
         "c": []
        },
@@ -8463,10 +8486,10 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Take over open GR/IR positions in a foreign document currency in that currency (split from the leaf above, product owner 2026-10-31): a line of an open GR/IR position whose document currency (ACDOCA RWCUR) is not the company's, and its order in that currency, are refused by the quality gate; the take-over entry posts SAP's balance in company code currency (HSL) only, and a GR/IR take-over item keeps no local amount of its own",
-      "r": "internal/integration/grir.go grirPosting · grirPosition (order currency) · currency.go foreignItem · ledger GRIRItem.TakesOver · ADR-0034 As built (T72f) · ADR-0005 As built",
-      "src": "review:batch20 · po:2026-10-31",
+      "r": "internal/integration/grir.go grirPositions (order currency, document amounts) · grirForeignLine · grirForeign · grirPosting (order currency, sourceRate) · reconcile GR/IR in both currencies · currency.go foreignLine, foreignItem, grirForeignDocuments (balances mode: a position's documents together) · ledger GRIRItem.TakesOverLC · GRIRTakenOver.BalanceLC · Posting.Rate with take-over items · OpenGRIR TC · sap mock receivedInUSD · walkthrough step 3 · TestForeignGRIRPositions, TestForeignGRIRTopUp, TestForeignGRIRQuality, TestForeignGRIRBalancesMode, TestGRIRForeignDocumentGroups, TestGRIRTakeOverForeign · ADR-0034 As built (open GR/IR positions in a foreign currency) · ADR-0005 As built · docs/migration.md",
+      "src": "review:batch20 · po:2026-10-31 · po:2026-11-02",
       "pilot": "po:2026-10-31",
       "c": []
      },

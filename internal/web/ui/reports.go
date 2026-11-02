@@ -185,6 +185,7 @@ type LedgerReconPage struct {
 	Trials      []TrialView
 	Differences []DifferenceView
 	More        string
+	CSV         string // the differences' download
 	Refusal     *Refusal
 	Invalid     bool
 }
@@ -273,6 +274,7 @@ type AuditPage struct {
 	ObjectError i18n.Key
 	Rows        []AuditRow
 	More        string
+	CSV         string // the history's download
 	Refusal     *Refusal
 }
 

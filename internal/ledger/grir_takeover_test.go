@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/big"
 	"slices"
 	"testing"
 
@@ -68,8 +69,8 @@ func TestGRIRTakeOver(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if got := open[order][10]; got != (ledger.OpenGRIR{Quantity: "-8", LC: -120000}) {
-		t.Errorf("open GR/IR for the reconciliation: got %+v, want -8 and -120000", got)
+	if got := open[order][10]; got != (ledger.OpenGRIR{Quantity: "-8", LC: -120000, TC: -120000, Currency: "EUR"}) {
+		t.Errorf("open GR/IR for the reconciliation: got %+v, want -8 and EUR -120000 in both currencies", got)
 	}
 	invoice := g.post(t, g.invoicePosting("2026-03-20", "EUR", order, "8", p, 120000))
 	if got := one(t, invoice, g.grir, "the invoice's GR/IR line"); got != [3]money.Minor{120000, 120000, 120000} {
@@ -103,8 +104,8 @@ func TestGRIRTopUp(t *testing.T) {
 		return out
 	}
 	read := taken(t)[order].Items[10]
-	if read != (ledger.GRIRTakenOver{Quantity: "-2", Balance: -500}) {
-		t.Fatalf("taken over: got %+v, want -2 and -500", read)
+	if read != (ledger.GRIRTakenOver{Quantity: "-2", Balance: -500, BalanceLC: -500}) {
+		t.Fatalf("taken over: got %+v, want -2 and -500 in both currencies", read)
 	}
 	g.post(t, g.receiptPosting("2026-03-06", "EUR", order, "-1", price{250, 1}))
 	topUp := g.takeOverPosting(order, "-5", -1250)
@@ -120,7 +121,7 @@ func TestGRIRTopUp(t *testing.T) {
 		t.Errorf("after the top-up: got %s, want %s", got, want)
 	}
 	after := taken(t)[order]
-	if got := after.Items[10]; got != (ledger.GRIRTakenOver{Quantity: "-5", Balance: -1250}) {
+	if got := after.Items[10]; got != (ledger.GRIRTakenOver{Quantity: "-5", Balance: -1250, BalanceLC: -1250}) {
 		t.Errorf("taken over after the top-up: got %+v, want -5 and -1250", got)
 	}
 	if got := len(after.Sources); got != 2 || !slices.Contains(after.Sources, topUp.SourceDocumentID) {
@@ -128,12 +129,12 @@ func TestGRIRTopUp(t *testing.T) {
 	}
 	// The source system's position invoiced in full: topped up to nothing.
 	cleared := g.takeOverPosting(order, "0", 0)
-	cleared.GRIR[0].TakenOver = &ledger.GRIRTakenOver{Quantity: "-5", Balance: -1250}
+	cleared.GRIR[0].TakenOver = &ledger.GRIRTakenOver{Quantity: "-5", Balance: -1250, BalanceLC: -1250}
 	g.post(t, cleared)
 	if got, want := g.projected(t, order), "received 1, invoiced 0, migrated 0, balance -250, open true"; got != want {
 		t.Errorf("topped up to nothing: got %s, want %s", got, want)
 	}
-	if got := taken(t)[order].Items[10]; got != (ledger.GRIRTakenOver{Quantity: "0", Balance: 0}) {
+	if got := taken(t)[order].Items[10]; got != (ledger.GRIRTakenOver{Quantity: "0", Balance: 0, BalanceLC: 0}) {
 		t.Errorf("taken over at the end: got %+v, want nothing", got)
 	}
 }
@@ -153,19 +154,36 @@ func TestGRIRTakeOverRefusals(t *testing.T) {
 	taken := uuid.New()
 	g.post(t, g.takeOverPosting(taken, "-2", -500))
 	stale := g.takeOverPosting(taken, "-3", -700)
-	stale.GRIR[0].TakenOver = &ledger.GRIRTakenOver{Quantity: "-2", Balance: -400}
+	stale.GRIR[0].TakenOver = &ledger.GRIRTakenOver{Quantity: "-2", Balance: -400, BalanceLC: -500}
 	staleQty := g.takeOverPosting(taken, "-3", -700)
-	staleQty.GRIR[0].TakenOver = &ledger.GRIRTakenOver{Quantity: "-1", Balance: -500}
+	staleQty.GRIR[0].TakenOver = &ledger.GRIRTakenOver{Quantity: "-1", Balance: -500, BalanceLC: -500}
 	unread := g.takeOverPosting(taken, "-3", -700)
-	unread.GRIR[0].TakenOver = &ledger.GRIRTakenOver{Quantity: "two", Balance: -500}
+	unread.GRIR[0].TakenOver = &ledger.GRIRTakenOver{Quantity: "two", Balance: -500, BalanceLC: -500}
 	twice := g.takeOverPosting(uuid.New(), "-1", -100)
 	twice.GRIR = append(twice.GRIR, twice.GRIR[0])
 	mixed := g.takeOverPosting(uuid.New(), "-1", -100)
 	mixed.GRIR = append(mixed.GRIR, g.receiptPosting("2026-03-02", "EUR", uuid.New(), "-1", price{500, 1}).GRIR...)
 	notMigrated := g.takeOverPosting(uuid.New(), "-1", -100)
 	notMigrated.SourceContext = "procurement"
+	staleLC := g.takeOverPosting(taken, "-3", -700)
+	staleLC.GRIR[0].TakenOver = &ledger.GRIRTakenOver{Quantity: "-2", Balance: -500, BalanceLC: -400}
+	rated := g.receiptPosting("2026-03-02", "EUR", uuid.New(), "-1", price{500, 1})
+	rated.Rate = big.NewRat(1, 1)
 	bad := g.takeOverPosting(uuid.New(), "-1.1234567", -100)
 	settleRate(t, g.env, "USD", "2026-03-05", "1.5")
+	inUSD := uuid.New()
+	g.post(t, g.takeOverForeign(inUSD, "-2", -500, -400))
+	lc := money.Minor(math.MaxInt64)
+	hugeLC := g.takeOverForeign(inUSD, "-2", -500, lc)
+	hugeLC.GRIR[0].TakenOver = &ledger.GRIRTakenOver{Quantity: "-2", Balance: -500, BalanceLC: -400}
+	inLocal := g.takeOverPosting(uuid.New(), "-1", -100)
+	inLocal.Rate, inLocal.GRIR[0].TakesOverLC = big.NewRat(1, 1), &lc
+	noRate := g.takeOverForeign(uuid.New(), "-1", -100, -80)
+	noRate.Rate = nil
+	noLC := g.takeOverForeign(uuid.New(), "-1", -100, -80)
+	noLC.GRIR[0].TakesOverLC = nil
+	receiptLC := g.receiptPosting("2026-03-02", "EUR", uuid.New(), "-1", price{500, 1})
+	receiptLC.GRIR[0].TakesOverLC = &lc
 	huge := g.takeOverPosting(uuid.New(), "-1", -math.MaxInt64)
 	huge.Currency = "USD"
 	for _, c := range []struct {
@@ -177,6 +195,13 @@ func TestGRIRTakeOverRefusals(t *testing.T) {
 		{"taken over before", g.takeOverPosting(taken, "-2", -500), 409, "ledger.gr_ir_position_exists"},
 		{"a balance taken over other than read", stale, 409, "ledger.gr_ir_position_exists"},
 		{"a quantity taken over other than read", staleQty, 409, "ledger.gr_ir_position_exists"},
+		{"a local balance taken over other than read", staleLC, 409, "ledger.gr_ir_position_exists"},
+		{"a local balance out of range once moved", hugeLC, 422, "ledger.amount_too_large"},
+		{"a given rate with a receipt", rated, 500, ""},
+		{"a local balance in local currency", inLocal, 422, "ledger.rate_not_recordable"},
+		{"a local balance without a rate", noRate, 500, ""},
+		{"a rate without local balances", noLC, 500, ""},
+		{"a local balance on a receipt", receiptLC, 500, ""},
 		{"a quantity taken over that does not parse", unread, 500, ""},
 		{"the same item twice", twice, 409, "ledger.gr_ir_position_exists"},
 		{"mixed with a receipt", mixed, 500, ""},
@@ -191,4 +216,73 @@ func TestGRIRTakeOverRefusals(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestGRIRTakeOverForeign: a position a source system holds in an order's
+// foreign currency is taken over in that currency, its local balance kept
+// as the source system booked it and the entry at the source system's
+// rate (ADR-0005 As built, product owner 2026-10-31); a later receipt and
+// invoice move it as one the platform posted, so the invoice clears it in
+// both currencies and books the exchange difference; and a top-up moves
+// both balances by what the source system's moved.
+func TestGRIRTakeOverForeign(t *testing.T) {
+	g := grirSetup(t)
+	settleRate(t, g.env, "USD", "2026-03-10", "0.9")
+	settleRate(t, g.env, "USD", "2026-03-20", "0.95")
+	order, p := uuid.New(), price{12500, 1}
+	in := g.takeOverForeign(order, "-8", -100000, -80000)
+	entry := g.post(t, in)
+	if lines := on(entry, g.grir); len(lines) != 2 || lines[0] != [3]money.Minor{-100000, -80000, -80000} || lines[1] != [3]money.Minor{100000, 80000, 80000} {
+		t.Errorf("the take-over's GR/IR lines: got %v, want USD 1,000.00 at EUR 800.00 and its offset", lines)
+	}
+	if entry.CurrencyTC != "USD" || entry.RateTCLC != "0.800000000000" {
+		t.Errorf("the take-over entry: got %s at %s, want USD at the source system's 0.800000000000", entry.CurrencyTC, entry.RateTCLC)
+	}
+	if got, want := g.position(t, order), (position{"-8", -100000, -80000, -80000}); got != want {
+		t.Errorf("taken over: got %+v, want %+v", got, want)
+	}
+	steps := []struct {
+		name     string
+		posting  ledger.Posting
+		grir     [3]money.Minor
+		fxLoss   money.Minor
+		position position
+	}{
+		{"receive 2 at 0.90", g.receiptPosting("2026-03-10", "USD", order, "-2", p), [3]money.Minor{-25000, -22500, -22500}, 0, position{"-10", -125000, -102500, -102500}},
+		{"invoice 10 at 0.95", g.invoicePosting("2026-03-20", "USD", order, "10", p, 125000), [3]money.Minor{125000, 102500, 102500}, 16250, position{"0", 0, 0, 0}},
+	}
+	for _, s := range steps {
+		t.Run(s.name, func(t *testing.T) {
+			entry := g.post(t, s.posting)
+			if got := one(t, entry, g.grir, s.name); got != s.grir {
+				t.Errorf("GR/IR line: got %v, want %v", got, s.grir)
+			}
+			var loss money.Minor
+			for _, l := range on(entry, g.fxLoss) {
+				loss += l[1]
+			}
+			if loss != s.fxLoss {
+				t.Errorf("exchange loss: got %d, want %d (lines %+v)", loss, s.fxLoss, entry.Lines)
+			}
+			if got := g.position(t, order); got != s.position {
+				t.Errorf("position: got %+v, want %+v", got, s.position)
+			}
+		})
+	}
+	topped := uuid.New()
+	g.post(t, g.takeOverForeign(topped, "-2", -500, -400))
+	topUp := g.takeOverForeign(topped, "-5", -1250, -1000)
+	topUp.GRIR[0].TakenOver = &ledger.GRIRTakenOver{Quantity: "-2", Balance: -500, BalanceLC: -400}
+	if lines := on(g.post(t, topUp), g.grir); len(lines) != 2 || lines[0] != [3]money.Minor{-750, -600, -600} {
+		t.Errorf("the top-up's GR/IR lines: got %v, want what both balances moved", lines)
+	}
+	g.checkProjected(t)
+}
+
+// takeOverForeign is takeOverPosting in USD at the source system's rate
+// of 0.8, with the local balance the source system booked.
+func (g grirEnv) takeOverForeign(order uuid.UUID, qty string, balance, lc money.Minor) ledger.Posting {
+	in := g.takeOverPosting(order, qty, balance)
+	in.Currency, in.Rate, in.GRIR[0].TakesOverLC = "USD", big.NewRat(4, 5), &lc
+	return in
 }

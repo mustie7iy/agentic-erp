@@ -103,7 +103,8 @@ func TestReportsInPseudoLocalesInTheBrowser(t *testing.T) {
 // from the trial balance's payables account to its entries of March and
 // on to an entry (T73j2). At a phone's they open the ledger
 // reconciliation, choose company 2000 and drill down from the difference
-// to the entry posted in 2L alone.
+// to the entry posted in 2L alone. The history and the reconciliation
+// each offer their download (T73j4).
 func TestReportsJobsInTheBrowser(t *testing.T) {
 	s := newReporting(t)
 	src := axe(t)
@@ -142,6 +143,9 @@ func TestReportsJobsInTheBrowser(t *testing.T) {
 	}
 	waitForText(t, desk, "/reports/audit", "ledger.journal_entry.post")
 	audit(t, desk, src, "en", "ltr", 1280)
+	if err := chromedp.Do(desk, chromedp.WaitVisible(chromedp.CSS(`a[download][href^="/reports/audit.csv?object_id=`+s.entry.String()+`"]`))); err != nil {
+		t.Fatalf("the history's download: %v", err)
+	}
 	payables := `a[href^="/reports/trial-balance/entries?"][href*="` + s.f.Account(t, "2000", "211000").String() + `"]`
 	if err := chromedp.Do(desk,
 		chromedp.Navigate(s.url+"/reports/trial-balance?"+s.query("fiscal_year", "2026")),
@@ -170,6 +174,9 @@ func TestReportsJobsInTheBrowser(t *testing.T) {
 	}
 	waitForText(t, phone, "/reports/ledger-reconciliation", "Ledger 0L compared with ledger 2L.")
 	audit(t, phone, src, "en", "ltr", 390)
+	if err := chromedp.Do(phone, chromedp.WaitVisible(chromedp.CSS(`a[download][href^="/reports/ledger-reconciliation.csv?"]`))); err != nil {
+		t.Fatalf("the reconciliation's download: %v", err)
+	}
 	if err := chromedp.Do(phone, chromedp.Click(chromedp.CSS(`a[href^="/reports/ledger-reconciliation/entries?"]`))); err != nil {
 		t.Fatal(err)
 	}

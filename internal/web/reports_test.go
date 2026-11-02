@@ -184,7 +184,7 @@ func TestTrialBalance(t *testing.T) {
 	if got := strings.Join(records[1], "|"); got != "Account|Period|Currency|Debits|Credits|Debits in the company's currency|Credits in the company's currency" {
 		t.Errorf("the download's columns: got %q", got)
 	}
-	holds(t, "the download's rows", dl.body, "211000 Accounts Payable - Domestic,3,USD,0.00,100.00,0.00,80.00")
+	holds(t, "the download's rows", dl.body, `"211000 Accounts Payable - Domestic",3,"USD",0.00,100.00,0.00,80.00`)
 	status(t, "a download's filters, none", b.get("/reports/trial-balance.csv?legal_entity_id=x"), http.StatusBadRequest)
 	fr := b.get("/reports/trial-balance?"+companyQuery(d, "fiscal_year", "2026"), "Accept-Language", "fr-CA").page(t).mainText()
 	holds(t, "French", fr, "Balance de vérification", "Télécharger en CSV")
@@ -320,6 +320,7 @@ func TestLedgerReconReport(t *testing.T) {
 	if to := linkTo(ep, "/journal/entries/"); to == "" || b.get(to).status != http.StatusOK {
 		t.Errorf("the entry behind the difference: link %q", to)
 	}
+	reconDownload(t, b, d, p)
 	local := b.get("/reports/ledger-reconciliation?" + companyQuery(d, "fiscal_year", "2026", "ledger_id", d.local.String())).page(t).mainText()
 	holds(t, "2L's reconciliation", local, "Ledger 2L compared with ledger 0L.")
 	us := b.get("/reports/ledger-reconciliation?legal_entity_id=" + d.f.US.String()).page(t).mainText()
@@ -354,6 +355,41 @@ func TestLedgerReconReport(t *testing.T) {
 	}
 }
 
+// reconDownload: the reconciliation's download names both ledgers by
+// code and holds the difference on account 100000, its columns in
+// English and in French; filters that are
+// not the report's, or one ledger twice, are refused.
+func reconDownload(t *testing.T, b *browser, d *reportData, p page) {
+	t.Helper()
+	path := linkTo(p, "/reports/ledger-reconciliation.csv?")
+	dl := b.get(path)
+	if got := dl.header.Get("Content-Disposition"); got != `attachment; filename="ledger-reconciliation-2026.csv"` {
+		t.Errorf("the reconciliation's download's name: got %q", got)
+	}
+	records := sheet(t, "the reconciliation's download", dl)
+	if got, want := strings.Join(records[0], "|"), "Ledger reconciliation|compare_ledger=2L|compare_ledger_id="+d.local.String()+
+		"|fiscal_year=2026|ledger=0L|ledger_id="+d.leading.String()+"|legal_entity_id="+d.f.DE.String(); got != want {
+		t.Errorf("the reconciliation's download's first line: got %q, want %q", got, want)
+	}
+	if got, want := strings.Join(records[1], "|"), "Account|Currency|Balance in the ledger|Balance in the compared ledger|Difference|"+
+		"Difference in the company's currency|Currency|Difference in the group's currency|Currency"; got != want {
+		t.Errorf("the reconciliation's download's columns: got %q, want %q", got, want)
+	}
+	if got, want := strings.Join(records[2], "|"), "100000 Bank - Operating|EUR|0.00|25.00|-25.00|-25.00|EUR|-25.00|EUR"; got != want {
+		t.Errorf("the reconciliation's download's row: got %q, want %q", got, want)
+	}
+	fr := sheet(t, "the reconciliation's download in French", b.get(path, "Accept-Language", "fr-CA"))
+	if got, want := strings.Join(fr[1], "|"), "Compte|Devise|Solde dans le grand livre|Solde dans le grand livre comparé|Écart|"+
+		"Écart dans la devise de la société|Devise|Écart dans la devise du groupe|Devise"; got != want {
+		t.Errorf("the reconciliation's download in French: got %q, want %q", got, want)
+	}
+	status(t, "a download's company, none", b.get("/reports/ledger-reconciliation.csv?legal_entity_id=x"), http.StatusBadRequest)
+	status(t, "a download without the compared ledger", b.get("/reports/ledger-reconciliation.csv?"+companyQuery(d, "fiscal_year", "2026")),
+		http.StatusBadRequest)
+	status(t, "a download of 2L with itself", b.get("/reports/ledger-reconciliation.csv?"+companyQuery(d, "fiscal_year", "2026",
+		"ledger_id", d.local.String(), "compare_ledger_id", d.local.String())), http.StatusBadRequest)
+}
+
 // periodOfReports is company 2000's March 2026 in the leading ledger.
 func periodOfReports(t *testing.T, d *reportData) uuid.UUID {
 	t.Helper()
@@ -379,6 +415,7 @@ func TestAuditHistory(t *testing.T) {
 	h := b.get(history).page(t).mainText()
 	holds(t, "the entry's history", h, "Audit history", "ledger.journal_entry.post", "Kind Person", "Outcome succeeded", "document_number",
 		"source_context payables")
+	auditDownload(t, b, b.get(history).page(t))
 	period := b.get(periodPath(periodOfReports(t, d))).page(t)
 	if linkTo(period, "/reports/audit?") == "" {
 		t.Error("the period's page: no audit history")
@@ -394,7 +431,35 @@ func TestAuditHistory(t *testing.T) {
 	}
 	refused := viewer.get(history)
 	status(t, "the viewer's history", refused, http.StatusForbidden)
+	status(t, "the viewer's download", viewer.get(strings.Replace(history, "/reports/audit?", "/reports/audit.csv?", 1)), http.StatusForbidden)
 	holds(t, "the viewer's history", refused.page(t).mainText(), "The report could not be shown", "You do not have the permission this needs.")
+}
+
+// auditDownload: an entry's history downloads with its posting, who
+// posted it by name and by id, the details as one JSON object, and its
+// columns in English and in French; an id that is none is refused.
+func auditDownload(t *testing.T, b *browser, history page) {
+	t.Helper()
+	path := linkTo(history, "/reports/audit.csv?")
+	records := sheet(t, "the history's download", b.get(path))
+	if got, want := strings.Join(records[1], "|"), "Sequence number|When|Who|Who, by id|Kind|What|Outcome|From the address|Details"; got != want {
+		t.Errorf("the history's download's columns: got %q, want %q", got, want)
+	}
+	post := slices.IndexFunc(records, func(r []string) bool { return len(r) == 9 && r[5] == "ledger.journal_entry.post" })
+	if post < 0 {
+		t.Fatalf("the history's download: no posting in %q", records)
+	}
+	row := records[post]
+	holds(t, "the posting's row", strings.Join(row, "|"), "|Person|ledger.journal_entry.post|succeeded|", `"source_context":"payables"`)
+	if row[2] == "" || row[3] == "" || !strings.HasPrefix(row[8], "{") {
+		t.Errorf("the posting's row: got %q, want its actor named and by id and its details as JSON", row)
+	}
+	fr := sheet(t, "the history's download in French", b.get(path, "Accept-Language", "fr-CA"))
+	if got, want := strings.Join(fr[1], "|"), "Numéro de séquence|Quand|Qui|Qui, par identifiant|Genre|Quoi|Résultat|Depuis l'adresse|Détails"; got != want {
+		t.Errorf("the history's download in French: got %q, want %q", got, want)
+	}
+	holds(t, "the kind in French", strings.Join(fr[post], "|"), "|Personne|")
+	status(t, "a download's document, none", b.get("/reports/audit.csv?object_id=5100000123"), http.StatusBadRequest)
 }
 
 // TestReportsAsOthers: a person who may read entries but not the audit

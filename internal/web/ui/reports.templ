@@ -612,6 +612,7 @@ templ ledgerReconContent(lp LedgerReconPage) {
 		if len(lp.Differences) == 0 {
 			@Paragraph(i18n.CheckLedgerNone)
 		} else {
+			@DownloadLink(lp.CSV)
 			@DifferencesTable(lp.Differences)
 			if lp.More != "" {
 				@ButtonLink(lp.More, i18n.ReportMore)
@@ -752,6 +753,7 @@ templ auditContent(ap AuditPage) {
 		if len(ap.Rows) == 0 {
 			@Paragraph(i18n.AuditEmpty)
 		} else {
+			@DownloadLink(ap.CSV)
 			<ul class="cards" hx-disable { label(ctx, i18n.AuditTitle)... }>
 				for _, r := range ap.Rows {
 					@AuditCard(r)

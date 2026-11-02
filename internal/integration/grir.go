@@ -40,12 +40,18 @@ import (
 // reconciliation compares the open positions per order item.
 
 // grirPosition is an order item's position on SAP's GR/IR account: its
-// lines' amounts in company code currency (HSL), their latest posting
-// date, and the item's open quantity, invoiced less received (nil until
-// grirPositions reads it).
+// lines, their amounts in company code currency (HSL) and in the order's
+// currency (its document amounts, WSL, when the order is in a foreign
+// currency, else HSL again), their latest posting date, and the item's
+// open quantity, invoiced less received (nil until grirPositions reads
+// it). A position of an order in a foreign currency is taken over in that
+// currency (ADR-0005 As built, product owner 2026-10-31).
 type grirPosition struct {
 	company, order, item string // BUKRS, EBELN, EBELP
-	amounts              []money.Minor
+	currency             string // the order's, EKKO WAERS
+	foreign              bool   // currency is not the company's
+	lines                []sap.ACDOCA
+	amounts, documents   []money.Minor
 	last                 string // the latest BUDAT, YYYYMMDD
 	qty                  *big.Rat
 }
@@ -60,21 +66,35 @@ func (t target) isGRIR(l sap.ACDOCA) bool { return t.charts[l.RBUKRS][sap.Alpha(
 // invoice documents invoiced on it (credit memos negative; postedInvoiced).
 // Lines without an order item, amounts or receipt quantities that do not
 // parse and documents whose quantities cannot be told are left out: the
-// quality gate refuses them (grirChecks, journalLine, postedInvoiced).
+// quality gate refuses them (grirChecks, grirLine, journalLine,
+// postedInvoiced).
 func grirPositions(e *sap.Extract, t target) map[string]*grirPosition {
+	currencies := map[string]string{}
+	for _, h := range e.EKKO {
+		currencies[h.EBELN] = h.WAERS
+	}
 	out := map[string]*grirPosition{}
 	for _, l := range e.ACDOCA {
-		amt, err := t.amount(l.HSL, t.entities[l.RBUKRS].LocalCurrency)
-		if !t.isGRIR(l) || l.EBELN == "" || l.EBELP == "" || err != nil {
+		if !t.isGRIR(l) || l.EBELN == "" || l.EBELP == "" {
+			continue
+		}
+		cur, local := currencies[l.EBELN], t.entities[l.RBUKRS].LocalCurrency
+		foreign := cur != "" && cur != local
+		amt, err := t.amount(l.HSL, local)
+		doc := amt
+		if foreign && err == nil {
+			doc, err = t.amount(l.WSL, cur)
+		}
+		if err != nil {
 			continue
 		}
 		key := l.EBELN + "/" + l.EBELP
 		p := out[key]
 		if p == nil {
-			p = &grirPosition{company: l.RBUKRS, order: l.EBELN, item: l.EBELP, qty: new(big.Rat)}
+			p = &grirPosition{company: l.RBUKRS, order: l.EBELN, item: l.EBELP, currency: cmp.Or(cur, local), foreign: foreign, qty: new(big.Rat)}
 			out[key] = p
 		}
-		p.amounts, p.last = append(p.amounts, amt), max(p.last, l.BUDAT)
+		p.lines, p.amounts, p.documents, p.last = append(p.lines, l), append(p.amounts, amt), append(p.documents, doc), max(p.last, l.BUDAT)
 	}
 	for _, m := range e.MSEG {
 		if p := out[m.EBELN+"/"+m.EBELP]; p != nil && m.BWART == "101" && money.PositiveQuantity(m.MENGE) == nil {
@@ -118,9 +138,18 @@ func (p *grirPosition) balance() money.Minor {
 	return total
 }
 
-// open reports whether a position has anything to take over: a balance or
-// an open quantity.
-func (p *grirPosition) open() bool { return p.balance() != 0 || p.qty.Sign() != 0 }
+// document is the position's balance in its order's currency. Its
+// amounts, document amounts of an order in a foreign currency, are in
+// range together when the gate passes (grirForeign); a reconciliation run
+// sums them through reconciler.total instead.
+func (p *grirPosition) document() money.Minor {
+	total, _ := money.Sum(p.documents...) // in range: see above
+	return total
+}
+
+// open reports whether a position has anything to take over: a balance in
+// either currency or an open quantity.
+func (p *grirPosition) open() bool { return p.balance() != 0 || p.document() != 0 || p.qty.Sign() != 0 }
 
 // grirOrders are the orders of the extract SAP valued through GR/IR: those
 // a line on a legal entity's GR/IR account names. They load valued through
@@ -138,13 +167,13 @@ func grirOrders(positions map[string]*grirPosition) map[string]bool {
 // order item, or naming one outside the extract or of another company;
 // SAP's GR/IR account (T030 WRX) when it is not the legal entity's, and a
 // warning for a company whose extract has receipts but no T030 to tell
-// SAP's GR/IR account by; and
-// for each position, an order in another currency than the company's (the
-// extract has only the company code amount, HSL), a movement other than a
-// receipt or a receipt quantity that does not parse on the item, and an
-// open quantity without a balance;
-// and on an order valued through GR/IR, an item received without a GR/IR
-// line, which an invoice after cutover would clear a position it never had.
+// SAP's GR/IR account by; for an order in a foreign currency, what its
+// take-over in that currency cannot read (grirForeignLine, grirForeign);
+// for each position, a movement other than a receipt or a receipt
+// quantity that does not parse on the item, and an open quantity without a
+// balance; and on an order valued through GR/IR, an item received without
+// a GR/IR line, which an invoice after cutover would clear a position it
+// never had.
 func (q *qualityCheck) grirChecks() {
 	headers, items := map[string]sap.EKKO{}, map[string]bool{}
 	for _, h := range q.e.EKKO {
@@ -153,6 +182,7 @@ func (q *qualityCheck) grirChecks() {
 	for _, i := range q.e.EKPO {
 		items[i.EBELN+"/"+i.EBELP] = true
 	}
+	q.positions = grirPositions(q.e, q.t) // grirLine tells an order in a foreign currency by its positions
 	for _, l := range q.e.ACDOCA {
 		q.grirLine(l, headers, items)
 	}
@@ -161,10 +191,10 @@ func (q *qualityCheck) grirChecks() {
 	for _, m := range q.e.MSEG {
 		movements[m.EBELN+"/"+m.EBELP] = append(movements[m.EBELN+"/"+m.EBELP], m)
 	}
-	q.positions = grirPositions(q.e, q.t)
 	for _, key := range sortedKeys(q.positions) {
-		q.grirPosition(q.positions[key], headers[q.positions[key].order], movements[key])
+		q.grirPosition(q.positions[key], movements[key])
 	}
+	q.grirForeign()
 	q.grirReceipts(grirOrders(q.positions), q.positions)
 }
 
@@ -185,7 +215,37 @@ func (q *qualityCheck) grirLine(l sap.ACDOCA, headers map[string]sap.EKKO, items
 	case headers[l.EBELN].BUKRS != l.RBUKRS:
 		q.add(SevError, "ACDOCA", key, "line on the GR/IR account %s of company %s names order %s of company %s", account, l.RBUKRS, l.EBELN,
 			headers[l.EBELN].BUKRS)
+	case headers[l.EBELN].WAERS != q.currency[l.RBUKRS]:
+		q.grirForeignLine(l, headers[l.EBELN].WAERS)
 	}
+}
+
+// grirForeignOrder reports whether a line is on the GR/IR account and
+// names an item of an order in a foreign currency, whose position is
+// taken over in that currency.
+func (q *qualityCheck) grirForeignOrder(l sap.ACDOCA) bool {
+	p := q.positions[l.EBELN+"/"+l.EBELP]
+	return q.t.isGRIR(l) && p != nil && p.foreign
+}
+
+// grirForeignLine checks a GR/IR line of an order in a foreign currency,
+// whose position is taken over in that currency from every line of it,
+// as a line of a document that posts in a foreign currency is checked
+// (foreignLine): in the order's currency (RWCUR), and its document amount
+// (WSL) parsing in it, beside a company code amount (HSL) of the same
+// sign. A line foreignDocument checks already, its document posting in
+// that currency, is not checked again.
+func (q *qualityCheck) grirForeignLine(l sap.ACDOCA, cur string) {
+	key := documentKey(l)
+	if l.RWCUR != cur {
+		q.add(SevError, "ACDOCA", key+"/"+l.DOCLN, "line on the GR/IR account %s is in document currency %q (RWCUR), but its order %s is in %s: "+
+			"an order's GR/IR positions are taken over in the order's currency, from lines in it", sap.Alpha(l.RACCT), l.RWCUR, l.EBELN, cur)
+		return
+	}
+	if _, earlier := q.t.posted[key]; q.foreign[key] == cur && !earlier {
+		return // foreignDocument checks it
+	}
+	q.foreignLine(l, cur, q.currency[l.RBUKRS])
 }
 
 // grirAccount refuses lines on SAP's GR/IR account (T030 WRX) when it is
@@ -223,12 +283,8 @@ func (q *qualityCheck) grirAccount(headers map[string]sap.EKKO) {
 }
 
 // grirPosition checks one order item's position and its movements.
-func (q *qualityCheck) grirPosition(p *grirPosition, h sap.EKKO, movements []sap.MSEG) {
+func (q *qualityCheck) grirPosition(p *grirPosition, movements []sap.MSEG) {
 	key := p.order + "/" + p.item
-	if h.EBELN != "" && h.WAERS != q.currency[p.company] { // an order outside the extract is grirLine's
-		q.add(SevError, "EKKO", p.order, "order %s is in %s and has GR/IR positions, which the extract holds in company code currency %s only (HSL); "+
-			"they are not converted", p.order, h.WAERS, q.currency[p.company])
-	}
 	for _, m := range movements {
 		if m.BWART != "101" {
 			q.add(SevError, "MSEG", m.MBLNR+"/"+m.MJAHR+"/"+m.ZEILE, "movement type %s on order item %s, which has a GR/IR position: its received "+
@@ -240,6 +296,43 @@ func (q *qualityCheck) grirPosition(p *grirPosition, h sap.EKKO, movements []sap
 	if p.balance() == 0 && p.qty.Sign() != 0 {
 		q.add(SevError, "ACDOCA", key, "order item %s has an open GR/IR quantity of %s and no balance on the GR/IR account; it cannot be taken over",
 			key, money.PlainQuantity(p.qty))
+	}
+}
+
+// grirForeign checks the positions of orders in a foreign currency, which
+// are taken over in that currency with their company code balance kept
+// beside it (ADR-0005 As built): each position's document amounts in
+// range together, and a balance in both currencies or in neither, since
+// no money rule gives a balance in one of them alone a value in the
+// other; and for each order a rate SAP's amounts imply that the take-over
+// entry can record (sourceRate, ledger.RecordableRate), as for a document
+// posted in a foreign currency.
+func (q *qualityCheck) grirForeign() {
+	lines := map[string][]sap.ACDOCA{}
+	for _, key := range sortedKeys(q.positions) {
+		p := q.positions[key]
+		if !p.foreign {
+			continue
+		}
+		lines[p.order] = append(lines[p.order], p.lines...)
+		sizes := make([]money.Minor, len(p.documents))
+		for i, a := range p.documents {
+			sizes[i] = a.Abs() // parsed amounts are never -2^63
+		}
+		if _, err := money.Sum(sizes...); err != nil {
+			q.add(SevError, "ACDOCA", key, "the document amounts (WSL) of order item %s's GR/IR lines add up to more than an amount holds", key)
+		} else if (p.balance() == 0) != (p.document() == 0) {
+			q.add(SevError, "ACDOCA", key, "order item %s's GR/IR position is %s %s in company currency (HSL) and %s %s in its order's currency (WSL): "+
+				"it is taken over with a balance in both or in neither", key, p.balance().Plain(q.t.exponents[q.currency[p.company]]),
+				q.currency[p.company], p.document().Plain(q.t.exponents[p.currency]), p.currency)
+		}
+	}
+	for _, order := range sortedKeys(lines) {
+		company, cur := lines[order][0].RBUKRS, q.positions[order+"/"+lines[order][0].EBELP].currency
+		if rate, ok := sourceRate(lines[order], cur, q.currency[company], q.t); !ok || !ledger.RecordableRate(rate) {
+			q.add(SevError, "EKKO", order, "the rate from %s to %s that the amounts of order %s's GR/IR lines imply is not above zero to the 12 "+
+				"decimals a journal entry records, or not below 10^16", cur, q.currency[company], order)
+		}
 	}
 }
 
@@ -447,14 +540,15 @@ func (l *loader) cannotTopUp(order string, o ledger.GRIRTakenOverOrder, loadingR
 }
 
 // grirItem is an order item whose take-over moves: SAP's position on it,
-// its open quantity and balance (zero when it has no GR/IR line), and
-// what earlier runs took over of it (nil when nothing).
+// its open quantity and balance in the order's currency and in company
+// currency (zero when it has no GR/IR line), and what earlier runs took
+// over of it (nil when nothing).
 type grirItem struct {
-	ebelp   string
-	no      int32
-	qty     *big.Rat
-	balance money.Minor
-	taken   *ledger.GRIRTakenOver
+	ebelp       string
+	no          int32
+	qty         *big.Rat
+	balance, lc money.Minor
+	taken       *ledger.GRIRTakenOver
 }
 
 // grirItems are the order's items, in item order, whose position SAP
@@ -469,13 +563,13 @@ func (l *loader) grirItems(order string, nos map[string]int32, taken map[int32]l
 		}
 		item := grirItem{ebelp: it.EBELP, no: nos[key], qty: new(big.Rat)}
 		if p := l.grir[key]; p != nil {
-			item.qty, item.balance = p.qty, p.balance()
+			item.qty, item.balance, item.lc = p.qty, p.document(), p.balance()
 		}
-		had, hadBalance := new(big.Rat), money.Minor(0)
+		had, hadBalance, hadLC := new(big.Rat), money.Minor(0), money.Minor(0)
 		if t, ok := taken[item.no]; ok {
-			item.taken, had, hadBalance = &t, money.ParseRat(t.Quantity), t.Balance
+			item.taken, had, hadBalance, hadLC = &t, money.ParseRat(t.Quantity), t.Balance, t.BalanceLC
 		}
-		if had.Cmp(item.qty) != 0 || hadBalance != item.balance {
+		if had.Cmp(item.qty) != 0 || hadBalance != item.balance || hadLC != item.lc {
 			out = append(out, item)
 		}
 	}
@@ -484,37 +578,51 @@ func (l *loader) grirItems(order string, nos map[string]int32, taken map[int32]l
 }
 
 // grirPosting is the take-over entry of an order's items, in item order,
-// dated the latest of SAP's GR/IR lines on the order.
+// dated the latest of SAP's GR/IR lines on the order, in the order's
+// currency: each item's balance there, and its company code balance
+// (HSL) kept beside it. An order in a foreign currency records the rate
+// SAP's amounts on its GR/IR lines imply (sourceRate), as a document SAP
+// posted in a foreign currency does (ADR-0005 As built).
 func (l *loader) grirPosting(order string, items []grirItem) ledger.Posting {
-	var company, last string
-	for _, p := range l.grir {
-		if p.order == order {
-			company, last = p.company, max(last, p.last)
+	var company, last, cur string
+	var lines []sap.ACDOCA
+	for _, key := range sortedKeys(l.grir) {
+		if p := l.grir[key]; p.order == order {
+			company, last, cur, lines = p.company, max(last, p.last), p.currency, append(lines, p.lines...)
 		}
 	}
-	cur := l.t.entities[company].LocalCurrency
 	date, _ := sapDate(last) // each line's date is checked by the quality gate
 	text := "GR/IR positions of SAP order " + order
 	ref := order
 	in := ledger.Posting{LegalEntityID: l.t.entities[company].ID, DocumentType: procurement.WEDocumentType, DocumentDate: date, PostingDate: date,
 		Currency: cur, Reference: &ref, HeaderText: &text, SourceContext: "integration", SourceDocumentID: l.run.ID}
+	foreign := cur != l.t.entities[company].LocalCurrency
+	if foreign {
+		in.Rate, _ = sourceRate(lines, cur, l.t.entities[company].LocalCurrency, l.t) // the quality gate refuses an order without one (grirForeign)
+	}
 	for _, it := range items {
-		balance := it.balance
-		item := "SAP " + order + "/" + it.ebelp
-		in.GRIR = append(in.GRIR, ledger.GRIRItem{PurchaseOrderID: l.refs["EKKO/"+order], POItemNo: it.no, Quantity: money.PlainQuantity(it.qty),
-			Unit: unit, TakesOver: &balance, TakenOver: it.taken, Text: &item})
+		balance, lc := it.balance, it.lc
+		item := ledger.GRIRItem{PurchaseOrderID: l.refs["EKKO/"+order], POItemNo: it.no, Quantity: money.PlainQuantity(it.qty), Unit: unit,
+			TakesOver: &balance, TakenOver: it.taken, Text: new("SAP " + order + "/" + it.ebelp)}
+		if foreign { // a position in company currency keeps its local amounts equal to its own (ledger's postingRates and checkForeignTakeOver)
+			item.TakesOverLC = &lc
+		}
+		in.GRIR = append(in.GRIR, item)
 	}
 	return in
 }
 
 // grir compares the open GR/IR positions per order item of the company,
 // SAP's from the extract (grirPositions) and the platform's of the orders
-// loaded, by balance in local currency and open quantity, with their
-// total. Shown when either side has a position, so a scope without them
-// reports as before.
+// loaded, by balance in local currency, balance in the order's currency
+// when that is a foreign one, and open quantity, with their total in
+// local currency and in each foreign currency (grirForeignTotals). Shown
+// when either side has a position, so a scope without them reports as
+// before.
 func (rc *reconciler) grir(ctx context.Context, s companyScope) error {
 	sapSide := map[string]string{}
 	var sapTotal []money.Minor
+	sapTC := map[string][]money.Minor{}
 	positions := grirPositions(rc.ext, rc.t)
 	for _, key := range sortedKeys(positions) {
 		p := positions[key]
@@ -522,29 +630,59 @@ func (rc *reconciler) grir(ctx context.Context, s companyScope) error {
 			continue
 		}
 		total := rc.total("ACDOCA", s.cc+"/"+key, "the GR/IR lines of order item "+key, p.amounts)
-		sapSide["GR/IR of order item "+key] = grirValue(s.format(total), p.qty)
+		value := s.format(total)
+		if p.foreign {
+			document := rc.total("ACDOCA", s.cc+"/"+key, "the document amounts of the GR/IR lines of order item "+key, p.documents)
+			value += " (" + rc.format(document, p.currency) + ")"
+			sapTC[p.currency] = append(sapTC[p.currency], document)
+		}
+		sapSide["GR/IR of order item "+key] = grirValue(value, p.qty)
 		sapTotal = append(sapTotal, total)
 	}
-	platform, platformTotal, err := rc.platformGRIR(ctx, s)
-	if err != nil || len(sapSide) == 0 && len(platform) == 0 {
+	platform, err := rc.platformGRIR(ctx, s)
+	if err != nil || len(sapSide) == 0 && len(platform.values) == 0 {
 		return err
 	}
 	n := 0
-	for _, key := range sortedKeys(unionKeys(sapSide, platform)) {
-		if sapSide[key] != platform[key] {
+	for _, key := range sortedKeys(unionKeys(sapSide, platform.values)) {
+		if sapSide[key] != platform.values[key] {
 			n++
-			rc.rec.Diffs = append(rc.rec.Diffs, Diff{CompanyCode: s.cc, Key: key, SAP: sapSide[key], Platform: platform[key]})
+			rc.rec.Diffs = append(rc.rec.Diffs, Diff{CompanyCode: s.cc, Key: key, SAP: sapSide[key], Platform: platform.values[key]})
 		}
 	}
 	sapSum := rc.total("ACDOCA", s.cc, "the open GR/IR positions of company "+s.cc, sapTotal)
-	rc.add(s.cc, "Open GR/IR total", s.format(sapSum), s.format(platformTotal), sapSum == platformTotal)
+	platformSum := rc.total("platform", s.cc, "the platform's open GR/IR positions of company "+s.cc, platform.lc)
+	rc.add(s.cc, "Open GR/IR total", s.format(sapSum), s.format(platformSum), sapSum == platformSum)
+	rc.grirForeignTotals(s, sapTC, platform.tc)
 	rc.add(s.cc, "Open GR/IR: order items with differences", "0", strconv.Itoa(n), n == 0)
 	return nil
 }
 
-// platformGRIR is the platform's side of grir: the open positions of the
-// company's orders the scope loaded, keyed as SAP's, and their total.
-func (rc *reconciler) platformGRIR(ctx context.Context, s companyScope) (map[string]string, money.Minor, error) {
+// grirForeignTotals are the open GR/IR positions' totals in each foreign
+// currency an order of the company is in, on either side, as open items
+// in a foreign currency are totalled per currency (foreignCurrency): a
+// position's balance in local currency alone does not show a document
+// amount taken over wrong.
+func (rc *reconciler) grirForeignTotals(s companyScope, sapTC, platformTC map[string][]money.Minor) {
+	for _, cur := range sortedKeys(unionKeys(sapTC, platformTC)) {
+		what := "open GR/IR positions in " + cur + " of company " + s.cc
+		sapSum, platformSum := rc.total("ACDOCA", s.cc, "the "+what, sapTC[cur]), rc.total("platform", s.cc, "the platform's "+what, platformTC[cur])
+		rc.add(s.cc, "Open GR/IR in "+cur+" total", rc.format(sapSum, cur), rc.format(platformSum, cur), sapSum == platformSum)
+	}
+}
+
+// platformGRIRSide is the platform's side of grir: the open positions as
+// compared, keyed as SAP's, their balances in local currency, and their
+// balances in each foreign currency.
+type platformGRIRSide struct {
+	values map[string]string
+	lc     []money.Minor
+	tc     map[string][]money.Minor
+}
+
+// platformGRIR is the platform's side of grir, of the company's orders the
+// scope loaded.
+func (rc *reconciler) platformGRIR(ctx context.Context, s companyScope) (platformGRIRSide, error) {
 	var ids []uuid.UUID
 	ebeln := map[uuid.UUID]string{}
 	for _, h := range rc.ext.EKKO {
@@ -552,21 +690,29 @@ func (rc *reconciler) platformGRIR(ctx context.Context, s companyScope) (map[str
 			ids, ebeln[id] = append(ids, id), h.EBELN
 		}
 	}
+	out := platformGRIRSide{values: map[string]string{}, tc: map[string][]money.Minor{}}
 	open, err := rc.e.Reports.OpenGRIR(ctx, s.le, ids)
 	if err != nil {
-		return nil, 0, err
+		return out, err
 	}
 	ebelp := itemsByNo(rc.ext)
-	out := map[string]string{}
-	var amounts []money.Minor
 	for id, items := range open {
 		for no, p := range items {
-			order := ebeln[id]
-			out["GR/IR of order item "+order+"/"+ebelp[order+"/"+strconv.Itoa(int(no))]] = grirValue(s.format(p.LC), money.ParseRat(p.Quantity))
-			amounts = append(amounts, p.LC)
+			order, value := ebeln[id], s.format(p.LC)
+			if p.Currency != s.cur {
+				value += " (" + rc.format(p.TC, p.Currency) + ")"
+				out.tc[p.Currency] = append(out.tc[p.Currency], p.TC)
+			}
+			out.values["GR/IR of order item "+order+"/"+ebelp[order+"/"+strconv.Itoa(int(no))]] = grirValue(value, money.ParseRat(p.Quantity))
+			out.lc = append(out.lc, p.LC)
 		}
 	}
-	return out, rc.total("platform", s.cc, "the platform's open GR/IR positions of company "+s.cc, amounts), nil
+	return out, nil
+}
+
+// format renders an amount in a currency of the reference data.
+func (rc *reconciler) format(v money.Minor, currency string) string {
+	return v.Plain(rc.t.exponents[currency]) + " " + currency
 }
 
 // grirValue renders a position as the reconciliation compares it.

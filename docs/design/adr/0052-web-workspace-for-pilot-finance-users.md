@@ -3217,6 +3217,152 @@ settled:
   French on a phone, both down payments refused above the gross with the
   choice kept and one cleared (`TestDownPaymentsInTheBrowser`).
 
+## Built in T73d3 (2026-11-02)
+The two objects T73d2 left without a summary. What it settled:
+- **No contract change (decided by default, ADR-0034 settles it).** T73d2
+  read the request as carrying no way to the order or the match, and
+  asked for a contract change. It carries one: ADR-0034's
+  `object_resource`, the API path the owning context gives each object
+  (`approvals.Locator`), `/v1/purchase-orders/{id}/changes/{change_id}`
+  for an `order_change` and the statement, `/v1/bank-statements/{id}`,
+  for a `bank_clearing`. A read by the change's or the match's own id
+  would duplicate those paths, so the workspace follows the resource:
+  the narrowest change is none. The resource is taken only in the shape
+  of the contract's path (each parameter a UUID as the API writes it, an
+  order change's last id the request's object id); a request without one,
+  one of another shape, and a match the statement does not list say the
+  request does not place its object, and nothing more is read.
+  `TestObjectReadsPlacedByTheContract` holds the shapes to the contract's
+  paths and each read to its path or one under it.
+- **Order change.** `getPurchaseOrderChange` through the order the
+  resource names (hidden by `procurement.order.read`): its reason as data,
+  the totals before and after, the order date and payment terms as
+  changed, its items and status. No link: the workspace has no order page.
+- **Bank clearing.** `listBankStatementMatches` of the statement the
+  resource names (hidden by `payments.statement.read`; the API reads a
+  match only with its statement's), the request's match found by its id:
+  the line, how it was matched and by which rule, its reason as data (a
+  person's, or an accepted agent proposal's text), what it clears
+  (payments, a posting rule, the incoming payments clearing account or
+  nothing), the posting date and why, and its status, linked to its line
+  on the statement's page (`#line-N`). One read: the line's amount is the
+  request's own, and the statement's page shows the rest.
+- **Isolation and permissions.** Both reads are the person's own calls
+  under RLS; the read is skipped without its `x-permission` and the API's
+  refusal is shown in place, as for every other type
+  (`TestPlacedObjects`, `TestObjectPlacedOrNot`). A request's page still
+  makes four reads (`TestScreensAgainstTheContract`).
+- **Walkthrough.** Step 4 has Ben ask for Tyrell's dearer price on the
+  released order; Priya follows the request's `object_resource` to the
+  change (`getPurchaseOrderChange`) and rejects it, the order unchanged.
+  Step 8 has Carla follow a posting's request to its statement and find
+  its match (`listBankStatementMatches`).
+- **Accessibility and languages.** The order change's and the bank
+  clearing's request pages run axe at zero in English, French and both
+  pseudo-locales at 1280 and 390 px, and show their summaries in English
+  at 390 px and in French at 1280 px (`TestApprovalsInTheBrowser`).
+- **Left.** The pilot approver's walk-through and the screen-reader review
+  of §10, human acceptance, are T73d4.
+
+## Built in T73j4 (2026-11-02)
+The downloads T73j2 left, and ADR-0052's CSV injection statement checked
+against OWASP. What it settled, each decided by default where this ADR,
+the contract or T73j's downloads settled it:
+- **The ledger reconciliation's download.** `GET
+  /reports/ledger-reconciliation.csv` (the report's filters; the first
+  line names both ledgers by code, `ledger` and `compare_ledger`, beside
+  their ids, from the API's answer, so the file says which balance is
+  which even for an address naming no ledger, where the API reconciles
+  the leading one; by id when the ledgers cannot be read; T73j4's
+  review): the accounts that differ, per account and transaction
+  currency, each with its balance in both ledgers, the difference, and
+  the difference in the company's and the group's currency, each with
+  its currency, read as T73j's downloads read (pages of 500, at most 25,
+  every page read before the first byte, over 10,000 rows said on a page
+  of its own). **Decided:** each ledger's trial balance check, which the
+  API gives on the first page alone, stays on the report's page: it is
+  two lines of a different shape, not rows of the differences. The link
+  shows above the differences when there are any. An address without the
+  compared ledger, or naming one ledger twice, is refused (400), as the
+  entries behind a difference are. Three reads and the pages
+  (`getCurrentPrincipal`, the company's day when the address names no
+  year, `listLedgers`, `listLedgerReconciliation`): 28 of 40.
+- **The audit history's download.** `GET /reports/audit.csv?object_id=`:
+  the document's events newest first, each with its sequence number, the
+  instant in UTC (RFC 3339), who by name and by id, the kind in the
+  person's language (as the API gives it when the catalog does not name
+  it), the action, the outcome, the address a person acted from, and the
+  details as one JSON object, its names sorted (data, as the page shows
+  them). **Decided:** the actors are named in one read
+  (`listPrincipalNames`, at most 100 ids) after every page is read, not a
+  page at a time: the download's calls stay at 27 of 40. Actors beyond the
+  first hundred of one document's history, and any whose names cannot be
+  read (logged), are given by id alone; the id is in every row, so no
+  row loses who acted.
+- **CSV injection: checked against OWASP.** OWASP's page "CSV Injection"
+  (https://owasp.org/www-community/attacks/CSV_Injection, which redirects
+  to https://community.owasp.org/attacks/CSV_Injection; fetched on
+  2026-11-02, no date of last change shown) says:
+  - a cell beginning with `=`, `+`, `-`, `@`, a tab (0x09), a carriage
+    return (0x0D) or a line feed (0x0A), or with the full-width `＝`,
+    `＋`, `－` or `＠`, may be read as a formula;
+  - checking the first character is not enough: a field separator (`,`
+    or `;`) or a quote inside a cell lets an attacker start a new cell,
+    which quoting the field handles;
+  - its sanitisation: wrap each field in double quotes, prepend a single
+    quote, and double every double quote inside it (its example: `=1+2";=1+2`
+    becomes `"'=1+2"";=1+2"`); as an alternative that resists Excel, a
+    tab inside the quoted field before a cell beginning `=`, `+`, `-` or
+    `@`, which stays in the data and suits files meant for people;
+  - its caveats: Excel may drop the quotes and escapes when the file is
+    saved and opened again, so the quote mitigations may fail, and
+    "There is no universal CSV sanitization strategy that is safe for all
+    spreadsheet applications and all downstream consumers."
+
+  **What it changed.** T73j's writer (`encoding/csv`) put the apostrophe
+  before `=`, `+`, `-`, `@`, a tab and a carriage return, and quoted a
+  cell only when it held a comma, a quote or a line break, or began
+  with a space. Three gaps,
+  fixed in `safeCell` for every download: a line feed and the four
+  full-width characters now take the apostrophe too, and every text
+  cell is quoted, its quotes doubled, so a semicolon, the other
+  separator OWASP names, starts no new cell. Numbers (an
+  amount as the API writes it) and ISO dates stay unquoted and without
+  the apostrophe, so a spreadsheet reads them as numbers: a number
+  cannot hold a formula. **Decided:** the apostrophe, not OWASP's tab
+  alternative: the apostrophe is what this ADR chose, and the files are
+  read by people and programs alike. The ADR's statement is corrected by
+  this entry: T73j's list lacked the line feed and the full-width forms,
+  and quoting every text, not the apostrophe alone, is OWASP's advice.
+  No sanitisation is safe for every program that reads the file, as
+  OWASP says: an import that reads these files programmatically must
+  remove the apostrophe itself.
+- **The byte order mark: not verified.** The statement that a UTF-8
+  file without a byte order mark loses its accents when a spreadsheet
+  program opens it directly is still from memory: no primary source was
+  at hand, and this step fetched none. It stays as written and is listed
+  with the open items below, to be checked with the pilot's spreadsheet
+  program (T73j5).
+- **Not built, split into T73j5:** the page budgets measured at the
+  pilot's volumes, which the pilot has still not given (neither the
+  tracker nor this ADR names them), and the walk-through by a pilot GL
+  accountant, AP clerk and controller, with the byte order mark checked
+  in the pilot's spreadsheet program then.
+- **Tests.** The workspace against the real API: the reconciliation's
+  download of company 2000 (the difference on account 100000 between 0L
+  and 2L), its first line, columns in English and French, a company that
+  is none, the compared ledger missing and 2L twice refused; an entry's
+  history downloaded (its posting by name and id, the kind in English and
+  French, the details as JSON), an id that is none refused, and the
+  viewer, who may not read the audit trail, refused. From the stub: both
+  downloads across two pages of 500, the names read once and failing,
+  a kind the catalog does not name, refused and unavailable, and their
+  sign-in again (`TestDownloadsStubbed`, `TestReportRefusals`,
+  `TestReportsUnavailable`). `TestSafeCell` holds every character OWASP
+  names, separators, quotes and OWASP's own example. The browser suite
+  runs axe on both pages with their links. The walkthrough reads the
+  reconciliation as the download does (step 10).
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF
@@ -3319,11 +3465,11 @@ settled:
 
 **From memory, to verify.** Each is an open item. The step named
 verifies it and records the source here, or corrects the text:
-- (T73j2) OWASP's CSV injection guidance (the leading apostrophe for a
-  cell beginning with `=`, `+`, `-`, `@`, a tab or a carriage return):
-  https://owasp.org/www-community/attacks/CSV_Injection ;
-- (T73j2, with the pilot's spreadsheet program) that a UTF-8 file without
-  a byte order mark loses its accents when opened directly;
+- (T73j5, with the pilot's spreadsheet program; not verified in T73j4,
+  which had no primary source) that a UTF-8 file without a byte order
+  mark loses its accents when opened directly. OWASP's CSV injection
+  guidance, listed here until T73j4, is verified and recorded in "Built in
+  T73j4" above;
 - (T73d-T73k, with the pilot) the SAP Fiori app names in "What SAP gives these users";
 - (T73l, with the pilot) English as the usual working language of UAE
   finance teams;

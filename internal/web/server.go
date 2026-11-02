@@ -284,8 +284,10 @@ func (s *Server) reportRoutes(route func(string, http.HandlerFunc)) {
 	route("GET "+ui.GRIRPath, s.signedIn(s.grirReport))
 	route("GET "+ui.GRIRPath+ui.CSVSuffix, s.signedIn(s.grirCSV))
 	route("GET "+ui.LedgerReconPath, s.signedIn(s.ledgerRecon))
+	route("GET "+ui.LedgerReconPath+ui.CSVSuffix, s.signedIn(s.ledgerReconCSV))
 	route("GET "+ui.ReconEntriesPath, s.signedIn(s.reconEntries))
 	route("GET "+ui.AuditPath, s.signedIn(s.audit))
+	route("GET "+ui.AuditPath+ui.CSVSuffix, s.signedIn(s.auditCSV))
 }
 
 func (s *Server) shell(title i18n.Key, current string) ui.Shell {

@@ -349,10 +349,12 @@ func (Reports) OpenForeignItems(ctx context.Context, legalEntity uuid.UUID, fisc
 
 // OpenGRIR is an order item's open GR/IR position as the migration
 // reconciliation compares it: its quantity, invoiced + cleared + migrated -
-// received, and its balance in local currency.
+// received, its balance in local currency, and in its transaction
+// currency, the order's.
 type OpenGRIR struct {
 	Quantity string
-	LC       money.Minor
+	LC, TC   money.Minor
+	Currency string
 }
 
 // OpenGRIR reads the open GR/IR positions of the orders' items in the
@@ -362,13 +364,14 @@ func (Reports) OpenGRIR(ctx context.Context, legalEntity uuid.UUID, orders []uui
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT purchase_order_id, po_item_no, trim_scale(invoiced + cleared + migrated - received)::text, amount_lc
+	rows, _ := tx.Query(ctx, `SELECT purchase_order_id, po_item_no, trim_scale(invoiced + cleared + migrated - received)::text, amount_lc, amount_tc,
+			currency_tc
 		FROM ledger.gr_ir_position WHERE legal_entity_id = $1 AND purchase_order_id = ANY($2) AND is_open`, legalEntity, orders)
 	out := map[uuid.UUID]map[int32]OpenGRIR{}
 	var order uuid.UUID
 	var item int32
 	var p OpenGRIR
-	_, err = pgx.ForEachRow(rows, []any{&order, &item, &p.Quantity, &p.LC}, func() error {
+	_, err = pgx.ForEachRow(rows, []any{&order, &item, &p.Quantity, &p.LC, &p.TC, &p.Currency}, func() error {
 		if out[order] == nil {
 			out[order] = map[int32]OpenGRIR{}
 		}

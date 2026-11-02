@@ -75,8 +75,7 @@ a closed order's residual is cleared by a GR/IR clearing (SAP MR11). The
 quality gate refuses what it cannot read rather than guess: a line on the
 GR/IR account without its order item or naming one outside the extract, SAP's
 GR/IR account (T030 WRX) with lines when it is not the legal entity's `gr_ir`
-account, an order in another currency than the company's (the extract carries
-the company code amount, HSL, only), a movement other than a receipt or a
+account, a movement other than a receipt or a
 receipt quantity that does not parse on an item with a position, an open
 quantity without a balance, and an item received without a GR/IR line on an
 order whose other items post one; a GR/IR line naming an order of another
@@ -97,6 +96,36 @@ clearing) stays beside what was taken over, and shows as a difference from SAP
 in the reconciliation. Moving an order already loaded valued directly onto
 GR/IR is not done (tracker: "Move open direct-valued orders onto GR/IR
 (optional)"): its position stays a difference.
+
+An order in another currency than the company's (EKKO WAERS) keeps its
+currency, and its GR/IR positions are taken over in it (product owner,
+2026-10-31; ADR-0005, ADR-0034 As built): the take-over entry is in the
+order's currency, each item's balance there SAP's document amounts on its
+GR/IR lines (WSL) and its company code balance (HSL) kept beside it,
+unconverted, at the rate SAP's amounts imply, as a document SAP posted in a
+foreign currency loads. A goods receipt or an invoice after cutover moves the
+position as it moves one the platform posted in that currency: the invoice
+clears it in both currencies, the GR/IR line at the value the position was
+booked at and the exchange difference on its own line. A later run tops it up
+in both currencies. SAP's documents holding such GR/IR lines load in the
+order's currency, so its GR/IR account nets in that currency: in documents
+mode unless SAP cleared one with documents in another currency, and in
+balances mode a position's documents together, unless SAP cleared a vendor
+line of any of them, in whatever currency it paid; those then stay in the
+opening entry in company currency. Three cases leave the account netting in
+company currency alone: in balances mode an open position with an invoice SAP
+paid, and a position SAP paid only in part; in documents mode a document SAP
+cleared together with documents in another currency (ADR-0005 As built lists
+them; the product owner accepted them on 2026-11-02: nothing is revalued and no
+value moves). The quality
+gate refuses,
+for such an order, a GR/IR line in another currency (RWCUR) than the order's,
+a document amount that does not parse, a line with an amount in one currency
+and none in the other or the two of opposite signs, a position with a balance
+in one currency alone, document amounts that add up to more than an amount
+holds, and a rate the take-over entry cannot record; a line of an open
+position of an order in company currency that is in a foreign currency is
+refused too.
 
 In `documents` mode the load clears the vendor items SAP cleared (AUGBL) by
 SAP's clearing document, or by the latest document of the clearing when the
@@ -147,8 +176,8 @@ document currency (an OData extract does not carry RWCUR and WSL until they are
 mapped against the pilot system's `$metadata`; they then load as a file
 extract's do), rather than assume the company's; an open item whose document's
 lines are not all in its currency, or whose document SAP cleared together with
-documents in another currency; a line of an open GR/IR position in a foreign
-currency, which is not migrated yet (tracked); and, for a document that posts
+documents in another currency; a line of an open GR/IR position in another
+currency than its order's (above); and, for a document that posts
 in a foreign currency, a currency the platform does not know, a document amount
 that does not parse, a line with a document amount and no company code amount
 or the two of opposite signs, a vendor line without a document amount, a
@@ -205,7 +234,10 @@ They must be equal.
   where either side has any
 - Open GR/IR per order item: SAP's balance on the GR/IR account and open
   quantity against the platform's position, in total and per order item,
-  where either side has any (T72f). The take-over entries move balances
+  where either side has any (T72f); for an order in a foreign currency the
+  balance in that currency too, as `-1350.00 CAD (-1000.00 USD), quantity -4`,
+  and a total per such currency (`Open GR/IR in USD total`).
+  The take-over entries move balances
   within the GR/IR account and have no SAP document, so the total debits
   leave them out
 - Every SAP document in scope present on the platform (missing ones listed)

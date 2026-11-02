@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -69,10 +70,11 @@ type documentCurrencyCase struct {
 // foreign document currency (ACDOCA RWCUR) through when its document can
 // post in that currency, a down payment or an open vendor item, and
 // refuses one without a document currency rather than assume the
-// company's, a line of an open GR/IR position in a foreign currency, and
-// one whose document's lines are not all in its currency, naming the
-// document; items in the company's currency, lines SAP cleared, lines
-// that are no item and lines of no amount are not refused.
+// company's, a line of an open GR/IR position in another currency than
+// its order's, and one whose document's lines are not all in its
+// currency, naming the document; items in the company's currency, lines
+// SAP cleared, lines that are no item and lines of no amount are not
+// refused.
 func TestDocumentCurrencyQuality(t *testing.T) {
 	runDocumentCurrencyCases(t, []documentCurrencyCase{
 		{"in the company's currency", func(e *sap.Extract, t *target) {
@@ -96,9 +98,9 @@ func TestDocumentCurrencyQuality(t *testing.T) {
 		{"a vendor line of no amount without a document currency", func(e *sap.Extract, _ *target) {
 			withDocument(e, "0100000011", "", sap.ACDOCA{RACCT: "0000211000", HSL: "0.00", LIFNR: "0000000001"})
 		}, nil},
-		{"an open GR/IR position in a foreign currency", func(e *sap.Extract, t *target) { withGRIRPosition(e, t, "USD") },
-			[]string{"2000/2026/0100000012/000002: open item of SAP document 0100000012 is in document currency USD, not company 2000's currency EUR: " +
-				"open GR/IR positions in a foreign document currency are not migrated yet"}},
+		{"an open GR/IR line in a foreign currency of an order in company currency", func(e *sap.Extract, t *target) { withGRIRPosition(e, t, "USD") },
+			[]string{"2000/2026/0100000012/000002: open item of SAP document 0100000012 on the GR/IR account is in document currency USD, not the " +
+				`currency of its order "4500000001": an order's GR/IR positions are taken over in the order's currency`}},
 		{"an open GR/IR position without a document currency", func(e *sap.Extract, t *target) { withGRIRPosition(e, t, "") },
 			[]string{"2000/2026/0100000012/000002: open item of SAP document 0100000012 has no document currency (RWCUR)"}},
 		{"the GR/IR lines of a closed position in a foreign currency", func(e *sap.Extract, t *target) {
@@ -233,6 +235,24 @@ func TestSourceRateWithoutAmount(t *testing.T) {
 	}
 }
 
+// TestSourceRateOrder: of lines of several documents with equal largest
+// document amounts, the rate is the first document's by number, whatever
+// the extract's order (review round 1).
+func TestSourceRateOrder(t *testing.T) {
+	tg := dpTarget()
+	tg.exponents["USD"] = 2
+	receipt := sap.ACDOCA{RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000005", DOCLN: "000002", WSL: "-125.00", HSL: "-100.00"}
+	invoice := sap.ACDOCA{RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000009", DOCLN: "000002", WSL: "125.00", HSL: "105.00"}
+	for name, lines := range map[string][]sap.ACDOCA{"in number order": {receipt, invoice}, "reversed": {invoice, receipt}} {
+		t.Run(name, func(t *testing.T) {
+			rate, ok := sourceRate(lines, "USD", "EUR", tg)
+			if !ok || rate.RatString() != "4/5" {
+				t.Errorf("rate: got %v (%t), want 4/5, the receipt's", rate, ok)
+			}
+		})
+	}
+}
+
 // TestForeignDownPaymentTax: a down payment in a foreign currency has its
 // tax checked in its document currency (where SAP is assumed to calculate
 // it, for an SAP specialist to confirm): 19%
@@ -360,7 +380,7 @@ func TestDocumentAmountAlone(t *testing.T) {
 		withDocument(e, "0100000011", currency, sap.ACDOCA{RACCT: "0000219000", HSL: "0.00", WSL: "-5.00", EBELN: "4500000001", EBELP: "00010"})
 	}
 	const grirItem = "2000/2026/0100000011/000002: open item of SAP document 0100000011 "
-	const grirForeign = "is in document currency USD, not company 2000's currency EUR: open GR/IR positions in a foreign document currency"
+	const grirForeign = `on the GR/IR account is in document currency USD, not the currency of its order "4500000001": an order's GR/IR positions are taken over`
 	cases := []struct {
 		name                string
 		change              func(e *sap.Extract)
@@ -489,5 +509,40 @@ func TestLeftOutLines(t *testing.T) {
 			run = append(run, documentCurrencyCase{mode + ": " + c.name, func(e *sap.Extract, t *target) { t.balances = balances; c.change(e, t) }, want})
 		}
 		runDocumentCurrencyCases(t, run)
+	}
+}
+
+// TestGRIRForeignDocumentGroups: balances mode moves a foreign order's
+// GR/IR documents into their currency together, through every position a
+// document shares (review round 2): a receipt of items 10 and 20 ties an
+// invoice of 10 to one of 20, so a payment SAP cleared the latter with
+// keeps all three in the opening entry; unpaid, all three move. A GR/IR
+// line of an order in company currency never moves a document.
+func TestGRIRForeignDocumentGroups(t *testing.T) {
+	tg := dpTarget()
+	tg.charts["2000"]["219000"] = ledger.ChartAccount{GRIR: true}
+	line := func(belnr, docln, account, order, item string) sap.ACDOCA {
+		return sap.ACDOCA{RBUKRS: "2000", GJAHR: "2026", BELNR: belnr, DOCLN: docln, RACCT: account, RWCUR: "USD", EBELN: order, EBELP: item}
+	}
+	extract := func(clearing string) *sap.Extract {
+		vendor := line("0100000007", "000002", "0000211000", "", "")
+		vendor.LIFNR, vendor.AUGBL = "0000000001", clearing
+		return &sap.Extract{EKKO: []sap.EKKO{{EBELN: "4500000001", WAERS: "USD"}, {EBELN: "4500000002", WAERS: "EUR"}},
+			ACDOCA: []sap.ACDOCA{
+				line("0100000005", "000001", "0000219000", "4500000001", "00010"), line("0100000005", "000002", "0000219000", "4500000001", "00020"),
+				line("0100000006", "000001", "0000219000", "4500000001", "00010"),
+				line("0100000007", "000001", "0000219000", "4500000001", "00020"), vendor,
+				line("0100000008", "000001", "0000219000", "4500000002", "00010"),
+			}}
+	}
+	for _, c := range []struct{ name, clearing, want string }{
+		{"the invoice of item 20 paid", "0100000009", "[]"},
+		{"the invoice of item 20 unpaid", "", "[2000/2026/0100000005 2000/2026/0100000006 2000/2026/0100000007]"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := fmt.Sprint(sortedKeys(grirForeignDocuments(extract(c.clearing), tg))); got != c.want {
+				t.Errorf("documents posted in USD: got %s, want %s", got, c.want)
+			}
+		})
 	}
 }

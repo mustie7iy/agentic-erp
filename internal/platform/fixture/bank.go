@@ -98,6 +98,22 @@ func (e Env) ImportStatement(tb testing.TB, objects blobstore.Store, file string
 	return out
 }
 
+// Clearing imports, for house bank MAIN made to post (Reconciles), a
+// statement whose one line, charges of 60.00, the rules match by its
+// transaction code to the charges rule; its posting, above 50.00, waits
+// for the controller. It returns the statement and the pending
+// bank_clearing approval request. The tenant needs StatementPermissions.
+func (e Env) Clearing(tb testing.TB, objects blobstore.Store) (statement, request uuid.UUID) {
+	tb.Helper()
+	statement = e.ImportStatement(tb, objects, MT940("C1", "1", "1000,00", "260416", "940,00", "260417", ":61:2604170417D60,00NCHGNONREF//C1\n"))[0]
+	matches, _ := e.Must(200, "GET", "/v1/bank-statements/"+statement.String()+"/matches", "", "")
+	items := apitest.List(tb, matches, "items")
+	if len(items) != 1 {
+		tb.Fatalf("matches of the clearing's statement: got %v, want one", items)
+	}
+	return statement, uuid.MustParse(fmt.Sprint(items[0].(map[string]any)["approval_request_id"]))
+}
+
 // Propose has the tenant's agent propose, in a running session of its
 // own, for the statement's line: body is what it proposes and why
 // (`"exclude": true, "reason": …` or `"posting_rule": …, "reason": …`).
