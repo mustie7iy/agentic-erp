@@ -58,7 +58,7 @@ tags:
   - name: payments
     description: Payment runs, payments and bank files.
   - name: cash
-    description: "Cash management (ADR-0051): the daily cash position, computed from statements, payments, runs and memo records, and the memo records of expected receipts and payments."
+    description: "Cash management (ADR-0051): the daily cash position, computed from statements, payments, runs and memo records, the liquidity forecast from supplier open items and runs, and the memo records of expected receipts and payments."
   - name: controlling
     description: "Controlling (ADR-0050): plan categories, plan lines by batch and plan against actual by cost center."
   - name: tax
@@ -13695,6 +13695,55 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CashPosition"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/liquidity-forecast:
+    get:
+      operationId: getLiquidityForecast
+      tags:
+        - cash
+      summary: Get a company's liquidity forecast
+      description: "The liquidity forecast of a legal entity (ADR-0051 §9, T53e), computed at the read from one database state (a repeatable-read snapshot): the flows expected from the read date (the company's date in its configured time zone, shown as `time_zone`) in the company's buckets (`cash.buckets`; default 14 days, 11 weeks and 9 months: each grain's periods follow the previous grain's, a week being seven days and a month running to the same day of the next month, its last day when shorter), per currency, never converted. Flows: `payable` (`expected`), the posted supplier open items (not special G/L items such as down payments) that no live payment run holds, a credit memo negative so a supplier nets as a run nets it, each expected when a payment run would pay it (ADR-0051 §5, P5): while the company takes cash discounts (`cash.take_discounts`, default true), the last day of the earliest discount tier still open, else the net due date (by the terms the item was posted with, else its supplier's net days; a credit memo's is its document date), moved back to the company's last payment day (`cash.payment_days`; none: any day) on or before it but not before the read date (a tier that would be is passed over for the next, or the net due date), an overdue item on the next payment day; then the value days (`cash.value_days`) of the house bank the supplier's first payment method ranks for the item's currency, moved to the next working day of the company's calendar (weekends and its holidays). Its amount is what a run on that payment day pays: what the item owes less the cash discount it then takes and the withholding tax deducted at payment, as the proposer computes them (one rule, `ledger.ItemTerms`). `payment_run` (`confirmed`), the payments of runs `proposed` or `releasing` not posted yet, whose items they hold, on their run date plus their bank's value days moved to the next working day, `late` when that is before the read date (then expected the working day after it), as in the cash position. The items of a supplier blocked for payment or posting, or inactive, are left out (shown apart in a later step). Amounts are signed: a payment out is negative. Each currency gives its flows per bucket by source, certainty and lateness with the bucket's total, the total over the horizon, and what is expected after the last bucket (`beyond`, in no bucket). `min_certainty` cuts the less certain flows (actual, confirmed, expected, planned; default planned, every flow). Parked and held invoices, down payment requests, memo records, liquidity items, converted totals, the opening position and drill-down are later steps (T53e2-T53e4). A legal entity the caller cannot act in is 404."
+      x-permission: cash.forecast.read
+      x-slo-class: report
+      x-snapshot: true
+      x-problem-codes:
+        - cash.amount_too_large
+        - config.not_bootstrapped
+        - request.validation_failed
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: min_certainty
+          in: query
+          required: false
+          description: "The least certain flows counted: `actual`, `confirmed`, `expected` or `planned` (default, every flow); another value is 422."
+          schema:
+            type: string
+            description: "A certainty level. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [actual, confirmed, expected, planned]
+      responses:
+        "200":
+          description: The liquidity forecast.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiquidityForecast"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -31714,13 +31763,13 @@ components:
         available: {$ref: "#/components/schemas/Money"}
     CashFlowTotal:
       type: object
-      description: "The flows of a day of one source and certainty."
+      description: "The flows of a day, or of a forecast's bucket, of one source and certainty."
       required: [source, certainty, late, amount, count]
       properties:
         source:
           type: string
           description: "Where the flows come from (ADR-0051 §4). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-          x-extensible-enum: [in_transit, payment_run, memo]
+          x-extensible-enum: [in_transit, payment_run, memo, payable]
           readOnly: true
         certainty:
           type: string
@@ -31786,6 +31835,92 @@ components:
         opening: {$ref: "#/components/schemas/Money"}
         closing: {$ref: "#/components/schemas/Money"}
         available: {$ref: "#/components/schemas/Money"}
+    LiquidityForecast:
+      type: object
+      description: "A legal entity's liquidity forecast (ADR-0051 §9, T53e): the flows expected per currency and bucket from the read date. Amounts are signed: a payment out is negative."
+      required: [legal_entity_id, read_date, time_zone, min_certainty, buckets, currencies]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: The legal entity., readOnly: true}
+        read_date: {type: string, format: date, description: "The company's date when the forecast was read, in `time_zone`: the first bucket starts on it, and what is late is judged by it.", readOnly: true}
+        time_zone: {type: string, description: "The IANA time zone the read date is in: the company's configured `time_zone`, or `UTC` when a document activated before the zone was required (2026-10-31) sets none.", readOnly: true}
+        min_certainty:
+          type: string
+          description: "The least certain flows counted. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [actual, confirmed, expected, planned]
+          readOnly: true
+        buckets:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastBucket"}
+          description: "The columns, in order: consecutive periods from the read date."
+          readOnly: true
+        currencies:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastCurrency"}
+          description: "The flows of each currency with any, by currency code."
+          readOnly: true
+      examples:
+        - legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          read_date: "2026-04-17"
+          time_zone: America/Toronto
+          min_certainty: planned
+          buckets:
+            - {grain: day, start: "2026-04-17", end: "2026-04-17"}
+            - {grain: week, start: "2026-04-18", end: "2026-04-24"}
+          currencies:
+            - currency: CAD
+              buckets:
+                - start: "2026-04-17"
+                  flows: [{source: payment_run, certainty: confirmed, late: false, amount: {amount: "-500.00", currency: CAD}, count: 1}]
+                  total: {amount: "-500.00", currency: CAD}
+                - start: "2026-04-18"
+                  flows: [{source: payable, certainty: expected, late: false, amount: {amount: "-1176.00", currency: CAD}, count: 2}]
+                  total: {amount: "-1176.00", currency: CAD}
+              total: {amount: "-1676.00", currency: CAD}
+              beyond: {amount: {amount: "-2000.00", currency: CAD}, count: 1}
+    LiquidityForecastBucket:
+      type: object
+      description: "A column of the forecast: the days from `start` to `end`."
+      required: [grain, start, end]
+      properties:
+        grain:
+          type: string
+          description: "The bucket's length: a day, seven days, or a month. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [day, week, month]
+          readOnly: true
+        start: {type: string, format: date, description: The first day., readOnly: true}
+        end: {type: string, format: date, description: The last day., readOnly: true}
+    LiquidityForecastCurrency:
+      type: object
+      description: "The flows of one currency: per bucket, in the buckets' order, their total over the horizon, and what is expected after it."
+      required: [currency, buckets, total, beyond]
+      properties:
+        currency: {type: string, description: The currency (ISO 4217)., readOnly: true}
+        buckets:
+          type: array
+          items: {$ref: "#/components/schemas/LiquidityForecastBucketFlows"}
+          description: "One per bucket of the forecast, in the same order."
+          readOnly: true
+        total: {$ref: "#/components/schemas/Money"}
+        beyond: {$ref: "#/components/schemas/LiquidityForecastBeyond"}
+    LiquidityForecastBucketFlows:
+      type: object
+      description: "A bucket's flows in one currency by source, certainty and lateness, and their total."
+      required: [start, flows, total]
+      properties:
+        start: {type: string, format: date, description: "The bucket's first day.", readOnly: true}
+        flows:
+          type: array
+          items: {$ref: "#/components/schemas/CashFlowTotal"}
+          description: "The bucket's flows by source, certainty and whether late; empty when none."
+          readOnly: true
+        total: {$ref: "#/components/schemas/Money"}
+    LiquidityForecastBeyond:
+      type: object
+      description: "The flows of one currency expected after the last bucket, counted in no bucket nor in the total."
+      required: [amount, count]
+      properties:
+        amount: {$ref: "#/components/schemas/Money"}
+        count: {type: integer, format: int32, minimum: 0, description: How many flows., readOnly: true}
     MemoRecord:
       description: "A memo record (ADR-0051 §7, SAP's memo records): an expected receipt or payment entered by a person, uploaded or proposed by an agent, one-off or recurring, counting in the cash position on its house bank and in the liquidity forecast until it expires or is realised, cancelled or rejected."
       allOf:

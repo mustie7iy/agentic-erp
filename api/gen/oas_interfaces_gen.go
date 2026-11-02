@@ -437,6 +437,10 @@ type GetLegalEntityTodayRes interface {
 	getLegalEntityTodayRes()
 }
 
+type GetLiquidityForecastRes interface {
+	getLiquidityForecastRes()
+}
+
 type GetMatchResultRes interface {
 	getMatchResultRes()
 }

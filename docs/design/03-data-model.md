@@ -2694,6 +2694,19 @@ active memo records on the banks not expired at the read (T53d), each
 occurrence on its value date moved to the next working day. Migration
 000152 seeds `cash.memo.read`, `cash.memo.write` and `cash.memo.propose`.
 
+The liquidity forecast (T53e, `GET /v1/liquidity-forecast`) stores nothing
+either: it is computed at the read from the ledger's open supplier items in
+every currency (`ledger.OpenItems.Owed`: leading ledger, not special G/L,
+neither cleared, reversed nor held by an item reservation) with the terms
+and withholding kept beside them (`open_item_terms`,
+`open_item_withholding`), less the items a live run's active payment items
+hold (`payments.payment_item`), whose run's payment counts instead, and the
+suppliers' blocks, net days and payment methods (`partner.Payees`). Due
+dates and discount tiers are computed by `ledger.ItemTerms`, as the payment
+proposer computes them; nothing is indexed for them yet (the budget at
+100,000 open items is T53e4's). Migration 000189 seeds its permission,
+`cash.forecast.read`.
+
 ## 3.19 Controlling (`controlling`)
 
 Plan values and plan against actual (ADR-0050 §2, §8, decision P5; T56g).

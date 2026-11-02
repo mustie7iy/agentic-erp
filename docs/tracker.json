@@ -1313,10 +1313,31 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Forecast from payables and payments (P5): ports for supplier open items (terms, discount tiers, supplier blocks, withholding, credit memos, items in runs excluded), parked and held invoices, down payment requests; the proposer's due-date and tier logic moved to ledger.ItemTerms and used by both; expected-date rule with payment days, value days and the company calendar; liquidity item derivation with proportional split (cash.Derive, T53b) and the derivation simulation listing the open flows whose item a rule change moves (moved from T53b); self-assessment pairs (T61e's self_output/self_input, reverse charge) netted out of the offsetting lines before derivation, since they are not cash (batch 6 review); GET /v1/liquidity-forecast with buckets, certainty cut, per currency and converted, drill-down; performance budget measured at 100,000 open items",
-        "r": "T53e",
+        "s": "D",
+        "t": "Forecast from payables and payments (P5), first slice: ports for supplier open items (terms, discount tiers, supplier blocks, withholding, credit memos, items in runs excluded); the proposer's due-date and tier logic moved to ledger.ItemTerms and used by both; expected-date rule with payment days, value days and the company calendar; GET /v1/liquidity-forecast with buckets, certainty cut, per currency: supplier open items (payable, expected) at what a run on their payment day pays (cash discount and withholding at payment deducted, credit memos netted), the payments of runs not released (payment_run, confirmed) instead of the items they hold, items of blocked suppliers left out of the totals, what falls after the last bucket shown as beyond",
+        "r": "GET /v1/liquidity-forecast (cash.Endpoints.Forecast, x-snapshot) · cash.Payments.Payables · payments.CashPosition.Payables, CashPayable (Dates, Pays), deductionsOn, reservedItems, rankedRouter, blockedReason · ledger.ItemTerms.TierOn, LosesDiscount, DiscountOn, PayableItem.DueDate, OpenItems.Owed · migration 000189 (cash.forecast.read) · TestLiquidityForecast*, TestCashPayable, TestDiscountRounding, TestDueDate · walkthrough step 13 · ADR-0051 (as built, T53e) · 03-data-model §3.18 · 04-api-design · T53e",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Forecast from parked and held invoices and down payment requests (P5): ports for parked and held invoices, down payment requests; supplier blocks: the items of a supplier blocked for payment shown apart on their net due date (payable_blocked, ADR-0051 §4, §5), not in the totals unless asked (include_blocked)",
+        "r": "T53e2",
+        "src": "split:T53e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Liquidity items in the forecast: liquidity item derivation with proportional split (cash.Derive, T53b) and the derivation simulation listing the open flows whose item a rule change moves (moved from T53b); self-assessment pairs (T61e's self_output/self_input, reverse charge) netted out of the offsetting lines before derivation, since they are not cash (batch 6 review); rows by liquidity item and its hierarchy (ADR-0051 §9)",
+        "r": "T53e3",
+        "src": "split:T53e",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Forecast converted and drilled down: GET /v1/liquidity-forecast per currency and converted (ADR-0051 §10), with the opening position (the cash position's total of the first day), a cumulative closing per bucket, payments in transit and memo records with and without a house bank as sources, one grain over a range on request (ADR-0051 §7, §9), drill-down; performance budget measured at 100,000 open items",
+        "r": "T53e4",
+        "src": "split:T53e \u00b7 adr:ADR-0051",
         "c": []
        },
        {

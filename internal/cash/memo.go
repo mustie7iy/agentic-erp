@@ -38,7 +38,7 @@ const (
 )
 
 // certainties are a memo record's: never actual, which is the bank's.
-var certainties = []string{CertaintyConfirmed, "expected", "planned"}
+var memoCertainties = []string{CertaintyConfirmed, CertaintyExpected, CertaintyPlanned}
 
 // defaultExpiryDays is how long after its value date a record counts when
 // no expiry date is given (SAP's memo record expiry).
@@ -195,9 +195,9 @@ func (c *checker) values(ctx context.Context, in MemoInput) (memoValues, error) 
 		return memoValues{}, err
 	}
 	if v.certainty == "" {
-		v.certainty = "expected"
+		v.certainty = CertaintyExpected
 	}
-	if !slices.Contains(certainties, v.certainty) {
+	if !slices.Contains(memoCertainties, v.certainty) {
 		return memoValues{}, invalid("request.validation_failed", "A memo record is confirmed, expected or planned.", "certainty", "confirmed, expected or planned")
 	}
 	if err := v.dates(in.ExpiresOn); err != nil {

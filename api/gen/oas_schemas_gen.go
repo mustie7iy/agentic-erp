@@ -6784,7 +6784,7 @@ func (s *CashDiscountTier) SetPercent(val string) {
 	s.Percent = val
 }
 
-// The flows of a day of one source and certainty.
+// The flows of a day, or of a forecast's bucket, of one source and certainty.
 // Ref: #/components/schemas/CashFlowTotal
 type CashFlowTotal struct {
 	// Where the flows come from (ADR-0051 §4). Open enumeration: clients must accept and preserve values
@@ -16477,6 +16477,22 @@ type GetLegalEntityTodayNotFound Problem
 
 func (*GetLegalEntityTodayNotFound) getLegalEntityTodayRes() {}
 
+type GetLiquidityForecastBadRequest Problem
+
+func (*GetLiquidityForecastBadRequest) getLiquidityForecastRes() {}
+
+type GetLiquidityForecastForbidden Problem
+
+func (*GetLiquidityForecastForbidden) getLiquidityForecastRes() {}
+
+type GetLiquidityForecastNotFound Problem
+
+func (*GetLiquidityForecastNotFound) getLiquidityForecastRes() {}
+
+type GetLiquidityForecastUnprocessableEntity Problem
+
+func (*GetLiquidityForecastUnprocessableEntity) getLiquidityForecastRes() {}
+
 type GetMatchResultBadRequest Problem
 
 func (*GetMatchResultBadRequest) getMatchResultRes() {}
@@ -22046,6 +22062,251 @@ func (s *LegalEntityUpdate) SetName(val OptString) {
 // SetExtensions sets the value of Extensions.
 func (s *LegalEntityUpdate) SetExtensions(val OptExtensions) {
 	s.Extensions = val
+}
+
+// A legal entity's liquidity forecast (ADR-0051 §9, T53e): the flows expected per currency and bucket
+// from the read date. Amounts are signed: a payment out is negative.
+// Ref: #/components/schemas/LiquidityForecast
+type LiquidityForecast struct {
+	// The legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's date when the forecast was read, in `time_zone`: the first bucket starts on it, and
+	// what is late is judged by it.
+	ReadDate time.Time `json:"read_date"`
+	// The IANA time zone the read date is in: the company's configured `time_zone`, or `UTC` when a
+	// document activated before the zone was required (2026-10-31) sets none.
+	TimeZone string `json:"time_zone"`
+	// The least certain flows counted. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	MinCertainty string `json:"min_certainty"`
+	// The columns, in order: consecutive periods from the read date.
+	Buckets []LiquidityForecastBucket `json:"buckets"`
+	// The flows of each currency with any, by currency code.
+	Currencies []LiquidityForecastCurrency `json:"currencies"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *LiquidityForecast) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetReadDate returns the value of ReadDate.
+func (s *LiquidityForecast) GetReadDate() time.Time {
+	return s.ReadDate
+}
+
+// GetTimeZone returns the value of TimeZone.
+func (s *LiquidityForecast) GetTimeZone() string {
+	return s.TimeZone
+}
+
+// GetMinCertainty returns the value of MinCertainty.
+func (s *LiquidityForecast) GetMinCertainty() string {
+	return s.MinCertainty
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *LiquidityForecast) GetBuckets() []LiquidityForecastBucket {
+	return s.Buckets
+}
+
+// GetCurrencies returns the value of Currencies.
+func (s *LiquidityForecast) GetCurrencies() []LiquidityForecastCurrency {
+	return s.Currencies
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *LiquidityForecast) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetReadDate sets the value of ReadDate.
+func (s *LiquidityForecast) SetReadDate(val time.Time) {
+	s.ReadDate = val
+}
+
+// SetTimeZone sets the value of TimeZone.
+func (s *LiquidityForecast) SetTimeZone(val string) {
+	s.TimeZone = val
+}
+
+// SetMinCertainty sets the value of MinCertainty.
+func (s *LiquidityForecast) SetMinCertainty(val string) {
+	s.MinCertainty = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *LiquidityForecast) SetBuckets(val []LiquidityForecastBucket) {
+	s.Buckets = val
+}
+
+// SetCurrencies sets the value of Currencies.
+func (s *LiquidityForecast) SetCurrencies(val []LiquidityForecastCurrency) {
+	s.Currencies = val
+}
+
+func (*LiquidityForecast) getLiquidityForecastRes() {}
+
+// The flows of one currency expected after the last bucket, counted in no bucket nor in the total.
+// Ref: #/components/schemas/LiquidityForecastBeyond
+type LiquidityForecastBeyond struct {
+	Amount Money `json:"amount"`
+	// How many flows.
+	Count int32 `json:"count"`
+}
+
+// GetAmount returns the value of Amount.
+func (s *LiquidityForecastBeyond) GetAmount() Money {
+	return s.Amount
+}
+
+// GetCount returns the value of Count.
+func (s *LiquidityForecastBeyond) GetCount() int32 {
+	return s.Count
+}
+
+// SetAmount sets the value of Amount.
+func (s *LiquidityForecastBeyond) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetCount sets the value of Count.
+func (s *LiquidityForecastBeyond) SetCount(val int32) {
+	s.Count = val
+}
+
+// A column of the forecast: the days from `start` to `end`.
+// Ref: #/components/schemas/LiquidityForecastBucket
+type LiquidityForecastBucket struct {
+	// The bucket's length: a day, seven days, or a month. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Grain string `json:"grain"`
+	// The first day.
+	Start time.Time `json:"start"`
+	// The last day.
+	End time.Time `json:"end"`
+}
+
+// GetGrain returns the value of Grain.
+func (s *LiquidityForecastBucket) GetGrain() string {
+	return s.Grain
+}
+
+// GetStart returns the value of Start.
+func (s *LiquidityForecastBucket) GetStart() time.Time {
+	return s.Start
+}
+
+// GetEnd returns the value of End.
+func (s *LiquidityForecastBucket) GetEnd() time.Time {
+	return s.End
+}
+
+// SetGrain sets the value of Grain.
+func (s *LiquidityForecastBucket) SetGrain(val string) {
+	s.Grain = val
+}
+
+// SetStart sets the value of Start.
+func (s *LiquidityForecastBucket) SetStart(val time.Time) {
+	s.Start = val
+}
+
+// SetEnd sets the value of End.
+func (s *LiquidityForecastBucket) SetEnd(val time.Time) {
+	s.End = val
+}
+
+// A bucket's flows in one currency by source, certainty and lateness, and their total.
+// Ref: #/components/schemas/LiquidityForecastBucketFlows
+type LiquidityForecastBucketFlows struct {
+	// The bucket's first day.
+	Start time.Time `json:"start"`
+	// The bucket's flows by source, certainty and whether late; empty when none.
+	Flows []CashFlowTotal `json:"flows"`
+	Total Money           `json:"total"`
+}
+
+// GetStart returns the value of Start.
+func (s *LiquidityForecastBucketFlows) GetStart() time.Time {
+	return s.Start
+}
+
+// GetFlows returns the value of Flows.
+func (s *LiquidityForecastBucketFlows) GetFlows() []CashFlowTotal {
+	return s.Flows
+}
+
+// GetTotal returns the value of Total.
+func (s *LiquidityForecastBucketFlows) GetTotal() Money {
+	return s.Total
+}
+
+// SetStart sets the value of Start.
+func (s *LiquidityForecastBucketFlows) SetStart(val time.Time) {
+	s.Start = val
+}
+
+// SetFlows sets the value of Flows.
+func (s *LiquidityForecastBucketFlows) SetFlows(val []CashFlowTotal) {
+	s.Flows = val
+}
+
+// SetTotal sets the value of Total.
+func (s *LiquidityForecastBucketFlows) SetTotal(val Money) {
+	s.Total = val
+}
+
+// The flows of one currency: per bucket, in the buckets' order, their total over the horizon, and what
+// is expected after it.
+// Ref: #/components/schemas/LiquidityForecastCurrency
+type LiquidityForecastCurrency struct {
+	// The currency (ISO 4217).
+	Currency string `json:"currency"`
+	// One per bucket of the forecast, in the same order.
+	Buckets []LiquidityForecastBucketFlows `json:"buckets"`
+	Total   Money                          `json:"total"`
+	Beyond  LiquidityForecastBeyond        `json:"beyond"`
+}
+
+// GetCurrency returns the value of Currency.
+func (s *LiquidityForecastCurrency) GetCurrency() string {
+	return s.Currency
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *LiquidityForecastCurrency) GetBuckets() []LiquidityForecastBucketFlows {
+	return s.Buckets
+}
+
+// GetTotal returns the value of Total.
+func (s *LiquidityForecastCurrency) GetTotal() Money {
+	return s.Total
+}
+
+// GetBeyond returns the value of Beyond.
+func (s *LiquidityForecastCurrency) GetBeyond() LiquidityForecastBeyond {
+	return s.Beyond
+}
+
+// SetCurrency sets the value of Currency.
+func (s *LiquidityForecastCurrency) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *LiquidityForecastCurrency) SetBuckets(val []LiquidityForecastBucketFlows) {
+	s.Buckets = val
+}
+
+// SetTotal sets the value of Total.
+func (s *LiquidityForecastCurrency) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetBeyond sets the value of Beyond.
+func (s *LiquidityForecastCurrency) SetBeyond(val LiquidityForecastBeyond) {
+	s.Beyond = val
 }
 
 type ListAccountsBadRequest Problem
@@ -44770,6 +45031,7 @@ func (*TooManyRequestsHeaders) getHierarchyRes()                     {}
 func (*TooManyRequestsHeaders) getJournalEntryRes()                  {}
 func (*TooManyRequestsHeaders) getLegalEntityRes()                   {}
 func (*TooManyRequestsHeaders) getLegalEntityTodayRes()              {}
+func (*TooManyRequestsHeaders) getLiquidityForecastRes()             {}
 func (*TooManyRequestsHeaders) getMatchResultRes()                   {}
 func (*TooManyRequestsHeaders) getMemoRecordRes()                    {}
 func (*TooManyRequestsHeaders) getMigrationRunRes()                  {}
@@ -45134,6 +45396,7 @@ func (*UnauthorizedHeaders) getHierarchyRes()                     {}
 func (*UnauthorizedHeaders) getJournalEntryRes()                  {}
 func (*UnauthorizedHeaders) getLegalEntityRes()                   {}
 func (*UnauthorizedHeaders) getLegalEntityTodayRes()              {}
+func (*UnauthorizedHeaders) getLiquidityForecastRes()             {}
 func (*UnauthorizedHeaders) getMatchResultRes()                   {}
 func (*UnauthorizedHeaders) getMemoRecordRes()                    {}
 func (*UnauthorizedHeaders) getMigrationRunRes()                  {}

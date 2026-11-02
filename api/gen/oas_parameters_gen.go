@@ -13704,6 +13704,117 @@ func decodeGetLegalEntityTodayParams(args [1]string, argsEscaped bool, r *http.R
 	return params, nil
 }
 
+// GetLiquidityForecastParams is parameters of getLiquidityForecast operation.
+type GetLiquidityForecastParams struct {
+	// Legal entity (required).
+	LegalEntityID uuid.UUID
+	// The least certain flows counted: `actual`, `confirmed`, `expected` or `planned` (default, every
+	// flow); another value is 422.
+	MinCertainty OptString `json:",omitempty,omitzero"`
+}
+
+func unpackGetLiquidityForecastParams(packed middleware.Parameters) (params GetLiquidityForecastParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "legal_entity_id",
+			In:   "query",
+		}
+		params.LegalEntityID = packed[key].(uuid.UUID)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "min_certainty",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.MinCertainty = v.(OptString)
+		}
+	}
+	return params
+}
+
+func decodeGetLiquidityForecastParams(args [0]string, argsEscaped bool, r *http.Request) (params GetLiquidityForecastParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
+	// Decode query: legal_entity_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToUUID(val)
+				if err != nil {
+					return err
+				}
+
+				params.LegalEntityID = c
+				return nil
+			}); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "legal_entity_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: min_certainty.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "min_certainty",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotMinCertaintyVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotMinCertaintyVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.MinCertainty.SetTo(paramsDotMinCertaintyVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "min_certainty",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
 // GetMatchResultParams is parameters of getMatchResult operation.
 type GetMatchResultParams struct {
 	// Resource identifier (UUIDv7).
