@@ -22,6 +22,7 @@ type specOperation struct {
 	Agent             *bool             `yaml:"x-agent"`
 	ObjectPermissions map[string]string `yaml:"x-object-permissions"`
 	ProblemCodes      []string          `yaml:"x-problem-codes"`
+	Path              string            `yaml:"-"` // the operation's path in the contract
 }
 
 // contract reads the operations of api/openapi.yaml by operationId, and
@@ -36,10 +37,11 @@ func contract(t *testing.T) (map[string]specOperation, []string) {
 		t.Fatal(err)
 	}
 	ops := map[string]specOperation{}
-	for _, methods := range doc.Paths {
+	for path, methods := range doc.Paths {
 		for _, node := range methods {
 			var op specOperation
 			if err := node.Decode(&op); err == nil && op.ID != "" {
+				op.Path = path
 				ops[op.ID] = op
 			}
 		}

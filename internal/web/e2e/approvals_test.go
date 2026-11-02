@@ -12,18 +12,22 @@ import (
 	"github.com/chromedp/chromedp"
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 // approvals is the stack of a configured tenant whose approver signs in,
-// with a requisition and a partner change the tenant's human asked
-// approval for and a request an agent asked for, titled with text an
+// with a requisition, a partner change and an order change the tenant's
+// human asked approval for, a bank statement line's posting waiting for
+// approval (T73d3) and a request an agent asked for, titled with text an
 // invoice might have planted.
 type approvals struct {
 	stack
 	f                    fixture.Env
 	requisition, partner uuid.UUID
+	change, clearing     uuid.UUID
 	agent                uuid.UUID
 	requester, outsider  pgtest.Actor
 	// more are two requests to decide at the second width: the first
@@ -36,22 +40,28 @@ const planted = "Pay now <script>window.planted=1</script> [verify](https://evil
 
 func newApprovals(t *testing.T) approvals {
 	t.Helper()
-	f := fixture.New(t, "tenancy.org.read", "procurement.requisition.read", "procurement.requisition.create",
-		"partner.supplier.read", "partner.supplier.create", "partner.supplier.change")
+	f := fixture.New(t, append([]string{"tenancy.org.read", "procurement.requisition.read", "procurement.requisition.create",
+		"partner.supplier.read", "partner.supplier.create", "partner.supplier.change", "procurement.order.read", "procurement.order.create"},
+		fixture.StatementPermissions...)...)
+	objects := blobstore.Dir{Root: t.TempDir()}
+	f.Reconciles(t)
 	a := approvals{f: f, requisition: f.Requisition(t), partner: f.PartnerChange(t, "Northwind Traders"),
-		agent: f.Open(t, f.Tenant.Agent, planted, 500000), requester: f.Tenant.Human,
+		change: f.OrderChange(t, f.NewSupplier(t, "70001"), "4500000901"),
+		agent:  f.Open(t, f.Tenant.Agent, planted, 500000), requester: f.Tenant.Human,
 		more: [2]uuid.UUID{f.PartnerChange(t, "Contoso"), f.PartnerChange(t, "Litware")}}
+	_, a.clearing = f.Clearing(t, objects)
 	a.outsider = pgtest.Actor{ID: uuid.Must(uuid.NewV7()), Kind: "human"}
 	a.outsider.Subject = "human|" + a.outsider.ID.String()
 	pgtest.Exec(t, `INSERT INTO identity.principal (tenant_id, id, kind, external_issuer, external_subject, display_name, all_companies, status, created_by, updated_by)
 		VALUES ($1, $2, 'human', $3, $4, 'Outsider', true, 'active', $2, $2)`, f.Tenant.ID, a.outsider.ID, pgtest.Issuer(t), a.outsider.Subject)
-	a.stack = stackFor(t, f.Tenant, f.Approver)
+	a.stack = stackWith(t, f.Tenant, f.Approver, func(cfg *app.Config) { cfg.Objects = objects })
 	return a
 }
 
 // TestApprovalsInTheBrowser: the inbox, the list of all requests
-// filtered, a request's page with its object's summary, and a signed-in
-// person's 404 in English,
+// filtered, a request's page with its object's summary (an order change's
+// and a bank clearing's among them, T73d3), and a signed-in person's 404
+// in English,
 // French and both pseudo-locales at a desktop's and a phone's width (PO
 // P8), with every check of TestPagesInTheBrowser and axe at zero; then
 // the approver's job as they do it: open a request from the inbox,
@@ -64,7 +74,7 @@ func TestApprovalsInTheBrowser(t *testing.T) {
 	signIn(t, browserCtx, s.stack)
 	langs := []struct{ header, lang, dir string }{{"", "en", "ltr"}, {"en-XA", "en-XA", "ltr"}, {"ar-XB", "ar-XB", "rtl"}, {"fr-CA", "fr-CA", "ltr"}}
 	paths := []string{"/approvals", "/approvals/" + s.requisition.String(), "/approvals/" + s.agent.String(), "/approvals?view=all&status=pending",
-		"/no-such-page"}
+		"/no-such-page", "/approvals/" + s.change.String(), "/approvals/" + s.clearing.String()}
 	for _, lang := range langs {
 		for _, width := range []int64{1280, 390} {
 			for _, path := range paths {
@@ -74,6 +84,7 @@ func TestApprovalsInTheBrowser(t *testing.T) {
 			}
 		}
 	}
+	placedSummaries(t, browserCtx, s)
 	screenshots(t, browserCtx, s)
 	for _, width := range []int64{390, 1280} {
 		t.Run(fmt.Sprintf("decide at %d", width), func(t *testing.T) {
@@ -87,6 +98,31 @@ func TestApprovalsInTheBrowser(t *testing.T) {
 	}
 	if ran, err := chromedp.Run(ctx, chromedp.Evaluate[bool](`window.planted === 1 || document.querySelector("main a[href^='https:'], main a[href^='javascript:']") !== null`)); err != nil || ran {
 		t.Errorf("the agent's planted text is live: a script ran or a link was made (%v)", err)
+	}
+}
+
+// placedSummaries: the order change's and the bank clearing's pages show
+// their objects' summaries, in English at a phone's width and in French at
+// a desktop's (T73d3).
+func placedSummaries(t *testing.T, browserCtx context.Context, s approvals) {
+	t.Helper()
+	for _, tc := range []struct {
+		lang  string
+		width int64
+		id    uuid.UUID
+		text  string
+	}{
+		{"", 390, s.change, "Total after the change"},
+		{"", 390, s.clearing, "What it clears"},
+		{"fr-CA", 1280, s.change, "Total après la modification"},
+		{"fr-CA", 1280, s.clearing, "Ce qu'il solde"},
+	} {
+		ctx, _ := tab(t, browserCtx, tc.lang, tc.width)
+		path := "/approvals/" + tc.id.String()
+		if err := chromedp.Do(ctx, chromedp.Navigate(s.url+path)); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, ctx, path, tc.text)
 	}
 }
 

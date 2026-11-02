@@ -5546,9 +5546,17 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Approvals beyond T73d2: the object's summary of an order change and of a bank clearing, read where the request's object_resource places them (no contract change: ADR-0034 gave every request the path its owning context reads the object at); an order change through its order (getPurchaseOrderChange), a bank clearing's match among its statement's (listBankStatementMatches), linked to its line on the statement's page; hidden without the read permission, refused in place, a request whose resource does not place its object said so; EN and FR; axe at zero at 1280 and 390 px",
+        "r": "internal/web approval_object.go placed, readChange, readClearing, changeSummary, clearingSummary · operations_test.go contract paths · fixture OrderChange, Clearing · i18n en, fr-CA · TestPlacedObjects · TestObjectPlacedOrNot · TestPlaced · TestPlacedSummaries · TestObjectReadsPlacedByTheContract · TestEveryObjectRead · TestApprovalsInTheBrowser · walkthrough step_procure order_change · step_statement clearing_object · ADR-0052 Built in T73d3 · T73d3",
+        "src": "split:T73d2 · adr:ADR-0052",
+        "pilot": "po:2026-10-31 · split:T73d2 · adr:ADR-0052",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Approvals beyond T73d2: the object's summary of an order change (getPurchaseOrderChange needs the order's id, which the request does not carry: a contract change, the order on the request or a read of the change by its own id) and of a bank clearing (its object is a statement line's match, which no operation reads by id: a contract change); walked through by a pilot approver",
-        "r": "T73d3 (split from T73d2, 2026-11-01)",
+        "t": "Approvals walked through by a pilot approver (human acceptance of T73d2 and T73d3): the inbox, my requests and all I can see, each kind of object's summary, approve, reject and withdraw, a decision's text across a step-up sign-in, in English and French, with the screen-reader review of ADR-0052 §10",
+        "r": "T73d4 (split from T73d3, 2026-11-02)",
         "src": "split:T73d2 · adr:ADR-0052",
         "pilot": "po:2026-10-31 · split:T73d2 · adr:ADR-0052",
         "c": []

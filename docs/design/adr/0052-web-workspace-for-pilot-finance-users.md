@@ -3217,6 +3217,53 @@ settled:
   French on a phone, both down payments refused above the gross with the
   choice kept and one cleared (`TestDownPaymentsInTheBrowser`).
 
+## Built in T73d3 (2026-11-02)
+The two objects T73d2 left without a summary. What it settled:
+- **No contract change (decided by default, ADR-0034 settles it).** T73d2
+  read the request as carrying no way to the order or the match, and
+  asked for a contract change. It carries one: ADR-0034's
+  `object_resource`, the API path the owning context gives each object
+  (`approvals.Locator`), `/v1/purchase-orders/{id}/changes/{change_id}`
+  for an `order_change` and the statement, `/v1/bank-statements/{id}`,
+  for a `bank_clearing`. A read by the change's or the match's own id
+  would duplicate those paths, so the workspace follows the resource:
+  the narrowest change is none. The resource is taken only in the shape
+  of the contract's path (each parameter a UUID as the API writes it, an
+  order change's last id the request's object id); a request without one,
+  one of another shape, and a match the statement does not list say the
+  request does not place its object, and nothing more is read.
+  `TestObjectReadsPlacedByTheContract` holds the shapes to the contract's
+  paths and each read to its path or one under it.
+- **Order change.** `getPurchaseOrderChange` through the order the
+  resource names (hidden by `procurement.order.read`): its reason as data,
+  the totals before and after, the order date and payment terms as
+  changed, its items and status. No link: the workspace has no order page.
+- **Bank clearing.** `listBankStatementMatches` of the statement the
+  resource names (hidden by `payments.statement.read`; the API reads a
+  match only with its statement's), the request's match found by its id:
+  the line, how it was matched and by which rule, its reason as data (a
+  person's, or an accepted agent proposal's text), what it clears
+  (payments, a posting rule, the incoming payments clearing account or
+  nothing), the posting date and why, and its status, linked to its line
+  on the statement's page (`#line-N`). One read: the line's amount is the
+  request's own, and the statement's page shows the rest.
+- **Isolation and permissions.** Both reads are the person's own calls
+  under RLS; the read is skipped without its `x-permission` and the API's
+  refusal is shown in place, as for every other type
+  (`TestPlacedObjects`, `TestObjectPlacedOrNot`). A request's page still
+  makes four reads (`TestScreensAgainstTheContract`).
+- **Walkthrough.** Step 4 has Ben ask for Tyrell's dearer price on the
+  released order; Priya follows the request's `object_resource` to the
+  change (`getPurchaseOrderChange`) and rejects it, the order unchanged.
+  Step 8 has Carla follow a posting's request to its statement and find
+  its match (`listBankStatementMatches`).
+- **Accessibility and languages.** The order change's and the bank
+  clearing's request pages run axe at zero in English, French and both
+  pseudo-locales at 1280 and 390 px, and show their summaries in English
+  at 390 px and in French at 1280 px (`TestApprovalsInTheBrowser`).
+- **Left.** The pilot approver's walk-through and the screen-reader review
+  of §10, human acceptance, are T73d4.
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF
