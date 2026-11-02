@@ -1,6 +1,7 @@
 package payables
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -47,6 +48,39 @@ func TestCalculationFailed(t *testing.T) {
 	}
 	if err := calculationFailed(uuid.Nil, tax.ErrInvalidCode); !errors.Is(err, tax.ErrInvalidCode) {
 		t.Errorf("an invalid code: got %v, want it wrapped", err)
+	}
+}
+
+// TestReadFigures: a read's calculation out of range, or of a code the
+// calculator cannot calculate on the tax date, leaves the figures out, as
+// posting refuses it; the calculator's other errors are wrapped.
+func TestReadFigures(t *testing.T) {
+	large := money.Minor(1) << 62
+	items := []tax.ComponentTax{{Code: "V1", AccountKey: tax.KeyInput, Amounts: tax.Amounts{Tax: large}}, {Code: "V7", AccountKey: tax.KeyInput, Amounts: tax.Amounts{Tax: large}}}
+	for name, err := range map[string]error{"the calculator's overflow": fmt.Errorf("tax: line 1: %w", money.ErrOverflow), "the charged total's overflow": nil,
+		"no rate": fmt.Errorf("tax: V1: %w", tax.ErrNoRate), "a code not calculable": fmt.Errorf("tax: V1: %w", tax.ErrInvalidCode)} {
+		t.Run(name, func(t *testing.T) {
+			got, err := readFigures(Invoice{Currency: "EUR", Exponent: 2}, items, err)
+			if got != nil {
+				t.Errorf("figures: got %v, want none", got)
+			}
+			if err != nil {
+				t.Errorf("error: got %v, want none", err)
+			}
+		})
+	}
+	if _, err := readFigures(Invoice{}, nil, tax.ErrInvalid); !errors.Is(err, tax.ErrInvalid) {
+		t.Errorf("an invalid document: got %v, want it wrapped", err)
+	}
+}
+
+// TestCalculatedTaxOutsideARequest: the read's calculation needs the
+// request's transaction.
+func TestCalculatedTaxOutsideARequest(t *testing.T) {
+	code := "V1"
+	_, err := (&Endpoints{}).calculatedTax(context.Background(), Invoice{Items: []Item{{TaxCode: &code, Amount: 100}}})
+	if err == nil {
+		t.Error("outside a request: got no error")
 	}
 }
 

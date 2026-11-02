@@ -6313,10 +6313,11 @@ func (s *BusinessPartnerPage) SetTotalEstimate(val OptInt64) {
 
 func (*BusinessPartnerPage) listBusinessPartnersRes() {}
 
-// The figures of a supplier invoice whose stated tax its tax codes' rates do not bear out within the
-// company's tolerance (422 `payables.tax_mismatch`): the tax it states, the tax calculated at its
-// items' codes' rates on its tax date, and each code's share of it, in the invoice's currency.
-// Self-assessed tax, which the supplier does not charge, is left out of both.
+// A supplier invoice's tax figures: the tax it states, the tax calculated at its items' codes' rates
+// on its tax date, and each code's share of it, in the invoice's currency. Self-assessed tax, which
+// the supplier does not charge, is left out of both. Given when its stated tax its codes' rates do not
+// bear out within the company's tolerance (422 `payables.tax_mismatch`) and on the invoice read by
+// itself (`getSupplierInvoice`).
 // Ref: #/components/schemas/CalculatedTax
 type CalculatedTax struct {
 	// The tax the invoice states (`tax_amount`).
@@ -33730,6 +33731,10 @@ type Problem struct {
 	// With `payables.tax_mismatch` only: the tax the invoice's codes' rates give, in all and per code,
 	// beside the tax it states (ADR-0052, decision D3).
 	CalculatedTax OptCalculatedTax `json:"calculated_tax"`
+	// With `payables.match_outdated` only: the issues the invoice's match under its order items' locks
+	// finds that the clean match, or the match its exception was approved on, did not show (ADR-0052,
+	// decision D3).
+	MatchIssues []MatchIssue `json:"match_issues"`
 }
 
 // GetType returns the value of Type.
@@ -33777,6 +33782,11 @@ func (s *Problem) GetCalculatedTax() OptCalculatedTax {
 	return s.CalculatedTax
 }
 
+// GetMatchIssues returns the value of MatchIssues.
+func (s *Problem) GetMatchIssues() []MatchIssue {
+	return s.MatchIssues
+}
+
 // SetType sets the value of Type.
 func (s *Problem) SetType(val string) {
 	s.Type = val
@@ -33820,6 +33830,11 @@ func (s *Problem) SetErrors(val []FieldError) {
 // SetCalculatedTax sets the value of CalculatedTax.
 func (s *Problem) SetCalculatedTax(val OptCalculatedTax) {
 	s.CalculatedTax = val
+}
+
+// SetMatchIssues sets the value of MatchIssues.
+func (s *Problem) SetMatchIssues(val []MatchIssue) {
+	s.MatchIssues = val
 }
 
 // Merged schema.
@@ -41907,6 +41922,12 @@ type SupplierInvoice struct {
 	// may post and decide not to claim. Empty before posting, for an invoice or subsequent debit claiming
 	// no tax, for a credit memo or subsequent credit, and for invoices posted before the check existed.
 	DocumentaryWarnings []DocumentaryWarning `json:"documentary_warnings"`
+	// The tax its items' codes' rates give on its tax date, in all and per code, beside the tax it states
+	// (ADR-0052, T73e3): in `getSupplierInvoice`'s answer alone, as it is calculated on each read,
+	// whatever the invoice's status. Absent when no item carries a tax code and an amount, and when the
+	// codes cannot be calculated on the tax date (a code no longer an input tax code of the legal entity
+	// then, amounts out of range): posting says why.
+	CalculatedTax OptCalculatedTax `json:"calculated_tax"`
 	// Expanded references.
 	Expanded OptExpanded `json:"expanded"`
 }
@@ -42049,6 +42070,11 @@ func (s *SupplierInvoice) GetExtensions() Extensions {
 // GetDocumentaryWarnings returns the value of DocumentaryWarnings.
 func (s *SupplierInvoice) GetDocumentaryWarnings() []DocumentaryWarning {
 	return s.DocumentaryWarnings
+}
+
+// GetCalculatedTax returns the value of CalculatedTax.
+func (s *SupplierInvoice) GetCalculatedTax() OptCalculatedTax {
+	return s.CalculatedTax
 }
 
 // GetExpanded returns the value of Expanded.
@@ -42194,6 +42220,11 @@ func (s *SupplierInvoice) SetExtensions(val Extensions) {
 // SetDocumentaryWarnings sets the value of DocumentaryWarnings.
 func (s *SupplierInvoice) SetDocumentaryWarnings(val []DocumentaryWarning) {
 	s.DocumentaryWarnings = val
+}
+
+// SetCalculatedTax sets the value of CalculatedTax.
+func (s *SupplierInvoice) SetCalculatedTax(val OptCalculatedTax) {
+	s.CalculatedTax = val
 }
 
 // SetExpanded sets the value of Expanded.
@@ -46682,8 +46713,16 @@ type Upload struct {
 	// enumeration: clients must accept and preserve values not listed here; values may be added within
 	// /v1.
 	Status string `json:"status"`
-	// Where to send the bytes with `method` and `headers`: an absolute URL of the object store, or a path
-	// on this API (no bearer token needed; the URL is signed).
+	// Where `url` sends the bytes: `store`, a presigned URL of the object store, or `api`, a signed path
+	// on this API, which streams them into the store (asked for with `via: api`, and the only one a store
+	// that cannot presign gives). Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Via string `json:"via"`
+	// Where to send the bytes with `method` and `headers`: an absolute URL of the object store
+	// (`via: store`), or a path on this API (`via: api`), signed, single use, until `expires_at`, at most
+	// `max_bytes` (a larger body is refused while it arrives, 413 `payables.document_too_large`, and
+	// nothing is stored). The path needs no bearer token of its own; through the global router, which
+	// routes by the token's tenant, send the caller's bearer token with it.
 	URL string `json:"url"`
 	// The HTTP method to send the bytes with. Open enumeration: clients must accept and preserve values
 	// not listed here; values may be added within /v1.
@@ -46746,6 +46785,11 @@ func (s *Upload) GetMaxBytes() int64 {
 // GetStatus returns the value of Status.
 func (s *Upload) GetStatus() string {
 	return s.Status
+}
+
+// GetVia returns the value of Via.
+func (s *Upload) GetVia() string {
+	return s.Via
 }
 
 // GetURL returns the value of URL.
@@ -46828,6 +46872,11 @@ func (s *Upload) SetStatus(val string) {
 	s.Status = val
 }
 
+// SetVia sets the value of Via.
+func (s *Upload) SetVia(val string) {
+	s.Via = val
+}
+
 // SetURL sets the value of URL.
 func (s *Upload) SetURL(val string) {
 	s.URL = val
@@ -46867,6 +46916,12 @@ type UploadCreate struct {
 	// The content type of the document; another type is refused (422 `payables.unsupported_content_type`).
 	// Open enumeration: values may be added within /v1.
 	ContentType string `json:"content_type"`
+	// Where the bytes are to go: `store` (the default), the object store's presigned URL when the store
+	// gives one, else this API's path; `api`, this API's signed path whatever the store, which streams
+	// them into the store, for a client that must not reach the object store (the web workspace, ADR-0052
+	// §7). Another value is refused (422 `payables.unknown_upload_via`). Open enumeration: values may be
+	// added within /v1.
+	Via OptString `json:"via"`
 }
 
 // GetPurpose returns the value of Purpose.
@@ -46879,6 +46934,11 @@ func (s *UploadCreate) GetContentType() string {
 	return s.ContentType
 }
 
+// GetVia returns the value of Via.
+func (s *UploadCreate) GetVia() OptString {
+	return s.Via
+}
+
 // SetPurpose sets the value of Purpose.
 func (s *UploadCreate) SetPurpose(val string) {
 	s.Purpose = val
@@ -46887,6 +46947,11 @@ func (s *UploadCreate) SetPurpose(val string) {
 // SetContentType sets the value of ContentType.
 func (s *UploadCreate) SetContentType(val string) {
 	s.ContentType = val
+}
+
+// SetVia sets the value of Via.
+func (s *UploadCreate) SetVia(val OptString) {
+	s.Via = val
 }
 
 // Headers the request to `url` must carry, exactly.

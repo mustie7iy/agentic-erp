@@ -172,8 +172,17 @@ func components() map[string]templ.Component {
 		"invoiceEditContent":  invoiceEditContent(invoiceForm(false)),
 		"AmountField":         AmountField("a", FieldGross, i18n.InvoiceGross, "EUR", "x", i18n.EntryAmountInvalid),
 		"amount plain":        AmountField("a", FieldGross, i18n.InvoiceGross, "EUR", "1.00", ""),
-		"ItemInputView":       ItemInputView(invoiceForm(true).Items[0]),
-		"item plain":          ItemInputView(invoiceForm(false).Items[0]),
+		"ItemInputView":       ItemInputView("/invoices/1/edit", invoiceForm(true).Items[0], true),
+		"item plain":          ItemInputView("/invoices/1/edit", invoiceForm(false).Items[0], false),
+		// Lines added and left out, tax per code and an outdated match's
+		// issues (T73e3).
+		"InvoiceItemsSwap": InvoiceItemsSwap(invoiceForm(true)),
+		// Rendered on their own too, so their error paths run (batch 38).
+		"InvoiceItems":     InvoiceItems(invoiceForm(true)),
+		"itemFieldView":    itemFieldView(invoiceForm(true).Items[0], FieldItemAccount, true),
+		"lines full":       invoiceButtons(InvoiceForm{Items: make([]ItemInput, MaxFormLines)}),
+		"invoice with tax": invoiceContent(InvoicePage{Tax: taxFigures(), Why: i18n.ActionsNone}),
+		"match outdated":   RefusalNotice(Refusal{Title: i18n.InvoiceRefusedTitle, Code: "payables.match_outdated", Issues: []Issue{{Label: Label{Key: i18n.MatchIssueQuantity}, Line: 1, Message: "m"}}}),
 	}
 	for name, c := range bankComponents() {
 		out[name] = c
@@ -188,6 +197,9 @@ func components() map[string]templ.Component {
 		out[name] = c
 	}
 	for name, c := range reportComponents() {
+		out[name] = c
+	}
+	for name, c := range captureComponents() {
 		out[name] = c
 	}
 	return out
@@ -673,7 +685,9 @@ func invoiceForm(refused bool) InvoiceForm {
 		r := refusal()
 		f.Refusal, f.LinesError = &r, i18n.InvoiceEditLinesChanged
 		f.Errors = map[string]i18n.Key{FieldGross: i18n.EntryAmountInvalid}
-		f.Items[0].OrderItem = 1
+		f.Items[0].OrderItem, f.Items[0].From, f.Items[0].Focus, f.HasOrder = "1", 1, true, true
+		f.Opened = []map[string]string{{FieldItemQuantity: "1", FieldItemUnit: "EA", FieldItemAmount: "1.00"}}
+		f.Accounts = []Option{{Value: "6000", Text: "6000 Fees"}}
 		f.Items[0].Errors = map[string]i18n.Key{FieldItemQuantity: i18n.InvoiceEditQuantityInvalid}
 		f.Items[0].Refused = []FieldRefusal{{Field: ItemFieldLabel("tax_code"), Reason: "unknown"}}
 	}

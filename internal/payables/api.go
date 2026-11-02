@@ -97,6 +97,19 @@ func (e *Endpoints) expand(ctx context.Context, v Invoice, expand []string) (gen
 	return out, nil
 }
 
+// figuresToAPI are an invoice's tax figures as the API gives them; unset
+// without them.
+func figuresToAPI(f *problem.CalculatedTax) gen.OptCalculatedTax {
+	if f == nil {
+		return gen.OptCalculatedTax{}
+	}
+	out := gen.CalculatedTax{Stated: gen.Money(f.Stated), Calculated: gen.Money(f.Calculated), Codes: make([]gen.CodeTax, len(f.Codes))}
+	for i, c := range f.Codes {
+		out.Codes[i] = gen.CodeTax{TaxCode: c.TaxCode, Tax: gen.Money(c.Tax)}
+	}
+	return gen.NewOptCalculatedTax(out)
+}
+
 func ok(v Invoice) *gen.UpdateSupplierInvoiceOKHeaders {
 	return &gen.UpdateSupplierInvoiceOKHeaders{ETag: gen.NewOptString(etag.Format(v.Version)), Response: toAPI(v)}
 }
@@ -173,6 +186,11 @@ func (e *Endpoints) GetSupplierInvoice(ctx context.Context, params gen.GetSuppli
 	if err != nil {
 		return nil, err
 	}
+	figures, err := e.calculatedTax(ctx, v)
+	if err != nil {
+		return nil, err
+	}
+	rep.CalculatedTax = figuresToAPI(figures)
 	return &gen.GetSupplierInvoiceOKHeaders{ETag: gen.NewOptString(etag.Format(v.Version)), Response: rep}, nil
 }
 

@@ -338,14 +338,20 @@ func orderItemNos(v Invoice) []int32 {
 }
 
 // matchOutdated refuses to post an invoice on a clean match that a match
-// now would not find clean, with the issues it would find.
+// now would not find clean, with the issues it would find: in its detail,
+// and as its fields for a client's own words (match_issues, ADR-0052
+// decision D3).
 func matchOutdated(issues []Issue) error {
 	why := make([]string, len(issues))
+	fields := make([]problem.MatchIssue, len(issues))
 	for i, is := range issues {
 		why[i] = is.Message
+		fields[i] = problem.MatchIssue(is)
 	}
-	return problem.Conflict("payables.match_outdated", "The invoice no longer matches its order as it did when it was matched: "+strings.Join(why, "; ")+
+	p := problem.Conflict("payables.match_outdated", "The invoice no longer matches its order as it did when it was matched: "+strings.Join(why, "; ")+
 		". Documents posted on the order since its match or approval, a change of the order, or of the tolerances, leave it with issues; match it again.")
+	p.MatchIssues = fields
+	return p
 }
 
 // requireCleanMatch lets an invoice on a purchase order post only after a

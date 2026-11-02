@@ -3,6 +3,7 @@ package blobstore
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -128,15 +129,16 @@ func TestDirPutIsWholeOrNothing(t *testing.T) {
 	d := Dir{Root: t.TempDir()}
 	const key = "tenants/x/documents/a"
 	var during error
-	writeContent = func(f *os.File, b []byte) (int, error) {
+	writeContent = func(f *os.File, r io.Reader) (int64, error) {
+		b, _ := io.ReadAll(r) // a bytes.Reader of Put's content: reading cannot fail
 		n, err := f.Write(b[:len(b)/2])
 		if err != nil {
 			t.Fatalf("write half: %v", err)
 		}
 		_, _, during = d.Stat(ctx, key)
-		return n, errors.New("crash")
+		return int64(n), errors.New("crash")
 	}
-	t.Cleanup(func() { writeContent = (*os.File).Write })
+	t.Cleanup(func() { writeContent = (*os.File).ReadFrom })
 	pgtest.WantErr(t, d.Put(ctx, key, []byte("%PDF-1.7 whole"), PutOptions{}), "crash")
 	if left := temporaries(t, filepath.Join(d.Root, "tenants", "x", "documents")); len(left) != 0 {
 		t.Errorf("got %v left after a failed write, want nothing", left)
@@ -144,7 +146,7 @@ func TestDirPutIsWholeOrNothing(t *testing.T) {
 	if !errors.Is(during, ErrNotFound) {
 		t.Errorf("got Stat %v while the content was written, want ErrNotFound", during)
 	}
-	writeContent = (*os.File).Write
+	writeContent = (*os.File).ReadFrom
 	if err := d.Put(ctx, key, []byte("%PDF-1.7 whole"), PutOptions{}); err != nil {
 		t.Fatalf("got Put %v after a failed one, want the key free", err)
 	}

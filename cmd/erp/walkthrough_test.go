@@ -32,17 +32,17 @@ func TestWalkthrough(t *testing.T) {
 		}
 	}
 	run := exec.CommandContext(t.Context(), "bash", "../../scripts/walkthrough.sh")
-	addrs := freeAddrs(t, 2)
+	addrs := freeAddrs(t, 3)
 	// The last value of a variable wins: a developer's own walkthrough
 	// settings (keep the server, stop early, a work directory) do not apply.
 	run.Env = append(os.Environ(), "DATABASE_URL="+db, "WALKTHROUGH_PAUSE=0", "WALKTHROUGH_BIN="+bin,
-		"WALKTHROUGH_API_ADDR="+addrs[0], "WALKTHROUGH_ADMIN_ADDR="+addrs[1], "WALKTHROUGH_KEEP=0", "WALKTHROUGH_UNTIL=", "WALKTHROUGH_DIR=")
+		"WALKTHROUGH_API_ADDR="+addrs[0], "WALKTHROUGH_ADMIN_ADDR="+addrs[1], "WALKTHROUGH_MODEL_ADDR="+addrs[2], "WALKTHROUGH_KEEP=0", "WALKTHROUGH_UNTIL=", "WALKTHROUGH_DIR=")
 	start := time.Now()
 	out, err := run.CombinedOutput()
 	if err != nil {
 		t.Fatalf("walkthrough: %v after %s\n%s", err, time.Since(start).Round(time.Second), tail(string(out), 120))
 	}
-	for _, want := range []string{"Step 15 — GR/IR maintenance", "Step 16 — SAP's open down payment", "Step 17 — The audit trail", "none failed"} {
+	for _, want := range []string{"Step 15 — GR/IR maintenance", "Step 16 — SAP's open down payment", "Step 17 — The audit trail", "Step 18 — A scanned invoice above the request limit is captured by upload", "none failed"} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("walkthrough output: got\n%s\nwant it to contain %q", tail(string(out), 40), want)
 		}

@@ -169,7 +169,9 @@ codes by the repository layer; a raw database message never reaches a client.
 A refusal whose figures a client must show carries them as fields of the
 problem, never only in `detail`: `payables.tax_mismatch` carries
 `calculated_tax` (the tax stated, the tax its codes' rates give, and each
-code's; ADR-0052 decision D3, T73e2).
+code's; ADR-0052 decision D3, T73e2), and `payables.match_outdated` carries
+`match_issues` (the issues the match at posting finds that its basis did
+not show, as `MatchIssue`s; T73e3).
 Each operation lists the codes its handler can answer in `x-problem-codes`,
 and the document lists those the request pipeline can answer on any
 operation (authentication, authorization, rate limits, idempotency,
@@ -435,7 +437,7 @@ once the pilot partner consumes `/v1`, only operations marked
 |---|---|
 | Requests per tenant | 2,000/s sustained, burst 10,000 |
 | Requests per principal | 50/s (agents configurable per profile) |
-| Request body | 5 MB (documents are stored in object storage and read back through `GET .../document` and `.../content`; larger ones, up to 50 MB, go through `POST /v1/uploads`: a presigned `PUT` to the store, or a signed path on the API, then `upload_id` in the consuming operation, ADR-0020) |
+| Request body | 5 MB (documents are stored in object storage and read back through `GET .../document` and `.../content`; larger ones, up to 50 MB, go through `POST /v1/uploads`: a presigned `PUT` to the store, or a signed path on the API, which a client asks for with `via: api` whatever the store and which streams the bytes into the store, then `upload_id` in the consuming operation, ADR-0020) |
 | Lines per document | 10,000 (larger loads use import operations) |
 | `page_size` | 500 |
 

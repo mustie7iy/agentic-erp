@@ -598,9 +598,11 @@ type Handler interface {
 	//
 	// Starts an upload of a document too large for a request body (04 §4.11): the answer names a `url` to
 	// `PUT` the bytes to, with the `headers` to send, within `expires_at`; the URL is absolute when it
-	// points at object storage, or a path on this API. The upload is then named by `upload_id` in the
-	// operation that consumes it (`POST /v1/supplier-invoices:capture` for `supplier_invoice`). 503 while
-	// the server has no object storage.
+	// points at object storage, or a path on this API. `via: api` asks for the path on this API whatever
+	// the store, for a client that must not reach the object store (ADR-0020); the answer's `via` says
+	// which was given. The upload is then named by `upload_id` in the operation that consumes it
+	// (`POST /v1/supplier-invoices:capture` for `supplier_invoice`). 503 while the server has no object
+	// storage.
 	//
 	// POST /v1/uploads
 	CreateUpload(ctx context.Context, req *UploadCreate, params CreateUploadParams) (CreateUploadRes, error)
@@ -1184,7 +1186,8 @@ type Handler interface {
 	GetSodRule(ctx context.Context, params GetSodRuleParams) (GetSodRuleRes, error)
 	// GetSupplierInvoice implements getSupplierInvoice operation.
 	//
-	// Returns one supplier invoice. Expandable: `supplier`.
+	// Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`).
+	// Expandable: `supplier`.
 	//
 	// GET /v1/supplier-invoices/{id}
 	GetSupplierInvoice(ctx context.Context, params GetSupplierInvoiceParams) (GetSupplierInvoiceRes, error)
@@ -2212,7 +2215,8 @@ type Handler interface {
 	// again under its order items' locks: 409 `payables.match_outdated`, the invoice left parked, when
 	// documents posted on the order since (another invoice past the received quantity, a credit memo past
 	// the invoiced one), a change of the order or of the tolerances leave it with an issue its clean
-	// match, or the match its exception was approved on, did not have.
+	// match, or the match its exception was approved on, did not have; the problem's `match_issues` are
+	// those issues.
 	//
 	// POST /v1/supplier-invoices/{id}:post
 	PostSupplierInvoice(ctx context.Context, req OptSupplierInvoicePost, params PostSupplierInvoiceParams) (PostSupplierInvoiceRes, error)

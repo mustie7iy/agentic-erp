@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"net/url"
+	"slices"
 	"strconv"
 	"time"
 
@@ -85,6 +86,7 @@ type InvoiceList struct {
 	More      string
 	Refusal   *Refusal
 	Invalid   bool
+	Capture   bool // the person may capture an invoice from its document (advisory)
 }
 
 // QueuePath is the queue's path with the query, "" values left out.
@@ -271,6 +273,7 @@ type InvoicePage struct {
 	Header     InvoiceHeader
 	AgentMade  bool // an agent entered it: a proposal for a person to check
 	Lines      []Line
+	Tax        *TaxFigures // the tax its codes' rates give, beside the tax it states; nil when the API gives none
 	HasOrder   bool
 	Match      *MatchView
 	MatchError *Refusal
@@ -440,17 +443,34 @@ func quantity(value, unit string) templ.Component {
 	return Text(func(ctx context.Context) string { return decimal(ctx, value) + " " + unit })
 }
 
-// The fields of an invoice's change form (T73e2), the API's names: the
-// header's, and each line's, repeated in the lines' order.
+// The fields of an invoice's change form (T73e2, T73e3), the API's names:
+// the header's, and each line's, repeated in the lines' order.
 const (
 	FieldSupplierReference = "supplier_reference"
 	FieldInvoiceDate       = "invoice_date"
 	FieldGross             = "gross_amount"
 	FieldTax               = "tax_amount"
+	FieldItemOrder         = "item_order_item"
 	FieldItemDescription   = "item_description"
 	FieldItemQuantity      = "item_quantity"
+	FieldItemUnit          = "item_unit"
 	FieldItemAmount        = "item_amount"
 	FieldItemTaxCode       = "item_tax_code"
+	FieldItemAccount       = "item_account"
+	FieldItemCostCenter    = "item_cost_center"
+	FieldItemProfit        = "item_profit_center"
+	// FieldItemFrom is the invoice's line a line of the form shows, by its
+	// place when the form was opened; empty for one added in the form.
+	FieldItemFrom = "item_from"
+	// FieldItemRemove leaves the line of its value's number out.
+	FieldItemRemove = "item_remove"
+	// The ids of an opened line's account and centers, which the form
+	// shows by number and code as far as the company's pages read hold
+	// them: whether another person changed a line is decided by what the
+	// invoice holds, not by what a page read showed (T73e3).
+	FieldItemAccountID    = "item_account_id"
+	FieldItemCostCenterID = "item_cost_center_id"
+	FieldItemProfitID     = "item_profit_center_id"
 	// FieldWas prefixes a field's value when the form was opened, sent
 	// beside it so the change is what the person changed (T73e2).
 	FieldWas = "was_"
@@ -458,9 +478,10 @@ const (
 
 // InvoiceForm is a parked invoice's change (updateSupplierInvoice,
 // ADR-0052 §7): its ETag as If-Match and a fresh idempotency key, its
-// header and lines as typed with what is wrong with them, and the API's
-// refusal. Lines are changed, never added or left out: each keeps its
-// order item, unit and account.
+// header and lines as typed with what is wrong with them, the lines it
+// was opened with, and the API's refusal. Lines are changed, added and
+// left out: a line of an order item takes the order item's account and
+// cost center.
 type InvoiceForm struct {
 	Action, Back string
 	Number       string
@@ -476,24 +497,35 @@ type InvoiceForm struct {
 	Errors       map[string]i18n.Key // by the header's field
 	LinesError   i18n.Key
 	Items        []ItemInput
+	HasOrder     bool     // the invoice is on a purchase order: its lines name order items
+	Accounts     []Option // the company's accounts, suggested by number
 	Refusal      *Refusal
-	Was          map[string]string // the header's values the form was opened with, by field
+	Was          map[string]string   // the header's values the form was opened with, by field
+	Opened       []map[string]string // the lines' values the form was opened with, by field, in their order
 }
 
-// ItemInput is one line of an invoice's change: its number, its order
-// item (0: none) and unit, which do not change here, and its fields as
-// typed with what is wrong with them and what the API refused.
+// CanAdd reports whether the form takes another line.
+func (f InvoiceForm) CanAdd() bool { return len(f.Items) < MaxFormLines }
+
+// ItemInput is one line of an invoice's change: its place in the form, the
+// invoice's line it shows (0 for one added), its fields as typed with what
+// is wrong with them and what the API refused, and whether it has the
+// focus (just added, or in a line's place that was left out).
 type ItemInput struct {
-	No          int // its place in the form, from 1
-	OrderItem   int32
-	Unit        string
-	Description string
-	Quantity    string
-	Amount      string
-	TaxCode     string
-	Errors      map[string]i18n.Key
-	Refused     []FieldRefusal
-	Was         map[string]string // its values the form was opened with, by field
+	No           int // its place in the form, from 1
+	From         int
+	OrderItem    string
+	Description  string
+	Quantity     string
+	Unit         string
+	Amount       string
+	TaxCode      string
+	Account      string
+	CostCenter   string
+	ProfitCenter string
+	Errors       map[string]i18n.Key
+	Refused      []FieldRefusal
+	Focus        bool
 }
 
 // headerFields are the header's fields of an invoice's change, sent with
@@ -501,16 +533,51 @@ type ItemInput struct {
 var headerFields = []string{FieldSupplierReference, FieldInvoiceDate, FieldPostingDate, FieldTaxDate, FieldGross, FieldTax}
 
 // itemFields are a line's fields in the change form, with the API's name
-// of each and its label.
+// of each and its label; the order item's only on an invoice on an order.
 var itemFields = []struct {
 	Name, API   string
 	Label, Hint i18n.Key
 }{
+	{FieldItemOrder, "po_item_no", i18n.LineOrderItem, i18n.ItemOrderHint},
 	{FieldItemDescription, "description", i18n.LineDescription, i18n.ItemDescriptionHint},
 	{FieldItemQuantity, "quantity", i18n.LineQuantity, i18n.ItemQuantityHint},
+	{FieldItemUnit, "quantity.unit", i18n.InvoiceEditUnit, i18n.ItemUnitHint},
 	{FieldItemAmount, "amount", i18n.LineAmount, i18n.ItemAmountHint},
 	{FieldItemTaxCode, "tax_code", i18n.LineTaxCode, i18n.ItemTaxCodeHint},
+	{FieldItemAccount, "account_id", i18n.EntryLineAccount, i18n.ItemAccountHint},
+	{FieldItemCostCenter, "cost_center_id", i18n.EntryLineCostCenter, i18n.ItemCostCenterHint},
+	{FieldItemProfit, "profit_center_id", i18n.EntryLineProfitCenter, i18n.ItemProfitCenterHint},
 }
+
+// ItemFieldNames are a line's fields' names, in the form's order.
+func ItemFieldNames() []string {
+	out := make([]string, len(itemFields))
+	for i, f := range itemFields {
+		out[i] = f.Name
+	}
+	return out
+}
+
+// OpenedFieldNames are the fields of a line the form was opened with:
+// its fields, and its account's and centers' ids.
+func OpenedFieldNames() []string {
+	return append(ItemFieldNames(), FieldItemAccountID, FieldItemCostCenterID, FieldItemProfitID)
+}
+
+// shownFields are the line's fields the form shows: the order item's only
+// on an invoice on an order.
+func shownFields(hasOrder bool) []string {
+	out := ItemFieldNames()
+	if !hasOrder {
+		out = out[1:]
+	}
+	return out
+}
+
+// itemLabel and itemHint are a line's field's label and hint, by its name.
+func itemLabel(name string) i18n.Key { return itemFields[slices.Index(ItemFieldNames(), name)].Label }
+
+func itemHint(name string) i18n.Key { return itemFields[slices.Index(ItemFieldNames(), name)].Hint }
 
 // ItemFieldLabel is the label of a line's field by the API's name of it,
 // "" for one the form does not change.
@@ -526,34 +593,77 @@ func ItemFieldLabel(api string) i18n.Key {
 // itemID is a line's field's id.
 func itemID(no int, field string) string { return "item-" + strconv.Itoa(no) + "-" + field }
 
-// itemValue is a line's value of the field.
-func itemValue(it ItemInput, name string) string {
+// ItemValue is a line's value of the field.
+func ItemValue(it ItemInput, name string) string {
 	switch name {
+	case FieldItemOrder:
+		return it.OrderItem
 	case FieldItemDescription:
 		return it.Description
 	case FieldItemQuantity:
 		return it.Quantity
+	case FieldItemUnit:
+		return it.Unit
 	case FieldItemAmount:
 		return it.Amount
-	default:
+	case FieldItemTaxCode:
 		return it.TaxCode
+	case FieldItemAccount:
+		return it.Account
+	case FieldItemCostCenter:
+		return it.CostCenter
+	default:
+		return it.ProfitCenter
 	}
 }
 
 // itemInput is a line's input: its id, name and value, its hint and its
-// error by id, aria-invalid with an error, a number's input mode.
-func itemInput(it ItemInput, name string) templ.Attributes {
+// error by id, aria-invalid with an error, a number's input mode, the
+// accounts' suggestions on the account, and the focus on the first field
+// of a line just added.
+func itemInput(it ItemInput, name string, first bool) templ.Attributes {
 	id := itemID(it.No, name)
 	hint := id + "-hint"
-	a := templ.Attributes{"id": id, "name": name, "type": "text", "value": itemValue(it, name), "class": "input", "translate": "no",
+	a := templ.Attributes{"id": id, "name": name, "type": "text", "value": ItemValue(it, name), "class": "input", "translate": "no",
 		"autocomplete": "off", "aria-describedby": hint}
 	if it.Errors[name] != "" {
 		a["aria-describedby"], a["aria-invalid"] = hint+" "+id+"-error", "true"
 	}
-	if name == FieldItemQuantity || name == FieldItemAmount {
+	switch name {
+	case FieldItemQuantity, FieldItemAmount:
 		a["inputmode"] = "decimal"
+	case FieldItemOrder:
+		a["inputmode"] = "numeric"
+	case FieldItemAccount:
+		a["list"] = "invoice-accounts"
+	}
+	if first && it.Focus {
+		a["autofocus"] = true
 	}
 	return a
+}
+
+// itemRemoveBox leaves the line out: on the next send without htmx, at
+// once with it, which posts the form for its lines (ADR-0052 §8).
+func itemRemoveBox(action string, it ItemInput) templ.Attributes {
+	return templ.Attributes{"type": "checkbox", "id": itemID(it.No, FieldItemRemove), "name": FieldItemRemove, "value": strconv.Itoa(it.No),
+		"class": "checkbox__input", "hx-post": string(templ.URL(action)), "hx-trigger": "change", "hx-target": "#invoice-items", "hx-swap": "outerHTML"}
+}
+
+// itemAddButton adds a line: a real submit without htmx, the lines'
+// section alone swapped with it.
+func itemAddButton(action string) templ.Attributes {
+	return templ.Attributes{"type": "submit", "name": FieldOp, "value": OpAdd, "class": "button button--secondary", "id": "invoice-add-button",
+		"hx-post": string(templ.URL(action)), "hx-target": "#invoice-items", "hx-swap": "outerHTML"}
+}
+
+// itemFrom is the hidden field of the invoice's line a line shows.
+func itemFrom(it ItemInput) templ.Attributes {
+	from := ""
+	if it.From > 0 {
+		from = strconv.Itoa(it.From)
+	}
+	return hidden(FieldItemFrom, from)
 }
 
 // TaxFigures are payables.tax_mismatch's figures (ADR-0052, decision D3):

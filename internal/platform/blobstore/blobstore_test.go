@@ -1,8 +1,11 @@
 package blobstore_test
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -506,5 +509,44 @@ func TestDirDeleteFailsClosed(t *testing.T) {
 				t.Error("stat: got nil, want the sidecar's error")
 			}
 		})
+	}
+}
+
+// TestPutStream: both stores write an object from a reader, without its
+// bytes in memory (the API-hosted upload, ADR-0020 As built 2026-11-01),
+// keep it write-once, and S3 refuses bytes that do not match the size and
+// hash the stream declared.
+func TestPutStream(t *testing.T) {
+	ctx := context.Background()
+	srv := blobstoretest.New(t)
+	content := []byte("%PDF-1.7 streamed")
+	sum := sha256.Sum256(content)
+	for name, store := range map[string]blobstore.Streamer{"dir": blobstore.Dir{Root: t.TempDir()}, "s3": srv.Store()} {
+		t.Run(name, func(t *testing.T) {
+			const key = "tenants/x/uploads/s1"
+			// A reader that is no bytes.Reader: the request cannot measure it itself.
+			if err := store.PutStream(ctx, key, io.MultiReader(bytes.NewReader(content)), int64(len(content)), sum, blobstore.PutOptions{ContentType: "application/pdf"}); err != nil {
+				t.Fatalf("put stream: %v", err)
+			}
+			got, ct, err := store.(blobstore.Store).Get(ctx, key)
+			if err != nil {
+				t.Fatalf("get: %v", err)
+			}
+			if string(got) != string(content) {
+				t.Errorf("content: got %q, want %q", got, content)
+			}
+			if ct != "application/pdf" {
+				t.Errorf("content type: got %q, want application/pdf", ct)
+			}
+			if err := store.PutStream(ctx, key, bytes.NewReader(content), int64(len(content)), sum, blobstore.PutOptions{}); !errors.Is(err, blobstore.ErrExists) {
+				t.Errorf("second put: got %v, want %v", err, blobstore.ErrExists)
+			}
+		})
+	}
+	other := sha256.Sum256([]byte("other"))
+	err := srv.Store().PutStream(ctx, "tenants/x/uploads/s2", bytes.NewReader(content), int64(len(content)), other, blobstore.PutOptions{})
+	pgtest.WantErr(t, err, "BadDigest")
+	if _, ok := srv.Object("tenants/x/uploads/s2"); ok {
+		t.Error("bytes that do not match their hash were stored")
 	}
 }

@@ -11,9 +11,11 @@
 package blobstore
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -74,6 +76,19 @@ type Presigner interface {
 	// PresignPut returns a URL a client may PUT the object to within
 	// expires, sending exactly the content type given.
 	PresignPut(ctx context.Context, key, contentType string, expires time.Duration) (string, error)
+}
+
+// Streamer is a store that writes an object from a reader without holding
+// it in memory: the API-hosted upload of a document of up to 50 MB
+// (ADR-0020 As built 2026-11-01). Both stores are one. size and sum (the
+// SHA-256 of the bytes) describe what body yields: S3 sends them before the
+// bytes (Content-Length, the signed payload hash and the checksum Object
+// Lock requires), so the caller has measured the body first, and S3
+// refuses bytes that do not match them.
+type Streamer interface {
+	// PutStream writes the object under key from body; ErrExists when the
+	// key is taken.
+	PutStream(ctx context.Context, key string, body io.Reader, size int64, sum [32]byte, opts PutOptions) error
 }
 
 // Kinds of objects, the second key segment after the tenant.
@@ -146,7 +161,7 @@ func (d Dir) path(key string) string { return filepath.Join(d.Root, filepath.Fro
 // not run in parallel.
 var (
 	createTemp   = os.CreateTemp
-	writeContent = (*os.File).Write
+	writeContent = (*os.File).ReadFrom
 	link         = os.Link
 	rename       = os.Rename
 )
@@ -173,6 +188,16 @@ const tempMark = "#"
 // place whole, so it is either missing or complete, never a content type
 // without the retention that follows it.
 func (d Dir) Put(_ context.Context, key string, content []byte, opts PutOptions) error {
+	return d.put(key, bytes.NewReader(content), opts)
+}
+
+// PutStream implements Streamer as Put does, copying body to the temporary
+// file; size and sum are S3's to send and are not needed here.
+func (d Dir) PutStream(_ context.Context, key string, body io.Reader, _ int64, _ [32]byte, opts PutOptions) error {
+	return d.put(key, body, opts)
+}
+
+func (d Dir) put(key string, body io.Reader, opts PutOptions) error {
 	if err := checkKey(key); err != nil {
 		return err
 	}
@@ -180,7 +205,7 @@ func (d Dir) Put(_ context.Context, key string, content []byte, opts PutOptions)
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return fmt.Errorf("blobstore: %w", err)
 	}
-	tmp, err := writeTemp(p, content)
+	tmp, err := writeTemp(p, body)
 	// Once linked, or after a failed write, the temporary name is not needed.
 	// A failed remove leaves a file the key's Delete removes; the key stays free.
 	defer func() { _ = os.Remove(tmp) }()
@@ -222,7 +247,7 @@ func writeSidecar(p string, opts PutOptions, place func(string, string) error) e
 	if !opts.RetainUntil.IsZero() {
 		meta += opts.RetainUntil.UTC().Format(time.RFC3339) + "\n"
 	}
-	tmp, err := writeTemp(p, []byte(meta))
+	tmp, err := writeTemp(p, strings.NewReader(meta))
 	// Placed or not, the temporary name is not needed; see Put.
 	defer func() { _ = os.Remove(tmp) }()
 	if err != nil {
@@ -236,7 +261,7 @@ func writeSidecar(p string, opts PutOptions, place func(string, string) error) e
 // its name ("" when none was created). The directory is not synced, so a
 // crash just after a Put may still lose the new name (Dir is a development
 // store; S3 makes its writes durable).
-func writeTemp(p string, content []byte) (string, error) {
+func writeTemp(p string, content io.Reader) (string, error) {
 	f, err := createTemp(filepath.Dir(p), filepath.Base(p)+tempMark+"*")
 	if err != nil {
 		return "", err

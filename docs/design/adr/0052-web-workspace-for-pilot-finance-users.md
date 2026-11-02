@@ -2961,6 +2961,178 @@ this ADR, the contract or T73j's behaviour settled it:
   listed all have a line on the account, and those lines in the row's
   currency sum to its debits less credits.
 
+## Built in T73e3, capture by upload (2026-11-01)
+The upload half of T73e3, after the product owner's decision of
+2026-11-01 (security posture): the API issues its own signed upload path
+on S3 too, erp-web streams the bytes through erp-router to erp-server on
+it without holding the document, the cap is the API's 50 MB enforced while
+it streams, and erp-web never follows a presigned bucket URL, its egress
+as narrow as before. §7's "signed path variant, relayed by erp-web" as
+built:
+- **Contract.** `createUpload` takes `via: api` and answers the API's own
+  signed path on any store, `via` in the answer saying which (ADR-0020 As
+  built 2026-11-01: why a field the client asks with, and the path's
+  protections, which the API keeps on S3 as on the directory store).
+- **The page.** `GET /invoices/capture` (two reads: `getCurrentPrincipal`,
+  `listLegalEntities`), linked from the queue for a person holding
+  `payables.invoice.capture` (advisory): the company the invoice is
+  addressed to (none chosen for the person when there are several) and
+  the document. `POST /invoices/capture` reads the multipart form as it
+  arrives (`csrfStream`): the CSRF token, the idempotency key and the
+  company come first, the document last, so the token is checked before a
+  byte of the document is read; a form whose token is missing, comes after
+  the document or is not the session's is refused as a forgery. The
+  document's first 512 bytes decide its type (PDF, PNG, JPEG or XML, as
+  capture's own detection), then `createUpload` (via api, a key derived
+  from the form's) and the document streamed to the path the upload
+  names: resolved against erp-web's own address of the API (the router),
+  with the upload's headers exactly and the person's bearer token, which
+  the router routes by; the client follows no redirect, and an upload
+  whose URL is not the API's signed path for it (a presigned bucket URL,
+  another upload's path, a path without its signature) is refused before
+  a byte is sent. erp-web holds a buffer of the document at a time, never
+  all of it, and cuts it at the upload's `max_bytes`; the whole form is bounded by
+  50 MB and the form's fields. Then `captureSupplierInvoice` with the
+  upload and the form's key: done, the person lands on the invoice;
+  while its operation runs, on `GET /invoices/capture?operation=…`
+  (`getCurrentPrincipal`, `getOperation`), which htmx polls every two
+  seconds (a status already shown answered 204, as a run's progress),
+  going to the invoice once the operation names it (HX-Redirect; a link
+  to check again without htmx). The progress lives under the capture's
+  path with a query: a path of its own under `/invoices/` collides with
+  an invoice's actions (`/invoices/{id}/{verb}`) in Go's mux.
+- **Sent again.** A form sent twice creates no second upload (the derived
+  key replays `createUpload`) and finds its upload holding a document
+  (409 `payables.upload_closed`, before a byte is taken). The document sent
+  now may not be that one (a form restored by Back and sent with another
+  file), and erp-web cannot tell without reading it, so it is never taken
+  for it (go-reviewer, round 1): the form is shown again, fresh, saying it
+  was sent before (409), with a link to the invoice captured then when
+  `getUpload` names one; the person opens it or sends the document again.
+  The capture's own key could not replay the first answer anyway: the
+  typed client sends a multipart body under a fresh boundary each time, so
+  the API takes it for another request (`request.idempotency_key_reused`;
+  the same holds for `importBankStatements`, reported as pre-existing).
+- **Refusals.** Said on the form in the person's words: no document, one
+  of another type, no company, larger than 50 MB (413, nothing stored);
+  the API's codes of the capture (`payables.unreadable_document`,
+  `already_captured`, `capture_needs_order`, `document_too_large`,
+  `upload_expired`, `upload_url_expired`, `agents.ai_disabled`,
+  `documents_withheld`, `budget_exhausted`) before the invoice screens'.
+- **Network.** No new egress: erp-web reaches the router alone, as every
+  call does; the chart and network policy are unchanged.
+- **A refused form** holds no file (a browser does not keep it); it says to choose the
+  file again, as the statement upload does. The form sits on the page's
+  white rather than the filters' grey, where the error text's red is
+  4.3:1, below WCAG 2.2's 4.5:1 (axe found it on this form; the statement
+  upload's form has the same contrast, pre-existing).
+- **Decided by default (for the product owner to overrule):** the
+  30-second read timeouts of erp-web, the router and erp-server are
+  unchanged and bound how long an upload may take (ADR-0020 As built).
+- **Tests.** `TestCaptureByUpload` (the S3 double behind the real API:
+  the document in the bucket under the upload, via api, the upload used,
+  the form sent again shown again, fresh, with a 409 and a link to the
+  invoice captured then), `TestCaptureRefusals`
+  (each refusal before any call, as a forgery and by the API, in French,
+  a person who may not capture), `TestCaptureTooLarge` (50 MB and more,
+  streamed: 413, nothing in the bucket), `TestCaptureStubbed` (a bucket
+  URL never followed, the path's refusals and failures, a redirect not
+  followed, a capture running, sent again with the same document or
+  another), `TestCaptureWait`,
+  `TestRelay`; the browser suite runs axe at zero on the form and the
+  progress in English, French and both pseudo-locales at 1280 and 390 px
+  (`TestCaptureInTheBrowser`), and walks, in French on a phone, a form
+  refused on its fields, a scan captured to its invoice, and a running
+  capture polled to its invoice (`TestCaptureJobInTheBrowser`). The
+  walkthrough's step 18 captures a 6 MB scan through the API's path.
+
+## Built in T73e3 (2026-11-01)
+Invoices beyond T73e2, first slice: a parked invoice's lines added, left
+out and changed whole, its tax per code outside a refusal, and an
+outdated match's issues as fields (decision D3's other half). What it
+settled:
+- **Contract.** `Problem` gains `match_issues` (`MatchIssue`s), set by
+  `payables.match_outdated` alone: the issues the match under the order
+  items' locks finds that the clean match, or the match the exception was
+  approved on, did not show (`problem.Problem.MatchIssues`, built in
+  `payables.matchOutdated`). `SupplierInvoice` gains `calculated_tax`
+  (`CalculatedTax`, the tax stated, the tax its codes' rates give on its
+  tax date and each code's), given by `getSupplierInvoice` alone and
+  calculated on each read (`payables.calculatedTax`): lists and writes
+  would calculate it for every invoice they answer. It is left out when
+  no item carries a code and an amount, and when the codes cannot be
+  calculated on the tax date (a code no longer an input tax code of the
+  legal entity then, amounts out of range), without making a problem the
+  read never answers (`codesDocument` reports the unknown code,
+  `readFigures` money's overflow and a code the calculator cannot
+  calculate on the tax date): posting says why. The read's
+  `x-problem-codes` gain `config.not_bootstrapped`, the configuration it
+  reads. Both additive. The walkthrough's step 5 reads the duplicate
+  invoice's `match_issues`, step 16 the final invoice's `calculated_tax`;
+  04 §4.6 names both fields.
+- **On the pages.** An invoice's page shows "Tax per code" from the read
+  (`TaxFiguresView`, as a refusal's), no further call; every refusal's
+  notice lists an outdated match's issues as the match's section does
+  (the code's words, the line, the API's explanation shown as data). The
+  payables codes a line's change now reaches (`unknown_po_item`,
+  `unit_mismatch`, `account_required`, `account_not_postable`,
+  `assignment_from_order`, `unknown_unit`, `po_item_required`) have the
+  invoice screens' own messages.
+- **Lines.** Each line names its order item (on an invoice on an order),
+  description, quantity, unit, net amount, tax code, account by number
+  and cost and profit center by code, as SAP's MIRO does; the form reads
+  the company's accounts, cost centers and profit centers besides the
+  principal and the invoice (five calls), shows an id they do not hold as
+  it is, and looks codes up when sent as the entry form does
+  (`resolveItems`, `lookUp`). A line is added by the form's button and
+  left out by its box: without htmx the button renders the form again and
+  a box takes effect on the next send; with htmx the lines' section is
+  swapped (`InvoiceItemsSwap`, the buttons out of band), the new line's
+  first field focused. A line added and left empty is not sent; an
+  invoice left without lines is refused before any call. A line names
+  the invoice's line it shows (`item_from`), and the lines the form was
+  opened with travel as a block of their own (`was_…`, with each line's
+  account and centers by id), so adding or leaving out lines keeps them,
+  and whether another person changed the lines is decided by what the
+  invoice holds, not by what the company's pages read showed (go-reviewer,
+  round 1). A line whose order item changed takes the new order item's
+  account, cost center and tax code unless the person changed them too
+  (the API fills them from the order item); one leaving its order item
+  keeps the account it shows.
+- **Lines after a 412 (decided by default, for the product owner to
+  overrule).** The API numbers lines by their place, so a line added or
+  left out has no identity to put another person's change on field by
+  field. `rebaseItems` takes the person's lines when nobody else changed
+  the lines; the invoice's when the person changed none; while the person
+  added or left out no line and the invoice has as many lines as when the
+  form was opened, each line with the person's changes on it field by
+  field by its place, as T73e2 did (another person who left one line out
+  and added another meanwhile is not told apart: the tracker item of
+  src `review:batch38`); otherwise, both having changed the lines,
+  the invoice's lines as they are now without the person's changes to
+  them, said on the form (409, no call), the person's header changes kept
+  at the invoice's version now. This is the entry form's rule for a
+  parked entry's lines (lane entrylost).
+- **Permissions.** The AP clerk's role needs `ledger.account.read` and
+  `ledger.cost_center.read` to see numbers and codes rather than ids
+  (`fixture.InvoicePermissions` gains both); without them the form still
+  works on ids.
+- **Not built (T73e4).** Clearing down payments did not fit the slice:
+  the person chooses the supplier's paid down payments (their ledger
+  items, `listOpenItems` with special G/L `A`) on the posted invoice, a
+  screen of its own; no money rule is open. It and the pilot AP clerk's
+  walk-through are T73e4. Capture by upload, which waited for the product
+  owner when this slice was cut, was decided (2026-11-01) and is built:
+  "Built in T73e3, capture by upload" above (batch 38's integration).
+- **Tests.** `TestCalculatedTaxOnRead`, `TestReadFigures` and the
+  extended `TestTaxCodeChangedBeforePosting`, `TestCodeWithdrawnBeforePosting`
+  and `TestInvoiceOnARemovedOrderItem` in payables; `TestChangeInvoiceLines`,
+  `TestChangeInvoiceLinesMeanwhile`, `TestChangeInvoiceOrderItems`,
+  `TestChangeInvoiceCenters`, `TestTaxAndIssuesShown`, `TestOrderItemChanged`
+  and `TestRebaseItems` in the workspace; `TestInvoiceLinesInTheBrowser`
+  adds and leaves out a line with htmx, axe at zero at 1280 px in English
+  and 390 px in French, and saves a line of an order item.
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF

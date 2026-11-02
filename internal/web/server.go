@@ -59,6 +59,7 @@ type Server struct {
 	Now     func() time.Time // nil: the wall clock
 
 	nameCache nameCache // principals' names per session (ADR-0052 G3)
+	relay     relay     // where a captured document's bytes go: the API's signed upload path (capture_relay.go)
 }
 
 // New is the workspace for cfg: its catalog (the pseudo-locales outside
@@ -108,9 +109,11 @@ func newServer(cfg Config, build buildinfo.Info, log *slog.Logger, catalog func(
 	if s.Assets, err = assets(); err != nil {
 		return nil, err
 	}
-	if s.API, err = NewAPI(cfg.APIURL.String(), apiClient(cfg.APIDial, nil, cfg.Identity)); err != nil {
+	hc := apiClient(cfg.APIDial, nil, cfg.Identity)
+	if s.API, err = NewAPI(cfg.APIURL.String(), hc); err != nil {
 		return nil, err
 	}
+	s.relay = newRelay(cfg.APIURL, hc)
 	return s, nil
 }
 
@@ -175,26 +178,8 @@ func (s *Server) mux() *http.ServeMux {
 	for verb := range decideOps {
 		route("POST "+ui.ApprovalsPath+"/{id}/"+verb, s.signedIn(s.csrf(s.decide(verb))))
 	}
-	route("GET "+ui.InvoicesPath, s.signedIn(s.invoices))
-	route("GET "+ui.InvoicesPath+"/{id}", s.signedIn(s.invoice))
-	route("GET "+ui.InvoicesPath+"/{id}/order", s.signedIn(s.order))
-	route("GET "+ui.InvoicesPath+"/{id}/document", s.signedIn(s.document))
-	route("GET "+ui.InvoicesPath+"/{id}/edit", s.signedIn(s.editInvoice))
-	route("POST "+ui.InvoicesPath+"/{id}/edit", s.signedIn(s.csrf(s.saveInvoice)))
-	for verb := range actionOps {
-		route("POST "+ui.InvoicesPath+"/{id}/"+verb, s.signedIn(s.csrf(s.act(verb))))
-	}
-	route("POST "+ui.InvoicesPath+"/{id}/recommendations/{rec}/decide", s.signedIn(s.csrf(s.decideRecommendation)))
-	route("GET "+ui.BankPath, s.signedIn(s.statements))
-	route("POST "+ui.UploadPath, s.signedIn(s.csrfUpload(s.importStatement)))
-	route("GET "+ui.UploadPath+"/{id}", s.signedIn(s.statement))
-	for verb := range lineOps {
-		route("POST "+ui.UploadPath+"/{id}/"+verb, s.signedIn(s.csrf(s.decideLine(verb))))
-	}
-	route("POST "+ui.UploadPath+"/{id}/"+rulesVerb, s.signedIn(s.csrf(s.rerunRules)))
-	route("GET "+ui.UploadPath+"/{id}/lines/{line}/payments", s.signedIn(s.linePayments))
-	route("GET "+ui.UploadPath+"/{id}/file", s.signedIn(s.statementFile))
-	route("GET "+ui.BankPath+"/house-banks/{id}/reconciliation", s.signedIn(s.reconciliation))
+	s.invoiceRoutes(route)
+	s.bankRoutes(route)
 	s.paymentRoutes(route)
 	s.closeRoutes(route)
 	s.journalRoutes(route)
@@ -207,6 +192,37 @@ func (s *Server) mux() *http.ServeMux {
 	route("GET /static/", s.Assets.ServeHTTP)
 	route("/", s.anyone(s.notFound))
 	return mux
+}
+
+// invoiceRoutes routes the supplier invoices' pages (T73e), the capture
+// by upload's included.
+func (s *Server) invoiceRoutes(route func(string, http.HandlerFunc)) {
+	route("GET "+ui.InvoicesPath, s.signedIn(s.invoices))
+	route("GET "+ui.CapturePath, s.signedIn(s.capture))
+	route("POST "+ui.CapturePath, s.signedIn(s.csrfStream(s.captureDocument)))
+	route("GET "+ui.InvoicesPath+"/{id}", s.signedIn(s.invoice))
+	route("GET "+ui.InvoicesPath+"/{id}/order", s.signedIn(s.order))
+	route("GET "+ui.InvoicesPath+"/{id}/document", s.signedIn(s.document))
+	route("GET "+ui.InvoicesPath+"/{id}/edit", s.signedIn(s.editInvoice))
+	route("POST "+ui.InvoicesPath+"/{id}/edit", s.signedIn(s.csrf(s.saveInvoice)))
+	for verb := range actionOps {
+		route("POST "+ui.InvoicesPath+"/{id}/"+verb, s.signedIn(s.csrf(s.act(verb))))
+	}
+	route("POST "+ui.InvoicesPath+"/{id}/recommendations/{rec}/decide", s.signedIn(s.csrf(s.decideRecommendation)))
+}
+
+// bankRoutes routes the bank statements' pages (T73g).
+func (s *Server) bankRoutes(route func(string, http.HandlerFunc)) {
+	route("GET "+ui.BankPath, s.signedIn(s.statements))
+	route("POST "+ui.UploadPath, s.signedIn(s.csrfUpload(s.importStatement)))
+	route("GET "+ui.UploadPath+"/{id}", s.signedIn(s.statement))
+	for verb := range lineOps {
+		route("POST "+ui.UploadPath+"/{id}/"+verb, s.signedIn(s.csrf(s.decideLine(verb))))
+	}
+	route("POST "+ui.UploadPath+"/{id}/"+rulesVerb, s.signedIn(s.csrf(s.rerunRules)))
+	route("GET "+ui.UploadPath+"/{id}/lines/{line}/payments", s.signedIn(s.linePayments))
+	route("GET "+ui.UploadPath+"/{id}/file", s.signedIn(s.statementFile))
+	route("GET "+ui.BankPath+"/house-banks/{id}/reconciliation", s.signedIn(s.reconciliation))
 }
 
 // paymentRoutes routes the payment runs' pages (T73f).
