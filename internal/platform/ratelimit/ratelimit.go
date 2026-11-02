@@ -4,7 +4,9 @@
 // every response to an authenticated request reports the caller's quota as
 // RateLimit-Limit, RateLimit-Remaining and RateLimit-Reset (stated once in
 // the contract's info.description), and a request over quota is refused
-// with 429 and Retry-After before it reaches the database.
+// with 429 and Retry-After before it reaches the database. The API-hosted
+// upload, signed rather than authenticated, is charged to the quota of
+// the tenant its verified URL names (ChargeTenant, ADR-0020).
 package ratelimit
 
 import (
@@ -15,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -144,36 +148,64 @@ func (l *Limiter) Middleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		now := l.now()
-		type check struct {
-			q    Quota
-			key  string
-			what string
-		}
-		tightest := state{remaining: math.MaxInt}
-		var limit Quota
-		for _, c := range []check{{l.Principal, principalKey(claims), "Principal"}, {l.Tenant, claims.TenantID.String(), "Tenant"}} {
-			if !c.q.limited() {
-				continue
-			}
-			s := l.take(c.key, c.q, now)
-			if !s.ok {
-				report(w, c.q, s)
-				p := problem.New(http.StatusTooManyRequests, "request.rate_limited", "Too many requests",
-					fmt.Sprintf("%s quota of %s requests per second exceeded.", c.what, strconv.FormatFloat(c.q.Rate, 'f', -1, 64)))
-				p.RetryAfter = s.retry
-				problem.Write(w, r, p)
-				return
-			}
-			if s.remaining < tightest.remaining {
-				tightest, limit = s, c.q
-			}
-		}
-		if limit.limited() {
-			report(w, limit, tightest)
+		if p := l.admit(w, check{l.Principal, principalKey(claims), "Principal"}, check{l.Tenant, claims.TenantID.String(), "Tenant"}); p != nil {
+			problem.Write(w, r, p)
+			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// ChargeTenant charges one request to the tenant's quota alone, for a
+// route outside authentication whose own credential names the tenant: the
+// API-hosted upload, whose signed URL has no principal (ADR-0020 As
+// built). Call it only once that credential is verified, so nobody spends
+// a tenant's quota by naming it. It reports the quota on w as Middleware
+// does, and over quota returns the same 429 problem for the caller to
+// write; a nil limiter charges nothing.
+func (l *Limiter) ChargeTenant(w http.ResponseWriter, tenant uuid.UUID) error {
+	if l == nil {
+		return nil
+	}
+	if p := l.admit(w, check{l.Tenant, tenant.String(), "Tenant"}); p != nil {
+		return p
+	}
+	return nil
+}
+
+// check is one quota a request is charged to: what names it in a refusal.
+type check struct {
+	q    Quota
+	key  string
+	what string
+}
+
+// admit charges a request to each check in turn and reports the tightest
+// on w, or stops at the first one over quota and returns its 429.
+func (l *Limiter) admit(w http.ResponseWriter, checks ...check) *problem.Problem {
+	now := l.now()
+	tightest := state{remaining: math.MaxInt}
+	var limit Quota
+	for _, c := range checks {
+		if !c.q.limited() {
+			continue
+		}
+		s := l.take(c.key, c.q, now)
+		if !s.ok {
+			report(w, c.q, s)
+			p := problem.New(http.StatusTooManyRequests, "request.rate_limited", "Too many requests",
+				fmt.Sprintf("%s quota of %s requests per second exceeded.", c.what, strconv.FormatFloat(c.q.Rate, 'f', -1, 64)))
+			p.RetryAfter = s.retry
+			return p
+		}
+		if s.remaining < tightest.remaining {
+			tightest, limit = s, c.q
+		}
+	}
+	if limit.limited() {
+		report(w, limit, tightest)
+	}
+	return nil
 }
 
 // principalKey names a principal's bucket. The issuer is quoted so its end

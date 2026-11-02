@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/ratelimit"
 )
 
 // The API's own signed path on an S3 store (via api, ADR-0020 As built
@@ -186,6 +188,56 @@ func TestRelayedUploadCap(t *testing.T) {
 	}
 }
 
+// unread is a body that records whether anything read it.
+type unread struct{ read bool }
+
+func (b *unread) Read([]byte) (int, error) {
+	b.read = true
+	return 0, io.EOF
+}
+
+// TestRelayedUploadQuota: a PUT on the API's path is charged to the
+// request quota of the tenant its URL is signed for, the bucket the API's
+// requests of that tenant spend, and reported with the API's headers. A
+// URL whose signature does not check out is refused without charging any
+// tenant; one over quota is refused with the API's 429 before its body is
+// read.
+func TestRelayedUploadQuota(t *testing.T) {
+	r := newRelay(t)
+	now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	r.e.API = apitest.NewWith(t, func(cfg *app.Config) {
+		cfg.Objects, cfg.Extractor = r.s3.Store(), extractor{e: extraction()}
+		cfg.Limits = &ratelimit.Limiter{Tenant: ratelimit.Quota{Rate: 1, Burst: 3}, Now: func() time.Time { return now }}
+	})
+	first, second := r.create(t), r.create(t) // two of the tenant's three tokens
+	forged := map[string]any{"url": strings.Replace(first["url"].(string), "signature=", "signature=0", 1)}
+	if rec := r.send(t, forged, strings.NewReader(r.pdf), -1); rec.Code != http.StatusForbidden || rec.Header().Get("RateLimit-Limit") != "" {
+		t.Errorf("a forged signature: got %d (RateLimit-Limit %q), want 403 and no quota reported", rec.Code, rec.Header().Get("RateLimit-Limit"))
+	}
+	rec := r.send(t, first, strings.NewReader(r.pdf), -1)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("the tenant's last token, the forged PUT having spent none: got %d %s, want 204", rec.Code, rec.Body)
+	}
+	for name, want := range map[string]string{"RateLimit-Limit": "3", "RateLimit-Remaining": "0", "RateLimit-Reset": "3"} {
+		if got := rec.Header().Get(name); got != want {
+			t.Errorf("received: %s got %q, want %q", name, got, want)
+		}
+	}
+	body := &unread{}
+	rec = r.send(t, second, body, int64(len(r.pdf)))
+	if rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), "request.rate_limited") {
+		t.Errorf("over quota: got %d %s, want 429 request.rate_limited", rec.Code, rec.Body)
+	}
+	for name, want := range map[string]string{"Retry-After": "1", "RateLimit-Limit": "3", "RateLimit-Remaining": "0"} {
+		if got := rec.Header().Get(name); got != want {
+			t.Errorf("over quota: %s got %q, want %q", name, got, want)
+		}
+	}
+	if body.read {
+		t.Error("over quota: the body was read, want it refused first")
+	}
+}
+
 // brokenBody fails after its first bytes, as a client that went away.
 type brokenBody struct{ sent bool }
 
@@ -245,6 +297,7 @@ func TestRelayedUploadFailures(t *testing.T) {
 	})
 	t.Run("every slot taken", func(t *testing.T) { busy(t, serve, uploads(), r) })
 	t.Run("one upload sent twice at once", func(t *testing.T) { twice(t, serve, uploads(), r) })
+	t.Run("a tenant's share of the slots", func(t *testing.T) { share(t, serve, uploads(), r) })
 	t.Run("statements failing", func(t *testing.T) { failingStatements(t, serve, uploads, r) })
 }
 
@@ -274,6 +327,49 @@ func twice(t *testing.T, serve func(*testing.T, *payables.Uploads, map[string]an
 	_ = pw.Close() // a pipe's Close never fails
 	if code := <-done; code != http.StatusNoContent {
 		t.Errorf("the first: got %d, want 204", code)
+	}
+}
+
+// share has one tenant's two uploads hold its share of the four slots,
+// their bodies arriving: the tenant's third is refused with 503 and
+// Retry-After, naming the share; another tenant's upload takes a free
+// slot; once one of the first two is received, the tenant's third is.
+func share(t *testing.T, serve func(*testing.T, *payables.Uploads, map[string]any, io.Reader) *httptest.ResponseRecorder, u *payables.Uploads, r *relayScenario) {
+	t.Helper()
+	other := setup(t)
+	other.API = r.e.API
+	first, second, third := r.create(t), r.create(t), r.create(t)
+	done := make(chan int, 2)
+	var writers []*io.PipeWriter
+	for _, up := range []map[string]any{first, second} {
+		pr, pw := io.Pipe()
+		go func() {
+			defer func() { _ = pr.Close() }() // a pipe's Close never fails; a refusal before reading then fails the write below rather than hanging it
+			done <- serve(t, u, up, pr).Code
+		}()
+		if _, err := pw.Write([]byte(r.pdf)); err != nil { // returns once the PUT reads it: it holds a slot
+			t.Fatal(err)
+		}
+		writers = append(writers, pw)
+	}
+	rec := serve(t, u, third, strings.NewReader(r.pdf))
+	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" || !strings.Contains(rec.Body.String(), "as one tenant may") {
+		t.Errorf("the tenant's third: got %d (Retry-After %q) %s, want 503 with Retry-After, naming the tenant's share", rec.Code, rec.Header().Get("Retry-After"), rec.Body)
+	}
+	theirs, _ := other.in(t).Must(201, "POST", "/v1/uploads", `{"purpose":"supplier_invoice","content_type":"application/pdf","via":"api"}`, "")
+	if rec := serve(t, u, theirs, strings.NewReader(r.pdf)); rec.Code != http.StatusNoContent {
+		t.Errorf("another tenant meanwhile: got %d %s, want 204 in a free slot", rec.Code, rec.Body)
+	}
+	_ = writers[0].Close() // a pipe's Close never fails
+	if code := <-done; code != http.StatusNoContent {
+		t.Errorf("the tenant's first: got %d, want 204", code)
+	}
+	if rec := serve(t, u, third, strings.NewReader(r.pdf)); rec.Code != http.StatusNoContent {
+		t.Errorf("the tenant's third once its first is received: got %d %s, want 204", rec.Code, rec.Body)
+	}
+	_ = writers[1].Close() // a pipe's Close never fails
+	if code := <-done; code != http.StatusNoContent {
+		t.Errorf("the tenant's second: got %d, want 204", code)
 	}
 }
 
