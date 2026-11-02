@@ -126,10 +126,10 @@ func TestCaptureStubbed(t *testing.T) {
 			status: http.StatusUnprocessableEntity, want: "The document could not be read as an invoice."},
 		"sent again, captured": {routes: map[string]http.HandlerFunc{"POST /v1/uploads": created, "PUT /v1/uploads/": answer(409, problemJSON(409, "payables.upload_closed")),
 			"GET /v1/uploads/": answer(200, strings.Replace(uploadJSON(up, "api", signedPath(up), 1<<20), `"status":"open"`, fmt.Sprintf(`"status":"used","used_by":%q`, invoice), 1))},
-			status: http.StatusSeeOther, location: invoicePath(invoice)},
+			status: http.StatusConflict, want: "Open the invoice captured before"},
 		"sent again, not captured yet": {routes: map[string]http.HandlerFunc{"POST /v1/uploads": created, "PUT /v1/uploads/": answer(409, problemJSON(409, "payables.upload_closed")),
 			"GET /v1/uploads/": answer(200, uploadJSON(up, "api", signedPath(up), 1<<20)), "POST /v1/supplier-invoices:capture": succeeded},
-			status: http.StatusSeeOther, location: invoicePath(invoice)},
+			status: http.StatusConflict, want: "This form was sent before"},
 		"sent again, the upload refused": {routes: map[string]http.HandlerFunc{"POST /v1/uploads": created, "PUT /v1/uploads/": answer(409, problemJSON(409, "payables.upload_closed")),
 			"GET /v1/uploads/": answer(404, problemJSON(404, "request.not_found"))}, status: http.StatusNotFound, want: "The invoice was not captured"},
 	} {
@@ -272,7 +272,14 @@ func TestRelay(t *testing.T) {
 	if _, err := io.ReadAll(c); !errors.Is(err, errTooLarge) {
 		t.Errorf("past the limit: got %v, want %v", err, errTooLarge)
 	}
-	if same := uploadKey(up.ID); same != uploadKey(uuid.MustParse(up.ID.String())) || same == up.ID.String() || same == uploadKey(uuid.New()) {
-		t.Error("the upload's key is not derived from the form's alone")
+	key := uploadKey(up.ID)
+	if got := uploadKey(uuid.MustParse(up.ID.String())); got != key {
+		t.Errorf("the upload's key of the same form: got %s, want %s", got, key)
+	}
+	if key == up.ID.String() {
+		t.Errorf("the upload's key: got the form's own %s, want one derived from it", key)
+	}
+	if other := uploadKey(uuid.New()); other == key {
+		t.Errorf("the upload's key of another form: got %s, want another than %s", other, key)
 	}
 }

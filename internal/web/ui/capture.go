@@ -36,6 +36,9 @@ type CaptureForm struct {
 	FileError    i18n.Key
 	Again        bool     // the form was sent and is shown again: its file is chosen again
 	Refusal      *Refusal // the API's refusal of the upload or of the capture
+	// SentBefore is set when this form's key was sent before: the invoice
+	// captured then, or CapturePath when none was.
+	SentBefore string
 }
 
 // CaptureWait is a capture's operation while it runs, or why it stopped.

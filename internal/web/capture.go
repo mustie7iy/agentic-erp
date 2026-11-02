@@ -73,6 +73,7 @@ type captured struct {
 	companyErr, fileErr i18n.Key
 	sent                bool
 	refusal             *ui.Refusal
+	sentBefore          string // the form was sent before: the invoice captured then, or the capture's own path
 }
 
 // capture is the capture's page: its form, or with ?operation= the
@@ -93,7 +94,7 @@ func (s *Server) capture(w http.ResponseWriter, r *http.Request, p *person) {
 // was sent and why it was refused.
 func (s *Server) showCapture(w http.ResponseWriter, r *http.Request, p *person, m me, status int, c captured) {
 	f := ui.CaptureForm{CSRF: p.CSRF, Key: uuid.NewString(), Companies: companyOptions(s.companies(r.Context(), m), c.company),
-		CompanyError: c.companyErr, FileError: c.fileErr, Again: c.sent && c.fileErr == "", Refusal: c.refusal}
+		CompanyError: c.companyErr, FileError: c.fileErr, Again: c.sent && c.fileErr == "", Refusal: c.refusal, SentBefore: c.sentBefore}
 	s.render(w, r, status, ui.Capture(s.page(i18n.CaptureTitle, ui.InvoicesPath, p, m), f))
 }
 
@@ -192,7 +193,7 @@ func (s *Server) captureDocument(w http.ResponseWriter, r *http.Request, p *pers
 	case relayed:
 		s.captureUpload(w, r, p, m, key, company, up.ID, &c)
 	case closed:
-		s.capturedBefore(w, r, p, m, key, company, up.ID, &c)
+		s.sentBefore(w, r, p, m, up.ID, &c)
 	}
 }
 
@@ -267,12 +268,17 @@ func (s *Server) relayDocument(w http.ResponseWriter, r *http.Request, p *person
 	return answered
 }
 
-// capturedBefore answers a form sent again whose upload already holds its
-// document: the invoice captured from it, where the person goes, or the
-// capture again when the first did not get to it. The capture's own key
-// cannot replay it: a multipart call's body differs by its boundary each
-// time it is sent, so the API takes it for another request.
-func (s *Server) capturedBefore(w http.ResponseWriter, r *http.Request, p *person, m me, key, company, upload uuid.UUID, c *captured) {
+// sentBefore answers a form sent again, whose upload already holds a
+// document: the form is shown again, fresh, saying so, with a link to the
+// invoice captured from it when there is one. The document sent now may
+// not be the one the upload holds (a form restored by Back and sent with
+// another file), and erp-web cannot tell without reading it, so it is
+// never taken for it (go-reviewer, round 1): the person opens the invoice
+// or sends the document again with the fresh form. The capture's own key
+// could not replay the first answer either: a multipart call's body
+// differs by its boundary each time, so the API takes it for another
+// request.
+func (s *Server) sentBefore(w http.ResponseWriter, r *http.Request, p *person, m me, upload uuid.UUID, c *captured) {
 	res, err := s.API.GetUpload(r.Context(), gen.GetUploadParams{ID: upload})
 	got, ok := res.(*gen.GetUploadOKHeaders)
 	if !ok {
@@ -282,11 +288,11 @@ func (s *Server) capturedBefore(w http.ResponseWriter, r *http.Request, p *perso
 		}
 		return
 	}
+	c.sentBefore = ui.CapturePath
 	if invoice, used := got.Response.UsedBy.Get(); used {
-		http.Redirect(w, r, invoicePath(invoice), http.StatusSeeOther)
-		return
+		c.sentBefore = invoicePath(invoice)
 	}
-	s.captureUpload(w, r, p, m, key, company, upload, c)
+	s.showCapture(w, r, p, m, http.StatusConflict, *c)
 }
 
 // captureUpload captures the invoice from the upload with the form's key:

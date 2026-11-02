@@ -22,6 +22,16 @@ templ captureContent(f CaptureForm) {
 	if f.Refusal != nil {
 		@RefusalNotice(*f.Refusal)
 	}
+	if f.SentBefore != "" {
+		@Notice("capture-sent", i18n.CaptureSentTitle, Paragraph(i18n.CaptureSentBody))
+		if f.SentBefore != CapturePath {
+			<p>
+				<a { link(f.SentBefore, "")... }>
+					@T(i18n.CaptureSentInvoice)
+				</a>
+			</p>
+		}
+	}
 	if f.Companies == nil {
 		@Notice("capture-companies", i18n.CaptureRefusedTitle, Paragraph(i18n.CaptureNoCompanies))
 	} else {

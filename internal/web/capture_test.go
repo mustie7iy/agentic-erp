@@ -81,7 +81,9 @@ const scan = "%PDF-1.7\n% the supplier's scanned invoice\n"
 // TestCaptureByUpload: the queue offers the capture; its form names the
 // company and takes the document, its token first; sent, the document is
 // streamed to the API's signed path into the bucket, the invoice captured
-// from it, and the person lands on it; sent again, the same invoice.
+// from it, and the person lands on it; the same form sent again, with the
+// same document or another, is not taken for its first document: shown
+// again, fresh, with a link to the invoice captured then.
 func TestCaptureByUpload(t *testing.T) {
 	s, s3, _ := captureStack(t, paperInvoice("PO-1"))
 	b := s.browser()
@@ -121,8 +123,16 @@ func TestCaptureByUpload(t *testing.T) {
 	if !ok || string(obj.Content) != scan || obj.ContentType != "application/pdf" {
 		t.Errorf("the bucket's upload: got %q of %q (%v), want the scan as application/pdf", obj.Content, obj.ContentType, ok)
 	}
-	if again := captureWith(b, page, []byte(scan)); again.status != http.StatusSeeOther || again.location() != sent.location() {
-		t.Errorf("sent again: got %d to %q, want the same invoice %q", again.status, again.location(), sent.location())
+	for name, doc := range map[string]string{"the same document": scan, "another document": scan + "% another invoice\n"} {
+		again := captureWith(b, page, []byte(doc))
+		status(t, "sent again with "+name, again, http.StatusConflict)
+		holds(t, "sent again with "+name, again.page(t).mainText(), "This form was sent before")
+		if !strings.Contains(again.body, `href="`+sent.location()+`"`) {
+			t.Errorf("sent again with %s: no link to the invoice captured before, %s", name, sent.location())
+		}
+		if key := field(again.page(t).form(ui.CapturePath), "idempotency_key"); key == field(page, "idempotency_key") {
+			t.Errorf("sent again with %s: got the form's key %s again, want a fresh one", name, key)
+		}
 	}
 	var uploads int
 	pgtest.Scan(t, `SELECT count(*) FROM payables.upload WHERE tenant_id = $1`, []any{s.ten.ID}, &uploads)

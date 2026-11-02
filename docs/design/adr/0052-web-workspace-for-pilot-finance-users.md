@@ -2802,13 +2802,17 @@ built:
   path with a query: a path of its own under `/invoices/` collides with
   an invoice's actions (`/invoices/{id}/{verb}`) in Go's mux.
 - **Sent again.** A form sent twice creates no second upload (the derived
-  key replays `createUpload`) and finds its upload holding the document
-  (409 `payables.upload_closed`); `getUpload` then names the invoice
-  captured from it, where the person goes, or the capture is made. The
-  capture's own idempotency key cannot replay it: the typed client sends
-  a multipart body under a fresh boundary each time, so the API takes it
-  for another request (`request.idempotency_key_reused`; the same holds
-  for `importBankStatements`, reported as pre-existing).
+  key replays `createUpload`) and finds its upload holding a document
+  (409 `payables.upload_closed`, before a byte is taken). The document sent
+  now may not be that one (a form restored by Back and sent with another
+  file), and erp-web cannot tell without reading it, so it is never taken
+  for it (go-reviewer, round 1): the form is shown again, fresh, saying it
+  was sent before (409), with a link to the invoice captured then when
+  `getUpload` names one; the person opens it or sends the document again.
+  The capture's own key could not replay the first answer anyway: the
+  typed client sends a multipart body under a fresh boundary each time, so
+  the API takes it for another request (`request.idempotency_key_reused`;
+  the same holds for `importBankStatements`, reported as pre-existing).
 - **Refusals.** Said on the form in the person's words: no document, one
   of another type, no company, larger than 50 MB (413, nothing stored);
   the API's codes of the capture (`payables.unreadable_document`,
@@ -2832,7 +2836,8 @@ built:
   a person who may not capture), `TestCaptureTooLarge` (50 MB and more,
   streamed: 413, nothing in the bucket), `TestCaptureStubbed` (a bucket
   URL never followed, the path's refusals and failures, a redirect not
-  followed, a capture running, sent again), `TestCaptureWait`,
+  followed, a capture running, sent again with the same document or
+  another), `TestCaptureWait`,
   `TestRelay`; the browser suite runs axe at zero on the form and the
   progress in English, French and both pseudo-locales at 1280 and 390 px
   (`TestCaptureInTheBrowser`), and walks, in French on a phone, a form
