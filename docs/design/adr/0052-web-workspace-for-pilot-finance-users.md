@@ -3060,7 +3060,11 @@ what in the deployment could not be scoped to the path). In erp-web:
   until then the listener's deadlines hold, header included, as for every
   other form. Seven minutes cover `createUpload` (30 s at most) and the
   router's and the cell's own deadlines (six and five minutes, which start
-  later); ten cover the relay and `captureSupplierInvoice`.
+  later); ten cover the relay and `captureSupplierInvoice`. The answer
+  closes the connection (`Connection: close`), so a form refused once
+  its document has begun (no company, the API's refusal) is answered at
+  once, the rest of the document never read under the lifted deadline
+  (go-reviewer, round 1).
 - **The relay's call.** The relay's client allows each relayed `PUT` eight
   minutes rather than the API client's 30 seconds, past the router's
   answer (seven minutes); every other call keeps 30 seconds. erp-web links
@@ -3069,7 +3073,8 @@ what in the deployment could not be scoped to the path). In erp-web:
 - **Tests.** `TestCaptureOutlastsTheListener`: erp-web and the real API
   behind listeners shrunk to two seconds; a capture whose document pauses
   past both while it is being relayed is captured, the same pause on the
-  statement upload's form is cut at the listener's timeout.
+  statement upload's form is cut at the listener's timeout, and a form
+  refused while its document is paused is answered at once.
 
 ## Built in T73e3 (2026-11-01)
 Invoices beyond T73e2, first slice: a parked invoice's lines added, left

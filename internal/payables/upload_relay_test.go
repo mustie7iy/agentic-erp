@@ -244,7 +244,34 @@ func TestRelayedUploadFailures(t *testing.T) {
 		}
 	})
 	t.Run("every slot taken", func(t *testing.T) { busy(t, serve, uploads(), r) })
+	t.Run("one upload sent twice at once", func(t *testing.T) { twice(t, serve, uploads(), r) })
 	t.Run("statements failing", func(t *testing.T) { failingStatements(t, serve, uploads, r) })
+}
+
+// twice sends one upload's document while it is already arriving, two
+// slots free: refused with 503, so one signed URL holds one slot, and
+// another upload still takes the other; the first is received.
+func twice(t *testing.T, serve func(*testing.T, *payables.Uploads, map[string]any, io.Reader) *httptest.ResponseRecorder, u *payables.Uploads, r *relayScenario) {
+	t.Helper()
+	u.MaxReceiving = 2
+	first, other := r.create(t), r.create(t)
+	pr, pw := io.Pipe()
+	done := make(chan int)
+	go func() { done <- serve(t, u, first, pr).Code }()
+	if _, err := pw.Write([]byte(r.pdf)); err != nil { // returns once the first PUT reads it: it holds a slot
+		t.Fatal(err)
+	}
+	rec := serve(t, u, first, strings.NewReader(r.pdf))
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "already arriving") {
+		t.Errorf("the same upload again meanwhile: got %d %s, want 503, already arriving", rec.Code, rec.Body)
+	}
+	if rec := serve(t, u, other, strings.NewReader(r.pdf)); rec.Code != http.StatusNoContent {
+		t.Errorf("another upload meanwhile: got %d %s, want 204 in the other slot", rec.Code, rec.Body)
+	}
+	_ = pw.Close() // a pipe's Close never fails
+	if code := <-done; code != http.StatusNoContent {
+		t.Errorf("the first: got %d, want 204", code)
+	}
 }
 
 // busy holds the one receiving slot with a body that has started to

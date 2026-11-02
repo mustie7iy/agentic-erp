@@ -61,7 +61,7 @@ type Sent struct {
 func Send(c *http.Client, req *http.Request) <-chan Sent {
 	out := make(chan Sent, 1)
 	go func() {
-		resp, err := c.Do(req)
+		resp, err := c.Do(req) // #nosec G704 -- a test's own request to its own test server
 		if err != nil {
 			out <- Sent{Err: err}
 			return

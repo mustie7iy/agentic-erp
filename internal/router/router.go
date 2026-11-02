@@ -280,6 +280,15 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // listener's, and every request the listener's header timeout. A writer
 // without deadlines (a test's recorder) has none to lift; the listener's
 // are lifted through the telemetry middleware (Unwrap).
+//
+// An upload's connection closes after its answer (Connection: close), so
+// Go's server never reads what is left of a body nobody read: the cell
+// refuses a bad signature, a closed upload or a full replica before
+// reading a byte, and Go would otherwise read up to 256 KB of the rest
+// before answering, for as long as the lifted deadline allows, so a
+// holder of any tenant's token could keep the connection for six minutes
+// with a body trickled in (go-reviewer, round 1). One upload's TLS
+// handshake is the cost.
 func (rt *Router) allowTime(w http.ResponseWriter, r *http.Request) {
 	rc := http.NewResponseController(w)
 	switch {
@@ -289,6 +298,7 @@ func (rt *Router) allowTime(w http.ResponseWriter, r *http.Request) {
 		now := clock.Now(rt.Now)
 		_ = rc.SetReadDeadline(now.Add(UploadReadTimeout))
 		_ = rc.SetWriteDeadline(now.Add(UploadWriteTimeout))
+		w.Header().Set("Connection", "close")
 	}
 }
 

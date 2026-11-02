@@ -110,6 +110,25 @@ func TestCaptureOutlastsTheListener(t *testing.T) {
 	if got.Err != nil || got.Status != http.StatusSeeOther {
 		t.Fatalf("the capture, slower than the listeners allow: got %d %v %s, want 303 to the invoice", got.Status, got.Err, got.Body)
 	}
+	// A form refused once its document has begun (no company): answered
+	// at once, the rest of the document never waited for.
+	refused := make([]byte, 0, len(body.Bytes()))
+	refused = append(refused, body.Bytes()[:cut]...)
+	refused = bytes.Replace(refused, []byte(s.f.DE.String()), []byte("not-a-company"), 1)
+	cut = bytes.Index(refused, []byte(doc[:16])) + 1024
+	stopped := pgtest.NewPausedBody(refused[:cut], body.Bytes()[len(body.Bytes())-16:])
+	start = time.Now()
+	select {
+	case got := <-sendPaused(t, b, ui.CapturePath, stopped, mw.FormDataContentType()):
+		if got.Status != http.StatusUnprocessableEntity {
+			t.Errorf("a form refused while its document is paused: got %d %v, want 422", got.Status, got.Err)
+		}
+		if elapsed := time.Since(start); elapsed >= listenerTimeout {
+			t.Errorf("a form refused while its document is paused was answered after %v, want at once", elapsed)
+		}
+	case <-time.After(10 * listenerTimeout):
+		t.Fatal("a form refused while its document is paused: no answer; the lifted deadline outlived the refusal")
+	}
 	var upload string
 	pgtest.Scan(t, `SELECT id::text FROM payables.upload WHERE tenant_id = $1 AND status = 'used'`, []any{s.ten.ID}, &upload)
 	if obj, ok := s3.Object(blobstore.Key(s.ten.ID, blobstore.KindUploads, upload)); !ok || string(obj.Content) != doc {

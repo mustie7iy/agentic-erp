@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,13 +37,23 @@ func TestUploadOutlastsTheListener(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The cell reads every body to its end: 204 is a body that came whole.
-	cell := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// Its listener reads a request for listenerTimeout, as erp-server's does.
+	cell := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("signature") == "bad" { // refused before a byte is read, as the cell refuses a bad signature
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"status":403,"code":"payables.invalid_upload_url"}`)) // to the router, alive
+			return
+		}
+		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(time.Minute)) // as the cell lifts its own once it takes the upload
 		if _, err := io.Copy(io.Discard, r.Body); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
+	cell.Config.ReadTimeout = listenerTimeout
+	cell.Start()
 	t.Cleanup(cell.Close)
 	tenant := uuid.New()
 	m := &memory{entries: map[uuid.UUID]directory.Entry{tenant: {TenantID: tenant, Cell: "eu-1", APIURL: cell.URL, Status: directory.Active}}}
@@ -79,6 +90,24 @@ func TestUploadOutlastsTheListener(t *testing.T) {
 	doc.Resume()
 	if got := <-received; got.Err != nil || got.Status != http.StatusNoContent {
 		t.Fatalf("the upload, slower than the listener allows: got %d %v %s, want 204", got.Status, got.Err, got.Body)
+	}
+
+	// The cell's refusal before reading a byte: the router passes it on and
+	// closes the connection, never waiting for the rest of a body trickled
+	// in under its lifted deadline (the cell gives up on it at its own
+	// listener's timeout, as before).
+	start = time.Now()
+	refused := send(srv, http.MethodPut, strings.Replace(upload, "signature=s", "signature=bad", 1), pgtest.NewPausedBody([]byte("%PDF-1.7 "), []byte("the rest")))
+	select {
+	case got := <-refused:
+		if got.Status != http.StatusForbidden || !strings.Contains(got.Body, "payables.invalid_upload_url") {
+			t.Errorf("an upload the cell refuses: got %d %v %s, want the cell's 403 whole", got.Status, got.Err, got.Body)
+		}
+		if elapsed := time.Since(start); elapsed >= 3*listenerTimeout {
+			t.Errorf("an upload the cell refuses was answered after %v, want within the cell's listener timeout %v, not the router's lifted deadline", elapsed, listenerTimeout)
+		}
+	case <-time.After(10 * listenerTimeout):
+		t.Fatal("an upload the cell refuses: no answer while its body is paused; the lifted deadline outlived the refusal")
 	}
 
 	// The path's own deadline, brought to 2 s from now by the router's clock.

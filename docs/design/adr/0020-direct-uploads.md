@@ -147,24 +147,35 @@ it has passed its own checks.
   every request reads its first bytes under the listener's 30 s: a request
   is given the upload's time only once it has proved its right to it on
   that hop (above). An anonymous client holds a connection no longer than
-  before; a request refused before its body is read (a wrong signature,
-  an upload closed, all slots taken) keeps the listener's deadlines. The
-  router cannot check the path's signature (the cell holds its key), so a
-  holder of any tenant's token may hold a router connection for six
-  minutes with a `PUT` on an upload's path: the cell refuses a bad signature before reading a byte, the router
-  passes the refusal on, and Go's server then reads at most 256 KB more
-  of a body left unread (none of one whose declared length is larger)
-  before it reuses or closes the connection.
+  before; a request the cell refuses before its body is read (a wrong
+  signature, an upload closed, all slots taken) keeps the cell's listener
+  deadlines. The router cannot check the path's signature (the cell holds
+  its key), so a holder of any tenant's token may hold a router
+  connection for six minutes with a `PUT` on an upload's path while it
+  sends. Once an answer is written nothing more is read: the router and
+  erp-web answer an upload with `Connection: close`, so Go's server never
+  reads the rest of a body nobody read before answering (otherwise up to
+  256 KB, under the lifted deadline: a refused upload trickled in would
+  have held the connection the full six or seven minutes; go-reviewer,
+  round 1). The cost is one TLS handshake per upload.
 - **Holding is bounded by size and time.** A replica receives at most four
   documents at once (`payables.MaxReceiving`), each a temporary file of at
   most 50 MB in erp-server's 256 MiB `/tmp`, now for up to five minutes
-  each instead of 30 seconds; a fifth is 503 with `Retry-After: 5`. At the
-  slowest rate the path accepts, a replica takes four documents per five
-  minutes, so four clients sending slowly keep every other upload to that
-  replica waiting on 503s for up to five minutes. The router and erp-web
-  hold no slot: a connection, a goroutine and a buffer each, for up to six
-  and seven minutes. The temporary file is removed when the request ends,
-  whether received, refused or cut (`spooled.discard`), as before.
+  each instead of 30 seconds; a fifth is 503 with `Retry-After: 5`. One
+  upload takes one slot on a replica at most: its document sent again
+  while it is still arriving there is 503 (go-reviewer, round 1: before,
+  one signed URL could take all four). The slots are the replica's, shared
+  by every tenant of the cell, and the path is outside the cell's request
+  quotas (it was before, too): one person of one tenant who creates four
+  uploads and sends them slowly holds every slot of a replica for five
+  minutes, and every other tenant's upload to that replica is refused with
+  503 meanwhile, again each time. With 30 seconds this was a nuisance; at
+  five minutes it is the availability cost of the decision, asked of the
+  product owner (a share of the slots per tenant, or quotas on the path).
+  The router and erp-web hold no slot: a connection, a goroutine and a
+  buffer each, for up to six and seven minutes. The temporary file is
+  removed when the request ends, whether received, refused or cut
+  (`spooled.discard`), as before.
 - **Not scoped to the path.** Nothing in the deployment cuts an upload at
   30 or 60 seconds: the balancers in front of the router and erp-web are
   network load balancers passing TCP (deploy/terraform/modules/global),
@@ -192,9 +203,13 @@ it has passed its own checks.
   timeout, observed before the upload goes on, so the upload's own
   listener deadline is known to be past; on the cell and the router the
   path's own deadline, brought near by the injected clock, still cuts a
-  body that outlasts it (`TestUploadOutlastsTheListener` in payables and
-  router). erp-web's test sends a capture whose document pauses while it
+  body that outlasts it, and on the router a refusal by the cell before
+  it reads a byte is answered at once, the rest of the body not waited
+  for (`TestUploadOutlastsTheListener` in payables and router); one
+  upload sent twice at once takes one slot (`TestRelayedUploadFailures`,
+  one upload sent twice at once). erp-web's test sends a capture whose document pauses while it
   is being relayed to the real API, both listeners shrunk
-  (`TestCaptureOutlastsTheListener`); `TestCaptureDeadlines` holds
+  (`TestCaptureOutlastsTheListener`, which also has a form refused while
+  its document is paused answered at once); `TestCaptureDeadlines` holds
   erp-web's values, written out since erp-web links no `api` package, to
   the router's and the margins.

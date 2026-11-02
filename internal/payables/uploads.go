@@ -108,6 +108,8 @@ type Uploads struct {
 
 	slotsOnce sync.Once
 	slots     chan struct{}
+	mu        sync.Mutex
+	receiving map[uuid.UUID]bool // the uploads whose documents are arriving on this replica
 }
 
 func (u *Uploads) inTx(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
@@ -266,7 +268,7 @@ func (u *Uploads) receive(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	release, err := u.slot()
+	release, err := u.slot(id)
 	if err != nil {
 		return err
 	}
@@ -336,13 +338,30 @@ func tooLarge(limit int64, cause error) *problem.Problem {
 		fmt.Sprintf("Uploads are at most %d MB.", limit>>20)).WithCause(cause)
 }
 
-// slot takes one of the replica's receiving slots, or answers 503 while
-// all are taken; release gives it back.
-func (u *Uploads) slot() (release func(), err error) {
-	u.slotsOnce.Do(func() { u.slots = make(chan struct{}, cmp.Or(u.MaxReceiving, MaxReceiving)) })
+// slot takes one of the replica's receiving slots for the upload, or
+// answers 503 while all are taken, or while the upload's document is
+// already arriving here; release gives it back. One signed URL therefore
+// holds one slot per replica at most, not all four for five minutes
+// (go-reviewer, round 1); a second replica's receive of the same upload
+// is settled by the upload's lock when it is marked received.
+func (u *Uploads) slot(id uuid.UUID) (release func(), err error) {
+	u.slotsOnce.Do(func() {
+		u.slots, u.receiving = make(chan struct{}, cmp.Or(u.MaxReceiving, MaxReceiving)), map[uuid.UUID]bool{}
+	})
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.receiving[id] {
+		return nil, problem.Unavailable("This upload's document is already arriving; send it again if that fails.", 5)
+	}
 	select {
 	case u.slots <- struct{}{}:
-		return func() { <-u.slots }, nil
+		u.receiving[id] = true
+		return func() {
+			u.mu.Lock()
+			delete(u.receiving, id)
+			u.mu.Unlock()
+			<-u.slots
+		}, nil
 	default:
 		return nil, problem.Unavailable("This server is receiving as many documents as it can; send it again shortly.", 5)
 	}

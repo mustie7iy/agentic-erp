@@ -69,11 +69,16 @@ const (
 // the listener's deadlines. The header's own timeout is the listener's,
 // unchanged. A writer without deadlines (a test's recorder) has none to
 // lift; the listener's are lifted through the telemetry middleware
-// (Unwrap).
+// (Unwrap). The connection closes after the answer (Connection: close),
+// so Go's server never reads what is left of a document nobody read (a
+// form refused, an upload the API refused): it would otherwise read up to
+// 256 KB of the rest before answering, for as long as the lifted deadline
+// allows (go-reviewer, round 1).
 func allowTime(w http.ResponseWriter, now time.Time) {
 	rc := http.NewResponseController(w)
 	_ = rc.SetReadDeadline(now.Add(captureReadTimeout))
 	_ = rc.SetWriteDeadline(now.Add(captureWriteTimeout))
+	w.Header().Set("Connection", "close")
 }
 
 // captureTypes are the documents a capture takes, as their first bytes
