@@ -9,6 +9,10 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/capture"
+	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 // TestCapturedTax: the capture proposes tax codes from the rates a document
@@ -63,5 +67,31 @@ func TestCapturedTax(t *testing.T) {
 				t.Errorf("warnings: got %s, want %q among them", w, c.warning)
 			}
 		})
+	}
+}
+
+// TestCapturedCodeNotCalculable: a code the capture proposes that the
+// calculator cannot calculate on the tax date (half a reverse charge pair
+// then, the only input code charging the printed 0%) refuses the capture
+// with 422 payables.invalid_tax_code, as a code that is no input tax code
+// then does (payables.unknown_tax_code), not a 500.
+func TestCapturedCodeNotCalculable(t *testing.T) {
+	e := setup(t)
+	doc := fixture.Document(t)
+	de := doc.Company("2000")
+	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "240000", Name: "Output tax", Type: config.Liability})
+	fixture.TaxCodes(t, e.Tenant, doc, halfPair("RX"))
+	// V0, exempt, charges 0% too: withdrawn, RX is the one code that does.
+	pgtest.Exec(t, `UPDATE ledger.tax_rate SET withdrawn_at = now(), withdrawn_by = $2 WHERE tenant_id = $1 AND code = 'V0'`, e.Tenant.ID, e.Tenant.Human.ID)
+	e.order(t, e.Supplier, "PO-1")
+	x := extraction()
+	x.Lines[1].TaxRate = "0"
+	err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		_, err := endpoints(extractor{e: x}).CaptureSupplierInvoice(ctx, &gen.SupplierInvoiceCaptureMultipart{LegalEntityID: e.DE,
+			Document: gen.NewOptString("%PDF-1 half")}, gen.CaptureSupplierInvoiceParams{})
+		return err
+	})
+	if p := problem.From(err); p == nil || p.Code != "payables.invalid_tax_code" || !strings.Contains(p.Detail, "RX") {
+		t.Errorf("got %v, want 422 payables.invalid_tax_code naming RX", err)
 	}
 }

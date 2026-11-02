@@ -3,8 +3,10 @@ package ledger
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/tax"
 )
 
 // TestKeepLocalOutOfRange: a kept local amount whose group amount, of
@@ -60,24 +63,46 @@ func TestTaxBaseOutOfRange(t *testing.T) {
 	}
 }
 
-// TestOnAccountInvalidCode: a code the calculator cannot rate is the
-// calculator's error, wrapped.
+// TestOnAccountInvalidCode: a code the calculator cannot rate on the date
+// is refused with 422 ledger.invalid_tax_code naming it; the calculator's
+// other errors (a base that is no amount) are wrapped.
 func TestOnAccountInvalidCode(t *testing.T) {
+	day := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
 	code := TaxCode{Code: "IC5", Kind: "import", Components: []TaxComponent{{Key: "gst", AccountKey: "input", RecoverablePct: "100", RatePct: "abc"}}}
-	_, err := calculatedOn(code, 0, 100, time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC))
-	if err == nil {
-		t.Fatal("got nil error, want the calculator's")
+	_, err := calculatedOn(code, 0, 100, day)
+	if got := problem.From(err); got == nil || got.Code != "ledger.invalid_tax_code" || !strings.Contains(got.Detail, "IC5") {
+		t.Errorf("a rate that is no rate: got %v, want ledger.invalid_tax_code naming IC5", err)
+	}
+	code.Components[0].RatePct = "5"
+	_, err = calculatedOn(code, 0, math.MinInt64, day)
+	if !errors.Is(err, money.ErrOverflow) {
+		t.Fatalf("a base that is no amount: got %v, want the calculator's error", err)
 	}
 	if got := baseMismatch(err, 0, 5, 0, "IC5", 2); !errors.Is(got, err) {
 		t.Errorf("refusal with the calculator's error: got %v, want it", got)
 	}
 }
 
-// TestOutputCalculationFailed: the calculator's errors other than amounts
-// out of range are wrapped.
+// TestOutputCalculationFailed: a code the calculator cannot calculate on
+// the date is refused with 422, its code naming why (no rate then, or
+// components that make no code then); the calculator's other errors are
+// wrapped.
 func TestOutputCalculationFailed(t *testing.T) {
-	invalid := errors.New("tax: invalid tax code")
-	if err := calculationFailed("S5", invalid); !errors.Is(err, invalid) {
+	for name, c := range map[string]struct {
+		err  error
+		code string
+	}{
+		"no rate":      {fmt.Errorf("%w: code S5 component tax on 2026-03-10", tax.ErrNoRate), "ledger.no_tax_rate"},
+		"invalid code": {fmt.Errorf("%w S5: no components", tax.ErrInvalidCode), "ledger.invalid_tax_code"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := problem.From(calculationFailed("S5", c.err))
+			if got == nil || got.Code != c.code || got.Status != 422 || !strings.Contains(got.Detail, "S5") {
+				t.Errorf("got %v, want 422 %s naming S5", got, c.code)
+			}
+		})
+	}
+	if err := calculationFailed("S5", tax.ErrInvalid); !errors.Is(err, tax.ErrInvalid) {
 		t.Errorf("got %v, want it wrapped", err)
 	}
 }

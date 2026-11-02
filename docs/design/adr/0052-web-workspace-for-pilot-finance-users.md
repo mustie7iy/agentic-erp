@@ -3092,7 +3092,8 @@ settled:
   invoice left without lines is refused before any call. A line names
   the invoice's line it shows (`item_from`), and the lines the form was
   opened with travel as a block of their own (`was_…`, with each line's
-  account and centers by id), so adding or leaving out lines keeps them,
+  account and centers by id, and its purchase order's since batch 38's
+  review), so adding or leaving out lines keeps them,
   and whether another person changed the lines is decided by what the
   invoice holds, not by what the company's pages read showed (go-reviewer,
   round 1). A line whose order item changed takes the new order item's
@@ -3100,19 +3101,36 @@ settled:
   (the API fills them from the order item); one leaving its order item
   keeps the account it shows.
 - **Lines after a 412 (decided by default, for the product owner to
-  overrule).** The API numbers lines by their place, so a line added or
-  left out has no identity to put another person's change on field by
-  field. `rebaseItems` takes the person's lines when nobody else changed
-  the lines; the invoice's when the person changed none; while the person
-  added or left out no line and the invoice has as many lines as when the
-  form was opened, each line with the person's changes on it field by
-  field by its place, as T73e2 did (another person who left one line out
-  and added another meanwhile is not told apart: the tracker item of
-  src `review:batch38`); otherwise, both having changed the lines,
-  the invoice's lines as they are now without the person's changes to
-  them, said on the form (409, no call), the person's header changes kept
-  at the invoice's version now. This is the entry form's rule for a
-  parked entry's lines (lane entrylost).
+  overrule).** The API gives an invoice's line no id of its own and
+  numbers lines by their place, so a line's identity is its order item
+  (its purchase order and order item; an invoice is for one order). The
+  lines the form was opened with carry their purchase order's id
+  (`was_item_purchase_order_id`) beside the account's and centers'.
+  `rebaseItems` takes the person's lines when nobody else changed the
+  lines; the invoice's when the person changed none; while the person
+  added and left out no line, the invoice's lines now, each line the
+  person changed with the changes on the invoice's line of the same order
+  item field by field, wherever it now is and whatever lines someone else
+  added or left out; otherwise, both having changed the lines, the
+  invoice's lines as they are now without the person's changes to them,
+  said on the form (409, no call), the person's header changes kept at the
+  invoice's version now. Otherwise covers a changed line that no line now
+  is known to be: of no order item (a line of an invoice not on an order
+  has no identity: another person may have left it out and added another
+  in its place), of an order item the invoice no longer holds, or of one
+  several lines share, opened or now. Lines were matched by their place
+  whenever the counts were equal until batch 38's review (src
+  `review:batch38`): another person who left out line A and added C put
+  the person's change to A on B (`TestChangeInvoiceLinesByOrderItem`
+  reproduced it). A line of no order item changed by both people is the
+  price of never guessing: the person sees the lines as they are and types
+  the change again. A form opened before this fix carries no purchase
+  order ids, so its lines read as changed by someone else: a line the
+  person changed there is shown as it is now (409), once. This is the
+  entry form's rule for a parked entry's
+  lines (lane entrylost), whose lines travel as one block, so the same
+  bug cannot arise there (`rebaseEntry` takes the person's lines whole or
+  the entry's whole).
 - **Permissions.** The AP clerk's role needs `ledger.account.read` and
   `ledger.cost_center.read` to see numbers and codes rather than ids
   (`fixture.InvoicePermissions` gains both); without them the form still
@@ -3127,9 +3145,9 @@ settled:
 - **Tests.** `TestCalculatedTaxOnRead`, `TestReadFigures` and the
   extended `TestTaxCodeChangedBeforePosting`, `TestCodeWithdrawnBeforePosting`
   and `TestInvoiceOnARemovedOrderItem` in payables; `TestChangeInvoiceLines`,
-  `TestChangeInvoiceLinesMeanwhile`, `TestChangeInvoiceOrderItems`,
-  `TestChangeInvoiceCenters`, `TestTaxAndIssuesShown`, `TestOrderItemChanged`
-  and `TestRebaseItems` in the workspace; `TestInvoiceLinesInTheBrowser`
+  `TestChangeInvoiceLinesMeanwhile`, `TestChangeInvoiceLinesByOrderItem`, `TestChangeInvoiceOrderItems`,
+  `TestChangeInvoiceCenters`, `TestTaxAndIssuesShown`, `TestOrderItemChanged`,
+  `TestRebaseItems` and `TestAsTypedErrors` in the workspace; `TestInvoiceLinesInTheBrowser`
   adds and leaves out a line with htmx, axe at zero at 1280 px in English
   and 390 px in French, and saves a line of an order item.
 

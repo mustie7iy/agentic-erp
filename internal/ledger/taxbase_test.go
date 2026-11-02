@@ -165,6 +165,23 @@ func TestTaxBaseRefused(t *testing.T) {
 	}
 }
 
+// TestTaxBaseNotCalculable: a tax line of an import code the calculator
+// cannot calculate on the entry's date (its self-assessed output has a
+// rate from April only, so the code read in March is half a pair) is
+// refused with 422 ledger.invalid_tax_code naming the code, not a 500.
+func TestTaxBaseNotCalculable(t *testing.T) {
+	e := setup(t)
+	doc := importCodes(t, e)
+	fixture.TaxCodes(t, e.ten, doc, config.TaxCode{Code: "IX5", Description: "Import VAT from April", Kind: config.TaxImport, Components: []config.TaxComponent{
+		{Key: "due", AccountKey: config.KeySelfOutput, Account: "240000", Rates: []config.TaxRate{{RatePercent: "5", ValidFrom: "2026-04-01"}}},
+		{Key: "claim", AccountKey: config.KeySelfInput, Account: "140000", Rates: []config.TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}}}})
+	p := e.Problem(422, "ledger.invalid_tax_code", "POST", "/v1/journal-entries", importEntry(t, e, "EUR", importLine{"140000", "5.00", "IX5", "100.00"},
+		importLine{"219500", "-5.00", "", ""}), "")
+	if detail := fmt.Sprint(p["detail"]); !strings.Contains(detail, "IX5") {
+		t.Errorf("detail: got %s, want the code named", detail)
+	}
+}
+
 // TestParkedTaxBase: a parked entry keeps its lines' declared bases, shown
 // on its lines and kept by a change that leaves the lines.
 func TestParkedTaxBase(t *testing.T) {

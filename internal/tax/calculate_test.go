@@ -289,3 +289,14 @@ func TestIncluded(t *testing.T) {
 		}
 	}
 }
+
+// TestReason: a calculator's error in words names the code and, for a
+// missing rate, its component and the date, without the package's prefix.
+func TestReason(t *testing.T) {
+	code := tax.Code{Code: "V9", Components: []tax.Component{{Key: "tax", AccountKey: tax.KeyInput, RecoverablePct: "100",
+		Rates: []tax.Rate{{Pct: "9", From: day("2026-04-01")}}}}}
+	_, err := tax.Calculate(tax.Document{TaxDate: day("2026-03-10"), Codes: map[string]tax.Code{"V9": code}, Lines: []tax.Line{{Amount: 100, Code: "V9"}}})
+	if got, want := tax.Reason(err), "no rate in force on the tax date: code V9 component tax on 2026-03-10"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
