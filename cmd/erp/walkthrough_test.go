@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -50,6 +51,42 @@ func TestWalkthrough(t *testing.T) {
 		t.Errorf("walkthrough output: got an unexpected result\n%s", tail(string(out), 60))
 	}
 	t.Logf("walkthrough passed in %s", time.Since(start).Round(time.Second))
+}
+
+// TestWalkthroughDates: the walkthrough dates what it sends as the pilot
+// company's day on the company's date in its zone, not UTC's
+// (scripts/walkthrough/dates.sh). At 23:30 in Toronto UTC is already
+// tomorrow; a return filed on UTC's date was refused as filed in the
+// future (tax.invalid_filed_on), so the walkthrough failed every evening.
+// The instants are read with the system's date, GNU's or BSD's.
+func TestWalkthroughDates(t *testing.T) {
+	for name, c := range map[string]struct {
+		at   time.Time
+		want string
+	}{
+		"23:30 in Toronto, winter": {time.Date(2026, 11, 2, 4, 30, 0, 0, time.UTC), "2026-11-01"},
+		"23:30 in Toronto, summer": {time.Date(2026, 7, 1, 3, 30, 0, 0, time.UTC), "2026-06-30"},
+		"00:30 in Toronto":         {time.Date(2026, 11, 2, 5, 30, 0, 0, time.UTC), "2026-11-02"},
+		"New Year's Eve, 23:30":    {time.Date(2027, 1, 1, 4, 30, 0, 0, time.UTC), "2026-12-31"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			script := `. ../../scripts/walkthrough/dates.sh && company_day "$1"`
+			out, err := exec.CommandContext(t.Context(), "bash", "-c", script, "dates", strconv.FormatInt(c.at.Unix(), 10)).CombinedOutput()
+			if err != nil {
+				t.Fatalf("company_day: %v\n%s", err, out)
+			}
+			if got := strings.TrimSpace(string(out)); got != c.want {
+				t.Errorf("company_day at %s: got %s, want %s", c.at.Format(time.RFC3339), got, c.want)
+			}
+		})
+	}
+	out, err := exec.CommandContext(t.Context(), "bash", "-c", `. ../../scripts/walkthrough/dates.sh && date_add 2026-12-31 1 && date_add 2026-03-01 -1`).CombinedOutput()
+	if err != nil {
+		t.Fatalf("date_add: %v\n%s", err, out)
+	}
+	if got, want := strings.Fields(string(out)), []string{"2027-01-01", "2026-02-28"}; strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("date_add: got %v, want %v", got, want)
+	}
 }
 
 // freeAddrs are n distinct loopback addresses no one listens on at the

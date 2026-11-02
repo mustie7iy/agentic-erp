@@ -24,7 +24,8 @@
 # (make db-up). Every run provisions a tenant of its own; tenants are
 # isolated, so runs never see each other's data. The mock SAP extract is
 # the same on every run (fixed seed, January to September of this year);
-# the pilot's documents are dated today (UTC, the server's day).
+# the pilot's documents are dated today, the pilot company's date in its
+# time zone (scripts/walkthrough/dates.sh).
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -32,7 +33,20 @@ DATABASE_URL="${DATABASE_URL:-postgres://postgres:dev@localhost:55432/postgres?s
 API_ADDR="${WALKTHROUGH_API_ADDR:-127.0.0.1:18080}"
 ADMIN_ADDR="${WALKTHROUGH_ADMIN_ADDR:-127.0.0.1:19090}"
 PAUSE="${WALKTHROUGH_PAUSE:-0}"
-TODAY=$(date -u +%F)
+# shellcheck source=walkthrough/dates.sh
+. "$ROOT/scripts/walkthrough/dates.sh"
+TODAY=$(company_day)
+# UTC_TODAY is the database's day, UTC's: a business partner belongs to no
+# company and so has no zone, and its address may start no earlier than
+# that day (partner.backdated_address, database.Today).
+UTC_TODAY=$(date -u +%F)
+# RUN_DAY is a payment run's date: the company's day, or UTC's when that is
+# later. The migration (step 3) loads the suppliers' bank accounts valid
+# from UTC's day (ADR-0051 As built, Kept in UTC; PO 2026-10-31), and a run
+# pays to an account valid on its run date, so in a Toronto evening a run on
+# the company's day would find none of them (no_bank_account).
+RUN_DAY=$TODAY
+if [[ "$UTC_TODAY" > "$TODAY" ]]; then RUN_DAY=$UTC_TODAY; fi
 YEAR=${TODAY:0:4}
 PREV=$((YEAR - 1))
 CC=3000 # the pilot's SAP company code, Maple Industries Canada in the mock extract
@@ -66,25 +80,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# date_add DATE DAYS is the date DAYS days after DATE (before it when
-# DAYS is negative), with GNU or BSD date.
-date_add() {
-  local n=$2
-  case "$n" in -*) ;; *) n="+$n" ;; esac
-  if date -u -d "$1" +%F >/dev/null 2>&1; then
-    date -u -d "$1 $n days" +%F
-  else
-    date -u -j -v"${n}d" -f %F "$1" +%F
-  fi
-}
-
 # tax_first is the GST/HST registration's first period (step 11): the
 # quarter before the latest one ended on the pilot company's date in
 # Toronto, so two periods have ended and the earlier is filed first.
 # Earlier periods were filed before the cutover, outside the ERP.
 tax_first() {
   local today y m
-  today=$(TZ=America/Toronto date +%F)
+  today=$(company_day)
   y=${today:0:4} m=$((10#${today:5:2}))
   m=$(((m - 1) / 3 * 3 + 1 - 6))
   if [ "$m" -lt 1 ]; then
@@ -302,7 +304,7 @@ start() {
   say "Version: $(cd "$ROOT" && git describe --tags --always --dirty 2>/dev/null || echo unknown) (git describe)"
   # Files the commands name are the work directory's, as they are shown.
   cd "$WORK"
-  say "Today is $TODAY (UTC): the pilot's documents are dated today."
+  say "Today is $TODAY, Maple's date in $ZONE: the pilot's documents are dated today."
   say ""
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
@@ -1035,10 +1037,10 @@ step_procure() {
   say "that day, and its amount is routed at that day's rate (T72n5)."
   NEEDED_BY=$(date_add "$TODAY" 14)
   local req request before
-  before=$(TZ=America/Toronto date +%F)
+  before=$(company_day)
   api 201 '"requisition \(.id) of \(.requisition_date): \(.status), \(.total_amount.amount) \(.total_amount.currency), needed by \(.needed_by)"' createRequisition \
     -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"supplier_id\": \"$SUPPLIER\", \"needed_by\": \"$NEEDED_BY\", \"items\": [$item]}"
-  [ "$(field .requisition_date)" = "$before" ] || expect "the requisition's date, Toronto's" "$(field .requisition_date)" "$(TZ=America/Toronto date +%F)"
+  [ "$(field .requisition_date)" = "$before" ] || expect "the requisition's date, Toronto's" "$(field .requisition_date)" "$(company_day)"
   req=$(field .id)
   api 200 '"\(.status): approval request \(.workflow_request_id)"' submitRequisition -p "id=$req" -if-match "$ETAG"
   request=$(field .workflow_request_id)
@@ -1079,7 +1081,7 @@ order_document() {
   number=$(field .document_number)
   say "SAP's extract has no street for Tyrell. Ben asks for the address Tyrell takes orders at; Carla, who"
   say "approves supplier master data, approves it."
-  api 201 '"partner change \(.id): \(.status)"' createPartnerChange -body "{\"partner_id\": \"$SUPPLIER\", \"kind\": \"update\", \"reason\": \"Order desk address confirmed by Tyrell\", \"payload\": {\"addresses\": [{\"purpose\": \"order_from\", \"line1\": \"220 King Street West\", \"line2\": \"Order desk, floor 3\", \"city\": \"Toronto\", \"region\": \"ON\", \"postal_code\": \"M5H 1K4\", \"country_code\": \"CA\", \"valid_from\": \"$TODAY\"}]}}"
+  api 201 '"partner change \(.id): \(.status)"' createPartnerChange -body "{\"partner_id\": \"$SUPPLIER\", \"kind\": \"update\", \"reason\": \"Order desk address confirmed by Tyrell\", \"payload\": {\"addresses\": [{\"purpose\": \"order_from\", \"line1\": \"220 King Street West\", \"line2\": \"Order desk, floor 3\", \"city\": \"Toronto\", \"region\": \"ON\", \"postal_code\": \"M5H 1K4\", \"country_code\": \"CA\", \"valid_from\": \"$UTC_TODAY\"}]}}"
   change=$(field .id)
   approve carla "$(field .workflow_request_id)" "Address confirmed"
   as ben
@@ -1165,10 +1167,10 @@ step_credit() {
   say "Alex posts it without a posting date: it is dated Maple's date in Toronto, not UTC's, so on a Toronto"
   say "evening it is still that day, in that day's period (product owner 2026-10-31)."
   local before
-  before=$(TZ=America/Toronto date +%F)
+  before=$(company_day)
   api 200 '"\(.kind) \(.document_number): \(.status) on \(.posting_date)"' postSupplierInvoice -p "id=$CREDIT" -if-match '"1"' -body '{}'
   expect "credit memo status" "$(field .status)" posted
-  [ "$(field .posting_date)" = "$before" ] || expect "the credit memo's posting date, Toronto's" "$(field .posting_date)" "$(TZ=America/Toronto date +%F)"
+  [ "$(field .posting_date)" = "$before" ] || expect "the credit memo's posting date, Toronto's" "$(field .posting_date)" "$(company_day)"
   CREDIT_ENTRY=$(field .journal_entry_id)
   api 200 '.items[] | "open item \(.amount.amount) \(.amount.currency)"' listOpenItems -p "partner_id=$SUPPLIER"
   receipt_held
@@ -1205,7 +1207,7 @@ step_payment() {
   say "Tom proposes a run from the RBC account for everything due within 30 days: Tyrell's invoice less"
   say "the credit memo and the 2% discount, and the open payables migrated from SAP that are overdue."
   api 202 '"\(.kind) \(.status)"' proposePaymentRun \
-    -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBC\", \"currency\": \"CAD\", \"run_date\": \"$TODAY\", \"due_by\": \"$(date_add "$TODAY" 30)\"}"
+    -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBC\", \"currency\": \"CAD\", \"run_date\": \"$RUN_DAY\", \"due_by\": \"$(date_add "$RUN_DAY" 30)\"}"
   wait_op
   RUN=$(field .resource | sed 's|.*/||')
   api 200 '"run \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency) from \(.house_bank_code), proposed by Tom"' getPaymentRun -p "id=$RUN"
@@ -1339,7 +1341,7 @@ recurring_rent() {
   say "schedule from today, Maple's date in Toronto. The ERP parks each month's entry for him and never posts it:"
   say "Tom posts it, within the CAD 10,000.00 limit, or someone else approves it (product owner 2026-11-01)."
   local toronto rent sap_bank tpl entry i n
-  toronto=$(TZ=America/Toronto date +%F)
+  toronto=$(company_day)
   rent=$(account 6000)
   sap_bank=$(account 100000)
   api 201 '"template \(.name): \(.status), \(.schedule.frequency) on day \(.schedule.day_of_month) from \(.schedule.starts_on), next due \(.next_due_on)"' \
@@ -1487,7 +1489,7 @@ step_fx() {
     -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$first\", \"posting_date\": \"$first\", \"currency\": \"USD\", \"header_text\": \"Fund the RBC USD account\", \"lines\": [{\"account_id\": \"$usd_bank\", \"amount\": {\"amount\": \"5000.00\", \"currency\": \"USD\"}}, {\"account_id\": \"$sap_bank\", \"amount\": {\"amount\": \"-5000.00\", \"currency\": \"USD\"}}]}"
   say "The USD bank pays in USD only: a CAD run from it is refused."
   refused 422 payments.currency_mismatch proposePaymentRun \
-    -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBCUS\", \"currency\": \"CAD\", \"run_date\": \"$TODAY\", \"due_by\": \"$TODAY\"}"
+    -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBCUS\", \"currency\": \"CAD\", \"run_date\": \"$RUN_DAY\", \"due_by\": \"$RUN_DAY\"}"
   say "At the month's end the account is worth USD 5,000.00 x 1.40 = CAD 7,000.00: the preview shows the gain."
   api 200 '.items[] | "account \(.account_id | acct): \(.amount.amount) \(.amount.currency), booked \(.amount_lc.amount), valued \(.valued_lc.amount) at \(.rate | sub("0+$"; "")): \(.direction) \(.difference_lc.amount) CAD"' previewRevaluation \
     -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$eom\"}"
@@ -1852,28 +1854,28 @@ step_cash() {
   expect "the memo record's flow" "$(field '[.banks[] | select(.house_bank_code == "RBC") | .days[].flows[]? | select(.source == "memo") | .amount.amount] | join(" ")')" 25000.00
   say "Today for the position is Maple's date in Toronto, not UTC's: in a Toronto evening UTC is already tomorrow (T72n1)."
   local before after
-  before=$(TZ=America/Toronto date +%F)
+  before=$(company_day)
   api 200 '"read on \(.read_date) in \(.time_zone), from \(.from)"' getCashPosition -p "legal_entity_id=$LE" -p days=1
-  after=$(TZ=America/Toronto date +%F)
+  after=$(company_day)
   expect "the zone the position is read in" "$(field .time_zone)" America/Toronto
   [ "$(field .read_date)" = "$before" ] || expect "the read date, Toronto's" "$(field .read_date)" "$after"
   expect "the first day, the read date" "$(field .from)" "$(field .read_date)"
   say "A client dates its forms on the same day: Maple's date today, in its zone (getLegalEntityToday), which the web"
   say "workspace pre-fills a manual entry's dates, a payment run's and the open items' key date with, not UTC's day:"
-  before=$(TZ=America/Toronto date +%F)
+  before=$(company_day)
   api 200 '"today is \(.date) in \(.time_zone)"' getLegalEntityToday -p "id=$LE"
-  after=$(TZ=America/Toronto date +%F)
+  after=$(company_day)
   expect "the zone Maple's today is in" "$(field .time_zone)" America/Toronto
   [ "$(field .date)" = "$before" ] || expect "Maple's today, Toronto's" "$(field .date)" "$after"
   local toronto judged status listed counted
-  toronto=$(TZ=America/Toronto date +%F)
+  toronto=$(company_day)
   say "A receipt promised for today ($toronto in Toronto), its last day today, is active until Toronto's day ends:"
   say "a memo record's status is judged on Maple's date in its zone, as the position is, not on UTC's (T72n2)."
   api 201 '"memo record \(.reference): \(.status) on \(.read_date) in \(.time_zone), last day \(.expires_on)"' createMemoRecord \
     -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBC\", \"amount\": {\"amount\": \"1000.00\", \"currency\": \"CAD\"}, \"value_date\": \"$toronto\", \"expires_on\": \"$toronto\", \"liquidity_item\": \"REC_CUSTOMERS\", \"reference\": \"WT-1043\"}"
   expect "the zone the memo record's status is judged in" "$(field .time_zone)" America/Toronto
   judged=$(field .read_date)
-  [ "$judged" = "$toronto" ] || expect "the memo record's read date, Toronto's" "$judged" "$(TZ=America/Toronto date +%F)"
+  [ "$judged" = "$toronto" ] || expect "the memo record's read date, Toronto's" "$judged" "$(company_day)"
   status=active
   [ "$judged" = "$toronto" ] || status=expired # Toronto's midnight passed between the two reads
   expect "the memo record's status on Maple's date" "$(field .status)" "$status"
