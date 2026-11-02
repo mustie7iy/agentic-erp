@@ -7,12 +7,14 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
@@ -74,9 +76,10 @@ func (e *Endpoints) prepare(ctx context.Context, id uuid.UUID, start time.Time, 
 }
 
 // standing checks what the period's returns allow: an original when none
-// stands, an amendment of its latest filed return, which it returns, and
-// either only when no return of the period is in progress. The indexes
-// tax_return_one_original and tax_return_in_progress back it up.
+// stands and every earlier period is filed (inOrder), an amendment of its
+// latest filed return, which it returns, and either only when no return
+// of the period is in progress. The indexes tax_return_one_original and
+// tax_return_in_progress back it up.
 func (e *Endpoints) standing(ctx context.Context, tx pgx.Tx, s *returnScope, kind string) (*Return, error) {
 	var progress, original, filed *uuid.UUID
 	if err := tx.QueryRow(ctx, `SELECT (array_agg(id) FILTER (WHERE status IN ('prepared', 'approved')))[1],
@@ -94,7 +97,7 @@ func (e *Endpoints) standing(ctx context.Context, tx pgx.Tx, s *returnScope, kin
 		return nil, problem.Conflict("tax.return_exists", fmt.Sprintf("Return %s of %s for %s stands; once filed, a correction is an amendment.",
 			original, s.reg.Code, period))
 	case kind == Original:
-		return nil, nil
+		return nil, inOrder(ctx, tx, s)
 	case filed == nil:
 		return nil, problem.Conflict("tax.nothing_to_amend", fmt.Sprintf("No return of %s for %s is filed: prepare the original.", s.reg.Code, period))
 	}
@@ -111,6 +114,40 @@ func (e *Endpoints) standing(ctx context.Context, tx pgx.Tx, s *returnScope, kin
 	}
 	s.pack, s.def = pack, pack.Return(amended.ReturnType)
 	return &amended, nil
+}
+
+// inOrder refuses an original while an earlier period of the registration
+// has no filed return (ADR-0049 §11 As built, period order): the original
+// claims the unreported items dated by its period's end, so an earlier
+// period's would otherwise be claimed before their own return reported
+// them. Once a period is filed, its items that arrive later are the next
+// return's (P7) or its amendment's. The first period has none before it:
+// items dated earlier are of the periods filed before the registration's
+// first period, the cutover, and its return claims them as prior-period
+// items (T61h). Filed is final (tax_return_fixed), so a concurrent prepare
+// or filing can only make a refused prepare pass later, never one pass
+// that should not; the caller holds the registration FOR UPDATE besides.
+func inOrder(ctx context.Context, tx pgx.Tx, s *returnScope) error {
+	earlier := config.TaxPeriods(s.reg.FirstPeriodStart, s.reg.Frequency, s.reg.LastPeriodEnd, s.period.Start)
+	earlier = earlier[:len(earlier)-1] // scope found the period last
+	if len(earlier) == 0 {
+		return nil
+	}
+	rows, _ := tx.Query(ctx, `SELECT DISTINCT period_start FROM tax.tax_return WHERE registration_id = $1 AND period_start < $2 AND status = 'filed'`,
+		s.reg.ID, s.period.Start)
+	filed, err := pgx.CollectRows(rows, pgx.RowTo[time.Time])
+	if err != nil {
+		return fmt.Errorf("taxfiling: filed returns of %s before %s: %w", s.reg.Code, s.period.Start.Format(time.DateOnly), err)
+	}
+	for _, p := range earlier {
+		if !slices.ContainsFunc(filed, p.Start.Equal) {
+			return problem.Conflict("tax.earlier_period_unfiled", fmt.Sprintf("Period %s to %s of registration %s has no filed return: prepare, "+
+				"approve and file it before the return of %s to %s, so each period's items are reported in its own return.",
+				p.Start.Format(time.DateOnly), p.End.Format(time.DateOnly), s.reg.Code, s.period.Start.Format(time.DateOnly),
+				s.period.End.Format(time.DateOnly)))
+		}
+	}
+	return nil
 }
 
 // closedPeriods returns the leading ledger's posting periods of the

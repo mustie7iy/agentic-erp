@@ -2762,7 +2762,9 @@ erDiagram
 A registration's periods are not stored: they follow from its fixed
 settings (`config.TaxPeriods`: the first starts on `first_period_start`,
 each lasts one, three or twelve months, none after `last_period_end`) and
-are computed on read by `GET /v1/tax-registrations/{id}/periods`.
+are computed on read by `GET /v1/tax-registrations/{id}/periods`. The first
+period is the first the ERP files (its cutover); returns are prepared in
+period order from it (ADR-0049 §11 As built, period order).
 
 A draft return (ADR-0049 §11, T61h) is not stored either: `GET
 /v1/tax-registrations/{id}/draft-return` computes it from

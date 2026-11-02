@@ -76,17 +76,44 @@ var typedAmount = regexp.MustCompile(`^(0|[1-9][0-9]{0,17})(\.[0-9]{1,4})?$`)
 // the fraction has the currency's minor-unit digits is the API's to say:
 // no operation names a currency's digits.
 func (l Locale) Amount(typed string) (string, bool) {
+	return l.signed(typed, typedAmount)
+}
+
+// typedQuantity is what Quantity takes once the decimal sign is a point:
+// the shape of the API's Quantity.value without its sign.
+var typedQuantity = regexp.MustCompile(`^(0|[1-9][0-9]{0,13})(\.[0-9]{1,6})?$`)
+
+// Quantity reads a quantity a person typed, as Amount reads an amount: an
+// optional minus, the digits and at most one decimal sign, the locale's or
+// a point, with no grouping, as the API's Quantity.value with a point; ok
+// is false for anything else. A journal line's quantity may be negative,
+// an invoice item's may not: whether a sign is allowed is the caller's to
+// say. The one reader for both forms (batch 36: T73e2 and T73h2 each
+// added one).
+func (l Locale) Quantity(typed string) (string, bool) {
+	return l.signed(typed, typedQuantity)
+}
+
+// signed is typed, trimmed, with an optional minus and the rest in the
+// shape once the locale's decimal sign is read as a point.
+func (l Locale) signed(typed string, shape *regexp.Regexp) (string, bool) {
 	s := strings.TrimSpace(typed)
 	neg := strings.HasPrefix(s, "-")
-	s = strings.TrimPrefix(s, "-")
+	s, ok := l.decimal(strings.TrimPrefix(s, "-"), shape)
+	if ok && neg {
+		s = "-" + s
+	}
+	return s, ok
+}
+
+// decimal is s with the locale's decimal sign read as a point, when it
+// then has the shape.
+func (l Locale) decimal(s string, shape *regexp.Regexp) (string, bool) {
 	if sign := l.DecimalSign(); sign != "." {
 		s = strings.Replace(s, sign, ".", 1)
 	}
-	if !typedAmount.MatchString(s) {
+	if !shape.MatchString(s) {
 		return "", false
-	}
-	if neg {
-		s = "-" + s
 	}
 	return s, true
 }

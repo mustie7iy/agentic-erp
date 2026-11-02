@@ -166,6 +166,10 @@ Errors use RFC 9457 Problem Details (`application/problem+json`):
 `code` values are stable and documented; clients and agents branch on `code`,
 never on `detail`. Database constraint violations are translated to these
 codes by the repository layer; a raw database message never reaches a client.
+A refusal whose figures a client must show carries them as fields of the
+problem, never only in `detail`: `payables.tax_mismatch` carries
+`calculated_tax` (the tax stated, the tax its codes' rates give, and each
+code's; ADR-0052 decision D3, T73e2).
 Each operation lists the codes its handler can answer in `x-problem-codes`,
 and the document lists those the request pipeline can answer on any
 operation (authentication, authorization, rate limits, idempotency,
@@ -274,7 +278,9 @@ a return the adopted pack does not define 409 `tax.return_undefined`.
 A return is prepared from the draft (ADR-0049 §11 As built, T61i): `POST
 /v1/tax-registrations/{id}/returns` (`tax.return.prepare`, `kind` `original`
 or `amendment`) stores the snapshot and claims its items, once the fiscal
-periods of the tax period are closed (409 `tax.fiscal_period_open`), and
+periods of the tax period are closed (409 `tax.fiscal_period_open`) and,
+for an original, every earlier period of the registration from its first
+(the cutover) is filed (409 `tax.earlier_period_unfiled`, period order), and
 opens a `tax_return` approval request decided by a holder of `tax_manager`
 other than the preparer; `POST /v1/tax-returns/{id}:file` (`tax.return.file`,
 If-Match) records the authority's confirmation and locks the fiscal periods;

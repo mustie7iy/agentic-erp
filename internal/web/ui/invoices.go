@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/a-h/templ"
@@ -280,6 +281,7 @@ type InvoicePage struct {
 	RecsError  *Refusal
 	RecsWhy    i18n.Key // why the open recommendations offer no decision
 	Actions    []ActionForm
+	Edit       string   // the change form's path; "" unless parked and the person may change it
 	Why        i18n.Key // why Actions is empty
 	Pending    bool     // an exception's request is linked to the invoice on hold: waiting, or approved before a hold by hand
 	Done       i18n.Key
@@ -436,4 +438,142 @@ func isoDay(t time.Time) templ.Component { return Value(t.Format(time.DateOnly))
 // request with a locale, as the API gives it.
 func quantity(value, unit string) templ.Component {
 	return Text(func(ctx context.Context) string { return decimal(ctx, value) + " " + unit })
+}
+
+// The fields of an invoice's change form (T73e2), the API's names: the
+// header's, and each line's, repeated in the lines' order.
+const (
+	FieldSupplierReference = "supplier_reference"
+	FieldInvoiceDate       = "invoice_date"
+	FieldGross             = "gross_amount"
+	FieldTax               = "tax_amount"
+	FieldItemDescription   = "item_description"
+	FieldItemQuantity      = "item_quantity"
+	FieldItemAmount        = "item_amount"
+	FieldItemTaxCode       = "item_tax_code"
+	// FieldWas prefixes a field's value when the form was opened, sent
+	// beside it so the change is what the person changed (T73e2).
+	FieldWas = "was_"
+)
+
+// InvoiceForm is a parked invoice's change (updateSupplierInvoice,
+// ADR-0052 §7): its ETag as If-Match and a fresh idempotency key, its
+// header and lines as typed with what is wrong with them, and the API's
+// refusal. Lines are changed, never added or left out: each keeps its
+// order item, unit and account.
+type InvoiceForm struct {
+	Action, Back string
+	Number       string
+	CSRF         string
+	Key          string
+	ETag         string
+	Currency     string
+	Reference    string
+	InvoiceDate  string
+	PostingDate  string
+	TaxDate      string
+	Gross, Tax   string
+	Errors       map[string]i18n.Key // by the header's field
+	LinesError   i18n.Key
+	Items        []ItemInput
+	Refusal      *Refusal
+	Was          map[string]string // the header's values the form was opened with, by field
+}
+
+// ItemInput is one line of an invoice's change: its number, its order
+// item (0: none) and unit, which do not change here, and its fields as
+// typed with what is wrong with them and what the API refused.
+type ItemInput struct {
+	No          int // its place in the form, from 1
+	OrderItem   int32
+	Unit        string
+	Description string
+	Quantity    string
+	Amount      string
+	TaxCode     string
+	Errors      map[string]i18n.Key
+	Refused     []FieldRefusal
+	Was         map[string]string // its values the form was opened with, by field
+}
+
+// headerFields are the header's fields of an invoice's change, sent with
+// the values the form was opened with.
+var headerFields = []string{FieldSupplierReference, FieldInvoiceDate, FieldPostingDate, FieldTaxDate, FieldGross, FieldTax}
+
+// itemFields are a line's fields in the change form, with the API's name
+// of each and its label.
+var itemFields = []struct {
+	Name, API   string
+	Label, Hint i18n.Key
+}{
+	{FieldItemDescription, "description", i18n.LineDescription, i18n.ItemDescriptionHint},
+	{FieldItemQuantity, "quantity", i18n.LineQuantity, i18n.ItemQuantityHint},
+	{FieldItemAmount, "amount", i18n.LineAmount, i18n.ItemAmountHint},
+	{FieldItemTaxCode, "tax_code", i18n.LineTaxCode, i18n.ItemTaxCodeHint},
+}
+
+// ItemFieldLabel is the label of a line's field by the API's name of it,
+// "" for one the form does not change.
+func ItemFieldLabel(api string) i18n.Key {
+	for _, f := range itemFields {
+		if f.API == api {
+			return f.Label
+		}
+	}
+	return ""
+}
+
+// itemID is a line's field's id.
+func itemID(no int, field string) string { return "item-" + strconv.Itoa(no) + "-" + field }
+
+// itemValue is a line's value of the field.
+func itemValue(it ItemInput, name string) string {
+	switch name {
+	case FieldItemDescription:
+		return it.Description
+	case FieldItemQuantity:
+		return it.Quantity
+	case FieldItemAmount:
+		return it.Amount
+	default:
+		return it.TaxCode
+	}
+}
+
+// itemInput is a line's input: its id, name and value, its hint and its
+// error by id, aria-invalid with an error, a number's input mode.
+func itemInput(it ItemInput, name string) templ.Attributes {
+	id := itemID(it.No, name)
+	hint := id + "-hint"
+	a := templ.Attributes{"id": id, "name": name, "type": "text", "value": itemValue(it, name), "class": "input", "translate": "no",
+		"autocomplete": "off", "aria-describedby": hint}
+	if it.Errors[name] != "" {
+		a["aria-describedby"], a["aria-invalid"] = hint+" "+id+"-error", "true"
+	}
+	if name == FieldItemQuantity || name == FieldItemAmount {
+		a["inputmode"] = "decimal"
+	}
+	return a
+}
+
+// TaxFigures are payables.tax_mismatch's figures (ADR-0052, decision D3):
+// the tax the invoice states, the tax its codes' rates give, and each
+// code's.
+type TaxFigures struct {
+	Stated, Calculated Money
+	Codes              []CodeTax
+}
+
+// CodeTax is the tax one code's rates give.
+type CodeTax struct {
+	Code string
+	Tax  Money
+}
+
+// amountAttrs is an amount's input: inputAttrs with a number's input mode
+// and no autocompletion of figures from elsewhere.
+func amountAttrs(id, name, value string, err i18n.Key) templ.Attributes {
+	a := inputAttrs(id, name, "text", value, err)
+	a["class"], a["translate"], a["inputmode"], a["autocomplete"] = "input", "no", "decimal", "off"
+	return a
 }

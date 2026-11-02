@@ -329,6 +329,87 @@ func TestPrepareConcurrently(t *testing.T) {
 	want(t, "returns, items claimed", fmt.Sprint(returns, claimed), "1 2")
 }
 
+// TestTaxReturnPeriodOrder: an original is prepared only once every
+// earlier period of the registration is filed, the earliest unfiled one
+// named, so a period's items are claimed by its own return; prepared or
+// approved is not filed.
+func TestTaxReturnPeriodOrder(t *testing.T) {
+	e := lifecycleEnv(t)
+	sale(t, e, "2026-02-10", "")
+	sale(t, e, "2026-05-10", "")
+	closePeriods(t, e, 1, 9)
+	path := returnsOf(id(t, e, "TEST"))
+	q1, q2, q3 := `{"period_start": "2026-01-01"}`, `{"period_start": "2026-04-01"}`, `{"period_start": "2026-07-01"}`
+	refused := func(t *testing.T, body, unfiled string) {
+		t.Helper()
+		_, m, _ := e.In(t).Do("POST", path, body, "")
+		want(t, "code", m["code"], any("tax.earlier_period_unfiled"))
+		want(t, "names the earliest unfiled period", strings.HasPrefix(fmt.Sprint(m["detail"]), "Period "+unfiled+" of registration TEST has no filed return"), true)
+		var later int
+		pgtest.Scan(t, `SELECT count(*) FROM tax.tax_return WHERE tenant_id = $1 AND period_start > '2026-01-01'`, []any{e.Tenant.ID}, &later)
+		want(t, "returns of later periods", later, 0)
+	}
+	t.Run("nothing filed", func(t *testing.T) {
+		refused(t, q2, "2026-01-01 to 2026-03-31")
+		refused(t, q3, "2026-01-01 to 2026-03-31")
+	})
+	first, _ := e.Must(201, "POST", path, q1, "")
+	want(t, "Q1's items", claimedBy(t, e, first["id"]), 1)
+	t.Run("Q1 prepared", func(t *testing.T) { refused(t, q2, "2026-01-01 to 2026-03-31") })
+	e.Approve(t, first["id"].(string))
+	t.Run("Q1 approved", func(t *testing.T) { refused(t, q2, "2026-01-01 to 2026-03-31") })
+	e.Must(200, "POST", "/v1/tax-returns/"+first["id"].(string)+":file", `{"confirmation_number": "CRA-1", "filed_on": "2026-04-20"}`, `"2"`)
+	t.Run("Q1 filed, Q2 not", func(t *testing.T) { refused(t, q3, "2026-04-01 to 2026-06-30") })
+	second, _ := e.Must(201, "POST", path, q2, "")
+	want(t, "Q2's items, none of earlier periods", fmt.Sprintf("%v %v", second["item_count"], second["prior_period"].(map[string]any)["item_count"]), "1 0")
+	e.Problem(409, "tax.nothing_to_amend", "POST", path, `{"period_start": "2026-01-01", "kind": "amendment"}`, "")
+}
+
+// TestPrepareInOrderConcurrently: the returns of two periods prepared at
+// once: the later one is refused whichever runs first, so the earlier
+// period's item is its own return's; filing the earlier one while the
+// later is prepared lets the later through only once it is filed.
+func TestPrepareInOrderConcurrently(t *testing.T) {
+	e := lifecycleEnv(t)
+	sale(t, e, "2026-02-10", "")
+	sale(t, e, "2026-05-10", "")
+	closePeriods(t, e, 1, 6)
+	path := returnsOf(id(t, e, "TEST"))
+	at := func(calls ...func() string) []string {
+		got := make([]string, len(calls))
+		var wg sync.WaitGroup
+		for i, call := range calls {
+			wg.Go(func() { got[i] = call() })
+		}
+		wg.Wait()
+		return got
+	}
+	post := func(url, body, ifMatch string) func() string {
+		return func() string {
+			code, m, _ := e.Do("POST", url, body, ifMatch)
+			return fmt.Sprintf("%d %v", code, m["code"])
+		}
+	}
+	got := at(post(path, `{"period_start": "2026-01-01"}`, ""), post(path, `{"period_start": "2026-04-01"}`, ""))
+	want(t, "Q1, Q2 prepared at once", strings.Join(got, "; "), "201 <nil>; 409 tax.earlier_period_unfiled")
+	var q1 string
+	pgtest.Scan(t, `SELECT id::text FROM tax.tax_return WHERE tenant_id = $1`, []any{e.Tenant.ID}, &q1)
+	want(t, "Q1's return claims Q1's item", claimedBy(t, e, q1), 1)
+	e.Approve(t, q1)
+	got = at(post("/v1/tax-returns/"+q1+":file", `{"confirmation_number": "CRA-1", "filed_on": "2026-04-20"}`, `"2"`),
+		post(path, `{"period_start": "2026-04-01"}`, ""))
+	if got[0] != "200 <nil>" || (got[1] != "201 <nil>" && got[1] != "409 tax.earlier_period_unfiled") {
+		t.Errorf("Q1 filed, Q2 prepared at once: got %s, want Q1 filed and Q2 prepared or refused", strings.Join(got, "; "))
+	}
+	if got[1] != "201 <nil>" {
+		e.Must(201, "POST", path, `{"period_start": "2026-04-01"}`, "")
+	}
+	var claimed string
+	pgtest.Scan(t, `SELECT string_agg(r.period_start::text || '=' || r.item_count, ' ' ORDER BY r.period_start) FROM tax.tax_return r
+		WHERE r.tenant_id = $1`, []any{e.Tenant.ID}, &claimed)
+	want(t, "each period's return, its own item", claimed, "2026-01-01=1 2026-04-01=1")
+}
+
 // TestTaxReturnPeople: every transition is a person's: an agent may not
 // prepare, file or withdraw, nor approve; a person of company 2000 alone
 // moves no return of the group covering 1000 too; a return of a
@@ -390,7 +471,7 @@ func TestPrepareFailures(t *testing.T) {
 	in := ledger.TaxItemGroup{Direction: "input", AccountKey: "input", Items: 1, TaxLC: -big, RecoverableLC: -big}
 	one := []ledger.ClaimedItem{{}}
 	q4 := &gen.TaxReturnPrepare{PeriodStart: date("2026-10-01")}
-	amend := &gen.TaxReturnPrepare{PeriodStart: date("2026-01-01"), Kind: gen.NewOptString(taxfiling.Amendment)}
+	amend := &gen.TaxReturnPrepare{PeriodStart: date("2026-07-01"), Kind: gen.NewOptString(taxfiling.Amendment)}
 	prepare := func(t *testing.T, h *taxfiling.Endpoints, req *gen.TaxReturnPrepare) error {
 		t.Helper()
 		return apitest.InRequest(t, s.e.Tenant, s.e.Tenant.Human, func(ctx context.Context) error {
@@ -436,9 +517,11 @@ func TestPrepareFailures(t *testing.T) {
 // original that stands.
 func TestTaxReturnConstraints(t *testing.T) {
 	s := newLifecycleScene(t)
-	for name, c := range map[string]struct{ from, code string }{
-		"in progress":       {`id = '` + s.q3.String() + `'`, "tax.return_in_progress"},
-		"a second original": {`status = 'filed'`, "tax.return_exists"},
+	// The prepared amendment copied, kind and all; Q3's filed original, of
+	// a period with nothing in progress, copied.
+	for name, c := range map[string]struct{ from, kind, code string }{
+		"in progress":       {`id = '` + s.prepared.String() + `'`, "kind, amends_id", "tax.return_in_progress"},
+		"a second original": {`kind = 'original' AND period_start = '2026-07-01'`, "'original', NULL", "tax.return_exists"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := apitest.InRequest(t, s.e.Tenant, s.e.Tenant.Human, func(ctx context.Context) error {
@@ -446,10 +529,10 @@ func TestTaxReturnConstraints(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				_, err = tx.Exec(ctx, `INSERT INTO tax.tax_return (tenant_id, id, registration_id, period_start, period_end, kind, return_type, return_name,
-						pack_country, pack_version, currency, item_count, items_hash, prior_item_count, prior_tax, above_threshold, approval_request_id,
-						created_by, updated_by)
-					SELECT tenant_id, gen_random_uuid(), registration_id, period_start, period_end, 'original', return_type, return_name, pack_country,
+				_, err = tx.Exec(ctx, `INSERT INTO tax.tax_return (tenant_id, id, registration_id, period_start, period_end, kind, amends_id, return_type,
+						return_name, pack_country, pack_version, currency, item_count, items_hash, prior_item_count, prior_tax, above_threshold,
+						approval_request_id, created_by, updated_by)
+					SELECT tenant_id, gen_random_uuid(), registration_id, period_start, period_end, `+c.kind+`, return_type, return_name, pack_country,
 						pack_version, currency, 0, items_hash, 0, 0, false, gen_random_uuid(), created_by, created_by
 					FROM tax.tax_return WHERE `+c.from)
 				return err

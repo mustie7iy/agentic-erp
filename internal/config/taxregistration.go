@@ -34,8 +34,11 @@ type TaxRegistration struct {
 	ReturnType string `yaml:"return_type" json:"return_type"`
 	// Frequency is monthly, quarterly or annual.
 	Frequency string `yaml:"frequency" json:"frequency"`
-	// FirstPeriodStart is the first day of the first period (YYYY-MM-DD);
-	// every later period starts on the same day of a month.
+	// FirstPeriodStart is the first day of the first period the ERP files
+	// (YYYY-MM-DD), its cutover: earlier periods' returns were filed
+	// outside it, and returns are prepared in period order from it
+	// (ADR-0049 §11 As built, period order). Every later period starts on
+	// the same day of a month.
 	FirstPeriodStart string `yaml:"first_period_start" json:"first_period_start"`
 	// LastPeriodEnd, when set, is the last day of the registration's last
 	// period: it ended, or its frequency changes and a registration of a

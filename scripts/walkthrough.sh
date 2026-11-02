@@ -78,6 +78,21 @@ date_add() {
   fi
 }
 
+# tax_first is the GST/HST registration's first period (step 11): the
+# quarter before the latest one ended on the pilot company's date in
+# Toronto, so two periods have ended and the earlier is filed first.
+# Earlier periods were filed before the cutover, outside the ERP.
+tax_first() {
+  local today y m
+  today=$(TZ=America/Toronto date +%F)
+  y=${today:0:4} m=$((10#${today:5:2}))
+  m=$(((m - 1) / 3 * 3 + 1 - 6))
+  if [ "$m" -lt 1 ]; then
+    m=$((m + 12)) y=$((y - 1))
+  fi
+  printf '%s-%02d-01' "$y" "$m"
+}
+
 # month_end is the last day of this month.
 month_end() {
   local first="${TODAY:0:7}-01"
@@ -292,7 +307,7 @@ start() {
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
   say "  - the GST34's lines (T61j-T61l), and the tax specialist's sign-off of the Canada pack (T62h): step 2 configures one"
-  say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files a return"
+  say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
   say "    whose boxes are illustrative, not the GST34's"
   say "  - the liquidity forecast (T53e-T53k): step 13 shows the daily cash position with a memo record"
   say "  - cost center postings, reports and planning (T56d-T56j)"
@@ -529,6 +544,7 @@ step_migrate() {
   local connector
   connector=$(field .id)
   parallel_run_extract
+  small_item_refused "$connector"
   say "A rehearsal first: load, reconcile and roll back."
   show erp migrate -connector "$connector" -legal-entities "$LE" -year "$YEAR" -rehearsal
   "$ERP" migrate -connector "$connector" -legal-entities "$LE" -year "$YEAR" -rehearsal >"$WORK/rehearsal.out" 2>&1 ||
@@ -659,6 +675,46 @@ parallel_run_extract() {
     | .ACDOCA = [.ACDOCA[] | select(.BELNR != "0199999999" and .BELNR != "0199999997" and (.RBUKRS != $cc or .BELNR != $p))
       | if .RBUKRS == $cc and .AUGBL == $p then .AUGBL = "" else . end]' \
     "$WORK/data/delta.json" >"$WORK/data/extract.json" || fail "the parallel run's extract could not be made"
+}
+
+# small_item_refused shows the quality gate refusing an open vendor item
+# with an amount in its document currency and none in company currency
+# (review:batch31): SAP's extract with document 0199999990 added, a USD
+# vendor item of 0.01 beside a line in CAD, so the document posts in CAD,
+# where the load would leave a line of no CAD amount out; the gate refuses
+# it as an open item of a document not all in its currency (an item in
+# CAD of a document amount alone has a refusal of its own, tested in
+# internal/integration). Its third line, a G/L line of USD 0.01 and no CAD
+# amount, is no item, and the load would leave it out too: the gate refuses
+# it as a line of a document amount alone (review:batch31, hsl0b). The
+# rehearsal fails naming the document and both lines, and the extract is
+# put back.
+small_item_refused() {
+  cp "$WORK/data/extract.json" "$WORK/data/extract.good.json"
+  jq --arg cc "$CC" '([.ACDOCA[] | select(.RBUKRS == $cc and .LIFNR != "" and .AUGBL == "" and .RWCUR == "CAD"
+      and (.UMSKZ // "") == "" and (.EBELN // "") == "")] | first) as $v
+    | ([.ACDOCA[] | select(.RBUKRS == $cc and .GJAHR == $v.GJAHR and .BELNR == $v.BELNR and .LIFNR == "" and (.EBELN // "") == "")] | first) as $o
+    | .ACDOCA += [($o | .BELNR = "0199999990" | .DOCLN = "000001" | .HSL = "0.00" | .WSL = "0.00" | .RWCUR = "CAD"),
+      ($v | .BELNR = "0199999990" | .DOCLN = "000002" | .HSL = "0.00" | .WSL = "-0.01" | .RWCUR = "USD" | .XBLNR = "SMALL-USD"),
+      ($o | .BELNR = "0199999990" | .DOCLN = "000003" | .HSL = "0.00" | .WSL = "0.01" | .RWCUR = "USD")]' \
+    "$WORK/data/extract.good.json" >"$WORK/data/extract.json" || fail "the extract with a small USD item could not be made"
+  say "Suppose SAP's extract held a USD vendor item of 0.01 that is 0.00 in CAD, and its USD offset on a G/L account,"
+  say "in a document with a line in CAD, so the document posts in CAD. The load posts no line of no CAD amount, so"
+  say "both would vanish; the quality gate refuses the run instead, naming the document and each line:"
+  jq -r --arg cc "$CC" '.ACDOCA[] | select(.RBUKRS == $cc and .BELNR == "0199999990")
+    | "     ACDOCA \(.BELNR)/\(.DOCLN): account \(.RACCT)\(if .LIFNR != "" then ", vendor \(.LIFNR)" else "" end), \(.WSL) \(.RWCUR) (\(.HSL) CAD)"' \
+    "$WORK/data/extract.json"
+  show erp migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" -rehearsal
+  if "$ERP" migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" -rehearsal >"$WORK/small.out" 2>&1; then
+    sed 's/^/     /' "$WORK/small.out"
+    fail "the run with a USD item of no CAD amount was not refused"
+  fi
+  grep -E '^Migration run|0199999990' "$WORK/small.out" | sed 's/^/     /'
+  grep -q '\[error\] ACDOCA [^ ]*/0199999990/000002: open item of SAP document 0199999990 is in document currency USD, and not every line' "$WORK/small.out" ||
+    { sed 's/^/     /' "$WORK/small.out"; fail "the quality gate did not name the USD item of no CAD amount"; }
+  grep -q '\[error\] ACDOCA [^ ]*/0199999990/000003: line of SAP document 0199999990 has a document amount (WSL "0.01", RWCUR "USD")' "$WORK/small.out" ||
+    { sed 's/^/     /' "$WORK/small.out"; fail "the quality gate did not name the USD G/L line of no CAD amount"; }
+  mv "$WORK/data/extract.good.json" "$WORK/data/extract.json"
 }
 
 # closed_order_extract makes an order of the pilot's that SAP received and
@@ -824,10 +880,11 @@ migrated_down_payment() {
 # the walkthrough's sales entry: GST at 5% (Excise Tax Act, Part IX, s. 165(1);
 # CRA, "Charge and collect the tax - Which rate to charge",
 # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html).
-# The code's rate and the registration start a year back, so a filing
-# period has always ended, whatever today is (step 11).
-# @YEAR@ is replaced with this year, @PREV@ with last year and @CC@ with
-# the company code.
+# The code's rate starts a year back; the registration's first period,
+# its cutover, is @TAXFIRST@ (tax_first), so two filing periods have
+# ended, whatever today is (step 11).
+# @YEAR@ is replaced with this year, @PREV@ with last year, @TAXFIRST@
+# with tax_first and @CC@ with the company code.
 PILOT_SETTINGS='
 .payment_terms += [{"key": "2/10N30", "description": "2% in 10 days, 30 days net", "net_days": 30,
     "discounts": [{"days": 10, "percent": "2"}]}]
@@ -854,7 +911,7 @@ PILOT_SETTINGS='
       {"name": "RBCUS", "bic": "ROYCCAT2", "institution_number": "003", "transit_number": "00002", "account_number": "4000001",
        "gl_account": "1020", "main_gl_account": "1030", "incoming_gl_account": "1040", "currency": "USD"}])
     | .tax_registrations = [{"code": "GSTHST", "authority": "CRA", "number": "123456789 RT 0001", "return_type": "GST34",
-        "frequency": "quarterly", "first_period_start": "@PREV@-01-01"}]
+        "frequency": "quarterly", "first_period_start": "@TAXFIRST@"}]
     | .release_dual_limit = "4000.00"
     | .service_posting_limit = "1000.00"
     | .fx_valuation.accounts += (["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"}))
@@ -888,6 +945,7 @@ step_pack() {
   say "down payment account (T074), so the pack's own, 1400, is left out: a company has one (ADR-0037)."
   local settings=${PILOT_SETTINGS//@YEAR@/$YEAR}
   settings=${settings//@PREV@/$PREV}
+  settings=${settings//@TAXFIRST@/$(tax_first)}
   settings=${settings//@CC@/$CC}
   jq "{title: \"Canada pack $version and the pilot's settings\", rationale: \"Pilot company set-up\", proposed: (.proposed | $settings)}" \
     "$WORK/last.json" >"$WORK/proposal.json"
@@ -1512,10 +1570,11 @@ step_tax() {
   local registration
   registration=$(field '.items[0].id')
   say "Its filing periods follow from the frequency and the first period, apart from fiscal periods, up to the"
-  say "one under way on the company's date in its time zone; the returns (T61h-T61i) are prepared for them."
+  say "one under way on the company's date in its time zone; the returns (T61h-T61i) are prepared for them. The first"
+  say "period is the cutover: the CRA has the returns of the periods before it, filed before the ERP."
   api 200 '"periods starting by \(.start_date_to) (the company'"'"'s date in \(.time_zone)):", (.items[] | "  \(.start_date) to \(.end_date)")' \
     listTaxPeriods -p "id=$registration"
-  expect "the first period" "$(field '.items[0] | "\(.start_date) \(.end_date)"')" "$PREV-01-01 $PREV-03-31"
+  expect "the first period, and the periods to date" "$(field '"\(.items[0].start_date) \(.items | length)"')" "$(tax_first) 3"
   expect "the time zone" "$(field .time_zone)" America/Toronto
   local start end before running
   start=$(field '.items[-2].start_date')
@@ -1525,14 +1584,17 @@ step_tax() {
   say "A registration nobody may see, or none, is not found:"
   refused 404 request.not_found listTaxPeriods -p "id=00000000-0000-7000-8000-000000000000"
   tax_return "$cash" "$sales" "$gst" "$registration" "$start" "$end" "$before" "$running"
+  file_return "$registration" "$start" "$end"
   passed
 }
 
 # tax_return CASH SALES GST REGISTRATION START END BEFORE RUNNING is step
 # 11's draft return (T61h) of the latest ended period, START to END: two
-# late sales, one dated END and one BEFORE, an earlier period's end; the
+# late sales, one dated END and one BEFORE, the first period's end; the
 # draft computed twice; the output tax box drilled down to its items;
-# SAP's down payment left out; the period under way, RUNNING, refused.
+# SAP's down payment left out; the period under way, RUNNING, refused;
+# the return of START refused until the first period's is filed, which
+# reports the late sale of BEFORE.
 tax_return() {
   local cash=$1 sales=$2 gst=$3 registration=$4 start=$5 end=$6 before=$7 running=$8
   say "Two of the billing system's invoices arrive late, and Carla posts them today with their own tax date (P6):"
@@ -1560,7 +1622,53 @@ tax_return() {
   say "the draft leaves the items of migrated entries out (ADR-0037); its clearing's reversal, posted here, is reported."
   say "The period under way has not ended, so its return cannot be drafted yet:"
   refused 409 tax.period_not_ended getTaxReturnDraft -p "id=$registration" -p "period_start=$running"
-  file_return "$registration" "$start" "$end"
+  say "Returns are prepared in period order, so each period's items are reported in its own return: the return of"
+  say "$start to $end waits until the first period's is filed, and invoice 1031 is that period's to report."
+  refused 409 tax.earlier_period_unfiled prepareTaxReturn -p "id=$registration" -body "{\"period_start\": \"$start\"}"
+  file_earlier "$registration" "$before"
+}
+
+# close_tax_periods START END BODY REGISTRATION closes the leading
+# ledger's open fiscal periods of the tax period START to END, which
+# preparing the return BODY asks for needs (T61i), once preparing has
+# been refused for them; LEADING is the leading ledger.
+close_tax_periods() {
+  local start=$1 end=$2 body=$3 registration=$4 open p
+  QUIET=1 api 200 '' listLedgers
+  LEADING=$(field '.items[] | select(.is_leading) | .id')
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=${start%%-*}" -p "ledger_id=$LEADING" -p page_size=100
+  open=$(jq -r --arg s "$start" --arg e "$end" '[.items[] | select((.is_special | not) and .status == "open" and .start_date <= $e and .end_date >= $s)
+    | "\(.id)/\(.version)"] | join(" ")' "$WORK/last.json")
+  if [ -n "$open" ]; then
+    refused 409 tax.fiscal_period_open prepareTaxReturn -p "id=$registration" -body "$body"
+    for p in $open; do
+      QUIET=1 api 200 '' closeFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+    done
+    show erp call closeFiscalPeriod -p "id=..." -if-match '"2"' "# $(wc -w <<<"$open" | tr -d ' ') periods of the leading ledger"
+  fi
+}
+
+# file_earlier REGISTRATION END is step 11's return of the registration's
+# first period, ending END, prepared, approved by Fiona and filed before
+# the latest ended period's: it reports invoice 1031.
+file_earlier() {
+  local registration=$1 end=$2 start ret
+  QUIET=1 api 200 '' listTaxPeriods -p "id=$registration"
+  start=$(field '.items[0].start_date')
+  local body="{\"period_start\": \"$start\"}"
+  say "Carla prepares the first period's return, $start to $end, once its fiscal periods are closed; Fiona approves it"
+  say "and Carla records it filed:"
+  close_tax_periods "$start" "$end" "$body" "$registration"
+  api 201 '"return \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end): \(.status), \(.item_count) items", (.boxes[] | "  \(.code) \(.amount.amount)")' \
+    prepareTaxReturn -p "id=$registration" -body "$body"
+  expect "the first period's output tax, invoice 1031's" "$(field '.boxes[] | select(.code == "output_tax") | .amount.amount')" "10.00"
+  ret=$(field .id)
+  approve fiona "$(field .approval_request_id)" "Boxes agree with the tax accounts"
+  as carla
+  QUIET=1 api 200 '' getTaxReturn -p "id=$ret"
+  api 200 '"return \(.status): confirmation \(.filing.confirmation_number) of \(.filing.filed_on)"' fileTaxReturn -p "id=$ret" -if-match "$ETAG" \
+    -body "{\"confirmation_number\": \"WALKTHROUGH-0000\", \"filed_on\": \"$TODAY\"}"
+  expect "the first period's return" "$(field .status)" filed
 }
 
 # file_return REGISTRATION START END is step 11's return of START to END
@@ -1569,28 +1677,15 @@ tax_return() {
 # prepared it; recorded as filed, which locks the periods; the period's
 # draft then empty, and a manual entry's tax date in it refused (P6).
 file_return() {
-  local registration=$1 start=$2 end=$3 leading ret request p
+  local registration=$1 start=$2 end=$3 ret request
   local body="{\"period_start\": \"$start\"}"
   say "Carla prepares the return of $start to $end (T61i): a snapshot of the draft that claims its items, so no later"
-  say "draft or return reports them again. The leading ledger's fiscal periods of the tax period must be closed first,"
-  say "so no posting is under way in it:"
-  QUIET=1 api 200 '' listLedgers
-  leading=$(field '.items[] | select(.is_leading) | .id')
-  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=${start%%-*}" -p "ledger_id=$leading" -p page_size=100
-  cp "$WORK/last.json" "$WORK/tax-periods.json"
-  local open
-  open=$(jq -r --arg s "$start" --arg e "$end" '[.items[] | select((.is_special | not) and .status == "open" and .start_date <= $e and .end_date >= $s)
-    | "\(.id)/\(.version)"] | join(" ")' "$WORK/tax-periods.json")
-  if [ -n "$open" ]; then
-    refused 409 tax.fiscal_period_open prepareTaxReturn -p "id=$registration" -body "$body"
-    for p in $open; do
-      QUIET=1 api 200 '' closeFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
-    done
-    show erp call closeFiscalPeriod -p "id=..." -if-match '"2"' "# $(wc -w <<<"$open" | tr -d ' ') periods of the leading ledger"
-  fi
+  say "draft or return reports them again; invoice 1031 is the first period's now. The leading ledger's fiscal periods"
+  say "of the tax period must be closed first, so no posting is under way in it:"
+  close_tax_periods "$start" "$end" "$body" "$registration"
   api 201 '"return \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end): \(.status), \(.item_count) items, hash \(.items_hash[0:12])...", (.boxes[] | "  \(.code) \(.amount.amount)")' \
     prepareTaxReturn -p "id=$registration" -body "$body"
-  expect "the return's output tax" "$(field '.boxes[] | select(.code == "output_tax") | .amount.amount')" "60.00"
+  expect "the return's output tax, invoice 1039's" "$(field '.boxes[] | select(.code == "output_tax") | .amount.amount')" "50.00"
   ret=$(field .id)
   request=$(field .approval_request_id)
   say "A second return of the period cannot be prepared while this one stands:"
@@ -1606,7 +1701,7 @@ file_return() {
   expect "approved, by another person" "$(field '"\(.status) \(.approved_by != .created_by)"')" "approved true"
   api 200 '"return \(.status): confirmation \(.filing.confirmation_number) of \(.filing.filed_on)"' fileTaxReturn -p "id=$ret" -if-match "$ETAG" \
     -body "{\"confirmation_number\": \"WALKTHROUGH-0001\", \"filed_on\": \"$TODAY\"}"
-  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=${start%%-*}" -p "ledger_id=$leading" -p page_size=100
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=${start%%-*}" -p "ledger_id=$LEADING" -p page_size=100
   expect "the tax period's fiscal periods" "$(jq -r --arg s "$start" --arg e "$end" '[.items[] | select((.is_special | not) and .start_date <= $e
     and .end_date >= $s) | .status] | unique | join(" ")' "$WORK/last.json")" locked
   say "The items it reported are in no later draft: the period's draft is empty now, and the next return starts afresh."
@@ -1840,13 +1935,22 @@ step_downpayment() {
   heading "Step 16 — SAP's open down payment is cleared against the supplier's final invoice (SAP F-54)"
   as alex
   say "$DP_NAME's final invoice arrives: CAD 5,000.00 plus 250.00 GST on V1. Alex enters it in a hurry, without"
-  say "the item's description, and posts it."
+  say "the item's description, and misreads the tax as 260.00."
   local item invoice fy line
   item="{\"account_id\": \"$(account 6000)\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"5000.00\", \"currency\": \"CAD\"}, \"tax_code\": \"V1\"}"
   api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
-    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$DP_SUPPLIER\", \"supplier_reference\": \"FINAL-DP\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"5250.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"250.00\", \"currency\": \"CAD\"}, \"items\": [$item]}"
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$DP_SUPPLIER\", \"supplier_reference\": \"FINAL-DP\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"5260.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"260.00\", \"currency\": \"CAD\"}, \"items\": [$item]}"
   invoice=$(field .id)
-  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  say "Posting calculates the tax at the codes' rates and refuses the invoice's 260.00. The problem carries the"
+  say "figures as fields (T73e2, ADR-0052 decision D3), which the web workspace shows in the clerk's language:"
+  refused 422 payables.tax_mismatch postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  excerpt '.calculated_tax | "stated \(.stated.amount) \(.stated.currency), calculated \(.calculated.amount) \(.calculated.currency): \([.codes[] | "\(.tax_code) \(.tax.amount)"] | join(", "))"'
+  expect "the refused tax's figures" "$(field '.calculated_tax | "\(.stated.amount) \(.calculated.amount) \([.codes[] | "\(.tax_code) \(.tax.amount)"] | join(" "))"')" \
+    "260.00 250.00 V1 250.00"
+  say "Alex corrects the parked invoice's tax and gross (a merge patch of the two figures alone) and posts it."
+  api 200 '"\(.document_number): \(.status), tax \(.tax_amount.amount), gross \(.gross_amount.amount)"' updateSupplierInvoice -p "id=$invoice" -if-match '"1"' \
+    -body '{"gross_amount": {"amount": "5250.00", "currency": "CAD"}, "tax_amount": {"amount": "250.00", "currency": "CAD"}}'
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
   expect "the final invoice's status" "$(field .status)" posted
   say "The posting checks the CRA's documentary requirements for the input tax credit, which the Canada pack"
   say "brings (SOR/91-45 s. 3, ADR-0049 §6): from CAD 100 the supplier's GST/HST number, on file from SAP; from"

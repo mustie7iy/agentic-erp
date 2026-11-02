@@ -27,7 +27,8 @@ const maxRecommendations = 20
 // invoiceDone are the notices of what was just done (?done=…).
 var invoiceDone = map[string]i18n.Key{"matched": i18n.InvoiceDoneMatched, "posted": i18n.InvoiceDonePosted,
 	"held": i18n.InvoiceDoneHeld, "released": i18n.InvoiceDoneReleased, "cancelled": i18n.InvoiceDoneCancelled,
-	"reversed": i18n.InvoiceDoneReversed, "decided": i18n.InvoiceDoneDecided}
+	"reversed": i18n.InvoiceDoneReversed, "decided": i18n.InvoiceDoneDecided, "changed": i18n.InvoiceDoneChanged,
+	"unchanged": i18n.InvoiceDoneUnchanged}
 
 // typed is what the person sent in a form the API refused or that was
 // not valid: the action's verb (or the recommendation's id), its text,
@@ -57,21 +58,10 @@ func (s *Server) invoice(w http.ResponseWriter, r *http.Request, p *person) {
 // forms fresh (the invoice's current ETag, new idempotency keys) holding
 // what the person typed, and the API's refusal of what they asked.
 func (s *Server) showInvoice(w http.ResponseWriter, r *http.Request, p *person, m me, id uuid.UUID, status int, t typed, refused *ui.Refusal) {
-	res, err := s.API.GetSupplierInvoice(r.Context(), gen.GetSupplierInvoiceParams{ID: id, Expand: []string{"supplier"}})
-	got, ok := res.(*gen.GetSupplierInvoiceOKHeaders)
+	inv, tag, ok := s.readInvoice(w, r, p, m, id)
 	if !ok {
-		prob, show := s.refusal(w, r, p, "getSupplierInvoice", res, err)
-		switch {
-		case !show:
-		case prob.Status == http.StatusNotFound:
-			s.notFound(w, r)
-		default:
-			s.render(w, r, int(prob.Status), ui.Invoices(s.page(i18n.InvoicesTitle, ui.InvoicesPath, p, m),
-				ui.InvoiceList{Tabs: statusTabs(nil), Refusal: explainIn(i18n.InvoiceProblems, i18n.InvoicesRefusedTitle, prob, m)}))
-		}
 		return
 	}
-	inv := got.Response
 	ip := ui.InvoicePage{Number: inv.DocumentNumber, Lines: linesOf(inv), HasOrder: inv.PurchaseOrderID.Set, Refusal: refused,
 		Done: invoiceDone[r.URL.Query().Get("done")], Pending: inv.Status == "on_hold" && inv.WorkflowRequestID.Set}
 	match, ok := s.latestMatch(w, r, p, m, inv, &ip)
@@ -99,8 +89,32 @@ func (s *Server) showInvoice(w http.ResponseWriter, r *http.Request, p *person, 
 	if inv.Source == "capture" {
 		ip.Document = invoicePath(id) + "/document"
 	}
-	ip.Actions, ip.Why = actionForms(inv, m, p, got.ETag.Or(etag.Format(inv.Version)), t)
+	ip.Actions, ip.Why = actionForms(inv, m, p, tag, t)
+	if inv.Status == "parked" && m.may(permCaptureInvoices) {
+		ip.Edit = invoicePath(id) + "/edit"
+	}
 	s.render(w, r, status, ui.Invoice(s.page(i18n.InvoiceTitle, ui.InvoicesPath, p, m), ip))
+}
+
+// readInvoice reads the invoice, its supplier expanded, and its ETag. ok
+// is false when the answer is already written: not found, or the API's
+// refusal on the queue's page.
+func (s *Server) readInvoice(w http.ResponseWriter, r *http.Request, p *person, m me, id uuid.UUID) (gen.SupplierInvoice, string, bool) {
+	res, err := s.API.GetSupplierInvoice(r.Context(), gen.GetSupplierInvoiceParams{ID: id, Expand: []string{"supplier"}})
+	got, ok := res.(*gen.GetSupplierInvoiceOKHeaders)
+	if ok {
+		return got.Response, got.ETag.Or(etag.Format(got.Response.Version)), true
+	}
+	prob, show := s.refusal(w, r, p, "getSupplierInvoice", res, err)
+	switch {
+	case !show:
+	case prob.Status == http.StatusNotFound:
+		s.notFound(w, r)
+	default:
+		s.render(w, r, int(prob.Status), ui.Invoices(s.page(i18n.InvoicesTitle, ui.InvoicesPath, p, m),
+			ui.InvoiceList{Tabs: statusTabs(nil), Refusal: explainIn(i18n.InvoiceProblems, i18n.InvoicesRefusedTitle, prob, m)}))
+	}
+	return gen.SupplierInvoice{}, "", false
 }
 
 // latestMatch reads the invoice's latest match (listMatchResults, newest

@@ -68,6 +68,7 @@ type Refusal struct {
 	Code     string
 	Trace    string
 	Barred   []string
+	Tax      *TaxFigures // payables.tax_mismatch's figures, when the API gave them
 }
 
 // The approvals' lists (T73d2), by the view query parameter: the requests

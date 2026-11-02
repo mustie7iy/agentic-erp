@@ -6313,6 +6313,50 @@ func (s *BusinessPartnerPage) SetTotalEstimate(val OptInt64) {
 
 func (*BusinessPartnerPage) listBusinessPartnersRes() {}
 
+// The figures of a supplier invoice whose stated tax its tax codes' rates do not bear out within the
+// company's tolerance (422 `payables.tax_mismatch`): the tax it states, the tax calculated at its
+// items' codes' rates on its tax date, and each code's share of it, in the invoice's currency.
+// Self-assessed tax, which the supplier does not charge, is left out of both.
+// Ref: #/components/schemas/CalculatedTax
+type CalculatedTax struct {
+	// The tax the invoice states (`tax_amount`).
+	Stated Money `json:"stated"`
+	// The tax its codes' rates give.
+	Calculated Money `json:"calculated"`
+	// Each code's calculated tax, in the order of the items that first carry it.
+	Codes []CodeTax `json:"codes"`
+}
+
+// GetStated returns the value of Stated.
+func (s *CalculatedTax) GetStated() Money {
+	return s.Stated
+}
+
+// GetCalculated returns the value of Calculated.
+func (s *CalculatedTax) GetCalculated() Money {
+	return s.Calculated
+}
+
+// GetCodes returns the value of Codes.
+func (s *CalculatedTax) GetCodes() []CodeTax {
+	return s.Codes
+}
+
+// SetStated sets the value of Stated.
+func (s *CalculatedTax) SetStated(val Money) {
+	s.Stated = val
+}
+
+// SetCalculated sets the value of Calculated.
+func (s *CalculatedTax) SetCalculated(val Money) {
+	s.Calculated = val
+}
+
+// SetCodes sets the value of Codes.
+func (s *CalculatedTax) SetCodes(val []CodeTax) {
+	s.Codes = val
+}
+
 type CancelApprovalRequestBadRequest Problem
 
 func (*CancelApprovalRequestBadRequest) cancelApprovalRequestRes() {}
@@ -8835,6 +8879,35 @@ func (*ClosePurchaseOrderPreconditionRequired) closePurchaseOrderRes() {}
 type ClosePurchaseOrderUnprocessableEntity Problem
 
 func (*ClosePurchaseOrderUnprocessableEntity) closePurchaseOrderRes() {}
+
+// The tax calculated at one tax code's rates.
+// Ref: #/components/schemas/CodeTax
+type CodeTax struct {
+	// The tax code.
+	TaxCode string `json:"tax_code"`
+	// The tax its rates give the items carrying it.
+	Tax Money `json:"tax"`
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *CodeTax) GetTaxCode() string {
+	return s.TaxCode
+}
+
+// GetTax returns the value of Tax.
+func (s *CodeTax) GetTax() Money {
+	return s.Tax
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *CodeTax) SetTaxCode(val string) {
+	s.TaxCode = val
+}
+
+// SetTax sets the value of Tax.
+func (s *CodeTax) SetTax(val Money) {
+	s.Tax = val
+}
 
 // Body of a rejection or cancellation decision.
 // Ref: #/components/schemas/CommentRequiredInput
@@ -26982,6 +27055,52 @@ func (o OptBool) Or(d bool) bool {
 	return d
 }
 
+// NewOptCalculatedTax returns new OptCalculatedTax with value set to v.
+func NewOptCalculatedTax(v CalculatedTax) OptCalculatedTax {
+	return OptCalculatedTax{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptCalculatedTax is optional CalculatedTax.
+type OptCalculatedTax struct {
+	Value CalculatedTax
+	Set   bool
+}
+
+// IsSet returns true if OptCalculatedTax was set.
+func (o OptCalculatedTax) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptCalculatedTax) Reset() {
+	var v CalculatedTax
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptCalculatedTax) SetTo(v CalculatedTax) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptCalculatedTax) Get() (v CalculatedTax, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptCalculatedTax) Or(d CalculatedTax) CalculatedTax {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptCashPositionBookBalance returns new OptCashPositionBookBalance with value set to v.
 func NewOptCashPositionBookBalance(v CashPositionBookBalance) OptCashPositionBookBalance {
 	return OptCashPositionBookBalance{
@@ -33595,6 +33714,9 @@ type Problem struct {
 	TraceID OptString `json:"trace_id"`
 	// Field-level errors (422 and some 400/409).
 	Errors []FieldError `json:"errors"`
+	// With `payables.tax_mismatch` only: the tax the invoice's codes' rates give, in all and per code,
+	// beside the tax it states (ADR-0052, decision D3).
+	CalculatedTax OptCalculatedTax `json:"calculated_tax"`
 }
 
 // GetType returns the value of Type.
@@ -33637,6 +33759,11 @@ func (s *Problem) GetErrors() []FieldError {
 	return s.Errors
 }
 
+// GetCalculatedTax returns the value of CalculatedTax.
+func (s *Problem) GetCalculatedTax() OptCalculatedTax {
+	return s.CalculatedTax
+}
+
 // SetType sets the value of Type.
 func (s *Problem) SetType(val string) {
 	s.Type = val
@@ -33675,6 +33802,11 @@ func (s *Problem) SetTraceID(val OptString) {
 // SetErrors sets the value of Errors.
 func (s *Problem) SetErrors(val []FieldError) {
 	s.Errors = val
+}
+
+// SetCalculatedTax sets the value of CalculatedTax.
+func (s *Problem) SetCalculatedTax(val OptCalculatedTax) {
+	s.CalculatedTax = val
 }
 
 // Merged schema.
@@ -42866,7 +42998,8 @@ func (*TaxPeriodPage) listTaxPeriodsRes() {}
 
 // A company's registration with a tax authority (ADR-0049 §10, T61g), from the configuration
 // (`companies[].tax_registrations`). Its periods follow from `frequency` and `first_period_start`,
-// which never change under its code (`listTaxPeriods`).
+// which never change under its code (`listTaxPeriods`); `first_period_start` is the first period the
+// ERP files, and its returns are prepared in period order from it (`prepareTaxReturn`).
 // Ref: #/components/schemas/TaxRegistration
 type TaxRegistration struct {
 	// Identifier.
@@ -42891,7 +43024,9 @@ type TaxRegistration struct {
 	// How often the registration files: a period lasts a month, a quarter or a year. Open enumeration:
 	// clients must accept and preserve values not listed here; values may be added within /v1.
 	Frequency string `json:"frequency"`
-	// The first day of the first period; each later period starts on the same day of a month.
+	// The first day of the first period the ERP files, its cutover: earlier periods' returns were filed
+	// outside it, and returns are prepared in period order from it (ADR-0049 §11 As built, period order).
+	// Each later period starts on the same day of a month.
 	FirstPeriodStart time.Time `json:"first_period_start"`
 	// The last day of the last period, once the registration has ended (or its frequency changed, a
 	// registration of a new code continuing); absent while it runs.

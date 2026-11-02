@@ -270,19 +270,30 @@ func (t entryTyped) view(loc i18n.Locale, action string, p *person, ch chart) ui
 // markRefused records, on the lines sent, the fields the API's problem
 // names (lines[i] or lines[i].field) and why.
 func markRefused(prob gen.Problem, lines []entryLine) {
+	for i, rf := range refusedFields(prob, "lines", len(lines)) {
+		lines[i].refused = append(lines[i].refused, rf...)
+	}
+}
+
+// refusedFields are the fields of a list's elements the API's problem
+// names (list[i] or list[i].field) and why, by the element's index, of the
+// n elements sent.
+func refusedFields(prob gen.Problem, list string, n int) map[int][]refusedField {
+	out := map[int][]refusedField{}
 	for _, fe := range prob.Errors {
-		rest, ok := strings.CutPrefix(fe.Field, "lines[")
+		rest, ok := strings.CutPrefix(fe.Field, list+"[")
 		index, field, closed := strings.Cut(rest, "]")
-		n, err := strconv.Atoi(index)
-		if !ok || !closed || err != nil || n < 0 || n >= len(lines) {
+		i, err := strconv.Atoi(index)
+		if !ok || !closed || err != nil || i < 0 || i >= n {
 			continue
 		}
 		api := strings.TrimPrefix(field, ".")
 		if api != quantityUnit { // a quantity's unit is a field of its own on the line
 			api, _, _ = strings.Cut(api, ".")
 		}
-		lines[n].refused = append(lines[n].refused, refusedField{api: api, reason: fe.Code})
+		out[i] = append(out[i], refusedField{api: api, reason: fe.Code})
 	}
+	return out
 }
 
 // newEntry is the form of a new entry, of the company the query names

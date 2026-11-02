@@ -214,7 +214,7 @@ func Succeed(ctx context.Context, id uuid.UUID, resource string, result any) (Op
 // Fail completes an operation whose work could not be done, with the
 // problem that stopped it.
 func Fail(ctx context.Context, id uuid.UUID, p *problem.Problem) (Operation, error) {
-	body, _ := json.Marshal(p) // a problem is strings, ints and field errors
+	body, _ := json.Marshal(p) // a problem is strings, ints, field errors and their figures: it cannot fail
 	return finish(ctx, `status = 'failed', error = $2`, id, body)
 }
 

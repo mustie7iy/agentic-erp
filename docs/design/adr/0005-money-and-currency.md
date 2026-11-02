@@ -133,3 +133,90 @@ and the load as built:
   the load takes over (a clearing
   that does not net in both currencies is refused by the ledger, an issue of
   the run); and which field carries the document's exchange rate.
+
+## As built: no open item with a document amount alone is left out (review:batch31)
+Decided by default under ADR-0053 §d: the quality gate refuses the line,
+naming its document and line, rather than load it. An open vendor item, or
+a line of an open GR/IR position, with an amount in its document currency
+(WSL) and none in company currency (HSL) was neither refused nor loaded
+when its document posts in company currency (its lines not all in one
+currency, SAP's clearing mixing currencies, or its currency the company's):
+the gate counted an item by its HSL alone, and the load leaves out a line
+of no company code amount, in the journal posting (`documents`) and the
+opening entry (`balances`) alike, so a small foreign item disappeared.
+- **Refused, not loaded.** Loading it is not settled: the section above
+  already refuses such a line in a document that posts in a foreign
+  currency (a WSL and no HSL), so treating its document as foreign-currency
+  would refuse it there; and loading it in company currency would make an
+  item of zero, which the ledger refuses. Either way it needs a money rule
+  (an item of no local value, a rate of zero) that this ADR does not give.
+- **Which lines.** A line counts as an open item when it has an amount in
+  either currency, as `openDocuments` already counts them. WSL is read
+  without its currency, which may be missing or unknown: not zero, or not
+  a number, is an amount. A line that carries no WSL has none when it is in
+  company currency (should an extract leave WSL empty on a line in
+  company currency); in another currency or none (an OData extract carries
+  neither yet) it cannot be told, so the line is refused for its missing
+  document currency, T72b's never-guess rule, rather than left out. A line
+  whose WSL is zero, or a cleared line, is still not an item.
+- **What the gate says.** In company currency: "open item … has no amount
+  in company currency (HSL), but its document amount (WSL) is …"; in a
+  document not all in its currency, without one, or cleared together with
+  documents in another currency, the refusals of the section above apply
+  to it as to any open item there; in a document that posts in a foreign
+  currency, `foreignLine`'s. Both modes, tested with real PostgreSQL.
+- **Its sibling.** A line with HSL and no WSL loads as before: in company
+  currency from HSL, and in a foreign-currency document as an exchange
+  difference, except a vendor line, refused (section above).
+- **For an SAP specialist.** Whether SAP can hold an open item with a
+  transaction-currency amount and a company code amount of zero (a small
+  amount that rounds to zero at the document's rate, say), and whether a
+  line in company currency always has WSL equal to HSL: neither is assumed
+  here, which is why the line is refused rather than loaded.
+
+## As built: no line with a document amount alone is left out (review:batch31)
+Decided by default under ADR-0053 §d, extending the section above from
+open items to every line. In `documents` mode a line that is no open item,
+with a document amount (WSL) and no company code amount (HSL), in a
+document that posts in company currency (a G/L line of a document whose
+lines mix currencies, a cleared vendor line) was left out of the journal
+posting: company code balances were right, but its document amount was
+lost without a word. A cleared vendor line left out was then named as line
+0 in the clearing the load takes over, which the ledger refused as "not a
+line on a reconciliation account", failing the whole run after the gate
+had passed it; so did a cleared vendor line of no amount at all.
+- **Refused, not loaded.** As for open items: loading it needs a money rule
+  (a line of no local value) this ADR does not give. The quality gate
+  refuses it (`leftOutLines`), naming document and line: "line of SAP
+  document … has a document amount (WSL …, RWCUR …) and no amount in
+  company currency … (HSL) …; have SAP's line corrected". `balances` mode
+  is not offered as a way out: a document can post on its own there too (a
+  down payment's, or one holding an open item in a foreign currency, which
+  `foreignLine` then refuses alike). So no SAP line with an amount in either
+  currency is left out unreported in a document the load posts: an open
+  item has its refusal above, a line of a foreign-currency document
+  `foreignLine`'s, and every other line this one.
+- **Which documents.** Those that post as an entry of their own in company
+  currency: in `documents` mode every document not in a foreign currency;
+  in `balances` mode a down payment's document not in one (T72c). The other
+  documents of `balances` mode make up the opening entry, which carries
+  company code balances per account and no line of its own (T72c), so no
+  document amount is carried there for any line: not refused. A document
+  an earlier run posted is not posted again, and one refused as a clearing
+  conflict is refused whole: not refused line by line.
+- **Which lines.** WSL read as for open items (not zero, or not a number).
+  A line that carries no WSL has no document amount to lose and is not
+  refused, unlike an open item without a document currency (T72b's
+  never-guess rule is about which currency an item is in, and an OData
+  extract, which carries no WSL yet, would otherwise be refused for every
+  line of no company code amount).
+- **Line 0.** A cleared vendor line the posting leaves out now has no
+  amount in either currency, so it has nothing to clear: the clearing
+  leaves it out (`clearingItems`), and a clearing none of whose vendor
+  lines has an amount clears nothing. Tested through the load with real
+  PostgreSQL.
+- **For an SAP specialist.** Whether SAP posts lines with a WSL and an HSL
+  of zero in documents that are not open items (rounding of a small
+  foreign amount, an exchange difference posted in transaction currency
+  alone), and whether a vendor line of no amount in either currency occurs
+  in a clearing: neither is assumed.

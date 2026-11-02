@@ -342,3 +342,39 @@ func TestAmount(t *testing.T) {
 		})
 	}
 }
+
+// TestQuantity: a quantity is read as an amount is, with up to six
+// decimals and no sign.
+func TestQuantity(t *testing.T) {
+	c, err := Load(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	en, fr := c.Match("en"), c.Match("fr-CA")
+	for name, tc := range map[string]struct {
+		l     Locale
+		typed string
+		want  string
+		ok    bool
+	}{
+		"English":              {en, " 12.5 ", "12.5", true},
+		"French":               {fr, "12,5", "12.5", true},
+		"six decimals":         {en, "0.000001", "0.000001", true},
+		"seven decimals":       {en, "0.0000001", "", false},
+		"fourteen whole":       {en, "99999999999999", "99999999999999", true},
+		"fifteen whole digits": {en, "999999999999999", "", false},
+		"negative, misplaced":  {en, "1-", "", false},
+		"negative, French":     {fr, "-1,5", "-1.5", true},
+		"negative, English":    {en, " -0.25", "-0.25", true},
+		"minus alone":          {en, "-", "", false},
+		"grouped":              {fr, "1 000", "", false},
+		"empty":                {en, "", "", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, ok := tc.l.Quantity(tc.typed)
+			if got != tc.want || ok != tc.ok {
+				t.Errorf("got %q %v, want %q %v", got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}

@@ -323,3 +323,171 @@ func TestDocumentCurrencyQualityPasses(t *testing.T) {
 		}
 	}
 }
+
+// TestDocumentAmountAlone (review:batch31): an open vendor item with an
+// amount in its document currency (WSL) and none in company currency
+// (HSL), which the load would post no line for, is refused naming its
+// document and line, in both modes, whatever its document posts in: in
+// company currency, in a document not all in its currency or cleared
+// together with one in another, without a document currency (or without
+// either, as an OData extract), and in a foreign currency; and so is a
+// line of an open GR/IR position, in company currency for its document
+// amount alone and in a foreign one as any such line. One that
+// carries no document amount in company currency has none, and one with
+// a company code amount alone in company currency loads from it.
+func TestDocumentAmountAlone(t *testing.T) {
+	last := func(e *sap.Extract) *sap.ACDOCA { return &e.ACDOCA[len(e.ACDOCA)-1] }
+	// alone appends document 0100000011 in the given currencies: line 1
+	// on 170000, line 2 the vendor's of the given document amount, both of
+	// no company code amount.
+	alone := func(e *sap.Extract, debit, credit, wsl string) {
+		withDocument(e, "0100000011", debit, sap.ACDOCA{RACCT: "0000211000", HSL: "0.00", WSL: wsl, LIFNR: "0000000001"})
+		last(e).RWCUR = credit
+	}
+	const item = "2000/2026/0100000011/000002: open item of SAP document 0100000011 "
+	// debit is line 1 refused in documents mode, where its document posts
+	// as an entry of its own in company currency (leftOutLines); in
+	// balances mode it is part of the opening entry.
+	const debit = "2000/2026/0100000011/000001: line of SAP document 0100000011 has a document amount (WSL "
+	inUSD := []string{"2000/2026/0100000011/000001: line has 0.01 USD in its document currency (WSL) and no amount in company currency (HSL)",
+		"2000/2026/0100000011/000002: line has -0.01 USD in its document currency (WSL) and no amount in company currency (HSL)"}
+	// grir adds to an open GR/IR position (withGRIRPosition, in EUR)
+	// document 0100000011 in the given currency, its GR/IR line on the
+	// position's order item of no company code amount.
+	var tg *target
+	grir := func(e *sap.Extract, currency string) {
+		withGRIRPosition(e, tg, "EUR")
+		withDocument(e, "0100000011", currency, sap.ACDOCA{RACCT: "0000219000", HSL: "0.00", WSL: "-5.00", EBELN: "4500000001", EBELP: "00010"})
+	}
+	const grirItem = "2000/2026/0100000011/000002: open item of SAP document 0100000011 "
+	const grirForeign = "is in document currency USD, not company 2000's currency EUR: open GR/IR positions in a foreign document currency"
+	cases := []struct {
+		name                string
+		change              func(e *sap.Extract)
+		documents, balances []string
+	}{
+		{"in company currency", func(e *sap.Extract) { alone(e, "EUR", "EUR", "-0.01") },
+			[]string{item + `has no amount in company currency EUR (HSL), but its document amount (WSL) is "-0.01"`, debit + `"0.01"`},
+			[]string{item + `has no amount in company currency EUR (HSL), but its document amount (WSL) is "-0.01"`}},
+		{"in company currency, not a number", func(e *sap.Extract) { alone(e, "EUR", "EUR", "-x") },
+			[]string{item + `has no amount in company currency EUR (HSL), but its document amount (WSL) is "-x"`, debit + `"x"`},
+			[]string{item + `has no amount in company currency EUR (HSL), but its document amount (WSL) is "-x"`}},
+		{"in a document not all in its currency", func(e *sap.Extract) { alone(e, "EUR", "USD", "-0.01") },
+			[]string{item + "is in document currency USD, and not every line of its document is", debit + `"0.01", RWCUR "EUR")`},
+			[]string{item + "is in document currency USD, and not every line of its document is"}},
+		{"without a document currency", func(e *sap.Extract) { alone(e, "", "", "-0.01") },
+			[]string{item + "has no document currency (RWCUR)", debit + `"0.01", RWCUR "")`}, []string{item + "has no document currency (RWCUR)"}},
+		{"without a document currency or amount", func(e *sap.Extract) { alone(e, "", "", ""); last(e).WSL = "" },
+			[]string{item + "has no document currency (RWCUR)"}, []string{item + "has no document currency (RWCUR)"}},
+		{"in a foreign currency", func(e *sap.Extract) { alone(e, "USD", "USD", "-0.01") }, inUSD, inUSD},
+		{"cleared together with a document in another currency", func(e *sap.Extract) {
+			alone(e, "USD", "USD", "-0.01")
+			debit := &e.ACDOCA[len(e.ACDOCA)-2]
+			debit.HSL, debit.WSL = "1.00", "2.01"
+			e.ACDOCA = append(e.ACDOCA, sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000011", DOCLN: "000003",
+				RACCT: "0000211000", HSL: "-1.00", WSL: "-2.00", BUDAT: "20260310", BLART: "KZ", RWCUR: "USD", LIFNR: "0000000001", AUGBL: "0100000013"})
+			withDocument(e, "0100000013", "EUR", sap.ACDOCA{RACCT: "0000211000", HSL: "-50.00", WSL: "-50.00", LIFNR: "0000000001", AUGBL: "0100000013"})
+		}, []string{item + "is in document currency USD, and SAP cleared its document together with documents in another currency"},
+			// balances mode takes no clearing over: the document posts on its own in USD
+			inUSD[1:]},
+		{"a GR/IR line of an open position in company currency", func(e *sap.Extract) { grir(e, "EUR") },
+			[]string{grirItem + `has no amount in company currency EUR (HSL), but its document amount (WSL) is "-5.00"`, debit + `"5.00"`},
+			[]string{grirItem + `has no amount in company currency EUR (HSL), but its document amount (WSL) is "-5.00"`}},
+		{"a GR/IR line of an open position in a foreign currency", func(e *sap.Extract) { grir(e, "USD") },
+			[]string{grirItem + grirForeign, "2000/2026/0100000011/000001: line has 5.00 USD", "2000/2026/0100000011/000002: line has -5.00 USD"},
+			[]string{grirItem + grirForeign}},
+		{"carrying no document amount in company currency", func(e *sap.Extract) { alone(e, "EUR", "EUR", ""); last(e).WSL = "" }, nil, nil},
+		{"a company code amount alone in company currency", func(e *sap.Extract) {
+			withDocument(e, "0100000011", "EUR", sap.ACDOCA{RACCT: "0000211000", HSL: "-50.00", WSL: "0.00", LIFNR: "0000000001"})
+		}, nil, nil},
+	}
+	for _, balances := range []bool{false, true} {
+		var run []documentCurrencyCase
+		for _, c := range cases {
+			want, mode := c.documents, "documents"
+			if balances {
+				want, mode = c.balances, "balances"
+			}
+			run = append(run, documentCurrencyCase{mode + ": " + c.name, func(e *sap.Extract, t *target) { t.balances, tg = balances, t; c.change(e) }, want})
+		}
+		runDocumentCurrencyCases(t, run)
+	}
+}
+
+// TestLeftOutLines (review:batch31): a line that is no open item, with a
+// document amount (WSL) and no company code amount (HSL), in a document
+// that posts as an entry of its own in company currency, which the load
+// would leave out, is refused naming its document and line: a G/L line of
+// a document whose lines mix currencies, a cleared vendor line, a WSL that
+// does not parse, and in balances mode a line of a down payment's document
+// in company currency. Not refused: a line that carries no WSL, or whose
+// WSL is zero; in balances mode a document of the opening entry, which
+// carries company code amounts alone; a document an earlier run posted;
+// and a document refused as a conflict, which is refused whole.
+func TestLeftOutLines(t *testing.T) {
+	const gl = "2000/2026/0100000011/000001: line of SAP document 0100000011 has a document amount (WSL "
+	// mixed appends document 0100000011: line 1 on 170000 in USD of the
+	// given document amount and none in EUR, line 2 an open EUR vendor item.
+	mixed := func(e *sap.Extract, wsl string) {
+		withDocument(e, "0100000011", "EUR", sap.ACDOCA{RACCT: "0000211000", HSL: "-50.00", WSL: "-50.00", LIFNR: "0000000001"})
+		debit := &e.ACDOCA[len(e.ACDOCA)-2]
+		debit.HSL, debit.WSL, debit.RWCUR = "0.00", wsl, "USD"
+		e.ACDOCA = append(e.ACDOCA, sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000011", DOCLN: "000003",
+			RACCT: "0000170000", HSL: "50.00", WSL: "50.00", BUDAT: "20260310", BLART: "KZ", RWCUR: "EUR"})
+	}
+	// dpLineAlone adds to the down payment's EUR document a line on 170000
+	// of 0.01 USD and no EUR amount.
+	dpLineAlone := func(e *sap.Extract) {
+		l := dpLine("000004", "0000170000", "0.00", "", "", "")
+		l.WSL, l.RWCUR = "0.01", "USD"
+		e.ACDOCA = append(e.ACDOCA, l)
+	}
+	// dpAlone is the refusal of dpLineAlone's line, in either mode: the
+	// document posts on its own in both.
+	const dpAlone = "2000/2026/0100000009/000004: line of SAP document 0100000009 has a document amount (WSL \"0.01\", RWCUR \"USD\") and no " +
+		"amount in company currency EUR (HSL): its document posts in company currency from HSL, so the load would leave the line out; " +
+		"have SAP's line corrected"
+	cases := []struct {
+		name                string
+		change              func(e *sap.Extract, t *target)
+		documents, balances []string
+	}{
+		{"a G/L line of a document whose lines mix currencies", func(e *sap.Extract, _ *target) { mixed(e, "0.01") },
+			[]string{gl + `"0.01", RWCUR "USD") and no amount in company currency EUR (HSL): its document posts in company currency from HSL, ` +
+				"so the load would leave the line out; have SAP's line corrected"}, nil},
+		{"a document amount that does not parse", func(e *sap.Extract, _ *target) { mixed(e, "x") },
+			[]string{gl + `"x", RWCUR "USD")`}, nil},
+		{"a cleared vendor line", func(e *sap.Extract, _ *target) {
+			withDocument(e, "0100000011", "EUR", sap.ACDOCA{RACCT: "0000211000", HSL: "0.00", WSL: "-0.01", LIFNR: "0000000001", AUGBL: "0100000013"})
+			e.ACDOCA[len(e.ACDOCA)-2].WSL = "0.00"
+		}, []string{"2000/2026/0100000011/000002: line of SAP document 0100000011 has a document amount (WSL \"-0.01\", RWCUR \"EUR\")"}, nil},
+		{"a line that carries no document amount", func(e *sap.Extract, _ *target) { mixed(e, ""); e.ACDOCA[len(e.ACDOCA)-3].RWCUR = "" }, nil, nil},
+		{"a line of a document amount of zero", func(e *sap.Extract, _ *target) { mixed(e, "0.00") }, nil, nil},
+		{"a line of a down payment's document in company currency", func(e *sap.Extract, _ *target) { dpLineAlone(e) },
+			[]string{dpAlone}, []string{dpAlone}},
+		{"a document an earlier run posted", func(e *sap.Extract, t *target) {
+			mixed(e, "0.01")
+			t.posted = map[string]string{"2000/2026/0100000011": "EUR"}
+		}, nil, nil},
+		{"a document refused as a conflict", func(e *sap.Extract, t *target) {
+			withDocument(e, "0100000011", "USD", sap.ACDOCA{RACCT: "0000211000", HSL: "-50.00", LIFNR: "0000000001", AUGBL: "0100000013"})
+			withDocument(e, "0100000013", "EUR", sap.ACDOCA{RACCT: "0000100000", HSL: "-50.00", WSL: "-50.00"})
+			pay := &e.ACDOCA[len(e.ACDOCA)-2]
+			pay.RACCT, pay.LIFNR, pay.AUGBL = "0000211000", "0000000001", "0100000013"
+			e.ACDOCA = append(e.ACDOCA, sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000013", DOCLN: "000003",
+				RACCT: "0000170000", HSL: "0.00", WSL: "0.01", BUDAT: "20260310", BLART: "KZ", RWCUR: "USD"})
+			t.posted = map[string]string{"2000/2026/0100000011": "USD"}
+		}, []string{"2000/2026/0100000013: SAP document 2000/2026/0100000013 cannot load in a currency its clearing can be taken over in"}, nil},
+	}
+	for _, balances := range []bool{false, true} {
+		var run []documentCurrencyCase
+		for _, c := range cases {
+			want, mode := c.documents, "documents"
+			if balances {
+				want, mode = c.balances, "balances"
+			}
+			run = append(run, documentCurrencyCase{mode + ": " + c.name, func(e *sap.Extract, t *target) { t.balances = balances; c.change(e, t) }, want})
+		}
+		runDocumentCurrencyCases(t, run)
+	}
+}

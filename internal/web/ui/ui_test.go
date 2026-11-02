@@ -164,6 +164,16 @@ func components() map[string]templ.Component {
 		"action match":       ActionFormView(ActionForm{Verb: ActMatch, Action: "/x"}),
 		"RefusalPage":        RefusalPage(shell(), i18n.DocumentTitle, "/invoices/1", i18n.OrderBack, refusal()),
 		"refusalPageContent": refusalPageContent(i18n.DocumentTitle, "/invoices/1", i18n.OrderBack, refusal()),
+		// A parked invoice's change and a refused tax's figures (T73e2).
+		"actions with change": ActionsSection(InvoicePage{Edit: "/invoices/1/edit", Why: i18n.ActionsNone}),
+		"tax refused":         RefusalNotice(Refusal{Title: i18n.InvoiceRefusedTitle, Code: "payables.tax_mismatch", Tax: taxFigures()}),
+		"TaxFiguresView":      TaxFiguresView("r", *taxFigures()),
+		"InvoiceEdit":         InvoiceEdit(signedIn(), invoiceForm(true)),
+		"invoiceEditContent":  invoiceEditContent(invoiceForm(false)),
+		"AmountField":         AmountField("a", FieldGross, i18n.InvoiceGross, "EUR", "x", i18n.EntryAmountInvalid),
+		"amount plain":        AmountField("a", FieldGross, i18n.InvoiceGross, "EUR", "1.00", ""),
+		"ItemInputView":       ItemInputView(invoiceForm(true).Items[0]),
+		"item plain":          ItemInputView(invoiceForm(false).Items[0]),
 	}
 	for name, c := range bankComponents() {
 		out[name] = c
@@ -611,6 +621,28 @@ func invoicePage(full bool) InvoicePage {
 		HasOrder: true, Match: &MatchView{When: day, By: Name{Text: "A"}, Config: 1, Issues: []Issue{{Label: Label{Key: i18n.MatchIssuePrice}, Line: 1, Message: "m"}}},
 		Order: "/invoices/1/order", Document: "/invoices/1/document", Recs: []RecommendationView{recommendation(true), recommendation(false)}, RecsShown: true,
 		Actions: []ActionForm{{Verb: ActMatch, Action: "/x"}, {Verb: ActRelease, Action: "/y"}}, Pending: true, Done: i18n.InvoiceDoneMatched, Refusal: &r}
+}
+
+// taxFigures are a refused tax's figures.
+func taxFigures() *TaxFigures {
+	eur := func(a string) Money { return Money{Amount: a, Currency: "EUR"} }
+	return &TaxFigures{Stated: eur("20.00"), Calculated: eur("19.00"), Codes: []CodeTax{{Code: "V1", Tax: eur("19.00")}}}
+}
+
+// invoiceForm is a change form: refused, with errors on its fields and a
+// line on an order item whose field the API refused; or as opened.
+func invoiceForm(refused bool) InvoiceForm {
+	f := InvoiceForm{Action: "/invoices/1/edit", Back: "/invoices/1", Number: "SI1", Currency: "EUR", Reference: "R", InvoiceDate: "2026-03-10",
+		Gross: "1.00", Tax: "0.00", Items: []ItemInput{{No: 1, Unit: "EA", Quantity: "1", Amount: "1.00"}}}
+	if refused {
+		r := refusal()
+		f.Refusal, f.LinesError = &r, i18n.InvoiceEditLinesChanged
+		f.Errors = map[string]i18n.Key{FieldGross: i18n.EntryAmountInvalid}
+		f.Items[0].OrderItem = 1
+		f.Items[0].Errors = map[string]i18n.Key{FieldItemQuantity: i18n.InvoiceEditQuantityInvalid}
+		f.Items[0].Refused = []FieldRefusal{{Field: ItemFieldLabel("tax_code"), Reason: "unknown"}}
+	}
+	return f
 }
 
 // orderView is an order with its items and a receipt, or a refusal.
