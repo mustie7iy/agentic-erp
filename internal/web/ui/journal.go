@@ -68,6 +68,24 @@ const (
 	FieldRequest         = "approval_request_id"
 )
 
+// A parked entry's change sends back, besides what was typed, its values
+// when the form was opened: each header field's with the prefix FieldWas
+// (was_document_date…), and two prints of its lines, as the entry had
+// them (FieldWas+FieldLinesPrint) and as the form showed them
+// (FieldWas+FieldShownPrint). The change puts the person's own changes on
+// the entry as it is now when someone else changed it meanwhile. FieldWas
+// is the invoice change's prefix (invoices.go), shared so both forms send
+// their opened values alike.
+const (
+	FieldLinesPrint = "lines"
+	FieldShownPrint = "shown_lines"
+)
+
+// EntryWasFields are the change's values it sends as opened, in the form's
+// order.
+var EntryWasFields = []string{FieldDocType, FieldDocDate, FieldPostingDate, FieldTaxDate, FieldCurrency, FieldReference, FieldHeaderText,
+	FieldLinesPrint, FieldShownPrint}
+
 // What the entry form asks: OpAdd adds a line, OpPost posts the new
 // entry at once, OpCompany (htmx, the company chosen) renders the form
 // again for the company and OpTotals (htmx, an amount changed) its
@@ -434,9 +452,10 @@ type EntryForm struct {
 	Action       string
 	CSRF         string
 	Key          string
-	ETag         string   // a change's If-Match; "" for a new entry
-	Company      string   // a change's company, named; "" for a new entry
-	Companies    []Option // a new entry's choice
+	ETag         string            // a change's If-Match; "" for a new entry
+	Was          map[string]string // a change's values as opened, by EntryWasFields' names; nil for a new entry
+	Company      string            // a change's company, named; "" for a new entry
+	Companies    []Option          // a new entry's choice
 	CompanyError i18n.Key
 	FilledFor    string   // the company a new entry's currency and dates were filled in for; "" for none
 	FilledOn     string   // the day its dates were filled in with; "" for none

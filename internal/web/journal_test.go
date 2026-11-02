@@ -573,6 +573,118 @@ func TestChangeEntry(t *testing.T) {
 	status(t, "a form that is not the page's", b.do(http.MethodPost, parkedPath(id)+"/edit", url.Values{"csrf_token": {b.csrf()}}), http.StatusBadRequest)
 }
 
+// changeForm is a parked entry's change form as its page offers it, and
+// sendChange posts the form's values.
+func changeForm(b *browser, id uuid.UUID) url.Values {
+	b.s.t.Helper()
+	return formValues(b.get(parkedPath(id) + "/edit").page(b.s.t).form(parkedPath(id) + "/edit"))
+}
+
+func sendChange(b *browser, id uuid.UUID, v url.Values) response {
+	b.s.t.Helper()
+	return b.do(http.MethodPost, parkedPath(id)+"/edit", v)
+}
+
+// toner are the entry's lines of TestChangeAfterAnotherChange, the first
+// line's amount and text as given.
+func toner(amount, text string) []typedLine {
+	return []typedLine{{account: "520000", amount: amount, cost: "CC100", text: text}, {account: "100000", amount: "-" + amount}}
+}
+
+// TestChangeAfterAnotherChange: a change refused because someone changed
+// the entry since the form was opened (412) shows the entry as it is now
+// with the person's own changes on it, so sending it again keeps the other
+// change: their header and line, their header beside the person's lines,
+// and their lines (the person's not kept, which the form says) when both
+// changed the lines.
+func TestChangeAfterAnotherChange(t *testing.T) {
+	s, d := journalStack(t)
+	b := s.as(d.accountant)
+	id := parkAs(b, d, toner("80.00", "Toner")...)
+	for _, tc := range []struct {
+		name          string
+		theirs, mine  func(url.Values) url.Values
+		lines, notice string
+		page          []string
+	}{
+		{"their header and line, my reference", func(v url.Values) url.Values {
+			v.Set("header_text", "Checked by Sam")
+			return withLines(v, toner("80.00", "Toner, checked")...)
+		}, func(v url.Values) url.Values {
+			v.Set("reference", "R-7")
+			return v
+		}, "80.00", "", []string{"Header text Checked by Sam", "Reference R-7", "Toner, checked"}},
+		{"their header, my lines", func(v url.Values) url.Values {
+			v.Set("header_text", "Sam's header")
+			return v
+		}, func(v url.Values) url.Values { return withLines(v, toner("60.00", "Mine")...) }, "60.00", "",
+			[]string{"Header text Sam's header", "EUR 60.00 CC100 None None None None Mine"}},
+		{"both changed the lines", func(v url.Values) url.Values { return withLines(v, toner("90.00", "Sam's")...) },
+			func(v url.Values) url.Values {
+				v.Set("header_text", "My header")
+				return withLines(v, toner("70.00", "Mine")...)
+			}, "90.00", "The entry's lines changed since you opened this form.", []string{"Header text My header", "EUR 90.00 CC100 None None None None Sam's"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mine, theirs := changeForm(b, id), changeForm(b, id)
+			parkedDecided(t, "their change", sendChange(b, id, tc.theirs(theirs)), id, "changed")
+			stale := sendChange(b, id, tc.mine(mine))
+			status(t, "stale", stale, http.StatusPreconditionFailed)
+			sp := stale.page(t)
+			holds(t, "stale", sp.mainText(), "The entry changed since you opened it.")
+			if lost := "The entry's lines changed since you opened this form."; tc.notice == "" && strings.Contains(sp.mainText(), lost) {
+				t.Errorf("stale: says %q, want it only when both changed the lines", lost)
+			} else {
+				holds(t, "stale", sp.mainText(), tc.notice)
+			}
+			again := formValues(sp.form(parkedPath(id) + "/edit"))
+			if got := again.Get("line_amount"); got != tc.lines {
+				t.Errorf("the form shown again: first line's amount %q, want %q", got, tc.lines)
+			}
+			parkedDecided(t, "sent again", sendChange(b, id, again), id, "changed")
+			holds(t, "sent again", b.get(parkedPath(id)).page(t).mainText(), tc.page...)
+		})
+	}
+}
+
+// TestChangeKeepsItsVersion: a change the checks refuse, or whose lines
+// are added to, is shown again at the version and with the values it was
+// opened with, never the entry's now: sent again, it meets the 412 that
+// says someone changed the entry, and the change sent after it keeps
+// theirs.
+func TestChangeKeepsItsVersion(t *testing.T) {
+	s, d := journalStack(t)
+	b := s.as(d.accountant)
+	id := parkAs(b, d, toner("80.00", "Toner")...)
+	mine, theirs := changeForm(b, id), changeForm(b, id)
+	theirs.Set("header_text", "Sam's header")
+	parkedDecided(t, "their change", sendChange(b, id, theirs), id, "changed")
+	mine = withLines(mine, typedLine{account: "520000", amount: "x"}, typedLine{account: "100000", amount: "-50.00"})
+	for name, v := range map[string]url.Values{"refused by the checks": mine, "a line added": withOp(mine, "add")} {
+		t.Run(name, func(t *testing.T) {
+			f := formValues(sendChange(b, id, v).page(t).form(parkedPath(id) + "/edit"))
+			for _, k := range []string{"if_match", "was_header_text", "was_lines", "was_shown_lines"} {
+				if got, want := f.Get(k), mine.Get(k); got != want {
+					t.Errorf("%s %q, want %q, as the form was opened", k, got, want)
+				}
+			}
+		})
+	}
+	t.Run("corrected", func(t *testing.T) {
+		status(t, "corrected", sendChange(b, id, withLines(mine, toner("50.00", "")...)), http.StatusPreconditionFailed)
+	})
+}
+
+// withOp is the form's values asking op.
+func withOp(v url.Values, op string) url.Values {
+	out := url.Values{}
+	for k, vs := range v {
+		out[k] = vs
+	}
+	out.Set("op", op)
+	return out
+}
+
 // requestOf is the approval request a parked entry's page links.
 func requestOf(t *testing.T, p page) uuid.UUID {
 	t.Helper()

@@ -5570,9 +5570,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A parked journal entry's change refused by a stale version (412) loses another person's change on its next send: saveEntry shows the form with what was typed and takes the entry's version now, so sending it again sends every typed line over the change the form never showed (found in T73e2's review; T73e2 fixed the same class in the invoice's change by sending only what the person changed, each field with its value when the form was opened)",
-        "r": "internal/web/entry_form.go saveEntry · changeOf · invoice_edit.go rebase (the fix's pattern)",
+        "r": "internal/web/entry_form.go saveEntry · changeRefused · rebaseEntry · shownPrint · ui.EntryWasFields · TestChangeAfterAnotherChange · TestChangeKeepsItsVersion · e2e TestEntryChangeAfterAnotherInTheBrowser",
         "src": "review:T73e2",
         "c": []
        },

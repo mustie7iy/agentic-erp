@@ -587,13 +587,16 @@ templ entryFormContent(f EntryForm) {
 
 // EntryFormView is the entry form: a real form posting the CSRF token, the
 // form's own idempotency key and, for a change, the entry's ETag as
-// If-Match; its header, then its lines.
+// If-Match and its values as opened; its header, then its lines.
 templ EntryFormView(f EntryForm) {
 	<form class="entry" id="entry-form" { post(f.Action)... }>
 		<input { csrfInput(f.CSRF)... }/>
 		<input { hidden(FieldIdempotency, f.Key)... }/>
 		if f.Edit {
 			<input { hidden(FieldIfMatch, f.ETag)... }/>
+			for _, name := range EntryWasFields {
+				<input { hidden(FieldWas+name, f.Was[name])... }/>
+			}
 		} else {
 			<input { hidden(FieldFilledFor, f.FilledFor)... }/>
 			<input { hidden(FieldFilledOn, f.FilledOn)... }/>
