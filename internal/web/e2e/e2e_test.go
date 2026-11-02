@@ -306,10 +306,12 @@ func browse(t *testing.T) context.Context {
 	}
 	// The workspace serves TLS (its cookies are __Host-, Secure) with the
 	// test server's own certificate. Chrome's reduced Accept-Language is
-	// on wherever this Chrome has it off, so a tab's language behaves on
-	// every runner as on CI's Linux Chrome (speak).
+	// on, as CI's Linux Chrome appears to have it, so a tab's language
+	// behaves alike on every runner (speak); a Chrome that drops these
+	// features ignores the names, and speak holds either way. The value
+	// replaces chromedp's default enable-features, so it keeps those.
 	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.ExecPath(path), chromedp.Flag("ignore-certificate-errors", true),
-		chromedp.Flag("enable-features", "ReduceAcceptLanguage,ReduceAcceptLanguageHTTP"))
+		chromedp.Flag("enable-features", "NetworkService,NetworkServiceInProcess,ReduceAcceptLanguage,ReduceAcceptLanguageHTTP"))
 	if os.Getenv("CI") != "" {
 		// CI's runners refuse Chromium's sandbox its user namespaces; the
 		// browser loads this test's own pages alone.
@@ -350,7 +352,9 @@ func tab(t *testing.T, browserCtx context.Context, lang string, width int64) (co
 // (Network.setExtraHTTPHeaders) is not that: Chrome's reduced
 // Accept-Language sets the header again on a navigation's redirect, from
 // the browser's language, so the page after a form's 303 came in English
-// (main run 41371307606, TestInvoiceChangeInTheBrowser).
+// (main run 41371307606, TestInvoiceChangeInTheBrowser). Without
+// UserAgentMetadata the tab sends no Sec-CH-UA hints, which the workspace
+// does not read.
 func speak(t *testing.T, ctx context.Context, lang string) {
 	t.Helper()
 	v, err := chromedp.CallBrowser(ctx, cdpbrowser.GetVersion, cdp.Empty{})
