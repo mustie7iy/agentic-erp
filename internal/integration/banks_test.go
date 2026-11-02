@@ -5,7 +5,13 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
@@ -83,4 +89,60 @@ func TestCanadianBankAccounts(t *testing.T) {
 			t.Errorf("diffs: got %s, want %s", diffs, want)
 		}
 	})
+}
+
+// TestCutoverEveningBankAccount: on the cutover evening in Toronto a
+// payment run dated on the company's day pays the migrated suppliers. At
+// 23:30 in Toronto UTC, the database's day, is already tomorrow; the
+// migrated account starts the day before UTC's (product owner 2026-11-02,
+// ADR-0051 As built), so the payee lookup a payment run makes on its run
+// date (partner.Payees, payments' proposal) finds it, and as a first
+// account, not a bank change, it starts no payment hold. Before, it started
+// on UTC's day and the run left the supplier out (no_bank_account).
+func TestCutoverEveningBankAccount(t *testing.T) {
+	e := setup(t)
+	write(t, e.dir, "tiny.json", tiny())
+	run := e.run(t, e.connector(t, "tiny.json"), "documents", false, e.DE.String())
+	if _, got := e.act(t, run, "start"); got["status"] != "loaded" {
+		t.Fatalf("run status: got %v, want loaded: %v", got["status"], got["report"])
+	}
+	var utcDay time.Time
+	var supplier uuid.UUID
+	pgtest.Scan(t, `SELECT current_date, id FROM partner.business_partner WHERE tenant_id = $1 AND name = 'Tiny GmbH'`, []any{e.Tenant.ID}, &utcDay, &supplier)
+	toronto, err := time.LoadLocation("America/Toronto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The evening before UTC's day, at 23:30 in Toronto, is already UTC's
+	// day, in winter (04:30 UTC) and in summer (03:30 UTC) alike.
+	evening := time.Date(utcDay.Year(), utcDay.Month(), utcDay.Day()-1, 23, 30, 0, 0, toronto)
+	if got := clock.Day(evening); !got.Equal(utcDay) {
+		t.Fatalf("UTC's day at %s: got %s, want %s", evening, got.Format(time.DateOnly), utcDay.Format(time.DateOnly))
+	}
+	runDate := clock.DayIn(evening, toronto)
+	var validFrom time.Time
+	pgtest.Scan(t, `SELECT valid_from FROM partner.bank_account WHERE tenant_id = $1 AND partner_id = $2`, []any{e.Tenant.ID, supplier}, &validFrom)
+	if !validFrom.Equal(runDate) {
+		t.Errorf("migrated bank account valid_from: got %s, want %s", validFrom.Format(time.DateOnly), runDate.Format(time.DateOnly))
+	}
+	err = apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		payees, err := partner.Payees{}.Payees(ctx, e.DE, []uuid.UUID{supplier}, runDate)
+		if err != nil {
+			return err
+		}
+		p := payees[supplier]
+		if p.BankAccountID == nil {
+			t.Errorf("payee on %s: got no bank account, want the migrated one", runDate.Format(time.DateOnly))
+		}
+		if p.BankChanged {
+			t.Error("payee's bank account: got a bank change, want the first account, which starts no payment hold")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, got := e.act(t, run, "reconcile"); got["status"] != "reconciled" {
+		t.Errorf("reconcile: got %v, want reconciled: %v", got["status"], got["report"])
+	}
 }

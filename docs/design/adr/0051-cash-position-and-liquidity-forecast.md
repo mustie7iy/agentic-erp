@@ -734,7 +734,9 @@ zone", split into T72n1-T72n6):
   account a payment goes to; a supplier serves companies in several
   zones, so a bank account's days are judged by one rule for the whole
   supplier, UTC's, not by any one company's zone. No code changes: the
-  run passes `database.Today` as before. Every other
+  run passed `database.Today` as before (amended by the product owner
+  on 2026-11-02: the migration's bank accounts start the day before;
+  see "the migration's bank accounts on a cutover evening" below). Every other
   document is dated by its caller, or by the company's date where the
   caller leaves the date out (the posting dates and the tax activation
   day, below). The payment release's discount check (T72n3), center
@@ -1191,6 +1193,58 @@ webdates; Pilot readiness "Company time zone"):
   already, but only for readers of cash; the legal entity's
   representation would carry a value its `version` and ETag do not
   cover.
+
+As built (the migration's bank accounts on a cutover evening; product
+owner 2026-11-02, option A, review:batch37):
+- **The gap.** A migration run dated each supplier's first payments bank
+  account on UTC's day (`database.Today`). On a cutover evening in
+  Toronto UTC is already tomorrow, so a payment run dated on the
+  company's day found no migrated account (`no_bank_account`). The
+  walkthrough therefore dated its runs on UTC's day and stopped on New
+  Year's Eve.
+- **The exemption.** Partner accepts a bank account that starts on UTC's
+  day minus one in one case only: from `partner.Migration.Create`, for
+  the partner that call creates. It applies in both places the control
+  judges: the request check (`sealBanks`) and the apply clamp
+  (`insertBank`, for the create change that call made). It is carried by
+  an unexported type, `partner.backdating`, that no input type holds.
+  `CreatePartner`, `RequestBankAccount` and `ApplyChange` always pass
+  `noBackdating`; the API, agents (through the API) and the approval
+  workflow call them. Two days before is refused even from the migration
+  (`partner.backdated_bank_account`, "yesterday (UTC) or later").
+- **Who reaches it.** No request can set the date. The one route is a
+  migration run (`startMigrationRun`, permission
+  `integration.migration.run`, open to a person or an agent holding it):
+  the suppliers that run creates start on the server's `database.Today`
+  minus one, computed by the run, never read from the extract.
+- **What it does not cover.** Every other request by people, agents and
+  the API keeps the control unchanged (today or later). So does a migration's later change
+  to an existing partner: `Migration.AddCompanies` is an update, which
+  carries no bank account. Every bank change has its own request
+  (`RequestBankAccount`), which is never exempt. Addresses stay dated on
+  UTC's day: the create check is unchanged, and an update's address is
+  still refused before it (`partner.backdated_address`).
+- **The migration.** `integration.supplierBank` dates the account
+  `database.Today` minus one. That is never later than the company's day
+  in any zone (offsets run from UTC-12 to UTC+14). No migration file: the
+  date is data.
+- **What stays.** The create change's payload and the
+  `bank_account_changed` event (published with the apply's audit record)
+  give the date the migration sent. The audit records are the same
+  actions with the same details. The reconciliation still compares the
+  account in force on `current_date`, which starts on or before it. The
+  payment hold depends on `BankChanged` (the account came from a bank
+  change), not on the date, so a migrated first account starts no hold.
+  `extendSupplier` (a vendor a run sees again) touches no bank account.
+- **Evidence.** `partner.TestMigrationBackdating`: the migration's
+  yesterday is accepted; two days before is refused; the API's create
+  and bank change, and `CreatePartner` called directly, are refused
+  yesterday; every database failure of `Migration.Create` is reported.
+  `integration.TestCutoverEveningBankAccount`: a migrated supplier is
+  found by the payment run's payee lookup on the Toronto company's day at
+  23:30, and the test fails on the old code. `cmd/erp.TestWalkthroughDates`
+  covers winter, summer and New Year's Eve. The walkthrough dates its
+  payment runs on the company's day and no longer stops on 31 December.
 
 ## Alternatives
 - **Cash position and forecast inside payments.** Fewer packages, but

@@ -349,7 +349,10 @@ func sealTaxes(ctx context.Context, keys *fieldcrypt.Keyring, tenant uuid.UUID, 
 	return out, nil
 }
 
-func sealBanks(ctx context.Context, keys *fieldcrypt.Keyring, tenant uuid.UUID, day time.Time, in []BankInput, field func(int) string) ([]sealedBank, error) {
+// sealBanks checks and seals new bank accounts, each starting no earlier
+// than back allows before partner's day.
+func sealBanks(ctx context.Context, keys *fieldcrypt.Keyring, tenant uuid.UUID, day time.Time, back backdating, in []BankInput,
+	field func(int) string) ([]sealedBank, error) {
 	out := []sealedBank{}
 	seen := map[string]bool{}
 	for i, b := range in {
@@ -362,8 +365,8 @@ func sealBanks(ctx context.Context, keys *fieldcrypt.Keyring, tenant uuid.UUID, 
 			return nil, invalid("partner.unknown_bank_purpose", f+"purpose", "payments or collections")
 		case seen[b.Purpose]:
 			return nil, invalid("partner.duplicate_bank_purpose", f+"purpose", "one new account per purpose")
-		case b.ValidFrom.Before(day):
-			return nil, invalid("partner.backdated_bank_account", f+"valid_from", "today or later")
+		case b.ValidFrom.Before(back.earliest(day)):
+			return nil, invalid("partner.backdated_bank_account", f+"valid_from", back.allowed())
 		}
 		seen[b.Purpose] = true
 		acct, err := checkAccount(b, f)
@@ -623,6 +626,12 @@ type NewPartner struct {
 // addresses and tax identifiers, and the pending create change that holds
 // its bank accounts until approval.
 func CreatePartner(ctx context.Context, ports Ports, in NewPartner) (Partner, Change, error) {
+	return createPartner(ctx, ports, in, noBackdating)
+}
+
+// createPartner is CreatePartner with the bank accounts' backdating, which
+// only Migration.Create relaxes.
+func createPartner(ctx context.Context, ports Ports, in NewPartner, back backdating) (Partner, Change, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Partner{}, Change{}, err
@@ -645,7 +654,7 @@ func CreatePartner(ctx context.Context, ports Ports, in NewPartner) (Partner, Ch
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
-	banks, err := sealBanks(ctx, ports.Keys, p.TenantID, day, in.BankAccounts, func(i int) string { return fmt.Sprintf("bank_accounts[%d].", i) })
+	banks, err := sealBanks(ctx, ports.Keys, p.TenantID, day, back, in.BankAccounts, func(i int) string { return fmt.Sprintf("bank_accounts[%d].", i) })
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
@@ -941,7 +950,7 @@ func RequestBankAccount(ctx context.Context, ports Ports, partnerID uuid.UUID, i
 	if err := checkCountries(ctx, tx, []string{"bank_country_code"}, []string{in.BankCountryCode}); err != nil {
 		return Change{}, err
 	}
-	banks, err := sealBanks(ctx, ports.Keys, p.TenantID, day, []BankInput{in}, func(int) string { return "" })
+	banks, err := sealBanks(ctx, ports.Keys, p.TenantID, day, noBackdating, []BankInput{in}, func(int) string { return "" })
 	if err != nil {
 		return Change{}, err
 	}
@@ -1007,6 +1016,13 @@ func pendingChange(ctx context.Context, tx pgx.Tx, id uuid.UUID, action string) 
 // calls it when the change's approval request is approved (T4); schemas
 // mask the custom fields of the events it publishes (ADR-0046).
 func ApplyChange(ctx context.Context, schemas extensions.Schemas, id uuid.UUID) (Change, error) {
+	return applyChange(ctx, schemas, id, noBackdating)
+}
+
+// applyChange is ApplyChange with the earliest first day of a created
+// partner's bank accounts, which only Migration.Create relaxes, for the
+// create change it made; updates and bank changes keep partner's day.
+func applyChange(ctx context.Context, schemas extensions.Schemas, id uuid.UUID, back backdating) (Change, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Change{}, err
@@ -1026,7 +1042,7 @@ func ApplyChange(ctx context.Context, schemas extensions.Schemas, id uuid.UUID) 
 	var events []outbox.Event
 	switch c.Kind {
 	case KindCreate:
-		events, err = applyCreate(ctx, tx, p, c, bp, day)
+		events, err = applyCreate(ctx, tx, p, c, bp, back.earliest(day))
 	case KindUpdate:
 		events, err = applyUpdate(ctx, tx, p, c, bp, day, partnerWrites(schemas))
 	case KindBankChange:
@@ -1053,7 +1069,8 @@ func later(a, b time.Time) time.Time {
 }
 
 // insertBank adds an approved account, ending the current account of its
-// purpose on the new account's first day.
+// purpose on the new account's first day: the requested day, or day (the
+// earliest allowed) when that has passed while the change waited.
 func insertBank(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, b sealedBank, day time.Time) (outbox.Event, error) {
 	from := later(b.ValidFrom.Time, day)
 	var ended *uuid.UUID
@@ -1086,7 +1103,9 @@ func dateOrNil(t *time.Time) any {
 	return t.Format(time.DateOnly)
 }
 
-func applyCreate(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, bp Partner, day time.Time) ([]outbox.Event, error) {
+// applyCreate activates the partner and adds its bank accounts, none
+// starting before earliest.
+func applyCreate(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, bp Partner, earliest time.Time) ([]outbox.Event, error) {
 	var pl createPayload
 	decode(c.Payload, &pl)
 	if _, err := tx.Exec(ctx, `UPDATE partner.business_partner SET status = 'active', version = version + 1, updated_by = $2 WHERE id = $1`,
@@ -1104,7 +1123,7 @@ func applyCreate(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, b
 			"status": Active, "legal_entity_ids": les}))
 	}
 	for _, b := range pl.BankAccounts {
-		e, err := insertBank(ctx, tx, p, c, b, day)
+		e, err := insertBank(ctx, tx, p, c, b, earliest)
 		if err != nil {
 			return nil, err
 		}
