@@ -411,6 +411,19 @@ gates on each pull request:
     differed from CI's browser by a feature default. Changed: a tab sets its
     language as the browser's own (`speak`), and `browse` turns those
     features on, so a laptop's run behaves as the runner's.
+  - 2026-11-02 (uptimeout, batch 41): every deadline a handler set was
+    refused in deployed servers, the model calls' of ADR-0036 included, so
+    a model call's answer was cut at the listener's 60-second write
+    timeout. The logging middleware's response writer (`statusWriter`) had
+    no `Unwrap`, so `http.ResponseController` could not reach the server's
+    own writer behind it. Layer: the tests. The router's and the gateway's
+    tests called the handlers directly with a fake writer, and no test
+    went through the real middleware and a listener. Changed: the writer
+    unwraps, `TestHandlersReachTheServersWriter` sets deadlines through the
+    middleware, and the upload path's tests run each hop behind a real
+    listener with shrunk timeouts (`TestUploadOutlastsTheListener` in
+    payables and router, `TestCaptureOutlastsTheListener`; ADR-0020 As
+    built).
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
   documentation changed (`docs/`, Markdown) since the base: a pull
