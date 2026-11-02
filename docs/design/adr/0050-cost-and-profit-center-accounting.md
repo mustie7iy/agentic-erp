@@ -858,7 +858,10 @@ As built in T56f (migration 000163):
   all their lines, not only the row's account. Drill-down by account
   (product owner, 2026-10-25) comes through the journal list's
   `account_id` filter, the contract change T73j2 makes for the trial
-  balance's accounts.
+  balance's accounts. **As built in T73j2:** `account_id` combines with
+  `cost_center_id` or `profit_center_id`, so a center balance's row (a
+  center and an account) lists the entries with a line on each; a period
+  is `fiscal_period` (added with it) or the dates as before.
 - **Budget.** Both reports, every page of one company and period, are
   held to the trial balance's budget (01-requirements: p95 1 s) at its
   volume (360,000 projected rows, 2,000 pending lines,

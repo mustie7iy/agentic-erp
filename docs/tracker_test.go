@@ -50,12 +50,15 @@ const baselineItems = 950
 // accountant and controller, human acceptance, split into T73i3, which
 // inherits its tag (84). 85 since batch 36: T73e2's capture by upload,
 // down payments, line changes, match changes and pilot AP clerk's
-// walk-through split into T73e3, which inherits the tag (85). 87 since
+// walk-through split into T73e3, which inherits the tag (85). 88 since
 // batch 37: T73g2's walk-through by a pilot treasury user, human
 // acceptance, split into T73g3, which inherits the tag (86); the product
 // owner added the end-to-end id collision on a new fiscal year's first
-// payment run (review:T73g2) to the pilot (po:2026-11-01, 87).
-const pilotItems = 87
+// payment run (review:T73g2) to the pilot (po:2026-11-01, 87); T73j2's
+// downloads of the ledger reconciliation and the audit history, budgets
+// at the pilot's volumes and pilot walk-through split into T73j4, which
+// inherits the tag (88).
+const pilotItems = 88
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

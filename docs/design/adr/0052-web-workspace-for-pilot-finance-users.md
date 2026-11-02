@@ -2830,6 +2830,101 @@ T73g's departures (above): what it settled.
   end-to-end id the bank lost, found by the search, and posts it with its
   approval.
 
+## Built in T73j2 (2026-11-01)
+Reports beyond T73j, the first slice of the tracker leaf T73j2 (the
+rest split into T73j4). What it settled, each decided by default where
+this ADR, the contract or T73j's behaviour settled it:
+- **A trial balance account's entries, contract first.**
+  `listJournalEntries` takes `account_id` (only entries with a line on the
+  account, each listed with all its lines, as `cost_center_id` and
+  `profit_center_id` do) and `fiscal_period`. **Decided:** the period is
+  added with the account, as a trial balance's row is an account's totals
+  of one period (by dates alone the workspace would read the period's
+  dates, a seventh call). Both are additions, non-breaking (oasdiff).
+  They also give the cost and profit center balance reports their
+  drill-down by account (product owner 2026-10-25; ADR-0050 as built). Each
+  row of the trial balance links its account to `GET
+  /reports/trial-balance/entries` (the company, ledger, year, the row's
+  period and the account): the lines on the account of a page of 100
+  entries, each with its document number linked to its entry's page, its
+  line, posting date, period, text (the line's, else the entry's; data)
+  and amounts; the way back is the trial balance of the row's period.
+  **Decided:** every currency's lines are listed, the journal list taking
+  no currency, so one account's rows of a period in several transaction
+  currencies link the same page; each amount shows its currency. Five
+  calls (`getCurrentPrincipal`, the company's day when the address names
+  no year, `listLedgers`, `listAccounts`, `listJournalEntries`).
+- **The account filter's plan** (05-scalability, 01's list budget, p95
+  150 ms). An account on many entries is read along the page indexes,
+  one on a few by its lines (`journal_line_account`, 000005) and sorted;
+  the planner chooses by the account's statistics. Two findings: an
+  `EXISTS` written as an optional condition (`$n IS NULL OR EXISTS …`) is
+  not turned into a join, since PostgreSQL pulls sublinks up before it
+  folds the parameter, so the account's condition is added only when an
+  account is named, which took an account on 50 of a period's 16,700
+  entries from 137 ms to 20 ms; and a period's first page read every
+  earlier period's entries along the year's page index (0.3 s median for
+  June), so `journal_entry_page_period` (company, period, posting date,
+  id; migration 000186, built per partition) starts at the period.
+  `TestJournalEntriesByAccountBudget` holds a first page of 100 to 01's
+  list budget (p95 150 ms) for an account on every entry and one on 50,
+  in a period and in the whole year, among 200,000 entries of a company's
+  year; measured on a laptop at p95 under 50 ms. The cost and profit
+  center filters keep the optional form; whether their plans read a
+  year's entries for a center on few is not measured here (listed for the
+  coordinator's backlog, not a tracker item: no security, money or data
+  defect).
+- **The aging's buckets chosen on the page.** The open items' filters
+  take the buckets as days past the due date, ascending, separated by
+  commas (`aging_days`), empty for the API's 30, 60 and 90. Up to six
+  numbers from 1 to 3650, each above the one before, as the contract
+  takes them, else said on the field before the API is called; the
+  report's next page keeps them; the download, which ages nothing, does
+  not take them.
+- **One ledger as both sides** of the reconciliation (T73j's review): an
+  address naming one ledger as `ledger_id` and `compare_ledger_id` is said
+  on the compared ledger's field (422), or in the report's place when the
+  ledgers are unread and no field offers them, and the API is not asked;
+  the entries behind a difference with one ledger twice are an address
+  the workspace never makes (400).
+- **Suppliers named on the open items** by number and name, read by
+  their ids (`listBusinessPartners` `ids`, T73h2) for a page's items in
+  one call, through the helper the parked entry's form uses
+  (`partnersByID`); none when a filter names the supplier, whose items
+  alone are listed and who is named already, so the page still makes six
+  calls at most. A person who may not read partners, or a read that fails
+  (logged), sees ids. **Decided:** the download keeps the ids: naming
+  pages of 500 would take five reads a page, beyond a download's 40
+  calls.
+- **Budgets (§10).** At a full page (TestReportBudgets) the trial
+  balance with its links is 61 KB, the account's entries 48 KB and the
+  open items with a hundred suppliers named 70 KB, each under 100 KB and
+  its p95 under 30 ms with an API answering at once.
+- **Not built, split into T73j4:** downloads of the ledger
+  reconciliation and the audit history; page budgets at the pilot's
+  volumes (still not given); OWASP's CSV injection guidance and the byte
+  order mark's need verified from primary sources; the walk-through by a
+  pilot GL accountant, AP clerk and controller.
+- **Tests.** The ledger: the account and period filters, alone and with
+  the year, paged, a token of another account refused
+  (`TestJournalEntriesByAccount`), the budget. The workspace against the
+  real API: the payables account's row of March to its entries (the
+  invoice's and the USD item's lines, each linked), April's empty, the
+  way back, an address without an account, French, the outsider refused;
+  the open items' suppliers named, buckets of 5 and 10 days ageing the
+  invoice 6 to 10 days overdue, buckets not ascending said; 2L compared
+  with itself. From the stub: an account's entries with its ledger and
+  account unread and the lines of other accounts left out, refused and
+  unavailable; the suppliers' read by ids, none for a supplier named,
+  failed and not allowed; every bucket rule; one ledger twice with the
+  ledgers read and unread. The browser suite runs axe on the account's
+  entries in English, French and both pseudo-locales at 1280 and 390 px,
+  and walks, at a desktop's width, buckets chosen and the payables
+  account from the trial balance to its entries and an entry. The
+  walkthrough drills a trial balance row down (step 14): the entries
+  listed all have a line on the account, and those lines in the row's
+  currency sum to its debits less credits.
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF

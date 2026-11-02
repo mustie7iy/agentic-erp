@@ -1238,6 +1238,13 @@ lines carrying the center (ADR-0050 §3, T56d2: the
 `journal_line_cost_center` index serves the cost center's ranges of
 posting dates).
 
+A journal entry's period in the page order (T73j2, migration 000186):
+`journal_entry_page_period` (company, period, posting date, id, per
+year's partition) gives a period's first page of entries, as the page
+indexes of 000055 give a year's; with `journal_line_account` it serves the
+journal list's `account_id` and `fiscal_period` filters, a trial
+balance's row drilled down to its entries.
+
 Balances by account assignment (T56f, ADR-0050 §7, migration 000163).
 `assignment_balance` holds, per ledger, company, account, cost center,
 profit center, segment, year, period and transaction currency, the totals

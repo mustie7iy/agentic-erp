@@ -157,6 +157,9 @@ var (
 	opGRIR         = []Operation{opMe, opCompanies, opListGRIR}
 	opReconcile    = []Operation{opMe, opCompanies, opToday, opLedgers, {ID: "listLedgerReconciliation", HiddenBy: permReadEntries}}
 	opReconEntries = []Operation{opMe, opToday, opLedgers, opAccounts, {ID: "listLedgerReconciliationEntries", HiddenBy: permReadEntries}}
+	// opAccountEntries are the reads of a trial balance account's entries
+	// (report_entries.go, T73j2).
+	opAccountEntries = []Operation{opMe, opToday, opLedgers, opAccounts, {ID: "listJournalEntries", HiddenBy: permReadEntries}}
 )
 
 // paged is the operation a download reads page by page.
@@ -285,6 +288,7 @@ var Screens = func() map[string][]Operation {
 		"GET /reports":                               {opMe, opHouseBanks, opCompanies},
 		"GET /reports/trial-balance":                 opBalances,
 		"GET /reports/trial-balance.csv":             {opMe, opToday, opAccounts, paged(opListBalances)},
+		"GET /reports/trial-balance/entries":         opAccountEntries,
 		"GET /reports/open-items":                    opOpenItems,
 		"GET /reports/open-items.csv":                {opMe, opCompanies, opToday, opAccounts, opSupplier, paged(opListItems)},
 		"GET /reports/gr-ir":                         opGRIR,

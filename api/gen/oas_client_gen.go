@@ -31763,6 +31763,40 @@ func (c *Client) sendListJournalEntries(ctx context.Context, params ListJournalE
 		}
 	}
 	{
+		// Encode "account_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "account_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.AccountID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriod.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
 		// Encode "page_size" parameter.
 		cfg := uri.QueryParameterEncodingConfig{
 			Name:    "page_size",

@@ -190,6 +190,49 @@ func TestTrialBalance(t *testing.T) {
 	holds(t, "French", fr, "Balance de vérification", "Télécharger en CSV")
 }
 
+// TestAccountEntries: a trial balance account's row links to the account's
+// entries of its period (T73j2): the payables account in March holds the
+// invoice's line and the USD item's, each linked to its entry, and not
+// April's; the way back is the trial balance; an address without an
+// account refuses the filters; French.
+func TestAccountEntries(t *testing.T) {
+	s, d := reportsStack(t)
+	b := s.as(d.accountant)
+	payables := d.f.Account(t, "2000", "211000").String()
+	tb := b.get("/reports/trial-balance?" + companyQuery(d, "fiscal_year", "2026")).page(t)
+	path := ""
+	for to := range links(tb) {
+		if strings.HasPrefix(to, "/reports/trial-balance/entries?") && strings.Contains(to, "account_id="+payables) {
+			path = to
+		}
+	}
+	if path == "" {
+		t.Fatalf("the payables account's row: not linked to its entries in %v", links(tb))
+	}
+	holds(t, "the row's link", path, "&period=3", "ledger_id="+d.leading.String())
+	r := b.get(path)
+	status(t, "the account's entries", r, http.StatusOK)
+	p := r.page(t)
+	holds(t, "the account's entries", p.mainText(), "The account's entries", "211000 Accounts Payable - Domestic", "0L", "2026", "2026-03-10 3",
+		"EUR -119.00 EUR -119.00", "USD -100.00 EUR -80.00")
+	entry := linkTo(p, "/journal/entries/")
+	if entry == "" || b.get(entry).status != http.StatusOK {
+		t.Errorf("a line's entry: link %q", entry)
+	}
+	if back := linkTo(p, "/reports/trial-balance?"); !strings.Contains(back, "period=3") || strings.Contains(back, "account_id") {
+		t.Errorf("the way back: got %q, want the trial balance of March", back)
+	}
+	april := b.get("/reports/trial-balance/entries?" + companyQuery(d, "fiscal_year", "2026", "period", "4", "account_id", payables))
+	holds(t, "April's entries", april.page(t).mainText(), "No entry has a line on this account in this ledger, year and period.")
+	status(t, "no account", b.get("/reports/trial-balance/entries?"+companyQuery(d, "fiscal_year", "2026")), http.StatusBadRequest)
+	status(t, "a period that is none", b.get("/reports/trial-balance/entries?"+companyQuery(d, "period", "17", "account_id", payables)),
+		http.StatusBadRequest)
+	holds(t, "French", b.get(path, "Accept-Language", "fr-CA").page(t).mainText(), "Écritures du compte", "Retour à la balance de vérification")
+	refused := s.as(d.outsider).get(path)
+	status(t, "the outsider's entries", refused, http.StatusForbidden)
+	holds(t, "the outsider's entries", refused.page(t).mainText(), "The report could not be shown")
+}
+
 // TestOpenItemsReport: company 2000's supplier open items on its payables
 // account, aged on 15 April: the invoice due on 9 April six days overdue,
 // the USD item posted without terms apart; each item linked to its entry,
@@ -202,7 +245,15 @@ func TestOpenItemsReport(t *testing.T) {
 	status(t, "the open items", r, http.StatusOK)
 	p := r.page(t)
 	holds(t, "the open items", p.mainText(), "Supplier open items", "Aging on 2026-04-15", "Overdue 1 to 30 EUR 1 EUR -119.00",
-		"No due date None EUR 1 EUR -80.00", "2026-03-10 2026-04-09 None 6 EUR -119.00 EUR -119.00")
+		"No due date None EUR 1 EUR -80.00", "BP90000001 BP90000001 INV-1 2026-03-10 2026-04-09 None 6 EUR -119.00 EUR -119.00")
+	buckets := b.get("/reports/open-items?" + companyQuery(d, "key_date", "2026-04-15", "aging_days", "5, 10")).page(t)
+	holds(t, "buckets of 5 and 10 days", buckets.mainText(), "Overdue 6 to 10 EUR 1 EUR -119.00")
+	if got := field(buckets.form("/reports/open-items"), "aging_days"); got != "5, 10" {
+		t.Errorf("the buckets kept: got %q", got)
+	}
+	descending := b.get("/reports/open-items?" + companyQuery(d, "aging_days", "60,30"))
+	status(t, "buckets not ascending", descending, http.StatusUnprocessableEntity)
+	holds(t, "buckets not ascending", descending.page(t).mainText(), "each larger than the one before")
 	entry := linkTo(p, "/journal/entries/")
 	if entry == "" {
 		t.Fatal("an open item: not linked to its entry")
@@ -280,6 +331,15 @@ func TestLedgerReconReport(t *testing.T) {
 	status(t, "a company, no id", b.get("/reports/ledger-reconciliation?legal_entity_id=x"), http.StatusBadRequest)
 	status(t, "a year, none", b.get("/reports/ledger-reconciliation?"+companyQuery(d, "fiscal_year", "x")), http.StatusUnprocessableEntity)
 	status(t, "entries without an account", b.get("/reports/ledger-reconciliation/entries?"+companyQuery(d)), http.StatusBadRequest)
+	same := b.get("/reports/ledger-reconciliation?" + companyQuery(d, "fiscal_year", "2026", "ledger_id", d.local.String(), "compare_ledger_id", d.local.String()))
+	status(t, "2L compared with itself", same, http.StatusUnprocessableEntity)
+	sp := same.page(t)
+	holds(t, "2L compared with itself", sp.mainText(), "a ledger is not compared with itself")
+	if strings.Contains(sp.mainText(), "Ledger 2L compared with ledger 2L") {
+		t.Error("2L compared with itself: the reconciliation was shown")
+	}
+	status(t, "entries of 2L with itself", b.get("/reports/ledger-reconciliation/entries?"+companyQuery(d, "ledger_id", d.local.String(),
+		"compare_ledger_id", d.local.String(), "account_id", d.ledgerAcc.String(), "currency", "EUR")), http.StatusBadRequest)
 	march := periodOfReports(t, d)
 	checks := b.get("/close/checks?" + companyQuery(d, "ledger_id", d.leading.String(), "fiscal_year", "2026", "period", "3",
 		"key_date", "2026-03-31", "period_id", march.String())).page(t)

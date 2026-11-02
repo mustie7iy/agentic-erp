@@ -1207,6 +1207,20 @@ const (
 	CheckReport              Key = "check.report"
 )
 
+// The reports beyond T73j (T73j2): a trial balance account's entries, the
+// aging's buckets chosen, a ledger not compared with itself.
+const (
+	AccountEntriesTitle   Key = "accountentries.title"
+	AccountEntriesLead    Key = "accountentries.lead"
+	AccountEntriesBack    Key = "accountentries.back"
+	AccountEntriesEmpty   Key = "accountentries.empty"
+	AccountEntriesText    Key = "accountentries.text"
+	AgingDaysField        Key = "aging.days.field"
+	AgingDaysHint         Key = "aging.days.hint"
+	AgingDaysInvalid      Key = "aging.days.invalid"
+	LedgerReconSameLedger Key = "ledgerrecon.same"
+)
+
 // Approvals beyond the inbox (T73d2): the lists of one's own requests
 // and of all one may see, the request's object as it says itself, the
 // requester's withdrawal and a decision kept across a step-up sign-in.

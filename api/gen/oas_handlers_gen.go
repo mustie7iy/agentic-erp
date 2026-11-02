@@ -35875,6 +35875,14 @@ func (s *Server) handleListJournalEntriesRequest(args [0]string, argsEscaped boo
 					In:   "query",
 				}: params.ProfitCenterID,
 				{
+					Name: "account_id",
+					In:   "query",
+				}: params.AccountID,
+				{
+					Name: "fiscal_period",
+					In:   "query",
+				}: params.FiscalPeriod,
+				{
 					Name: "page_size",
 					In:   "query",
 				}: params.PageSize,

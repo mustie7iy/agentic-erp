@@ -189,14 +189,30 @@ func keeps(kept map[uuid.UUID]bool, ledgers []uuid.UUID) bool {
 const maxPartnerIDs = 100
 
 // partnerNumbers are the numbers of the partners the lines name by id
-// (listBusinessPartners by ids), the first hundred; none when the person
-// may not read partners or they cannot be read (logged: the line then
-// names its partner by id, which is sent as it is).
+// (partnersByID), the first hundred; none when the person may not read
+// partners or they cannot be read (logged: the line then names its
+// partner by id, which is sent as it is).
 func (s *Server) partnerNumbers(ctx context.Context, m me, lines []gen.ParkedJournalLine) map[uuid.UUID]string {
+	ids := make([]gen.OptUUID, len(lines))
+	for i, l := range lines {
+		ids[i] = l.PartnerID
+	}
+	out := map[uuid.UUID]string{}
+	for id, b := range s.partnersByID(ctx, m, "the lines' partners", ids) {
+		out[id] = strings.TrimSpace(b.Number)
+	}
+	return out
+}
+
+// partnersByID are the partners the ids name (listBusinessPartners by
+// ids), the first hundred distinct ones; none when there are none, the
+// person may not read partners, or they cannot be read (logged as what
+// could not be read).
+func (s *Server) partnersByID(ctx context.Context, m me, what string, named []gen.OptUUID) map[uuid.UUID]gen.BusinessPartner {
 	var ids []uuid.UUID
 	seen := map[uuid.UUID]bool{}
-	for _, l := range lines {
-		if id, ok := l.PartnerID.Get(); ok && !seen[id] && len(ids) < maxPartnerIDs {
+	for _, o := range named {
+		if id, ok := o.Get(); ok && !seen[id] && len(ids) < maxPartnerIDs {
 			seen[id] = true
 			ids = append(ids, id)
 		}
@@ -207,12 +223,12 @@ func (s *Server) partnerNumbers(ctx context.Context, m me, lines []gen.ParkedJou
 	res, err := s.API.ListBusinessPartners(ctx, gen.ListBusinessPartnersParams{Ids: ids, PageSize: gen.NewOptInt32(maxPartnerIDs)})
 	page, ok := res.(*gen.BusinessPartnerPage)
 	if !ok {
-		s.Log.WarnContext(ctx, "web: the lines' partners could not be read", "answer", res, "error", err)
+		s.Log.WarnContext(ctx, "web: "+what+" could not be read", "answer", res, "error", err)
 		return nil
 	}
-	out := make(map[uuid.UUID]string, len(page.Items))
+	out := make(map[uuid.UUID]gen.BusinessPartner, len(page.Items))
 	for _, b := range page.Items {
-		out[b.ID] = strings.TrimSpace(b.Number)
+		out[b.ID] = b
 	}
 	return out
 }

@@ -31863,6 +31863,13 @@ type ListJournalEntriesParams struct {
 	// Only entries with a line on this profit center (ADR-0050 §5); each entry is listed with all its
 	// lines.
 	ProfitCenterID OptUUID `json:",omitempty,omitzero"`
+	// Only entries with a line on this G/L account (`GET /v1/accounts`): a trial balance's or a cost or
+	// profit center balance's account drilled down to its entries; each entry is listed with all its
+	// lines.
+	AccountID OptUUID `json:",omitempty,omitzero"`
+	// Only entries of this posting period of the fiscal year, as a trial balance's row names it; best with
+	// `fiscal_year`, without which every year's period of that number is listed.
+	FiscalPeriod OptInt32 `json:",omitempty,omitzero"`
 	// Maximum number of items to return. Defaults to 50, maximum 500.
 	PageSize OptInt32 `json:",omitempty,omitzero"`
 	// Opaque cursor from `next_page_token` of the previous page. Tokens are signed and encode the sort
@@ -31965,6 +31972,24 @@ func unpackListJournalEntriesParams(packed middleware.Parameters) (params ListJo
 		}
 		if v, ok := packed[key]; ok {
 			params.ProfitCenterID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "account_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.AccountID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "fiscal_period",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.FiscalPeriod = v.(OptInt32)
 		}
 	}
 	{
@@ -32466,6 +32491,113 @@ func decodeListJournalEntriesParams(args [0]string, argsEscaped bool, r *http.Re
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "profit_center_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: account_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "account_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotAccountIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotAccountIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.AccountID.SetTo(paramsDotAccountIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "account_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: fiscal_period.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "fiscal_period",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotFiscalPeriodVal int32
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToInt32(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotFiscalPeriodVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.FiscalPeriod.SetTo(paramsDotFiscalPeriodVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.FiscalPeriod.Get(); ok {
+					if err := func() error {
+						if err := (validate.Int{
+							MinSet:        true,
+							Min:           1,
+							MaxSet:        true,
+							Max:           16,
+							MinExclusive:  false,
+							MaxExclusive:  false,
+							MultipleOfSet: false,
+							MultipleOf:    0,
+							Pattern:       nil,
+						}).Validate(int64(value)); err != nil {
+							return errors.Wrap(err, "int")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "fiscal_period",
 			In:   "query",
 			Err:  err,
 		}

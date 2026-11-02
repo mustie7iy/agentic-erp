@@ -186,7 +186,8 @@ and `ledger.segment_mismatch`. Manual and parked entries take the centers
 on their lines (`cost_center_id`, `profit_center_id`, `segment_id`, T56d2);
 journal lines show each with its code (`cost_center_code`...), parked lines
 the ones entered; `GET /v1/journal-entries` filters by `cost_center_id`
-and `profit_center_id`. A center change that contradicts posted lines is
+and `profit_center_id`, and by `account_id` and `fiscal_period` (T73j2: a
+trial balance's or a center balance's row drilled down to its entries). A center change that contradicts posted lines is
 409: `ledger.cost_center_posted_after` (its validity would end on or before
 a line's posting date), `ledger.cost_center_period_in_use` (the attributes
 in force on a posted date would differ; a lock is compared with the lines

@@ -96,7 +96,7 @@ templ LedgerFilterForm(f LedgerFilters) {
 				@optionSelect("report-ledger", FieldLedger, i18n.PeriodLedger, f.Ledgers)
 			}
 			if f.Compare != nil {
-				@optionSelect("report-compare", FieldCompare, i18n.ReconCompareLedger, f.Compare)
+				@errorSelect("report-compare", FieldCompare, i18n.ReconCompareLedger, f.Compare, f.CompareError)
 			}
 			@InputField("report-year", FieldYear, "text", i18n.PeriodYear, i18n.PeriodYearHint, f.Year, f.YearError)
 			@InputField("report-period", FieldPeriod, "text", i18n.ReportPeriod, i18n.ReportPeriodHint, f.Period, f.PeriodError)
@@ -109,9 +109,30 @@ templ LedgerFilterForm(f LedgerFilters) {
 	</form>
 }
 
+// errorSelect is a labelled select of options with its error.
+templ errorSelect(id, name string, labelKey i18n.Key, options []Option, err i18n.Key) {
+	<div { fieldClass(err)... }>
+		<label class="field__label" { forAttr(id)... }>
+			@T(labelKey)
+		</label>
+		if err != "" {
+			<p class="field__error" { idAttr(id + "-error")... }>
+				@T(err)
+			</p>
+		}
+		<select class="select" { uploadSelect(id, name, err)... }>
+			for _, o := range options {
+				<option translate="no" { option(o)... }>
+					@Value(o.Text)
+				</option>
+			}
+		</select>
+	</div>
+}
+
 // TrialBalance is a company's trial balance in a ledger and fiscal year
 // (ADR-0052 §2, T73j): its totals per account, period and transaction
-// currency.
+// currency, each account linked to its entries of the period (T73j2).
 templ TrialBalance(s Shell, tp TrialBalancePage) {
 	@Layout(s, trialBalanceContent(tp))
 }
@@ -166,11 +187,15 @@ templ BalancesTable(rows []BalanceRow) {
 	</div>
 }
 
-// BalanceRowView is one account's totals of a period in a currency.
+// BalanceRowView is one account's totals of a period in a currency, the
+// account linked to its entries of the period (the row's period and
+// currency are the link's context, WCAG 2.4.4).
 templ BalanceRowView(r BalanceRow) {
 	<tr>
 		<td>
-			@Code(r.Account)
+			<a { link(r.Entries, "")... }>
+				@Code(r.Account)
+			</a>
 		</td>
 		<td>
 			@Number(r.Period)
@@ -256,6 +281,7 @@ templ OpenItemFilterForm(f ItemFilters) {
 			@InputField("items-posting-to", FieldPostingDateTo, "date", i18n.OpenItemsPostingTo, i18n.FilterDateHint, f.PostingTo, f.PostingError)
 			@InputField("items-due-to", FieldDueDateTo, "date", i18n.OpenItemsDueTo, i18n.OpenItemsDueToHint, f.DueTo, f.DueError)
 			@InputField("items-key-date", FieldKeyDate, "date", i18n.OpenItemsKeyDate, i18n.OpenItemsKeyDateHint, f.KeyDate, f.KeyDateError)
+			@InputField("items-aging-days", FieldAgingDays, "text", i18n.AgingDaysField, i18n.AgingDaysHint, f.AgingDays, f.AgingError)
 		</div>
 		<div class="filters__buttons">
 			<button class="button" type="submit">
@@ -400,6 +426,105 @@ templ OpenItemRowView(r OpenItemRow) {
 	</tr>
 }
 
+// AccountEntries is a trial balance account's entries in a period
+// (ADR-0052 §2, T73j2): the lines on the account, each linked to its
+// entry.
+templ AccountEntries(s Shell, ap AccountEntriesPage) {
+	@Layout(s, accountEntriesContent(ap))
+}
+
+templ accountEntriesContent(ap AccountEntriesPage) {
+	<p>
+		<a { link(ap.Back, "")... }>
+			@T(i18n.AccountEntriesBack)
+		</a>
+	</p>
+	<h1>
+		@T(i18n.AccountEntriesTitle)
+	</h1>
+	@Paragraph(i18n.AccountEntriesLead)
+	if ap.Invalid {
+		@Notice("report-invalid", i18n.ReportRefusedTitle, Paragraph(i18n.FilterInvalid))
+	} else {
+		<dl class="facts" hx-disable>
+			@Fact(i18n.BalanceAccount, Code(ap.Account))
+			if ap.Ledger != "" {
+				@Fact(i18n.PeriodLedger, Code(ap.Ledger))
+			}
+			@Fact(i18n.PeriodYear, Code(ap.Year))
+			if ap.Period != "" {
+				@Fact(i18n.BalancePeriod, Code(ap.Period))
+			}
+		</dl>
+		if ap.Refusal != nil {
+			@RefusalNotice(*ap.Refusal)
+		} else if len(ap.Rows) == 0 {
+			@Paragraph(i18n.AccountEntriesEmpty)
+		} else {
+			@AccountEntriesTable(ap.Rows)
+			if ap.More != "" {
+				@ButtonLink(ap.More, i18n.ReportMore)
+			}
+		}
+	}
+}
+
+// AccountEntriesTable is the lines on an account; their texts are data.
+templ AccountEntriesTable(rows []AccountEntryRow) {
+	<div class="table-wrap" role="region" tabindex="0" { labelledBy("account-entries-caption")... }>
+		<table class="table" hx-disable>
+			<caption class="visually-hidden" { idAttr("account-entries-caption")... }>
+				@T(i18n.AccountEntriesTitle)
+			</caption>
+			<thead>
+				<tr>
+					@HeaderCell(i18n.OpenItemDocument)
+					@HeaderCell(i18n.LineNo)
+					@HeaderCell(i18n.EntryPostingDate)
+					@HeaderCell(i18n.BalancePeriod)
+					@HeaderCell(i18n.AccountEntriesText)
+					@HeaderCell(i18n.EntryLineAmount)
+					@HeaderCell(i18n.EntryLineAmountLC)
+				</tr>
+			</thead>
+			<tbody>
+				for _, r := range rows {
+					@AccountEntryRowView(r)
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+// AccountEntryRowView is one line on the account.
+templ AccountEntryRowView(r AccountEntryRow) {
+	<tr>
+		<td>
+			<a translate="no" { link(r.Entry, "")... }>
+				@Value(r.Number)
+			</a>
+		</td>
+		<td>
+			@Number(r.Line)
+		</td>
+		<td>
+			@Day(r.Posting)
+		</td>
+		<td>
+			@Number(r.Period)
+		</td>
+		<td>
+			@Data(r.Text)
+		</td>
+		<td>
+			@Amount(r.Amount)
+		</td>
+		<td>
+			@Amount(r.AmountLC)
+		</td>
+	</tr>
+}
+
 // GRIRReport is a company's GR/IR positions (ADR-0052 §2, T73j): those
 // still open, or every one.
 templ GRIRReport(s Shell, gp GRIRPage) {
@@ -468,6 +593,10 @@ templ ledgerReconContent(lp LedgerReconPage) {
 		@Paragraph(i18n.CheckLedgerUnknown)
 	} else if lp.Single {
 		@Paragraph(i18n.CheckLedgerSingle)
+	} else if lp.Filters.CompareError != "" {
+		if lp.Filters.Compare == nil {
+			@Notice("report-invalid", i18n.ReportRefusedTitle, Paragraph(lp.Filters.CompareError))
+		}
 	} else if lp.Refusal != nil {
 		@RefusalNotice(*lp.Refusal)
 	} else {
