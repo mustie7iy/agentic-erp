@@ -45,9 +45,23 @@ UTC_TODAY=$(date -u +%F)
 # from UTC's day (ADR-0051 As built, Kept in UTC; PO 2026-10-31), and a run
 # pays to an account valid on its run date, so in a Toronto evening a run on
 # the company's day would find none of them (no_bank_account).
+# RBC's statement of the run's payments stays dated TODAY, the company's
+# day: the cash position (step 13) opens with the latest statement on or
+# before the company's day, so one dated RUN_DAY, the next day in a
+# Toronto evening, would not count.
 RUN_DAY=$TODAY
 if [[ "$UTC_TODAY" > "$TODAY" ]]; then RUN_DAY=$UTC_TODAY; fi
 YEAR=${TODAY:0:4}
+# On 31 December from 19:00 in Toronto (00:00 UTC) no run date serves:
+# the company's day is in YEAR, whose ranges and periods step 2 sets up,
+# while the migrated bank accounts are valid from UTC's day, in the next
+# year (no number range for it, no open period). The walkthrough says so
+# and stops rather than fail midway; any other evening it runs.
+if year_apart "$TODAY" "$UTC_TODAY"; then
+  echo "walkthrough: it is $TODAY in $ZONE and already $UTC_TODAY in UTC, a new year: the pilot's payment run has no date" >&2
+  echo "walkthrough: that serves both (its bank accounts are valid from UTC's day, its year is the company's); run it after midnight in $ZONE" >&2
+  exit 2
+fi
 PREV=$((YEAR - 1))
 CC=3000 # the pilot's SAP company code, Maple Industries Canada in the mock extract
 

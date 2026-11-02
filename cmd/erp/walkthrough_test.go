@@ -87,6 +87,16 @@ func TestWalkthroughDates(t *testing.T) {
 	if got, want := strings.Fields(string(out)), []string{"2027-01-01", "2026-02-28"}; strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("date_add: got %v, want %v", got, want)
 	}
+	// On New Year's Eve from 19:00 in Toronto the walkthrough stops: no
+	// payment run date serves both the company's year and the bank
+	// accounts valid from UTC's day.
+	for days, apart := range map[string]bool{"2026-12-31 2027-01-01": true, "2026-11-01 2026-11-02": false, "2026-11-02 2026-11-02": false} {
+		err := exec.CommandContext(t.Context(), "bash", "-c", `. ../../scripts/walkthrough/dates.sh && year_apart $1 $2`, "dates", strings.Fields(days)[0],
+			strings.Fields(days)[1]).Run()
+		if got := err == nil; got != apart {
+			t.Errorf("year_apart %s: got %v, want %v", days, got, apart)
+		}
+	}
 }
 
 // freeAddrs are n distinct loopback addresses no one listens on at the

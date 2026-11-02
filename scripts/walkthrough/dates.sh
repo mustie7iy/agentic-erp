@@ -35,3 +35,11 @@ date_add() {
     date -u -j -v"${n}d" -f %F "$1" +%F
   fi
 }
+
+# year_apart COMPANY_DAY UTC_DAY says whether the two days fall in
+# different years: on 31 December from 19:00 in Toronto (00:00 UTC) no
+# payment run date serves both the company's year and bank accounts valid
+# from UTC's day, so the walkthrough stops.
+year_apart() {
+  [ "${1:0:4}" != "${2:0:4}" ]
+}
