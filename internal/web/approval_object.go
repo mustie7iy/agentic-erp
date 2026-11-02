@@ -4,7 +4,9 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"strings"
 
+	"github.com/a-h/templ"
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
@@ -14,65 +16,144 @@ import (
 
 // A request's object as it says itself (ADR-0052 §2, T73d2): the request's
 // page reads the object with the operation of its type and shows its
-// summary, with its page in the workspace where there is one. Two types
-// have no operation that reads the object by the request's object id
-// alone: an order change (getPurchaseOrderChange needs its order's id
-// too) and a bank clearing (its object is a statement line's match, which
-// no operation reads by id); their pages say so.
+// summary, with its page in the workspace where there is one. Two types'
+// objects are not read by the request's object id alone (T73d3): an order
+// change is read through its order and a bank clearing's match through its
+// statement, both placed by the request's object_resource, the API path
+// its owning context gives (ADR-0034); a request whose resource does not
+// place its object says so.
 
 // objectRead is the read of one type's object: its operation in the
-// inventory (hidden by its x-permission) and the call.
+// inventory (hidden by its x-permission), the contract's path of that
+// operation where the read follows the request's object_resource ("" for
+// a read by the object id), and the call. A call that finds no object
+// where the request places it answers nil and no error.
 type objectRead struct {
 	op   Operation
-	call func(ctx context.Context, api *gen.Client, id uuid.UUID) (any, error)
+	path string
+	call func(ctx context.Context, api *gen.Client, a gen.ApprovalRequest) (any, error)
+}
+
+// byObjectID is a read of the object by the request's object id.
+func byObjectID(read func(context.Context, *gen.Client, uuid.UUID) (any, error)) func(context.Context, *gen.Client, gen.ApprovalRequest) (any, error) {
+	return func(ctx context.Context, c *gen.Client, a gen.ApprovalRequest) (any, error) {
+		return read(ctx, c, a.ObjectID)
+	}
+}
+
+// The contract's paths of the reads that follow object_resource: an order
+// change's, through its order, and a statement's, whose line carries a
+// bank clearing's match.
+const (
+	changeResource    = "/v1/purchase-orders/{id}/changes/{change_id}"
+	statementResource = "/v1/bank-statements/{id}"
+)
+
+// placed are the ids in the request's object_resource when it has the
+// shape of the path template, each a UUID in its canonical form where the
+// template names a parameter; ok is false for any other resource, or
+// none.
+func placed(a gen.ApprovalRequest, template string) (ids []uuid.UUID, ok bool) {
+	got, want := strings.Split(a.ObjectResource.Or(""), "/"), strings.Split(template, "/")
+	if len(got) != len(want) {
+		return nil, false
+	}
+	for i, w := range want {
+		if !strings.HasPrefix(w, "{") {
+			if got[i] != w {
+				return nil, false
+			}
+			continue
+		}
+		id, err := uuid.Parse(got[i])
+		if err != nil || id.String() != got[i] {
+			return nil, false
+		}
+		ids = append(ids, id)
+	}
+	return ids, true
+}
+
+// readChange reads an order change through the order the request places
+// it in; the change must be the request's object.
+func readChange(ctx context.Context, c *gen.Client, a gen.ApprovalRequest) (any, error) {
+	ids, ok := placed(a, changeResource)
+	if !ok || ids[1] != a.ObjectID {
+		return nil, nil
+	}
+	return c.GetPurchaseOrderChange(ctx, gen.GetPurchaseOrderChangeParams{ID: ids[0], ChangeID: ids[1]})
+}
+
+// readClearing reads a bank clearing's match among the matches of the
+// statement the request places it on: the API reads a match only with
+// its statement's.
+func readClearing(ctx context.Context, c *gen.Client, a gen.ApprovalRequest) (any, error) {
+	ids, ok := placed(a, statementResource)
+	if !ok {
+		return nil, nil
+	}
+	res, err := c.ListBankStatementMatches(ctx, gen.ListBankStatementMatchesParams{ID: ids[0]})
+	list, ok := res.(*gen.StatementMatchList)
+	if !ok {
+		return res, err
+	}
+	for _, m := range list.Items {
+		if m.ID == a.ObjectID {
+			return &m, nil
+		}
+	}
+	return nil, nil
 }
 
 // objectReads are the reads of the object types the workspace summarises.
 var objectReads = map[string]objectRead{
-	"requisition": {Operation{ID: "getRequisition", HiddenBy: "procurement.requisition.read", PerObject: true},
-		func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
+	"requisition": {op: Operation{ID: "getRequisition", HiddenBy: "procurement.requisition.read", PerObject: true},
+		call: byObjectID(func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
 			return c.GetRequisition(ctx, gen.GetRequisitionParams{ID: id})
-		}},
-	"partner_change": {Operation{ID: "getPartnerChange", HiddenBy: permReadSuppliers, PerObject: true},
-		func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
+		})},
+	"partner_change": {op: Operation{ID: "getPartnerChange", HiddenBy: permReadSuppliers, PerObject: true},
+		call: byObjectID(func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
 			return c.GetPartnerChange(ctx, gen.GetPartnerChangeParams{ID: id})
-		}},
-	"config_change": {Operation{ID: "getChangeRequest", HiddenBy: "config.change.read", PerObject: true},
-		func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
+		})},
+	"config_change": {op: Operation{ID: "getChangeRequest", HiddenBy: "config.change.read", PerObject: true},
+		call: byObjectID(func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
 			return c.GetChangeRequest(ctx, gen.GetChangeRequestParams{ID: id})
-		}},
-	"invoice_exception": {Operation{ID: "getSupplierInvoice", HiddenBy: permReadInvoices, PerObject: true},
-		func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
+		})},
+	"invoice_exception": {op: Operation{ID: "getSupplierInvoice", HiddenBy: permReadInvoices, PerObject: true},
+		call: byObjectID(func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
 			return c.GetSupplierInvoice(ctx, gen.GetSupplierInvoiceParams{ID: id})
-		}},
-	"period_unlock": {Operation{ID: "getFiscalPeriod", HiddenBy: permReadPeriods, PerObject: true},
-		func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
+		})},
+	"period_unlock": {op: Operation{ID: "getFiscalPeriod", HiddenBy: permReadPeriods, PerObject: true},
+		call: byObjectID(func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
 			return c.GetFiscalPeriod(ctx, gen.GetFiscalPeriodParams{ID: id})
-		}},
-	"manual_entry": {Operation{ID: "getParkedJournalEntry", HiddenBy: permReadEntries, PerObject: true},
-		func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
+		})},
+	"manual_entry": {op: Operation{ID: "getParkedJournalEntry", HiddenBy: permReadEntries, PerObject: true},
+		call: byObjectID(func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
 			return c.GetParkedJournalEntry(ctx, gen.GetParkedJournalEntryParams{ID: id})
-		}},
-	"purchase_order": {Operation{ID: "getPurchaseOrder", HiddenBy: permReadOrders, PerObject: true},
-		func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
+		})},
+	"purchase_order": {op: Operation{ID: "getPurchaseOrder", HiddenBy: permReadOrders, PerObject: true},
+		call: byObjectID(func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
 			return c.GetPurchaseOrder(ctx, gen.GetPurchaseOrderParams{ID: id})
-		}},
-	"center_change": {Operation{ID: "getCenterChange", HiddenBy: permReadCenters, PerObject: true},
-		func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
+		})},
+	"center_change": {op: Operation{ID: "getCenterChange", HiddenBy: permReadCenters, PerObject: true},
+		call: byObjectID(func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
 			return c.GetCenterChange(ctx, gen.GetCenterChangeParams{ID: id})
-		}},
-	"gr_ir_clearing": {Operation{ID: "getGrIrClearing", HiddenBy: permReadOrders, PerObject: true},
-		func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
+		})},
+	"gr_ir_clearing": {op: Operation{ID: "getGrIrClearing", HiddenBy: permReadOrders, PerObject: true},
+		call: byObjectID(func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
 			return c.GetGrIrClearing(ctx, gen.GetGrIrClearingParams{ID: id})
-		}},
-	"payment_run_release": {Operation{ID: "getPaymentRun", HiddenBy: permReadRuns, PerObject: true},
-		func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
+		})},
+	"payment_run_release": {op: Operation{ID: "getPaymentRun", HiddenBy: permReadRuns, PerObject: true},
+		call: byObjectID(func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
 			return c.GetPaymentRun(ctx, gen.GetPaymentRunParams{ID: id})
-		}},
-	"tax_return": {Operation{ID: "getTaxReturn", HiddenBy: "tax.return.read", PerObject: true},
-		func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
+		})},
+	"order_change": {op: Operation{ID: "getPurchaseOrderChange", HiddenBy: permReadOrders, PerObject: true}, path: changeResource, call: readChange},
+	"bank_clearing": {op: Operation{ID: "listBankStatementMatches", HiddenBy: permReadStatements, PerObject: true}, path: statementResource,
+		call: readClearing},
+	"tax_return": {op: Operation{ID: "getTaxReturn", HiddenBy: "tax.return.read", PerObject: true},
+		call: byObjectID(func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
 			return c.GetTaxReturn(ctx, gen.GetTaxReturnParams{ID: id})
-		}},
+		})},
 }
 
 // objectOps are the object reads in the inventory: a request's page calls
@@ -100,7 +181,11 @@ func (s *Server) object(w http.ResponseWriter, r *http.Request, p *person, m me,
 		rp.ObjectNote = i18n.ObjectHidden
 		return true
 	}
-	res, err := read.call(r.Context(), s.API, a.ObjectID)
+	res, err := read.call(r.Context(), s.API, a)
+	if res == nil && err == nil {
+		rp.ObjectNote = i18n.ObjectNotPlaced
+		return true
+	}
 	if sum, ok := summaryOf(res); ok {
 		rp.Object = sum
 		return true
@@ -152,6 +237,10 @@ func summaryOf(res any) (*ui.ObjectSummary, bool) {
 		return runSummary(v.Response), true
 	case *gen.GetTaxReturnOKHeaders:
 		return returnSummary(v.Response), true
+	case *gen.GetPurchaseOrderChangeOKHeaders:
+		return changeSummary(v.Response), true
+	case *gen.StatementMatch:
+		return clearingSummary(*v), true
 	}
 	return nil, false
 }
@@ -207,4 +296,54 @@ func returnSummary(tr gen.TaxReturn) *ui.ObjectSummary {
 		{Key: i18n.SummaryRegistration, Value: ui.Code(tr.RegistrationCode)}, {Key: i18n.SummaryReturnKind, Value: ui.Code(tr.Kind)},
 		{Key: i18n.SummaryFrom, Value: ui.Day(tr.PeriodStart)}, {Key: i18n.SummaryTo, Value: ui.Day(tr.PeriodEnd)},
 		{Key: i18n.SummaryItems, Value: ui.Data(strconv.FormatInt(tr.ItemCount, 10))}, {Key: i18n.SummaryStatus, Value: ui.Code(tr.Status)}}}
+}
+
+// changeSummary is an order change's summary: the order as it is to read
+// against what it read; the workspace has no page of its own for an
+// order.
+func changeSummary(ch gen.PurchaseOrderChange) *ui.ObjectSummary {
+	return &ui.ObjectSummary{Rows: []ui.Row{{Key: i18n.SummaryReason, Value: ui.Data(ch.Reason)},
+		{Key: i18n.SummaryTotalBefore, Value: ui.Amount(moneyOf(ch.TotalBefore))}, {Key: i18n.SummaryTotalAfter, Value: ui.Amount(moneyOf(ch.TotalAfter))},
+		{Key: i18n.SummaryDate, Value: ui.Day(ch.OrderDate)}, {Key: i18n.SummaryTerms, Value: ui.Code(ch.PaymentTermCode)},
+		{Key: i18n.SummaryItems, Value: ui.Number(int32(len(ch.Items)))}, {Key: i18n.SummaryStatus, Value: ui.Code(ch.Status)}}}
+}
+
+// clearingSummary is a bank clearing's summary: the statement line's match
+// whose posting waits, its reason shown as data (a person's, or the text
+// of an agent's proposal a person accepted), linked to the line on its
+// statement's page.
+func clearingSummary(m gen.StatementMatch) *ui.ObjectSummary {
+	rows := []ui.Row{{Key: i18n.LineNo, Value: ui.Number(m.LineNo)}, {Key: i18n.SummaryMatched, Value: ui.Labelled(labelOf(matchKinds, m.Kind))}}
+	if rule, ok := m.Rule.Get(); ok {
+		rows = append(rows, ui.Row{Key: i18n.MatchRule, Value: ui.Labelled(labelOf(matchRules, rule))})
+	}
+	rows = append(rows, ui.Row{Key: i18n.SummaryReason, Value: ui.Data(m.Reason)}, ui.Row{Key: i18n.SummaryClears, Value: clears(m.Targets)})
+	if d, ok := m.PostingDate.Get(); ok {
+		rows = append(rows, ui.Row{Key: i18n.MatchPostingDay, Value: ui.Day(d)})
+	}
+	if why, ok := m.PostingReason.Get(); ok && why != "" {
+		rows = append(rows, ui.Row{Key: i18n.MatchPostingReason, Value: ui.Data(why)})
+	}
+	return &ui.ObjectSummary{Rows: append(rows, ui.Row{Key: i18n.SummaryStatus, Value: ui.Labelled(labelOf(matchStatuses, m.Status))}),
+		Link: statementPath(m.BankStatementID) + "#" + lineAnchor(m.LineNo), LinkText: i18n.ObjectOpenLine}
+}
+
+// clears says what a match clears: its payments, a posting rule, the
+// incoming payments clearing account, or nothing.
+func clears(targets []gen.StatementMatchTarget) templ.Component {
+	payments := 0
+	for _, t := range targets {
+		if _, ok := t.PaymentID.Get(); ok {
+			payments++
+		}
+	}
+	switch {
+	case payments > 0:
+		return ui.T(i18n.SummaryClearsPayments, payments)
+	case len(targets) == 0:
+		return ui.T(i18n.SummaryClearsNothing)
+	case targets[0].Incoming.Or(false):
+		return ui.T(i18n.TargetIncoming)
+	}
+	return ui.T(i18n.SummaryClearsRule, targets[0].PostingRule.Or(""))
 }

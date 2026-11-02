@@ -35,6 +35,23 @@ func (e Env) Order(tb testing.TB, supplier uuid.UUID, number string) uuid.UUID {
 	return id
 }
 
+// OrderChange drafts and submits, as the tenant's human, a change of a
+// new released order of the supplier numbered number (Order) that raises
+// its paper to 100 EA, EUR 1,215.00 in all, above the first order tier,
+// and returns its pending order_change approval request. The tenant needs
+// procurement.order.create and .read.
+func (e Env) OrderChange(tb testing.TB, supplier uuid.UUID, number string) uuid.UUID {
+	tb.Helper()
+	path := "/v1/purchase-orders/" + e.Order(tb, supplier, number).String()
+	account := e.Account(tb, "2000", "520000")
+	ch, tag := e.Must(201, "POST", path+"/changes", fmt.Sprintf(`{"reason": "Paper for the whole year", "items": [
+		{"description": "Paper", "quantity": {"value": "100", "unit": "EA"}, "unit_price": {"amount": "12.00", "currency": "EUR"}, "account_id": %q, "tax_code": "V1"},
+		{"description": "Toner", "quantity": {"value": "5", "unit": "KG"}, "unit_price": {"amount": "3.00", "currency": "EUR"}, "account_id": %q}]}`,
+		account, account), "")
+	e.Must(200, "POST", path+"/changes/"+ch["id"].(string)+":submit", "", tag)
+	return uuid.MustParse(e.Pending(tb, ch["id"].(string))["id"].(string))
+}
+
 // Receive posts a goods receipt of the quantity on an order item, numbered
 // number.
 func (e Env) Receive(tb testing.TB, po uuid.UUID, item int, qty, number string) {

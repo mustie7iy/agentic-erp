@@ -1304,6 +1304,16 @@
   "summary.entry.reference": "Référence",
   "summary.registration": "Inscription aux taxes",
   "summary.returnkind": "Type de déclaration",
+  "summary.total.before": "Total avant la modification",
+  "summary.total.after": "Total après la modification",
+  "summary.terms": "Conditions de paiement",
+  "summary.matched": "Mode de rapprochement",
+  "summary.clears": "Ce qu'il solde",
+  "summary.clears.payments": {"one": "%d paiement", "other": "%d paiements"},
+  "summary.clears.rule": "Règle de comptabilisation %s",
+  "summary.clears.nothing": "Rien",
+  "object.open.line": "Ouvrir la ligne dans son relevé",
+  "object.notplaced": "La demande ne dit pas où se trouve son objet; il n'est donc pas affiché. Son type et son numéro sont affichés ci-dessus.",
   "request.unsent.title": "Votre décision n'a pas été envoyée",
   "request.unsent.body": "Pendant que vous vous connectiez de nouveau, la demande a changé et elle n'accepte plus cette décision. Ce que vous aviez écrit :"
 }

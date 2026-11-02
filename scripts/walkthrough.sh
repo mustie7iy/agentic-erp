@@ -1078,7 +1078,7 @@ next_year_ranges() {
 }
 
 step_procure() {
-  heading "Step 4 — Requisition, purchase order with its release strategy, its document for the supplier, goods receipt"
+  heading "Step 4 — Requisition, purchase order with its release strategy, its document for the supplier, a dearer change rejected, goods receipt"
   as ben
   api 200 '.items[] | "supplier \(.number) \(.name), \(.country_code), \(.status)"' listBusinessPartners -p name_prefix=Tyrell
   SUPPLIER=$(field '.items[0].id')
@@ -1119,6 +1119,7 @@ step_procure() {
   api 200 '"purchase order \(.document_number): \(.status), valued through \(.valuation)"' getPurchaseOrder -p "id=$PO"
   expect "order status" "$(field .status)" released
   order_document
+  order_change
   say "The chairs arrive; Ben posts the goods receipt (debit expense, credit GR/IR)."
   api 201 '"goods receipt \(.id), journal entry \(.journal_entry_id)"' postGoodsReceipt \
     -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$PO\", \"po_item_no\": 1, \"quantity\": {\"value\": \"10\", \"unit\": \"EA\"}}]}"
@@ -1148,6 +1149,38 @@ order_document() {
   for want in "PURCHASE ORDER $number" "220 King Street West" "Payment terms: 2/10N30" "Needed by: $NEEDED_BY" "10 EA at 470.00 CAD per 1 EA" "Total 4700.00 CAD"; do
     grep -qF "$want" "$WORK/last.json" || fail "the order's document does not show '$want'"
   done
+}
+
+# order_change has Ben ask for Tyrell's dearer price on the released
+# order; the change waits for approval, and Priya reads it where its
+# request places it (object_resource: through its order, as the workspace
+# reads it, T73d3) and rejects it, so the order stays as released.
+order_change() {
+  local item change request
+  item="{\"description\": \"Ergonomic office chairs\", \"quantity\": {\"value\": \"10\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"490.00\", \"currency\": \"CAD\"}, \"account_id\": \"$(account 6000)\"}"
+  say "Tyrell asks CAD 490.00 a chair after all. Ben drafts the change of the released order and submits it; it"
+  say "raises the order's total, so it waits for approval."
+  api 201 '"order change \(.id): \(.status), \(.total_before.amount) -> \(.total_after.amount) \(.total_after.currency)"' createPurchaseOrderChange -p "id=$PO" \
+    -body "{\"reason\": \"Tyrell raises the chairs by CAD 20.00 each\", \"items\": [$item]}"
+  change=$(field .id)
+  api 200 '"order change: \(.status), approval request \(.approval_request_id)"' submitPurchaseOrderChange -p "id=$PO" -p "change_id=$change" -if-match "$ETAG"
+  expect "order change status" "$(field .status)" pending_approval
+  request=$(field .approval_request_id)
+  say "Priya opens the request. Its object is the change, read through its order: the request says where."
+  as priya
+  api 200 '"approval request \(.object_type) \(.object_id): \(.object_resource)"' getApprovalRequest -p "id=$request"
+  expect "the request's object" "$(field .object_id)" "$change"
+  expect "where the request places it" "$(field .object_resource)" "/v1/purchase-orders/$PO/changes/$change"
+  api 200 '"order change: \(.reason); \(.total_before.amount) -> \(.total_after.amount) \(.total_after.currency), \(.status)"' getPurchaseOrderChange \
+    -p "id=$PO" -p "change_id=$change"
+  expect "the change's request" "$(field .approval_request_id)" "$request"
+  say "The budget holds CAD 470.00 a chair. She rejects the change, and the order stays as it was released."
+  QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
+  api 200 '"approval request \(.object_type): \(.status)"' rejectApprovalRequest -p "id=$request" -if-match "$ETAG" \
+    -body '{"comment": "Not budgeted: keep CAD 470.00 or ask for another quote."}'
+  as ben
+  api 200 '"purchase order \(.document_number): \(.status), revision \(.revision), \(.total_amount.amount) \(.total_amount.currency)"' getPurchaseOrder -p "id=$PO"
+  expect "order total after the rejected change" "$(field .total_amount.amount)" 4700.00
 }
 
 # invoice REFERENCE QUANTITY AMOUNT [KIND] enters a supplier invoice on
@@ -1488,8 +1521,10 @@ step_statement() {
   expect "lines still matched after the run" "$(field '[.lines[] | select(.status == "matched")] | length')" 0
   match_by_hand "$st" "$(field '.lines[] | select(.status == "unmatched") | .line_no')"
   api 200 '.items[] | "line \(.line_no): \(.status) \(if .rule then "by rule \(.rule)" else "by hand" end)\(if .approval_request_id then ", approval request \(.approval_request_id[0:8])…" else "" end)"' listBankStatementMatches -p "id=$st"
-  local r
-  for r in $(field '.items[] | select(.approval_request_id != null and .status == "matched") | .approval_request_id'); do
+  local r requests
+  requests=$(field '.items[] | select(.approval_request_id != null and .status == "matched") | .approval_request_id')
+  clearing_object "$st" "${requests%%$'\n'*}"
+  for r in $requests; do
     approve carla "$r" "Payment of run $RUN"
   done
   as tom
@@ -1502,6 +1537,20 @@ step_statement() {
   expect "unexplained difference" "$(field .summary.figures.unexplained.amount)" 0.00
   expect "ledger balance" "$(field .summary.figures.ledger_balance.amount)" "$CLOSING"
   passed
+}
+
+# clearing_object STATEMENT REQUEST has Carla read a bank clearing's
+# object where its request places it: the match is read with its
+# statement's (object_resource, as the workspace reads it, T73d3).
+clearing_object() {
+  local match
+  say "Carla opens a posting's request. Its object is the line's match, read with its statement's matches:"
+  as carla
+  api 200 '"approval request \(.object_type) \(.object_id): \(.object_resource)"' getApprovalRequest -p "id=$2"
+  match=$(field .object_id)
+  expect "where the request places it" "$(field .object_resource)" "/v1/bank-statements/$1"
+  api 200 '.items[] | select(.id == "'"$match"'") | "line \(.line_no): \(.status) by \(.kind), posting on \(.posting_date)"' listBankStatementMatches -p "id=$1"
+  expect "the match's request" "$(field '.items[] | select(.id == "'"$match"'") | .approval_request_id')" "$2"
 }
 
 # match_by_hand STATEMENT LINE: Tom finds the payment the rules did not

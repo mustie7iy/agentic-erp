@@ -60,8 +60,10 @@ const baselineItems = 950
 // inherits the tag (88). 89 since batch 38: T73e3's down payments and
 // pilot AP clerk's walk-through split into T73e4, which inherits the tag
 // (89); capture by upload, decided by the product owner (po:2026-11-01),
-// is a leaf of its own without the tag.
-const pilotItems = 89
+// is a leaf of its own without the tag. 90 since T73d3: the walk-through
+// by a pilot approver, human acceptance, split into T73d4, which inherits
+// the tag (90).
+const pilotItems = 90
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

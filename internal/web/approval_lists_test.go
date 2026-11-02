@@ -133,12 +133,13 @@ func TestObjectSummaries(t *testing.T) {
 
 // TestEveryObjectRead: every kind of object a request may be for is read
 // by its own operation (here, objects the API does not hold: each read is
-// refused in place), but the two no operation reads by the request's
-// object id alone, whose pages say so.
+// refused in place), but the two read where the request's object_resource
+// places them, which the API cannot place for objects it does not hold:
+// their pages say so (T73d3).
 func TestEveryObjectRead(t *testing.T) {
 	ids := map[string]uuid.UUID{}
 	s := newStack(t, stackOptions{permissions: []string{"config.change.read", "payables.invoice.read", "ledger.period.read", "ledger.entry.read",
-		"procurement.order.read", "ledger.cost_center.read", "payments.run.read", "tax.return.read"}, seed: func(f fixture.Env) {
+		"procurement.order.read", "ledger.cost_center.read", "payments.run.read", "tax.return.read", "payments.statement.read"}, seed: func(f fixture.Env) {
 		for _, kind := range []string{"requisition", "partner_change", "config_change", "invoice_exception", "period_unlock", "manual_entry",
 			"purchase_order", "order_change", "bank_clearing", "center_change", "gr_ir_clearing", "payment_run_release", "tax_return"} {
 			// Written as an owning context's Open leaves it, whatever the
@@ -157,8 +158,8 @@ func TestEveryObjectRead(t *testing.T) {
 			r := b.get(requestPath(id))
 			status(t, kind, r, http.StatusOK)
 			want := "The object does not exist, or you may not see it."
-			if _, read := objectReads[kind]; !read {
-				want = "The workspace does not show this kind of object yet"
+			if objectReads[kind].path != "" {
+				want = "The request does not say where its object is"
 			}
 			holds(t, kind, text(r.page(t).all("section", "object")[0]), want)
 		})

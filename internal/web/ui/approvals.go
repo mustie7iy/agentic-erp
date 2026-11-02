@@ -245,6 +245,9 @@ func labelOption(o LabelOption) templ.Attributes {
 // selectAttrs are a select's id and name.
 func selectAttrs(id, name string) templ.Attributes { return templ.Attributes{"id": id, "name": name} }
 
+// Labelled is a Label's text as a value of a summary's row.
+func Labelled(l Label) templ.Component { return labelText(l) }
+
 // labelText is a Label's text.
 func labelText(l Label) templ.Component {
 	if l.Key == "" {
