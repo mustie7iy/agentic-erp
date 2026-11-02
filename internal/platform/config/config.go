@@ -66,7 +66,7 @@ type Config struct {
 	KMS             KMS             // ERP_FIELD_KMS_*: a KMS key in front of the ring, the master that wraps new tenant keys (ADR-0019)
 	MigrateOnStart  bool            // ERP_MIGRATE_ON_START
 	LogLevel        slog.Level      // ERP_LOG_LEVEL: debug, info, warn, error (default info)
-	ShutdownTimeout time.Duration   // ERP_SHUTDOWN_TIMEOUT (default 20s)
+	ShutdownTimeout time.Duration   // ERP_SHUTDOWN_TIMEOUT (default 20s): the API's drain, and the workflow worker's wait for its activities
 	RequestTimeout  time.Duration   // ERP_REQUEST_TIMEOUT, deadline of one API request (default 30s)
 	DBMaxConns      int32           // ERP_DB_MAX_CONNS, connections per replica; 0 keeps the driver's default
 	TenantQuota     ratelimit.Quota // ERP_RATE_LIMIT_TENANT, requests per second[/burst] per tenant, or off (default 2000/10000, 04 §4.11)

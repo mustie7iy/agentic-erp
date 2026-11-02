@@ -42,6 +42,12 @@ spec:
       enableServiceLinks: false
       # IRSA's token is projected by EKS; the Kubernetes API is not called.
       automountServiceAccountToken: false
+      # On SIGTERM the server drains the API and stops its workflow
+      # worker side by side, each within ERP_SHUTDOWN_TIMEOUT (20 s): the
+      # worker waits that long for its running activities. Only then does
+      # it delete its replica's record, so the record outlives what reads
+      # the configuration (ADR-0038 As built). A pod killed at the end of
+      # the grace leaves its record to expire, the safe side.
       terminationGracePeriodSeconds: 30
       securityContext:
         {{- include "erp-cell.podSecurity" (dict "uid" 65532) | nindent 8 }}
@@ -65,6 +71,7 @@ spec:
             - {name: ERP_HTTP_ADDR, value: ":8080"}
             - {name: ERP_ADMIN_ADDR, value: ":9090"}
             - {name: ERP_LOG_LEVEL, value: {{ .Values.server.logLevel | quote }}}
+            - {name: ERP_SHUTDOWN_TIMEOUT, value: "20s"}
             - {name: ERP_MIGRATE_ON_START, value: "false"}
             - {name: ERP_DB_MAX_CONNS, value: {{ .Values.server.dbMaxConns | quote }}}
             - {name: DATABASE_URL, value: file:/etc/erp/secrets/database-url}

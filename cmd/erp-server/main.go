@@ -613,7 +613,12 @@ func (s *server) dialEngine(ctx context.Context) (*workflow.Temporal, error) {
 	} else {
 		s.log.Warn("ERP_TEMPORAL_CODEC_KEY not set: workflow payloads reach the engine unsealed (ERP_ENV=production refuses this)")
 	}
-	wc := workflow.Config{Address: s.cfg.Temporal.Address, Namespace: s.cfg.Temporal.Namespace, Codec: codec}
+	// The worker's stop has the API's drain budget, ERP_SHUTDOWN_TIMEOUT:
+	// both begin as the shutdown cancels ctx and run side by side, so the
+	// replica's record, deleted once the worker returned (launch), outlives
+	// every activity that finishes within it, and the pod's grace period
+	// (deploy/helm erp-cell server.yaml) holds both (ADR-0038 As built).
+	wc := workflow.Config{Address: s.cfg.Temporal.Address, Namespace: s.cfg.Temporal.Namespace, Codec: codec, StopTimeout: s.cfg.ShutdownTimeout}
 	if s.tls != nil {
 		wc.TLS = func() (*tls.Config, error) { return s.tls.ClientConfig(tlsconf.Internal, s.cfg.Temporal.ServerName) }
 	}
