@@ -343,7 +343,10 @@ func share(t *testing.T, serve func(*testing.T, *payables.Uploads, map[string]an
 	var writers []*io.PipeWriter
 	for _, up := range []map[string]any{first, second} {
 		pr, pw := io.Pipe()
-		go func() { done <- serve(t, u, up, pr).Code }()
+		go func() {
+			defer func() { _ = pr.Close() }() // a pipe's Close never fails; a refusal before reading then fails the write below rather than hanging it
+			done <- serve(t, u, up, pr).Code
+		}()
 		if _, err := pw.Write([]byte(r.pdf)); err != nil { // returns once the PUT reads it: it holds a slot
 			t.Fatal(err)
 		}
