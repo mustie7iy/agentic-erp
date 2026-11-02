@@ -22,6 +22,9 @@ import (
 	"testing"
 	"time"
 
+	cdpbrowser "github.com/chromedp/cdproto/browser"
+	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 	"github.com/google/uuid"
@@ -302,8 +305,11 @@ func browse(t *testing.T) context.Context {
 		t.Skip("no Chromium-based browser (ERP_E2E_BROWSER)")
 	}
 	// The workspace serves TLS (its cookies are __Host-, Secure) with the
-	// test server's own certificate.
-	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.ExecPath(path), chromedp.Flag("ignore-certificate-errors", true))
+	// test server's own certificate. Chrome's reduced Accept-Language is
+	// on wherever this Chrome has it off, so a tab's language behaves on
+	// every runner as on CI's Linux Chrome (speak).
+	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.ExecPath(path), chromedp.Flag("ignore-certificate-errors", true),
+		chromedp.Flag("enable-features", "ReduceAcceptLanguage,ReduceAcceptLanguageHTTP"))
 	if os.Getenv("CI") != "" {
 		// CI's runners refuse Chromium's sandbox its user namespaces; the
 		// browser loads this test's own pages alone.
@@ -333,11 +339,27 @@ func tab(t *testing.T, browserCtx context.Context, lang string, width int64) (co
 		t.Fatal(err)
 	}
 	if lang != "" {
-		if _, err := chromedp.Call(ctx, network.SetExtraHTTPHeaders, network.SetExtraHTTPHeadersParams{Headers: network.Headers{"Accept-Language": lang}}); err != nil {
-			t.Fatal(err)
-		}
+		speak(t, ctx, lang)
 	}
 	return ctx, c
+}
+
+// speak makes the tab's browser one whose person prefers lang, as their
+// own settings would: its user agent's language, which the browser sends
+// on every request it makes, a redirect's too. A header added by DevTools
+// (Network.setExtraHTTPHeaders) is not that: Chrome's reduced
+// Accept-Language sets the header again on a navigation's redirect, from
+// the browser's language, so the page after a form's 303 came in English
+// (main run 41371307606, TestInvoiceChangeInTheBrowser).
+func speak(t *testing.T, ctx context.Context, lang string) {
+	t.Helper()
+	v, err := chromedp.CallBrowser(ctx, cdpbrowser.GetVersion, cdp.Empty{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := chromedp.Call(ctx, emulation.SetUserAgentOverride, emulation.SetUserAgentOverrideParams{UserAgent: v.UserAgent, AcceptLanguage: lang}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // violation is one axe rule a page breaks.
