@@ -5855,6 +5855,22 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: account_id
+          in: query
+          required: false
+          description: "Only entries with a line on this G/L account (`GET /v1/accounts`): a trial balance's or a cost or profit center balance's account drilled down to its entries; each entry is listed with all its lines."
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_period
+          in: query
+          required: false
+          description: "Only entries of this posting period of the fiscal year, as a trial balance's row names it; best with `fiscal_year`, without which every year's period of that number is listed."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -12967,6 +12983,68 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BankStatementRules"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/bank-statements/{id}/payments":
+    get:
+      operationId: listBankStatementPayments
+      tags:
+        - payments
+      summary: Search the payments a statement's lines may be matched to
+      description: "The payments a person may match a line of the statement to by hand (`POST .../lines/{line_no}:match` with `payment_ids`), whatever the rules found: posted, from the statement's house bank, in its currency, and matched to no line. Their lines on the bank's clearing account are the open items a statement line clears (ADR-0047); a customer's open items are matched to no statement line until accounts receivable (Phase 3). Latest first: the payments made last (their run proposed last) first. Narrowed by the amount paid, in the statement's currency with exactly its minor-unit digits (400 `request.invalid_parameter` otherwise), and by the payment run's date. People only, holding the permission to match lines: the reconciliation agent proposes from the rules' candidates (T49g)."
+      x-permission: payments.statement.match
+      x-agent: false
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: amount_min
+          in: query
+          required: false
+          description: "Only payments of this amount or more, in the statement's currency (`1080.00` for EUR)."
+          schema:
+            type: string
+            pattern: "^(0|[1-9][0-9]{0,17})(\\.[0-9]{1,4})?$"
+        - name: amount_max
+          in: query
+          required: false
+          description: "Only payments of this amount or less, in the statement's currency."
+          schema:
+            type: string
+            pattern: "^(0|[1-9][0-9]{0,17})(\\.[0-9]{1,4})?$"
+        - name: run_date_from
+          in: query
+          required: false
+          description: Only payments of runs dated on or after this date.
+          schema:
+            type: string
+            format: date
+        - name: run_date_to
+          in: query
+          required: false
+          description: Only payments of runs dated on or before this date.
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the payments the statement's lines may be matched to.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentPage"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":

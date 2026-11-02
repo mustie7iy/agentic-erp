@@ -166,7 +166,7 @@ func (e env) contract(t *testing.T, supplier, extra string) map[string]any {
 }
 
 func TestContracts(t *testing.T) {
-	e := setup(t)
+	e := setupIn2026(t)
 	c := e.contract(t, e.Supplier.String(), "")
 	path := "/v1/contracts/" + id(c)
 	if c["document_number"] != "CT100000" {

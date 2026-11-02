@@ -36,3 +36,39 @@ field, so the problem carries no field error; its detail names the
 document type and the fiscal year and says to add the range through a
 change request (REVIEW.md, API-consumer classes: a field error names the
 request's own field).
+
+## As built: a range may not repeat another year's numbers (review:T73g2)
+
+Ranges are per fiscal year, and the country packs create each year's afresh
+from the same prefix and first number. Only journal entries are numbered per
+fiscal year (`journal_entry_document`, 000134); every other document's number
+is unique in its legal entity across years (000006, 000007, 000008, 000079),
+and a payment run's end-to-end ids are made from its number. So the first
+payment run of a new fiscal year was refused 409 `request.duplicate` at
+`:propose`, its number being last year's first (the end-to-end id would have
+collided next), and the first invoice, order or receipt would have been
+refused the same way.
+
+Decided from what is built, not by changing the ids: the documents' numbers
+and the end-to-end id format (07-transition, T34) stay, and the
+configuration refuses a range, other than a journal's, that can issue a
+number another fiscal year's range of its company and document type issues
+(`config.RangeRepeats`, part of every change's check). A number is the
+prefix and the value in decimal, so the check covers equal prefixes with
+meeting intervals and a prefix that is another's followed by digits. The
+refusal is `config.validation_failed` on
+`proposed.number_ranges[<company>/<type>/<year>].prefix`. A pack applied for
+the next year therefore needs the year in its prefixes (`PY2027-`), or
+numbers above the earlier year's, before it is submitted. This needs no
+fact about banks or ISO 20022: no number and so no id repeats. Two
+activated ranges that already repeat each other are let be, as an
+activated range's prefix and first number cannot change and the tenant's
+every later change would be refused; none is known outside tests. Any
+other pair is checked, so raising an activated range's last number into
+another year's numbers is refused on that range. Journal types are told by
+`config.NumberedPerYear` (the `journal_` prefix the ledger draws them
+with); `partner_change` ranges are checked too, though the partner context
+numbers its changes itself and never draws from them. The SAP draft (`sapconfig`) gives
+the ranges of every year before the extract's latest the year in their
+prefix (`SI2025-`), and the test fixture numbers a year after 2026 from
+1000000.

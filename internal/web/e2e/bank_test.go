@@ -55,8 +55,9 @@ func (b bank) report() string { return "/bank/house-banks/" + b.house.String() +
 func statementPage(id uuid.UUID) string { return "/bank/statements/" + id.String() }
 
 // checkBankPages checks the statements' list, of every company and of
-// company 2000, a statement with the
-// agent's proposals and the bank's reconciliation report in the languages
+// company 2000, a statement with the agent's proposals, a line's search
+// for payments and the bank's reconciliation
+// report in the languages
 // at a desktop's and a phone's width, with every check of
 // TestPagesInTheBrowser and axe at zero.
 func checkBankPages(t *testing.T, s bank, langs []lang) {
@@ -69,7 +70,10 @@ func checkBankPages(t *testing.T, s bank, langs []lang) {
 			// The list of one company's statements in one status, as the
 			// pre-close checks link it (T73i2).
 			company := "/bank?" + url.Values{"legal_entity_id": {s.f.DE.String()}, "status": {"imported"}}.Encode()
-			for _, path := range []string{"/bank", company, statementPage(s.statement), s.report()} {
+			// A debit's search for a payment the rules did not find (T73g2);
+			// TestLineSearchInTheBrowser checks a filter it refuses.
+			search := statementPage(s.statement) + "/lines/3/payments"
+			for _, path := range []string{"/bank", company, statementPage(s.statement), s.report(), search} {
 				t.Run(fmt.Sprintf("%s %d %s", l.lang, width, path), func(t *testing.T) {
 					checkPage(t, browserCtx, s.stack, src, l.header, l.lang, l.dir, width, path)
 				})
@@ -151,6 +155,55 @@ func TestBankJobsInTheBrowser(t *testing.T) {
 	shot(t, desk, "bank-pending-1280")
 	for _, e := range c.errors() {
 		if !strings.Contains(e, "status of 422") { // the refused rejection is the browser's to log
+			t.Errorf("browser: %s", e)
+		}
+	}
+}
+
+// TestLineSearchInTheBrowser: the reconciler runs the rules again from the
+// statement's page, then opens a debit's search and filters it, which
+// htmx answers with the results alone and puts in the address bar; at a
+// phone's width and a desktop's, each state checked by axe (T73g2).
+func TestLineSearchInTheBrowser(t *testing.T) {
+	browserCtx := browse(t)
+	s := newBank(t, false)
+	src := axe(t)
+	signIn(t, browserCtx, s.stack)
+	page := statementPage(s.statement)
+	for _, width := range []int64{390, 1280} {
+		ctx, c := tab(t, browserCtx, "", width)
+		if err := chromedp.Do(ctx,
+			chromedp.Navigate(s.url+page),
+			chromedp.WaitVisible(chromedp.CSS(`form[action$="/rules"] button`)),
+			chromedp.Click(chromedp.CSS(`form[action$="/rules"] button`)),
+		); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, ctx, page+"?done=rules", "The matching rules ran again")
+		audit(t, ctx, src, "en", "ltr", width)
+		search := page + "/lines/3/payments"
+		if err := chromedp.Do(ctx,
+			chromedp.Click(chromedp.CSS(`#line-3 details:has(a[href$="/lines/3/payments"]) > summary`)),
+			chromedp.Click(chromedp.CSS(`#line-3 a[href$="/lines/3/payments"]`)),
+		); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, ctx, search, "Find a payment for line 3")
+		if _, err := chromedp.Run(ctx, chromedp.Evaluate[bool](`window.notReloaded = true`)); err != nil {
+			t.Fatal(err)
+		}
+		if err := chromedp.Do(ctx,
+			chromedp.SendKeys(chromedp.CSS(`#search-min`), "5,00"),
+			chromedp.Click(chromedp.CSS(`form.filters button`)),
+		); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, ctx, search+"?amount_min=5%2C00&amount_max=&run_date_from=&run_date_to=", "Enter an amount with at most the currency's decimals")
+		if kept, err := chromedp.Run(ctx, chromedp.Evaluate[bool](`window.notReloaded === true`)); err != nil || !kept {
+			t.Errorf("the filter reloaded the page rather than its results (%v)", err)
+		}
+		audit(t, ctx, src, "en", "ltr", width)
+		for _, e := range c.errors() {
 			t.Errorf("browser: %s", e)
 		}
 	}

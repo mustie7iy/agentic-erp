@@ -366,3 +366,30 @@ func TestCanadianHouseBank(t *testing.T) {
 		})
 	}
 }
+
+// TestRangesOfSeveralYears: an extract whose journal covers two fiscal
+// years gets ranges for both that never issue the same number, but for
+// journal entries, numbered per year: the earlier year's prefix carries
+// the year, the latest keeps the plain one new documents are numbered
+// with (review:T73g2).
+func TestRangesOfSeveralYears(t *testing.T) {
+	e := sap.GenerateMock(42, "2026")
+	e.ACDOCA = append(e.ACDOCA, sap.GenerateMock(42, "2025").ACDOCA...)
+	c, _ := Generate(e, zoned())
+	prefixes := map[string]string{}
+	for _, n := range c.NumberRanges {
+		prefixes[n.Key()] = n.Prefix
+	}
+	for key, want := range map[string]string{"3000/payment_run/2025": "PY2025-", "3000/payment_run/2026": "PY", "3000/supplier_invoice/2025": "SI2025-",
+		"3000/partner_change/2025": "2025-", "3000/journal_kr/2025": "", "3000/journal_kr/2026": ""} {
+		if got, ok := prefixes[key]; !ok || got != want {
+			t.Errorf("prefix of %s: got %q (found %v), want %q", key, got, ok, want)
+		}
+	}
+	if fs := config.RangeRepeats(nil, c); len(fs) != 0 {
+		t.Errorf("ranges repeating another year's numbers: got %v, want none", fs)
+	}
+	if fs := config.Validate(reviewed(c), currency.Seeded()); config.HasErrors(fs) {
+		t.Fatalf("draft does not validate: %v", fs)
+	}
+}

@@ -402,6 +402,15 @@ gates on each pull request:
     `go test ./api` (07 §7.7 and the lanes' standing rules), not only
     `TestProblemCodes`; the API names the tables in lower case and the
     stored report keeps SAP's names (ADR-0013, As built).
+  - 2026-11-02 (batch 37): main's full run 41371307606 failed in
+    `TestInvoiceChangeInTheBrowser`: after the change form's 303 the French
+    tab got the page in English. CI's Linux Chrome sets Accept-Language again
+    on a redirect (reduced Accept-Language), replacing the header the harness
+    set through DevTools; macOS Chrome, which the lane loop and `make
+    ci-local` use, does not. Layer: the browser suite's harness, which
+    differed from CI's browser by a feature default. Changed: a tab sets its
+    language as the browser's own (`speak`), and `browse` turns those
+    features on, so a laptop's run behaves as the runner's.
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
   documentation changed (`docs/`, Markdown) since the base: a pull

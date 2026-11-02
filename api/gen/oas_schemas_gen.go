@@ -22131,6 +22131,18 @@ type ListBankStatementMatchesNotFound Problem
 
 func (*ListBankStatementMatchesNotFound) listBankStatementMatchesRes() {}
 
+type ListBankStatementPaymentsBadRequest Problem
+
+func (*ListBankStatementPaymentsBadRequest) listBankStatementPaymentsRes() {}
+
+type ListBankStatementPaymentsForbidden Problem
+
+func (*ListBankStatementPaymentsForbidden) listBankStatementPaymentsRes() {}
+
+type ListBankStatementPaymentsNotFound Problem
+
+func (*ListBankStatementPaymentsNotFound) listBankStatementPaymentsRes() {}
+
 type ListBankStatementsBadRequest Problem
 
 func (*ListBankStatementsBadRequest) listBankStatementsRes() {}
@@ -31825,7 +31837,8 @@ func (s *PaymentPage) SetTotalEstimate(val OptInt64) {
 	s.TotalEstimate = val
 }
 
-func (*PaymentPage) listPaymentsRes() {}
+func (*PaymentPage) listBankStatementPaymentsRes() {}
+func (*PaymentPage) listPaymentsRes()              {}
 
 // Merged schema.
 // Ref: #/components/schemas/PaymentRun
@@ -44770,6 +44783,7 @@ func (*TooManyRequestsHeaders) listBalancesRes()                     {}
 func (*TooManyRequestsHeaders) listBankAccountsRes()                 {}
 func (*TooManyRequestsHeaders) listBankFilesRes()                    {}
 func (*TooManyRequestsHeaders) listBankStatementMatchesRes()         {}
+func (*TooManyRequestsHeaders) listBankStatementPaymentsRes()        {}
 func (*TooManyRequestsHeaders) listBankStatementsRes()               {}
 func (*TooManyRequestsHeaders) listBusinessPartnersRes()             {}
 func (*TooManyRequestsHeaders) listCenterChangesRes()                {}
@@ -45133,6 +45147,7 @@ func (*UnauthorizedHeaders) listBalancesRes()                     {}
 func (*UnauthorizedHeaders) listBankAccountsRes()                 {}
 func (*UnauthorizedHeaders) listBankFilesRes()                    {}
 func (*UnauthorizedHeaders) listBankStatementMatchesRes()         {}
+func (*UnauthorizedHeaders) listBankStatementPaymentsRes()        {}
 func (*UnauthorizedHeaders) listBankStatementsRes()               {}
 func (*UnauthorizedHeaders) listBusinessPartnersRes()             {}
 func (*UnauthorizedHeaders) listCenterChangesRes()                {}

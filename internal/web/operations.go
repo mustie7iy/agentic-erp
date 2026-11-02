@@ -157,6 +157,9 @@ var (
 	opGRIR         = []Operation{opMe, opCompanies, opListGRIR}
 	opReconcile    = []Operation{opMe, opCompanies, opToday, opLedgers, {ID: "listLedgerReconciliation", HiddenBy: permReadEntries}}
 	opReconEntries = []Operation{opMe, opToday, opLedgers, opAccounts, {ID: "listLedgerReconciliationEntries", HiddenBy: permReadEntries}}
+	// opAccountEntries are the reads of a trial balance account's entries
+	// (report_entries.go, T73j2).
+	opAccountEntries = []Operation{opMe, opToday, opLedgers, opAccounts, {ID: "listJournalEntries", HiddenBy: permReadEntries}}
 )
 
 // paged is the operation a download reads page by page.
@@ -246,9 +249,13 @@ var Screens = func() map[string][]Operation {
 		"POST /invoices/{id}/edit":    append([]Operation{{ID: "updateSupplierInvoice", HiddenBy: permCaptureInvoices}}, opInvoiceForm...),
 		"POST /invoices/{id}/recommendations/{rec}/decide": append([]Operation{{ID: "decideRecommendation", HiddenBy: permDecideRecommendations,
 			HumanOnly: true}}, opInvoice...),
-		"GET /bank":                                 opStatementList,
-		"POST /bank/statements":                     append([]Operation{{ID: "importBankStatements", HiddenBy: permImportStatements}}, opStatementList...),
-		"GET /bank/statements/{id}":                 opStatement,
+		"GET /bank":                        opStatementList,
+		"POST /bank/statements":            append([]Operation{{ID: "importBankStatements", HiddenBy: permImportStatements}}, opStatementList...),
+		"GET /bank/statements/{id}":        opStatement,
+		"POST /bank/statements/{id}/rules": append([]Operation{{ID: "matchBankStatement", HiddenBy: permMatchLines}}, opStatement...),
+		"GET /bank/statements/{id}/lines/{line}/payments": {opMe, {ID: "getBankStatement", HiddenBy: permReadStatements},
+			{ID: "listBankStatementPayments", HiddenBy: permMatchLines, HumanOnly: true}},
+		"GET /bank/statements/{id}/file":            {{ID: "getBankStatementFile", HiddenBy: permReadStatements, HumanOnly: true}},
 		"GET /bank/house-banks/{id}/reconciliation": {opMe, opHouseBanks, {ID: "getBankReconciliation", HiddenBy: permReadStatements}},
 		"GET /payments":                             opRuns,
 		"POST /payments/propose":                    append([]Operation{{ID: "proposePaymentRun", HiddenBy: permProposeRuns}}, opRuns...),
@@ -281,6 +288,7 @@ var Screens = func() map[string][]Operation {
 		"GET /reports":                               {opMe, opHouseBanks, opCompanies},
 		"GET /reports/trial-balance":                 opBalances,
 		"GET /reports/trial-balance.csv":             {opMe, opToday, opAccounts, paged(opListBalances)},
+		"GET /reports/trial-balance/entries":         opAccountEntries,
 		"GET /reports/open-items":                    opOpenItems,
 		"GET /reports/open-items.csv":                {opMe, opCompanies, opToday, opAccounts, opSupplier, paged(opListItems)},
 		"GET /reports/gr-ir":                         opGRIR,

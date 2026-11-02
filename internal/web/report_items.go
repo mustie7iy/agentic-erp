@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,10 +17,12 @@ import (
 )
 
 // The items' reports (ADR-0052 §2): the supplier open items of a company
-// with their due dates and their aging on a key date (listOpenItems,
-// G4), which with getCurrentPrincipal, listLegalEntities, the company's
-// chart (listAccounts) and the supplier named (listBusinessPartners by
-// number) makes five calls; and a company's GR/IR positions
+// with their due dates and their aging on a key date in the buckets the
+// person chose (listOpenItems, G4), which with getCurrentPrincipal,
+// listLegalEntities, the company's day, the company's chart
+// (listAccounts) and listBusinessPartners makes six calls: by number for
+// the supplier a filter names, else by ids for the suppliers on the page
+// (T73j2), never both; and a company's GR/IR positions
 // (listGrIrBalances), three.
 
 // The aging buckets the catalog names.
@@ -27,18 +30,21 @@ var agingBuckets = map[string]i18n.Key{"not_due": i18n.AgingNotDue, "overdue": i
 
 // itemQuery is what the open items are of: the company, the
 // reconciliation account (nil: every one), the supplier, the last posting
-// and due dates and the key date of the aging.
+// and due dates, and the key date and buckets (nil: the API's) of the
+// aging.
 type itemQuery struct {
 	company, account, supplier uuid.UUID
 	postingTo, dueTo           gen.OptDate
 	key                        time.Time
+	days                       []int32
 }
 
 // values are the query as the report's address names it, the supplier
 // by its number.
 func (iq itemQuery) values(f ui.ItemFilters) url.Values {
 	q := url.Values{ui.FieldCompany: {iq.company.String()}, ui.FieldKeyDate: {f.KeyDate}}
-	for k, v := range map[string]string{ui.FieldSupplier: f.Supplier, ui.FieldPostingDateTo: f.PostingTo, ui.FieldDueDateTo: f.DueTo} {
+	for k, v := range map[string]string{ui.FieldSupplier: f.Supplier, ui.FieldPostingDateTo: f.PostingTo, ui.FieldDueDateTo: f.DueTo,
+		ui.FieldAgingDays: f.AgingDays} {
 		if v != "" {
 			q.Set(k, v)
 		}
@@ -54,7 +60,7 @@ func (iq itemQuery) params(size int32, token string, age bool) gen.ListOpenItems
 	params := gen.ListOpenItemsParams{LegalEntityID: gen.NewOptUUID(iq.company), PostingDateTo: iq.postingTo, DueDateTo: iq.dueTo,
 		PageSize: gen.NewOptInt32(size), OrderBy: gen.NewOptString("posting_date")}
 	if age {
-		params.AgingKeyDate = gen.NewOptDate(iq.key)
+		params.AgingKeyDate, params.AgingDays = gen.NewOptDate(iq.key), iq.days
 	}
 	for _, v := range []struct {
 		id  uuid.UUID
@@ -100,7 +106,7 @@ func (s *Server) openItems(w http.ResponseWriter, r *http.Request, p *person) {
 			break
 		}
 		op.Aging = agingRows(page.Aging)
-		op.Rows = itemRows(page.Items, iq, op.Supplier)
+		op.Rows = itemRows(page.Items, iq, op.Supplier, s.itemSuppliers(ctx, m, iq, page.Items))
 		if next := page.NextPageToken.Or(""); next != "" {
 			op.More = ui.ReportFor(ui.OpenItemsPath, with(q, "page", next))
 		}
@@ -111,7 +117,7 @@ func (s *Server) openItems(w http.ResponseWriter, r *http.Request, p *person) {
 
 // filterErrors reports whether a filter of the open items is wrong.
 func filterErrors(f ui.ItemFilters) bool {
-	return f.SupplierError != "" || f.PostingError != "" || f.DueError != "" || f.KeyDateError != ""
+	return f.SupplierError != "" || f.PostingError != "" || f.DueError != "" || f.KeyDateError != "" || f.AgingError != ""
 }
 
 // itemQuery reads the open items' query into the page's filters: the
@@ -122,7 +128,8 @@ func filterErrors(f ui.ItemFilters) bool {
 // is wrong is its field's error.
 func (s *Server) itemQuery(ctx context.Context, m me, q url.Values, op *ui.OpenItemsPage) (itemQuery, bool) {
 	f := ui.ItemFilters{Companies: companyOptions(s.companies(ctx, m), q.Get(ui.FieldCompany)), Supplier: strings.TrimSpace(q.Get(ui.FieldSupplier)),
-		Suppliers: m.may(permReadSuppliers), PostingTo: q.Get(ui.FieldPostingDateTo), DueTo: q.Get(ui.FieldDueDateTo), KeyDate: q.Get(ui.FieldKeyDate)}
+		Suppliers: m.may(permReadSuppliers), PostingTo: q.Get(ui.FieldPostingDateTo), DueTo: q.Get(ui.FieldDueDateTo), KeyDate: q.Get(ui.FieldKeyDate),
+		AgingDays: strings.TrimSpace(q.Get(ui.FieldAgingDays))}
 	var iq itemQuery
 	id, err := uuid.Parse(askedOrFirst(q.Get(ui.FieldCompany), f.Companies))
 	valid := err == nil
@@ -146,6 +153,7 @@ func (s *Server) itemQuery(ctx context.Context, m me, q url.Values, op *ui.OpenI
 	iq.key = key.Value
 	iq.postingTo, f.PostingError = dateParam(f.PostingTo)
 	iq.dueTo, f.DueError = dateParam(f.DueTo)
+	iq.days, f.AgingError = agingDaysParam(f.AgingDays)
 	switch {
 	case f.Supplier == "":
 	case f.Suppliers:
@@ -198,6 +206,46 @@ func (s *Server) supplierOf(ctx context.Context, number string) (uuid.UUID, stri
 	return uuid.Nil, "", i18n.OpenItemsSupplierUnread
 }
 
+// itemSuppliers are the page's suppliers by id, read by their ids
+// (partnersByID); none when the filter names the supplier, whose items
+// alone are listed and who is named already.
+func (s *Server) itemSuppliers(ctx context.Context, m me, iq itemQuery, items []gen.OpenItem) map[uuid.UUID]gen.BusinessPartner {
+	if iq.supplier != uuid.Nil {
+		return nil
+	}
+	ids := make([]gen.OptUUID, len(items))
+	for i, o := range items {
+		ids[i] = o.PartnerID
+	}
+	return s.partnersByID(ctx, m, "the open items' suppliers", ids)
+}
+
+// maxAgingDays is how many buckets of days overdue the API ages in.
+const maxAgingDays = 6
+
+// agingDaysParam are the aging's buckets typed (the last day past the due
+// date of each, ascending, separated by commas), nil when none are typed
+// (the API's 30, 60 and 90), and the error when they are not what the API
+// takes (listOpenItems aging_days: 1 to 6 days of 1 to 3650, ascending).
+func agingDaysParam(typed string) ([]int32, i18n.Key) {
+	if typed == "" {
+		return nil, ""
+	}
+	parts := strings.Split(typed, ",")
+	if len(parts) > maxAgingDays {
+		return nil, i18n.AgingDaysInvalid
+	}
+	days := make([]int32, 0, len(parts))
+	for _, p := range parts {
+		n, err := strconv.ParseInt(strings.TrimSpace(p), 10, 32)
+		if err != nil || n < 1 || n > 3650 || len(days) > 0 && int32(n) <= days[len(days)-1] {
+			return nil, i18n.AgingDaysInvalid
+		}
+		days = append(days, int32(n))
+	}
+	return days, ""
+}
+
 // agingRows are the items' aging, every page's.
 func agingRows(buckets []gen.OpenItemAging) []ui.AgingRow {
 	out := make([]ui.AgingRow, 0, len(buckets))
@@ -210,13 +258,19 @@ func agingRows(buckets []gen.OpenItemAging) []ui.AgingRow {
 
 // itemRows are a page of open items on the key date: each item's net due
 // date and the last day of its earliest discount still open, and the days
-// it is overdue; its partner by id, but the supplier the filter named.
-func itemRows(items []gen.OpenItem, iq itemQuery, supplier string) []ui.OpenItemRow {
+// it is overdue; its partner by number and name (the supplier the filter
+// named, or one of the page's suppliers), by id when it could not be
+// named.
+func itemRows(items []gen.OpenItem, iq itemQuery, supplier string, suppliers map[uuid.UUID]gen.BusinessPartner) []ui.OpenItemRow {
 	out := make([]ui.OpenItemRow, 0, len(items))
 	for _, o := range items {
 		row := ui.OpenItemRow{Entry: entryPath(o.JournalEntryID), Number: o.DocumentNumber, Partner: idText(o.PartnerID), Reference: o.Reference.Or(""),
 			Posting: o.PostingDate, DownPay: o.SpecialGl.Or("") == "A", Amount: moneyOf(o.Amount), AmountLC: moneyOf(o.AmountLc)}
-		if id, ok := o.PartnerID.Get(); ok && id == iq.supplier {
+		id, named := o.PartnerID.Get()
+		if b, ok := suppliers[id]; named && ok {
+			row.Partner = strings.TrimSpace(b.Number) + " " + b.Name
+		}
+		if named && id == iq.supplier {
 			row.Partner = supplier
 		}
 		if t, ok := o.PaymentTerms.Get(); ok {

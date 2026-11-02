@@ -2580,6 +2580,42 @@ company's currency after its company was changed). What it settled:
   the inventory marks it (`Operation.Write`), not a read.
 - **Arabic-Indic digits** are not read: T73l, which reads digits per
   locale, is not built, so amounts stay ASCII (T73h3).
+- **A change after another person's** (review:T73e2, the class T73e2
+  fixed in the invoice's change). A parked entry's change refused for a
+  stale version used to show what was typed at the entry's version now,
+  so sending it again sent every typed field and line back over the
+  change the form never showed. The change's form now carries its values
+  as opened (`was_…`): each header field, a print of the lines as the
+  entry had them (`was_lines`, SHA-256 of the API's values, the same in
+  every locale) and one of the lines as the form showed them
+  (`was_shown_lines`). Refused by the API, the form is the entry as it
+  is now with the person's own changes on it, at its version now and
+  with its values as opened now: each header field typed otherwise than
+  opened, and the lines as typed unless someone else changed them. The
+  API replaces the lines as a whole (`ParkedJournalEntryUpdate.lines`),
+  so they are rebased whole, not line by line (lines added and left out
+  have no identity to match): lines the person left as shown take the
+  entry's now; lines both changed are shown as the entry has them now,
+  the person's not kept, and the form says so (`entry.lines.changed`),
+  as the invoice's change does when its lines changed. A form refused by
+  the checks, or whose lines are added to or left out (with or without
+  htmx), keeps the version and values it was opened with, so its next
+  send meets the 412 rather than take the version now unseen. A sent
+  change still sends the form whole: with the ETag as If-Match the API
+  takes it only at the version whose values the form shows. A refused
+  change reads the lines' partners again to show the entry as it is now.
+  Tested against the real API (`TestChangeAfterAnotherChange`,
+  `TestChangeKeepsItsVersion`: the first failed on the code before, each
+  other change lost on the second send) and in the browser.
+  **Decided by default (for the product owner to overrule):** rebase,
+  not a confirmation step: the person's changes are kept and shown on
+  the entry as it is now, and the 412 itself is the confirmation, as for
+  the invoice; a header field both people changed takes the person's
+  value, unmarked; lines both changed lose the person's line edits
+  rather than send them over unseen lines (showing both side by side is
+  new UI, not built). After a refusal that kept the typed lines, a form
+  sent in another locale than it was shown in counts its lines as changed
+  by the person (conservative: never a lost update).
 - **Tests.** Handlers against the real API: a post within the limit and
   above it (parked once, from the same form sent twice), a refused post
   keeping what was typed; company 2000's form switched to company 1000
@@ -2760,6 +2796,170 @@ where it departs from the step as first written:
   pseudo-locales at 1280 and 390 px, and walks, in French on a phone, a
   post refused with its tax per code, a change refused on its field, the
   correction and the post (`TestInvoiceChangeInTheBrowser`).
+
+## Built in T73g2: a payment the rules did not find, the rules again, the file (2026-11-01)
+T73g's departures (above): what it settled.
+- **Search, contract first.** A line matched by hand may now clear a
+  payment the rules did not find. The API had no search of a house bank's
+  payments (`listPayments` is per run), so `listBankStatementPayments`
+  (`GET /v1/bank-statements/{id}/payments`, ADR-0047 as built) lists those
+  `matchBankStatementLine` accepts: posted, from the statement's house
+  bank, in its currency, held by no line. "A payment or open item" is a
+  payment: its line on the bank's clearing account is the open item a
+  statement line clears, and customers' open items wait for accounts
+  receivable (ADR-0047). No new money flow: the payment chosen is sent
+  as the existing match by hand (`payment_ids`), human-only, with the
+  statement's ETag and the form's own idempotency key; segregation of
+  duties stays the API's (whoever matched does not approve the posting).
+- **The search's page.** `GET /bank/statements/{id}/lines/{line}/payments`,
+  linked from a debit's or a reversal's "Match by hand" (payments are paid
+  out; a credit's choices stay the rules' candidates, the posting rules
+  and the incoming account). Three calls (`getCurrentPrincipal`,
+  `getBankStatement` for the line and its ETag, the search). The line as
+  data, a GET filter (amount from and up to, typed in the person's locale,
+  no sign, at most the currency's digits and padded to them, taken from
+  the line's amount; the runs' dates), and what was found as the radios of
+  one match form, each payment by its end-to-end id, payee (inert, inside
+  `hx-disable`), account's last characters, amount and journal entry, 25 a
+  page with a link to the next. With htmx the filter is sent for the
+  filter and results alone (`hx-get`, `hx-target`, `hx-push-url`; Vary:
+  HX-Request) and always answered 200, as htmx swaps nothing else: an
+  error shows on its field and in the results; without htmx it is the
+  same page, 400 when the filter is wrong. A line whose statement is
+  reconciled, or on its way to the ledger, lists what was found without a
+  form and says why. One payment per match: a line paying several that
+  the rules did not batch is a backlog question, not built.
+- **Refused, kept.** The match posts to the statement's match route
+  (`statement_actions.go`), so a refusal is shown on the statement's page
+  as any decision's is; the payment chosen, not among the line's choices
+  there, is added as "the payment you found" with its id and stays
+  checked with the reason typed.
+- **The rules again.** `POST /bank/statements/{id}/rules`
+  (`matchBankStatement`, `payments.statement.match`, an agent may call it
+  too, but the workspace signs people in): one button under the report's
+  link while the statement is not reconciled, with the statement's ETag
+  and its own key; done, the page says so; refused (a stale ETag, a
+  closed period), the page is shown again with the refusal. The
+  statement's page still makes six calls.
+- **The file.** `GET /bank/statements/{id}/file` relays
+  `getBankStatementFile` (`x-agent: false`, a human-only route): always a
+  download (§7 serves only PDFs and images inline; the API answers
+  octet-stream and the file is camt.053 XML or MT940 text),
+  `application/octet-stream`, `Content-Disposition: attachment` named
+  `statement-<id>.xml` when the bytes sniff as XML, `.txt` otherwise,
+  `no-store`, the documents' sandboxing CSP and the workspace's `nosniff`.
+  One call: a refusal is a page of its own without the person's name.
+- **Accessibility.** The error red on the filters' grey (`#f3f2f1`) was
+  4.1:1, below axe's 4.5:1, the first time a filter's field error was
+  checked in a browser; inside `.filters` it is `#a8280f` (6.3:1).
+- **Tests.** Handlers against the real API and PostgreSQL: the rules run
+  again (replayed, stale, not offered to a reader), the file (bytes,
+  headers, a reader, an outsider), the search (a debit's link, a credit's
+  none, filters refused before the API, the API's 403 in the results'
+  place, lines and statements not found, French); from the stub, the
+  payments found (inert payees, the next page, htmx's answer, the payment
+  sent and its refusal kept) and a reconciled statement's line, as the web
+  suite releases no payment runs. The browser suite adds the search to
+  the bank pages (English, French and the pseudo-locales, 1280 and 390
+  px, axe at zero) and walks the rules run and a refused filter swapped
+  in place. The walkthrough's step 8 matches by hand a line whose
+  end-to-end id the bank lost, found by the search, and posts it with its
+  approval.
+
+## Built in T73j2 (2026-11-01)
+Reports beyond T73j, the first slice of the tracker leaf T73j2 (the
+rest split into T73j4). What it settled, each decided by default where
+this ADR, the contract or T73j's behaviour settled it:
+- **A trial balance account's entries, contract first.**
+  `listJournalEntries` takes `account_id` (only entries with a line on the
+  account, each listed with all its lines, as `cost_center_id` and
+  `profit_center_id` do) and `fiscal_period`. **Decided:** the period is
+  added with the account, as a trial balance's row is an account's totals
+  of one period (by dates alone the workspace would read the period's
+  dates, a seventh call). Both are additions, non-breaking (oasdiff).
+  They also give the cost and profit center balance reports their
+  drill-down by account (product owner 2026-10-25; ADR-0050 as built). Each
+  row of the trial balance links its account to `GET
+  /reports/trial-balance/entries` (the company, ledger, year, the row's
+  period and the account): the lines on the account of a page of 100
+  entries, each with its document number linked to its entry's page, its
+  line, posting date, period, text (the line's, else the entry's; data)
+  and amounts; the way back is the trial balance of the row's period.
+  **Decided:** every currency's lines are listed, the journal list taking
+  no currency, so one account's rows of a period in several transaction
+  currencies link the same page; each amount shows its currency. Five
+  calls (`getCurrentPrincipal`, the company's day when the address names
+  no year, `listLedgers`, `listAccounts`, `listJournalEntries`).
+- **The account filter's plan** (05-scalability, 01's list budget, p95
+  150 ms). An account on many entries is read along the page indexes,
+  one on a few by its lines (`journal_line_account`, 000005) and sorted;
+  the planner chooses by the account's statistics. Two findings: an
+  `EXISTS` written as an optional condition (`$n IS NULL OR EXISTS …`) is
+  not turned into a join, since PostgreSQL pulls sublinks up before it
+  folds the parameter, so the account's condition is added only when an
+  account is named, which took an account on 50 of a period's 16,700
+  entries from 137 ms to 20 ms; and a period's first page read every
+  earlier period's entries along the year's page index (0.3 s median for
+  June), so `journal_entry_page_period` (company, period, posting date,
+  id; migration 000186, built per partition) starts at the period.
+  `TestJournalEntriesByAccountBudget` holds a first page of 100 to 01's
+  list budget (p95 150 ms) for an account on every entry and one on 50,
+  in a period and in the whole year, among 200,000 entries of a company's
+  year; measured on a laptop at p95 under 50 ms. The cost and profit
+  center filters keep the optional form; whether their plans read a
+  year's entries for a center on few is not measured here (listed for the
+  coordinator's backlog, not a tracker item: no security, money or data
+  defect).
+- **The aging's buckets chosen on the page.** The open items' filters
+  take the buckets as days past the due date, ascending, separated by
+  commas (`aging_days`), empty for the API's 30, 60 and 90. Up to six
+  numbers from 1 to 3650, each above the one before, as the contract
+  takes them, else said on the field before the API is called; the
+  report's next page keeps them; the download, which ages nothing, does
+  not take them.
+- **One ledger as both sides** of the reconciliation (T73j's review): an
+  address naming one ledger as `ledger_id` and `compare_ledger_id` is said
+  on the compared ledger's field (422), or in the report's place when the
+  ledgers are unread and no field offers them, and the API is not asked;
+  the entries behind a difference with one ledger twice are an address
+  the workspace never makes (400).
+- **Suppliers named on the open items** by number and name, read by
+  their ids (`listBusinessPartners` `ids`, T73h2) for a page's items in
+  one call, through the helper the parked entry's form uses
+  (`partnersByID`); none when a filter names the supplier, whose items
+  alone are listed and who is named already, so the page still makes six
+  calls at most. A person who may not read partners, or a read that fails
+  (logged), sees ids. **Decided:** the download keeps the ids: naming
+  pages of 500 would take five reads a page, beyond a download's 40
+  calls.
+- **Budgets (§10).** At a full page (TestReportBudgets) the trial
+  balance with its links is 61 KB, the account's entries 48 KB and the
+  open items with a hundred suppliers named 70 KB, each under 100 KB and
+  its p95 under 30 ms with an API answering at once.
+- **Not built, split into T73j4:** downloads of the ledger
+  reconciliation and the audit history; page budgets at the pilot's
+  volumes (still not given); OWASP's CSV injection guidance and the byte
+  order mark's need verified from primary sources; the walk-through by a
+  pilot GL accountant, AP clerk and controller.
+- **Tests.** The ledger: the account and period filters, alone and with
+  the year, paged, a token of another account refused
+  (`TestJournalEntriesByAccount`), the budget. The workspace against the
+  real API: the payables account's row of March to its entries (the
+  invoice's and the USD item's lines, each linked), April's empty, the
+  way back, an address without an account, French, the outsider refused;
+  the open items' suppliers named, buckets of 5 and 10 days ageing the
+  invoice 6 to 10 days overdue, buckets not ascending said; 2L compared
+  with itself. From the stub: an account's entries with its ledger and
+  account unread and the lines of other accounts left out, refused and
+  unavailable; the suppliers' read by ids, none for a supplier named,
+  failed and not allowed; every bucket rule; one ledger twice with the
+  ledgers read and unread. The browser suite runs axe on the account's
+  entries in English, French and both pseudo-locales at 1280 and 390 px,
+  and walks, at a desktop's width, buckets chosen and the payables
+  account from the trial balance to its entries and an entry. The
+  walkthrough drills a trial balance row down (step 14): the entries
+  listed all have a line on the account, and those lines in the row's
+  currency sum to its debits less credits.
 
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August

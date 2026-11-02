@@ -24,7 +24,8 @@
 # (make db-up). Every run provisions a tenant of its own; tenants are
 # isolated, so runs never see each other's data. The mock SAP extract is
 # the same on every run (fixed seed, January to September of this year);
-# the pilot's documents are dated today (UTC, the server's day).
+# the pilot's documents are dated today, the pilot company's date in its
+# time zone (scripts/walkthrough/dates.sh).
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -32,8 +33,35 @@ DATABASE_URL="${DATABASE_URL:-postgres://postgres:dev@localhost:55432/postgres?s
 API_ADDR="${WALKTHROUGH_API_ADDR:-127.0.0.1:18080}"
 ADMIN_ADDR="${WALKTHROUGH_ADMIN_ADDR:-127.0.0.1:19090}"
 PAUSE="${WALKTHROUGH_PAUSE:-0}"
-TODAY=$(date -u +%F)
+# shellcheck source=walkthrough/dates.sh
+. "$ROOT/scripts/walkthrough/dates.sh"
+TODAY=$(company_day)
+# UTC_TODAY is the database's day, UTC's: a business partner belongs to no
+# company and so has no zone, and its address may start no earlier than
+# that day (partner.backdated_address, database.Today).
+UTC_TODAY=$(date -u +%F)
+# RUN_DAY is a payment run's date: the company's day, or UTC's when that is
+# later. The migration (step 3) loads the suppliers' bank accounts valid
+# from UTC's day (ADR-0051 As built, Kept in UTC; PO 2026-10-31), and a run
+# pays to an account valid on its run date, so in a Toronto evening a run on
+# the company's day would find none of them (no_bank_account).
+# RBC's statement of the run's payments stays dated TODAY, the company's
+# day: the cash position (step 13) opens with the latest statement on or
+# before the company's day, so one dated RUN_DAY, the next day in a
+# Toronto evening, would not count.
+RUN_DAY=$TODAY
+if [[ "$UTC_TODAY" > "$TODAY" ]]; then RUN_DAY=$UTC_TODAY; fi
 YEAR=${TODAY:0:4}
+# On 31 December from 19:00 in Toronto (00:00 UTC) no run date serves:
+# the company's day is in YEAR, whose ranges and periods step 2 sets up,
+# while the migrated bank accounts are valid from UTC's day, in the next
+# year (no number range for it, no open period). The walkthrough says so
+# and stops rather than fail midway; any other evening it runs.
+if year_apart "$TODAY" "$UTC_TODAY"; then
+  echo "walkthrough: it is $TODAY in $ZONE and already $UTC_TODAY in UTC, a new year: the pilot's payment run has no date" >&2
+  echo "walkthrough: that serves both (its bank accounts are valid from UTC's day, its year is the company's); run it after midnight in $ZONE" >&2
+  exit 2
+fi
 PREV=$((YEAR - 1))
 CC=3000 # the pilot's SAP company code, Maple Industries Canada in the mock extract
 
@@ -66,25 +94,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# date_add DATE DAYS is the date DAYS days after DATE (before it when
-# DAYS is negative), with GNU or BSD date.
-date_add() {
-  local n=$2
-  case "$n" in -*) ;; *) n="+$n" ;; esac
-  if date -u -d "$1" +%F >/dev/null 2>&1; then
-    date -u -d "$1 $n days" +%F
-  else
-    date -u -j -v"${n}d" -f %F "$1" +%F
-  fi
-}
-
 # tax_first is the GST/HST registration's first period (step 11): the
 # quarter before the latest one ended on the pilot company's date in
 # Toronto, so two periods have ended and the earlier is filed first.
 # Earlier periods were filed before the cutover, outside the ERP.
 tax_first() {
   local today y m
-  today=$(TZ=America/Toronto date +%F)
+  today=$(company_day)
   y=${today:0:4} m=$((10#${today:5:2}))
   m=$(((m - 1) / 3 * 3 + 1 - 6))
   if [ "$m" -lt 1 ]; then
@@ -302,7 +318,7 @@ start() {
   say "Version: $(cd "$ROOT" && git describe --tags --always --dirty 2>/dev/null || echo unknown) (git describe)"
   # Files the commands name are the work directory's, as they are shown.
   cd "$WORK"
-  say "Today is $TODAY (UTC): the pilot's documents are dated today."
+  say "Today is $TODAY, Maple's date in $ZONE: the pilot's documents are dated today."
   say ""
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
@@ -987,8 +1003,38 @@ step_pack() {
   RBC=$(field '.items[] | select(.code == "RBC") | .id')
   RBCUS=$(field '.items[] | select(.code == "RBCUS") | .id')
   if [ -z "$RBC" ] || [ -z "$RBCUS" ]; then fail "the RBC house banks are not there"; fi
+  next_year_ranges "$version"
   accounts
   passed
+}
+
+# next_year_ranges has Ada try the pack's number ranges for next fiscal
+# year: created afresh, they would number next year's first payment run
+# PY1 again, which this year's range issues too, and a run's number (and
+# the end-to-end ids made from it) is unique across years, so the change
+# is refused until the year is in their prefixes (review:T73g2).
+next_year_ranges() {
+  local version=$1 next=$((YEAR + 1)) cr
+  say "Before the year ends Ada applies the pack for fiscal year $next, for its number ranges. The pack starts"
+  say "each range again at 1 with the same prefix, so the year's numbers would repeat this year's: refused."
+  api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
+    -body "{\"country\": \"CA\", \"version\": \"$version\", \"company\": \"$CC\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $next}"
+  cr=$(field .id)
+  jq --arg next "$next" '{title: .title, rationale: "Number ranges of the next fiscal year", proposed: (.proposed | .number_ranges |= map(
+      if .fiscal_year == ($next | tonumber) and (.document_type | startswith("journal_") | not) then .prefix = (.prefix // "") + $next + "-" else . end))}' \
+    "$WORK/last.json" >"$WORK/next-year.json"
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  refused 422 config.validation_failed submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  excerpt '.errors[] | select(.field == "proposed.number_ranges['"$CC"'/payment_run/'"$next"'].prefix") | "\(.field): \(.message)"'
+  expect "the payment run range refused" "$(field '[.errors[] | select(.field == "proposed.number_ranges['"$CC"'/payment_run/'"$next"'].prefix")] | length')" 1
+  say "With the year in each prefix but the journal entries', which are numbered per fiscal year, it is accepted."
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '.proposed.number_ranges[] | select(.document_type == "payment_run" and .company == "'"$CC"'") | "payment run range of \(.fiscal_year): prefix \(.prefix)"' \
+    updateChangeRequest -p "id=$cr" -if-match "$ETAG" -body @next-year.json
+  api 200 '"\(.number): \(.status)"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  say "The pilot takes next year's ranges on at year end, so Ada withdraws the request for now."
+  api 200 '"\(.number): \(.status)"' withdrawChangeRequest -p "id=$cr" -if-match "$ETAG" -body '{"reason": "The next fiscal year ranges are set up at year end"}'
+  expect "status after withdrawal" "$(field .status)" withdrawn
 }
 
 step_procure() {
@@ -1005,10 +1051,10 @@ step_procure() {
   say "that day, and its amount is routed at that day's rate (T72n5)."
   NEEDED_BY=$(date_add "$TODAY" 14)
   local req request before
-  before=$(TZ=America/Toronto date +%F)
+  before=$(company_day)
   api 201 '"requisition \(.id) of \(.requisition_date): \(.status), \(.total_amount.amount) \(.total_amount.currency), needed by \(.needed_by)"' createRequisition \
     -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"supplier_id\": \"$SUPPLIER\", \"needed_by\": \"$NEEDED_BY\", \"items\": [$item]}"
-  [ "$(field .requisition_date)" = "$before" ] || expect "the requisition's date, Toronto's" "$(field .requisition_date)" "$(TZ=America/Toronto date +%F)"
+  [ "$(field .requisition_date)" = "$before" ] || expect "the requisition's date, Toronto's" "$(field .requisition_date)" "$(company_day)"
   req=$(field .id)
   api 200 '"\(.status): approval request \(.workflow_request_id)"' submitRequisition -p "id=$req" -if-match "$ETAG"
   request=$(field .workflow_request_id)
@@ -1049,7 +1095,7 @@ order_document() {
   number=$(field .document_number)
   say "SAP's extract has no street for Tyrell. Ben asks for the address Tyrell takes orders at; Carla, who"
   say "approves supplier master data, approves it."
-  api 201 '"partner change \(.id): \(.status)"' createPartnerChange -body "{\"partner_id\": \"$SUPPLIER\", \"kind\": \"update\", \"reason\": \"Order desk address confirmed by Tyrell\", \"payload\": {\"addresses\": [{\"purpose\": \"order_from\", \"line1\": \"220 King Street West\", \"line2\": \"Order desk, floor 3\", \"city\": \"Toronto\", \"region\": \"ON\", \"postal_code\": \"M5H 1K4\", \"country_code\": \"CA\", \"valid_from\": \"$TODAY\"}]}}"
+  api 201 '"partner change \(.id): \(.status)"' createPartnerChange -body "{\"partner_id\": \"$SUPPLIER\", \"kind\": \"update\", \"reason\": \"Order desk address confirmed by Tyrell\", \"payload\": {\"addresses\": [{\"purpose\": \"order_from\", \"line1\": \"220 King Street West\", \"line2\": \"Order desk, floor 3\", \"city\": \"Toronto\", \"region\": \"ON\", \"postal_code\": \"M5H 1K4\", \"country_code\": \"CA\", \"valid_from\": \"$UTC_TODAY\"}]}}"
   change=$(field .id)
   approve carla "$(field .workflow_request_id)" "Address confirmed"
   as ben
@@ -1135,10 +1181,10 @@ step_credit() {
   say "Alex posts it without a posting date: it is dated Maple's date in Toronto, not UTC's, so on a Toronto"
   say "evening it is still that day, in that day's period (product owner 2026-10-31)."
   local before
-  before=$(TZ=America/Toronto date +%F)
+  before=$(company_day)
   api 200 '"\(.kind) \(.document_number): \(.status) on \(.posting_date)"' postSupplierInvoice -p "id=$CREDIT" -if-match '"1"' -body '{}'
   expect "credit memo status" "$(field .status)" posted
-  [ "$(field .posting_date)" = "$before" ] || expect "the credit memo's posting date, Toronto's" "$(field .posting_date)" "$(TZ=America/Toronto date +%F)"
+  [ "$(field .posting_date)" = "$before" ] || expect "the credit memo's posting date, Toronto's" "$(field .posting_date)" "$(company_day)"
   CREDIT_ENTRY=$(field .journal_entry_id)
   api 200 '.items[] | "open item \(.amount.amount) \(.amount.currency)"' listOpenItems -p "partner_id=$SUPPLIER"
   receipt_held
@@ -1175,7 +1221,7 @@ step_payment() {
   say "Tom proposes a run from the RBC account for everything due within 30 days: Tyrell's invoice less"
   say "the credit memo and the 2% discount, and the open payables migrated from SAP that are overdue."
   api 202 '"\(.kind) \(.status)"' proposePaymentRun \
-    -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBC\", \"currency\": \"CAD\", \"run_date\": \"$TODAY\", \"due_by\": \"$(date_add "$TODAY" 30)\"}"
+    -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBC\", \"currency\": \"CAD\", \"run_date\": \"$RUN_DAY\", \"due_by\": \"$(date_add "$RUN_DAY" 30)\"}"
   wait_op
   RUN=$(field .resource | sed 's|.*/||')
   api 200 '"run \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency) from \(.house_bank_code), proposed by Tom"' getPaymentRun -p "id=$RUN"
@@ -1278,7 +1324,9 @@ statement() {
     printf '<Stmt><Id>RBC-1000001-%s</Id><ElctrncSeqNb>1</ElctrncSeqNb><Acct><Id><Othr><Id>1000001</Id></Othr></Id><Ccy>CAD</Ccy></Acct>\n' "$TODAY"
     printf '<Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="CAD">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>%s</Dt></Dt></Bal>\n' "$opening" "$TODAY"
     printf '<Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp><Amt Ccy="CAD">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>%s</Dt></Dt></Bal>\n' "$closing" "$TODAY"
-    jq -r --arg d "$TODAY" '.items[] | "<Ntry><Amt Ccy=\"CAD\">\(.amount.amount)</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts>BOOK</Sts><BookgDt><Dt>\($d)</Dt></BookgDt><ValDt><Dt>\($d)</Dt></ValDt><BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>ICDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn></BkTxCd><NtryDtls><TxDtls><Refs><EndToEndId>\(.end_to_end_id)</EndToEndId></Refs></TxDtls></NtryDtls></Ntry>"' "$WORK/payments.json"
+    # The bank lost the last payment's end-to-end id (ISO 20022's NOTPROVIDED): no rule finds it (T73g2).
+    jq -r --arg d "$TODAY" '(.items | length) as $n | .items | to_entries[] | (if .key == $n - 1 then "NOTPROVIDED" else .value.end_to_end_id end) as $e2e | .value
+      | "<Ntry><Amt Ccy=\"CAD\">\(.amount.amount)</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts>BOOK</Sts><BookgDt><Dt>\($d)</Dt></BookgDt><ValDt><Dt>\($d)</Dt></ValDt><BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>ICDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn></BkTxCd><NtryDtls><TxDtls><Refs><EndToEndId>\($e2e)</EndToEndId></Refs></TxDtls></NtryDtls></Ntry>"' "$WORK/payments.json"
     printf '</Stmt></BkToCstmrStmt></Document>\n'
   } >"$WORK/camt053.xml"
   CLOSING=$closing
@@ -1307,7 +1355,7 @@ recurring_rent() {
   say "schedule from today, Maple's date in Toronto. The ERP parks each month's entry for him and never posts it:"
   say "Tom posts it, within the CAD 10,000.00 limit, or someone else approves it (product owner 2026-11-01)."
   local toronto rent sap_bank tpl entry i n
-  toronto=$(TZ=America/Toronto date +%F)
+  toronto=$(company_day)
   rent=$(account 6000)
   sap_bank=$(account 100000)
   api 201 '"template \(.name): \(.status), \(.schedule.frequency) on day \(.schedule.day_of_month) from \(.schedule.starts_on), next due \(.next_due_on)"' \
@@ -1345,7 +1393,7 @@ recurring_rent() {
 }
 
 step_statement() {
-  heading "Step 8 — The bank statement: imported, a gap accepted, matched by rules, posted with approval, reconciled"
+  heading "Step 8 — The bank statement: imported, a gap accepted, matched by rules and by hand, posted with approval, reconciled"
   as tom
   local bank sap_bank
   bank=$(account 1000)
@@ -1380,9 +1428,10 @@ step_statement() {
   if [ -z "$st" ] || [ "$st" = null ]; then fail "the statement was not imported"; fi
   excerpt '.statements[] | "statement \(.statement_ref): \(.status), opening \(.opening_balance.amount), \(.line_count) lines"'
   expect "statement status" "$(field '.statements[0].status')" gap
-  say "The rules matched each payment by its end-to-end id, but nothing posts for RBC while the gap stands:"
+  say "The rules matched each payment by its end-to-end id but the last, whose id the bank lost; nothing posts"
+  say "for RBC while the gap stands:"
   api 200 '"statement \(.statement_ref): \(.status); lines \([.lines[]?.status] | group_by(.) | map("\(.[0]) \(length)") | join(", "))"' getBankStatement -p "id=$st"
-  expect "lines matched, none posted" "$(field '[.lines[] | select(.status != "matched")] | length')" 0
+  expect "lines not matched, none posted" "$(field '[.lines[] | select(.status != "matched") | .status] | join(",")')" unmatched
   refused 409 payments.statement_gap postBankStatementLine -p "id=$st" -p line_no=1 -if-match "$ETAG"
   say "The bank cannot send the missing statement again; the funding is in the ledger already. Tom accepts the gap"
   say "with the reason, audited and published (BankStatementGapAccepted), and agents could not have done it:"
@@ -1393,7 +1442,8 @@ step_statement() {
   say "Tom runs the rules again: lines up to CAD 10,000.00 post at once; the others wait for the controller:"
   api 200 '"statement \(.statement_ref): lines \([.lines[]?.status] | group_by(.) | map("\(.[0]) \(length)") | join(", "))"' matchBankStatement -p "id=$st" -if-match "$ETAG"
   expect "lines still matched after the run" "$(field '[.lines[] | select(.status == "matched")] | length')" 0
-  api 200 '.items[] | "line \(.line_no): \(.status) by rule \(.rule)\(if .approval_request_id then ", approval request \(.approval_request_id[0:8])…" else "" end)"' listBankStatementMatches -p "id=$st"
+  match_by_hand "$st" "$(field '.lines[] | select(.status == "unmatched") | .line_no')"
+  api 200 '.items[] | "line \(.line_no): \(.status) \(if .rule then "by rule \(.rule)" else "by hand" end)\(if .approval_request_id then ", approval request \(.approval_request_id[0:8])…" else "" end)"' listBankStatementMatches -p "id=$st"
   local r
   for r in $(field '.items[] | select(.approval_request_id != null and .status == "matched") | .approval_request_id'); do
     approve carla "$r" "Payment of run $RUN"
@@ -1408,6 +1458,32 @@ step_statement() {
   expect "unexplained difference" "$(field .summary.figures.unexplained.amount)" 0.00
   expect "ledger balance" "$(field .summary.figures.ledger_balance.amount)" "$CLOSING"
   passed
+}
+
+# match_by_hand STATEMENT LINE: Tom finds the payment the rules did not
+# find among those the statement's lines may clear, matches the line to it
+# by hand and posts it (T73g2, ADR-0047).
+match_by_hand() {
+  local st=$1 line=$2 amount pay
+  amount=$(field ".lines[] | select(.line_no == $line) | .amount.amount")
+  amount=${amount#-}
+  say "Line $line, CAD $amount, is still unmatched. Tom searches the payments from RBC that no line holds, of that"
+  say "amount, people only (agents propose from the rules' candidates):"
+  api 200 '.items[] | "payment \(.end_to_end_id) to \(.supplier_name): \(.amount.amount) \(.amount.currency), journal entry \(.journal_entry_number)"' \
+    listBankStatementPayments -p "id=$st" -p "amount_min=$amount" -p "amount_max=$amount"
+  expect "payments of the amount no line holds" "$(field '.items | length')" 1
+  expect "the payment found, the run's last" "$(field '.items[0].end_to_end_id')" "$(jq -r '.items[-1].end_to_end_id' "$WORK/payments.json")"
+  pay=$(field '.items[0].id')
+  QUIET=1 api 200 '' getBankStatement -p "id=$st"
+  say "He matches the line to it by hand, with his reason; whoever matched may not approve its posting:"
+  api 201 '"line \(.line_no): \(.status) by hand (\(.kind)), payment \(.targets[0].payment_id[0:8])…: \(.reason)"' matchBankStatementLine -p "id=$st" -p "line_no=$line" \
+    -if-match "$ETAG" -body "{\"payment_ids\": [\"$pay\"], \"reason\": \"RBC dropped the end-to-end id; the amount and the payee's remittance name the payment.\"}"
+  expect "the match's kind" "$(field .kind)" manual
+  api 200 '"line \(.line_no): posted\(if .journal_entry_id then " in journal entry \(.journal_entry_id[0:8])…" else ", waiting for approval request \(.approval_request_id[0:8])…" end)"' \
+    postBankStatementLine -p "id=$st" -p "line_no=$line" -if-match "$ETAG"
+  say "Nothing is left for the line to clear: the search no longer offers the payment."
+  QUIET=1 api 200 '' listBankStatementPayments -p "id=$st" -p "amount_min=$amount" -p "amount_max=$amount"
+  expect "payments of the amount no line holds, after the match" "$(field '.items | length')" 0
 }
 
 step_fx() {
@@ -1427,7 +1503,7 @@ step_fx() {
     -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$first\", \"posting_date\": \"$first\", \"currency\": \"USD\", \"header_text\": \"Fund the RBC USD account\", \"lines\": [{\"account_id\": \"$usd_bank\", \"amount\": {\"amount\": \"5000.00\", \"currency\": \"USD\"}}, {\"account_id\": \"$sap_bank\", \"amount\": {\"amount\": \"-5000.00\", \"currency\": \"USD\"}}]}"
   say "The USD bank pays in USD only: a CAD run from it is refused."
   refused 422 payments.currency_mismatch proposePaymentRun \
-    -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBCUS\", \"currency\": \"CAD\", \"run_date\": \"$TODAY\", \"due_by\": \"$TODAY\"}"
+    -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBCUS\", \"currency\": \"CAD\", \"run_date\": \"$RUN_DAY\", \"due_by\": \"$RUN_DAY\"}"
   say "At the month's end the account is worth USD 5,000.00 x 1.40 = CAD 7,000.00: the preview shows the gain."
   api 200 '.items[] | "account \(.account_id | acct): \(.amount.amount) \(.amount.currency), booked \(.amount_lc.amount), valued \(.valued_lc.amount) at \(.rate | sub("0+$"; "")): \(.direction) \(.difference_lc.amount) CAD"' previewRevaluation \
     -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$eom\"}"
@@ -1792,28 +1868,28 @@ step_cash() {
   expect "the memo record's flow" "$(field '[.banks[] | select(.house_bank_code == "RBC") | .days[].flows[]? | select(.source == "memo") | .amount.amount] | join(" ")')" 25000.00
   say "Today for the position is Maple's date in Toronto, not UTC's: in a Toronto evening UTC is already tomorrow (T72n1)."
   local before after
-  before=$(TZ=America/Toronto date +%F)
+  before=$(company_day)
   api 200 '"read on \(.read_date) in \(.time_zone), from \(.from)"' getCashPosition -p "legal_entity_id=$LE" -p days=1
-  after=$(TZ=America/Toronto date +%F)
+  after=$(company_day)
   expect "the zone the position is read in" "$(field .time_zone)" America/Toronto
   [ "$(field .read_date)" = "$before" ] || expect "the read date, Toronto's" "$(field .read_date)" "$after"
   expect "the first day, the read date" "$(field .from)" "$(field .read_date)"
   say "A client dates its forms on the same day: Maple's date today, in its zone (getLegalEntityToday), which the web"
   say "workspace pre-fills a manual entry's dates, a payment run's and the open items' key date with, not UTC's day:"
-  before=$(TZ=America/Toronto date +%F)
+  before=$(company_day)
   api 200 '"today is \(.date) in \(.time_zone)"' getLegalEntityToday -p "id=$LE"
-  after=$(TZ=America/Toronto date +%F)
+  after=$(company_day)
   expect "the zone Maple's today is in" "$(field .time_zone)" America/Toronto
   [ "$(field .date)" = "$before" ] || expect "Maple's today, Toronto's" "$(field .date)" "$after"
   local toronto judged status listed counted
-  toronto=$(TZ=America/Toronto date +%F)
+  toronto=$(company_day)
   say "A receipt promised for today ($toronto in Toronto), its last day today, is active until Toronto's day ends:"
   say "a memo record's status is judged on Maple's date in its zone, as the position is, not on UTC's (T72n2)."
   api 201 '"memo record \(.reference): \(.status) on \(.read_date) in \(.time_zone), last day \(.expires_on)"' createMemoRecord \
     -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBC\", \"amount\": {\"amount\": \"1000.00\", \"currency\": \"CAD\"}, \"value_date\": \"$toronto\", \"expires_on\": \"$toronto\", \"liquidity_item\": \"REC_CUSTOMERS\", \"reference\": \"WT-1043\"}"
   expect "the zone the memo record's status is judged in" "$(field .time_zone)" America/Toronto
   judged=$(field .read_date)
-  [ "$judged" = "$toronto" ] || expect "the memo record's read date, Toronto's" "$judged" "$(TZ=America/Toronto date +%F)"
+  [ "$judged" = "$toronto" ] || expect "the memo record's read date, Toronto's" "$judged" "$(company_day)"
   status=active
   [ "$judged" = "$toronto" ] || status=expired # Toronto's midnight passed between the two reads
   expect "the memo record's status on Maple's date" "$(field .status)" "$status"
@@ -1845,6 +1921,18 @@ step_reports() {
   local balanced
   balanced=$(jq '[.items[] | (.debit_lc.amount | sub("\\."; "") | tonumber) - (.credit_lc.amount | sub("\\."; "") | tonumber)] | add' "$WORK/last.json")
   expect "debits less credits" "$balanced" 0
+  local row acc per cur net
+  row=$(jq -c '([.items[] | select(.debit_lc.amount != "0.00" and .credit_lc.amount != "0.00")] | first) // .items[0]' "$WORK/last.json")
+  acc=$(jq -r .account_id <<<"$row")
+  per=$(jq -r .fiscal_period <<<"$row")
+  cur=$(jq -r .currency <<<"$row")
+  net=$(jq -r '(.debit_lc.amount | sub("\\."; "") | tonumber) - (.credit_lc.amount | sub("\\."; "") | tonumber)' <<<"$row")
+  say "One account's row drilled down to its entries (T73j2: the journal list by account_id and fiscal_period):"
+  api 200 '.items[] | "entry \(.document_number) of \(.posting_date): " + ([.lines[] | select(.account_id == "'"$acc"'") | "line \(.line_no) \(.amount_lc.amount)"] | join(", "))' \
+    listJournalEntries -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "fiscal_period=$per" -p "account_id=$acc" -p page_size=500
+  expect "entries without a line on the account" "$(field "[.items[] | select([.lines[].account_id] | index(\"$acc\") | not)] | length")" 0
+  expect "the entries' lines on the account, in $cur, less the row's debits less credits" \
+    "$(field "[.items[].lines[] | select(.account_id == \"$acc\" and .amount.currency == \"$cur\") | .amount_lc.amount | sub(\"\\\\.\"; \"\") | tonumber] | add - $net")" 0
   say "\"Revenue by year\": the governed revenue metric by fiscal year, read under Carla's access."
   show erp query -measures revenue -by fiscal_year -companies "$CC"
   "$ERP" query -measures revenue -by fiscal_year -companies "$CC" >"$WORK/query.out" 2>&1 || { sed 's/^/     /' "$WORK/query.out"; fail "the query failed"; }

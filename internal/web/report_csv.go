@@ -198,7 +198,7 @@ func (s *Server) openItemsCSV(w http.ResponseWriter, r *http.Request, p *person)
 				return nil, "", &failure{"listOpenItems", res, err}
 			}
 			var rows [][]string
-			for _, it := range itemRows(page.Items, iq, op.Supplier) {
+			for _, it := range itemRows(page.Items, iq, op.Supplier, nil) {
 				rows = append(rows, []string{it.Number, it.Partner, it.Reference, isoDay(it.Posting), dayOrNone(it.Due), dayOrNone(it.Discount),
 					strconv.Itoa(it.Overdue), it.Amount.Amount, it.Amount.Currency, it.AmountLC.Amount, it.AmountLC.Currency})
 			}

@@ -32,6 +32,132 @@ func openItemJSON(company uuid.UUID) string {
 		{"until":"2026-04-20","percent":"2"}]}}`, uuid.New(), company, uuid.New(), m, m)
 }
 
+// accountEntryJSON is a posted entry of company in March with its line 2
+// on the account (extra: the line's further fields, each followed by a
+// comma) and line 1 on another, headed "Freight in".
+func accountEntryJSON(company, account uuid.UUID, extra string) string {
+	u := uuid.NewString
+	return fmt.Sprintf(`{"id":%q,"legal_entity_id":%q,"ledger_id":%q,"leading_ledger":true,"fiscal_year":2026,"fiscal_period":3,
+		"document_type":"SA","document_number":"100009","document_date":"2026-03-15","posting_date":"2026-03-15","currency":"EUR",
+		"local_currency":"EUR","group_currency":"EUR","rate_tc_lc":"1","rate_lc_gc":"1","source_context":"ledger","header_text":"Freight in","lines":[
+		{"line_no":1,"account_id":%q,"amount":%s,"amount_lc":%s,"amount_gc":%s},
+		{"line_no":2,"account_id":%q,%s"amount":%s,"amount_lc":%s,"amount_gc":%s}],
+		"posted_at":"2026-03-15T10:00:00Z","posted_by":%q}`, u(), company, u(), u(), moneyJSON("-10.00"), moneyJSON("-10.00"), moneyJSON("-10.00"),
+		account, extra, moneyJSON("10.00"), moneyJSON("10.00"), moneyJSON("10.00"), u())
+}
+
+// partnerJSON is a supplier with its number and name.
+func partnerJSON(id uuid.UUID, number, name string) string {
+	return fmt.Sprintf(`{"id":%q,"version":1,"created_at":"2026-10-22T10:00:00Z","created_by":%q,"updated_at":"2026-10-22T10:00:00Z","number":%q,
+		"kind":"organization","name":%q,"country_code":"CA","status":"active","roles":["supplier"],"supplier_companies":[],"addresses":[],
+		"tax_identifiers":[],"extensions":{}}`, id, uuid.New(), number, name)
+}
+
+// TestOpenItemsChosen: the open items' suppliers are named by their ids
+// (one read of a page's suppliers, none when the filter names the
+// supplier, by id when the person may not read partners or the read
+// fails, logged); the aging's buckets chosen are the API's aging_days,
+// and buckets that are not what it takes are said on their field before
+// it is called.
+func TestOpenItemsChosen(t *testing.T) {
+	company, supplier := uuid.New(), uuid.New()
+	item := strings.Replace(openItemJSON(company), `"line_no":1,`, `"line_no":1,"partner_id":"`+supplier.String()+`",`, 1)
+	var asked url.Values
+	partners := 0
+	named := func(w http.ResponseWriter, r *http.Request) {
+		partners++
+		asked = r.URL.Query()
+		answer(200, `{"items":[`+partnerJSON(supplier, "BP42", "Tyrell")+`]}`)(w, r)
+	}
+	var aging string
+	routes := func(me string, partnersRoute http.HandlerFunc) *stubbed {
+		return &stubbed{routes: map[string]http.HandlerFunc{
+			"GET /v1/me": answer(200, me), "GET /v1/accounts": answer(200, `{"items":[]}`), "GET /v1/business-partners": partnersRoute,
+			"GET /v1/open-items": func(w http.ResponseWriter, r *http.Request) {
+				aging = r.URL.Query().Get("aging_days")
+				answer(200, `{"items":[`+item+`]}`)(w, r)
+			},
+		}}
+	}
+	path := func(kv ...string) string {
+		q := url.Values{"legal_entity_id": {company.String()}, "key_date": {"2026-04-15"}}
+		for i := 0; i+1 < len(kv); i += 2 {
+			q.Set(kv[i], kv[i+1])
+		}
+		return "/reports/open-items?" + q.Encode()
+	}
+	_, b, _ := stubStack(t, routes(meJSON(permReadEntries, permReadSuppliers), named))
+	holds(t, "the suppliers named", b.get(path()).page(t).mainText(), "5100000123 Down payment BP42 Tyrell")
+	if got := asked.Get("ids"); got != supplier.String() {
+		t.Errorf("the suppliers read: got ids %q, want %s", got, supplier)
+	}
+	partners = 0
+	holds(t, "the supplier the filter names", b.get(path("supplier", "BP42")).page(t).mainText(), "Supplier: BP42 Tyrell", "Down payment BP42 Tyrell")
+	if partners != 1 {
+		t.Errorf("the supplier the filter names: got %d reads of partners, want 1 (the number's)", partners)
+	}
+	for name, tc := range map[string]struct {
+		typed, sent string
+		status      int
+	}{
+		"the API's":            {"", "", http.StatusOK},
+		"chosen":               {" 7, 14,21 ", "7,14,21", http.StatusOK},
+		"six":                  {"1,2,3,4,5,6", "1,2,3,4,5,6", http.StatusOK},
+		"seven":                {"1,2,3,4,5,6,7", "", http.StatusUnprocessableEntity},
+		"not ascending":        {"30,30", "", http.StatusUnprocessableEntity},
+		"no number":            {"30,x", "", http.StatusUnprocessableEntity},
+		"a day past the limit": {"3651", "", http.StatusUnprocessableEntity},
+		"no day":               {"0", "", http.StatusUnprocessableEntity},
+	} {
+		t.Run(name, func(t *testing.T) {
+			aging = "unasked"
+			r := b.get(path("aging_days", tc.typed))
+			status(t, name, r, tc.status)
+			want := tc.sent
+			if tc.status != http.StatusOK {
+				want = "unasked"
+				holds(t, name, r.page(t).mainText(), "Enter up to six numbers of days")
+			}
+			if aging != want {
+				t.Errorf("aging_days sent: got %q, want %q", aging, want)
+			}
+		})
+	}
+	s, unread, _ := stubStack(t, routes(meJSON(permReadEntries, permReadSuppliers), answer(500, problemJSON(500, "platform.internal"))))
+	holds(t, "the suppliers unread", unread.get(path()).page(t).mainText(), "Down payment "+supplier.String())
+	holds(t, "the suppliers unread", s.logs.String(), "the open items' suppliers could not be read")
+	partners = 0
+	_, unnamed, _ := stubStack(t, routes(meJSON(permReadEntries), named))
+	holds(t, "a person who may not read partners", unnamed.get(path()).page(t).mainText(), "Down payment "+supplier.String())
+	if partners != 0 {
+		t.Errorf("a person who may not read partners: got %d reads of partners, want none", partners)
+	}
+}
+
+// TestLedgerComparedWithItself: an address naming one ledger as both
+// ledgers of the reconciliation is said on the compared ledger's field,
+// or in the report's place when the ledgers are unread and no field
+// offers them, and the API is not asked.
+func TestLedgerComparedWithItself(t *testing.T) {
+	company, ledger, other := uuid.New(), uuid.New(), uuid.New()
+	for name, ledgers := range map[string]http.HandlerFunc{
+		"the ledgers read":   answer(200, `{"items":[`+ledgerJSON(ledger, "0L", true, company)+","+ledgerJSON(other, "2L", false, company)+`]}`),
+		"the ledgers unread": answer(500, problemJSON(500, "platform.internal")),
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, b, _ := stubStack(t, &stubbed{routes: map[string]http.HandlerFunc{"GET /v1/me": answer(200, meJSON(permReadEntries, permReadAccounts)), "GET /v1/ledgers": ledgers,
+				"GET /v1/ledger-reconciliation": func(w http.ResponseWriter, r *http.Request) {
+					t.Error("the API was asked to compare a ledger with itself")
+					answer(200, "{}")(w, r)
+				}}})
+			r := b.get("/reports/ledger-reconciliation?" + url.Values{"legal_entity_id": {company.String()}, "fiscal_year": {"2026"},
+				"ledger_id": {other.String()}, "compare_ledger_id": {other.String()}}.Encode())
+			status(t, name, r, http.StatusUnprocessableEntity)
+			holds(t, name, r.page(t).mainText(), "Choose another ledger to compare with")
+		})
+	}
+}
+
 // auditJSON is an agent's event with a detail that is no string and a
 // client address, of a kind the workspace does not know.
 func auditJSON() string {
@@ -48,7 +174,7 @@ func auditJSON() string {
 // of an actor kind it does not know, its details as data; the house banks
 // unread.
 func TestReportsStubbed(t *testing.T) {
-	company, ledger, compare := uuid.New(), uuid.New(), uuid.New()
+	company, ledger, compare, account := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	broken := answer(500, problemJSON(500, "platform.internal"))
 	m := moneyJSON("5.00")
 	st := &stubbed{routes: map[string]http.HandlerFunc{
@@ -71,9 +197,18 @@ func TestReportsStubbed(t *testing.T) {
 			"items":[{"account_id":%q,"account_number":"400000","account_name":"Sales Revenue","currency":"EUR","balance":%s,"compare_balance":%s,"difference":%s,"difference_lc":%s,"difference_gc":%s}],
 			"next_page_token":"l2"}`, ledger, compare, uuid.New(), m, m, m, m, m)),
 		"GET /v1/audit-events": answer(200, `{"items":[`+auditJSON()+`],"next_page_token":"a2"}`),
+		"GET /v1/journal-entries": answer(200, `{"items":[`+accountEntryJSON(company, account, `"line_text":"<b>freight</b>",`)+","+
+			accountEntryJSON(company, account, "")+`],"next_page_token":"j2"}`),
 	}}
 	_, b, _ := stubStack(t, st)
 	co := url.Values{"legal_entity_id": {company.String()}, "fiscal_year": {"2026"}, "page": {"p2"}}
+	ae := b.get("/reports/trial-balance/entries?" + url.Values{"legal_entity_id": {company.String()}, "ledger_id": {ledger.String()}, "fiscal_year": {"2026"},
+		"period": {"3"}, "account_id": {account.String()}, "page": {"p2"}}.Encode()).page(t).mainText()
+	holds(t, "the account's entries, its ledger and account unread", ae, account.String(), ledger.String(), "100009 2 2026-03-15 3 <b>freight</b> EUR 10.00",
+		"100009 2 2026-03-15 3 Freight in EUR 10.00", "More rows")
+	if strings.Contains(ae, "-10.00") {
+		t.Errorf("the account's entries: got %q, want no line on another account", ae)
+	}
 	tb := b.get("/reports/trial-balance?" + co.Encode()).page(t)
 	holds(t, "the trial balance", tb.mainText(), "EUR 1.00", "More rows")
 	if strings.Contains(tb.mainText(), "Ledger 0L") {
@@ -115,9 +250,10 @@ func TestReportRefusals(t *testing.T) {
 		route, path string
 	}{
 		"the GR/IR positions":    {"GET /v1/gr-ir-balances", "/reports/gr-ir?legal_entity_id=" + company},
-		"the reconciliation":     {"GET /v1/ledger-reconciliation", "/reports/ledger-reconciliation?" + url.Values{"legal_entity_id": {company}, "ledger_id": {company}, "compare_ledger_id": {company}}.Encode()},
+		"the reconciliation":     {"GET /v1/ledger-reconciliation", "/reports/ledger-reconciliation?" + url.Values{"legal_entity_id": {company}, "ledger_id": {company}, "compare_ledger_id": {uuid.NewString()}}.Encode()},
 		"the entries":            {"GET /v1/ledger-reconciliation/entries", "/reports/ledger-reconciliation/entries?" + url.Values{"legal_entity_id": {company}, "compare_ledger_id": {company}, "account_id": {company}, "currency": {"EUR"}}.Encode()},
 		"the open items":         {"GET /v1/open-items", "/reports/open-items?legal_entity_id=" + company},
+		"an account's entries":   {"GET /v1/journal-entries", "/reports/trial-balance/entries?" + url.Values{"legal_entity_id": {company}, "account_id": {company}, "fiscal_year": {"2026"}}.Encode()},
 		"a download, refused":    {"GET /v1/gr-ir-balances", "/reports/gr-ir.csv?legal_entity_id=" + company},
 		"a download of balances": {"GET /v1/balances", "/reports/trial-balance.csv?legal_entity_id=" + company},
 	} {
@@ -203,7 +339,7 @@ func TestReportsUnavailable(t *testing.T) {
 	}
 	unavailable := answer(503, problemJSON(503, "platform.unavailable"))
 	id := uuid.NewString()
-	co := url.Values{"legal_entity_id": {id}, "ledger_id": {id}, "compare_ledger_id": {id}, "account_id": {id}, "currency": {"EUR"}}.Encode()
+	co := url.Values{"legal_entity_id": {id}, "ledger_id": {id}, "compare_ledger_id": {uuid.NewString()}, "account_id": {id}, "currency": {"EUR"}}.Encode()
 	cases := map[string]struct {
 		route, path string
 		status      int
@@ -218,10 +354,12 @@ func TestReportsUnavailable(t *testing.T) {
 		"GR/IR: download 503":    {"GET /v1/gr-ir-balances", "/reports/gr-ir.csv?" + co, http.StatusServiceUnavailable, ""},
 		"reconciliation: 503":    {"GET /v1/ledger-reconciliation", "/reports/ledger-reconciliation?" + co, http.StatusServiceUnavailable, ""},
 		"entries: 503":           {"GET /v1/ledger-reconciliation/entries", "/reports/ledger-reconciliation/entries?" + co, http.StatusServiceUnavailable, ""},
+		"account entries: 503":   {"GET /v1/journal-entries", "/reports/trial-balance/entries?" + co, http.StatusServiceUnavailable, ""},
 		"audit: 503":             {"GET /v1/audit-events", "/reports/audit?object_id=" + id, http.StatusServiceUnavailable, ""},
 	}
 	for _, path := range []string{"/reports/trial-balance", "/reports/trial-balance.csv", "/reports/open-items", "/reports/open-items.csv",
-		"/reports/gr-ir", "/reports/gr-ir.csv", "/reports/ledger-reconciliation", "/reports/ledger-reconciliation/entries", "/reports/audit"} {
+		"/reports/gr-ir", "/reports/gr-ir.csv", "/reports/ledger-reconciliation", "/reports/ledger-reconciliation/entries", "/reports/trial-balance/entries",
+		"/reports/audit"} {
 		cases[path+": who am I, 401"] = struct {
 			route, path string
 			status      int

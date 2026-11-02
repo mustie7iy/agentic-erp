@@ -485,6 +485,28 @@ const (
 	LineDoneRejected           Key = "line.done.rejected"
 	LineDonePosted             Key = "line.done.posted"
 	LineDonePending            Key = "line.done.pending"
+	StatementFile              Key = "statement.file"
+	StatementRules             Key = "statement.rules"
+	StatementRulesHint         Key = "statement.rules.hint"
+	StatementDoneRules         Key = "statement.done.rules"
+	LineSearchPayments         Key = "line.search.payments"
+	ChoiceFound                Key = "choice.found"
+	FoundAccount               Key = "found.account"
+	FoundEntry                 Key = "found.entry"
+	SearchBack                 Key = "search.back"
+	SearchTitle                Key = "search.title"
+	SearchLead                 Key = "search.lead"
+	SearchAmountMin            Key = "search.amount.min"
+	SearchAmountMax            Key = "search.amount.max"
+	SearchAmountHint           Key = "search.amount.hint"
+	SearchAmountInvalid        Key = "search.amount.invalid"
+	SearchRunFrom              Key = "search.run.from"
+	SearchRunTo                Key = "search.run.to"
+	SearchInvalidTitle         Key = "search.invalid.title"
+	SearchResults              Key = "search.results"
+	SearchEmpty                Key = "search.empty"
+	SearchMore                 Key = "search.more"
+	SearchNotOpen              Key = "search.notopen"
 	ReconTitle                 Key = "recon.title"
 	ReconLead                  Key = "recon.lead"
 	ReconRefusedTitle          Key = "recon.refused.title"
@@ -936,6 +958,7 @@ const (
 	EntryLinesTitle              Key = "entry.lines"
 	EntryLinesHint               Key = "entry.lines.hint"
 	EntryLinesTooFew             Key = "entry.lines.few"
+	EntryLinesChanged            Key = "entry.lines.changed"
 	EntryLineHeading             Key = "entry.line.heading"
 	EntryLineAccount             Key = "entry.line.account"
 	EntryLineAmount              Key = "entry.line.amount"
@@ -1183,6 +1206,20 @@ const (
 	AuditKindSystem          Key = "audit.kind.system"
 	AuditLink                Key = "audit.link"
 	CheckReport              Key = "check.report"
+)
+
+// The reports beyond T73j (T73j2): a trial balance account's entries, the
+// aging's buckets chosen, a ledger not compared with itself.
+const (
+	AccountEntriesTitle   Key = "accountentries.title"
+	AccountEntriesLead    Key = "accountentries.lead"
+	AccountEntriesBack    Key = "accountentries.back"
+	AccountEntriesEmpty   Key = "accountentries.empty"
+	AccountEntriesText    Key = "accountentries.text"
+	AgingDaysField        Key = "aging.days.field"
+	AgingDaysHint         Key = "aging.days.hint"
+	AgingDaysInvalid      Key = "aging.days.invalid"
+	LedgerReconSameLedger Key = "ledgerrecon.same"
 )
 
 // Approvals beyond the inbox (T73d2): the lists of one's own requests

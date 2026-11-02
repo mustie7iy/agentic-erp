@@ -41,13 +41,22 @@ func many(n int, one func() string) string {
 // most six API calls (TestScreensAgainstTheContract), HTML of 100 KB at
 // most, and the workspace's own time at most 30 ms p95 besides the API's,
 // measured against a stub that answers at once with full pages, a chart
-// of 500 accounts and five companies.
+// of 500 accounts, five companies and a hundred suppliers named on the
+// open items' page.
 func TestReportBudgets(t *testing.T) {
 	if testing.Short() || raceDetector {
 		t.Skip("performance budget: runs without -short and without the race detector (make perf, CI)")
 	}
-	company, ledger, compare := uuid.New(), uuid.New(), uuid.New()
+	company, ledger, compare, account := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	m := moneyJSON("-1234567.89")
+	suppliers := make([]uuid.UUID, reportPageSize)
+	named := make([]string, reportPageSize)
+	items := make([]string, reportPageSize)
+	for i := range suppliers {
+		suppliers[i] = uuid.New()
+		named[i] = partnerJSON(suppliers[i], fmt.Sprintf("BP%08d", i), "A supplier named at the length of a long one, Ltd.")
+		items[i] = strings.Replace(openItemJSON(company), `"line_no":1,`, `"line_no":1,"partner_id":"`+suppliers[i].String()+`",`, 1)
+	}
 	accounts := make([]string, 500)
 	for i := range accounts {
 		accounts[i] = accountJSON(i, i < 3)
@@ -56,14 +65,18 @@ func TestReportBudgets(t *testing.T) {
 		return fmt.Sprintf(`{"id":%q,"code":"3000","name":"A company named at length, GmbH & Co. KG","country_code":"DE","local_currency":"EUR","status":"active"}`, uuid.New())
 	})
 	st := &stubbed{routes: map[string]http.HandlerFunc{
-		"GET /v1/me":              answer(200, meJSON(permReadEntries, permReadAccounts, permReadCompanies, permReadStatements, permReadAudit, permReadSuppliers)),
-		"GET /v1/principal-names": answer(200, `{"items":[]}`),
-		"GET /v1/ledgers":         answer(200, `{"items":[`+ledgerJSON(ledger, "0L", true, company)+","+ledgerJSON(compare, "2L", false, company)+`]}`),
-		"GET /v1/accounts":        answer(200, `{"items":[`+strings.Join(accounts, ",")+`]}`),
-		"GET /v1/legal-entities":  answer(200, `{"items":[`+entities+`]}`),
-		"GET /v1/house-banks":     answer(200, `{"items":[]}`),
-		"GET /v1/balances":        answer(200, `{"items":[`+many(reportPageSize, func() string { return balanceJSON(company) })+`],"next_page_token":"b2"}`),
-		"GET /v1/open-items": answer(200, `{"items":[`+many(reportPageSize, func() string { return openItemJSON(company) })+`],"next_page_token":"o2","aging":[`+
+		"GET /v1/me":                answer(200, meJSON(permReadEntries, permReadAccounts, permReadCompanies, permReadStatements, permReadAudit, permReadSuppliers)),
+		"GET /v1/principal-names":   answer(200, `{"items":[]}`),
+		"GET /v1/ledgers":           answer(200, `{"items":[`+ledgerJSON(ledger, "0L", true, company)+","+ledgerJSON(compare, "2L", false, company)+`]}`),
+		"GET /v1/accounts":          answer(200, `{"items":[`+strings.Join(accounts, ",")+`]}`),
+		"GET /v1/legal-entities":    answer(200, `{"items":[`+entities+`]}`),
+		"GET /v1/house-banks":       answer(200, `{"items":[]}`),
+		"GET /v1/balances":          answer(200, `{"items":[`+many(reportPageSize, func() string { return balanceJSON(company) })+`],"next_page_token":"b2"}`),
+		"GET /v1/business-partners": answer(200, `{"items":[`+strings.Join(named, ",")+`]}`),
+		"GET /v1/journal-entries": answer(200, `{"items":[`+many(reportPageSize, func() string {
+			return accountEntryJSON(company, account, `"line_text":"A line's text written at the length of a long one",`)
+		})+`],"next_page_token":"j2"}`),
+		"GET /v1/open-items": answer(200, `{"items":[`+strings.Join(items, ",")+`],"next_page_token":"o2","aging":[`+
 			many(6, func() string {
 				return `{"bucket":"overdue","days_from":1,"days_to":30,"currency":"EUR","item_count":1000,"amount_lc":` + m + `}`
 			})+`]}`),
@@ -87,7 +100,10 @@ func TestReportBudgets(t *testing.T) {
 	co := url.Values{"legal_entity_id": {company.String()}, "fiscal_year": {"2026"}}
 	entries := url.Values{"legal_entity_id": {company.String()}, "ledger_id": {ledger.String()}, "compare_ledger_id": {compare.String()},
 		"account_id": {uuid.NewString()}, "currency": {"EUR"}}
-	for _, path := range []string{"/reports", "/reports/trial-balance?" + co.Encode(), "/reports/open-items?" + co.Encode(), "/reports/gr-ir?" + co.Encode(),
+	accountQuery := url.Values{"legal_entity_id": {company.String()}, "ledger_id": {ledger.String()}, "fiscal_year": {"2026"}, "period": {"3"},
+		"account_id": {account.String()}}
+	for _, path := range []string{"/reports", "/reports/trial-balance?" + co.Encode(), "/reports/trial-balance/entries?" + accountQuery.Encode(),
+		"/reports/open-items?" + co.Encode(), "/reports/gr-ir?" + co.Encode(),
 		"/reports/ledger-reconciliation?" + co.Encode(), "/reports/ledger-reconciliation/entries?" + entries.Encode(),
 		"/reports/audit?object_id=" + uuid.NewString()} {
 		var times []time.Duration

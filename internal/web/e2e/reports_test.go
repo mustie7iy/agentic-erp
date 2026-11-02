@@ -57,7 +57,8 @@ func (s reporting) query(kv ...string) string {
 
 // checkReportPages checks the reports' index, the trial balance, the open
 // items with their aging, the GR/IR positions, the ledger reconciliation,
-// the entries behind its difference and an entry's audit history, in the
+// the entries behind its difference, an entry's audit history and a
+// trial balance account's entries (T73j2), in the
 // languages at a desktop's and a phone's width, with every check of
 // TestPagesInTheBrowser and axe at zero.
 func checkReportPages(t *testing.T, s reporting, langs []lang) {
@@ -69,7 +70,9 @@ func checkReportPages(t *testing.T, s reporting, langs []lang) {
 		"/reports/gr-ir?" + s.query(), "/reports/ledger-reconciliation?" + s.query("fiscal_year", "2026"),
 		"/reports/ledger-reconciliation/entries?" + s.query("ledger_id", s.leading.String(), "compare_ledger_id", s.local.String(), "fiscal_year", "2026",
 			"account_id", s.f.Account(t, "2000", "100000").String(), "currency", "EUR"),
-		"/reports/audit?object_id=" + s.entry.String()}
+		"/reports/audit?object_id=" + s.entry.String(),
+		"/reports/trial-balance/entries?" + s.query("ledger_id", s.leading.String(), "fiscal_year", "2026", "period", "3", "account_id",
+			s.f.Account(t, "2000", "211000").String())}
 	for _, l := range langs {
 		for _, width := range []int64{1280, 390} {
 			for _, path := range paths {
@@ -95,8 +98,10 @@ func TestReportsInPseudoLocalesInTheBrowser(t *testing.T) {
 // TestReportsJobsInTheBrowser: the accountant's reports as they read
 // them, with the mouse, each state checked by axe. At a desktop's width
 // they open the supplier open items from the index, choose company 2000
-// and a key date, and drill down from the overdue invoice to its entry
-// and on to its audit history. At a phone's they open the ledger
+// and a key date, then buckets of 5 and 10 days (T73j2), and drill down
+// from the overdue invoice to its entry and on to its audit history; then
+// from the trial balance's payables account to its entries of March and
+// on to an entry (T73j2). At a phone's they open the ledger
 // reconciliation, choose company 2000 and drill down from the difference
 // to the entry posted in 2L alone.
 func TestReportsJobsInTheBrowser(t *testing.T) {
@@ -118,6 +123,14 @@ func TestReportsJobsInTheBrowser(t *testing.T) {
 	}
 	waitForText(t, desk, "/reports/open-items", "Aging on 2026-04-15")
 	audit(t, desk, src, "en", "ltr", 1280)
+	if err := chromedp.Do(desk,
+		chromedp.SetValue(chromedp.CSS("#items-aging-days"), "5, 10"),
+		chromedp.Click(chromedp.CSS(`form[action="/reports/open-items"] button[type=submit]`)),
+	); err != nil {
+		t.Fatal(err)
+	}
+	waitForText(t, desk, "aging_days=5", "6 to 10")
+	audit(t, desk, src, "en", "ltr", 1280)
 	entry := `a[href="/journal/entries/` + s.entry.String() + `"]`
 	if err := chromedp.Do(desk, chromedp.Click(chromedp.CSS(entry))); err != nil {
 		t.Fatal(err)
@@ -129,6 +142,20 @@ func TestReportsJobsInTheBrowser(t *testing.T) {
 	}
 	waitForText(t, desk, "/reports/audit", "ledger.journal_entry.post")
 	audit(t, desk, src, "en", "ltr", 1280)
+	payables := `a[href^="/reports/trial-balance/entries?"][href*="` + s.f.Account(t, "2000", "211000").String() + `"]`
+	if err := chromedp.Do(desk,
+		chromedp.Navigate(s.url+"/reports/trial-balance?"+s.query("fiscal_year", "2026")),
+		chromedp.WaitVisible(chromedp.CSS(payables)),
+		chromedp.Click(chromedp.CSS(payables)),
+	); err != nil {
+		t.Fatal(err)
+	}
+	waitForText(t, desk, "/reports/trial-balance/entries", "The account's entries")
+	audit(t, desk, src, "en", "ltr", 1280)
+	if err := chromedp.Do(desk, chromedp.Click(chromedp.CSS(`table a[href^="/journal/entries/"]`))); err != nil {
+		t.Fatal(err)
+	}
+	waitForText(t, desk, "/journal/entries/", "Show its audit history")
 	phone, pc := tab(t, browserCtx, "", 390)
 	if err := chromedp.Do(phone,
 		chromedp.Navigate(s.url+"/reports"),

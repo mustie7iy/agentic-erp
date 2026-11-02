@@ -1043,6 +1043,14 @@
       "r": "internal/payments propose.go withholdingWithin (fmt %d of money.Minor, it.EntryID) · money.EventAmount / the amount formatting other refusals use, release.go supplierNamed (batch 28's apinames5) are the patterns · REVIEW.md API-consumer classes: an amount without its currency and scale, an identifier without the name its consumer needs · T46f",
       "src": "review:batch28",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "A payment run's end-to-end ids collide across fiscal years (pre-existing, found in T73g2's review): an end-to-end id is the company, the run's document number and a sequence (internal/payments/propose.go), unique per tenant (000008), while run numbers are drawn from a range per fiscal year that the country packs start again at PY1; the first run of a new fiscal year whose range repeats the prefix would draw an id last year's run holds, and its proposal fails on the unique constraint. Needs a check against the configuration's ranges, then the fiscal year in the id or a year-specific prefix required",
+      "r": "Confirmed, and earlier than suspected: the run's own number collides first, payment_run (tenant_id, legal_entity_id, document_number) of 000008, so the first run of the new year is refused 409 request.duplicate at :propose; supplier invoices, orders, requisitions, contracts, receipts and down payment requests are numbered the same way. Fixed in the configuration, not the id: config.RangeRepeats (internal/config/repeats.go, called from the change check) refuses a range, other than a journal's, that can issue a number another fiscal year's range of its company and type issues, so a pack applied for a new year needs the year in its prefixes; the SAP draft gives earlier years' prefixes the year; tests TestRunsAcrossYearEnd (payments), TestCanadaPackNextYear (countrypack), TestSubmitRefusals (configuration), walkthrough step 2 next_year_ranges · ADR-0004 As built",
+      "src": "review:T73g2 · po:2026-11-01",
+      "pilot": "po:2026-11-01 · review:T73g2",
+      "c": []
      }
     ]
    },
@@ -5562,9 +5570,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A parked journal entry's change refused by a stale version (412) loses another person's change on its next send: saveEntry shows the form with what was typed and takes the entry's version now, so sending it again sends every typed line over the change the form never showed (found in T73e2's review; T73e2 fixed the same class in the invoice's change by sending only what the person changed, each field with its value when the form was opened)",
-        "r": "internal/web/entry_form.go saveEntry · changeOf · invoice_edit.go rebase (the fix's pattern)",
+        "r": "internal/web/entry_form.go saveEntry · changeRefused · rebaseEntry · shownPrint · ui.EntryWasFields · TestChangeAfterAnotherChange · TestChangeKeepsItsVersion · e2e TestEntryChangeAfterAnotherInTheBrowser",
         "src": "review:T73e2",
         "c": []
        },
@@ -5601,16 +5609,24 @@
        {
         "s": "D",
         "t": "Bank statements and reconciliation: import by upload, statements by status and house bank with gaps flagged, a statement's lines with their matches (rules', people's, the agent's proposals inert), agent proposals accepted or rejected, manual match to the rules' candidate payments, a posting rule or the incoming account, exclude, post (another date with its reason) with the clearing approval (the matcher refused as approver in the inbox), reconciliation report per house bank (statement against the ledger, explained and unexplained), masked accounts; EN and FR; axe at zero at 1280 and 390 px. Coordinator D4 (PDFs downloaded) applied, D3 planned in T73e2",
-        "r": "internal/web bank.go · statement.go · statement_actions.go · reconciliation.go · ui/bank.templ · i18n BankProblems · fixture bank.go · TestStatementList · TestStatementPage · TestLineDecisions · TestLineRefusals · TestStatementUpload · TestReconciliationReport · TestBankAsOthers · TestBankStubbed · TestBankInTheBrowser · TestBankJobsInTheBrowser · ADR-0052 Built in T73g · T73g",
+        "r": "internal/web bank.go · statement.go · statement_actions.go · reconciliation.go · ui/bank.templ · i18n BankProblems · fixture bank.go · TestStatementList · TestStatementPage · TestLineDecisions · TestLineRefusals · TestStatementUpload · TestReconciliationReport · TestBankAsOthers · TestBankStubbed · TestBankInTheBrowser · TestBankJobsInTheBrowser · ADR-0052 Built in T73g · T73g · its departures (a payment the rules did not find, the rules again, the file) split to T73g2",
         "src": "baseline",
         "c": []
        },
        {
-        "s": "T",
-        "t": "Bank statements beyond T73g: matching a line by hand to a payment or open item the rules did not find (needs an API search of a house bank's payments and open items: listPayments is per run), running the matching rules again from the statement's page (matchBankStatement), downloading a statement's file (getBankStatementFile); walked through by a pilot treasury user",
-        "r": "T73g2 (split from T73g, 2026-10-22)",
+        "s": "D",
+        "t": "Bank statements beyond T73g: matching a line by hand to a payment the rules did not find, from a search of the payments its statement's lines may clear (listBankStatementPayments, contract first: posted, from the statement's house bank, in its currency, held by no line; by amount and run date, latest first; people only, payments.statement.match; index 000187, 40 ms a first page at 20,000 payments), sent through the existing matchBankStatementLine with the statement's ETag and a fresh idempotency key, a refusal shown on the statement with the payment chosen kept; a payment's clearing line is the open item a line clears, customers' open items waiting for accounts receivable (ADR-0047); running the matching rules again from the statement's page (matchBankStatement); downloading a statement's file (getBankStatementFile, always as a download, sandboxed, never cached, ADR-0052 §7); the search a page of its own (three calls) whose filter htmx answers in place; walkthrough step 8: a line whose end-to-end id the bank lost found, matched by hand and posted with approval; EN and FR; axe at zero at 1280 and 390 px",
+        "r": "api/openapi.yaml listBankStatementPayments · internal/payments statementpayments.go · migration 000187 payment_posted_by_bank · TestSearchPaymentsToMatch · TestSearchPaymentsRefused · TestSearchPaymentsDatabaseFailures · TestSearchPaymentsBudget · internal/web statement_search.go · statement.go withFound · operations.go · ui/bank.templ LinePayments, PaymentSearchBody, RulesFormView · static/css filters' error · i18n en, fr-CA · TestRulesAgain · TestStatementFile · TestLineSearch · TestLineSearchStubbed · TestLineSearchClosed · TestLineSearchInTheBrowser · TestBankInTheBrowser · walkthrough step 8 (match_by_hand) · ADR-0047 as built · ADR-0052 Built in T73g2 · T73g2",
         "src": "split:T73g",
         "pilot": "po:2026-10-31 · split:T73g · adr:ADR-0052",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Bank statements as built in T73g and T73g2 walked through by a pilot treasury user: a statement imported by upload, the rules run again, a line the rules did not find matched by hand to a payment found by search, lines excluded and posted with the clearing approval (the matcher refused as approver), the bank's file downloaded and the reconciliation report read, on the pilot's own house banks and statements; what they find becomes tracker items",
+        "r": "T73g3 (split from T73g2, 2026-11-01): human acceptance",
+        "src": "split:T73g2",
+        "pilot": "po:2026-10-31 · split:T73g2 · adr:ADR-0052",
         "c": []
        },
        {
@@ -5674,9 +5690,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Reports beyond T73j: a trial balance account's entries (listJournalEntries filters by no account: a contract change, an account_id filter, which also serves the cost and profit center balance reports' drill-down by account, PO 2026-10-25, ADR-0050 As built in T56f); the aging's buckets chosen on the page (the API takes aging_days, the page asks 30, 60, 90); downloads of the ledger reconciliation and the audit history; an address naming one ledger as both ledger_id and compare_ledger_id refused on the page rather than sent to the API (T73j review); suppliers named on open items (by id now; listBusinessPartners takes ids since T73h2); the page budgets measured at the pilot's volumes once the pilot gives them (neither the tracker nor ADR-0052 names them); OWASP's CSV injection guidance and the byte order mark's need verified from primary sources (ADR-0052, from memory); walked through by a pilot GL accountant, AP clerk and controller",
-        "r": "T73j2 (split from T73j, 2026-10-25)",
+        "s": "D",
+        "t": "Reports beyond T73j: a trial balance account's entries (contract first: listJournalEntries account_id, which also serves the cost and profit center balance reports' drill-down by account, PO 2026-10-25, ADR-0050 As built in T56f, and fiscal_period, a trial balance row's period; each row's account linked to its entries of the period, the lines on the account each linked to its entry; a period's page index, migration 000186, and the account's condition added only when named, a first page among 200,000 entries held to 01's list budget, p95 150 ms, measured under 50 ms); the aging's buckets chosen on the page (aging_days, the API's rules said on the field before the call); an address naming one ledger as both ledger_id and compare_ledger_id refused on the page rather than sent to the API (T73j review); suppliers named on open items by number and name (listBusinessPartners ids since T73h2, one read a page, none when the filter names the supplier); EN and FR; axe at zero at 1280 and 390 px",
+        "r": "api/openapi.yaml listJournalEntries (account_id, fiscal_period) · internal/ledger api.go entryFilter · db/migrations 000186 journal_entry_page_period · TestJournalEntriesByAccount · TestJournalEntriesByAccountBudget · internal/web report_entries.go · report_ledgers.go · report_items.go agingDaysParam, itemSuppliers · entry_send.go partnersByID · ui/reports.templ AccountEntries · TestAccountEntries · TestOpenItemsReport · TestLedgerReconReport · TestOpenItemsChosen · TestLedgerComparedWithItself · TestReportsStubbed · TestReportBudgets · TestReportsInTheBrowser · TestReportsJobsInTheBrowser · walkthrough step 14 (a trial balance row drilled down) · 03-data-model · 04-api-design · ADR-0050 · ADR-0052 Built in T73j2 · T73j2",
         "src": "split:T73j · review:T73j · po:2026-10-25",
         "pilot": "po:2026-10-31 · split:T73j · adr:ADR-0052 · po:2026-10-25",
         "c": []
@@ -5686,6 +5702,14 @@
         "t": "Supplier open items at volume (found in T73j): listOpenItems' first page took 0.83 s, and 1.3 s with its aging, at the 100,000 open items 01-requirements names for a payment proposal, against 01's list budget of p95 150 ms (TestOpenItemsAgingBudget, laptop); the plan joins every item of the account before its sort. Needs an index or read model of open items (ledger lane, a migration; the functional due-date index ADR-0051 T53e may add serves due_date_to and the aging), then the budget asserted at that volume",
         "r": "T73j3 (found in T73j, 2026-10-25) · ledger lane",
         "src": "ci:T73j",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Reports beyond T73j2: downloads of the ledger reconciliation and the audit history (CSV as T73j's, up to 10,000 rows); the page budgets measured at the pilot's volumes once the pilot gives them (neither the tracker nor ADR-0052 names them); OWASP's CSV injection guidance and the byte order mark's need verified from primary sources (ADR-0052, from memory); walked through by a pilot GL accountant, AP clerk and controller",
+        "r": "T73j4 (split from T73j2, 2026-11-01)",
+        "src": "split:T73j2",
+        "pilot": "po:2026-10-31 · split:T73j2 · adr:ADR-0052",
         "c": []
        },
        {

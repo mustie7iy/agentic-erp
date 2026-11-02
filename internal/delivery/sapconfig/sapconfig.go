@@ -494,7 +494,11 @@ func (g *gen) invoiceTolerance(p, company string) config.Tolerance {
 
 // numberRanges gives every company a range per document type in each
 // fiscal year the extract's journal covers, so the draft can number
-// migrated and new documents.
+// migrated and new documents. Only journal entries are numbered per
+// fiscal year; any other document's number is unique across years
+// (config.RangeRepeats), so in a year before the latest its prefix
+// carries the year (SI2025-), and the latest year, the one new documents
+// are numbered in, keeps the plain prefix.
 func (g *gen) numberRanges() []config.NumberRange {
 	years, types := map[string]bool{}, map[string]string{}
 	for k, v := range documentTypes {
@@ -508,11 +512,16 @@ func (g *gen) numberRanges() []config.NumberRange {
 		g.note("number_ranges", "the extract has no journal; add number ranges for the fiscal years to migrate")
 	}
 	var out []config.NumberRange
+	sorted := sortedKeys(years)
 	for _, t := range g.e.T001 {
-		for _, y := range sortedKeys(years) {
+		for i, y := range sorted {
 			year, _ := strconv.Atoi(y) // not a number: year 0, which validation of the draft refuses
 			for _, dt := range sortedKeys(types) {
-				out = append(out, config.NumberRange{Company: t.BUKRS, DocumentType: dt, FiscalYear: year, Prefix: types[dt], First: 100000, Last: 999999})
+				prefix := types[dt]
+				if i < len(sorted)-1 && !config.NumberedPerYear(dt) {
+					prefix += y + "-"
+				}
+				out = append(out, config.NumberRange{Company: t.BUKRS, DocumentType: dt, FiscalYear: year, Prefix: prefix, First: 100000, Last: 999999})
 			}
 		}
 	}
