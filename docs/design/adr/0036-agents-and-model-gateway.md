@@ -112,6 +112,10 @@ client certificates in production (ADR-0033). Today:
     IBANs are taken in capitals only, as banks print them: with groups of
     one to four characters, ordinary lower-case words would pass mod 97 by
     chance about one time in 97 (PO, 2026-10-18).
+    **As built (T42e, reviewed):** the tax-identifier patterns per country
+    (`internal/platform/redact`, `taxIDs`) were reviewed by the tax
+    specialist, Musto Ibrahim, on 2026-11-02, as written (reported by the
+    product owner on 2026-11-02); the review changed no pattern.
   - Documents (PDF and image blocks) cannot be redacted. They leave only
     while the policy's `documents_to_models` is on, which it is by
     default; while a tenant has it off, the gateway refuses every call
