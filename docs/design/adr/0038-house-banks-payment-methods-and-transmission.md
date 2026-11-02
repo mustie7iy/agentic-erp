@@ -967,9 +967,10 @@ release runbook. The cell now refuses such an activation itself.
   read), and the server waits for every handler to return before it
   stops the workers and deletes the record. A cancelled request's unit of
   work rolls back unless its commit was already sent, as an activity's
-  does; the client sees a 503 or a closed connection and sends it again
-  to another replica, and an upload not yet received stays open for the
-  same signed URL. A request starting after the cancellation cannot
+  does; the router answers 502 `platform.cell_unreachable` (or the
+  cell's 503 reaches it) and the client sends it again with the same
+  Idempotency-Key, and an upload not yet received stays open for the same
+  signed URL. A request starting after the cancellation cannot
   begin a transaction. A handler that ignored its context would hold the
   record until the pod is killed at the end of its grace: the safe side.
   The request deadline and the chart are unchanged: a request that ends

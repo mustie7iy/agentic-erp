@@ -165,8 +165,11 @@ func send(t *testing.T, ln net.Listener, raw string) (net.Conn, error) {
 // shutdown's drain (ERP_SHUTDOWN_TIMEOUT, 5s in environment) ends are
 // ended, and the replica's record is deleted only once their handlers
 // returned (review:T72m). One waits on its context, as a transaction
-// does; the other on a body still arriving, its read deadline lifted to
-// api.UploadTimeout as an upload's is. http.Server.Shutdown returns at
+// does, its body unread, so closing its connection does not end its
+// context (net/http watches a connection only once the body was read):
+// only the requests' own cancellation does. The other waits on a body
+// still arriving, its read deadline lifted to api.UploadTimeout as an
+// upload's is: only closing its connection ends it. http.Server.Shutdown returns at
 // its deadline with both still running and cancels neither, so without
 // the requests' own ending the server deletes the record and returns
 // while they run on.
@@ -174,13 +177,17 @@ func TestTheRecordOutlivesTheRequests(t *testing.T) {
 	env := environment(t, authntest.New(t), "")
 	before := replicaRows(t)
 	held, upload := newInFlight(t), newInFlight(t)
+	release := make(chan struct{})
 	startWorkersHook = func(srv *server, runCtx context.Context) {
 		srv.startWorkers(runCtx)
 		mux := http.NewServeMux()
 		mux.Handle("/", srv.apiHandler)
-		mux.HandleFunc("GET /held", func(_ http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("POST /held", func(_ http.ResponseWriter, r *http.Request) {
 			close(held.running)
-			<-r.Context().Done()
+			select {
+			case <-r.Context().Done():
+			case <-release: // the watchdog's: nothing else would end it
+			}
 			held.finish(r.Context().Err())
 		})
 		mux.HandleFunc("PUT /upload", func(w http.ResponseWriter, r *http.Request) {
@@ -202,7 +209,7 @@ func TestTheRecordOutlivesTheRequests(t *testing.T) {
 	var clients []net.Conn
 	started := func(apiLn, _ net.Listener) {
 		defer cancel() // the shutdown begins with both requests running
-		for _, raw := range []string{"GET /held HTTP/1.1\r\nHost: erp\r\n\r\n", "PUT /upload HTTP/1.1\r\nHost: erp\r\nContent-Length: 1024\r\n\r\npart"} {
+		for _, raw := range []string{"POST /held HTTP/1.1\r\nHost: erp\r\nContent-Length: 1024\r\n\r\npart", "PUT /upload HTTP/1.1\r\nHost: erp\r\nContent-Length: 1024\r\n\r\npart"} {
 			conn, err := send(t, apiLn, raw)
 			if startErr = err; err != nil {
 				return
@@ -227,6 +234,7 @@ func TestTheRecordOutlivesTheRequests(t *testing.T) {
 	case code = <-exit:
 	case <-time.After(time.Minute):
 		t.Error("server: got still stopping a minute on, want the requests it serves ended once its drain ended")
+		close(release)
 		clientsMu.Lock()
 		for _, c := range clients {
 			_ = c.Close() // lets the server's handlers go, so it returns
