@@ -2098,17 +2098,25 @@ step_downpayment() {
   say "She clears the migrated down payment against it, as she would one the platform paid: the transfer credits"
   say "the down payment account, reverses the 100.00 input tax SAP claimed on it (the invoice claims the whole tax)"
   say "and debits the supplier's payables with the down payment, netted against the invoice in the next run."
+  local tag="$ETAG" chosen
+  say "She chooses it, as the web workspace's screen lists them (T73e4), from the supplier's open items with special"
+  say "G/L indicator A, the API's own filter: the down payment alone, none of the supplier's ordinary items."
+  api 200 '.items[] | "open item \(.document_number), \(.posting_date): \(.amount.amount) \(.amount.currency), special G/L \(.special_gl)"' \
+    listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$DP_SUPPLIER" -p special_gl=A -p page_size=100
+  expect "the supplier's open down payments" "$(field '[.items[] | "\(.journal_entry_id) \(.special_gl)"] | join(", ")')" "$DP_ENTRY A"
   read -r fy line <<<"$DP_LINE"
-  api 200 '"\(.document_number): \(.status)"' clearSupplierInvoiceDownPayments -p "id=$invoice" -if-match "$ETAG" \
-    -body "{\"posting_date\": \"$TODAY\", \"items\": [{\"fiscal_year\": $fy, \"journal_entry_id\": \"$DP_ENTRY\", \"line_no\": $line}]}"
+  expect "the down payment's item" "$(field '.items[0] | "\(.fiscal_year) \(.line_no)"')" "$fy $line"
+  chosen=$(field '[.items[] | {fiscal_year, journal_entry_id, line_no}] | tojson')
+  api 200 '"\(.document_number): \(.status)"' clearSupplierInvoiceDownPayments -p "id=$invoice" -if-match "$tag" \
+    -body "{\"posting_date\": \"$TODAY\", \"items\": $chosen}"
   api 200 '"down payment request \(.document_number): \(.status), cleared against \(.cleared_invoice_id) by entry \(.clearing_entry_id)"' \
     getDownPaymentRequest -p "id=$DP_REQUEST"
   expect "the migrated down payment request" "$(field .status)" cleared
   api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)\(if .tax_code then ", tax code \(.tax_code)" else "" end)\(if .special_gl then ", special G/L \(.special_gl)" else "" end)"' \
     getJournalEntry -p "id=$(field .clearing_entry_id)"
   expect "the input tax reversed" "$(field '[.lines[] | select(.tax_code == "V1" and .special_gl == null) | .amount.amount] | join(" ")')" -100.00
-  api 200 '"open down payments of the supplier: \([.items[] | select(.special_gl == "A")] | length)"' listOpenItems -p "partner_id=$DP_SUPPLIER" -p page_size=100
-  expect "open down payments left" "$(field '[.items[] | select(.special_gl == "A")] | length')" 0
+  api 200 '"open down payments of the supplier: \(.items | length)"' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$DP_SUPPLIER" -p special_gl=A -p page_size=100
+  expect "open down payments left" "$(field '.items | length')" 0
   passed
 }
 

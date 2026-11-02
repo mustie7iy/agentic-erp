@@ -389,7 +389,8 @@ func (e *Endpoints) ListOpenItems(ctx context.Context, params gen.ListOpenItemsP
 	}
 	// The page token is bound to the filters (the aging's parameters
 	// bear on the first page alone).
-	scope := fmt.Sprintf("listOpenItems|%v|%v|%v|%v|%v", params.LegalEntityID, params.PartnerID, params.AccountID, params.PostingDateTo, params.DueDateTo)
+	scope := fmt.Sprintf("listOpenItems|%v|%v|%v|%v|%v|%v", params.LegalEntityID, params.PartnerID, params.AccountID, params.PostingDateTo, params.DueDateTo,
+		params.SpecialGl)
 	ks, err := e.Pages.Keyset(openItemSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
@@ -399,7 +400,8 @@ func (e *Endpoints) ListOpenItems(ctx context.Context, params gen.ListOpenItemsP
 		return nil, err
 	}
 	filters := []any{access.All, access.IDs, apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.PartnerID),
-		apitypes.Ptr[uuid.UUID](params.AccountID), apitypes.Ptr[time.Time](params.PostingDateTo), apitypes.Ptr[time.Time](params.DueDateTo)}
+		apitypes.Ptr[uuid.UUID](params.AccountID), apitypes.Ptr[time.Time](params.PostingDateTo), apitypes.Ptr[time.Time](params.DueDateTo),
+		apitypes.Ptr[string](params.SpecialGl)}
 	q, args := ks.SQL(openItemSelect+openItemFilters+`) o WHERE true`, filters)
 	rows, _ := tx.Query(ctx, q, args...)
 	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (OpenItem, error) { return scanOpenItem(r) })
@@ -432,11 +434,12 @@ func (e *Endpoints) ListOpenItems(ctx context.Context, params gen.ListOpenItemsP
 
 // openItemFilters are listOpenItems' filters on openItemSelect's inner
 // query: $3 the legal entity, $4 the partner, $5 the account, $6 the last
-// posting date and $7 the last net due date, which an item without terms
-// has none of.
+// posting date, $7 the last net due date, which an item without terms
+// has none of, and $8 the special G/L indicator (T73e4: a supplier's down
+// payments, which an invoice's clearing chooses from).
 const openItemFilters = ` AND ($3::uuid IS NULL OR l.legal_entity_id = $3) AND ($4::uuid IS NULL OR l.partner_id = $4)
 		AND ($5::uuid IS NULL OR l.account_id = $5) AND ($6::date IS NULL OR l.posting_date <= $6)
-		AND ($7::date IS NULL OR t.baseline_date + t.net_days <= $7)`
+		AND ($7::date IS NULL OR t.baseline_date + t.net_days <= $7) AND ($8::text IS NULL OR l.special_gl = $8)`
 
 // TermsToAPI is payment terms as the API shows them: the net due date
 // and each discount's last day.

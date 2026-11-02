@@ -36949,6 +36949,10 @@ type ListOpenItemsParams struct {
 	// Only items due on or before this date by the payment terms they were posted with
 	// (`payment_terms.net_due_date`); an item without terms has no due date and is left out.
 	DueDateTo OptDate `json:",omitempty,omitzero"`
+	// Only items with this special G/L indicator (ADR-0037): `A`, a supplier's down payments, the items
+	// `clearSupplierInvoiceDownPayments` clears against its final invoice (T73e4). Without it, every item,
+	// ordinary and special.
+	SpecialGl OptString `json:",omitempty,omitzero"`
 	// The date the items are aged on: the first page carries `aging`, the selected items summed in the
 	// buckets of `aging_days`.
 	AgingKeyDate OptDate `json:",omitempty,omitzero"`
@@ -37013,6 +37017,15 @@ func unpackListOpenItemsParams(packed middleware.Parameters) (params ListOpenIte
 		}
 		if v, ok := packed[key]; ok {
 			params.DueDateTo = v.(OptDate)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "special_gl",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.SpecialGl = v.(OptString)
 		}
 	}
 	{
@@ -37275,6 +37288,47 @@ func decodeListOpenItemsParams(args [0]string, argsEscaped bool, r *http.Request
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "due_date_to",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: special_gl.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "special_gl",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotSpecialGlVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotSpecialGlVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.SpecialGl.SetTo(paramsDotSpecialGlVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "special_gl",
 			In:   "query",
 			Err:  err,
 		}

@@ -7104,6 +7104,15 @@ paths:
           schema:
             type: string
             format: date
+        - name: special_gl
+          in: query
+          required: false
+          description: "Only items with this special G/L indicator (ADR-0037): `A`, a supplier's down payments, the items `clearSupplierInvoiceDownPayments` clears against its final invoice (T73e4). Without it, every item, ordinary and special."
+          schema:
+            type: string
+            description: "Special G/L indicator. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - A
         - name: aging_key_date
           in: query
           required: false
