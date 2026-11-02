@@ -229,8 +229,9 @@ type grirPosting struct {
 }
 
 // prepareGRIR resolves what a GR/IR posting books with: the legal entity,
-// the rates of the posting date and the GR/IR and
-// price difference accounts.
+// the rates of the posting date (into local currency the source system's,
+// when a take-over gives it: Posting.Rate) and the GR/IR and price
+// difference accounts.
 func (p Postings) prepareGRIR(ctx context.Context, tx pgx.Tx, in Posting) (grirPosting, error) {
 	e := p.endpoints()
 	g := grirPosting{in: in}
@@ -246,7 +247,7 @@ func (p Postings) prepareGRIR(ctx context.Context, tx pgx.Tx, in Posting) (grirP
 		return g, err
 	}
 	g.rates.expTC, g.rates.expLC, g.rates.expGC = exps[in.Currency], exps[g.le.LocalCurrency], exps[g.group]
-	if g.rates.toLC, g.rates.toGC, err = postingRates(ctx, tx, in.Currency, g.le.LocalCurrency, g.group, in.PostingDate, nil); err != nil {
+	if g.rates.toLC, g.rates.toGC, err = postingRates(ctx, tx, in.Currency, g.le.LocalCurrency, g.group, in.PostingDate, in.Rate); err != nil {
 		return g, err
 	}
 	if g.grir, err = determined(ctx, g.le.ID, "gr_ir", "ledger.no_gr_ir_account"); err != nil {

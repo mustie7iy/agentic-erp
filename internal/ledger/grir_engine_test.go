@@ -523,7 +523,7 @@ func TestGRIRDatabaseFailures(t *testing.T) {
 	taken := uuid.New()
 	g.post(t, g.takeOverPosting(taken, "-1", -100))
 	topUp := g.takeOverPosting(taken, "-2", -200)
-	topUp.GRIR[0].TakenOver = &ledger.GRIRTakenOver{Quantity: "-1", Balance: -100}
+	topUp.GRIR[0].TakenOver = &ledger.GRIRTakenOver{Quantity: "-1", Balance: -100, BalanceLC: -100}
 	for name, call := range map[string]func(ctx context.Context) error{
 		"take-over topped up": func(ctx context.Context) error {
 			_, err := postings().Post(ctx, topUp)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -108,7 +109,8 @@ type Posting struct {
 	// in its document currency, each line keeping the local amount the
 	// source system posted (PostingLine.LC; ADR-0005 As built). A line
 	// that keeps none is converted at it. nil: the average rate. An entry
-	// with GR/IR items takes none.
+	// with GR/IR items takes one only when it takes positions over in a
+	// foreign document currency (GRIRItem.TakesOverLC).
 	Rate *big.Rat
 }
 
@@ -254,6 +256,14 @@ type GRIRItem struct {
 	// without theirs. What the platform itself posted on the item is left
 	// as it is.
 	TakesOver *money.Minor
+	// TakesOverLC is the take-over's balance in local currency, kept as the
+	// source system booked it rather than converted again (ADR-0005 As
+	// built): a position in a foreign document currency migrated in that
+	// currency, TakesOver its document amount (SAP WSL) and this its
+	// company code amount (HSL). Its group amount is converted from it at
+	// the posting date's rate. nil: TakesOver converted at the posting's
+	// rates.
+	TakesOverLC *money.Minor
 	// TakenOver is what earlier take-overs took over of the item as the
 	// caller read it (Postings.TakenOverGRIR), nil when they took over
 	// nothing: the item is refused unless that is still what they took
@@ -264,10 +274,12 @@ type GRIRItem struct {
 
 // GRIRTakenOver is what migration runs' take-overs (GRIRItem.TakesOver)
 // took over of an order item's GR/IR position: the quantity, signed as the
-// position, and the balance in its transaction currency.
+// position, and the balance in its transaction currency and in local
+// currency.
 type GRIRTakenOver struct {
-	Quantity string
-	Balance  money.Minor
+	Quantity  string
+	Balance   money.Minor
+	BalanceLC money.Minor
 }
 
 // GRIRClearing is the position a clearing item was approved to clear: it
@@ -339,8 +351,8 @@ func (Postings) GRIROrder(ctx context.Context, legalEntity, order uuid.UUID) (GR
 // Post posts the entry in the leading ledger; one with GR/IR items books
 // their lines too (postGRIR).
 func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
-	if in.Rate != nil && len(in.GRIR) > 0 {
-		return Entry{}, errors.New("ledger: post: a given rate is not taken with GR/IR items")
+	if in.Rate != nil && slices.ContainsFunc(in.GRIR, func(it GRIRItem) bool { return it.TakesOver == nil }) {
+		return Entry{}, errors.New("ledger: post: a given rate is taken with GR/IR take-over items only")
 	}
 	if len(in.GRIR) > 0 {
 		return p.postGRIR(ctx, in)

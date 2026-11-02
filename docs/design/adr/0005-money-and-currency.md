@@ -110,8 +110,9 @@ and the load as built:
   they then load as a file extract's do), one whose document's lines are not
   all in its currency or whose document SAP cleared together with documents
   in another currency, and a line of an open GR/IR position in a foreign
-  currency (not migrated yet: the take-over posts SAP's balance in company
-  currency against an order in its currency, ADR-0034 T72f; tracked). For a
+  currency (not migrated then: the take-over posted SAP's balance in company
+  currency against an order in its currency, ADR-0034 T72f; since built, in
+  the last section). For a
   document that posts in a foreign currency it refuses a currency the
   platform does not know (`ref.currency`), a WSL that does not parse, a line
   with a WSL and no HSL or the two of opposite signs, a vendor line without
@@ -220,3 +221,32 @@ had passed it; so did a cleared vendor line of no amount at all.
   foreign amount, an exchange difference posted in transaction currency
   alone), and whether a vendor line of no amount in either currency occurs
   in a clearing: neither is assumed.
+
+## As built: open GR/IR positions in their order's currency (product owner 2026-10-31)
+Decided by default under ADR-0053 §d, applying the section of 2026-10-31
+above to the GR/IR take-over (ADR-0034 As built, open GR/IR positions in
+a foreign currency, has the detail):
+- **What the platform stores.** An order SAP placed in another currency
+  than its company's keeps it, and the take-over of its GR/IR positions is
+  in it: each item's GR/IR line has `amount_tc` the sum of SAP's document
+  amounts (WSL) on its lines and `amount_lc` the sum of their company code
+  amounts (HSL), kept as given and not converted again; `amount_gc` is
+  converted from the local amount at the average rate, as every posting's.
+  The entry's `rate_tc_lc` is the rate SAP's amounts imply, as for a
+  document: HSL over WSL of the order's GR/IR line with the largest
+  document amount. `ledger.Posting.Rate` is taken with GR/IR take-over
+  items now, and only with them (`GRIRItem.TakesOverLC`).
+- **What follows.** The position is the platform's own in that currency:
+  receipts and invoices move it by ADR-0034's GR/IR rules (T33b), the local
+  value kept at what it was booked at and the difference an exchange
+  difference, so clearing needs no new money rule.
+- **The gate** refuses, for such an order, what a document in a foreign
+  currency is refused for (a WSL that does not parse, a line with an amount
+  in one currency alone or the two of opposite signs, amounts out of range
+  together, a rate an entry cannot record), a GR/IR line in another
+  document currency than the order's, and a position with a balance in one
+  currency alone: none has a value in the other that this ADR settles.
+- **For an SAP specialist** (from memory): that an order's GR/IR lines are
+  in the order's currency (RWCUR), invoices' included, and that SAP values
+  them in company code currency at the receipt's rate, posting the
+  exchange difference of an invoice to an account of its own.

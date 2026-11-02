@@ -331,8 +331,7 @@ func (rc *reconciler) foreignItems(ctx context.Context, s companyScope) error {
 
 // foreignCurrency is foreignItems for one currency.
 func (rc *reconciler) foreignCurrency(s companyScope, currency string, sapTerms, platformTerms map[string][]money.Minor) {
-	exp := rc.t.exponents[currency]
-	format := func(v money.Minor) string { return v.Plain(exp) + " " + currency }
+	format := func(v money.Minor) string { return rc.format(v, currency) }
 	what := "open items in " + currency
 	sapSide := rc.totals("ACDOCA", s.cc, sapTerms, func(v string) string { return "the " + what + " of " + v })
 	platformSide := rc.totals("platform", s.cc, platformTerms, func(v string) string { return "the platform's " + what + " of " + v })
@@ -366,9 +365,10 @@ func (q *qualityCheck) documentAmount(l sap.ACDOCA) (money.Minor, string, error)
 // currency (foreignDocument). An open item loads in its document currency
 // when its document does; one without a document currency is refused
 // (T72b's never-guess rule; an OData extract does not carry it yet), and
-// so is a line of an open GR/IR position in a foreign currency, which is
-// not migrated yet, and an open item whose document cannot post in its
-// currency (foreignItem). An open item in company currency with a
+// so is a line of an open GR/IR position in another currency than its
+// order's, company currency (a GR/IR line of an order in a foreign
+// currency is grirLine's, its position taken over in that currency), and
+// an open item whose document cannot post in its currency (foreignItem). An open item in company currency with a
 // document amount and none in company currency is refused too: the load
 // would post no line for it (review:batch31). So no open item with an
 // amount in either currency is left out unreported, in either mode: in a
@@ -384,7 +384,7 @@ func (q *qualityCheck) documentCurrencies() {
 	}
 	for _, l := range q.e.ACDOCA {
 		switch {
-		case !q.openItem(l):
+		case !q.openItem(l), q.grirForeignOrder(l): // a GR/IR line of an order in a foreign currency is grirLine's
 		case l.RWCUR != q.currency[l.RBUKRS]:
 			q.foreignItem(l, docs[documentKey(l)])
 		case q.t.zero(l.HSL, l.RWCUR):
@@ -448,8 +448,8 @@ func (q *qualityCheck) foreignItem(l sap.ACDOCA, lines []sap.ACDOCA) {
 		q.add(SevError, "ACDOCA", key, "open item of SAP document %s has no document currency (RWCUR): it is not migrated unless it is "+
 			"in company %s's currency %s, which cannot be told; extract RWCUR", l.BELNR, l.RBUKRS, cur)
 	case q.t.isGRIR(l):
-		q.add(SevError, "ACDOCA", key, "open item of SAP document %s is in document currency %s, not company %s's currency %s: open GR/IR "+
-			"positions in a foreign document currency are not migrated yet", l.BELNR, l.RWCUR, l.RBUKRS, cur)
+		q.add(SevError, "ACDOCA", key, "open item of SAP document %s is in document currency %s, but its order %s is in company %s's currency %s: "+
+			"an order's GR/IR positions are taken over in the order's currency, from lines in it", l.BELNR, l.RWCUR, l.EBELN, l.RBUKRS, cur)
 	case q.foreign[documentKey(l)] == l.RWCUR, q.conflicts[documentKey(l)] != "":
 		// loads in its document currency, or is refused as a conflict
 	case slices.ContainsFunc(lines, func(o sap.ACDOCA) bool { return o.RWCUR != l.RWCUR }):
@@ -508,11 +508,13 @@ func (q *qualityCheck) foreignDocument(key, cur string, lines []sap.ACDOCA) {
 }
 
 // foreignLine checks a line of a document that posts in a foreign
-// currency and returns its document amount. A line may have a company
-// code amount without a document amount (an exchange difference SAP
-// posts in local currency alone), but a vendor line may not, being an
-// item in its document currency, and no line may have a document amount
-// without a company code amount, or the two of opposite signs.
+// currency, or a GR/IR line of an order in one (grirForeignLine), and
+// returns its document amount. A line may have a company code amount
+// without a document amount (an exchange difference SAP posts in local
+// currency alone), but a vendor line may not, being an item in its
+// document currency, nor a GR/IR line of such an order, part of a
+// position taken over in that currency; and no line may have a document
+// amount without a company code amount, or the two of opposite signs.
 func (q *qualityCheck) foreignLine(l sap.ACDOCA, cur, local string) money.Minor {
 	key := documentKey(l) + "/" + l.DOCLN
 	wsl, err := q.t.amount(l.WSL, cur)
@@ -527,6 +529,9 @@ func (q *qualityCheck) foreignLine(l sap.ACDOCA, cur, local string) money.Minor 
 		q.add(SevError, "ACDOCA", key, "line has %s %s in its document currency (WSL) and no amount in company currency (HSL)", l.WSL, cur)
 	case wsl == 0 && hsl != 0 && q.t.supplierLine(l):
 		q.add(SevError, "ACDOCA", key, "vendor line has no amount in its document currency %s (WSL), so it would be an item without one", cur)
+	case wsl == 0 && hsl != 0 && q.grirForeignOrder(l):
+		q.add(SevError, "ACDOCA", key, "GR/IR line of order item %s/%s has no amount in its order's currency %s (WSL): the position is taken over "+
+			"in %s, where the line would have no value", l.EBELN, l.EBELP, cur, cur)
 	case wsl != 0 && hsl != 0 && (wsl < 0) != (hsl < 0):
 		q.add(SevError, "ACDOCA", key, "line's amounts in document currency (WSL %s %s) and company currency (HSL %s %s) have opposite signs",
 			l.WSL, cur, l.HSL, local)

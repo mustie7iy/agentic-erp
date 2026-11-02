@@ -69,9 +69,9 @@ type documentCurrencyCase struct {
 // foreign document currency (ACDOCA RWCUR) through when its document can
 // post in that currency, a down payment or an open vendor item, and
 // refuses one without a document currency rather than assume the
-// company's, a line of an open GR/IR position in a foreign currency, and
-// one whose document's lines are not all in its currency, naming the
-// document; items in the company's currency, lines SAP cleared, lines
+// company's, a line of an open GR/IR position in another currency than
+// its order's, and one whose document's lines are not all in its
+// currency, naming the document; items in the company's currency, lines SAP cleared, lines
 // that are no item and lines of no amount are not refused.
 func TestDocumentCurrencyQuality(t *testing.T) {
 	runDocumentCurrencyCases(t, []documentCurrencyCase{
@@ -96,9 +96,9 @@ func TestDocumentCurrencyQuality(t *testing.T) {
 		{"a vendor line of no amount without a document currency", func(e *sap.Extract, _ *target) {
 			withDocument(e, "0100000011", "", sap.ACDOCA{RACCT: "0000211000", HSL: "0.00", LIFNR: "0000000001"})
 		}, nil},
-		{"an open GR/IR position in a foreign currency", func(e *sap.Extract, t *target) { withGRIRPosition(e, t, "USD") },
-			[]string{"2000/2026/0100000012/000002: open item of SAP document 0100000012 is in document currency USD, not company 2000's currency EUR: " +
-				"open GR/IR positions in a foreign document currency are not migrated yet"}},
+		{"an open GR/IR line in a foreign currency of an order in company currency", func(e *sap.Extract, t *target) { withGRIRPosition(e, t, "USD") },
+			[]string{"2000/2026/0100000012/000002: open item of SAP document 0100000012 is in document currency USD, but its order 4500000001 is in " +
+				"company 2000's currency EUR: an order's GR/IR positions are taken over in the order's currency"}},
 		{"an open GR/IR position without a document currency", func(e *sap.Extract, t *target) { withGRIRPosition(e, t, "") },
 			[]string{"2000/2026/0100000012/000002: open item of SAP document 0100000012 has no document currency (RWCUR)"}},
 		{"the GR/IR lines of a closed position in a foreign currency", func(e *sap.Extract, t *target) {
@@ -360,7 +360,7 @@ func TestDocumentAmountAlone(t *testing.T) {
 		withDocument(e, "0100000011", currency, sap.ACDOCA{RACCT: "0000219000", HSL: "0.00", WSL: "-5.00", EBELN: "4500000001", EBELP: "00010"})
 	}
 	const grirItem = "2000/2026/0100000011/000002: open item of SAP document 0100000011 "
-	const grirForeign = "is in document currency USD, not company 2000's currency EUR: open GR/IR positions in a foreign document currency"
+	const grirForeign = "is in document currency USD, but its order 4500000001 is in company 2000's currency EUR: an order's GR/IR positions are taken over"
 	cases := []struct {
 		name                string
 		change              func(e *sap.Extract)

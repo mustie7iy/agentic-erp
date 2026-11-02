@@ -79,7 +79,7 @@ func (Postings) TakenOverGRIR(ctx context.Context, legalEntity uuid.UUID, orders
 // document). The caller holds the orders' GR/IR locks, under which
 // take-overs post.
 func takenOver(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, orders []uuid.UUID) (map[orderItem]GRIRTakenOver, map[orderItem][]uuid.UUID, error) {
-	rows, _ := tx.Query(ctx, `SELECT l.purchase_order_id, l.po_item_no, trim_scale(coalesce(sum(l.quantity), 0))::text, sum(l.amount_tc)::bigint,
+	rows, _ := tx.Query(ctx, `SELECT l.purchase_order_id, l.po_item_no, trim_scale(coalesce(sum(l.quantity), 0))::text, sum(l.amount_tc)::bigint, sum(l.amount_lc)::bigint,
 			coalesce(array_agg(DISTINCT e.source_document_id) FILTER (WHERE e.source_document_id IS NOT NULL), '{}')
 		FROM ledger.journal_line l
 		JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id AND e.source_context = 'integration'
@@ -90,7 +90,7 @@ func takenOver(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, orders []u
 	var k orderItem
 	var t GRIRTakenOver
 	var from []uuid.UUID
-	if _, err := pgx.ForEachRow(rows, []any{&k.order, &k.item, &t.Quantity, &t.Balance, &from}, func() error {
+	if _, err := pgx.ForEachRow(rows, []any{&k.order, &k.item, &t.Quantity, &t.Balance, &t.BalanceLC, &from}, func() error {
 		out[k], sources[k] = t, from
 		return nil
 	}); err != nil {
@@ -129,16 +129,17 @@ func checkTakeOver(in Posting) error {
 
 // takeOver is the pair of lines that moves what earlier take-overs took
 // over of item i's order item (had) to the source system's position
-// (GRIRItem.TakesOver and Quantity): the item's GR/IR line with the
-// difference in balance and quantity, and a line on the GR/IR account
-// without an order item that offsets it, both converted at the posting's
-// rates and kept so they net to zero in every currency. It is refused
-// unless had is what the caller read (GRIRItem.TakenOver), and for an
-// item listed before in the entry (seen), so a position is never taken
-// over twice.
+// (GRIRItem.TakesOver, TakesOverLC and Quantity): the item's GR/IR line
+// with the difference in balance and quantity, and a line on the GR/IR
+// account without an order item that offsets it, both kept so they net
+// to zero in every currency. Its local amount is the difference of the
+// local balances when the item gives one (takeOverLocal), else converted
+// at the posting's rates. It is refused unless had is what the caller
+// read (GRIRItem.TakenOver), and for an item listed before in the entry
+// (seen), so a position is never taken over twice.
 func (g grirPosting) takeOver(had GRIRTakenOver, seen bool, i int) ([]Line, error) {
 	it := &g.in.GRIR[i]
-	readQty, readTC, err := takenRead(it.TakenOver)
+	read, err := takenRead(it.TakenOver)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +147,7 @@ func (g grirPosting) takeOver(had GRIRTakenOver, seen bool, i int) ([]Line, erro
 	if had.Quantity != "" { // something was taken over
 		holds = money.ParseRat(had.Quantity)
 	}
-	if seen || holds.Cmp(readQty) != 0 || had.Balance != readTC {
+	if seen || holds.Cmp(read.qty) != 0 || had.Balance != read.tc || had.BalanceLC != read.lc {
 		return nil, problem.Conflict("ledger.gr_ir_position_exists", fmt.Sprintf("Item %d of purchase order %s does not hold the GR/IR position taken over "+
 			"that the take-over was computed from; a source system's position is taken over once, and topped up from what was taken over.",
 			it.POItemNo, it.PurchaseOrderID))
@@ -160,9 +161,9 @@ func (g grirPosting) takeOver(had GRIRTakenOver, seen bool, i int) ([]Line, erro
 	if err != nil {
 		return nil, errTotalTooLarge("grir")
 	}
-	lc, gc, err := g.rates.local(tc)
+	lc, gc, err := g.takeOverLocal(*it, tc, had.BalanceLC)
 	if err != nil {
-		return nil, convertErr(err)
+		return nil, err
 	}
 	// What a take-over moves, the difference of two balances in range, is
 	// never -2^63: negating cannot overflow, and its conversions are
@@ -171,15 +172,37 @@ func (g grirPosting) takeOver(had GRIRTakenOver, seen bool, i int) ([]Line, erro
 		POItemNo: &it.POItemNo}, {AccountID: g.grir, TC: -tc, LC: -lc, GC: -gc, Text: it.Text}}, nil
 }
 
+// takeOverLocal is the local and group amounts of a take-over item's
+// GR/IR line that moves its balance by tc: with a local balance given
+// (GRIRItem.TakesOverLC), the source system's conversion, what it moves
+// from the local balance taken over (hadLC), the group amount converted
+// from it; else tc converted at the posting's rates.
+func (g grirPosting) takeOverLocal(it GRIRItem, tc, hadLC money.Minor) (lc, gc money.Minor, err error) {
+	if it.TakesOverLC == nil {
+		return g.rates.local(tc) // convert maps a conversion out of range
+	}
+	if lc, err = money.Diff(*it.TakesOverLC, hadLC); err != nil {
+		return 0, 0, errTotalTooLarge("grir")
+	}
+	gc, err = convert(lc, g.rates.toGC, g.rates.expLC, g.rates.expGC)
+	return lc, gc, err
+}
+
+// taken is what a caller read as taken over of an item.
+type taken struct {
+	qty    *big.Rat
+	tc, lc money.Minor
+}
+
 // takenRead is what the caller read as taken over, the quantity and the
-// balance, zero when it read none.
-func takenRead(t *GRIRTakenOver) (*big.Rat, money.Minor, error) {
+// balances, zero when it read none.
+func takenRead(t *GRIRTakenOver) (taken, error) {
 	if t == nil {
-		return new(big.Rat), 0, nil
+		return taken{qty: new(big.Rat)}, nil
 	}
 	q, err := signedQuantity(t.Quantity)
 	if err != nil {
-		return nil, 0, fmt.Errorf("ledger: GR/IR quantity taken over %q: %w", t.Quantity, err)
+		return taken{}, fmt.Errorf("ledger: GR/IR quantity taken over %q: %w", t.Quantity, err)
 	}
-	return q, t.Balance, nil
+	return taken{qty: q, tc: t.Balance, lc: t.BalanceLC}, nil
 }
