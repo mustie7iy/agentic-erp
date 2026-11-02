@@ -596,14 +596,18 @@ func (l *loader) grirPosting(order string, items []grirItem) ledger.Posting {
 	ref := order
 	in := ledger.Posting{LegalEntityID: l.t.entities[company].ID, DocumentType: procurement.WEDocumentType, DocumentDate: date, PostingDate: date,
 		Currency: cur, Reference: &ref, HeaderText: &text, SourceContext: "integration", SourceDocumentID: l.run.ID}
-	if local := l.t.entities[company].LocalCurrency; cur != local {
-		in.Rate, _ = sourceRate(lines, cur, local, l.t) // the quality gate refuses an order without one (grirForeign)
+	foreign := cur != l.t.entities[company].LocalCurrency
+	if foreign {
+		in.Rate, _ = sourceRate(lines, cur, l.t.entities[company].LocalCurrency, l.t) // the quality gate refuses an order without one (grirForeign)
 	}
 	for _, it := range items {
 		balance, lc := it.balance, it.lc
-		item := "SAP " + order + "/" + it.ebelp
-		in.GRIR = append(in.GRIR, ledger.GRIRItem{PurchaseOrderID: l.refs["EKKO/"+order], POItemNo: it.no, Quantity: money.PlainQuantity(it.qty),
-			Unit: unit, TakesOver: &balance, TakesOverLC: &lc, TakenOver: it.taken, Text: &item})
+		item := ledger.GRIRItem{PurchaseOrderID: l.refs["EKKO/"+order], POItemNo: it.no, Quantity: money.PlainQuantity(it.qty), Unit: unit,
+			TakesOver: &balance, TakenOver: it.taken, Text: new("SAP " + order + "/" + it.ebelp)}
+		if foreign { // a position in company currency keeps its local amounts equal to its own (ledger.checkForeignTakeOver)
+			item.TakesOverLC = &lc
+		}
+		in.GRIR = append(in.GRIR, item)
 	}
 	return in
 }
@@ -612,11 +616,13 @@ func (l *loader) grirPosting(order string, items []grirItem) ledger.Posting {
 // SAP's from the extract (grirPositions) and the platform's of the orders
 // loaded, by balance in local currency, balance in the order's currency
 // when that is a foreign one, and open quantity, with their total in
-// local currency. Shown when either side has a position, so a scope
-// without them reports as before.
+// local currency and in each foreign currency (grirForeignTotals). Shown
+// when either side has a position, so a scope without them reports as
+// before.
 func (rc *reconciler) grir(ctx context.Context, s companyScope) error {
 	sapSide := map[string]string{}
 	var sapTotal []money.Minor
+	sapTC := map[string][]money.Minor{}
 	positions := grirPositions(rc.ext, rc.t)
 	for _, key := range sortedKeys(positions) {
 		p := positions[key]
@@ -628,30 +634,55 @@ func (rc *reconciler) grir(ctx context.Context, s companyScope) error {
 		if p.foreign {
 			document := rc.total("ACDOCA", s.cc+"/"+key, "the document amounts of the GR/IR lines of order item "+key, p.documents)
 			value += " (" + rc.format(document, p.currency) + ")"
+			sapTC[p.currency] = append(sapTC[p.currency], document)
 		}
 		sapSide["GR/IR of order item "+key] = grirValue(value, p.qty)
 		sapTotal = append(sapTotal, total)
 	}
-	platform, platformTotal, err := rc.platformGRIR(ctx, s)
-	if err != nil || len(sapSide) == 0 && len(platform) == 0 {
+	platform, err := rc.platformGRIR(ctx, s)
+	if err != nil || len(sapSide) == 0 && len(platform.values) == 0 {
 		return err
 	}
 	n := 0
-	for _, key := range sortedKeys(unionKeys(sapSide, platform)) {
-		if sapSide[key] != platform[key] {
+	for _, key := range sortedKeys(unionKeys(sapSide, platform.values)) {
+		if sapSide[key] != platform.values[key] {
 			n++
-			rc.rec.Diffs = append(rc.rec.Diffs, Diff{CompanyCode: s.cc, Key: key, SAP: sapSide[key], Platform: platform[key]})
+			rc.rec.Diffs = append(rc.rec.Diffs, Diff{CompanyCode: s.cc, Key: key, SAP: sapSide[key], Platform: platform.values[key]})
 		}
 	}
 	sapSum := rc.total("ACDOCA", s.cc, "the open GR/IR positions of company "+s.cc, sapTotal)
-	rc.add(s.cc, "Open GR/IR total", s.format(sapSum), s.format(platformTotal), sapSum == platformTotal)
+	platformSum := rc.total("platform", s.cc, "the platform's open GR/IR positions of company "+s.cc, platform.lc)
+	rc.add(s.cc, "Open GR/IR total", s.format(sapSum), s.format(platformSum), sapSum == platformSum)
+	rc.grirForeignTotals(s, sapTC, platform.tc)
 	rc.add(s.cc, "Open GR/IR: order items with differences", "0", strconv.Itoa(n), n == 0)
 	return nil
 }
 
-// platformGRIR is the platform's side of grir: the open positions of the
-// company's orders the scope loaded, keyed as SAP's, and their total.
-func (rc *reconciler) platformGRIR(ctx context.Context, s companyScope) (map[string]string, money.Minor, error) {
+// grirForeignTotals are the open GR/IR positions' totals in each foreign
+// currency an order of the company is in, on either side, as open items
+// in a foreign currency are totalled per currency (foreignCurrency): a
+// position's balance in local currency alone does not show a document
+// amount taken over wrong.
+func (rc *reconciler) grirForeignTotals(s companyScope, sapTC, platformTC map[string][]money.Minor) {
+	for _, cur := range sortedKeys(unionKeys(sapTC, platformTC)) {
+		what := "open GR/IR positions in " + cur + " of company " + s.cc
+		sapSum, platformSum := rc.total("ACDOCA", s.cc, "the "+what, sapTC[cur]), rc.total("platform", s.cc, "the platform's "+what, platformTC[cur])
+		rc.add(s.cc, "Open GR/IR in "+cur+" total", rc.format(sapSum, cur), rc.format(platformSum, cur), sapSum == platformSum)
+	}
+}
+
+// platformGRIRSide is the platform's side of grir: the open positions as
+// compared, keyed as SAP's, their balances in local currency, and their
+// balances in each foreign currency.
+type platformGRIRSide struct {
+	values map[string]string
+	lc     []money.Minor
+	tc     map[string][]money.Minor
+}
+
+// platformGRIR is the platform's side of grir, of the company's orders the
+// scope loaded.
+func (rc *reconciler) platformGRIR(ctx context.Context, s companyScope) (platformGRIRSide, error) {
 	var ids []uuid.UUID
 	ebeln := map[uuid.UUID]string{}
 	for _, h := range rc.ext.EKKO {
@@ -659,24 +690,24 @@ func (rc *reconciler) platformGRIR(ctx context.Context, s companyScope) (map[str
 			ids, ebeln[id] = append(ids, id), h.EBELN
 		}
 	}
+	out := platformGRIRSide{values: map[string]string{}, tc: map[string][]money.Minor{}}
 	open, err := rc.e.Reports.OpenGRIR(ctx, s.le, ids)
 	if err != nil {
-		return nil, 0, err
+		return out, err
 	}
 	ebelp := itemsByNo(rc.ext)
-	out := map[string]string{}
-	var amounts []money.Minor
 	for id, items := range open {
 		for no, p := range items {
 			order, value := ebeln[id], s.format(p.LC)
 			if p.Currency != s.cur {
 				value += " (" + rc.format(p.TC, p.Currency) + ")"
+				out.tc[p.Currency] = append(out.tc[p.Currency], p.TC)
 			}
-			out["GR/IR of order item "+order+"/"+ebelp[order+"/"+strconv.Itoa(int(no))]] = grirValue(value, money.ParseRat(p.Quantity))
-			amounts = append(amounts, p.LC)
+			out.values["GR/IR of order item "+order+"/"+ebelp[order+"/"+strconv.Itoa(int(no))]] = grirValue(value, money.ParseRat(p.Quantity))
+			out.lc = append(out.lc, p.LC)
 		}
 	}
-	return out, rc.total("platform", s.cc, "the platform's open GR/IR positions of company "+s.cc, amounts), nil
+	return out, nil
 }
 
 // format renders an amount in a currency of the reference data.

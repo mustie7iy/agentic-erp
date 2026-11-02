@@ -100,7 +100,7 @@ func TestForeignGRIRPositions(t *testing.T) {
 			if got["status"] != "reconciled" {
 				t.Fatalf("reconcile: got %v, want reconciled: %v", got["status"], got["report"])
 			}
-			for _, check := range []string{"2000 Open GR/IR total true", "2000 Open GR/IR: order items with differences true",
+			for _, check := range []string{"2000 Open GR/IR total true", "2000 Open GR/IR in USD total true", "2000 Open GR/IR: order items with differences true",
 				"2000 Trial balance: accounts with differences true"} {
 				if c := checks(got["report"].(map[string]any)); !strings.Contains(c, check) {
 					t.Errorf("checks: got %s, want %s among them", c, check)
@@ -115,8 +115,25 @@ func TestForeignGRIRPositions(t *testing.T) {
 			}
 			e.takeOverEntryInUSD(t)
 			e.receiveAndInvoiceInUSD(t, order)
+			if got, want := e.grirAccountByCurrency(t), "USD 0 0"; got != want {
+				t.Errorf("the GR/IR account by entry currency once the position is cleared (amount, local amount): got %s, want %s", got, want)
+			}
 		})
 	}
+}
+
+// grirAccountByCurrency is company 2000's GR/IR account by the currency
+// of its entries: what its lines add up to in it and in local currency. In
+// either mode SAP's receipt document in USD posts in USD, so the take-over's
+// offset nets with it there, not in local currency alone.
+func (e env) grirAccountByCurrency(t *testing.T) string {
+	t.Helper()
+	var got string
+	pgtest.Scan(t, `SELECT coalesce(string_agg(c || ' ' || tc || ' ' || lc, ', ' ORDER BY c), '') FROM (
+			SELECT e.currency_tc c, sum(l.amount_tc) tc, sum(l.amount_lc) lc FROM ledger.journal_line l
+			JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
+			WHERE l.tenant_id = $1 AND l.account_id = $2 GROUP BY 1) s`, []any{e.Tenant.ID, e.Account(t, "2000", "219000")}, &got)
+	return got
 }
 
 // takeOverEntryInUSD checks the take-over entry of order 4500000001: in
@@ -225,7 +242,7 @@ func TestForeignGRIRQuality(t *testing.T) {
 			usdGRIR(huge, hugeToo)},
 		{"a rate a journal entry cannot record", "the rate from USD to EUR that the amounts of order 4500000001's GR/IR lines imply",
 			usdGRIR(line("-0.01", "-92233720368547758.07"))},
-		{"a USD line of an order in EUR", "is in document currency USD, but its order 4500000001 is in company 2000's currency EUR", eurOrder},
+		{"a USD line of an order in EUR", `is in document currency USD, not the currency of its order "4500000001"`, eurOrder},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			e := grirSetup(t, c.x)

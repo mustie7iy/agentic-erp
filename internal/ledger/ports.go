@@ -261,8 +261,9 @@ type GRIRItem struct {
 	// built): a position in a foreign document currency migrated in that
 	// currency, TakesOver its document amount (SAP WSL) and this its
 	// company code amount (HSL). Its group amount is converted from it at
-	// the posting date's rate. nil: TakesOver converted at the posting's
-	// rates.
+	// the posting date's rate. Given on every item of such an entry, with
+	// its Posting.Rate, and on no other (checkForeignTakeOver). nil:
+	// TakesOver converted at the posting's rates.
 	TakesOverLC *money.Minor
 	// TakenOver is what earlier take-overs took over of the item as the
 	// caller read it (Postings.TakenOverGRIR), nil when they took over
@@ -351,8 +352,8 @@ func (Postings) GRIROrder(ctx context.Context, legalEntity, order uuid.UUID) (GR
 // Post posts the entry in the leading ledger; one with GR/IR items books
 // their lines too (postGRIR).
 func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
-	if in.Rate != nil && slices.ContainsFunc(in.GRIR, func(it GRIRItem) bool { return it.TakesOver == nil }) {
-		return Entry{}, errors.New("ledger: post: a given rate is taken with GR/IR take-over items only")
+	if in.Rate != nil && slices.ContainsFunc(in.GRIR, func(it GRIRItem) bool { return it.TakesOverLC == nil }) {
+		return Entry{}, errors.New("ledger: post: a given rate is taken with GR/IR items only by take-overs giving their local balances")
 	}
 	if len(in.GRIR) > 0 {
 		return p.postGRIR(ctx, in)

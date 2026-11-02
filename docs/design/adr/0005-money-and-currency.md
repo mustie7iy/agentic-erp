@@ -234,8 +234,24 @@ a foreign currency, has the detail):
   converted from the local amount at the average rate, as every posting's.
   The entry's `rate_tc_lc` is the rate SAP's amounts imply, as for a
   document: HSL over WSL of the order's GR/IR line with the largest
-  document amount. `ledger.Posting.Rate` is taken with GR/IR take-over
-  items now, and only with them (`GRIRItem.TakesOverLC`).
+  document amount (of equal ones, the first by document number and line).
+  Among entries with GR/IR items, `ledger.Posting.Rate` is taken only by a
+  take-over in a foreign currency that gives every item's local balance
+  (`GRIRItem.TakesOverLC`), and those balances only with it: the ledger
+  refuses either without the other, either on an entry in local currency
+  (a position in local currency keeps its local amounts equal to its own)
+  and a local balance on a receipt, invoice or clearing.
+- **SAP's side of the GR/IR account nets in that currency.** A document
+  holding a GR/IR line of such an order posts in its document currency in
+  either mode (balances mode too, unless SAP cleared a vendor line of it),
+  so the take-over's offset line nets with SAP's line in the order's
+  currency, not in local currency alone. A document SAP cleared in company
+  currency (a USD invoice paid in CAD, which documents mode posts in CAD,
+  as balances mode's opening entry does) leaves its GR/IR line in company
+  currency: the account nets in local currency, while in the entries'
+  currencies the order's currency and the company's hold offsetting
+  amounts. The GR/IR account is not revalued, so this moves no value; a
+  view of it by currency shows them.
 - **What follows.** The position is the platform's own in that currency:
   receipts and invoices move it by ADR-0034's GR/IR rules (T33b), the local
   value kept at what it was booked at and the difference an exchange

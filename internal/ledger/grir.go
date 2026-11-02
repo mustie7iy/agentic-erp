@@ -239,6 +239,9 @@ func (p Postings) prepareGRIR(ctx context.Context, tx pgx.Tx, in Posting) (grirP
 	if g.le, err = e.legalEntity(ctx, in.LegalEntityID, "legal_entity_id"); err != nil {
 		return g, err
 	}
+	if err = checkForeignTakeOver(in, g.le.LocalCurrency); err != nil {
+		return g, err
+	}
 	if g.group, err = e.LegalEntities.GroupCurrency(ctx); err != nil {
 		return g, err
 	}

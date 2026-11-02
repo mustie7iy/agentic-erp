@@ -167,13 +167,23 @@ func TestGRIRTakeOverRefusals(t *testing.T) {
 	notMigrated.SourceContext = "procurement"
 	staleLC := g.takeOverPosting(taken, "-3", -700)
 	staleLC.GRIR[0].TakenOver = &ledger.GRIRTakenOver{Quantity: "-2", Balance: -500, BalanceLC: -400}
-	lc := money.Minor(math.MaxInt64)
-	hugeLC := g.takeOverPosting(taken, "-2", -500)
-	hugeLC.GRIR[0].TakesOverLC, hugeLC.GRIR[0].TakenOver = &lc, &ledger.GRIRTakenOver{Quantity: "-2", Balance: -500, BalanceLC: -500}
 	rated := g.receiptPosting("2026-03-02", "EUR", uuid.New(), "-1", price{500, 1})
 	rated.Rate = big.NewRat(1, 1)
 	bad := g.takeOverPosting(uuid.New(), "-1.1234567", -100)
 	settleRate(t, g.env, "USD", "2026-03-05", "1.5")
+	inUSD := uuid.New()
+	g.post(t, g.takeOverForeign(inUSD, "-2", -500, -400))
+	lc := money.Minor(math.MaxInt64)
+	hugeLC := g.takeOverForeign(inUSD, "-2", -500, lc)
+	hugeLC.GRIR[0].TakenOver = &ledger.GRIRTakenOver{Quantity: "-2", Balance: -500, BalanceLC: -400}
+	inLocal := g.takeOverPosting(uuid.New(), "-1", -100)
+	inLocal.Rate, inLocal.GRIR[0].TakesOverLC = big.NewRat(1, 1), &lc
+	noRate := g.takeOverForeign(uuid.New(), "-1", -100, -80)
+	noRate.Rate = nil
+	noLC := g.takeOverForeign(uuid.New(), "-1", -100, -80)
+	noLC.GRIR[0].TakesOverLC = nil
+	receiptLC := g.receiptPosting("2026-03-02", "EUR", uuid.New(), "-1", price{500, 1})
+	receiptLC.GRIR[0].TakesOverLC = &lc
 	huge := g.takeOverPosting(uuid.New(), "-1", -math.MaxInt64)
 	huge.Currency = "USD"
 	for _, c := range []struct {
@@ -188,6 +198,10 @@ func TestGRIRTakeOverRefusals(t *testing.T) {
 		{"a local balance taken over other than read", staleLC, 409, "ledger.gr_ir_position_exists"},
 		{"a local balance out of range once moved", hugeLC, 422, "ledger.amount_too_large"},
 		{"a given rate with a receipt", rated, 500, ""},
+		{"a local balance in local currency", inLocal, 500, ""},
+		{"a local balance without a rate", noRate, 500, ""},
+		{"a rate without local balances", noLC, 500, ""},
+		{"a local balance on a receipt", receiptLC, 500, ""},
 		{"a quantity taken over that does not parse", unread, 500, ""},
 		{"the same item twice", twice, 409, "ledger.gr_ir_position_exists"},
 		{"mixed with a receipt", mixed, 500, ""},

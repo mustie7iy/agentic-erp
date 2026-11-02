@@ -71,8 +71,9 @@ type documentCurrencyCase struct {
 // refuses one without a document currency rather than assume the
 // company's, a line of an open GR/IR position in another currency than
 // its order's, and one whose document's lines are not all in its
-// currency, naming the document; items in the company's currency, lines SAP cleared, lines
-// that are no item and lines of no amount are not refused.
+// currency, naming the document; items in the company's currency, lines
+// SAP cleared, lines that are no item and lines of no amount are not
+// refused.
 func TestDocumentCurrencyQuality(t *testing.T) {
 	runDocumentCurrencyCases(t, []documentCurrencyCase{
 		{"in the company's currency", func(e *sap.Extract, t *target) {
@@ -97,8 +98,8 @@ func TestDocumentCurrencyQuality(t *testing.T) {
 			withDocument(e, "0100000011", "", sap.ACDOCA{RACCT: "0000211000", HSL: "0.00", LIFNR: "0000000001"})
 		}, nil},
 		{"an open GR/IR line in a foreign currency of an order in company currency", func(e *sap.Extract, t *target) { withGRIRPosition(e, t, "USD") },
-			[]string{"2000/2026/0100000012/000002: open item of SAP document 0100000012 is in document currency USD, but its order 4500000001 is in " +
-				"company 2000's currency EUR: an order's GR/IR positions are taken over in the order's currency"}},
+			[]string{"2000/2026/0100000012/000002: open item of SAP document 0100000012 on the GR/IR account is in document currency USD, not the " +
+				`currency of its order "4500000001": an order's GR/IR positions are taken over in the order's currency`}},
 		{"an open GR/IR position without a document currency", func(e *sap.Extract, t *target) { withGRIRPosition(e, t, "") },
 			[]string{"2000/2026/0100000012/000002: open item of SAP document 0100000012 has no document currency (RWCUR)"}},
 		{"the GR/IR lines of a closed position in a foreign currency", func(e *sap.Extract, t *target) {
@@ -233,6 +234,24 @@ func TestSourceRateWithoutAmount(t *testing.T) {
 	}
 }
 
+// TestSourceRateOrder: of lines of several documents with equal largest
+// document amounts, the rate is the first document's by number, whatever
+// the extract's order (review round 1).
+func TestSourceRateOrder(t *testing.T) {
+	tg := dpTarget()
+	tg.exponents["USD"] = 2
+	receipt := sap.ACDOCA{RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000005", DOCLN: "000002", WSL: "-125.00", HSL: "-100.00"}
+	invoice := sap.ACDOCA{RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000009", DOCLN: "000002", WSL: "125.00", HSL: "105.00"}
+	for name, lines := range map[string][]sap.ACDOCA{"in number order": {receipt, invoice}, "reversed": {invoice, receipt}} {
+		t.Run(name, func(t *testing.T) {
+			rate, ok := sourceRate(lines, "USD", "EUR", tg)
+			if !ok || rate.RatString() != "4/5" {
+				t.Errorf("rate: got %v (%t), want 4/5, the receipt's", rate, ok)
+			}
+		})
+	}
+}
+
 // TestForeignDownPaymentTax: a down payment in a foreign currency has its
 // tax checked in its document currency (where SAP is assumed to calculate
 // it, for an SAP specialist to confirm): 19%
@@ -360,7 +379,7 @@ func TestDocumentAmountAlone(t *testing.T) {
 		withDocument(e, "0100000011", currency, sap.ACDOCA{RACCT: "0000219000", HSL: "0.00", WSL: "-5.00", EBELN: "4500000001", EBELP: "00010"})
 	}
 	const grirItem = "2000/2026/0100000011/000002: open item of SAP document 0100000011 "
-	const grirForeign = "is in document currency USD, but its order 4500000001 is in company 2000's currency EUR: an order's GR/IR positions are taken over"
+	const grirForeign = `on the GR/IR account is in document currency USD, not the currency of its order "4500000001": an order's GR/IR positions are taken over`
 	cases := []struct {
 		name                string
 		change              func(e *sap.Extract)

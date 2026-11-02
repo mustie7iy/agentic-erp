@@ -113,6 +113,35 @@ func openDocuments(e *sap.Extract, t target) map[string]bool {
 	return out
 }
 
+// grirForeignDocuments are the documents holding a line on the GR/IR
+// account that names an item of an order in a foreign currency, of which
+// SAP cleared no supplier line. Balances mode posts them in their
+// document currency, as documents mode does, so the source system's side
+// of the GR/IR account and the offset of the position taken over in that
+// currency (ledger.GRIRItem.TakesOver) net to zero in it, not in local
+// currency alone. One SAP cleared is left in the opening entry, as an
+// item it cleared is never loaded open.
+func grirForeignDocuments(e *sap.Extract, t target) map[string]bool {
+	currencies := map[string]string{}
+	for _, h := range e.EKKO {
+		currencies[h.EBELN] = h.WAERS
+	}
+	out, cleared := map[string]bool{}, map[string]bool{}
+	for _, l := range e.ACDOCA {
+		key := documentKey(l)
+		if c := currencies[l.EBELN]; t.isGRIR(l) && c != "" && c != t.localCurrency(key) {
+			out[key] = true
+		}
+		if l.AUGBL != "" && t.supplierLine(l) {
+			cleared[key] = true
+		}
+	}
+	for key := range cleared {
+		delete(out, key)
+	}
+	return out
+}
+
 // clearingComponents groups the extract's documents into those SAP
 // cleared together, directly or through other documents: a clearing is
 // the supplier lines of a company with one clearing document (AUGBL), as
@@ -166,7 +195,7 @@ func foreignDocuments(e *sap.Extract, t target) (map[string]string, map[string]s
 	foreign := func(key string) bool { c := currencies[key]; return c != "" && c != t.localCurrency(key) }
 	out, conflicts := map[string]string{}, map[string]string{}
 	if t.balances {
-		for key := range openDocuments(e, t) {
+		for key := range unionKeys(openDocuments(e, t), grirForeignDocuments(e, t)) {
 			if foreign(key) {
 				out[key] = currencies[key]
 			}
@@ -249,14 +278,18 @@ func (e *Endpoints) postedCurrencies(ctx context.Context, ext *sap.Extract, r re
 // sourceRate is the rate from a foreign document's currency into its
 // company's that SAP's amounts imply, the company code amount over the
 // document amount of its line with the largest document amount (the
-// first in SAP line order of equal ones), where SAP's rounding moves the
+// first by document number, then line, of equal ones, so the lines of an
+// order's several GR/IR documents give one rate whatever the extract's
+// order), where SAP's rounding moves the
 // rate least; ok is false when no line has a document amount. The
 // extract does not carry the document's own exchange rate (an SAP
 // specialist is to confirm which field would). Amounts that do not parse
 // count as zero: the quality gate refuses them.
 func sourceRate(lines []sap.ACDOCA, currency, local string, t target) (*big.Rat, bool) {
 	sorted := slices.Clone(lines)
-	slices.SortFunc(sorted, func(a, b sap.ACDOCA) int { return cmp.Compare(a.DOCLN, b.DOCLN) })
+	slices.SortFunc(sorted, func(a, b sap.ACDOCA) int {
+		return cmp.Or(cmp.Compare(documentKey(a), documentKey(b)), cmp.Compare(a.DOCLN, b.DOCLN))
+	})
 	var largest, hsl money.Minor
 	for _, l := range sorted {
 		if wsl, _ := t.amount(l.WSL, currency); wsl.Abs() > largest.Abs() {
@@ -368,9 +401,10 @@ func (q *qualityCheck) documentAmount(l sap.ACDOCA) (money.Minor, string, error)
 // so is a line of an open GR/IR position in another currency than its
 // order's, company currency (a GR/IR line of an order in a foreign
 // currency is grirLine's, its position taken over in that currency), and
-// an open item whose document cannot post in its currency (foreignItem). An open item in company currency with a
-// document amount and none in company currency is refused too: the load
-// would post no line for it (review:batch31). So no open item with an
+// an open item whose document cannot post in its currency (foreignItem).
+// An open item in company currency with a document amount and none in
+// company currency is refused too: the load would post no line for it
+// (review:batch31). So no open item with an
 // amount in either currency is left out unreported, in either mode: in a
 // document that posts in a foreign currency foreignLine refuses a line of
 // a document amount alone, and in balances mode the opening entry takes
@@ -448,8 +482,8 @@ func (q *qualityCheck) foreignItem(l sap.ACDOCA, lines []sap.ACDOCA) {
 		q.add(SevError, "ACDOCA", key, "open item of SAP document %s has no document currency (RWCUR): it is not migrated unless it is "+
 			"in company %s's currency %s, which cannot be told; extract RWCUR", l.BELNR, l.RBUKRS, cur)
 	case q.t.isGRIR(l):
-		q.add(SevError, "ACDOCA", key, "open item of SAP document %s is in document currency %s, but its order %s is in company %s's currency %s: "+
-			"an order's GR/IR positions are taken over in the order's currency, from lines in it", l.BELNR, l.RWCUR, l.EBELN, l.RBUKRS, cur)
+		q.add(SevError, "ACDOCA", key, "open item of SAP document %s on the GR/IR account is in document currency %s, not the currency of its "+
+			"order %q: an order's GR/IR positions are taken over in the order's currency, from lines in it", l.BELNR, l.RWCUR, l.EBELN)
 	case q.foreign[documentKey(l)] == l.RWCUR, q.conflicts[documentKey(l)] != "":
 		// loads in its document currency, or is refused as a conflict
 	case slices.ContainsFunc(lines, func(o sap.ACDOCA) bool { return o.RWCUR != l.RWCUR }):

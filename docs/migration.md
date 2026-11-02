@@ -107,7 +107,10 @@ foreign currency loads. A goods receipt or an invoice after cutover moves the
 position as it moves one the platform posted in that currency: the invoice
 clears it in both currencies, the GR/IR line at the value the position was
 booked at and the exchange difference on its own line. A later run tops it up
-in both currencies. The quality gate refuses, for such an order, a GR/IR line
+in both currencies. SAP's documents holding such GR/IR lines load in the
+order's currency in balances mode too, unless SAP cleared a vendor line of
+them; one paid in company currency keeps its GR/IR line in company currency
+(ADR-0005 As built). The quality gate refuses, for such an order, a GR/IR line
 in another currency (RWCUR) than the order's, a document amount that does not
 parse, a line with an amount in one currency and none in the other or the two
 of opposite signs, a position with a balance in one currency alone, document
@@ -223,7 +226,8 @@ They must be equal.
 - Open GR/IR per order item: SAP's balance on the GR/IR account and open
   quantity against the platform's position, in total and per order item,
   where either side has any (T72f); for an order in a foreign currency the
-  balance in that currency too, as `-1350.00 CAD (-1000.00 USD), quantity -4`.
+  balance in that currency too, as `-1350.00 CAD (-1000.00 USD), quantity -4`,
+  and a total per such currency (`Open GR/IR in USD total`).
   The take-over entries move balances
   within the GR/IR account and have no SAP document, so the total debits
   leave them out
