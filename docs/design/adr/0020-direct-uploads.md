@@ -109,6 +109,9 @@ to the API instead. On S3 the API offered only the presigned URL, so:
   as before.
 - **Walkthrough:** step 18 creates an upload `via: api`, streams a 6 MB
   scan to the API's path (chunked), is refused a second PUT, and captures
-  the invoice from it; the model is a stand-in that answers the
+  the invoice from it, for item 1 of a released order of Tyrell migrated
+  from SAP: an invoice names a released order, and the chairs' order is
+  closed by step 15 (batch 38's integration found the capture refused
+  422 `payables.invalid_purchase_order` on it); the model is a stand-in that answers the
   extraction (`internal/llm/llmtest/modelstub`), as the mock SAP extract
   stands in for SAP.

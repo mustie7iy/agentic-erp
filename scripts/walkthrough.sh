@@ -2132,18 +2132,26 @@ step_audit() {
 step_capture() {
   heading "Step 18 — A scanned invoice above the request limit is captured by upload, through the API's own signed path"
   as alex
-  say "Tyrell sends a second invoice for the chairs as a 6 MB scan, above the 5 MB a request carries. The web"
-  say "workspace never reaches the object store (ADR-0052 §7, product owner 2026-11-01): it asks for the API's own"
-  say "signed path (via api) and streams the bytes there, and the API streams them into the store, up to 50 MB."
-  local number up url size invoice
-  QUIET=1 api 200 '' getPurchaseOrder -p "id=$PO"
+  say "Tyrell sends an invoice for one unit of item 1 of another of its open orders, migrated from SAP (the chairs'"
+  say "order was closed in step 15, and an invoice names a released order), as a 6 MB scan, above the 5 MB a request"
+  say "carries. The web workspace never reaches the object store (ADR-0052 §7, product owner 2026-11-01): it asks for"
+  say "the API's own signed path (via api) and streams the bytes there, and the API streams them into the store, up to 50 MB."
+  local number up url size invoice order price item
+  api 200 '"\(.items | length) released order(s) of Tyrell, the first \(.items[0].document_number)"' listPurchaseOrders \
+    -p "legal_entity_id=$LE" -p "supplier_id=$SUPPLIER" -p status=released -p page_size=1
+  order=$(field '.items[0].id')
+  [ -n "$order" ] && [ "$order" != null ] || fail "Tyrell has no released order to invoice"
+  QUIET=1 api 200 '' getPurchaseOrder -p "id=$order"
   number=$(field .document_number)
+  price=$(field '.items[] | select(.item_no == 1) | .unit_price.amount')
+  item=$(field '.items[] | select(.item_no == 1) | .description')
+  [ "$(field '.items[] | select(.item_no == 1) | .price_unit')" = 1 ] || fail "item 1 of $number is not priced per unit"
   { printf '%%PDF-1.7\n%% Tyrell Office Products, invoice TY-5002 for order %s\n' "$number"; head -c 6291456 /dev/zero | tr '\0' ' '; printf '\n%%%%EOF\n'; } >"$WORK/TY-5002.pdf"
   size=$(wc -c <"$WORK/TY-5002.pdf" | tr -d ' ')
-  jq -n --arg po "$number" --arg date "$TODAY" '{document_kind: "invoice", credited_invoice_number: "", vendor_name: "Tyrell Office Products",
-    vendor_tax_id: "", invoice_number: "TY-5002", invoice_date: $date, purchase_order: $po, currency: "CAD",
-    lines: [{description: "Ergonomic office chairs", quantity: "1", amount: "470.00", po_line: 1, tax_rate: ""}],
-    tax_amount: "0.00", gross_amount: "470.00", confidence: "high"} | tojson' -r >"$WORK/model-answer.json"
+  jq -n --arg po "$number" --arg date "$TODAY" --arg price "$price" --arg item "$item" '{document_kind: "invoice", credited_invoice_number: "",
+    vendor_name: "Tyrell Office Products", vendor_tax_id: "", invoice_number: "TY-5002", invoice_date: $date, purchase_order: $po, currency: "CAD",
+    lines: [{description: $item, quantity: "1", amount: $price, po_line: 1, tax_rate: ""}],
+    tax_amount: "0.00", gross_amount: $price, confidence: "high"} | tojson' -r >"$WORK/model-answer.json"
   api 201 '"upload \(.id): \(.status), via \(.via), at most \(.max_bytes) bytes of \(.content_type) until \(.expires_at)"' createUpload \
     -body '{"purpose": "supplier_invoice", "content_type": "application/pdf", "via": "api"}'
   expect "the upload's way" "$(field .via)" api
