@@ -28,10 +28,13 @@ import (
 // unlinks an approved exception). Lines are changed, added and left out,
 // each naming its order item, unit, account and centers (the account by
 // number, the centers by code, as in SAP); the API replaces the lines as a
-// whole, so they are sent whole. Lines added or left out have no identity
-// to put another person's change on field by field: when both people
-// changed the lines, the form shows the invoice's lines as they are now,
-// without the person's changes to them, and says so (rebaseItems). The
+// whole, so they are sent whole. The API gives a line no id of its own and
+// numbers lines by their place, so a line's identity is its order item:
+// the person's change to a line is put on the invoice's line of the same
+// order item, field by field; when there is none, or the person added or
+// left out lines while someone else changed them, the form shows the
+// invoice's lines as they are now, without the person's changes to them,
+// and says so (rebaseItems). The
 // form reads getCurrentPrincipal, getSupplierInvoice, the company's
 // accounts, cost centers and profit centers: five calls. Sending it reads
 // the same, looks up the codes the pages do not hold (entry_lookup.go), and
@@ -57,14 +60,16 @@ type invoiceTyped struct {
 }
 
 // itemTyped is one line as typed: the invoice's line it shows (from 1,
-// its place when the form was opened; 0 for one added in the form), its
-// fields, what is wrong with them and what the API refused of it, whether
-// it has the focus, and, checked, what is sent.
+// its place when the form was opened; 0 for one added in the form), the
+// person's line whose changes it carries after rebaseItems put them on the
+// invoice's line now (from 1; 0 for none), its fields, what is wrong with
+// them and what the API refused of it, whether it has the focus, and,
+// checked, what is sent.
 type itemTyped struct {
-	from                                                    int
+	from, mine                                              int
 	orderItem, description, quantity, unit, amount, taxCode string
 	account, costCenter, profitCenter                       string
-	held                                                    [3]string // the ids of an opened line's account and centers
+	held                                                    [4]string // the ids of an opened line's account, centers and purchase order
 	errs                                                    map[string]i18n.Key
 	refused                                                 []refusedField
 	focus                                                   bool
@@ -96,9 +101,36 @@ func (it *itemTyped) field(name string) *string {
 		return &it.held[0]
 	case ui.FieldItemCostCenterID:
 		return &it.held[1]
-	default:
+	case ui.FieldItemProfitID:
 		return &it.held[2]
+	default:
+		return &it.held[3]
 	}
+}
+
+// identity is an opened line's identity on the invoice: its purchase
+// order and order item; "" for a line of no order item, which has none
+// (the API numbers lines by their place).
+func (it itemTyped) identity() string {
+	order, no := strings.TrimSpace(it.held[3]), strings.TrimSpace(it.orderItem)
+	if order == "" || no == "" {
+		return ""
+	}
+	return order + "/" + no
+}
+
+// placesOf are the lines' places (from 0) by their identity: -1 for an
+// identity several lines share, which tells none of them apart.
+func placesOf(items []itemTyped) map[string]int {
+	out := map[string]int{}
+	for i, it := range items {
+		if _, ok := out[it.identity()]; ok {
+			out[it.identity()] = -1
+		} else {
+			out[it.identity()] = i
+		}
+	}
+	return out
 }
 
 // blank reports whether the line was added in the form and holds nothing:
@@ -234,7 +266,7 @@ func invoiceTypedOf(inv gen.SupplierInvoice, tag string, loc i18n.Locale, codes 
 		line := itemTyped{from: i + 1, description: it.Description.Or(""), quantity: loc.AmountInput(it.Quantity.Value), unit: it.Quantity.Unit,
 			amount: loc.AmountInput(it.Amount.Amount), taxCode: it.TaxCode.Or(""), account: codes.account(it.AccountID),
 			costCenter: codeIn(codes.costCenters, it.CostCenterID), profitCenter: codeIn(codes.profitCenters, it.ProfitCenterID),
-			held: [3]string{idText(it.AccountID), idText(it.CostCenterID), idText(it.ProfitCenterID)}}
+			held: [4]string{idText(it.AccountID), idText(it.CostCenterID), idText(it.ProfitCenterID), idText(it.PurchaseOrderID)}}
 		if n, ok := it.PoItemNo.Get(); ok {
 			line.orderItem = strconv.Itoa(int(n))
 		}
@@ -313,10 +345,11 @@ func (t *invoiceTyped) edited(add bool, removed int) {
 }
 
 // What rebase did with the lines: took the person's, put the person's
-// changes on the invoice's line by line, took the invoice's (the person
-// changed none), or took the invoice's over the person's changes, which
-// are lost (both people changed the lines, and some were added or left
-// out).
+// changes on the invoice's lines of the same order items, took the
+// invoice's (the person changed none), or took the invoice's over the
+// person's changes, which are lost (both people changed the lines, and the
+// person added or left out lines, or changed one the invoice no longer
+// holds by its order item).
 type linesTaken int
 
 const (
@@ -351,11 +384,14 @@ func pick(t, o, n string) string {
 // rebaseItems are the lines with the person's changes on the invoice's
 // lines now: the person's lines when nobody else changed the lines since
 // the form was opened; the invoice's when the person changed none; while
-// neither added nor left out a line, each line with the person's changes
-// on it field by field, as the header's; else, both having changed the
-// lines and lines added or left out, which have no identity to put a
-// change on, the invoice's lines, the person's changes to them lost
-// (ADR-0052 T73e3, as the entry form's lines).
+// the person added and left out no line, the invoice's lines now with the
+// person's changes on the line of the same order item, field by field, as
+// the header's. Never by its place: someone else may have left that line
+// out and added another. Else, both having changed the lines and the
+// person having added or left out lines, or changed one no line now is
+// known to be (of no order item, of one the invoice no longer holds, or of
+// one several lines share), the invoice's lines, the person's changes to
+// them lost (ADR-0052 T73e3, as the entry form's lines).
 func rebaseItems(typed, opened, now []itemTyped) ([]itemTyped, linesTaken) {
 	untouched := kept(typed, len(opened))
 	switch {
@@ -363,14 +399,23 @@ func rebaseItems(typed, opened, now []itemTyped) ([]itemTyped, linesTaken) {
 		return typed, linesTyped
 	case untouched && sameItems(typed, opened):
 		return now, linesNow
-	case !untouched || len(now) != len(opened):
+	case !untouched:
 		return now, linesLost
 	}
-	out := make([]itemTyped, len(now))
-	for i := range now {
-		out[i] = now[i]
+	out := slices.Clone(now)
+	was, at := placesOf(opened), placesOf(now)
+	for i := range typed {
+		if typed[i].same(opened[i]) {
+			continue
+		}
+		id := opened[i].identity()
+		j, ok := at[id]
+		if id == "" || was[id] != i || !ok || j < 0 {
+			return now, linesLost
+		}
+		out[j].mine = i + 1
 		for _, name := range ui.ItemFieldNames() {
-			*out[i].field(name) = pick(*typed[i].field(name), *opened[i].field(name), *now[i].field(name))
+			*out[j].field(name) = pick(*typed[i].field(name), *opened[i].field(name), *now[j].field(name))
 		}
 	}
 	return out, linesMerged
@@ -378,15 +423,20 @@ func rebaseItems(typed, opened, now []itemTyped) ([]itemTyped, linesTaken) {
 
 // asTyped is a form not sent, or refused before any call, as the person
 // sent it: what they typed, with the checks' errors (checked, its lines
-// taken as rebase says), at the version and with the values it was opened
-// with. It does not take the invoice's version now, which would skip the
+// taken as rebase says: each line's on the person's line it carries the
+// changes of; a line the person did not change is the invoice's as the API
+// holds it, which the checks take), at the version and with the values it
+// was opened with. It does not take the invoice's version now, which would skip the
 // 412 that tells the person of a change by someone else meanwhile. A form
 // left without lines gets an empty one to type in.
 func asTyped(typed, opened invoiceTyped, ifMatch string, checked invoiceTyped, taken linesTaken) invoiceTyped {
 	typed.ifMatch, typed.opened, typed.errs, typed.linesErr = ifMatch, &opened, checked.errs, checked.linesErr
-	if taken == linesTyped || taken == linesMerged { // as many lines, in their places
-		for i := range typed.items {
-			typed.items[i].errs = checked.items[i].errs
+	for i, it := range checked.items {
+		switch {
+		case taken == linesTyped: // the person's lines, in their places
+			typed.items[i].errs = it.errs
+		case it.mine > 0: // the invoice's line with the person's changes
+			typed.items[it.mine-1].errs = it.errs
 		}
 	}
 	if len(typed.items) == 0 {

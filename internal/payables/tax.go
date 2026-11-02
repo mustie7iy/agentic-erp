@@ -144,11 +144,22 @@ func (e *Endpoints) calculateTax(ctx context.Context, v Invoice, taxDate time.Ti
 }
 
 // calculationFailed is the calculator's error: amounts out of range are
-// the invoice's (422); the rest, of codes the configuration validated, are
-// not expected.
+// the invoice's (422); a code the calculator cannot calculate on the tax
+// date is the configuration's on that date, which the invoice cannot post
+// on until it is corrected or another tax date or code is chosen: a
+// component without a rate then (422 payables.no_tax_rate), or a code
+// whose components as rated then do not make a code (a self-assessed code
+// missing half its pair, its halves at different rates: 422
+// payables.invalid_tax_code), the calculator's words naming the code; the
+// rest are not expected.
 func calculationFailed(id uuid.UUID, err error) error {
-	if errors.Is(err, money.ErrOverflow) {
+	switch {
+	case errors.Is(err, money.ErrOverflow):
 		return errTaxTooLarge
+	case errors.Is(err, tax.ErrNoRate):
+		return problem.Unprocessable("payables.no_tax_rate", "The invoice's tax cannot be calculated: "+tax.Reason(err)+".")
+	case errors.Is(err, tax.ErrInvalidCode):
+		return problem.Unprocessable("payables.invalid_tax_code", "The invoice's tax cannot be calculated: "+tax.Reason(err)+".")
 	}
 	return fmt.Errorf("payables: tax of invoice %s: %w", id, err)
 }

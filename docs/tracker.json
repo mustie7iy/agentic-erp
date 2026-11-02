@@ -5585,9 +5585,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "After a 412 on a parked invoice's change, lines are matched up by their place whenever the counts are equal (T73e2's rule, kept by T73e3). If another person left out line A and added line C meanwhile, the person's edit to A lands on B.",
-        "r": "internal/web invoice_edit.go rebaseItems (found in batch 38's integration review)",
+        "r": "internal/web invoice_edit.go rebaseItems (found in batch 38's integration review): lines matched by their order item (purchase order and order item, the opened lines' was_item_purchase_order_id), never by place; a changed line of no order item, of one the invoice no longer holds or of one several lines share is lost, shown with the lines as they are (409) · identity · placesOf · asTyped · ui.FieldItemOrderID · TestChangeInvoiceLinesByOrderItem · TestChangeInvoiceLinesMeanwhile · TestRebaseItems · TestAsTypedErrors · ADR-0052 Built in T73e3, lines after a 412 · entry_form.go rebaseEntry checked: lines one block, not affected",
         "src": "review:batch38",
         "c": []
        },

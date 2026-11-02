@@ -5906,6 +5906,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
+        - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -5915,6 +5916,7 @@ paths:
         - ledger.no_exchange_rate
         - ledger.no_fiscal_period
         - ledger.no_fx_account
+        - ledger.no_tax_rate
         - ledger.output_tax_mismatch
         - ledger.partner_not_allowed
         - ledger.partner_not_postable
@@ -6319,12 +6321,14 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
+        - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
         - ledger.ledger_or_group
         - ledger.ledger_specific_reconciliation
         - ledger.legal_entity_not_active
+        - ledger.no_tax_rate
         - ledger.output_tax_mismatch
         - ledger.partner_not_allowed
         - ledger.partner_not_postable
@@ -6456,12 +6460,14 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.invalid_parked_status
+        - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
         - ledger.ledger_or_group
         - ledger.ledger_specific_reconciliation
         - ledger.legal_entity_not_active
+        - ledger.no_tax_rate
         - ledger.not_entry_owner
         - ledger.output_tax_mismatch
         - ledger.partner_not_allowed
@@ -6606,6 +6612,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.invalid_parked_status
+        - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -6615,6 +6622,7 @@ paths:
         - ledger.no_exchange_rate
         - ledger.no_fiscal_period
         - ledger.no_fx_account
+        - ledger.no_tax_rate
         - ledger.not_entry_owner
         - ledger.output_tax_mismatch
         - ledger.partner_not_allowed
@@ -6741,12 +6749,14 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.invalid_schedule
+        - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
         - ledger.ledger_or_group
         - ledger.ledger_specific_reconciliation
         - ledger.legal_entity_not_active
+        - ledger.no_tax_rate
         - ledger.output_tax_mismatch
         - ledger.partner_not_allowed
         - ledger.partner_not_postable
@@ -6858,12 +6868,14 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.invalid_schedule
+        - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
         - ledger.ledger_or_group
         - ledger.ledger_specific_reconciliation
         - ledger.legal_entity_not_active
+        - ledger.no_tax_rate
         - ledger.not_template_owner
         - ledger.output_tax_mismatch
         - ledger.partner_not_allowed
@@ -6998,12 +7010,14 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
+        - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
         - ledger.ledger_or_group
         - ledger.ledger_specific_reconciliation
         - ledger.legal_entity_not_active
+        - ledger.no_tax_rate
         - ledger.output_tax_mismatch
         - ledger.partner_not_allowed
         - ledger.partner_not_postable
@@ -10492,6 +10506,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -10502,6 +10517,7 @@ paths:
         - ledger.no_fiscal_period
         - ledger.no_fx_account
         - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
         - ledger.output_tax_mismatch
         - ledger.partner_not_allowed
         - ledger.partner_not_postable
@@ -10630,6 +10646,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -10640,6 +10657,7 @@ paths:
         - ledger.no_fiscal_period
         - ledger.no_fx_account
         - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
         - ledger.output_tax_mismatch
         - ledger.partner_not_allowed
         - ledger.partner_not_postable
@@ -10972,8 +10990,10 @@ paths:
         - payables.invalid_purchase_order
         - payables.invalid_quantity
         - payables.invalid_reference_invoice
+        - payables.invalid_tax_code
         - payables.mixed_purchase_orders
         - payables.negative_amount
+        - payables.no_tax_rate
         - payables.po_item_required
         - payables.purchase_order_required
         - payables.quantity_not_zero
@@ -11344,6 +11364,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -11355,6 +11376,7 @@ paths:
         - ledger.no_fx_account
         - ledger.no_gr_ir_account
         - ledger.no_price_difference_account
+        - ledger.no_tax_rate
         - ledger.output_tax_mismatch
         - ledger.partner_not_allowed
         - ledger.partner_not_postable
@@ -11385,12 +11407,14 @@ paths:
         - payables.amounts_mismatch
         - payables.duplicate_invoice
         - payables.invalid_status
+        - payables.invalid_tax_code
         - payables.legal_entity_not_found
         - payables.match_outdated
         - payables.match_required
         - payables.negative_amount
         - payables.no_purchase_order
         - payables.no_tax_account
+        - payables.no_tax_rate
         - payables.order_item_missing
         - payables.order_not_found
         - payables.reference_not_posted
@@ -15082,6 +15106,7 @@ paths:
         - ledger.hierarchy_change_invalid
         - ledger.hierarchy_exists
         - ledger.hierarchy_node_exists
+        - ledger.invalid_tax_code
         - ledger.invalid_validity
         - ledger.item_already_cleared
         - ledger.jurisdiction_not_levied
@@ -15096,6 +15121,7 @@ paths:
         - ledger.no_fx_account
         - ledger.no_gr_ir_account
         - ledger.no_price_difference_account
+        - ledger.no_tax_rate
         - ledger.not_an_open_item
         - ledger.not_open_item_managed
         - ledger.nothing_to_change
@@ -16678,6 +16704,7 @@ paths:
         - ledger.gr_ir_currency_mismatch
         - ledger.gr_ir_position_exists
         - ledger.invalid_clearing_entry
+        - ledger.invalid_tax_code
         - ledger.item_already_cleared
         - ledger.item_reserved
         - ledger.jurisdiction_not_levied
@@ -16690,6 +16717,7 @@ paths:
         - ledger.no_fiscal_period
         - ledger.no_fx_account
         - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
         - ledger.not_an_open_item
         - ledger.output_tax_mismatch
         - ledger.partner_not_allowed

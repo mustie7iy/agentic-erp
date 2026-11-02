@@ -32,6 +32,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
@@ -87,6 +88,13 @@ var (
 	ErrInvalidCode = errors.New("tax: invalid tax code")
 	ErrInvalid     = errors.New("tax: invalid document")
 )
+
+// Reason is the calculator's error in words, for a problem's detail: its
+// message without the package's prefix, naming the code and, for a
+// missing rate, the component and the date.
+func Reason(err error) string {
+	return strings.TrimPrefix(err.Error(), "tax: ")
+}
 
 // Document is what tax is calculated on. The partner and place fields are
 // for an engine that determines tax (T61m); the built-in calculator reads
