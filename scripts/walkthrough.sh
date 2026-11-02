@@ -5,8 +5,10 @@
 # DATABASE_URL (migrated on start), provisions a tenant from the mock SAP
 # extract and drives everything else through the API with `erp call`, as
 # the people of the story. No test harness and no mocks beyond the mock SAP
-# extract. A step that needs a capability not built yet says so and is
-# skipped.
+# extract and a stand-in for the model provider (internal/llm/llmtest/
+# modelstub), which answers a capture's extraction as the uploaded document
+# prints it, without a live model or its key. A step that needs a
+# capability not built yet says so and is skipped.
 #
 # Each step prints a heading, the commands it runs and an excerpt of the
 # answers, and checks what it expects: any unexpected answer stops the run
@@ -15,6 +17,7 @@
 #
 #   WALKTHROUGH_PAUSE=1   wait for Enter after each step
 #   WALKTHROUGH_API_ADDR, WALKTHROUGH_ADMIN_ADDR   listeners (127.0.0.1:18080, 127.0.0.1:19090)
+#   WALKTHROUGH_MODEL_ADDR   the model stand-in's listener (127.0.0.1:18081)
 #   WALKTHROUGH_DIR       work directory (default: a temporary one, removed after)
 #   WALKTHROUGH_BIN       directory with erp and erp-server already built (default: build them)
 #   WALKTHROUGH_KEEP=1    keep the server running at the end, to look around with erp call
@@ -31,6 +34,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DATABASE_URL="${DATABASE_URL:-postgres://postgres:dev@localhost:55432/postgres?sslmode=disable}"
 API_ADDR="${WALKTHROUGH_API_ADDR:-127.0.0.1:18080}"
 ADMIN_ADDR="${WALKTHROUGH_ADMIN_ADDR:-127.0.0.1:19090}"
+MODEL_ADDR="${WALKTHROUGH_MODEL_ADDR:-127.0.0.1:18081}"
 PAUSE="${WALKTHROUGH_PAUSE:-0}"
 TODAY=$(date -u +%F)
 YEAR=${TODAY:0:4}
@@ -56,8 +60,13 @@ mkdir -p "$WORK/data/objects" "$WORK/tokens"
 WORK=$(cd "$WORK" && pwd) # absolute: the commands run in it (start)
 echo '{"items": []}' >"$WORK/accounts.json"
 SERVER_PID=''
+MODEL_PID=''
 
 cleanup() {
+  if [ -n "$MODEL_PID" ]; then
+    kill "$MODEL_PID" 2>/dev/null || true # it may have exited already: then there is nothing to stop
+    wait "$MODEL_PID" 2>/dev/null || true # its exit status after a kill says nothing about the walkthrough
+  fi
   if [ -n "$SERVER_PID" ]; then
     kill "$SERVER_PID" 2>/dev/null || true # it may have exited already: then there is nothing to stop
     wait "$SERVER_PID" 2>/dev/null || true # its exit status after a kill says nothing about the walkthrough
@@ -318,6 +327,7 @@ start() {
   export ERP_HTTP_ADDR="$API_ADDR" ERP_ADMIN_ADDR="$ADMIN_ADDR"
   export ERP_API_URL="http://$API_ADDR" ERP_ADMIN_URL="http://$ADMIN_ADDR" ERP_CONTROL_URL="http://$ADMIN_ADDR"
   export ERP_EXTRACT_DIR="$WORK/data" ERP_OBJECT_DIR="$WORK/data/objects"
+  model_stub
   illustrative_pack
   export ERP_PACKS_DIR="$WORK/packs"
   ERP_PAGE_TOKEN_KEY=$(head -c 32 /dev/urandom | base64)
@@ -335,8 +345,38 @@ start() {
     sleep 0.25
   done
   curl -sf "http://$ADMIN_ADDR/readyz" >/dev/null || fail "erp-server is not ready after a minute ($i checks)"
+  model_price
   say ""
   say "erp-server is up (development, development issuer on): API $ERP_API_URL, admin $ERP_ADMIN_URL."
+}
+
+# model_stub starts the stand-in for the model provider (step 18's capture)
+# and points erp-server's model gateway at it. It answers every call with
+# the text of model-answer.json, which step 18 writes.
+model_stub() {
+  local stub="$BIN/modelstub"
+  if [ ! -x "$stub" ]; then
+    stub="$WORK/bin/modelstub"
+    (cd "$ROOT" && go build -o "$stub" ./internal/llm/llmtest/modelstub) || fail "the model stand-in did not build"
+  fi
+  if curl -s -o /dev/null "http://$MODEL_ADDR/"; then
+    fail "something already listens on $MODEL_ADDR: set WALKTHROUGH_MODEL_ADDR"
+  fi
+  echo '{}' >"$WORK/model-answer.json"
+  "$stub" -addr "$MODEL_ADDR" -answer "$WORK/model-answer.json" >"$WORK/model.log" 2>&1 &
+  MODEL_PID=$!
+  export ERP_MODEL_API_KEY=walkthrough ERP_MODEL_ENDPOINT="http://$MODEL_ADDR"
+}
+
+# model_price records a price for the model extraction routes to, which the
+# gateway needs before it forwards a call (ADR-0036): zero, the stand-in's
+# cost, not a published price.
+model_price() {
+  printf '[{"model": "claude-opus-5-5", "effective_from": "%s", "currency": "USD", "input": "0", "output": "0", "cache_write": "0", "cache_read": "0"}]\n' \
+    "$PREV-01-01" >"$WORK/prices.json"
+  # Recorded once per database: a price stands, so a later run on it finds it there.
+  "$BIN/erp-server" prices load -file "$WORK/prices.json" -by walkthrough >"$WORK/prices.out" 2>&1 ||
+    grep -q "already recorded" "$WORK/prices.out" || fail "the model's price was not recorded ($(cat "$WORK/prices.out"))"
 }
 
 # illustrative_pack copies the latest released Canada pack to the next
@@ -1992,6 +2032,57 @@ step_audit() {
   passed
 }
 
+step_capture() {
+  heading "Step 18 — A scanned invoice above the request limit is captured by upload, through the API's own signed path"
+  as alex
+  say "Tyrell sends a second invoice for the chairs as a 6 MB scan, above the 5 MB a request carries. The web"
+  say "workspace never reaches the object store (ADR-0052 §7, product owner 2026-11-01): it asks for the API's own"
+  say "signed path (via api) and streams the bytes there, and the API streams them into the store, up to 50 MB."
+  local number up url size invoice
+  QUIET=1 api 200 '' getPurchaseOrder -p "id=$PO"
+  number=$(field .document_number)
+  { printf '%%PDF-1.7\n%% Tyrell Office Products, invoice TY-5002 for order %s\n' "$number"; head -c 6291456 /dev/zero | tr '\0' ' '; printf '\n%%%%EOF\n'; } >"$WORK/TY-5002.pdf"
+  size=$(wc -c <"$WORK/TY-5002.pdf" | tr -d ' ')
+  jq -n --arg po "$number" --arg date "$TODAY" '{document_kind: "invoice", credited_invoice_number: "", vendor_name: "Tyrell Office Products",
+    vendor_tax_id: "", invoice_number: "TY-5002", invoice_date: $date, purchase_order: $po, currency: "CAD",
+    lines: [{description: "Ergonomic office chairs", quantity: "1", amount: "470.00", po_line: 1, tax_rate: ""}],
+    tax_amount: "0.00", gross_amount: "470.00", confidence: "high"} | tojson' -r >"$WORK/model-answer.json"
+  api 201 '"upload \(.id): \(.status), via \(.via), at most \(.max_bytes) bytes of \(.content_type) until \(.expires_at)"' createUpload \
+    -body '{"purpose": "supplier_invoice", "content_type": "application/pdf", "via": "api"}'
+  expect "the upload's way" "$(field .via)" api
+  up=$(field .id)
+  url=$(field .url)
+  case "$url" in "/v1/uploads/$up/content?"*) ;; *) fail "the upload's URL is not the API's signed path: $url" ;; esac
+  say "The URL is a path on the API, signed for the tenant and this upload until it expires. The bytes go there"
+  say "as they are read (chunked: the API learns the size as it receives them), with the content type promised:"
+  show curl -X PUT -H "Content-Type: application/pdf" -H "Transfer-Encoding: chunked" -T TY-5002.pdf "\$ERP_API_URL${url%%\?*}?…"
+  local code
+  code=$(curl -s -o "$WORK/put.out" -w '%{http_code}' -X PUT -H "Authorization: Bearer $ERP_TOKEN" -H "Content-Type: application/pdf" \
+    -H "Transfer-Encoding: chunked" -T "$WORK/TY-5002.pdf" "$ERP_API_URL$url")
+  expect "the signed path's answer" "$code" 204
+  api 200 '"upload \(.id): \(.status), \(.size) bytes"' getUpload -p "id=$up"
+  expect "the upload's status" "$(field .status)" received
+  expect "the bytes received" "$(field .size)" "$size"
+  say "The path takes one document: the same URL again is refused, the upload already holds its bytes."
+  code=$(curl -s -o "$WORK/put.out" -w '%{http_code}' -X PUT -H "Content-Type: application/pdf" --data-binary @"$WORK/TY-5002.pdf" "$ERP_API_URL$url")
+  expect "a second PUT" "$code $(jq -r .code "$WORK/put.out")" "409 payables.upload_closed"
+  say "  refused: $code $(jq -r .code "$WORK/put.out")"
+  say "Alex captures the invoice from the upload. Reading the scan is the model's (here the stand-in's); the"
+  say "capture runs as an operation, polled until it names the new invoice:"
+  api 202 '"operation \(.kind): \(.status)"' captureSupplierInvoice -body "{\"legal_entity_id\": \"$LE\", \"upload_id\": \"$up\"}"
+  wait_op
+  invoice=$(field '.result.supplier_invoice_id')
+  api 200 '"\(.document_number) \(.supplier_reference): \(.status), source \(.source), \(.gross_amount.amount) \(.gross_amount.currency)"' getSupplierInvoice -p "id=$invoice"
+  expect "the captured invoice" "$(field '"\(.supplier_reference) \(.status) \(.source)"')" "TY-5002 parked capture"
+  QUIET=1 api 200 '' getUpload -p "id=$up"
+  expect "the upload, consumed" "$(field '"\(.status) \(.used_by)"')" "used $invoice"
+  show curl -s -H "Authorization: Bearer …" "\$ERP_API_URL/v1/supplier-invoices/$invoice/document" "| cmp - TY-5002.pdf"
+  curl -s -H "Authorization: Bearer $ERP_TOKEN" "$ERP_API_URL/v1/supplier-invoices/$invoice/document" | cmp -s - "$WORK/TY-5002.pdf" ||
+    fail "the invoice's document is not the scan uploaded"
+  say "  the invoice's document is the scan, byte for byte ($size bytes)"
+  passed
+}
+
 # name_partners replaces the business partners' ids in what it reads with
 # their names, as the API gives them.
 name_partners() {
@@ -2013,7 +2104,7 @@ name_actors() {
   done
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture'
 
 main() {
   start

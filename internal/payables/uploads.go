@@ -1,7 +1,7 @@
 package payables
 
 import (
-	"bytes"
+	"cmp"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -11,7 +11,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,13 +29,18 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-// Direct uploads (T16, 04-api-design §4.11): a document too large for a
-// request body is uploaded to object storage through a URL the API hands
-// out, then consumed by id. With an S3 store the URL is a presigned PUT on
-// the store; with a directory store (development) it is a signed path on
-// this API, which receives the bytes and stores them itself. Either way
-// the bytes land at tenants/<tenant>/uploads/<id>, and a capture copies them
-// under their hash like a document sent in the request.
+// Direct uploads (T16, 04-api-design §4.11, ADR-0020): a document too
+// large for a request body is uploaded to object storage through a URL the
+// API hands out, then consumed by id. With an S3 store the URL is a
+// presigned PUT on the store, unless the client asks for the API's own
+// path (via api, PO 2026-11-01: erp-web never reaches the bucket); with a
+// directory store (development) it is always the API's path. The API's
+// path is signed, expires with the upload, takes one document of at most
+// the upload's size, of its content type, for the tenant it was signed
+// for, and streams the bytes into the store through a temporary file, never
+// holding them in memory. Either way the bytes land at
+// tenants/<tenant>/uploads/<id>, and a capture copies them under their hash
+// like a document sent in the request.
 
 // MaxUpload is the largest document a direct upload may carry.
 const MaxUpload = 50 << 20
@@ -43,6 +50,20 @@ const UploadTTL = 15 * time.Minute
 
 // UploadPurposes are what uploads may be for, and the operation that consumes each.
 var UploadPurposes = map[string]string{"supplier_invoice": "POST /v1/supplier-invoices:capture"}
+
+// Where an upload's bytes go (payables.upload.via): the store's presigned
+// URL, or the API's own signed path.
+const (
+	ViaStore = "store"
+	ViaAPI   = "api"
+)
+
+// MaxReceiving is how many documents a replica receives on the API's path
+// at once unless Uploads.MaxReceiving says otherwise: each is spooled to a
+// temporary file of up to MaxUpload, and erp-server's /tmp holds 256 MiB
+// (deploy/helm/erp-cell server.yaml), so four fit beside whatever else is
+// there. One more is answered 503 with Retry-After.
+const MaxReceiving = 4
 
 // UploadTypes are the content types a document may be uploaded as.
 var UploadTypes = map[string]bool{"application/pdf": true, "image/png": true, "image/jpeg": true, "application/xml": true, "text/xml": true}
@@ -54,6 +75,7 @@ type Upload struct {
 	ContentType string
 	MaxBytes    int64
 	ObjectRef   string
+	Via         string // store or api: where the URL sends the bytes as created
 	Status      string // open, received, used
 	Size        *int64
 	SHA256      []byte
@@ -75,8 +97,16 @@ type Uploads struct {
 	Pool    *database.Pool
 	AppRole string
 	Now     func() time.Time // nil: time.Now
-	// InTx runs the PUT's transaction; nil: Pool.InTx. Tests inject failures.
+	// InTx runs the PUT's transactions; nil: Pool.InTx. Tests inject failures.
 	InTx func(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error
+	// SpoolDir holds the documents being received on the API's path until
+	// they are measured and hashed ("": os.TempDir()); MaxReceiving bounds
+	// how many at once (0: the package's MaxReceiving).
+	SpoolDir     string
+	MaxReceiving int
+
+	slotsOnce sync.Once
+	slots     chan struct{}
 }
 
 func (u *Uploads) inTx(ctx context.Context, scope database.Scope, fn func(context.Context, pgx.Tx) error) error {
@@ -90,11 +120,11 @@ func (u *Uploads) now() time.Time {
 	return clock.Now(u.Now)
 }
 
-const uploadColumns = `id, purpose, content_type, max_bytes, object_ref, status, size, sha256, used_by, expires_at, created_at, created_by, updated_at, version`
+const uploadColumns = `id, purpose, content_type, max_bytes, object_ref, via, status, size, sha256, used_by, expires_at, created_at, created_by, updated_at, version`
 
 func scanUpload(row pgx.Row) (Upload, error) {
 	var up Upload
-	err := row.Scan(&up.ID, &up.Purpose, &up.ContentType, &up.MaxBytes, &up.ObjectRef, &up.Status, &up.Size, &up.SHA256, &up.UsedBy, &up.ExpiresAt,
+	err := row.Scan(&up.ID, &up.Purpose, &up.ContentType, &up.MaxBytes, &up.ObjectRef, &up.Via, &up.Status, &up.Size, &up.SHA256, &up.UsedBy, &up.ExpiresAt,
 		&up.CreatedAt, &up.CreatedBy, &up.UpdatedAt, &up.Version)
 	return up, errs.Wrapf(err, "scan upload")
 }
@@ -115,8 +145,10 @@ func readUpload(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Upload
 	return up, nil
 }
 
-// Create starts an upload in the request's transaction.
-func (u *Uploads) Create(ctx context.Context, purpose, contentType string) (Upload, error) {
+// Create starts an upload in the request's transaction, its bytes to go
+// via the store (ViaStore or "": presigned when the store can, else the
+// API's path) or the API (ViaAPI); the row records which URL it was given.
+func (u *Uploads) Create(ctx context.Context, purpose, contentType, via string) (Upload, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Upload{}, err
@@ -127,14 +159,21 @@ func (u *Uploads) Create(ctx context.Context, purpose, contentType string) (Uplo
 	if !UploadTypes[contentType] {
 		return Upload{}, problem.Unprocessable("payables.unsupported_content_type", "Documents are PDF, PNG, JPEG or XML.")
 	}
+	if via != "" && via != ViaStore && via != ViaAPI {
+		return Upload{}, problem.Unprocessable("payables.unknown_upload_via", "Uploads go via store or api.")
+	}
 	if u == nil || u.Objects == nil {
 		return Upload{}, problem.Unavailable("This server has no object storage; send documents of up to 5 MB in the request.", 0)
 	}
+	if _, presigns := u.Objects.(blobstore.Presigner); via != ViaAPI && presigns {
+		via = ViaStore
+	} else {
+		via = ViaAPI
+	}
 	id := uuid.Must(uuid.NewV7())
-	up := Upload{ID: id, Purpose: purpose, ContentType: contentType, MaxBytes: MaxUpload, ObjectRef: blobstore.Key(p.TenantID, blobstore.KindUploads, id.String()),
-		Status: "open", ExpiresAt: u.now().Add(UploadTTL).UTC(), CreatedBy: p.ID}
-	created, err := scanUpload(tx.QueryRow(ctx, `INSERT INTO payables.upload (tenant_id, id, purpose, content_type, max_bytes, object_ref, status, expires_at, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8) RETURNING `+uploadColumns, p.TenantID, id, purpose, contentType, MaxUpload, up.ObjectRef, up.ExpiresAt, p.ID))
+	ref, expires := blobstore.Key(p.TenantID, blobstore.KindUploads, id.String()), u.now().Add(UploadTTL).UTC()
+	created, err := scanUpload(tx.QueryRow(ctx, `INSERT INTO payables.upload (tenant_id, id, purpose, content_type, max_bytes, object_ref, via, status, expires_at, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'open', $8, $9) RETURNING `+uploadColumns, p.TenantID, id, purpose, contentType, MaxUpload, ref, via, expires, p.ID))
 	if err != nil {
 		return Upload{}, fmt.Errorf("payables: create upload %s: %w", id, err)
 	}
@@ -155,13 +194,24 @@ type Target struct {
 	URL     string
 	Method  string
 	Headers map[string]string
+	Via     string // ViaStore or ViaAPI
+}
+
+// hosted reports whether the upload's bytes come to the API's own path:
+// one created via the API, or any when the store cannot presign (a row
+// from before the via column defaults to the store, ADR-0020 As built).
+func (u *Uploads) hosted(up Upload) bool {
+	_, presigns := u.Objects.(blobstore.Presigner)
+	return up.Via == ViaAPI || !presigns
 }
 
 // Target makes the URL for an upload of the tenant: presigned on the store
-// when it can, else the API's own signed path.
+// unless the upload is hosted, else the API's own signed path. Via is
+// where it sends the bytes.
 func (u *Uploads) Target(ctx context.Context, tenant uuid.UUID, up Upload) (Target, error) {
-	t := Target{Method: http.MethodPut, Headers: map[string]string{"Content-Type": up.ContentType}}
-	if p, ok := u.Objects.(blobstore.Presigner); ok {
+	t := Target{Method: http.MethodPut, Headers: map[string]string{"Content-Type": up.ContentType}, Via: ViaAPI}
+	if p, ok := u.Objects.(blobstore.Presigner); ok && !u.hosted(up) {
+		t.Via = ViaStore
 		var err error
 		if t.URL, err = p.PresignPut(ctx, up.ObjectRef, up.ContentType, up.ExpiresAt.Sub(u.now())); err != nil {
 			return Target{}, problem.Unavailable("The object store did not issue an upload URL; try again.", 30).WithCause(err)
@@ -182,13 +232,21 @@ func (u *Uploads) sign(tenant, id uuid.UUID, expires string) string {
 
 // ServeHTTP receives PUT /v1/uploads/{id}/content: the API-hosted upload,
 // authenticated by the signature in the URL and bounded by the upload's
-// size limit, stored where the upload says and marked received.
+// size limit, streamed into the store where the upload says and marked
+// received.
 func (u *Uploads) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err := u.receive(w, r); err != nil {
 		problem.Write(w, r, problem.From(err))
+		return
 	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
+// receive checks the URL and the upload before reading a byte, spools the
+// body to a temporary file while measuring and hashing it, then stores it
+// and marks the upload received under the upload's lock. No transaction is
+// open while the client sends: a slow client holds a temporary file and a
+// receiving slot, never a database connection.
 func (u *Uploads) receive(w http.ResponseWriter, r *http.Request) error {
 	id, tenant, err := u.checkURL(r)
 	if err != nil {
@@ -197,32 +255,133 @@ func (u *Uploads) receive(w http.ResponseWriter, r *http.Request) error {
 	if u.Objects == nil {
 		return problem.Unavailable("This server has no object storage.", 0)
 	}
-	return u.inTx(r.Context(), database.Scope{Role: u.AppRole, TenantID: tenant}, func(ctx context.Context, tx pgx.Tx) error {
+	streamer, ok := u.Objects.(blobstore.Streamer)
+	if !ok {
+		return problem.Unavailable("This server's object storage cannot receive uploads.", 0)
+	}
+	scope := database.Scope{Role: u.AppRole, TenantID: tenant}
+	up, err := u.expect(r, scope, id)
+	if err != nil {
+		return err
+	}
+	release, err := u.slot()
+	if err != nil {
+		return err
+	}
+	defer release()
+	doc, err := u.spool(w, r, up.MaxBytes)
+	if err != nil {
+		return err
+	}
+	defer doc.discard()
+	return u.inTx(r.Context(), scope, func(ctx context.Context, tx pgx.Tx) error {
 		up, err := readUpload(ctx, tx, id, true)
 		if err != nil {
 			return err
 		}
 		if up.Status != "open" {
-			return problem.Conflict("payables.upload_closed", "This upload has already received its document.")
+			return errUploadClosed
 		}
-		if ct := r.Header.Get("Content-Type"); ct != up.ContentType {
-			return problem.Unprocessable("payables.upload_content_type", "Send the document as "+up.ContentType+", the type the upload was created for.")
-		}
-		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, up.MaxBytes))
-		if err != nil {
-			return problem.New(http.StatusRequestEntityTooLarge, "payables.document_too_large", "Document too large",
-				fmt.Sprintf("Uploads are at most %d MB.", up.MaxBytes>>20)).WithCause(err)
-		}
-		if err := u.store(ctx, up, body); err != nil {
+		if err := u.store(ctx, streamer, up, doc); err != nil {
 			return err
 		}
-		sum := sha256.Sum256(body)
-		if _, err := tx.Exec(ctx, `UPDATE payables.upload SET status = 'received', size = $2, sha256 = $3, version = version + 1 WHERE id = $1`, id, len(body), sum[:]); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE payables.upload SET status = 'received', size = $2, sha256 = $3, version = version + 1 WHERE id = $1 AND status = 'open'`,
+			id, doc.size, doc.sum[:]); err != nil {
 			return fmt.Errorf("payables: mark upload %s received: %w", id, err)
 		}
-		w.WriteHeader(http.StatusNoContent)
 		return nil
 	})
+}
+
+var errUploadClosed = problem.Conflict("payables.upload_closed", "This upload has already received its document.")
+
+// expect reads the upload the URL names and refuses, before the body is
+// read, what the upload will not take: one already received or used, one
+// whose URL is the store's, another content type, or a body that says it
+// is too large.
+func (u *Uploads) expect(r *http.Request, scope database.Scope, id uuid.UUID) (Upload, error) {
+	var up Upload
+	err := u.inTx(r.Context(), scope, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		up, err = readUpload(ctx, tx, id, false)
+		return err
+	})
+	switch {
+	case err != nil:
+		return Upload{}, err
+	case !u.hosted(up):
+		// Its bytes go to the store's presigned URL; this path was never given out for it.
+		return Upload{}, problem.Forbidden("payables.invalid_upload_url", "The upload URL is not valid.")
+	case up.Status != "open":
+		return Upload{}, errUploadClosed
+	case r.Header.Get("Content-Type") != up.ContentType:
+		return Upload{}, problem.Unprocessable("payables.upload_content_type", "Send the document as "+up.ContentType+", the type the upload was created for.")
+	case r.ContentLength > up.MaxBytes:
+		return Upload{}, tooLarge(up.MaxBytes, nil)
+	}
+	return up, nil
+}
+
+// tooLarge refuses a body above the upload's limit; cause is the reader's
+// error when the body passed it, nil when it said so before.
+func tooLarge(limit int64, cause error) *problem.Problem {
+	return problem.New(http.StatusRequestEntityTooLarge, "payables.document_too_large", "Document too large",
+		fmt.Sprintf("Uploads are at most %d MB.", limit>>20)).WithCause(cause)
+}
+
+// slot takes one of the replica's receiving slots, or answers 503 while
+// all are taken; release gives it back.
+func (u *Uploads) slot() (release func(), err error) {
+	u.slotsOnce.Do(func() { u.slots = make(chan struct{}, cmp.Or(u.MaxReceiving, MaxReceiving)) })
+	select {
+	case u.slots <- struct{}{}:
+		return func() { <-u.slots }, nil
+	default:
+		return nil, problem.Unavailable("This server is receiving as many documents as it can; send it again shortly.", 5)
+	}
+}
+
+// spooled is a document received on the API's path, in a temporary file.
+type spooled struct {
+	file *os.File
+	size int64
+	sum  [32]byte
+}
+
+// reader reads the document from its start.
+func (d spooled) reader() io.Reader { return io.NewSectionReader(d.file, 0, d.size) }
+
+// discard removes the temporary file.
+func (d spooled) discard() {
+	// Only read from; the file is removed below whatever closing says.
+	_ = d.file.Close()
+	// A file left behind holds one tenant's document in the replica's
+	// private /tmp, an emptyDir that goes with the pod.
+	_ = os.Remove(d.file.Name())
+}
+
+// spool copies the body to a temporary file, at most limit bytes, hashing
+// it on the way: a larger body is refused when it passes the limit, and
+// nothing is stored.
+func (u *Uploads) spool(w http.ResponseWriter, r *http.Request, limit int64) (spooled, error) {
+	f, err := os.CreateTemp(u.SpoolDir, "upload-*")
+	if err != nil {
+		return spooled{}, problem.Unavailable("This server cannot take documents now; send it again.", 30).WithCause(err)
+	}
+	doc := spooled{file: f}
+	h := sha256.New()
+	doc.size, err = io.Copy(io.MultiWriter(f, h), http.MaxBytesReader(w, r.Body, limit))
+	var over *http.MaxBytesError
+	switch {
+	case errors.As(err, &over):
+		doc.discard()
+		return spooled{}, tooLarge(limit, err)
+	case err != nil:
+		doc.discard()
+		return spooled{}, problem.Unavailable("The document did not arrive whole; send it again.", 0).WithCause(err)
+	}
+	h.Sum(doc.sum[:0])
+	return doc, nil
 }
 
 // checkURL verifies the signature and expiry of an upload URL and returns
@@ -241,15 +400,15 @@ func (u *Uploads) checkURL(r *http.Request) (id, tenant uuid.UUID, err error) {
 	return id, tenant, nil
 }
 
-// store puts an upload's document where the upload says.
-func (u *Uploads) store(ctx context.Context, up Upload, body []byte) error {
-	err := u.Objects.Put(ctx, up.ObjectRef, body, blobstore.PutOptions{ContentType: up.ContentType})
+// store streams an upload's document where the upload says.
+func (u *Uploads) store(ctx context.Context, s blobstore.Streamer, up Upload, doc spooled) error {
+	err := s.PutStream(ctx, up.ObjectRef, doc.reader(), doc.size, doc.sum, blobstore.PutOptions{ContentType: up.ContentType})
 	if errors.Is(err, blobstore.ErrExists) {
 		// A PUT that stored the object but did not get to record it (a
 		// failed statement, a lost answer) is sent again: the same bytes
 		// are fine, others are not, since the store keeps the first.
 		stored, _, gerr := u.Objects.Get(ctx, up.ObjectRef)
-		if gerr != nil || !bytes.Equal(stored, body) {
+		if gerr != nil || sha256.Sum256(stored) != doc.sum {
 			return problem.Conflict("payables.upload_conflict", "This upload already holds a different document; start a new upload.")
 		}
 		err = nil
@@ -319,7 +478,7 @@ func (e *Endpoints) uploadToAPI(ctx context.Context, tenant uuid.UUID, up Upload
 	if err != nil {
 		return nil, err
 	}
-	out.URL, out.Headers = t.URL, gen.UploadHeaders(t.Headers)
+	out.URL, out.Headers, out.Via = t.URL, gen.UploadHeaders(t.Headers), t.Via
 	return out, nil
 }
 
@@ -329,7 +488,7 @@ func (e *Endpoints) CreateUpload(ctx context.Context, req *gen.UploadCreate, _ g
 	if err != nil {
 		return nil, err
 	}
-	up, err := e.Uploads.Create(ctx, req.Purpose, req.ContentType)
+	up, err := e.Uploads.Create(ctx, req.Purpose, req.ContentType, req.Via.Or(ViaStore))
 	if err != nil {
 		return nil, err
 	}

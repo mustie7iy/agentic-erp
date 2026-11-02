@@ -1865,8 +1865,11 @@ items of GR/IR orders.
 
 `upload` (ADR-0020) records a direct upload of a document above the
 request limit: purpose, content type, size limit, the object key the bytes
-go to, until when, and its status (`open`, `received` through the API,
-`used` by the invoice in `used_by`, with size and hash once known).
+go to, where its URL sends them (`via`: `store`, a presigned URL of the
+store, or `api`, the API's own signed path, which streams them into the
+store; migration 000194, ADR-0020 As built 2026-11-01), until when, and its
+status (`open`, `received` through the API, `used` by the invoice in
+`used_by`, with size and hash once known).
 
 `down_payment_request` (T46b, ADR-0037) is a request to pay a supplier in
 advance of an invoice still to come (SAP F-47, special G/L F, a noted

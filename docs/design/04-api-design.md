@@ -434,7 +434,7 @@ once the pilot partner consumes `/v1`, only operations marked
 |---|---|
 | Requests per tenant | 2,000/s sustained, burst 10,000 |
 | Requests per principal | 50/s (agents configurable per profile) |
-| Request body | 5 MB (documents are stored in object storage and read back through `GET .../document` and `.../content`; larger ones, up to 50 MB, go through `POST /v1/uploads`: a presigned `PUT` to the store, or a signed path on the API, then `upload_id` in the consuming operation, ADR-0020) |
+| Request body | 5 MB (documents are stored in object storage and read back through `GET .../document` and `.../content`; larger ones, up to 50 MB, go through `POST /v1/uploads`: a presigned `PUT` to the store, or a signed path on the API, which a client asks for with `via: api` whatever the store and which streams the bytes into the store, then `upload_id` in the consuming operation, ADR-0020) |
 | Lines per document | 10,000 (larger loads use import operations) |
 | `page_size` | 500 |
 

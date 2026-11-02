@@ -89,17 +89,28 @@ type s3Error struct {
 }
 
 func (s S3) do(ctx context.Context, method, key string, body []byte, headers map[string]string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, method, s.url(key), bytes.NewReader(body))
+	return s.send(ctx, method, key, bytes.NewReader(body), int64(len(body)), sha256.Sum256(body), headers)
+}
+
+// send makes a signed request of the object with a body of size bytes
+// whose SHA-256 is sum. One hash serves twice: hex as the signed payload
+// hash, base64 as a PUT's x-amz-checksum-sha256, which S3 requires of a
+// write to an Object Lock bucket (T41b) and checks against the body it
+// received. S3 needs a PUT's length before its bytes (it refuses a chunked
+// body without x-amz-decoded-content-length), so a streamed body is
+// measured first.
+func (s S3) send(ctx context.Context, method, key string, body io.Reader, size int64, sum [32]byte, headers map[string]string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, method, s.url(key), body)
 	if err != nil {
 		return nil, fmt.Errorf("blobstore: %w", err)
+	}
+	req.ContentLength = size
+	if size == 0 {
+		req.Body = http.NoBody // a length of 0 with a body would be sent chunked
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	// One hash serves twice: hex as the signed payload hash, base64 as a
-	// PUT's x-amz-checksum-sha256, which S3 requires of a write to an
-	// Object Lock bucket (T41b) and checks against the body it received.
-	sum := sha256.Sum256(body)
 	if method == http.MethodPut {
 		req.Header.Set("x-amz-checksum-sha256", base64.StdEncoding.EncodeToString(sum[:]))
 	}
@@ -127,6 +138,12 @@ func (s S3) failure(resp *http.Response, method, key string) error {
 
 // Put implements Store.
 func (s S3) Put(ctx context.Context, key string, content []byte, opts PutOptions) error {
+	return s.PutStream(ctx, key, bytes.NewReader(content), int64(len(content)), sha256.Sum256(content), opts)
+}
+
+// PutStream implements Streamer: the PUT sends body as it reads it, with
+// size as its Content-Length and sum signed and as its checksum.
+func (s S3) PutStream(ctx context.Context, key string, body io.Reader, size int64, sum [32]byte, opts PutOptions) error {
 	if err := checkKey(key); err != nil {
 		return err
 	}
@@ -141,7 +158,7 @@ func (s S3) Put(ctx context.Context, key string, content []byte, opts PutOptions
 	if s.Encryption.KeyID != "" {
 		headers["x-amz-server-side-encryption-aws-kms-key-id"] = s.Encryption.KeyID
 	}
-	resp, err := s.do(ctx, http.MethodPut, key, content, headers)
+	resp, err := s.send(ctx, http.MethodPut, key, body, size, sum, headers)
 	if err != nil {
 		return err
 	}
