@@ -362,7 +362,8 @@ func payablesEndpoints(cfg Config, uploads *payables.Uploads) *payables.Endpoint
 
 // uploads is the API's direct-upload service (ADR-0020).
 func uploads(cfg Config) *payables.Uploads {
-	return &payables.Uploads{Objects: cfg.Objects, Secret: cfg.UploadKey, PublicURL: cfg.PublicURL, Pool: cfg.Pool, AppRole: cfg.AppRole, Now: cfg.Now}
+	return &payables.Uploads{Objects: cfg.Objects, Secret: cfg.UploadKey, PublicURL: cfg.PublicURL, Pool: cfg.Pool, AppRole: cfg.AppRole, Now: cfg.Now,
+		Limits: cfg.Limits}
 }
 
 // opener opens approval requests with the tenant's policies and roles.

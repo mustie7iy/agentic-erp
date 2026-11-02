@@ -167,13 +167,8 @@ it has passed its own checks.
   upload takes one slot on a replica at most: its document sent again
   while it is still arriving there is 503 (go-reviewer, round 1: before,
   one signed URL could take all four). The slots are the replica's, shared
-  by every tenant of the cell, and the path is outside the cell's request
-  quotas (it was before, too): one person of one tenant who creates four
-  uploads and sends them slowly holds every slot of a replica for five
-  minutes, and every other tenant's upload to that replica is refused with
-  503 meanwhile, again each time. With 30 seconds this was a nuisance; at
-  five minutes it is the availability cost of the decision, asked of the
-  product owner (a share of the slots per tenant, or quotas on the path).
+  by every tenant of the cell; how one tenant is kept from holding them
+  all is the next section's decision.
   The router and erp-web hold no slot: a connection, a goroutine and a
   buffer each, for up to six and seven minutes. The temporary file is
   removed when the request ends, whether received, refused or cut
@@ -181,9 +176,15 @@ it has passed its own checks.
 - **Not scoped to the path.** Nothing in the deployment cuts an upload at
   30 or 60 seconds: the balancers in front of the router and erp-web are
   network load balancers passing TCP (deploy/terraform/modules/global),
-  whose idle timeout, 350 seconds by AWS's default (from memory, for a
-  specialist to confirm), ends only an idle connection, and an upload
-  sending is not idle; erp-web reaches the router's Service and the router
+  whose listeners are TCP (`protocol = "TCP"`, no idle timeout set) and
+  so time a flow out after 350 seconds, AWS's default for a TCP listener
+  (settable from 60 to 6000 seconds by the `tcp.idle_timeout.seconds`
+  listener attribute; a TLS listener's is fixed at 350). A flow expires
+  only when no data flows either way, so an upload sending is not idle.
+  A TCP idle timeout set above 350 seconds while the target's ENI has a
+  lower `TcpEstablishedTimeout` drops packets, so raising it is not a free
+  knob ([Network Load Balancers][nlb], [Update the idle timeout][nlb-idle],
+  read 2026-11-02); erp-web reaches the router's Service and the router
   each cell's Service directly, with no ingress or proxy between. Two
   limits stay for every request alike, and so for the upload: a rollout
   drains each replica for `ERP_SHUTDOWN_TIMEOUT` (20 s) before an upload
@@ -215,3 +216,45 @@ it has passed its own checks.
   its document is paused answered at once); `TestCaptureDeadlines` holds
   erp-web's values, written out since erp-web links no `api` package, to
   the router's and the margins.
+
+## As built: a tenant's share of the slots, and its quota on the path (2026-11-02, product owner 2026-11-02)
+With five minutes per upload, one tenant sending four documents slowly
+held every receiving slot of a replica, and the path was outside the
+request quotas. The product owner chose both remedies offered (security
+posture, PO 2026-11-02):
+- **A tenant's share of a replica's slots.** One tenant holds at most
+  `payables.MaxReceivingPerTenant` (two) of a replica's
+  `payables.MaxReceiving` (four) slots at once, configurable beside it
+  (`Uploads.MaxReceivingPerTenant`, 0 for the constant). Its third
+  concurrent document on that replica is 503 with `Retry-After: 5` and a
+  detail of its own ("as many of your documents at once as one tenant
+  may"), and other tenants still take the remaining slots. The tenant is
+  the one the URL's verified signature names; a slot comes back when its
+  request ends, whatever the outcome. An upload sent again while it is
+  arriving is still refused first, as before. Two tenants can still fill
+  a replica together; with a cell's replicas behind the balancer, a
+  tenant's retry may land on another replica, whose share is its own.
+- **The tenant's request quota on the path.** A `PUT` on the API's path is
+  charged to the request quota of the tenant its URL is signed for
+  (`ERP_RATE_LIMIT_TENANT`, 04 §4.11), the same bucket that tenant's API
+  requests spend on the replica (`ratelimit.Limiter.ChargeTenant`, which
+  shares the API middleware's charging and refusal: `Uploads.Limits` is
+  the API's limiter). It is charged only once the signature and expiry
+  check out, so a forged or expired URL spends no tenant's quota (it is
+  refused 403 as before, uncharged), and before the upload is read from
+  the database or its body read. Over quota it is the API's 429
+  `request.rate_limited` with `Retry-After`, and every answer after the
+  charge carries the API's `RateLimit-Limit`, `RateLimit-Remaining` and
+  `RateLimit-Reset`.
+- **Decided by default: no principal quota on the path.** The path has
+  no principal: the signed URL names the tenant and the upload, not who
+  created it, and its holder may be erp-web relaying for a person or a
+  client the URL was handed to. Charging the creator's principal bucket
+  would mean looking up the creator's issuer and subject (the bucket's
+  key; the upload records only `created_by`) before the quota check, and
+  spending a person's quota on a holder's retries; the tenant quota
+  and the per-tenant share already bound what one URL holder can take.
+  So only the tenant quota applies (for the product owner to overrule).
+
+[nlb]: https://docs.aws.amazon.com/elasticloadbalancing/latest/network/network-load-balancers.html
+[nlb-idle]: https://docs.aws.amazon.com/elasticloadbalancing/latest/network/update-idle-timeout.html

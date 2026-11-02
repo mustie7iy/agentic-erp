@@ -441,8 +441,9 @@ once the pilot partner consumes `/v1`, only operations marked
 | Lines per document | 10,000 (larger loads use import operations) |
 | `page_size` | 500 |
 
-While quotas are on (the default), every response to an authenticated request
-carries `RateLimit-Limit`,
+While quotas are on (the default), every response to an authenticated request,
+and to a `PUT` on the API's own upload path once its URL's signature checks out
+(charged to that URL's tenant alone, ADR-0020), carries `RateLimit-Limit`,
 `RateLimit-Remaining` and `RateLimit-Reset` (set by `internal/platform/ratelimit`).
 The contract states them once, in `info.description`, and declares them on no
 response: declared on each response of every operation, they made the generated

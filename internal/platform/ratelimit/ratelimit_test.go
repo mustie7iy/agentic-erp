@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -171,5 +173,39 @@ func TestAllow(t *testing.T) {
 	}
 	if !l.Allow("a", Quota{}) {
 		t.Error("no quota: got refused, want allowed")
+	}
+}
+
+// TestChargeTenant: a request outside authentication is charged to its
+// tenant's bucket alone, the one the API's requests of that tenant spend,
+// reports it with the API's headers, and over quota gets the API's 429; a
+// nil limiter charges nothing.
+func TestChargeTenant(t *testing.T) {
+	now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	l := &Limiter{Tenant: Quota{Rate: 1, Burst: 2}, Principal: Quota{Rate: 1, Burst: 1}, Now: func() time.Time { return now }}
+	ten := uuid.New()
+	expect(t, "the API's request", serve(l, ten, "alice"), 204, map[string]string{"RateLimit-Limit": "1"})
+	rec := httptest.NewRecorder()
+	if err := l.ChargeTenant(rec, ten); err != nil {
+		t.Fatalf("the tenant's second token: got %v, want nil", err)
+	}
+	// Only the tenant's quota applies: the principal's tighter one is not reported.
+	expect(t, "charged", rec, 200, map[string]string{"RateLimit-Limit": "2", "RateLimit-Remaining": "0", "RateLimit-Reset": "2"})
+	rec = httptest.NewRecorder()
+	err := l.ChargeTenant(rec, ten)
+	var p *problem.Problem
+	if !errors.As(err, &p) {
+		t.Fatalf("over quota: got %v, want a problem", err)
+	}
+	if p.Status != http.StatusTooManyRequests || p.Code != "request.rate_limited" || p.RetryAfter != 1 {
+		t.Errorf("over quota: got %d %s Retry-After %d, want 429 request.rate_limited Retry-After 1", p.Status, p.Code, p.RetryAfter)
+	}
+	expect(t, "over quota", rec, 200, map[string]string{"RateLimit-Limit": "2", "RateLimit-Remaining": "0"})
+	if err := l.ChargeTenant(httptest.NewRecorder(), uuid.New()); err != nil {
+		t.Errorf("another tenant: got %v, want nil", err)
+	}
+	var none *Limiter
+	if err := none.ChargeTenant(httptest.NewRecorder(), ten); err != nil {
+		t.Errorf("no limiter: got %v, want nil", err)
 	}
 }
