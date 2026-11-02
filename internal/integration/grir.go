@@ -604,7 +604,7 @@ func (l *loader) grirPosting(order string, items []grirItem) ledger.Posting {
 		balance, lc := it.balance, it.lc
 		item := ledger.GRIRItem{PurchaseOrderID: l.refs["EKKO/"+order], POItemNo: it.no, Quantity: money.PlainQuantity(it.qty), Unit: unit,
 			TakesOver: &balance, TakenOver: it.taken, Text: new("SAP " + order + "/" + it.ebelp)}
-		if foreign { // a position in company currency keeps its local amounts equal to its own (ledger.checkForeignTakeOver)
+		if foreign { // a position in company currency keeps its local amounts equal to its own (ledger's postingRates and checkForeignTakeOver)
 			item.TakesOverLC = &lc
 		}
 		in.GRIR = append(in.GRIR, item)

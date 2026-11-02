@@ -388,8 +388,10 @@ GR/IR rules as built (T33b):
   document amount, the first by document number and line of equal ones
   (`sourceRate`). The ledger takes a rate and local balances together only,
   on every item of a take-over in a foreign currency
-  (`checkForeignTakeOver`; a 500 otherwise, a caller's error), so an order
-  in company currency is taken over with neither. A top-up moves both
+  (`checkForeignTakeOver`; a 500 otherwise, a caller's error), and a rate
+  only on an entry in a foreign currency (`postingRates`, 422
+  `ledger.rate_not_recordable` otherwise; ADR-0005 As built, batch 40), so
+  an order in company currency is taken over with neither. A top-up moves both
   balances from what the earlier take-overs hold (`GRIRTakenOver.BalanceLC`,
   guarded as the quantity and balance are, 409
   `ledger.gr_ir_position_exists`). An order in company currency is taken

@@ -129,18 +129,19 @@ func checkTakeOver(in Posting) error {
 
 // checkForeignTakeOver refuses local balances given (GRIRItem.TakesOverLC)
 // or a rate given (Posting.Rate) on an entry with GR/IR items unless both
-// are, for every item, on a take-over in a foreign document currency: a
+// are, for every item: local amounts kept as the source system booked
+// them are recorded at its rate, not the average one. Neither is taken on
+// a goods movement, an invoice or a clearing, which checkTakeOver and the
+// item kinds then refuse with the local balance. That the entry is in a
+// foreign document currency is postingRates' rule, every given rate's: a
 // position in local currency keeps its local amounts equal to its
-// transaction amounts (localMove), and local amounts kept as the source
-// system booked them are recorded at its rate, not the average one.
-// Neither is taken on a goods movement, an invoice or a clearing, which
-// checkTakeOver and the item kinds then refuse with the local balance.
+// transaction amounts (localMove).
 func checkForeignTakeOver(in Posting, local string) error {
 	given := slices.ContainsFunc(in.GRIR, func(it GRIRItem) bool { return it.TakesOverLC != nil })
 	if !given && in.Rate == nil {
 		return nil
 	}
-	if in.Rate == nil || in.Currency == local || slices.ContainsFunc(in.GRIR, func(it GRIRItem) bool { return it.TakesOverLC == nil }) {
+	if in.Rate == nil || slices.ContainsFunc(in.GRIR, func(it GRIRItem) bool { return it.TakesOverLC == nil }) {
 		return fmt.Errorf("ledger: GR/IR local balances taken over and a rate are given together, on every item of a take-over in a foreign "+
 			"currency; got an entry in %s, local currency %s, rate given %t, local balances given %t", in.Currency, local, in.Rate != nil, given)
 	}

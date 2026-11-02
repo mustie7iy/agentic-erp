@@ -891,9 +891,17 @@ func rateOfType(ctx context.Context, tx pgx.Tx, rateType, from, to string, date 
 // (given, Posting.Rate). A rate whose 12-decimal form is zero, the
 // reciprocal of a recorded rate above 2e12, or a given one that is not
 // recordable (RecordableRate), cannot be recorded on the entry, so the
-// posting is refused (F19).
+// posting is refused (F19). A rate is given only on an entry in a
+// foreign currency: one in the company's currency has its local amounts
+// equal to its amounts, at the rate 1 the entry records, and a given rate
+// would make them differ. This is the rule's one place, for entries with
+// GR/IR items too (ADR-0005 As built: a given rate in local currency).
 func postingRates(ctx context.Context, tx pgx.Tx, tc, lc, gc string, date time.Time, given *big.Rat) (toLC, toGC exchange, err error) {
 	switch {
+	case given != nil && tc == lc:
+		return exchange{}, exchange{}, problem.Unprocessable("ledger.rate_not_recordable",
+			fmt.Sprintf("A source system's rate is recorded only on an entry in a foreign currency; this entry is in the company's currency, %s, whose amounts are its local amounts.", lc),
+			problem.FieldError{Field: "currency", Code: "rate_in_local_currency", Message: "a currency other than " + lc})
 	case given != nil && !RecordableRate(given):
 		return exchange{}, exchange{}, problem.Unprocessable("ledger.rate_not_recordable",
 			fmt.Sprintf("The source system's rate from %s to %s, %s, is not above zero to the 12 decimals a journal entry records, or not below 10^16.",

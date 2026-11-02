@@ -53,6 +53,13 @@
         "r": "found in apinames4's sweep of the class (review:batch26 bootstrap leaf) · internal/ledger journal.go prepare (:948), postReversal (:1190), checkedAccounts (:663-736), :972, :1070-1096, manual.go postableEntity (:196) and :35, targets.go, assignment.go · reached through ledger ports.go Post/Reverse, bankposting.go PostBank, dpclearing.go ClearDownPayments · approveApprovalRequest documents the parked entry's fields",
         "src": "review:batch26",
         "c": []
+       },
+       {
+        "s": "D",
+        "t": "A source system's rate (Posting.Rate) is taken only on an entry in a foreign currency (found in the batch 40 integration review): postingRates converted an entry in the company's own currency at a given rate, so its local amounts differed from its amounts; a rate given there is refused 422 ledger.rate_not_recordable (field error rate_in_local_currency), entries with GR/IR items included. No path reaches it today: the migration gives a rate only to a document or order whose currency is not the company's",
+        "r": "internal/ledger journal.go postingRates (the rule's one place) · grir_takeover.go checkForeignTakeOver (the local-currency condition moved to postingRates) · TestSourceRatePosting (sourceRateRefusals), TestGRIRTakeOverRefusals · ADR-0005 As built 2026-11-02 (batch 40)",
+        "src": "review:batch40",
+        "c": []
        }
       ]
      },

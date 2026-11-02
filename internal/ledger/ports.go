@@ -107,9 +107,10 @@ type Posting struct {
 	// of the average rate valid on the posting date: a document migrated
 	// in its document currency, each line keeping the local amount the
 	// source system posted (PostingLine.LC; ADR-0005 As built). A line
-	// that keeps none is converted at it. nil: the average rate. An entry
-	// with GR/IR items takes one only when it takes positions over in a
-	// foreign document currency (GRIRItem.TakesOverLC).
+	// that keeps none is converted at it. nil: the average rate. Only an
+	// entry in a foreign currency takes one (postingRates, 422 otherwise);
+	// one with GR/IR items only when it takes positions over
+	// (GRIRItem.TakesOverLC).
 	Rate *big.Rat
 }
 
@@ -349,8 +350,9 @@ func (Postings) GRIROrder(ctx context.Context, legalEntity, order uuid.UUID) (GR
 }
 
 // Post posts the entry in the leading ledger; one with GR/IR items books
-// their lines too (postGRIR), and takes a given rate only as a take-over
-// in a foreign currency (checkForeignTakeOver, the rule's one place).
+// their lines too (postGRIR). A given rate is taken only on an entry in
+// a foreign currency (postingRates), with GR/IR items only by a take-over
+// giving every item's local balance (checkForeignTakeOver).
 func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 	if len(in.GRIR) > 0 {
 		return p.postGRIR(ctx, in)

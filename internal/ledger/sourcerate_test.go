@@ -1,6 +1,7 @@
 package ledger_test
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math/big"
@@ -31,8 +32,9 @@ func kept(m money.Minor) *money.Minor { return &m }
 // in local currency alone), and converts the group amounts together so
 // they balance; its supplier item is then revalued and counted among the
 // open foreign-currency items as an item posted at the average rate is.
-// A rate that is not above zero to 12 decimals, a line of no amount in
-// either currency and a given rate with GR/IR items are refused.
+// A rate that is not above zero to 12 decimals, a rate given on an entry
+// in the company's own currency, a line of no amount in either currency
+// and a given rate with GR/IR items are refused.
 func TestSourceRatePosting(t *testing.T) {
 	e := setup(t)
 	revaluationSetup(t, e, true)
@@ -131,31 +133,42 @@ func TestEntryCurrencies(t *testing.T) {
 	}
 }
 
-// sourceRateRefusals: what a posting at a source system's rate refuses.
+// sourceRateRefusals: what a posting at a source system's rate refuses,
+// in USD unless a case names its currency. A rate given on an entry in
+// EUR, the company's own currency, is refused even at 1, where it would
+// change nothing, and at a rate that would make each local amount differ
+// from its amount (ADR-0005 As built: a given rate in local currency).
 func sourceRateRefusals(t *testing.T, e env, expense, ap uuid.UUID) {
 	t.Helper()
 	tiny := new(big.Rat).SetFrac64(1, 10_000_000_000_000)
+	local := []ledger.PostingLine{{AccountID: expense, Amount: 100}, {AccountID: ap, Amount: -100, PartnerID: &e.supplier}}
 	for _, c := range []struct {
-		name  string
-		rate  *big.Rat
-		lines []ledger.PostingLine
-		grir  bool
-		code  string
+		name     string
+		currency string
+		rate     *big.Rat
+		lines    []ledger.PostingLine
+		grir     bool
+		code     string
+		field    string // the field error's code, when the case checks it
 	}{
-		{"a rate that rounds to zero", tiny, []ledger.PostingLine{{AccountID: expense, Amount: 100, LC: kept(1)}, {AccountID: ap, Amount: -100, LC: kept(-1), PartnerID: &e.supplier}},
-			false, "ledger.rate_not_recordable"},
-		{"a rate of 10^16", new(big.Rat).SetFrac64(10_000_000_000_000_000, 1), []ledger.PostingLine{{AccountID: expense, Amount: 100, LC: kept(1)},
-			{AccountID: ap, Amount: -100, LC: kept(-1), PartnerID: &e.supplier}}, false, "ledger.rate_not_recordable"},
-		{"a negative rate", big.NewRat(-1, 1), []ledger.PostingLine{{AccountID: expense, Amount: 100, LC: kept(1)}, {AccountID: ap, Amount: -100, LC: kept(-1), PartnerID: &e.supplier}},
-			false, "ledger.rate_not_recordable"},
-		{"a line of no amount in either currency", big.NewRat(1, 1), []ledger.PostingLine{{AccountID: expense, Amount: 0, LC: kept(0)},
-			{AccountID: expense, Amount: 100, LC: kept(100)}, {AccountID: ap, Amount: -100, LC: kept(-100), PartnerID: &e.supplier}}, false, "ledger.zero_amount"},
-		{"GR/IR items", big.NewRat(1, 1), nil, true, ""},
+		{"a rate in the company's currency", "EUR", big.NewRat(92, 100), local, false, "ledger.rate_not_recordable", "rate_in_local_currency"},
+		{"a rate of 1 in the company's currency", "EUR", big.NewRat(1, 1), local, false, "ledger.rate_not_recordable", "rate_in_local_currency"},
+		{"a rate in the company's currency with local amounts kept", "EUR", big.NewRat(92, 100), []ledger.PostingLine{{AccountID: expense, Amount: 100, LC: kept(92)},
+			{AccountID: ap, Amount: -100, LC: kept(-92), PartnerID: &e.supplier}}, false, "ledger.rate_not_recordable", "rate_in_local_currency"},
+		{"a rate that rounds to zero", "", tiny, []ledger.PostingLine{{AccountID: expense, Amount: 100, LC: kept(1)}, {AccountID: ap, Amount: -100, LC: kept(-1), PartnerID: &e.supplier}},
+			false, "ledger.rate_not_recordable", ""},
+		{"a rate of 10^16", "", new(big.Rat).SetFrac64(10_000_000_000_000_000, 1), []ledger.PostingLine{{AccountID: expense, Amount: 100, LC: kept(1)},
+			{AccountID: ap, Amount: -100, LC: kept(-1), PartnerID: &e.supplier}}, false, "ledger.rate_not_recordable", ""},
+		{"a negative rate", "", big.NewRat(-1, 1), []ledger.PostingLine{{AccountID: expense, Amount: 100, LC: kept(1)}, {AccountID: ap, Amount: -100, LC: kept(-1), PartnerID: &e.supplier}},
+			false, "ledger.rate_not_recordable", ""},
+		{"a line of no amount in either currency", "", big.NewRat(1, 1), []ledger.PostingLine{{AccountID: expense, Amount: 0, LC: kept(0)},
+			{AccountID: expense, Amount: 100, LC: kept(100)}, {AccountID: ap, Amount: -100, LC: kept(-100), PartnerID: &e.supplier}}, false, "ledger.zero_amount", ""},
+		{"GR/IR items", "", big.NewRat(1, 1), nil, true, "", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
 				in := ledger.Posting{LegalEntityID: e.de, DocumentType: "SA", DocumentDate: date("2026-03-02"), PostingDate: date("2026-03-02"),
-					Currency: "USD", SourceContext: "integration", SourceDocumentID: uuid.New(), Lines: c.lines, Rate: c.rate}
+					Currency: cmp.Or(c.currency, "USD"), SourceContext: "integration", SourceDocumentID: uuid.New(), Lines: c.lines, Rate: c.rate}
 				if c.grir {
 					in.GRIR = []ledger.GRIRItem{{PurchaseOrderID: uuid.New(), POItemNo: 1, Quantity: "1", Unit: "EA"}}
 				}
@@ -167,6 +180,8 @@ func sourceRateRefusals(t *testing.T, e env, expense, ap uuid.UUID) {
 				t.Errorf("got %v, want an internal error", err)
 			case c.code != "" && got.Code != c.code:
 				t.Errorf("got %v, want %s", err, c.code)
+			case c.field != "" && (len(got.Errors) != 1 || got.Errors[0].Code != c.field):
+				t.Errorf("field errors: got %+v, want one %s", got.Errors, c.field)
 			}
 		})
 	}

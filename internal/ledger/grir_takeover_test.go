@@ -198,7 +198,7 @@ func TestGRIRTakeOverRefusals(t *testing.T) {
 		{"a local balance taken over other than read", staleLC, 409, "ledger.gr_ir_position_exists"},
 		{"a local balance out of range once moved", hugeLC, 422, "ledger.amount_too_large"},
 		{"a given rate with a receipt", rated, 500, ""},
-		{"a local balance in local currency", inLocal, 500, ""},
+		{"a local balance in local currency", inLocal, 422, "ledger.rate_not_recordable"},
 		{"a local balance without a rate", noRate, 500, ""},
 		{"a rate without local balances", noLC, 500, ""},
 		{"a local balance on a receipt", receiptLC, 500, ""},

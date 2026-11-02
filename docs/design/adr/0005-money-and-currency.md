@@ -289,3 +289,32 @@ a foreign currency, has the detail):
   in the order's currency (RWCUR), invoices' included, and that SAP values
   them in company code currency at the receipt's rate, posting the
   exchange difference of an invoice to an account of its own.
+
+## As built: a given rate only in a foreign currency (review:batch40, 2026-11-02)
+Found in the batch 40 integration review, decided by default (this ADR's
+local amounts are the transaction amounts on an entry in local currency,
+and the section of 2026-10-31 above gives a source system's rate only to a
+document in a foreign currency):
+- **The rule.** A source system's rate (`ledger.Posting.Rate`) is taken
+  only on an entry whose transaction currency is not the company's.
+  `postingRates` (internal/ledger/journal.go), which every posting that
+  takes a rate converts through, refuses it on an entry in the company's
+  currency, even at 1: 422 `ledger.rate_not_recordable`, field error
+  `rate_in_local_currency` on `currency`. Before, it converted such an
+  entry at the given rate, so its local amounts differed from its amounts.
+- **One place.** The rule holds for entries with GR/IR items too: grirfx's
+  `checkForeignTakeOver` still pairs a rate with every item's local balance
+  (`GRIRItem.TakesOverLC`), and the currency half of its check moved to
+  `postingRates`, so a take-over in local currency with both given is
+  refused 422 there rather than 500.
+- **The code.** The existing `ledger.rate_not_recordable` is reused, not a
+  new one: an entry in local currency records the rate 1, so no other
+  rate can be recorded on it, and the code is already listed on every
+  operation that reaches `postingRates`, so the contract does not change.
+  The field error's code tells the two causes apart.
+- **No caller tripped it.** The migration gives a rate only to a document
+  or an order whose currency is not its company's (`journalPosting`,
+  `grirPosting`); no other context sets one. Its tests and the walkthrough
+  pass unchanged. Tested on real PostgreSQL by `TestSourceRatePosting`
+  (a rate of 0.92 and of 1 in EUR, with and without local amounts kept)
+  and `TestGRIRTakeOverRefusals` (a take-over in local currency).
