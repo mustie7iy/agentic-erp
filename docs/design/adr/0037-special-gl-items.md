@@ -153,3 +153,20 @@ payments alone, which the web workspace's clearing against the final
 invoice chooses from (ADR-0052, Built in T73e4). Listing the down payment
 account's items (`account_id`) does the same, but no operation names that
 account to a client.
+
+## As built: each request cleared once (batch 39, 2026-11-02)
+Clearing finds a chosen down payment's request by its payment entry
+(`clearedRequests`), so two down payment lines of one entry, which the
+ledger's shared-tax rule makes a person choose together, named the same
+request twice: it counted twice in the invoice's gross check and in the
+cleared total. A request now counts once however many of the items its
+entry holds. A choice that is not exactly the requests' down payments, one
+line of a request's two or an entry paying two requests, is refused 422
+`payables.not_a_down_payment_request` (`requireWholeRequests`): the
+transfer's payables debit, what the ledger cleared, must equal the
+requests' total, and the refusal rolls the transfer back. This decision
+follows from this ADR's "one request per entry, as a run posts them" (As
+built, T72c) and from clearing only whole down payments (T46d): rather
+than guess which request a line belongs to, the clearing refuses a shape
+the ADR rules out. Refusing such an entry, rather than splitting it, is
+the default; no path posts one today (review:batch39).

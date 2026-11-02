@@ -1324,7 +1324,7 @@
   "problem.payables.down_payment_already_cleared": "A down payment chosen is already cleared. The list shows those still open.",
   "problem.payables.down_payment_other_order": "A down payment chosen was requested for another purchase order, so it clears only against an invoice of that order.",
   "problem.payables.down_payments_exceed_invoice": "The down payments chosen, with those cleared before, exceed the invoice's gross amount. Choose fewer.",
-  "problem.payables.not_a_down_payment_request": "An item chosen is not the payment of a paid down payment request of the supplier.",
+  "problem.payables.not_a_down_payment_request": "An item chosen is not the payment of a paid down payment request of the supplier, or not the whole of one: choose all of a request's down payments together.",
   "problem.payables.not_an_invoice": "Down payments are cleared against an invoice only, not a credit memo or a subsequent debit or credit.",
   "problem.downpayments.invoice_in_payment_run": "The invoice is in a payment run, so no down payment is cleared against it now.",
   "problem.ledger.not_a_down_payment": "An item chosen is not an open down payment of the invoice's supplier.",

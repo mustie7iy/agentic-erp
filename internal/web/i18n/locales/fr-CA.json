@@ -1324,7 +1324,7 @@
   "problem.payables.down_payment_already_cleared": "Un acompte choisi est déjà lettré. La liste affiche ceux encore ouverts.",
   "problem.payables.down_payment_other_order": "Un acompte choisi a été demandé pour un autre bon de commande; il ne se lettre donc qu'avec une facture de cette commande.",
   "problem.payables.down_payments_exceed_invoice": "Les acomptes choisis, avec ceux lettrés auparavant, dépassent le montant brut de la facture. Choisissez-en moins.",
-  "problem.payables.not_a_down_payment_request": "Un poste choisi n'est pas le paiement d'une demande d'acompte payée du fournisseur.",
+  "problem.payables.not_a_down_payment_request": "Un poste choisi n'est pas le paiement d'une demande d'acompte payée du fournisseur, ou n'en est qu'une partie : choisissez ensemble tous les acomptes d'une demande.",
   "problem.payables.not_an_invoice": "Les acomptes ne se lettrent qu'avec une facture, non avec une note de crédit ni un débit ou crédit ultérieur.",
   "problem.downpayments.invoice_in_payment_run": "La facture fait partie d'un cycle de paiement; aucun acompte n'est donc lettré avec elle maintenant.",
   "problem.ledger.not_a_down_payment": "Un poste choisi n'est pas un acompte ouvert du fournisseur de la facture.",

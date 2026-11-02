@@ -532,6 +532,13 @@
         "r": "db/migrations/000081 · supplier-invoices/{id}:clearDownPayments · ledger.Postings.ClearDownPayments · DownPaymentsCleared · T46d",
         "src": "baseline",
         "c": []
+       },
+       {
+        "s": "D",
+        "t": "A down payment clearing counts each request once (found by the t73e4 lane, batch 39): the request of a chosen item is found by its payment entry alone, so two down payment lines of one entry, which the shared-tax rule makes a person choose together, counted the same request twice in the invoice's gross check and the cleared total; a choice that is not exactly the requests' down payments (one of a request's lines, or an entry paying two requests) marked cleared an amount the ledger did not clear. No path reaches either today (a run posts one entry per request with one down payment; the migration refuses more than one open down payment in a document)",
+        "r": "internal/payables downpayment_clearing.go clearedRequests (a request counted once; an entry's requests resolved in id order) · requireWholeRequests (the transfer's payables debit is the requests' total, else 422 payables.not_a_down_payment_request, the transfer rolled back) · TestClearDownPaymentsCountsEachRequestOnce · ADR-0037 As built 2026-11-02 (batch 39)",
+        "src": "review:batch39",
+        "c": []
        }
       ]
      },
