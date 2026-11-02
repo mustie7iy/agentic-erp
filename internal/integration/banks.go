@@ -39,9 +39,15 @@ func firstBanks(e *sap.Extract) map[string]sap.LFBK {
 // A Canadian bank key that is not a routing number leaves the routing
 // empty, which partner refuses; the quality gate refuses it first
 // (vendorBanks).
+//
+// It is valid from the day before today, UTC's day (database.Today): on a
+// cutover evening in Toronto UTC is already tomorrow, and a payment run
+// dated on the company's day pays only to an account valid on it. Partner
+// accepts that one day for the suppliers partner.Migration creates, and
+// for nothing else (product owner 2026-11-02; ADR-0051 As built).
 func supplierBank(v sap.LFA1, b sap.LFBK, today time.Time) partner.BankInput {
 	in := partner.BankInput{Purpose: "payments", AccountNumber: b.BANKN, AccountScheme: "domestic", BankCountryCode: b.BANKS,
-		HolderName: v.NAME1, ValidFrom: today}
+		HolderName: v.NAME1, ValidFrom: today.AddDate(0, 0, -1)}
 	switch {
 	case canadian(b):
 		in.AccountScheme = "ca"

@@ -8826,6 +8826,13 @@
        },
        {
         "s": "D",
+        "t": "A migration run's new supplier may have its first bank account start on UTC's day minus one, so that on a cutover evening in Toronto a payment run dated on the company's day finds it; only partner.Migration.Create, for the partner that call creates, and never two days back; people, agents, the API and a later change to an existing partner keep the backdating control; the walkthrough dates its payment runs on the company's day and no longer stops on New Year's Eve",
+        "r": "product owner 2026-11-02 (option A) · ADR-0051 as built (the migration's bank accounts on a cutover evening) · internal/partner migration.go backdating (unexported), Migration.Create → createPartner/applyChange · changes.go sealBanks, applyCreate/insertBank · internal/integration banks.go supplierBank · TestMigrationBackdating · TestCutoverEveningBankAccount · TestWalkthroughDates · 03-data-model (bank accounts) · docs/migration.md · walkthrough step 7 (run on the company's day)",
+        "src": "po:2026-11-02 · review:batch37",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "The tax rate in force at a tax setup's activation, and the day a changed single-rate code's rate starts, are judged on the company's date in its time zone, not the database's UTC current_date, the submission's finding and the activation's refusal naming that date and zone; product owner 2026-10-31: the company's date",
         "r": "found in batch 26's lane reviews · product owner 2026-10-31 (as recommended) · ADR-0049 as built (the activation day is the company's date) · ADR-0051 as built · internal/ledger taxsetup.go taxCodes, loadTaxRates, checkTaxRatesUnposted, namedDay · setup.go checkDay, applyCompany (one company date shared with readControlling) · TestTaxRateChangeOnTheCompanysDate · TestTaxRateChangeUnknownZone · no walkthrough step: the walkthrough's tax change is activated with the real clock and its rates are in no response",
         "src": "review:batch26 · po:2026-10-31",

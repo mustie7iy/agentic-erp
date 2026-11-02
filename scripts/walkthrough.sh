@@ -43,29 +43,13 @@ TODAY=$(company_day)
 # UTC_TODAY is the database's day, UTC's: a business partner belongs to no
 # company and so has no zone, and its address may start no earlier than
 # that day (partner.backdated_address, database.Today).
-UTC_TODAY=$(date -u +%F)
-# RUN_DAY is a payment run's date: the company's day, or UTC's when that is
-# later. The migration (step 3) loads the suppliers' bank accounts valid
-# from UTC's day (ADR-0051 As built, Kept in UTC; PO 2026-10-31), and a run
-# pays to an account valid on its run date, so in a Toronto evening a run on
-# the company's day would find none of them (no_bank_account).
-# RBC's statement of the run's payments stays dated TODAY, the company's
-# day: the cash position (step 13) opens with the latest statement on or
-# before the company's day, so one dated RUN_DAY, the next day in a
-# Toronto evening, would not count.
-RUN_DAY=$TODAY
-if [[ "$UTC_TODAY" > "$TODAY" ]]; then RUN_DAY=$UTC_TODAY; fi
+UTC_TODAY=$(utc_day)
+# A payment run is dated TODAY, the company's day. The migration (step 3)
+# loads the suppliers' bank accounts valid from the day before UTC's
+# (partner.Migration's one-day exemption from the backdating control,
+# ADR-0051 As built; PO 2026-11-02), never later than the company's day in
+# Toronto, so a Toronto evening's run finds them, on 31 December too.
 YEAR=${TODAY:0:4}
-# On 31 December from 19:00 in Toronto (00:00 UTC) no run date serves:
-# the company's day is in YEAR, whose ranges and periods step 2 sets up,
-# while the migrated bank accounts are valid from UTC's day, in the next
-# year (no number range for it, no open period). The walkthrough says so
-# and stops rather than fail midway; any other evening it runs.
-if year_apart "$TODAY" "$UTC_TODAY"; then
-  echo "walkthrough: it is $TODAY in $ZONE and already $UTC_TODAY in UTC, a new year: the pilot's payment run has no date" >&2
-  echo "walkthrough: that serves both (its bank accounts are valid from UTC's day, its year is the company's); run it after midnight in $ZONE" >&2
-  exit 2
-fi
 PREV=$((YEAR - 1))
 CC=3000 # the pilot's SAP company code, Maple Industries Canada in the mock extract
 
@@ -1265,7 +1249,7 @@ step_payment() {
   say "Tom proposes a run from the RBC account for everything due within 30 days: Tyrell's invoice less"
   say "the credit memo and the 2% discount, and the open payables migrated from SAP that are overdue."
   api 202 '"\(.kind) \(.status)"' proposePaymentRun \
-    -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBC\", \"currency\": \"CAD\", \"run_date\": \"$RUN_DAY\", \"due_by\": \"$(date_add "$RUN_DAY" 30)\"}"
+    -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBC\", \"currency\": \"CAD\", \"run_date\": \"$TODAY\", \"due_by\": \"$(date_add "$TODAY" 30)\"}"
   wait_op
   RUN=$(field .resource | sed 's|.*/||')
   api 200 '"run \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency) from \(.house_bank_code), proposed by Tom"' getPaymentRun -p "id=$RUN"
@@ -1547,7 +1531,7 @@ step_fx() {
     -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$first\", \"posting_date\": \"$first\", \"currency\": \"USD\", \"header_text\": \"Fund the RBC USD account\", \"lines\": [{\"account_id\": \"$usd_bank\", \"amount\": {\"amount\": \"5000.00\", \"currency\": \"USD\"}}, {\"account_id\": \"$sap_bank\", \"amount\": {\"amount\": \"-5000.00\", \"currency\": \"USD\"}}]}"
   say "The USD bank pays in USD only: a CAD run from it is refused."
   refused 422 payments.currency_mismatch proposePaymentRun \
-    -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBCUS\", \"currency\": \"CAD\", \"run_date\": \"$RUN_DAY\", \"due_by\": \"$RUN_DAY\"}"
+    -body "{\"legal_entity_id\": \"$LE\", \"house_bank_id\": \"$RBCUS\", \"currency\": \"CAD\", \"run_date\": \"$TODAY\", \"due_by\": \"$TODAY\"}"
   say "At the month's end the account is worth USD 5,000.00 x 1.40 = CAD 7,000.00: the preview shows the gain."
   api 200 '.items[] | "account \(.account_id | acct): \(.amount.amount) \(.amount.currency), booked \(.amount_lc.amount), valued \(.valued_lc.amount) at \(.rate | sub("0+$"; "")): \(.direction) \(.difference_lc.amount) CAD"' previewRevaluation \
     -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$eom\"}"
