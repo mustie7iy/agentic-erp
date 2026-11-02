@@ -616,7 +616,7 @@ step_migrate() {
     'Open payable items' 'Open payable items: vendors with differences' 'Parked supplier invoices' 'Parked supplier credit memos' 'Parked subsequent debits' 'Parked subsequent credits' \
     'Vendor bank accounts: vendors with differences' 'Quantities invoiced in SAP: order items with differences' \
     'Open down payments total' 'Open down payments: vendors with differences' 'Open items in USD total' 'Open items in USD: vendors with differences' \
-    'Open GR/IR total' 'Open GR/IR: order items with differences'; do
+    'Open GR/IR total' 'Open GR/IR in USD total' 'Open GR/IR: order items with differences'; do
     grep "$check" "$WORK/migrate.out" | grep -q 'PASS$' || fail "the reconciliation check '$check' did not pass"
   done
   delta_migration "$connector"
@@ -667,6 +667,7 @@ step_migrate() {
   migrated_down_payment
   migrated_foreign_item
   migrated_grir
+  migrated_foreign_grir
   passed
 }
 
@@ -879,7 +880,7 @@ migrated_grir() {
   say "them), and the open credit taken over onto the platform's order item, by the first run and topped up by the"
   say "delta run in an entry each, reconciled per order item with SAP's above. The GR/IR balances show it by number:"
   api 200 "$GRIR_POSITION" listGrIrBalances -p "legal_entity_id=$LE"
-  expect "open GR/IR positions after the migration, the shelving units' and order $CLOSED's" "$(field '.items | length')" 2
+  expect "open GR/IR positions after the migration, the shelving units', the monitors' in USD and order $CLOSED's" "$(field '.items | length')" 3
   local shelving='[.items[] | select(.migrated_quantity.value == "-8")]'
   expect "the migrated positions of eight units" "$(field "$shelving | length")" 1
   GRIR_BALANCE=$(field "$shelving[0].balance.amount")
@@ -889,6 +890,39 @@ migrated_grir() {
     getPurchaseOrder -p "id=$GRIR_PO"
   expect "the migrated order's valuation" "$(field .valuation)" gr_ir
   GRIR_SUPPLIER=$(field .supplier_id)
+}
+
+# migrated_foreign_grir shows the GR/IR position SAP held open in USD for
+# the CAD company's order of monitors (the mock's receivedInUSD), taken
+# over in the order's currency (ADR-0034 As built, product owner
+# 2026-10-31): the order in USD, its position USD 1,000.00 worth CAD
+# 1,350.00 as SAP booked it, and the take-over entry in USD at the rate
+# SAP's amounts imply; the reconciliation compared it in both currencies.
+migrated_foreign_grir() {
+  local ebeln grir
+  grir=$(jq -r --arg cc "$CC" '.T030[] | select(.BUKRS == $cc and .KTOSL == "WRX") | .KONTS' "$WORK/data/extract.json")
+  ebeln=$(jq -r --arg cc "$CC" '[.EKKO[] | select(.BUKRS == $cc and .WAERS == "USD") | .EBELN] | first // ""' "$WORK/data/extract.json")
+  [ -n "$ebeln" ] || fail "the extract has no order in USD"
+  say "SAP also received four monitors on order $ebeln, placed in USD, and has no invoice for them yet. The receipt's"
+  say "document is in USD: each line carries its USD amount (RWCUR, WSL) beside its CAD amount (HSL):"
+  jq -r --arg cc "$CC" --arg o "$ebeln" '.ACDOCA[] | select(.RBUKRS == $cc and .EBELN == $o)
+    | "     ACDOCA \(.BELNR)/\(.DOCLN) \(.BLART): account \(.RACCT) \(.WSL) \(.RWCUR) = \(.HSL) CAD, order item \(.EBELN)/\(.EBELP)"' \
+    "$WORK/data/extract.json"
+  say "The order kept its currency, and its open position came over in it: SAP's USD amounts as its balance, its CAD"
+  say "amounts kept beside them, so a USD invoice clears it as it clears a position the platform posted in USD:"
+  QUIET=1 api 200 '' listGrIrBalances -p "legal_entity_id=$LE"
+  local usd='[.items[] | select(.balance.currency == "USD")]'
+  jq -r "$usd[] | \"     order \\(.purchase_order_number) item \\(.po_item_no): migrated \\(.migrated_quantity.value), balance \\(.balance.amount) \\(.balance.currency) = \\(.balance_lc.amount) \\(.balance_lc.currency)\"" "$WORK/last.json"
+  expect "the migrated USD position" "$(field "$usd | map(\"\\(.migrated_quantity.value) \\(.balance.amount) \\(.balance.currency) \\(.balance_lc.amount) \\(.balance_lc.currency)\") | join(\", \")")" \
+    "-4 -1000.00 USD -1350.00 CAD"
+  local po
+  po=$(field "$usd[0].purchase_order_id")
+  api 200 '"purchase order \(.document_number): \(.currency), valued through \(.valuation)"' getPurchaseOrder -p "id=$po"
+  expect "the migrated order's currency" "$(field .currency)" USD
+  accounts
+  api 200 '.items[] | select(.currency == "USD" and .reference == "'"$ebeln"'") | "journal entry \(.document_number): \(.currency), \(.rate_tc_lc) \(.local_currency) per \(.currency), \([.lines[] | "\(.amount.amount) \(.amount.currency) = \(.amount_lc.amount) \(.amount_lc.currency)"] | join(" / "))"' \
+    listJournalEntries -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p source_context=integration -p "account_id=$(account "$(sed 's/^0*//' <<<"$grir")")" -p page_size=500
+  expect "the USD take-over's rate, SAP's" "$(field "[.items[] | select(.currency == \"USD\" and .reference == \"$ebeln\") | .rate_tc_lc] | join(\" \")")" 1.350000000000
 }
 
 # migrated_down_payment shows SAP's open down payment as the AP clerk sees

@@ -42,8 +42,10 @@ import (
 // through GR/IR, received and not yet invoiced: an open credit on its GR/IR
 // account 0000219100 (T030 WRX) naming the order item (T72f), and an
 // invoice in USD it has not paid, an open item in a foreign document
-// currency (foreignInvoice). Its other orders' receipts post nothing to
-// SAP's journal, as 1000's and 2000's do.
+// currency (foreignInvoice), and an order in USD it valued through GR/IR,
+// received and not yet invoiced, an open GR/IR position in that currency
+// (receivedInUSD). Its other orders' receipts post nothing to SAP's
+// journal, as 1000's and 2000's do.
 //
 // Revenue follows a monthly trend that grows about 7% a year, so extracts
 // for consecutive years support year-over-year analytics.
@@ -69,6 +71,7 @@ func GenerateMockThrough(seed uint64, fiscalYear string, throughMonth int) *Extr
 	g.downPayment("3000", 5)
 	g.receivedNotInvoiced("3000")
 	g.foreignInvoice("3000")
+	g.receivedInUSD("3000")
 	g.customizing()
 	return g.e
 }
@@ -598,6 +601,30 @@ func (g *mockGen) foreignInvoice(cc string) {
 	g.fiDocIn(cc, "USD", g.date(6, 15), "RE", "TY-USD-1", []fiLine{
 		{acct: account, amount: 135000, document: 100000},
 		{acct: "0000211000", amount: -135000, document: -100000, vendor: vendor},
+	})
+}
+
+// receivedInUSD adds an order in USD that SAP valued through GR/IR, from
+// Tyrell Office Products (0000100011, as foreignInvoice): 4 monitors at
+// USD 250.00, received on 22 June (MSEG 101) and not yet invoiced, the
+// receipt's document (WE) in USD debiting the item's account and crediting
+// the GR/IR account USD 1,000.00, worth CAD 1,350.00 at 1.35, both lines
+// naming the order item: an open GR/IR position in the order's currency
+// (ADR-0034 As built). It draws nothing from the generator and comes after
+// the company's documents, so the rest of the extract is the same as
+// without it.
+func (g *mockGen) receivedInUSD(cc string) {
+	const vendor, item, account = "0000100011", "00010", "0000520000"
+	g.poSeq++
+	ebeln := fmt.Sprintf("45%02d%06d", g.year()%100, g.poSeq)
+	g.e.EKKO = append(g.e.EKKO, EKKO{EBELN: ebeln, BUKRS: cc, LIFNR: vendor, WAERS: "USD", BEDAT: g.date(6, 3)})
+	g.e.EKPO = append(g.e.EKPO, EKPO{EBELN: ebeln, EBELP: item, MATNR: "MAT-7002", TXZ01: "Monitors", MENGE: "4", NETPR: "250.00", PEINH: "1", SAKTO: account})
+	g.grSeq++
+	g.e.MSEG = append(g.e.MSEG, MSEG{MBLNR: fmt.Sprintf("50%08d", g.grSeq), MJAHR: g.gj, ZEILE: "0001", BWART: "101", EBELN: ebeln, EBELP: item, MENGE: "4",
+		BUDAT: g.date(6, 22)})
+	g.fiDocIn(cc, "USD", g.date(6, 22), "WE", "", []fiLine{
+		{acct: account, amount: 135000, document: 100000, ebeln: ebeln, ebelp: item},
+		{acct: grirAccount, amount: -135000, document: -100000, ebeln: ebeln, ebelp: item},
 	})
 }
 

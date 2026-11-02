@@ -18,12 +18,13 @@ import (
 
 // grirSetup is a tenant whose legal entity 2000 has the GR/IR account
 // 219000 and the price difference account 590000 (fixture.GRIR), whose
-// people may also post invoices, close orders and clear GR/IR, a
-// controller who approves clearings, and whose API reads the extract x
-// (grir.json).
+// people may also post invoices and goods receipts, close orders and
+// clear GR/IR, a controller who approves clearings, and whose API reads
+// the extract x (grir.json).
 func grirSetup(t *testing.T, x *sap.Extract) env {
 	t.Helper()
-	f := fixture.New(t, append(slices.Clone(perms), "payables.invoice.post", "procurement.order.release", "procurement.gr_ir.clear")...)
+	f := fixture.New(t, append(slices.Clone(perms), "payables.invoice.post", "procurement.order.release", "procurement.gr_ir.clear",
+		"procurement.receipt.post")...)
 	dir := t.TempDir()
 	f.API = apitest.NewWith(t, func(c *app.Config) { c.ExtractDir = dir })
 	f.GRIR(t)
@@ -281,7 +282,7 @@ func TestGRIRQuality(t *testing.T) {
 		{"an order of another company", "line on the GR/IR account 219000 of company 2000 names order 4500000002 of company 1000", otherCompany, true},
 		{"no T030 to tell SAP's GR/IR account by", "", grirTiny(), false},
 		{"an order item outside the extract", "names order item 4500000099/00010, which is not in the extract", grirTiny(outside), false},
-		{"an order in another currency", "order 4500000001 is in USD and has GR/IR positions", foreign, false},
+		{"an order in another currency than its GR/IR lines", `is in document currency "EUR" (RWCUR), but its order 4500000001 is in USD`, foreign, false},
 		{"a reversed receipt", "movement type 102 on order item 4500000001/00010", reversed, false},
 		{"a receipt quantity that does not parse", "the received quantity of order item 4500000001/00010 cannot be read", unread, false},
 		{"an open quantity without a balance", "open GR/IR quantity of -2 and no balance", noBalance, false},
