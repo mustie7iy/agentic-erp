@@ -28,8 +28,10 @@ types. Both are reviewed together.
 - Foreign keys inside a context include `tenant_id`:
   `FOREIGN KEY (tenant_id, supplier_id) REFERENCES ... (tenant_id, id)`, so a
   row can never point at another tenant's row.
-- Business documents carry a human `document_number`, unique per tenant,
-  legal entity, document type and fiscal year, issued from number ranges.
+- Business documents carry a human `document_number`, issued from number
+  ranges per fiscal year: a journal entry's is unique per fiscal year, every
+  other document's per tenant and legal entity across years, so a range never
+  repeats another year's numbers (ADR-0004 As built).
 
 ### Standard columns
 | Column | On | Meaning |
@@ -2088,7 +2090,11 @@ is the ledger's balance of the main bank account on that date; it records
 when and by whom (`bank_statement_reconciled`: both exactly when
 reconciled) and is never set back. `statement_match_line` indexes a line's
 matches, live and rejected, for the reconciliation report's latest
-proposal outcome. A bank
+proposal outcome. The payments a person may match a line to by hand
+(`listBankStatementPayments`, T73g2) are read through
+`payment_posted_by_bank (tenant_id, house_bank_id, created_at, id) WHERE
+journal_entry_id IS NOT NULL` (000191) for a payment naming its bank, and
+through its run's payments for one leaving the bank to its run. A bank
 file records its pain.001 message id (`bank_file.message_id`, 000123), which
 a batch booking carries. A
 statement whose opening balance is not the closing balance of the bank's

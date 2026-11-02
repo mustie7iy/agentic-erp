@@ -1803,6 +1803,22 @@ func (UnimplementedHandler) ListBankStatementMatches(ctx context.Context, params
 	return r, ht.ErrNotImplemented
 }
 
+// ListBankStatementPayments implements listBankStatementPayments operation.
+//
+// The payments a person may match a line of the statement to by hand (`POST .../lines/{line_no}:match`
+// with `payment_ids`), whatever the rules found: posted, from the statement's house bank, in its
+// currency, and matched to no line. Their lines on the bank's clearing account are the open items a
+// statement line clears (ADR-0047); a customer's open items are matched to no statement line until
+// accounts receivable (Phase 3). Latest first: the payments made last (their run proposed last) first.
+// Narrowed by the amount paid, in the statement's currency with exactly its minor-unit digits (400
+// `request.invalid_parameter` otherwise), and by the payment run's date. People only, holding the
+// permission to match lines: the reconciliation agent proposes from the rules' candidates (T49g).
+//
+// GET /v1/bank-statements/{id}/payments
+func (UnimplementedHandler) ListBankStatementPayments(ctx context.Context, params ListBankStatementPaymentsParams) (r ListBankStatementPaymentsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListBankStatements implements listBankStatements operation.
 //
 // Bank statements imported for the house banks of the companies the caller may access, without their

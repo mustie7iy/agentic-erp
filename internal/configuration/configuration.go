@@ -108,7 +108,8 @@ type Actors interface {
 }
 
 // check validates a document for activation on top of base (nil for the
-// first version): the document's own rules, its number ranges and every
+// first version): the document's own rules, its number ranges (that one
+// never repeats another year's numbers too) and every
 // section, all findings reported together as one 422 whose field errors
 // are under field, the request's field that carries the document. Amounts
 // are checked with the exponents of ref.currency (ADR-0005).
@@ -121,6 +122,7 @@ func (d Dependencies) check(ctx context.Context, tx pgx.Tx, base, proposed *conf
 	if base != nil {
 		findings = append(findings, rangeTransitions(base, proposed)...)
 	}
+	findings = append(findings, config.RangeRepeats(base, proposed)...)
 	findings = append(findings, config.ExtensionTransitions(base, proposed)...)
 	companies, err := rangeCompanies(ctx, d.LegalEntities, proposed)
 	if err != nil {

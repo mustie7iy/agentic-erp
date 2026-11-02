@@ -418,6 +418,17 @@ func bankComponents() map[string]templ.Component {
 		"Statement":                Statement(signedIn(), statementPage(true)),
 		"statement plain":          statementContent(statementPage(false)),
 		"statement no lines":       statementContent(StatementPage{Why: i18n.StatementReconciledWhy}),
+		"LinePayments":             LinePayments(signedIn(), paymentSearch(true)),
+		"search without a form":    PaymentSearchBody(paymentSearch(false)),
+		"search refused":           PaymentResultsView(PaymentResults{Refusal: new(refusal())}),
+		"search invalid":           PaymentResultsView(PaymentResults{Invalid: i18n.FilterDateInvalid}),
+		"search empty":             PaymentResultsView(PaymentResults{}),
+		"foundText":                foundText(found()),
+		"lineMatchForm":            lineMatchForm(matchForm(true)),
+		"linePaymentsContent":      linePaymentsContent(paymentSearch(true)),
+		"PaymentFilterForm":        PaymentFilterForm(paymentSearch(true).Filter),
+		"RulesFormView":            RulesFormView(LineForm{Verb: "rules", ID: "r", Action: "/s/rules"}),
+		"search only":              MatchFormView(MatchForm{LineForm: LineForm{Verb: LineMatch, Line: 1, ID: "l", Action: "/x"}, Search: "/s"}),
 		"doneMessage":              doneMessage(i18n.LineDonePosted, 2),
 		"done without a line":      doneMessage(i18n.LineDonePosted, 0),
 		"LineCard":                 LineCard(lineView(true)),
@@ -508,11 +519,35 @@ func matchInfo(full bool) MatchInfo {
 func matchForm(failed bool) MatchForm {
 	f := MatchForm{LineForm: LineForm{Verb: LineMatch, Line: 1, ID: "line-1-match", Action: "/x"},
 		Choices: []Choice{{Value: "payments:p1", Kind: ChoicePayments, Number: 1, Payments: []string{"p1"}}, {Value: "rule:NCHG", Kind: ChoiceRule, Rule: "NCHG"},
-			{Value: ChoiceIncoming, Kind: ChoiceIncoming}}}
+			{Value: ChoiceIncoming, Kind: ChoiceIncoming}, {Value: "payments:p2", Kind: ChoiceFound, Payments: []string{"p2"}}, found()},
+		Search: "/s"}
 	if failed {
 		f.Choice, f.ChoiceError, f.TextError, f.Open = "x", i18n.LineChoiceNeeded, i18n.ActionReasonNeeded, true
 	}
 	return f
+}
+
+// found is a payment the line's search found, by its payee.
+func found() Choice {
+	return Choice{Value: "payments:p3", Kind: ChoiceFound, Payments: []string{"p3"}, Found: &FoundPayment{EndToEnd: "2000-PY1-000001",
+		Supplier: "Tyrell", Account: "3000", Amount: Money{Amount: "10.50", Currency: "EUR"}, Entry: "100042"}}
+}
+
+// paymentSearch is a line's search: what it found as the match's
+// choices, or the found listed without a form, with the next page.
+func paymentSearch(form bool) PaymentSearch {
+	plain := found()
+	plain.Found.Account, plain.Found.Entry = "", ""
+	v := PaymentSearch{Back: "/s", Ref: "S1", Line: lineView(false), Filter: PaymentFilter{Action: "/s/lines/1/payments", Currency: "EUR",
+		Min: "x", MinError: i18n.SearchAmountInvalid},
+		Results: PaymentResults{Found: []Choice{found(), plain}, More: "/s/lines/1/payments?page=t"}}
+	if form {
+		f := matchForm(false)
+		v.Results.Match = &f
+	} else {
+		v.Results.Why = i18n.SearchNotOpen
+	}
+	return v
 }
 
 // lineView is a line: open to every decision, or decided.
@@ -541,7 +576,7 @@ func statementPage(full bool) StatementPage {
 	r := refusal()
 	h.Bank, h.Previous, h.ReconciledAt, h.ReconciledBy = "MAIN", "/bank/statements/0", &day, &Name{Text: "Avery"}
 	return StatementPage{Header: h, Gap: true, Report: "/r", Lines: []LineView{lineView(true)}, Why: i18n.LinesNotYours, Done: i18n.LineDoneMatched,
-		DoneLine: 1, Refusal: &r}
+		DoneLine: 1, Refusal: &r, File: "/s/file", Rules: &LineForm{Verb: "rules", ID: "statement-rules", Action: "/s/rules"}}
 }
 
 // figures are a statement's figures: a bank without a ledger balance, or

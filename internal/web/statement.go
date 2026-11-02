@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -41,7 +42,7 @@ var (
 	outcomes  = map[string]i18n.Key{"accepted": i18n.OutcomeAccepted, "rejected": i18n.OutcomeRejected, "overridden": i18n.OutcomeOverridden}
 	lineDone  = map[string]i18n.Key{"matched": i18n.LineDoneMatched, "excluded": i18n.LineDoneExcluded, "accepted": i18n.LineDoneAccepted,
 		"rejected": i18n.LineDoneRejected, "posted": i18n.LineDonePosted, "pending": i18n.LineDonePending,
-		"imported": i18n.BankDoneImported, "reimported": i18n.BankDoneReimported}
+		"imported": i18n.BankDoneImported, "reimported": i18n.BankDoneReimported, rulesVerb: i18n.StatementDoneRules}
 )
 
 // decision is what the person sent in a line's form that the API
@@ -95,6 +96,11 @@ func (s *Server) showStatement(w http.ResponseWriter, r *http.Request, p *person
 	}
 	c := lineContext{m: m, p: p, base: statementPath(id), tag: got.ETag.Or(etag.Format(st.Version)), rules: rules, names: names, sent: d,
 		open: st.Status != "reconciled", gap: st.Status == "gap"}
+	sp.File = statementPath(id) + "/file"
+	if c.open && m.may(permMatchLines) {
+		sp.Rules = &ui.LineForm{Verb: rulesVerb, ID: "statement-rules", Action: statementPath(id) + "/" + rulesVerb, CSRF: p.CSRF, ETag: c.tag,
+			Key: uuid.NewString()}
+	}
 	sp.Lines = lineViews(st.Lines, matches.Items, c)
 	sp.Why = linesWhy(st, sp.Lines, m)
 	s.render(w, r, status, ui.Statement(s.page(i18n.StatementTitle, ui.BankPath, p, m), sp))
@@ -285,10 +291,15 @@ func lineForms(v *ui.LineView, l gen.BankStatementLine, live *gen.StatementMatch
 		if live != nil && live.Kind == "agent" && live.Status == "open" {
 			v.Accept, v.Reject = c.form(ui.LineAccept, l.LineNo), c.form(ui.LineReject, l.LineNo)
 		}
-		if choices := matchChoices(l, live, c.rules); len(choices) > 0 {
-			f := &ui.MatchForm{LineForm: *c.form(ui.LineMatch, l.LineNo), Choices: choices}
+		choices, search := matchChoices(l, live, c.rules), ""
+		if l.IsReversal || strings.HasPrefix(l.Amount.Amount, "-") {
+			search = linePaymentsPath(c.base, l.LineNo) // payments are paid out: a debit, or a reversal of one, clears them
+		}
+		if len(choices) > 0 || search != "" {
+			f := &ui.MatchForm{LineForm: *c.form(ui.LineMatch, l.LineNo), Choices: choices, Search: search}
 			if c.sent.verb == ui.LineMatch && c.sent.line == l.LineNo {
 				f.Choice, f.ChoiceError = c.sent.choice, c.sent.choiceErr
+				f.Choices = withFound(f.Choices, f.Choice)
 			}
 			v.Manual = f
 		}
@@ -328,6 +339,17 @@ func matchChoices(l gen.BankStatementLine, live *gen.StatementMatch, rules []gen
 		out = append(out, ui.Choice{Value: ui.ChoiceIncoming, Kind: ui.ChoiceIncoming})
 	}
 	return out
+}
+
+// withFound are the choices with the payments the person chose on the
+// line's search and the API refused, shown as found so the choice is
+// kept; a choice among them already, or no payments, adds nothing.
+func withFound(choices []ui.Choice, chosen string) []ui.Choice {
+	kind, value, _ := strings.Cut(chosen, ":")
+	if kind != ui.ChoicePayments || value == "" || slices.ContainsFunc(choices, func(c ui.Choice) bool { return c.Value == chosen }) {
+		return choices
+	}
+	return append(choices, ui.Choice{Value: chosen, Kind: ui.ChoiceFound, Payments: strings.Split(value, ",")})
 }
 
 // candidates are an open match's candidates, each its payments, in their

@@ -987,8 +987,38 @@ step_pack() {
   RBC=$(field '.items[] | select(.code == "RBC") | .id')
   RBCUS=$(field '.items[] | select(.code == "RBCUS") | .id')
   if [ -z "$RBC" ] || [ -z "$RBCUS" ]; then fail "the RBC house banks are not there"; fi
+  next_year_ranges "$version"
   accounts
   passed
+}
+
+# next_year_ranges has Ada try the pack's number ranges for next fiscal
+# year: created afresh, they would number next year's first payment run
+# PY1 again, which this year's range issues too, and a run's number (and
+# the end-to-end ids made from it) is unique across years, so the change
+# is refused until the year is in their prefixes (review:T73g2).
+next_year_ranges() {
+  local version=$1 next=$((YEAR + 1)) cr
+  say "Before the year ends Ada applies the pack for fiscal year $next, for its number ranges. The pack starts"
+  say "each range again at 1 with the same prefix, so the year's numbers would repeat this year's: refused."
+  api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
+    -body "{\"country\": \"CA\", \"version\": \"$version\", \"company\": \"$CC\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $next}"
+  cr=$(field .id)
+  jq --arg next "$next" '{title: .title, rationale: "Number ranges of the next fiscal year", proposed: (.proposed | .number_ranges |= map(
+      if .fiscal_year == ($next | tonumber) and (.document_type | startswith("journal_") | not) then .prefix = (.prefix // "") + $next + "-" else . end))}' \
+    "$WORK/last.json" >"$WORK/next-year.json"
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  refused 422 config.validation_failed submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  excerpt '.errors[] | select(.field == "proposed.number_ranges['"$CC"'/payment_run/'"$next"'].prefix") | "\(.field): \(.message)"'
+  expect "the payment run range refused" "$(field '[.errors[] | select(.field == "proposed.number_ranges['"$CC"'/payment_run/'"$next"'].prefix")] | length')" 1
+  say "With the year in each prefix but the journal entries', which are numbered per fiscal year, it is accepted."
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '.proposed.number_ranges[] | select(.document_type == "payment_run" and .company == "'"$CC"'") | "payment run range of \(.fiscal_year): prefix \(.prefix)"' \
+    updateChangeRequest -p "id=$cr" -if-match "$ETAG" -body @next-year.json
+  api 200 '"\(.number): \(.status)"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  say "The pilot takes next year's ranges on at year end, so Ada withdraws the request for now."
+  api 200 '"\(.number): \(.status)"' withdrawChangeRequest -p "id=$cr" -if-match "$ETAG" -body '{"reason": "The next fiscal year ranges are set up at year end"}'
+  expect "status after withdrawal" "$(field .status)" withdrawn
 }
 
 step_procure() {
@@ -1278,7 +1308,9 @@ statement() {
     printf '<Stmt><Id>RBC-1000001-%s</Id><ElctrncSeqNb>1</ElctrncSeqNb><Acct><Id><Othr><Id>1000001</Id></Othr></Id><Ccy>CAD</Ccy></Acct>\n' "$TODAY"
     printf '<Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="CAD">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>%s</Dt></Dt></Bal>\n' "$opening" "$TODAY"
     printf '<Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp><Amt Ccy="CAD">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>%s</Dt></Dt></Bal>\n' "$closing" "$TODAY"
-    jq -r --arg d "$TODAY" '.items[] | "<Ntry><Amt Ccy=\"CAD\">\(.amount.amount)</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts>BOOK</Sts><BookgDt><Dt>\($d)</Dt></BookgDt><ValDt><Dt>\($d)</Dt></ValDt><BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>ICDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn></BkTxCd><NtryDtls><TxDtls><Refs><EndToEndId>\(.end_to_end_id)</EndToEndId></Refs></TxDtls></NtryDtls></Ntry>"' "$WORK/payments.json"
+    # The bank lost the last payment's end-to-end id (ISO 20022's NOTPROVIDED): no rule finds it (T73g2).
+    jq -r --arg d "$TODAY" '(.items | length) as $n | .items | to_entries[] | (if .key == $n - 1 then "NOTPROVIDED" else .value.end_to_end_id end) as $e2e | .value
+      | "<Ntry><Amt Ccy=\"CAD\">\(.amount.amount)</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts>BOOK</Sts><BookgDt><Dt>\($d)</Dt></BookgDt><ValDt><Dt>\($d)</Dt></ValDt><BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>ICDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn></BkTxCd><NtryDtls><TxDtls><Refs><EndToEndId>\($e2e)</EndToEndId></Refs></TxDtls></NtryDtls></Ntry>"' "$WORK/payments.json"
     printf '</Stmt></BkToCstmrStmt></Document>\n'
   } >"$WORK/camt053.xml"
   CLOSING=$closing
@@ -1345,7 +1377,7 @@ recurring_rent() {
 }
 
 step_statement() {
-  heading "Step 8 — The bank statement: imported, a gap accepted, matched by rules, posted with approval, reconciled"
+  heading "Step 8 — The bank statement: imported, a gap accepted, matched by rules and by hand, posted with approval, reconciled"
   as tom
   local bank sap_bank
   bank=$(account 1000)
@@ -1380,9 +1412,10 @@ step_statement() {
   if [ -z "$st" ] || [ "$st" = null ]; then fail "the statement was not imported"; fi
   excerpt '.statements[] | "statement \(.statement_ref): \(.status), opening \(.opening_balance.amount), \(.line_count) lines"'
   expect "statement status" "$(field '.statements[0].status')" gap
-  say "The rules matched each payment by its end-to-end id, but nothing posts for RBC while the gap stands:"
+  say "The rules matched each payment by its end-to-end id but the last, whose id the bank lost; nothing posts"
+  say "for RBC while the gap stands:"
   api 200 '"statement \(.statement_ref): \(.status); lines \([.lines[]?.status] | group_by(.) | map("\(.[0]) \(length)") | join(", "))"' getBankStatement -p "id=$st"
-  expect "lines matched, none posted" "$(field '[.lines[] | select(.status != "matched")] | length')" 0
+  expect "lines not matched, none posted" "$(field '[.lines[] | select(.status != "matched") | .status] | join(",")')" unmatched
   refused 409 payments.statement_gap postBankStatementLine -p "id=$st" -p line_no=1 -if-match "$ETAG"
   say "The bank cannot send the missing statement again; the funding is in the ledger already. Tom accepts the gap"
   say "with the reason, audited and published (BankStatementGapAccepted), and agents could not have done it:"
@@ -1393,7 +1426,8 @@ step_statement() {
   say "Tom runs the rules again: lines up to CAD 10,000.00 post at once; the others wait for the controller:"
   api 200 '"statement \(.statement_ref): lines \([.lines[]?.status] | group_by(.) | map("\(.[0]) \(length)") | join(", "))"' matchBankStatement -p "id=$st" -if-match "$ETAG"
   expect "lines still matched after the run" "$(field '[.lines[] | select(.status == "matched")] | length')" 0
-  api 200 '.items[] | "line \(.line_no): \(.status) by rule \(.rule)\(if .approval_request_id then ", approval request \(.approval_request_id[0:8])…" else "" end)"' listBankStatementMatches -p "id=$st"
+  match_by_hand "$st" "$(field '.lines[] | select(.status == "unmatched") | .line_no')"
+  api 200 '.items[] | "line \(.line_no): \(.status) \(if .rule then "by rule \(.rule)" else "by hand" end)\(if .approval_request_id then ", approval request \(.approval_request_id[0:8])…" else "" end)"' listBankStatementMatches -p "id=$st"
   local r
   for r in $(field '.items[] | select(.approval_request_id != null and .status == "matched") | .approval_request_id'); do
     approve carla "$r" "Payment of run $RUN"
@@ -1408,6 +1442,32 @@ step_statement() {
   expect "unexplained difference" "$(field .summary.figures.unexplained.amount)" 0.00
   expect "ledger balance" "$(field .summary.figures.ledger_balance.amount)" "$CLOSING"
   passed
+}
+
+# match_by_hand STATEMENT LINE: Tom finds the payment the rules did not
+# find among those the statement's lines may clear, matches the line to it
+# by hand and posts it (T73g2, ADR-0047).
+match_by_hand() {
+  local st=$1 line=$2 amount pay
+  amount=$(field ".lines[] | select(.line_no == $line) | .amount.amount")
+  amount=${amount#-}
+  say "Line $line, CAD $amount, is still unmatched. Tom searches the payments from RBC that no line holds, of that"
+  say "amount, people only (agents propose from the rules' candidates):"
+  api 200 '.items[] | "payment \(.end_to_end_id) to \(.supplier_name): \(.amount.amount) \(.amount.currency), journal entry \(.journal_entry_number)"' \
+    listBankStatementPayments -p "id=$st" -p "amount_min=$amount" -p "amount_max=$amount"
+  expect "payments of the amount no line holds" "$(field '.items | length')" 1
+  expect "the payment found, the run's last" "$(field '.items[0].end_to_end_id')" "$(jq -r '.items[-1].end_to_end_id' "$WORK/payments.json")"
+  pay=$(field '.items[0].id')
+  QUIET=1 api 200 '' getBankStatement -p "id=$st"
+  say "He matches the line to it by hand, with his reason; whoever matched may not approve its posting:"
+  api 201 '"line \(.line_no): \(.status) by hand (\(.kind)), payment \(.targets[0].payment_id[0:8])…: \(.reason)"' matchBankStatementLine -p "id=$st" -p "line_no=$line" \
+    -if-match "$ETAG" -body "{\"payment_ids\": [\"$pay\"], \"reason\": \"RBC dropped the end-to-end id; the amount and the payee's remittance name the payment.\"}"
+  expect "the match's kind" "$(field .kind)" manual
+  api 200 '"line \(.line_no): posted\(if .journal_entry_id then " in journal entry \(.journal_entry_id[0:8])…" else ", waiting for approval request \(.approval_request_id[0:8])…" end)"' \
+    postBankStatementLine -p "id=$st" -p "line_no=$line" -if-match "$ETAG"
+  say "Nothing is left for the line to clear: the search no longer offers the payment."
+  QUIET=1 api 200 '' listBankStatementPayments -p "id=$st" -p "amount_min=$amount" -p "amount_max=$amount"
+  expect "payments of the amount no line holds, after the match" "$(field '.items | length')" 0
 }
 
 step_fx() {
