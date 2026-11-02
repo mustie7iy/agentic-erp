@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -60,8 +61,16 @@ var DefaultEntities = []EntityMapping{
 	{Table: "LFB1", Service: "API_BUSINESS_PARTNER", Entity: "A_SupplierCompany", CompanyField: "CompanyCode",
 		Fields: map[string]string{"LIFNR": "Supplier", "BUKRS": "CompanyCode", "AKONT": "ReconciliationAccount",
 			"ZTERM": "PaymentTerms", "ZWELS": "PaymentMethodsList"}},
+	// A_BusinessPartnerBank keys a bank account by its business partner,
+	// whose number need not be its supplier's: the rows read as PARTNER and
+	// take their vendor (LIFNR) from the partner link below (attachBanks).
 	{Table: "LFBK", Service: "API_BUSINESS_PARTNER", Entity: "A_BusinessPartnerBank",
-		Fields: map[string]string{"LIFNR": "BusinessPartner", "BANKS": "BankCountryKey", "BANKN": "BankAccount", "BANKL": "BankNumber"}},
+		Fields: map[string]string{"PARTNER": "BusinessPartner", "BANKS": "BankCountryKey", "BANKN": "BankAccount", "BANKL": "BankNumber"}},
+	// The business partner -> supplier link, A_BusinessPartner's Supplier.
+	// Stated from memory, not yet from a primary source (ADR-0034 As built,
+	// review:T72d): confirm it against the system's $metadata.
+	{Table: PartnerLink, Service: "API_BUSINESS_PARTNER", Entity: "A_BusinessPartner",
+		Fields: map[string]string{"PARTNER": "BusinessPartner", "LIFNR": "Supplier"}},
 	{Table: "EKKO", Service: "API_PURCHASEORDER_PROCESS_SRV", Entity: "A_PurchaseOrder", CompanyField: "CompanyCode",
 		Fields: map[string]string{"EBELN": "PurchaseOrder", "BUKRS": "CompanyCode", "LIFNR": "Supplier",
 			"WAERS": "DocumentCurrency", "BEDAT": "PurchaseOrderDate"}},
@@ -127,6 +136,10 @@ func (o *ODataSource) Extract(ctx context.Context, scope Scope) (*Extract, error
 			tables[em.Table] = append(tables[em.Table], rows...)
 		}
 	}
+	var unlinked []string
+	if slices.ContainsFunc(entities, func(em EntityMapping) bool { return em.Table == "LFBK" }) {
+		unlinked = attachBanks(tables)
+	}
 	// Assemble via JSON so each SAP field lands in its struct field by tag.
 	// Every row is a map of strings and every Extract field is a slice of
 	// structs of strings (and optional strings), so this round trip cannot
@@ -134,8 +147,51 @@ func (o *ODataSource) Extract(ctx context.Context, scope Scope) (*Extract, error
 	data, _ := json.Marshal(tables)
 	var e Extract
 	_ = json.Unmarshal(data, &e)
+	e.VendorsWithoutPartner = unlinked
 	// Supplier-level tables are fetched unfiltered; narrow them to the scope.
 	return FilterScope(&e, scope), nil
+}
+
+// PartnerLink is the extraction's table of business partner -> supplier
+// links (PARTNER, LIFNR). It is no SAP table and no table of the Extract:
+// attachBanks reads it to give each bank account its vendor.
+const PartnerLink = "partner supplier link"
+
+// attachBanks gives each bank account (LFBK, read by business partner) the
+// supplier its partner is, through the extract's own partner link rather
+// than by assuming the two numbers equal (review:T72d). An account whose
+// partner is no supplier is dropped: it is a customer's or another
+// partner's, never a vendor's. It returns the vendors (LFA1) that no
+// partner links to, whose bank accounts the extract therefore cannot tell;
+// the quality gate warns of each (ADR-0034 As built).
+func attachBanks(tables map[string][]map[string]string) []string {
+	supplier := map[string]string{}
+	linked := map[string]bool{}
+	for _, l := range tables[PartnerLink] {
+		if l["LIFNR"] != "" {
+			supplier[l["PARTNER"]] = l["LIFNR"]
+			linked[l["LIFNR"]] = true
+		}
+	}
+	delete(tables, PartnerLink)
+	var banks []map[string]string
+	for _, b := range tables["LFBK"] {
+		lifnr, ok := supplier[b["PARTNER"]]
+		if !ok {
+			continue
+		}
+		b["LIFNR"] = lifnr
+		delete(b, "PARTNER")
+		banks = append(banks, b)
+	}
+	tables["LFBK"] = banks
+	var unlinked []string
+	for _, v := range tables["LFA1"] {
+		if !linked[v["LIFNR"]] {
+			unlinked = append(unlinked, v["LIFNR"])
+		}
+	}
+	return unlinked
 }
 
 func companyFilter(em EntityMapping, scope Scope) []string {
