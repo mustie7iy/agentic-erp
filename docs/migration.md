@@ -112,10 +112,12 @@ order's currency, so its GR/IR account nets in that currency: in documents
 mode unless SAP cleared one with documents in another currency, and in
 balances mode a position's documents together, unless SAP cleared a vendor
 line of any of them, in whatever currency it paid; those then stay in the
-opening entry in company currency. An open position with an invoice SAP paid,
-or a position SAP paid only in part, leaves the account netting in company
-currency alone (ADR-0005 As built lists the cases, which the product owner
-accepted on 2026-11-02: nothing is revalued and no value moves). The quality
+opening entry in company currency. Three cases leave the account netting in
+company currency alone: in balances mode an open position with an invoice SAP
+paid, and a position SAP paid only in part; in documents mode a document SAP
+cleared together with documents in another currency (ADR-0005 As built lists
+them; the product owner accepted them on 2026-11-02: nothing is revalued and no
+value moves). The quality
 gate refuses,
 for such an order, a GR/IR line in another currency (RWCUR) than the order's,
 a document amount that does not parse, a line with an amount in one currency
