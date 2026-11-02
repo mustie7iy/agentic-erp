@@ -945,10 +945,13 @@ release runbook. The cell now refuses such an activation itself.
   chart's checks (`scripts/helm-checks.sh`) refuse a budget within 5 s of
   the grace. An activity still running at the timeout has its context
   cancelled, so its transaction rolls back unless its commit was already
-  sent; the worker returns without it, and the engine retries it on
-  another replica once its timeout passes (activities are idempotent,
-  ADR-0012). A pod killed at the end of its grace leaves its record,
-  which then counts until it expires: the safe side.
+  sent; the worker returns without it, and the activity is retried
+  (activities are idempotent, ADR-0012). The SDK's own steps (its shutdown
+  call to the engine, the workflow worker's wait) come before the
+  activity worker's wait, so an activity's context stays live for at
+  least the budget and the stop as a whole can take longer. A pod killed
+  at the end of its grace leaves its record, which then counts until it
+  expires: the safe side.
 - **A dead replica stops counting.** A row counts while its last record is
   under 5 minutes old (`ReplicaExpiry`), measured on the database's clock
   alone (`seen_at = now()` on record, compared with `now()` on

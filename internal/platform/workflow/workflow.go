@@ -119,8 +119,10 @@ func (t *Temporal) Close() { t.c.Close() }
 type Registry = worker.Registry
 
 // Worker hosts the workflows and activities registered by register on the
-// task queue until ctx ends, then stops: it returns once the activities it
-// runs finished, or Config.StopTimeout passed. The SDK's Stop waits for
+// task queue until ctx ends, then stops: the activities it runs keep a
+// live context for at least Config.StopTimeout, and it returns once they
+// finished or that wait ended (the activity worker's wait follows the
+// engine's shutdown call and the workflow worker's own). The SDK's Stop waits for
 // its task processing, activities included, up to WorkerStopTimeout, and
 // only then cancels the activities' context
 // (go.temporal.io/sdk@v1.49.0 internal/internal_worker_base.go

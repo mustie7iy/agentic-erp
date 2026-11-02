@@ -8921,6 +8921,13 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "API requests can outlive the replica's record: ERP_REQUEST_TIMEOUT (30s default, not set in the chart) exceeds ERP_SHUTDOWN_TIMEOUT (20s), and http.Server.Shutdown returns at its deadline without waiting for running handlers, so launch deletes the record while a request that reads the configuration can still commit, and an activation the replica lacks a key for can pass in that window; bound requests within the drain (RequestTimeout <= ShutdownTimeout) or wait for in-flight handlers before the record goes",
+      "r": "cmd/erp-server serve (srv.Shutdown) and launch stopRecord · internal/platform/httpapi request deadline · internal/platform/config ERP_REQUEST_TIMEOUT, ERP_SHUTDOWN_TIMEOUT · deploy/helm/erp-cell server.yaml · ADR-0038 As built (activation refused while a replica lacks a key) · T72m",
+      "src": "review:T72m",
+      "c": []
+     },
+     {
       "s": "D",
       "t": "The mock SAP extract has a Canadian company (CAD, LAND1 CA, Canadian vendors and house banks), so the walkthrough migrates the Canadian pilot company from SAP instead of the mock's US and German companies",
       "r": "walkthrough 2026-10-22 · internal/sap mock.go company 3000 (CAD, CA) · scripts/walkthrough.sh migrates it · T72d",
