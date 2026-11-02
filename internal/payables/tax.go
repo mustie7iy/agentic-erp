@@ -242,8 +242,8 @@ func (e *Endpoints) calculatedTax(ctx context.Context, v Invoice) (*problem.Calc
 // range (money.ErrOverflow), or the calculator finds a code it cannot
 // calculate on the tax date (a component without a rate then, a
 // self-assessed code missing half its pair: tax.ErrNoRate,
-// tax.ErrInvalidCode), as posting refuses them, without making the problem
-// a read never answers; the calculator's other errors are not expected.
+// tax.ErrInvalidCode), which posting fails on, without making the problem a
+// read never answers; the calculator's other errors are not expected.
 func readFigures(v Invoice, items []tax.ComponentTax, err error) (*problem.CalculatedTax, error) {
 	var charged money.Minor
 	if err == nil {

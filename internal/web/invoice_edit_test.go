@@ -325,7 +325,7 @@ func TestChangeInvoiceLines(t *testing.T) {
 	// the account by its id: the invoice is not changed by someone else
 	// for that, and lines added on it are kept.
 	byID := formValues(b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"op": {"add"}})).page(t).form(editPath(d.account)))
-	byID.Set("was_item_account", byID.Get("was_item_account_id"))
+	byID["was_item_account"] = byID["was_item_account_id"]
 	for name, values := range map[string][]string{"item_quantity": {"1", "2", "1"}, "item_unit": {"EA", "EA", "EA"}, "item_amount": {"100.00", "50.00", "5.00"},
 		"item_account": {"520000", "530000", "530000"}, "item_description": {"Fees", "Travel", "Taxi"}} {
 		byID[name] = values
