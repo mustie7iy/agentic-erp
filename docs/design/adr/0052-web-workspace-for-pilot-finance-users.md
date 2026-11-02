@@ -3124,7 +3124,10 @@ settled:
   the person's change to A on B (`TestChangeInvoiceLinesByOrderItem`
   reproduced it). A line of no order item changed by both people is the
   price of never guessing: the person sees the lines as they are and types
-  the change again. This is the entry form's rule for a parked entry's
+  the change again. A form opened before this fix carries no purchase
+  order ids, so its lines read as changed by someone else: a line the
+  person changed there is shown as it is now (409), once. This is the
+  entry form's rule for a parked entry's
   lines (lane entrylost), whose lines travel as one block, so the same
   bug cannot arise there (`rebaseEntry` takes the person's lines whole or
   the entry's whole).
@@ -3143,7 +3146,7 @@ settled:
   extended `TestTaxCodeChangedBeforePosting`, `TestCodeWithdrawnBeforePosting`
   and `TestInvoiceOnARemovedOrderItem` in payables; `TestChangeInvoiceLines`,
   `TestChangeInvoiceLinesMeanwhile`, `TestChangeInvoiceLinesByOrderItem`, `TestChangeInvoiceOrderItems`,
-  `TestChangeInvoiceCenters`, `TestTaxAndIssuesShown`, `TestOrderItemChanged`
+  `TestChangeInvoiceCenters`, `TestTaxAndIssuesShown`, `TestOrderItemChanged`,
   `TestRebaseItems` and `TestAsTypedErrors` in the workspace; `TestInvoiceLinesInTheBrowser`
   adds and leaves out a line with htmx, axe at zero at 1280 px in English
   and 390 px in French, and saves a line of an order item.
