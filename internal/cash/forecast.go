@@ -30,6 +30,7 @@ import (
 // what paying it on a day pays, the days a run would pay it on, whether
 // its supplier is blocked, and the bank and method that would pay it.
 type Payable struct {
+	Supplier uuid.UUID // the business partner a run pays
 	Currency string
 	// Blocked: no run pays its supplier (blocked for payment or posting,
 	// inactive): left out of the totals.
@@ -160,25 +161,18 @@ func (e *Endpoints) Forecast(ctx context.Context, q ForecastQuery) (Forecast, er
 // of an amount.
 var errForecastTooLarge = problem.Unprocessable("cash.amount_too_large", "The amounts of the liquidity forecast add up to more than an amount can hold.")
 
-// forecastFlows are the legal entity's supplier open items on their
-// expected days (source payable, expected) and the payments of runs not
-// yet released (payment_run, confirmed), whose items the payables port
-// leaves out: never both.
+// forecastFlows are the legal entity's supplier payments on their
+// expected days (source payable, expected; supplierFlows) and the
+// payments of runs not yet released (payment_run, confirmed), whose items
+// the payables port leaves out: never both.
 func (e *Endpoints) forecastFlows(ctx context.Context, r reader, legalEntity uuid.UUID) ([]datedFlow, error) {
 	payables, err := e.Payments.Payables(ctx, legalEntity, r.read)
 	if err != nil {
 		return nil, fmt.Errorf("cash: supplier open items of %s: %w", legalEntity, err)
 	}
-	var out []datedFlow
-	for _, p := range payables {
-		if p.Blocked {
-			continue
-		}
-		day, amount, err := r.expected(p)
-		if err != nil {
-			return nil, fmt.Errorf("cash: a supplier open item of %s: %w", legalEntity, err)
-		}
-		out = append(out, datedFlow{flow: flow{date: day, source: SourcePayable, certainty: CertaintyExpected, amount: -amount}, currency: p.Currency})
+	out, err := r.supplierFlows(payables)
+	if err != nil {
+		return nil, fmt.Errorf("cash: supplier open items of %s: %w", legalEntity, err)
 	}
 	pending, err := e.Payments.Pending(ctx, legalEntity)
 	if err != nil {
@@ -199,32 +193,99 @@ func (e *Endpoints) forecastFlows(ctx context.Context, r reader, legalEntity uui
 	return out, nil
 }
 
-// expected is the day a supplier item is expected at the bank, and what it
-// pays then (ADR-0051 §5, P5): the last day of its earliest discount tier
-// still open while the company takes discounts, else its net due date;
-// moved back to the company's last payment day on or before it, which a
-// tier must not put before the read date (the next tier, or the due date,
-// is then tried); an item overdue, or due before the next payment day, is
-// expected on the next payment day from the read date; then the value
+// payee is a supplier's items in one currency: what one run pays as one
+// payment.
+type payee struct {
+	supplier uuid.UUID
+	currency string
+}
+
+// supplierFlows are the payments the runs on the suppliers' expected
+// payment days make, as a run nets them (ADR-0051 §5): per supplier and
+// currency, each item on its payment day (payDay), and on each day what
+// the items due then and those carried from before pay, each at what it
+// pays on that day. A day whose items owe nothing net (a credit memo, or
+// credits above the invoices) pays nothing, as the proposer excludes a
+// supplier with a debit balance (DebitBalance), and its items are carried
+// to the supplier's next day; what is still a debit balance after the
+// supplier's last day is no cash flow and is left out. A blocked
+// supplier's items are left out of the totals.
+func (r reader) supplierFlows(payables []Payable) ([]datedFlow, error) {
+	type dated struct {
+		day time.Time
+		p   Payable
+	}
+	byPayee := map[payee][]dated{}
+	var order []payee
+	for _, p := range payables {
+		if p.Blocked {
+			continue
+		}
+		k := payee{p.Supplier, p.Currency}
+		if byPayee[k] == nil {
+			order = append(order, k)
+		}
+		byPayee[k] = append(byPayee[k], dated{r.payDay(p), p})
+	}
+	var out []datedFlow
+	for _, k := range order {
+		items := byPayee[k]
+		slices.SortStableFunc(items, func(a, b dated) int { return a.day.Compare(b.day) })
+		var carried []Payable
+		for i, it := range items {
+			carried = append(carried, it.p)
+			if i+1 < len(items) && items[i+1].day.Equal(it.day) {
+				continue
+			}
+			paid, err := r.pays(carried, it.day)
+			if err != nil {
+				return nil, err
+			}
+			if paid <= 0 {
+				continue
+			}
+			at := r.onOrAfter(it.day.AddDate(0, 0, r.settings.ValueDaysFor(it.p.BankCode, it.p.Method)))
+			out = append(out, datedFlow{flow: flow{date: at, source: SourcePayable, certainty: CertaintyExpected, amount: -paid}, currency: k.currency})
+			carried = nil
+		}
+	}
+	return out, nil
+}
+
+// pays is what a run on the day pays for the items: each at what it pays
+// then, summed.
+func (r reader) pays(items []Payable, day time.Time) (money.Minor, error) {
+	var total money.Minor
+	for _, p := range items {
+		amount, err := p.Pays(day)
+		if err != nil {
+			return 0, err
+		}
+		total = r.sums.add(total, amount)
+	}
+	return total, nil
+}
+
+// payDay is the day a run is expected to pay a supplier item (ADR-0051 §5,
+// P5): the last day of its earliest discount tier still open while the
+// company takes discounts, else its net due date; moved back to the
+// company's last payment day on or before it, which a tier must not put
+// before the read date (the next tier, or the due date, is then tried); an
+// item overdue, or due before the next payment day, is expected on the
+// next payment day from the read date. Its day at the bank adds the value
 // days of the bank that would pay it, moved to the next working day of the
-// company's calendar.
-func (r reader) expected(p Payable) (time.Time, money.Minor, error) {
+// company's calendar (supplierFlows).
+func (r reader) payDay(p Payable) time.Time {
 	dates := p.Dates
 	if !r.settings.TakesDiscounts() {
 		dates = dates[len(dates)-1:]
 	}
-	pay := r.nextPaymentDay(r.read)
 	for _, d := range dates {
 		if day := r.lastPaymentDay(d); !day.Before(r.read) {
-			pay = day
-			break
+			return day
 		}
 	}
-	amount, err := p.Pays(pay)
-	if err != nil {
-		return time.Time{}, 0, err
-	}
-	return r.onOrAfter(pay.AddDate(0, 0, r.settings.ValueDaysFor(p.BankCode, p.Method))), amount, nil
+	return r.nextPaymentDay(r.read)
 }
 
 // paymentDay reports whether the company runs payments on the day: any
@@ -296,10 +357,12 @@ func (r reader) byCurrency(ctx context.Context, tx pgx.Tx, bs []Bucket, flows []
 			}
 		}
 		c := &out[i]
-		b, found := slices.BinarySearchFunc(bs, f.date, func(b Bucket, d time.Time) int {
+		// The first bucket ending on or after the day, found or not: its
+		// start is on or before the day, as no flow is before the read date.
+		b, _ := slices.BinarySearchFunc(bs, f.date, func(b Bucket, d time.Time) int {
 			return cmp.Compare(b.End.Unix(), d.Unix())
 		})
-		if !found && b == len(bs) {
+		if b == len(bs) {
 			c.Beyond = Beyond{Amount: r.sums.add(c.Beyond.Amount, f.amount), Count: c.Beyond.Count + 1}
 			continue
 		}

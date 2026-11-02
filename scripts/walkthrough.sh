@@ -2047,10 +2047,15 @@ forecast() {
   expect "the zone the forecast is read in" "$(field .time_zone)" America/Toronto
   [ "$(field .read_date)" = "$before" ] || expect "the forecast's read date, Toronto's" "$(field .read_date)" "$after"
   expect "the first bucket, the read date" "$(field '.buckets[0].start')" "$(field .read_date)"
-  # A day's bucket starts on the day expected; a week's or month's may start on another.
-  expect "SAP's USD invoice (step 3), on a payment day" \
-    "$(field '. as $f | [.currencies[] | select(.currency == "USD") | .buckets | to_entries[] | select(any(.value.flows[]; .source == "payable"))
-      | "\(.value.total.amount) \(if $f.buckets[.key].grain == "day" then (.value.start | strptime("%Y-%m-%d") | mktime | strftime("%a") | IN("Tue", "Thu")) else true end)"]
+  # A day's bucket starts on the day expected: the first Tuesday or Thursday
+  # from today, or, when that is one of Maple's holidays, the next working
+  # day (at most four days later: Christmas on a Thursday, Boxing Day on
+  # the Friday); a week's or a month's bucket may start on another day.
+  expect "SAP's USD invoice (step 3), on the next payment day" \
+    "$(field 'def epoch: strptime("%Y-%m-%d") | mktime;
+      . as $f | ([$f.buckets[] | select(.grain == "day") | .start | select(epoch | strftime("%a") | IN("Tue", "Thu"))][0] | epoch) as $pay
+      | [.currencies[] | select(.currency == "USD") | .buckets | to_entries[] | select(any(.value.flows[]; .source == "payable"))
+      | "\(.value.total.amount) \(if $f.buckets[.key].grain == "day" then (.value.start | epoch) - $pay | (. >= 0 and . <= 4 * 86400) else true end)"]
       | join(", ")')" "-1000.00 true"
   expect "each currency's total, its buckets' totals added up" \
     "$(field '[.currencies[] | (.total.amount | sub("\\."; "") | tonumber) == ([.buckets[].total.amount | sub("\\."; "") | tonumber] | add)] | all')" true

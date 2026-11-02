@@ -92,7 +92,7 @@ func (c cashPayments) Payables(ctx context.Context, legalEntity uuid.UUID, on ti
 	ps, err := c.position.Payables(ctx, legalEntity, on)
 	out := make([]cash.Payable, len(ps))
 	for i, p := range ps {
-		out[i] = cash.Payable{Currency: p.Currency, Blocked: p.Blocked != "", BankCode: p.HouseBankCode, Method: p.Method, Dates: p.Dates(), Pays: p.Pays}
+		out[i] = cash.Payable{Supplier: p.PartnerID, Currency: p.Currency, Blocked: p.Blocked != "", BankCode: p.HouseBankCode, Method: p.Method, Dates: p.Dates(), Pays: p.Pays}
 	}
 	return out, err
 }

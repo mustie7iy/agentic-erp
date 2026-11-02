@@ -90,7 +90,7 @@ func (e forecastEnv) item(t *testing.T, partner uuid.UUID, day, currency string,
 //     paid in full on Thursday 7 May;
 //   - CAD -300.00 of 1 March without terms, NT30: overdue, paid on the next
 //     payment day, Tuesday the 21st; and a CAD 100.00 credit memo of 15
-//     April netted then;
+//     April netted then: one payment of 1,180.00 that day with the tier's;
 //   - USD -2,000.00 of 1 April, NT30 (Friday 1 May): paid Thursday 30 April,
 //     at the USD bank a day later;
 //   - CAD -4,000.00 of 30 April due in 365 days (Friday 30 April 2027,
@@ -166,7 +166,7 @@ func TestLiquidityForecast(t *testing.T) {
 		"map[end:2026-08-16 grain:month start:2026-07-17] map[end:2027-04-16 grain:month start:2027-03-17]")
 	want(t, "flows", flowsOf(t, f), []string{
 		"CAD day 2026-04-17..2026-04-17: payment_run/confirmed/late=false -800.00 CAD x1 = -800.00 CAD",
-		"CAD day 2026-04-21..2026-04-21: payable/expected/late=false -1180.00 CAD x3 = -1180.00 CAD",
+		"CAD day 2026-04-21..2026-04-21: payable/expected/late=false -1180.00 CAD x1 = -1180.00 CAD",
 		"CAD week 2026-05-01..2026-05-07: payable/expected/late=false -500.00 CAD x1 = -500.00 CAD",
 		"CAD total -2480.00 CAD, beyond -4000.00 CAD x1",
 		"USD week 2026-05-01..2026-05-07: payable/expected/late=false -2000.00 USD x1 = -2000.00 USD",
@@ -180,6 +180,27 @@ func TestLiquidityForecast(t *testing.T) {
 		})
 		want(t, "actual only", flowsOf(t, e.forecastOf(t, "&min_certainty=actual")), []string{})
 		e.Problem(422, "request.validation_failed", "GET", "/v1/liquidity-forecast?legal_entity_id="+e.le.String()+"&min_certainty=likely", "", "")
+	})
+}
+
+// TestLiquidityForecastNetting: a supplier's items net as a run nets them
+// (ADR-0051 §5): a day whose items owe nothing net pays nothing, as the
+// proposer excludes a supplier with a debit balance, and its credits are
+// carried to the supplier's next day; what is still a debit balance after
+// the last is no cash flow.
+func TestLiquidityForecastNetting(t *testing.T) {
+	e := setupForecast(t, withForecast)
+	onlyCredit, moreCredit, later := e.NewSupplier(t, "BP90000011"), e.NewSupplier(t, "BP90000012"), e.NewSupplier(t, "BP90000013")
+	e.item(t, onlyCredit, "2026-04-15", "CAD", 10000, nil)
+	e.item(t, moreCredit, "2026-04-15", "CAD", 100000, nil)
+	e.item(t, moreCredit, "2026-03-01", "CAD", -30000, nil)
+	e.item(t, later, "2026-04-15", "CAD", 10000, nil)
+	// 2% until Tuesday 5 May: the run of the 21st leaves it for its tier, so
+	// the credit memo alone is a debit balance then, and nets on the 5th.
+	e.item(t, later, "2026-04-15", "CAD", -100000, &terms{baseline: "2026-04-15", net: 30, discDays: 20, discPct: "2"})
+	want(t, "flows", flowsOf(t, e.forecastOf(t, "")), []string{
+		"CAD week 2026-05-01..2026-05-07: payable/expected/late=false -880.00 CAD x1 = -880.00 CAD",
+		"CAD total -880.00 CAD, beyond 0.00 CAD x0",
 	})
 }
 

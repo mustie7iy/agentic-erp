@@ -1084,17 +1084,28 @@ into T53e and T53e2-T53e4 in the tracker, src `split:T53e`):
   expected on the next payment day on or after the read date, the read
   date itself when it is one. No payment days: any day. A credit memo
   (a debit on the supplier account) tries its due date only, its document
-  date, so it is expected on the next payment day and nets with the
-  supplier's next run, as the proposer takes it (T34d); its tiers would
-  delay it past the run that nets it. Then the value days of the house
+  date, so it is due at the next payment day, as the proposer takes it
+  (T34d). Then the value days of the house
   bank the supplier's first payment method ranks for the item's currency
   (`cash.value_days` by bank and method; none ranked: 0), and the next
   working day of the company's calendar; the payment day itself is not
   moved off a holiday, only the day at the bank, as §5 step 4 reads.
-- **Amount.** What a run on that payment day pays the supplier: what the
+- **Netting as the run nets** (review round 1). A run pays a supplier one
+  payment per currency, of every item it takes netted, and pays nothing
+  to a supplier whose items owe nothing net (`DebitBalance`). So the
+  forecast nets per supplier and currency: on each of its payment days, the
+  items due then and those carried from earlier days are summed, each at
+  what a run that day pays for it; a day that nets to nothing or less pays
+  nothing and its items are carried to the supplier's next day; what is
+  still a debit balance after its last day is no cash flow and is left
+  out. A credit memo alone is therefore never forecast as money coming in,
+  and one beside an invoice in a discount tier nets on the tier's day, as
+  the run that takes the invoice nets it. A flow is one supplier payment
+  (`count` counts payments).
+- **Amount.** What a run on that payment day pays the supplier: what each
   item owes less the cash discount of the tier open that day and the
   withholding tax deducted at payment (`ledger.PaymentWithholding` after
-  the discount), negative in the forecast; a credit memo positive. The
+  the discount), netted as above, negative in the forecast. The
   proposer's refusal of a withholding that takes all of an item
   (`payments.withholding_too_large`) is a run's, not the forecast's.
 - **Blocked suppliers.** A supplier not set up in the company, inactive,
@@ -1111,7 +1122,8 @@ into T53e and T53e2-T53e4 in the tracker, src `split:T53e`):
   allows until the budget asks for one).
 - **Evidence.** `cash.TestLiquidityForecast*` (Maple Inc: a tier taken,
   a tier passed over, an overdue item and a credit memo netted on the next
-  payment day, a USD item a value day later, an item held by a proposed
+  payment day, a debit balance paying nothing and a credit carried to the
+  supplier's discount day, a USD item a value day later, an item held by a proposed
   run counted as the run's payment, a blocked supplier left out, an item
   beyond the horizon, the certainty cut, a company taking no discounts and
   its own buckets, a late run, refusals and every database failure);
