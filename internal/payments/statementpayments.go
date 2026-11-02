@@ -20,7 +20,7 @@ import (
 // house bank, in its currency and matched to no line, so a payment the
 // rules did not find can be chosen. A payment names its house bank, or
 // leaves it null for its run's (000093): one branch each, so each reads
-// an index (payment_posted_by_bank, 000191, and the run's payments).
+// an index (payment_posted_by_bank, 000187, and the run's payments).
 
 // PaymentSearch narrows the payments a statement's lines may be matched
 // to: the amount paid, a decimal in the statement's currency ("" for no

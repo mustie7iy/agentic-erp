@@ -488,7 +488,7 @@ Canadian bank may only offer BAI2.
   another previous statement (kept in the audit trail). A new permission
   reaches existing tenants' administrators only when granted, as every
   permission added since provisioning.
-- Searching what a line may clear (T73g2, 2026-11-01, 000191): `GET
+- Searching what a line may clear (T73g2, 2026-11-01, 000187): `GET
   /v1/bank-statements/{id}/payments` lists the payments `:match` by hand
   accepts as `payment_ids` (posted, from the statement's house bank, in
   its currency, held by no line's `matched` match), so a person can choose

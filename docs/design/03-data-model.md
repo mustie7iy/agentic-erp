@@ -2100,7 +2100,7 @@ matches, live and rejected, for the reconciliation report's latest
 proposal outcome. The payments a person may match a line to by hand
 (`listBankStatementPayments`, T73g2) are read through
 `payment_posted_by_bank (tenant_id, house_bank_id, created_at, id) WHERE
-journal_entry_id IS NOT NULL` (000191) for a payment naming its bank, and
+journal_entry_id IS NOT NULL` (000187) for a payment naming its bank, and
 through its run's payments for one leaving the bank to its run. A bank
 file records its pain.001 message id (`bank_file.message_id`, 000123), which
 a batch booking carries. A
