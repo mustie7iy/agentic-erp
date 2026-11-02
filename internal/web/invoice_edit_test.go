@@ -4,11 +4,15 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"golang.org/x/net/html"
 
+	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -60,11 +64,11 @@ func TestChangeInvoice(t *testing.T) {
 	r := b.get(editPath(d.account))
 	status(t, "the form", r, http.StatusOK)
 	p := r.page(t)
-	holds(t, "the form", p.mainText(), number(t, d.account), "Change the invoice", "Line 1", "Unit EA", "In EUR")
+	holds(t, "the form", p.mainText(), number(t, d.account), "Change the invoice", "Line 1", "In EUR")
 	form := p.form(editPath(d.account))
 	for name, want := range map[string]string{"supplier_reference": "W-1", "invoice_date": "2026-03-10", "posting_date": "", "tax_date": "",
-		"gross_amount": "119.00", "tax_amount": "19.00", "item_description": "Fees", "item_quantity": "1", "item_amount": "100.00", "item_tax_code": "V1",
-		"if_match": `"1"`} {
+		"gross_amount": "119.00", "tax_amount": "19.00", "item_description": "Fees", "item_quantity": "1", "item_unit": "EA", "item_amount": "100.00",
+		"item_tax_code": "V1", "item_account": "520000", "item_from": "1", "was_item_account": "520000", "if_match": `"1"`} {
 		if got := field(form, name); got != want {
 			t.Errorf("%s: got %q, want %q", name, got, want)
 		}
@@ -211,15 +215,6 @@ func TestChangeInvoiceRefusals(t *testing.T) {
 	status(t, "an unknown code", unknown, http.StatusUnprocessableEntity)
 	holds(t, "an unknown code", unknown.page(t).mainText(), "payables.unknown_tax_code", "Tax code: refused by the ERP")
 
-	lines := editForm(t, b, d.account, url.Values{"item_amount": {"100.00", "5.00"}})
-	changedLines := b.do(http.MethodPost, editPath(d.account), lines)
-	status(t, "lines not the invoice's", changedLines, http.StatusConflict)
-	cp := changedLines.page(t)
-	holds(t, "lines not the invoice's", cp.mainText(), "The invoice's lines changed since you opened this form.")
-	if got := formValues(cp.form(editPath(d.account)))["item_amount"]; fmt.Sprint(got) != "[100.00]" {
-		t.Errorf("lines not the invoice's: the form shows %v, want the invoice's line", got)
-	}
-
 	viewer := s.as(d.viewer)
 	form := viewer.get(editPath(d.account)).page(t).form(editPath(d.account))
 	v := formValues(form)
@@ -259,5 +254,303 @@ func TestTaxCorrected(t *testing.T) {
 	}
 	if got := invoiceStatus(t, d.taxWrong); got != "posted" {
 		t.Errorf("status: got %s, want posted", got)
+	}
+}
+
+// itemsOf are an invoice's live lines as the database holds them: order
+// item, description, quantity, unit, amount, tax code, account's number,
+// cost center's code.
+func itemsOf(t *testing.T, id uuid.UUID) string {
+	t.Helper()
+	var got string
+	pgtest.Scan(t, `SELECT string_agg(coalesce(it.po_item_no::text, '-') || ' ' || coalesce(it.description, '-') || ' ' || trim_scale(it.quantity) || ' '
+			|| it.uom_code || ' ' || it.amount || ' ' || coalesce(it.tax_code, '-') || ' ' || coalesce(a.number, '-') || ' ' || coalesce(cc.code, '-'), '; '
+			ORDER BY it.item_no)
+		FROM payables.supplier_invoice_item it LEFT JOIN ledger.gl_account a ON a.id = it.account_id LEFT JOIN ledger.cost_center cc ON cc.id = it.cost_center_id
+		WHERE it.supplier_invoice_id = $1 AND NOT it.is_removed`, []any{id}, &got)
+	return got
+}
+
+// autofocused is the id of the form's field that has the focus.
+func autofocused(p page) string {
+	got := ""
+	walk(p.doc, func(n *html.Node) {
+		if n.Data == "input" && hasAttr(n, "autofocus") {
+			got = attrOf(n, "id")
+		}
+	})
+	return got
+}
+
+// TestChangeInvoiceLines: a line is added (without htmx the form again,
+// at the version it was opened with, the new line focused; with htmx its
+// lines' section alone), filled with its account by number and sent with
+// the invoice's other lines; a line left out is not sent; an invoice left
+// without lines, a code the company does not know and a line's field
+// typed wrong are said on their fields before any call.
+func TestChangeInvoiceLines(t *testing.T) {
+	s, d := invoicesStack(t)
+	b := s.browser()
+	b.signIn()
+	added := b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"op": {"add"}}))
+	status(t, "a line added", added, http.StatusOK)
+	ap := added.page(t)
+	form := formValues(ap.form(editPath(d.account)))
+	if got := fmt.Sprint(form["item_from"]) + " " + form.Get("if_match"); got != `[1 ] "1"` {
+		t.Errorf("a line added: got %s, want the invoice's line and a new one at the version opened", got)
+	}
+	if got := autofocused(ap); got != "item-2-item_description" {
+		t.Errorf("a line added: the focus is on %q", got)
+	}
+	for name, values := range map[string][]string{"item_description": {"Fees", "Travel"}, "item_quantity": {"1", "2"}, "item_unit": {"EA", "ea"},
+		"item_amount": {"100.00", "50.00"}, "item_tax_code": {"V1", "v1"}, "item_account": {"520000", "530000"}} {
+		form[name] = values
+	}
+	form.Set("gross_amount", "178.50")
+	form.Set("tax_amount", "28.50")
+	sent := b.do(http.MethodPost, editPath(d.account), form)
+	if sent.status != http.StatusSeeOther || sent.location() != invoicePath(d.account)+"?done=changed" {
+		t.Fatalf("two lines: got %d to %q %s", sent.status, sent.location(), sent.body)
+	}
+	if got, want := itemsOf(t, d.account), "- Fees 1 EA 10000 V1 520000 -; - Travel 2 EA 5000 V1 530000 -"; got != want {
+		t.Errorf("two lines:\ngot  %s\nwant %s", got, want)
+	}
+	left := b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"item_remove": {"1"}, "gross_amount": {"59.50"},
+		"tax_amount": {"9.50"}}))
+	status(t, "a line left out", left, http.StatusSeeOther)
+	if got, want := itemsOf(t, d.account), "- Travel 2 EA 5000 V1 530000 -"; got != want {
+		t.Errorf("a line left out: got %s, want %s", got, want)
+	}
+
+	swapped := b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"op": {"add"}}), "HX-Request", "true")
+	status(t, "a line added with htmx", swapped, http.StatusOK)
+	holds(t, "a line added with htmx", swapped.body, `id="invoice-items"`, `hx-swap-oob="innerHTML:#invoice-buttons"`, "Line 2")
+	if strings.Contains(swapped.body, "<html") {
+		t.Error("a line added with htmx: the whole page was answered")
+	}
+	emptied := b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"item_remove": {"1"}}), "HX-Request", "true")
+	holds(t, "every line left out with htmx", emptied.body, "Line 1")
+	if strings.Contains(emptied.body, `value="Travel"`) {
+		t.Error("every line left out with htmx: the line is still there")
+	}
+	none := b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"item_remove": {"1"}}))
+	status(t, "no line", none, http.StatusUnprocessableEntity)
+	holds(t, "no line", none.page(t).mainText(), "An invoice has at least one line.", "Line 1")
+
+	for name, tc := range map[string]struct {
+		change url.Values
+		want   string
+	}{
+		"an account not known":    {url.Values{"item_account": {"999999"}}, "No account of the company's chart has this number."},
+		"a cost center not known": {url.Values{"item_cost_center": {"9999"}}, "The company has no cost center with this code."},
+		"a center's code wrong":   {url.Values{"item_profit_center": {"P C"}}, "A code has at most 10 letters"},
+		"no unit":                 {url.Values{"item_unit": {" "}}, "A quantity needs its unit."},
+		"a unit wrong":            {url.Values{"item_unit": {"PIECES7"}}, "A unit has 1 to 6 capital letters"},
+		"a unit not known":        {url.Values{"item_unit": {"PIECES"}}, "No unit of measure has this code."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, tc.change))
+			status(t, name, r, http.StatusUnprocessableEntity)
+			holds(t, name, r.page(t).mainText(), tc.want)
+		})
+	}
+}
+
+// TestChangeInvoiceLinesMeanwhile: lines another person changed meanwhile
+// are kept. The person's changes to a line's fields are put on it; lines
+// the person did not change are taken as they are now; when both changed
+// the lines and lines were added or left out, the form shows the lines as
+// they are now, without the person's changes to them, and says so,
+// keeping the person's other changes, which sent again apply alone.
+func TestChangeInvoiceLinesMeanwhile(t *testing.T) {
+	s, d := invoicesStack(t)
+	b := s.browser()
+	b.signIn()
+	// The person changes the line's amount; someone else its description.
+	amount := editForm(t, b, d.account, url.Values{"item_amount": {"90.00"}, "gross_amount": {"109.00"}, "tax_amount": {"19.00"}})
+	status(t, "a description meanwhile", b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"item_description": {"Fees B"}})),
+		http.StatusSeeOther)
+	merged := b.do(http.MethodPost, editPath(d.account), amount)
+	status(t, "both on one line", merged, http.StatusPreconditionFailed)
+	status(t, "both on one line, sent again", b.do(http.MethodPost, editPath(d.account), formValues(merged.page(t).form(editPath(d.account)))),
+		http.StatusSeeOther)
+	if got, want := itemsOf(t, d.account), "- Fees B 1 EA 9000 V1 520000 -"; got != want {
+		t.Errorf("both on one line: got %s, want %s", got, want)
+	}
+
+	// The person changes the reference alone; someone else adds a line.
+	reference := editForm(t, b, d.account, url.Values{"supplier_reference": {"W-1R"}})
+	other := formValues(b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"op": {"add"}})).page(t).form(editPath(d.account)))
+	for name, values := range map[string][]string{"item_quantity": {"1", "1"}, "item_unit": {"EA", "EA"}, "item_amount": {"90.00", "10.00"},
+		"item_account": {"520000", "520000"}} {
+		other[name] = values
+	}
+	status(t, "a line added meanwhile", b.do(http.MethodPost, editPath(d.account), other), http.StatusSeeOther)
+	kept := b.do(http.MethodPost, editPath(d.account), reference)
+	status(t, "lines changed by another", kept, http.StatusPreconditionFailed)
+	status(t, "lines changed by another, sent again", b.do(http.MethodPost, editPath(d.account), formValues(kept.page(t).form(editPath(d.account)))),
+		http.StatusSeeOther)
+	if got := invoiceRow(t, d.account) + " | " + itemsOf(t, d.account); !strings.HasPrefix(got, "W-1R ") || !strings.HasSuffix(got, "; - - 1 EA 1000 - 520000 -") {
+		t.Errorf("lines changed by another: got %s, want the reference on the invoice's two lines", got)
+	}
+
+	// The person leaves the second line out and changes the reference;
+	// someone else changes the first line meanwhile.
+	both := editForm(t, b, d.account, url.Values{"supplier_reference": {"W-1S"}, "item_remove": {"2"}})
+	status(t, "a line changed meanwhile", b.do(http.MethodPost, editPath(d.account), editForm(t, b, d.account, url.Values{"item_description": {"Fees C", ""}})),
+		http.StatusSeeOther)
+	lost := b.do(http.MethodPost, editPath(d.account), both)
+	status(t, "both changed the lines", lost, http.StatusConflict)
+	lp := lost.page(t)
+	holds(t, "both changed the lines", lp.mainText(), "Someone else changed the invoice's lines since you opened this form, and so did you.")
+	again := formValues(lp.form(editPath(d.account)))
+	if got := again.Get("supplier_reference") + " " + fmt.Sprint(again["item_description"]); got != "W-1S [Fees C ]" {
+		t.Errorf("both changed the lines: got %s, want the reference typed on the lines as they are", got)
+	}
+	status(t, "both changed the lines, sent again", b.do(http.MethodPost, editPath(d.account), again), http.StatusSeeOther)
+	if got := invoiceRow(t, d.account); !strings.HasPrefix(got, "W-1S ") || !strings.Contains(got, " Fees C ") {
+		t.Errorf("both changed the lines, sent again: got %s", got)
+	}
+	if got := strings.Count(itemsOf(t, d.account), ";"); got != 1 {
+		t.Errorf("both changed the lines, sent again: got %d lines, want the two kept", got+1)
+	}
+}
+
+// TestChangeInvoiceOrderItems: a line of an invoice on an order names its
+// order item, which a line added names too and takes its account from; an
+// order item typed wrong is said on its field, one the order has not is
+// refused by the API on its line.
+func TestChangeInvoiceOrderItems(t *testing.T) {
+	s, d := invoicesStack(t)
+	b := s.browser()
+	b.signIn()
+	form := formValues(b.get(editPath(d.clean)).page(t).form(editPath(d.clean)))
+	if got := fmt.Sprint(form["item_order_item"]); got != "[1 2]" {
+		t.Errorf("order items: got %s, want [1 2]", got)
+	}
+	wrong := b.do(http.MethodPost, editPath(d.clean), editForm(t, b, d.clean, url.Values{"item_order_item": {"1", "x"}}))
+	status(t, "an order item typed wrong", wrong, http.StatusUnprocessableEntity)
+	holds(t, "an order item typed wrong", wrong.page(t).mainText(), "Enter the order item's number as digits")
+	unknown := b.do(http.MethodPost, editPath(d.clean), editForm(t, b, d.clean, url.Values{"item_order_item": {"1", "3"}}))
+	status(t, "an order item the order has not", unknown, http.StatusUnprocessableEntity)
+	holds(t, "an order item the order has not", unknown.page(t).mainText(), "payables.unknown_po_item", "Order item: refused by the ERP")
+
+	more := formValues(b.do(http.MethodPost, editPath(d.clean), editForm(t, b, d.clean, url.Values{"op": {"add"}})).page(t).form(editPath(d.clean)))
+	for name, values := range map[string][]string{"item_order_item": {"1", "2", "2"}, "item_description": {"Paper", "Toner", "Toner, more"},
+		"item_quantity": {"10", "5", "1"}, "item_unit": {"EA", "KG", "KG"}, "item_amount": {"120.00", "15.00", "3.00"}} {
+		more[name] = values
+	}
+	more.Set("gross_amount", "160.80")
+	status(t, "a line of an order item added", b.do(http.MethodPost, editPath(d.clean), more), http.StatusSeeOther)
+	if got, want := itemsOf(t, d.clean), "1 Paper 10 EA 12000 V1 520000 -; 2 Toner 5 KG 1500 - 520000 -; 2 Toner, more 1 KG 300 - 520000 -"; got != want {
+		t.Errorf("a line of an order item added:\ngot  %s\nwant %s", got, want)
+	}
+}
+
+// TestChangeInvoiceCenters: a line's cost center is shown and typed by its
+// code; one the API refuses (locked for actual costs) is said on its line.
+func TestChangeInvoiceCenters(t *testing.T) {
+	var inv uuid.UUID
+	// CostCenters gives the tenant's person ledger.cost_center.read itself.
+	permissions := slices.DeleteFunc(slices.Clone(fixture.InvoicePermissions), func(p string) bool { return p == "ledger.cost_center.read" })
+	s := newStack(t, stackOptions{permissions: permissions, seed: func(f fixture.Env) {
+		f.CostCenters(t, nil)
+		inv = f.SupplierInvoice(t, f.Vendor, "W-C", "119.00", "19.00", f.AccountItem(t, "Fees", "100.00"))
+	}})
+	b := s.browser()
+	b.signIn()
+	status(t, "a cost center", b.do(http.MethodPost, editPath(inv), editForm(t, b, inv, url.Values{"item_cost_center": {"2000"}})), http.StatusSeeOther)
+	if got := itemsOf(t, inv); !strings.HasSuffix(got, " 520000 2000") {
+		t.Errorf("a cost center: got %s, want 2000", got)
+	}
+	form := b.get(editPath(inv)).page(t).form(editPath(inv))
+	if got := field(form, "item_cost_center"); got != "2000" {
+		t.Errorf("the cost center shown: got %q, want its code", got)
+	}
+	refused := b.do(http.MethodPost, editPath(inv), editForm(t, b, inv, url.Values{"item_cost_center": {"3000"}}))
+	status(t, "a cost center locked", refused, http.StatusUnprocessableEntity)
+	holds(t, "a cost center locked", refused.page(t).mainText(), "ledger.cost_center_invalid", "Cost center: refused by the ERP")
+}
+
+// TestTaxAndIssuesShown: an invoice's page shows its tax per code; a post
+// refused because the match no longer holds names its issues in the
+// person's words, the line each concerns, and the API's explanation as
+// data (decision D3).
+func TestTaxAndIssuesShown(t *testing.T) {
+	var first, second uuid.UUID
+	s := newStack(t, stackOptions{permissions: fixture.InvoicePermissions, seed: func(f fixture.Env) {
+		po := f.Order(t, f.Supplier, "PO-1")
+		f.Receive(t, po, 1, "10", "GR-1")
+		first = f.SupplierInvoice(t, f.Supplier, "INV-1", "142.80", "22.80", fixture.POItem(po, 1, "10", "EA", "120.00"))
+		second = f.SupplierInvoice(t, f.Supplier, "INV-2", "142.80", "22.80", fixture.POItem(po, 1, "10", "EA", "120.00"))
+	}})
+	b := s.browser()
+	b.signIn()
+	holds(t, "the tax per code", b.get(invoicePath(first)).page(t).mainText(), "Tax per code Tax the invoice states EUR 22.80",
+		"Tax at its codes' rates EUR 22.80", "V1 EUR 22.80")
+	// Each matched clean before either posts; the first posts.
+	for _, id := range []uuid.UUID{first, second} {
+		status(t, "matched", act(b, id, "match", "", ""), http.StatusSeeOther)
+	}
+	status(t, "the first posted", act(b, first, "post", "", ""), http.StatusSeeOther)
+	r := act(b, second, "post", "", "")
+	status(t, "the match outdated", r, http.StatusConflict)
+	holds(t, "the match outdated", r.page(t).mainText(), "payables.match_outdated", "More is invoiced than was received Line 1")
+}
+
+// TestOrderItemChanged: a line whose order item changed takes the new
+// order item's account and cost center unless the person changed them
+// too; a line leaving its order item keeps what it shows.
+func TestOrderItemChanged(t *testing.T) {
+	po, account, other, center := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	inv := gen.SupplierInvoice{Items: []gen.SupplierInvoiceItem{{ItemNo: gen.NewOptInt32(1), PurchaseOrderID: gen.NewOptUUID(po), PoItemNo: gen.NewOptInt32(2),
+		AccountID: gen.NewOptUUID(account), CostCenterID: gen.NewOptUUID(center)}}}
+	for name, tc := range map[string]struct {
+		sent gen.SupplierInvoiceItem
+		want gen.SupplierInvoiceItem
+	}{
+		"another order item": {gen.SupplierInvoiceItem{PurchaseOrderID: gen.NewOptUUID(po), PoItemNo: gen.NewOptInt32(1), AccountID: gen.NewOptUUID(account),
+			CostCenterID: gen.NewOptUUID(center)}, gen.SupplierInvoiceItem{PurchaseOrderID: gen.NewOptUUID(po), PoItemNo: gen.NewOptInt32(1)}},
+		"another order item and account": {gen.SupplierInvoiceItem{PurchaseOrderID: gen.NewOptUUID(po), PoItemNo: gen.NewOptInt32(1), AccountID: gen.NewOptUUID(other)},
+			gen.SupplierInvoiceItem{PurchaseOrderID: gen.NewOptUUID(po), PoItemNo: gen.NewOptInt32(1), AccountID: gen.NewOptUUID(other)}},
+		"no order item": {gen.SupplierInvoiceItem{AccountID: gen.NewOptUUID(account), CostCenterID: gen.NewOptUUID(center)},
+			gen.SupplierInvoiceItem{AccountID: gen.NewOptUUID(account), CostCenterID: gen.NewOptUUID(center)}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			typed := invoiceTyped{items: []itemTyped{{from: 1, sent: tc.sent}}}
+			if got := typed.itemsChange(inv); len(got) != 1 || got[0] != tc.want {
+				t.Errorf("got %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRebaseItems: the lines a change sends after another person's, by
+// who changed them and how.
+func TestRebaseItems(t *testing.T) {
+	line := func(from int, amount string) itemTyped { return itemTyped{from: from, amount: amount, unit: "EA"} }
+	opened := []itemTyped{line(1, "1.00"), line(2, "2.00")}
+	for name, tc := range map[string]struct {
+		typed, now []itemTyped
+		want       linesTaken
+		amounts    string
+	}{
+		"nobody else":             {[]itemTyped{line(1, "1.00")}, opened, linesTyped, "1.00"},
+		"the person changed none": {opened, []itemTyped{line(1, "1.00")}, linesNow, "1.00"},
+		"fields of both":          {[]itemTyped{line(1, "1.50"), line(2, "2.00")}, []itemTyped{line(1, "1.00"), line(2, "2.50")}, linesMerged, "1.50 2.50"},
+		"both, one left out":      {[]itemTyped{line(1, "1.50")}, []itemTyped{line(1, "1.00"), line(2, "2.50")}, linesLost, "1.00 2.50"},
+		"both, one added":         {[]itemTyped{line(1, "1.50"), line(2, "2.00"), line(0, "3.00")}, []itemTyped{line(1, "1.00"), line(2, "2.50")}, linesLost, "1.00 2.50"},
+		"both, the other added":   {[]itemTyped{line(1, "1.50"), line(2, "2.00")}, []itemTyped{line(1, "1.00"), line(2, "2.00"), line(3, "3.00")}, linesLost, "1.00 2.00 3.00"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, taken := rebaseItems(tc.typed, opened, tc.now)
+			var amounts []string
+			for _, it := range got {
+				amounts = append(amounts, it.amount)
+			}
+			if taken != tc.want || strings.Join(amounts, " ") != tc.amounts {
+				t.Errorf("got %d %v, want %d %s", taken, amounts, tc.want, tc.amounts)
+			}
+		})
 	}
 }

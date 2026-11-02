@@ -13,8 +13,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/web/ui"
 )
 
-// An invoice's page reads the invoice, its latest match, the agents'
-// recommendations on it, the companies' names and the principals' names:
+// An invoice's page reads the invoice (with its tax per code, T73e3), its
+// latest match, the agents' recommendations on it, the companies' names and the principals' names:
 // with getCurrentPrincipal six calls at most (ADR-0052 §10). The order
 // and its receipts are a section of their own (order, in
 // invoice_actions.go), which htmx
@@ -64,6 +64,9 @@ func (s *Server) showInvoice(w http.ResponseWriter, r *http.Request, p *person, 
 	}
 	ip := ui.InvoicePage{Number: inv.DocumentNumber, Lines: linesOf(inv), HasOrder: inv.PurchaseOrderID.Set, Refusal: refused,
 		Done: invoiceDone[r.URL.Query().Get("done")], Pending: inv.Status == "on_hold" && inv.WorkflowRequestID.Set}
+	if t, ok := inv.CalculatedTax.Get(); ok {
+		ip.Tax = taxFigures(t)
+	}
 	match, ok := s.latestMatch(w, r, p, m, inv, &ip)
 	if !ok {
 		return
@@ -211,7 +214,7 @@ func linesOf(inv gen.SupplierInvoice) []ui.Line {
 func matchOf(mr gen.MatchResult, names map[uuid.UUID]ui.Name) *ui.MatchView {
 	v := &ui.MatchView{When: mr.EvaluatedAt, By: names[mr.EvaluatedBy], Config: mr.ConfigVersion, Clean: mr.IsClean}
 	for _, is := range mr.Issues {
-		v.Issues = append(v.Issues, ui.Issue{Label: labelOf(matchIssues, is.Code), Line: is.ItemNo.Or(0), Message: is.Message})
+		v.Issues = append(v.Issues, issueOf(is))
 	}
 	return v
 }

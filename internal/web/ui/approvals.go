@@ -58,8 +58,9 @@ func statusKind(status Label) string {
 // Refusal is the API's refusal of what the person asked (ADR-0052 §8):
 // the code's message in the person's language, or, for a code the catalog
 // does not hold, the API's own title; the code and the trace id for
-// support; and, for a segregation-of-duties refusal, the permissions the
-// person holds but may not use (getCurrentPrincipal's barred_permissions).
+// support; for a segregation-of-duties refusal, the permissions the
+// person holds but may not use (getCurrentPrincipal's barred_permissions);
+// and the figures and issues a refusal carries as fields (decision D3).
 type Refusal struct {
 	ID       string // its element's id, unique on the page; "" for "refusal"
 	Title    i18n.Key
@@ -69,6 +70,7 @@ type Refusal struct {
 	Trace    string
 	Barred   []string
 	Tax      *TaxFigures // payables.tax_mismatch's figures, when the API gave them
+	Issues   []Issue     // payables.match_outdated's issues, when the API gave them
 }
 
 // The approvals' lists (T73d2), by the view query parameter: the requests

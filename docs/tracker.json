@@ -5554,10 +5554,18 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Invoices beyond T73e2: capture by upload (createUpload, the bytes relayed by erp-web, captureSupplierInvoice's 202 polled to the new invoice), waiting for the product owner on how erp-web reaches the store when the API answers a presigned S3 URL rather than its own signed path (ADR-0052 §7) and how large an upload erp-web accepts and holds; clearing down payments (clearSupplierInvoiceDownPayments); a line added or left out in a parked invoice's change, and its account, centers and order item changed; tax per code on the invoice's page outside a refusal (the representation has none: a contract change); payables.match_outdated's changes as fields of the problem (coordinator D3's other half); walked through by a pilot AP clerk",
-        "r": "T73e3 (split from T73e2, 2026-11-01)",
+        "s": "D",
+        "t": "Invoices beyond T73e2, first slice: a parked invoice's lines added (htmx swaps the lines' section, a full-page fallback), left out and changed whole, each naming its order item, unit, account by number and cost and profit center by code (looked up as the entry form does), a changed order item taking the new order item's account and cost center; after a 412 the person's changes rebased, lines both people changed with lines added or left out shown as they are now with the person's changes to them dropped and said (409, no call); tax per code on the invoice's page outside a refusal (contract change: SupplierInvoice.calculated_tax on getSupplierInvoice, calculated on the read, absent when the codes cannot be calculated); payables.match_outdated's issues as fields of the problem (coordinator D3's other half: Problem.match_issues) listed in every refusal's notice; EN and FR; axe at zero at 1280 and 390 px",
+        "r": "api/openapi.yaml Problem.match_issues · SupplierInvoice.calculated_tax · internal/platform/problem MatchIssue · internal/payables post.go matchOutdated · tax.go calculatedTax, codesDocument, readFigures · api.go figuresToAPI · internal/web invoice_edit.go rebaseItems, resolveItems, itemsChange · refusal.go issueOf · invoice.go · ui/invoices.templ InvoiceItems, InvoiceItemsSwap · i18n en, fr-CA · TestCalculatedTaxOnRead · TestReadFigures · TestInvoiceOnARemovedOrderItem · TestChangeInvoiceLines · TestChangeInvoiceLinesMeanwhile · TestChangeInvoiceOrderItems · TestChangeInvoiceCenters · TestTaxAndIssuesShown · TestOrderItemChanged · TestRebaseItems · TestInvoiceLinesInTheBrowser · walkthrough step_invoices · step_downpayment · 04 §4.6 · ADR-0052 Built in T73e3 · T73e3",
         "src": "split:T73e2",
+        "pilot": "po:2026-10-31 · split:T73e2 · adr:ADR-0052",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Invoices beyond T73e3: capture by upload (createUpload, the bytes relayed by erp-web, captureSupplierInvoice's 202 polled to the new invoice), waiting for the product owner on how erp-web reaches the store when the API answers a presigned S3 URL rather than its own signed path (ADR-0052 §7) and how large an upload erp-web accepts and holds; clearing down payments on a posted invoice (clearSupplierInvoiceDownPayments: the supplier's paid down payments chosen from their open items, listOpenItems with special G/L A, at the invoice's version); walked through by a pilot AP clerk",
+        "r": "T73e4 (split from T73e3, 2026-11-01; the rest of T73e2's split leaf: docs/tracker_test.go vouch takes no step a split leaf names)",
+        "src": "split:T73e2 · adr:ADR-0052",
         "pilot": "po:2026-10-31 · split:T73e2 · adr:ADR-0052",
         "c": []
        },

@@ -388,3 +388,83 @@ func TestInvoiceChangeInTheBrowser(t *testing.T) {
 		}
 	}
 }
+
+// TestInvoiceLinesInTheBrowser: the AP clerk adds a line to an invoice on
+// an order and leaves another out, with htmx (the lines' section swapped,
+// the page not loaded again, the new line focused), each state checked by
+// axe at a desktop's width in English and a phone's in French; the change
+// saved, the invoice's page shows its tax per code.
+func TestInvoiceLinesInTheBrowser(t *testing.T) {
+	browserCtx := browse(t)
+	s := newInvoices(t)
+	src := axe(t)
+	signIn(t, browserCtx, s.stack)
+	edit := invoicePath(s.clean) + "/edit"
+	for _, l := range []struct {
+		lang  lang
+		width int64
+	}{{lang{"", "en", "ltr"}, 1280}, {lang{"fr-CA", "fr-CA", "ltr"}, 390}} {
+		t.Run(fmt.Sprintf("%s %d", l.lang.lang, l.width), func(t *testing.T) {
+			ctx, _ := tab(t, browserCtx, l.lang.header, l.width)
+			if err := chromedp.Do(ctx,
+				chromedp.Navigate(s.url+edit),
+				chromedp.WaitVisible(chromedp.CSS("#invoice-add-button")),
+				chromedp.Evaluate[chromedp.Void](`window.loadedOnce = true`),
+				chromedp.Click(chromedp.CSS("#invoice-add-button")),
+				chromedp.WaitVisible(chromedp.CSS("#item-3-item_order_item")),
+			); err != nil {
+				t.Fatal(err)
+			}
+			focusedIs(t, ctx, "item-3-item_order_item")
+			fromTheTop(t, ctx)
+			audit(t, ctx, src, l.lang.lang, l.lang.dir, l.width)
+			if err := chromedp.Do(ctx,
+				chromedp.Click(chromedp.CSS("#item-3-item_remove")),
+				chromedp.WaitNotPresent(chromedp.CSS("#item-3-item_order_item")),
+			); err != nil {
+				t.Fatal(err)
+			}
+			once, err := chromedp.Run(ctx, chromedp.Evaluate[bool](`window.loadedOnce === true`))
+			if err != nil || !once {
+				t.Errorf("the lines were changed by loading the page again, not by htmx (%v)", err)
+			}
+			fromTheTop(t, ctx)
+			audit(t, ctx, src, l.lang.lang, l.lang.dir, l.width)
+		})
+	}
+	ctx, c := tab(t, browserCtx, "", 1280)
+	if err := chromedp.Do(ctx,
+		chromedp.Navigate(s.url+edit),
+		chromedp.WaitVisible(chromedp.CSS("#invoice-add-button")),
+		chromedp.Click(chromedp.CSS("#invoice-add-button")),
+		chromedp.WaitVisible(chromedp.CSS("#item-3-item_order_item")),
+		chromedp.SetValue(chromedp.CSS("#item-3-item_order_item"), "2"),
+		chromedp.SetValue(chromedp.CSS("#item-3-item_quantity"), "1"),
+		chromedp.SetValue(chromedp.CSS("#item-3-item_unit"), "KG"),
+		chromedp.SetValue(chromedp.CSS("#item-3-item_amount"), "3.00"),
+		chromedp.SetValue(chromedp.CSS("#invoice-gross"), "160.80"),
+		chromedp.Click(chromedp.CSS("#invoice-send-button")),
+	); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, ctx, invoicePath(s.clean)+"?done=changed", "Tax per code")
+	audit(t, ctx, src, "en", "ltr", 1280)
+	var lines int
+	pgtest.Scan(t, `SELECT count(*) FROM payables.supplier_invoice_item WHERE supplier_invoice_id = $1 AND NOT is_removed`, []any{s.clean}, &lines)
+	if lines != 3 {
+		t.Errorf("lines saved: got %d, want 3", lines)
+	}
+	for _, e := range c.errors() {
+		t.Errorf("browser: %s", e)
+	}
+}
+
+// fromTheTop moves the tab's focus to the start of the page, as a page
+// loaded has it, so audit's first tab stop is checked on a page htmx
+// changed without loading it again.
+func fromTheTop(t *testing.T, ctx context.Context) {
+	t.Helper()
+	if err := chromedp.Do(ctx, chromedp.Evaluate[chromedp.Void](`document.body.tabIndex = -1; document.body.focus(); document.body.removeAttribute("tabindex")`)); err != nil {
+		t.Fatal(err)
+	}
+}

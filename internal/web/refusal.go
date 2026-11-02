@@ -56,7 +56,8 @@ var segregation = []string{"identity.sod_conflict", "workflow.segregation_of_dut
 // the person's language, the API's own title for a code the catalog does
 // not hold, with the code and the trace id for support; a
 // segregation-of-duties refusal lists the person's barred permissions
-// (getCurrentPrincipal), a refused tax its figures.
+// (getCurrentPrincipal), a refused tax its figures and an outdated match
+// its issues (decision D3).
 func explain(title i18n.Key, prob gen.Problem, m me) *ui.Refusal {
 	r := &ui.Refusal{Title: title, Message: i18n.Problems[prob.Code], Fallback: prob.Title, Code: prob.Code, Trace: prob.TraceID.Or("")}
 	if slices.Contains(segregation, prob.Code) {
@@ -65,7 +66,17 @@ func explain(title i18n.Key, prob gen.Problem, m me) *ui.Refusal {
 	if t, ok := prob.CalculatedTax.Get(); ok {
 		r.Tax = taxFigures(t)
 	}
+	for _, is := range prob.MatchIssues {
+		r.Issues = append(r.Issues, issueOf(is))
+	}
 	return r
+}
+
+// issueOf is a match's issue as the page shows it: its code in the
+// person's words, the invoice's line it concerns, and the API's
+// explanation, shown as data.
+func issueOf(is gen.MatchIssue) ui.Issue {
+	return ui.Issue{Label: labelOf(matchIssues, is.Code), Line: is.ItemNo.Or(0), Message: is.Message}
 }
 
 // taxFigures are a refused tax's figures as the page shows them

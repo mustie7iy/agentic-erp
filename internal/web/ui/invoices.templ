@@ -247,6 +247,12 @@ templ invoiceContent(ip InvoicePage) {
 				@T(i18n.LinesTitle)
 			</h2>
 			@LinesTable(ip.Lines)
+			if ip.Tax != nil {
+				<h2>
+					@T(i18n.InvoiceTaxTitle)
+				</h2>
+				@TaxFiguresView("invoice", *ip.Tax)
+			}
 			<h2>
 				@T(i18n.MatchTitle)
 			</h2>
@@ -796,6 +802,54 @@ templ invoiceEditContent(f InvoiceForm) {
 				@AmountField("invoice-tax", FieldTax, i18n.InvoiceTax, f.Currency, f.Tax, f.Errors[FieldTax])
 			</div>
 		</fieldset>
+		for _, opened := range f.Opened {
+			for _, name := range ItemFieldNames() {
+				<input { hidden(FieldWas+name, opened[name])... }/>
+			}
+		}
+		<datalist id="invoice-accounts">
+			for _, o := range f.Accounts {
+				<option { option(Option{Value: o.Value})... }>
+					@Value(o.Text)
+				</option>
+			}
+		</datalist>
+		@InvoiceItems(f)
+		<div class="filters__buttons" id="invoice-buttons">
+			@invoiceButtons(f)
+		</div>
+	</form>
+}
+
+// invoiceButtons are the form's buttons, after its lines and outside the
+// section htmx swaps: the send first, so it is the button Enter presses
+// in a field (HTML's implicit submission), and the line's add while the
+// form takes another.
+templ invoiceButtons(f InvoiceForm) {
+	<button class="button" type="submit" name="op" value="send" id="invoice-send-button">
+		@T(i18n.InvoiceEditSave)
+	</button>
+	if f.CanAdd() {
+		<button { itemAddButton(f.Action)... }>
+			@T(i18n.EntryAddLine)
+		</button>
+	}
+}
+
+// InvoiceItemsSwap is what htmx swaps when the form's lines change: the
+// lines' section, and the buttons out of band, the add offered while the
+// form takes another line.
+templ InvoiceItemsSwap(f InvoiceForm) {
+	@InvoiceItems(f)
+	<div hx-swap-oob="innerHTML:#invoice-buttons">
+		@invoiceButtons(f)
+	</div>
+}
+
+// InvoiceItems are the form's lines, the section htmx swaps when a line
+// is added or left out.
+templ InvoiceItems(f InvoiceForm) {
+	<div class="entry__lines" id="invoice-items">
 		<h2>
 			@T(i18n.InvoiceEditItems)
 		</h2>
@@ -808,14 +862,9 @@ templ invoiceEditContent(f InvoiceForm) {
 			</p>
 		}
 		for _, it := range f.Items {
-			@ItemInputView(it)
+			@ItemInputView(f.Action, it, f.HasOrder)
 		}
-		<div class="filters__buttons">
-			<button class="button" type="submit">
-				@T(i18n.InvoiceEditSave)
-			</button>
-		</div>
-	</form>
+	</div>
 }
 
 // AmountField is an amount's input in the invoice's currency.
@@ -836,39 +885,18 @@ templ AmountField(id, name string, labelKey i18n.Key, currency, value string, er
 	</div>
 }
 
-// ItemInputView is one line of an invoice's change: its order item and
-// unit, its fields, each with its hint and error, and what the API
-// refused of it.
-templ ItemInputView(it ItemInput) {
+// ItemInputView is one line of an invoice's change: its fields, each
+// with its hint and error, what the API refused of it, and its box to
+// leave it out.
+templ ItemInputView(action string, it ItemInput, hasOrder bool) {
 	<fieldset class="entry-line">
 		<legend class="entry-line__legend">
 			@T(i18n.InvoiceEditItem, it.No)
 		</legend>
-		for _, fd := range itemFields {
-			<input { hidden(FieldWas+fd.Name, it.Was[fd.Name])... }/>
-		}
-		<dl class="facts">
-			if it.OrderItem != 0 {
-				@Fact(i18n.LineOrderItem, Number(it.OrderItem))
-			}
-			@Fact(i18n.InvoiceEditUnit, Code(it.Unit))
-		</dl>
+		<input { itemFrom(it)... }/>
 		<div class="entry-line__fields">
-			for _, fd := range itemFields {
-				<div { fieldClass(it.Errors[fd.Name])... }>
-					<label class="field__label" { forAttr(itemID(it.No, fd.Name))... }>
-						@T(fd.Label)
-					</label>
-					<p class="field__hint" { idAttr(itemID(it.No, fd.Name) + "-hint")... }>
-						@T(fd.Hint)
-					</p>
-					if it.Errors[fd.Name] != "" {
-						<p class="field__error" { idAttr(itemID(it.No, fd.Name) + "-error")... }>
-							@T(it.Errors[fd.Name])
-						</p>
-					}
-					<input { itemInput(it, fd.Name)... }/>
-				</div>
+			for i, name := range shownFields(hasOrder) {
+				@itemFieldView(it, name, i == 0)
 			}
 		</div>
 		if len(it.Refused) > 0 {
@@ -878,5 +906,29 @@ templ ItemInputView(it ItemInput) {
 				}
 			</ul>
 		}
+		<div class="checkbox">
+			<input { itemRemoveBox(action, it)... }/>
+			<label class="checkbox__label" { forAttr(itemID(it.No, FieldItemRemove))... }>
+				@T(i18n.EntryLineRemove)
+			</label>
+		</div>
 	</fieldset>
+}
+
+// itemFieldView is one field of a line: its label, hint, error and input.
+templ itemFieldView(it ItemInput, name string, first bool) {
+	<div { fieldClass(it.Errors[name])... }>
+		<label class="field__label" { forAttr(itemID(it.No, name))... }>
+			@T(itemLabel(name))
+		</label>
+		<p class="field__hint" { idAttr(itemID(it.No, name) + "-hint")... }>
+			@T(itemHint(name))
+		</p>
+		if it.Errors[name] != "" {
+			<p class="field__error" { idAttr(itemID(it.No, name) + "-error")... }>
+				@T(it.Errors[name])
+			</p>
+		}
+		<input { itemInput(it, name, first)... }/>
+	</div>
 }

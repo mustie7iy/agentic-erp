@@ -243,7 +243,7 @@ func TestJournalHelpers(t *testing.T) {
 	if got := LineFieldLabel("cost_center_code"); got != "" {
 		t.Errorf("LineFieldLabel of a field the form has not: got %q", got)
 	}
-	if got := ItemFieldLabel("account_id"); got != "" {
+	if got := ItemFieldLabel("purchase_order_id"); got != "" {
 		t.Errorf("ItemFieldLabel of a field the invoice's change has not: got %q", got)
 	}
 	l := LineInput{No: 2, Account: "a", Amount: "b", CostCenter: "c", ProfitCenter: "d", Segment: "e", Partner: "f", TaxCode: "g", TaxArea: "h",

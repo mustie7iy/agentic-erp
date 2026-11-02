@@ -51,7 +51,7 @@ const baselineItems = 950
 // inherits its tag (84). 85 since batch 36: T73e2's capture by upload,
 // down payments, line changes, match changes and pilot AP clerk's
 // walk-through split into T73e3, which inherits the tag (85).
-const pilotItems = 85
+const pilotItems = 86
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

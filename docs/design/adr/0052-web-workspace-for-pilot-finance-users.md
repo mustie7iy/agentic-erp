@@ -2761,6 +2761,85 @@ where it departs from the step as first written:
   post refused with its tax per code, a change refused on its field, the
   correction and the post (`TestInvoiceChangeInTheBrowser`).
 
+## Built in T73e3 (2026-11-01)
+Invoices beyond T73e2, first slice: a parked invoice's lines added, left
+out and changed whole, its tax per code outside a refusal, and an
+outdated match's issues as fields (decision D3's other half). What it
+settled:
+- **Contract.** `Problem` gains `match_issues` (`MatchIssue`s), set by
+  `payables.match_outdated` alone: the issues the match under the order
+  items' locks finds that the clean match, or the match the exception was
+  approved on, did not show (`problem.Problem.MatchIssues`, built in
+  `payables.matchOutdated`). `SupplierInvoice` gains `calculated_tax`
+  (`CalculatedTax`, the tax stated, the tax its codes' rates give on its
+  tax date and each code's), given by `getSupplierInvoice` alone and
+  calculated on each read (`payables.calculatedTax`): lists and writes
+  would calculate it for every invoice they answer. It is left out when
+  no item carries a code and an amount, and when the codes cannot be
+  calculated on the tax date (a code no longer an input tax code of the
+  legal entity then, amounts out of range), without making a problem the
+  read never answers (`codesDocument` reports the unknown code,
+  `readFigures` money's overflow): posting says why. The read's
+  `x-problem-codes` gain `config.not_bootstrapped`, the configuration it
+  reads. Both additive. The walkthrough's step 5 reads the duplicate
+  invoice's `match_issues`, step 16 the final invoice's `calculated_tax`;
+  04 §4.6 names both fields.
+- **On the pages.** An invoice's page shows "Tax per code" from the read
+  (`TaxFiguresView`, as a refusal's), no further call; every refusal's
+  notice lists an outdated match's issues as the match's section does
+  (the code's words, the line, the API's explanation shown as data). The
+  payables codes a line's change now reaches (`unknown_po_item`,
+  `unit_mismatch`, `account_required`, `account_not_postable`,
+  `assignment_from_order`, `unknown_unit`, `po_item_required`) have the
+  invoice screens' own messages.
+- **Lines.** Each line names its order item (on an invoice on an order),
+  description, quantity, unit, net amount, tax code, account by number
+  and cost and profit center by code, as SAP's MIRO does; the form reads
+  the company's accounts, cost centers and profit centers besides the
+  principal and the invoice (five calls), shows an id they do not hold as
+  it is, and looks codes up when sent as the entry form does
+  (`resolveItems`, `lookUp`). A line is added by the form's button and
+  left out by its box: without htmx the button renders the form again and
+  a box takes effect on the next send; with htmx the lines' section is
+  swapped (`InvoiceItemsSwap`, the buttons out of band), the new line's
+  first field focused. A line added and left empty is not sent; an
+  invoice left without lines is refused before any call. A line names
+  the invoice's line it shows (`item_from`), and the lines the form was
+  opened with travel as a block of their own (`was_…`), so adding or
+  leaving out lines keeps them. A line whose order item changed takes the
+  new order item's account and cost center unless the person changed
+  them too (the API fills them from the order item); one leaving its
+  order item keeps the account it shows.
+- **Lines after a 412 (decided by default, for the product owner to
+  overrule).** The API numbers lines by their place, so a line added or
+  left out has no identity to put another person's change on field by
+  field. `rebaseItems` takes the person's lines when nobody else changed
+  the lines; the invoice's when the person changed none; while neither
+  added nor left out a line, each line with the person's changes on it
+  field by field, as T73e2 did; otherwise, both having changed the lines,
+  the invoice's lines as they are now without the person's changes to
+  them, said on the form (409, no call), the person's header changes kept
+  at the invoice's version now. This is the entry form's rule for a
+  parked entry's lines (lane entrylost).
+- **Permissions.** The AP clerk's role needs `ledger.account.read` and
+  `ledger.cost_center.read` to see numbers and codes rather than ids
+  (`fixture.InvoicePermissions` gains both); without them the form still
+  works on ids.
+- **Not built (T73e4).** Clearing down payments did not fit the slice:
+  the person chooses the supplier's paid down payments (their ledger
+  items, `listOpenItems` with special G/L `A`) on the posted invoice, a
+  screen of its own; no money rule is open. Capture by upload still waits
+  for the product owner (T73e2). Both, and the pilot AP clerk's
+  walk-through, are T73e4.
+- **Tests.** `TestCalculatedTaxOnRead`, `TestReadFigures` and the
+  extended `TestTaxCodeChangedBeforePosting`, `TestCodeWithdrawnBeforePosting`
+  and `TestInvoiceOnARemovedOrderItem` in payables; `TestChangeInvoiceLines`,
+  `TestChangeInvoiceLinesMeanwhile`, `TestChangeInvoiceOrderItems`,
+  `TestChangeInvoiceCenters`, `TestTaxAndIssuesShown`, `TestOrderItemChanged`
+  and `TestRebaseItems` in the workspace; `TestInvoiceLinesInTheBrowser`
+  adds and leaves out a line with htmx, axe at zero at 1280 px in English
+  and 390 px in French, and saves a line of an order item.
+
 ## Sources
 - RFC 10017 (BCP 212), OAuth 2.0 for Browser-Based Applications, August
   2026: architecture ranking (§6), BFF cookie requirements (§6.1.3.2), CSRF
