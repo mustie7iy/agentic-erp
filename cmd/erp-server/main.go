@@ -613,7 +613,12 @@ func (s *server) dialEngine(ctx context.Context) (*workflow.Temporal, error) {
 	} else {
 		s.log.Warn("ERP_TEMPORAL_CODEC_KEY not set: workflow payloads reach the engine unsealed (ERP_ENV=production refuses this)")
 	}
-	wc := workflow.Config{Address: s.cfg.Temporal.Address, Namespace: s.cfg.Temporal.Namespace, Codec: codec}
+	// The worker's stop has the API's drain budget, ERP_SHUTDOWN_TIMEOUT:
+	// both begin as the shutdown cancels ctx and run side by side, so the
+	// replica's record, deleted once the worker returned (launch), outlives
+	// every activity that finishes within it, and the pod's grace period
+	// (deploy/helm erp-cell server.yaml) holds both (ADR-0038 As built).
+	wc := workflow.Config{Address: s.cfg.Temporal.Address, Namespace: s.cfg.Temporal.Namespace, Codec: codec, StopTimeout: s.cfg.ShutdownTimeout}
 	if s.tls != nil {
 		wc.TLS = func() (*tls.Config, error) { return s.tls.ClientConfig(tlsconf.Internal, s.cfg.Temporal.ServerName) }
 	}
@@ -697,8 +702,9 @@ func (s *server) register(ctx context.Context) (func() error, error) {
 	return func() error { cancel(); <-done; return failed }, nil
 }
 
-// startWorkersHook is what run calls to start the workers; tests wrap it to see
-// the server whose workers they check.
+// startWorkersHook is what run calls to start the workers, before it
+// serves; tests wrap it to see the server whose workers they check, or to
+// serve a handler of their own.
 var startWorkersHook = (*server).startWorkers
 
 // startWorkers starts the background workers on runCtx, which run cancels
@@ -877,8 +883,9 @@ func (s *server) startRelay(ctx, runCtx context.Context, bus *natsbus.Bus) error
 }
 
 // serve opens the listeners and serves until ctx ends, a listener fails or
-// a critical worker fails, then shuts the servers down, stops the workers (cancel) and waits for
-// them.
+// a critical worker fails, then shuts the servers down, ends the requests
+// still running and waits for their handlers (requests.end), stops the
+// workers (cancel) and waits for them.
 func (s *server) serve(ctx context.Context, cancel context.CancelFunc, started func(api, admin net.Listener)) error {
 	apiLn, adminLn, err := listen(s.cfg)
 	if err != nil {
@@ -886,9 +893,11 @@ func (s *server) serve(ctx context.Context, cancel context.CancelFunc, started f
 	}
 	apiLn, adminLn = s.secure(apiLn, adminLn)
 	api, control := s.peers(s.apiHandler, traced(s.control, s.log, s.metrics, s.tp))
+	reqs := newRequests(ctx)
 	servers := []*http.Server{
-		{Handler: api, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second},
-		{Handler: httpapi.Admin(ready(s.pool), s.metrics, devHandler(s.dev), control), ReadHeaderTimeout: 5 * time.Second},
+		{Handler: reqs.track(api), BaseContext: reqs.base,
+			ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second},
+		{Handler: reqs.track(httpapi.Admin(ready(s.pool), s.metrics, devHandler(s.dev), control)), BaseContext: reqs.base, ReadHeaderTimeout: 5 * time.Second},
 	}
 	errc := make(chan error, 2)
 	for i, ln := range []net.Listener{apiLn, adminLn} {
@@ -911,10 +920,11 @@ func (s *server) serve(ctx context.Context, cancel context.CancelFunc, started f
 	shutdownCtx, done := context.WithTimeout(context.WithoutCancel(ctx), s.cfg.ShutdownTimeout)
 	defer done()
 	for _, srv := range servers {
-		// In-flight requests finish or time out; a server that did not stop
-		// in time is abandoned with the process, so its error changes nothing.
+		// In-flight requests finish or are ended next: Shutdown's error is
+		// its deadline passing, which end handles.
 		_ = srv.Shutdown(shutdownCtx)
 	}
+	reqs.end(servers)              // every handler returned before the workers stop and the record goes (launch)
 	err = s.stop(cancel, serveErr) // nil after a requested shutdown; set when a listener or a critical worker failed
 	s.log.Info("erp-server stopped")
 	return err

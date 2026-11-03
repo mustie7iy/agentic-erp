@@ -315,7 +315,7 @@ start() {
   say ""
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
-  say "  - the GST34's lines (T61j-T61l), and the tax specialist's sign-off of the Canada pack (T62h): step 2 configures one"
+  say "  - the GST34's lines (T61j-T61l): step 2 configures one"
   say "    sales code and the GST/HST registration; step 11 shows a pack tax code and prepares, approves and files returns in order"
   say "    whose boxes are illustrative, not the GST34's"
   say "  - the liquidity forecast (T53e-T53k): step 13 shows the daily cash position with a memo record"
@@ -383,7 +383,8 @@ model_price() {
 # version with the illustrative return of scripts/walkthrough/returns.yaml
 # (T61h), for erp-server to serve unreleased (ERP_PACKS_DIR, development
 # only): the released packs define no return until T61j. CA_PACK is its
-# version.
+# version. The copy drops the released pack's sign_off (T62h): the tax
+# specialist signed off the released pack, not the illustrative return.
 illustrative_pack() {
   local latest
   latest=$(cd "$ROOT/packs/ca" && ls -d 20*.* | sort -t. -k1,1n -k2,2n | tail -1)
@@ -392,8 +393,10 @@ illustrative_pack() {
   cp -R "$ROOT/packs/ca/$latest" "$WORK/packs/ca/$CA_PACK"
   sed -e "s/^version: \"$latest\"$/version: \"$CA_PACK\"/" \
     -e "s/^name: Canada$/name: \"Canada $latest with the walkthrough's illustrative return (not released)\"/" \
+    -e "/^sign_off:/d" \
     "$ROOT/packs/ca/$latest/pack.yaml" >"$WORK/packs/ca/$CA_PACK/pack.yaml"
   grep -q "^version: \"$CA_PACK\"$" "$WORK/packs/ca/$CA_PACK/pack.yaml" || fail "the illustrative pack's version was not set"
+  ! grep -q "sign_off\|tax_specialist" "$WORK/packs/ca/$CA_PACK/pack.yaml" || fail "the illustrative pack kept the released pack's sign-off"
   cp "$ROOT/scripts/walkthrough/returns.yaml" "$WORK/packs/ca/$CA_PACK/returns.yaml"
 }
 
@@ -1000,7 +1003,8 @@ step_pack() {
   version=$(field '[.items[] | select(.country == "CA") | .version] | sort_by(split(".") | map(tonumber)) | last')
   expect "the latest Canada pack" "$version" "$CA_PACK"
   say "CA $version is this walkthrough's own, not released: the latest released Canada pack with an illustrative"
-  say "tax return definition (returns.yaml) for step 11, as no released pack defines a return until T61j."
+  say "tax return definition (returns.yaml) for step 11, as no released pack defines a return until T61j. The copy"
+  say "drops the released pack's sign-off, as the tax specialist did not review its return."
   say "Ada applies the latest Canada pack, $version, to company $CC. The merge keeps what the company"
   say "already has (SAP's chart and number ranges) and adds the rest; it becomes a draft change request."
   api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
@@ -1695,12 +1699,14 @@ billing() {
 step_tax() {
   heading "Step 11 — Tax: the billing system's sales entries, their tax checked by the ledger, large ones parked for a person, and the return that files them"
   as carla
-  api 200 '.items[] | select(.country == "CA") | "pack CA \(.version): \(.contents.tax_codes) tax codes"' listCountryPacks
+  api 200 '.items[] | select(.country == "CA") | "pack CA \(.version): \(.contents.tax_codes) tax codes; signed off: \(.sign_off // {} | if .tax_specialist then "\(.tax_specialist), \(.date)" else "no" end)"' listCountryPacks
   expect "Canada 2026.4's tax codes" "$(field '.items[] | select(.country == "CA" and .version == "2026.4") | .contents.tax_codes')" 10
-  # The tax specialist's signed-off version (T62h) will be a later one.
+  expect "Canada 2026.5's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "2026.5") | "\(.signed_off) \(.sign_off.tax_specialist) \(.sign_off.date)"')" \
+    "true Musto Ibrahim 2026-11-02"
   say "Canada pack 2026.4 brought the purchase codes for GST/HST, QST and PST (T62g), each with all its dated rates,"
-  say "backed by the pack's sources; the tax specialist has not signed them off yet. Step 2 applied them with $CA_PACK,"
-  say "the walkthrough's copy of the latest released pack with the illustrative return. Nova Scotia's HST:"
+  say "backed by the pack's sources; 2026.5 is the same pack signed off by the tax specialist (T62h), so production"
+  say "applies it. Step 2 applied the codes with $CA_PACK, the walkthrough's unsigned copy of the latest released pack"
+  say "with the illustrative return. Nova Scotia's HST:"
   api 200 '.items[0].document.companies[] | select(.code == "'"$CC"'") | .tax_codes[] | select(.code == "HNS") |
     "tax code \(.code) \(.description): \([.components[] | .key as $k | .account as $a | .rates[] | "\($k) \(.rate_percent)% from \(.valid_from)\(if .valid_to then " to \(.valid_to)" else "" end) to \($a)"] | join("; "))"' \
     listConfigVersions -p is_active=true

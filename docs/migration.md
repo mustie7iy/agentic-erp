@@ -305,6 +305,14 @@ stopped the run before the load.
   be told, so lines on it are recognised only when it is the legal entity's
   `gr_ir` account (T72f). Confirm that every line your system posts there
   names its order item.
+- Vendor bank accounts from OData: `A_BusinessPartnerBank` keys an account by
+  its business partner, which the extraction links to its supplier through
+  `A_BusinessPartner`'s `Supplier`, so the numbers need not be equal; a
+  partner that is no supplier has its accounts left out, and the quality gate
+  warns of each vendor in scope that no partner links to, which loads without
+  bank accounts (review:T72d, ADR-0034 As built). The entity and property are
+  stated from memory: confirm them in `$metadata`, and that every supplier's
+  business partner names it.
 - Canadian vendor bank accounts (LFBK, bank country CA) load as scheme `ca`
   only with the bank key (BANKL) in the Canadian Payments Association's
   electronic routing form, 0 + institution (3 digits) + transit (5 digits),

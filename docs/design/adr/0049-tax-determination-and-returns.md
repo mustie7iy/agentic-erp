@@ -1435,3 +1435,42 @@ stay a cost (product owner, 2026-10-21: to the tax specialist list); the UAE six
 correction threshold after the 2026 procedures amendments; the CRA's reporting
 period thresholds and ITC time limit as stated here from memory; the currency
 conversion articles cited from memory.
+
+**As built (T62h, sign-off):** the product owner reported on 2026-11-02
+that the tax specialist, Musto Ibrahim, approved the items put to them,
+signed 2026-11-02, as written; the approval builds nothing new, and Canada
+pack 2026.5 records it (ADR-0048, Canada pack). Nothing above is
+rewritten; this note says which of the items marked from memory, to
+confirm or for the tax specialist stand confirmed.
+- **Confirmed as written (Canada):** the reporting periods by annual
+  taxable supplies (Context, from memory); the ITC time
+  limit of generally four years; the conversion at the Bank of Canada rate
+  of the day the tax became payable (Excise Tax Act s. 159, as recalled),
+  and with it the Canada pack's `rate_type: average` (§8 As built), which
+  holds while the tenant records the Bank of Canada's daily rate under that
+  type (the ledger does not check a rate's source); rounding
+  once per document, code and component, Canada's `rounding: document` (§8,
+  §8 As built; no `rounding: line` for Canada); which tax identifier
+  schemes count for `supplier_tax_id` (those named after the company's
+  country, `CA_...`, §6 As built); a rounding difference on an invoice
+  mixing a recoverable code with a cost one recovered with the recoverable
+  code's input tax, as T61d posts it; and an amended return carrying both
+  the corrected figures and the differences (§11 As built), as built for
+  the CRA's amended return.
+- **Still pending, not built:** every UAE item waits for the UAE pack
+  (T62f) and the VAT 201 (T61k), and is signed off with them: VAT Law
+  Art. 55 (the six-month payment rule) and Art. 69 (the currency rate), the
+  AED 10,000 correction threshold after the 2026 procedures amendments, the
+  scope of the five-year limit, the VAT 201 labels on EmaraTax, the
+  Executive Regulation's Art. 51, 53 and 59 texts, the UAE documentary tier
+  (`pending_sign_off`, §6 As built), UAE rounding, and the FTA's side of
+  the amended return. For Canada, the GST34 lines (T61j) and the FPZ-500
+  lines (P4) are signed off with the step that writes them.
+- **Still open (questions the approval of what exists does not answer):**
+  the registration number formats (§10 As built, its own tracker leaf); the
+  authorities' due dates (§10, not built), the Context's "one month after
+  a monthly or quarterly period" among them; the measure of the prior-period
+  threshold (§11 As built: net or gross, per period or pooled; no released
+  pack sets a threshold, the UAE's will); and whether a predecessor
+  registration's unfiled period's items belong to its own return or the
+  new code's (§11 As built, not decided).

@@ -62,7 +62,14 @@ func supplierBank(v sap.LFA1, b sap.LFBK, today time.Time) partner.BankInput {
 // bank key that is a routing number and an account number of 7 to 12
 // digits, as partner requires (T45d). The account number is not repeated
 // in the issue: it is sealed on the platform and shown by its last four.
+// It warns of each vendor whose bank accounts an OData extract could not
+// tell, no business partner linking to it (review:T72d): the vendor loads
+// without them, which the reconciliation cannot see, since it compares
+// with the same extract.
 func (q *qualityCheck) vendorBanks() {
+	for _, lifnr := range q.e.VendorsWithoutPartner {
+		q.add(SevWarning, "LFBK", lifnr, "no business partner in the extract is vendor %q's, so its bank accounts were not read; it loads without them", q.vendor[lifnr].NAME1)
+	}
 	banks := firstBanks(q.e)
 	for _, lifnr := range sortedKeys(banks) {
 		b := banks[lifnr]

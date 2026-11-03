@@ -10,6 +10,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"time"
 
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
@@ -47,11 +48,18 @@ type Config struct {
 	// so renewed material reaches new connections (ADR-0033); nil:
 	// plaintext, development only.
 	TLS func() (*tls.Config, error)
+	// StopTimeout is how long a stopping worker waits for the activities
+	// it runs to finish (the SDK's WorkerStopTimeout): past it their
+	// contexts are cancelled and the worker returns without them, and the
+	// engine retries each elsewhere once its timeout passes (activities
+	// are idempotent, ADR-0012). 0 waits for none.
+	StopTimeout time.Duration
 }
 
 // Temporal is the Client on a Temporal cluster, and hosts workers.
 type Temporal struct {
-	c client.Client
+	c    client.Client
+	stop time.Duration // Config.StopTimeout
 }
 
 // Dial connects; the SDK checks the cluster answers before returning.
@@ -66,7 +74,7 @@ func Dial(ctx context.Context, cfg Config) (*Temporal, error) {
 	if err != nil {
 		return nil, fmt.Errorf("workflow: connecting to %s: %w", cfg.Address, err)
 	}
-	return &Temporal{c: c}, nil
+	return &Temporal{c: c, stop: cfg.StopTimeout}, nil
 }
 
 // Start implements Client. The engine is asked whether the id is known
@@ -111,9 +119,18 @@ func (t *Temporal) Close() { t.c.Close() }
 type Registry = worker.Registry
 
 // Worker hosts the workflows and activities registered by register on the
-// task queue until ctx ends.
+// task queue until ctx ends, then stops: the activities it runs keep a
+// live context for at least Config.StopTimeout, and it returns once they
+// finished or that wait ended (the activity worker's wait follows the
+// engine's shutdown call and the workflow worker's own). The SDK's Stop waits for
+// its task processing, activities included, up to WorkerStopTimeout, and
+// only then cancels the activities' context
+// (go.temporal.io/sdk@v1.49.0 internal/internal_worker_base.go
+// baseWorker.Stop, processTaskAsync), so a caller that acts after Worker
+// returns, as erp-server deleting its replica's record does (ADR-0038),
+// acts after those activities' commits.
 func (t *Temporal) Worker(ctx context.Context, queue string, register func(Registry)) error {
-	w := worker.New(t.c, queue, worker.Options{})
+	w := worker.New(t.c, queue, worker.Options{WorkerStopTimeout: t.stop})
 	register(w)
 	interrupt := make(chan interface{})
 	go func() {

@@ -423,6 +423,12 @@ type Extract struct {
 	AGR_DEFINE []AGRDefine `json:"AGR_DEFINE,omitempty"`
 	AGR_TCODES []AGRTcode  `json:"AGR_TCODES,omitempty"`
 	AGR_USERS  []AGRUser   `json:"AGR_USERS,omitempty"`
+
+	// VendorsWithoutPartner are the vendors (LFA1-LIFNR) of an OData
+	// extract that no business partner links to as its supplier, so whose
+	// bank accounts it could not read (ODataSource, review:T72d). A file
+	// extract's LFBK names its vendor itself and has none.
+	VendorsWithoutPartner []string `json:"vendorsWithoutPartner,omitempty"`
 }
 
 // Counts returns row counts per table, for logs and reconciliation: the

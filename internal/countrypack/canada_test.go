@@ -199,7 +199,7 @@ func TestCanadaPackTaxCodes(t *testing.T) {
 // cash.yaml liquidity items stay (a version without them would drop them
 // from tenants that adopted 2026.2), so do 2026.3's tax settings, the
 // manifest (sources, name, valid_from) is the previous version's, and it
-// is not signed off.
+// is not signed off (2026.5 is).
 func TestCanadaPack2026_4(t *testing.T) {
 	lib, err := LoadAll(packs.FS)
 	if err != nil {
@@ -238,9 +238,55 @@ func TestCanadaPack2026_4(t *testing.T) {
 		}
 	}
 	if ca.SignedOff() {
-		t.Error("SignedOff: got true, want false until the tax specialist signs a version off")
+		t.Error("SignedOff: got true, want false: the signed-off version is 2026.5")
 	}
-	if lib.Latest("CA") != ca {
-		t.Errorf("Latest(CA): got %s, want 2026.4", lib.Latest("CA").Dir())
+}
+
+// Canada 2026.5 is 2026.4 signed off (T62h): every file but pack.yaml is
+// 2026.4's byte for byte, and the manifest differs only in its version
+// and the sign-off (its header comment aside), the tax
+// specialist's as the product owner reported it on 2026-11-02. It is the
+// latest Canada pack.
+func TestCanadaPack2026_5(t *testing.T) {
+	lib, err := LoadAll(packs.FS)
+	if err != nil {
+		t.Fatalf("LoadAll(packs.FS): %v", err)
+	}
+	prev, ca := lib.Get("CA", "2026.4"), lib.Get("CA", "2026.5")
+	if prev == nil || ca == nil {
+		t.Fatalf("Get(CA, 2026.4) and Get(CA, 2026.5): got %v and %v, want both", prev, ca)
+	}
+	if got, want := ca.Manifest.SignOff, (&SignOff{TaxSpecialist: "Musto Ibrahim", Date: "2026-11-02"}); !reflect.DeepEqual(got, want) {
+		t.Errorf("sign-off: got %+v, want %+v", got, want)
+	}
+	if !ca.SignedOff() {
+		t.Error("SignedOff: got false, want true")
+	}
+	unsigned := *ca
+	unsigned.Manifest.Version, unsigned.Manifest.SignOff = prev.Manifest.Version, nil
+	if !reflect.DeepEqual(&unsigned, prev) {
+		t.Error("2026.5 without its version and sign-off: got other than 2026.4, want it unchanged")
+	}
+	if got := lib.Latest("CA"); got != ca {
+		t.Errorf("Latest(CA): got %s, want ca/2026.5", got.Dir())
+	}
+	files, err := fs.ReadDir(packs.FS, "ca/2026.5")
+	if err != nil {
+		t.Fatalf("ReadDir(ca/2026.5): %v", err)
+	}
+	for _, f := range files {
+		if f.Name() == "pack.yaml" {
+			continue
+		}
+		t.Run(f.Name(), func(t *testing.T) {
+			was, errWas := fs.ReadFile(packs.FS, "ca/2026.4/"+f.Name())
+			is, errIs := fs.ReadFile(packs.FS, "ca/2026.5/"+f.Name())
+			if errWas != nil || errIs != nil {
+				t.Fatalf("read: got %v and %v, want the file in both versions", errWas, errIs)
+			}
+			if string(was) != string(is) {
+				t.Error("got other bytes than 2026.4's, want the same file")
+			}
+		})
 	}
 }
